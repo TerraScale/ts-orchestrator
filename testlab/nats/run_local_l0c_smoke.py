@@ -172,6 +172,8 @@ def main() -> None:
     report = {
         "schemaVersion": 1,
         "classification": "bounded-local-x64-l0c-smoke-not-production-qualification",
+        "harnessPath": "testlab/nats/run_local_l0c_smoke.py",
+        "harnessSha256": sha256(Path(__file__).resolve()),
         "hostArchitecture": "x86_64",
         "server": {"version": observed_version, "binarySha256": observed_digest},
         "network": "loopback-only-dynamic-ports",

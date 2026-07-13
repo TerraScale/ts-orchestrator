@@ -9,6 +9,8 @@
   },
   "classification": "bounded-local-x64-l0c-smoke-not-production-qualification",
   "credentials": "none",
+  "harnessPath": "testlab/nats/run_local_l0c_smoke.py",
+  "harnessSha256": "be4746ba7a252cea4019d133c145d6ea255ec60277129fe75b096e4b84e03658",
   "hostArchitecture": "x86_64",
   "network": "loopback-only-dynamic-ports",
   "notTested": [

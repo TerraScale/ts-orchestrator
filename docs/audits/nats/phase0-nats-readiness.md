@@ -40,7 +40,7 @@ The installed host binary reported `nats-server: v2.14.3` and SHA-256 `4eb890bba
 - A loopback monitoring health response.
 - Process cleanup and temporary-store removal.
 
-The checked report is deterministic and reproducible byte-for-byte. No credentials, VM, systemd unit, container, cloud API, persistent service, or non-loopback listener was used. The result is 3 `passed-local-x64-smoke`, 1 `partial-loopback-health-only`, 22 `not-executed`, and 1 `blocked-owner-policy-unset` capability row.
+The checked report is deterministic and reproducible byte-for-byte. It binds the result to both the observed server binary and the exact repository-relative harness path plus SHA-256; the offline validator recomputes the harness digest so a changed procedure invalidates old booleans. No credentials, VM, systemd unit, container, cloud API, persistent service, or non-loopback listener was used. The result is 3 `passed-local-x64-smoke`, 1 `partial-loopback-health-only`, 22 `not-executed`, and 1 `blocked-owner-policy-unset` capability row.
 
 ## Fail-closed gaps
 
@@ -61,4 +61,4 @@ python3 -m json.tool testlab/nats/local-x64-l0c-report.json
 git diff --check
 ```
 
-The validator is offline and deterministic. Seven adversarial fixtures prove rejection of missing ARM64 metadata, non-official provenance, accidental candidate selection, accidental owner-policy selection, a false full-L0C claim, failed process cleanup, and semantic drift in the specification's capability matrix.
+The validator is offline and deterministic. Eight adversarial fixtures prove rejection of missing ARM64 metadata, non-official provenance, accidental candidate selection, accidental owner-policy selection, a false full-L0C claim, failed process cleanup, semantic drift in the specification's capability matrix, and harness/report digest drift.

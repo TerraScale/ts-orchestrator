@@ -26,7 +26,7 @@ class NatsReadinessTests(unittest.TestCase):
 
     def test_adversarial_fixtures_fail_for_expected_reason(self) -> None:
         fixtures = sorted((HERE / "fixtures").glob("*.json"))
-        self.assertEqual(7, len(fixtures))
+        self.assertEqual(8, len(fixtures))
         for path in fixtures:
             fixture = json.loads(path.read_text())
             with self.subTest(fixture=fixture["name"]):
@@ -39,6 +39,9 @@ class NatsReadinessTests(unittest.TestCase):
                         (root / "ORCHESTRATOR.md").write_text(
                             source.replace(fixture["old"], fixture["new"])
                         )
+                        harness = root / "testlab/nats/run_local_l0c_smoke.py"
+                        harness.parent.mkdir(parents=True)
+                        harness.write_bytes((validator.ROOT / report["harnessPath"]).read_bytes())
                         errors = validator.validate(pin, report, root=root)
                     self.assertTrue(any(fixture["expected"] in error for error in errors), errors)
                     continue

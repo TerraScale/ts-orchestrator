@@ -27,7 +27,7 @@ dotnet run --project tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orch
 git diff --check
 ```
 
-The seven adversarial fixtures cover missing architecture support, missing official provenance, implicit tool selection, implicit N/N-1 policy, false full-L0C readiness, incomplete cleanup, and specification semantic drift.
+The eight adversarial fixtures cover missing architecture support, missing official provenance, implicit tool selection, implicit N/N-1 policy, false full-L0C readiness, incomplete cleanup, specification semantic drift, and stale evidence after a harness change. The report binds and the validator recomputes the exact repository-relative smoke-harness SHA-256.
 
 ## Next evidence
 

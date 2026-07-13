@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -49,6 +50,14 @@ def official_url(value: object) -> bool:
         return False
     parsed = urlparse(value)
     return parsed.scheme == "https" and parsed.hostname in OFFICIAL_HOSTS
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def validate(pin: dict[str, Any], report: dict[str, Any], root: Path = ROOT) -> list[str]:
@@ -125,6 +134,16 @@ def validate(pin: dict[str, Any], report: dict[str, Any], root: Path = ROOT) -> 
                        "monitoringLoopback", "processCleanup", "temporaryStoreCleanup"}
     if report.get("classification") != "bounded-local-x64-l0c-smoke-not-production-qualification":
         errors.append("local report classification overclaims evidence")
+    expected_harness_path = "testlab/nats/run_local_l0c_smoke.py"
+    harness_path = report.get("harnessPath")
+    if harness_path != expected_harness_path:
+        errors.append("local report harness path must be the exact repository-relative smoke harness")
+    else:
+        harness = root / expected_harness_path
+        if not harness.is_file():
+            errors.append("local report smoke harness is missing")
+        elif report.get("harnessSha256") != file_sha256(harness):
+            errors.append("local report harness digest differs from the current smoke procedure")
     if report.get("hostArchitecture") != "x86_64" or report.get("credentials") != "none":
         errors.append("local report must remain credential-free x86_64 evidence")
     checks = report.get("checks", {})
