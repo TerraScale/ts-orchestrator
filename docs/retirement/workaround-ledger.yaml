@@ -1,0 +1,524 @@
+schema_version: 1
+ledger_version: 2026-07-13
+scope:
+  predecessor_commit: 9aaa07e
+  posture: greenfield
+  source_repositories:
+    - TerraBase
+    - Terrabase.Operator
+    - TerraScale.Internals
+    - TerraScale.DotNet
+    - TerraScale.TypeScript
+    - TerraScale.Infrastructure
+    - TerraScale.Deploy
+    - TerraScale.DevHost
+    - Terrascale.Documentation
+    - Terrascale.Landingpage
+  scan_method: >-
+    Read-only repository scan for Kubernetes, OKE, Flux, kubectl, retry and polling,
+    manual mutation, duplicated state, certificate copying, fixed region/count,
+    autoscaling, storage, observability, Grafana, and deployment glue. Generated
+    artifacts were retained as evidence when they are shipped or consumed.
+  exclusions:
+    - Ordinary customer-facing retry semantics with idempotency and Retry-After are product behavior, not retirement workarounds.
+    - TerraBase upstream compatibility code unrelated to orchestration is outside this ledger.
+    - The static Landingpage remains externally hosted and is not an orchestrator workload.
+  repository_findings:
+    TerraBase: Historical release evidence corroborates Flux notification and polling failure modes; native database behavior is preserved.
+    Terrabase.Operator: Kubernetes controller, StatefulSet, PVC, Job, webhook, certificate, and polling behavior is covered by WRK-006, WRK-010, and WRK-020.
+    TerraScale.Internals: Missing Authentication build inventory is covered by WRK-016; no sibling files were changed.
+    TerraScale.DotNet: No orchestration workaround requiring retirement was identified; public retry/idempotency behavior is explicitly preserved.
+    TerraScale.TypeScript: Fixed provider-specific region catalog and GRU fallback are covered by WRK-015 and WRK-022.
+    TerraScale.Infrastructure: OKE, Flux, admission, secret, autoscaling, observability, VPN, and residual-estate findings are covered by WRK-001 through WRK-018.
+    TerraScale.Deploy: Forced reconciliation, kubectl fan-out, polling, and release-writer coordination are covered by WRK-003 through WRK-005 and WRK-019.
+    TerraScale.DevHost: No production workaround requiring retirement was identified; it remains a local-only supervisor.
+    Terrascale.Documentation: Fixed region and manually synchronized contract documentation are covered by WRK-017, WRK-021, and WRK-022.
+    Terrascale.Landingpage: No runtime orchestration workaround was identified; launch-region marketing copy must follow the generated public catalog under WRK-017.
+
+mandatory_fields:
+  - id
+  - status
+  - evidence
+  - original_constraint
+  - preserved_behavior
+  - native_replacement
+  - owner_workstream
+  - removal
+  - regression
+  - recovery_boundary
+  - cleanup_proof
+
+entries:
+  - id: WRK-001
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 66
+        detail: Production capacity is defined as three managed OKE node pools with Kubernetes-specific floors.
+      - repository: TerraScale.Infrastructure
+        path: src/TerraScale.Infrastructure/Program.cs
+        line: 13
+        detail: Pulumi foundation hard-codes the OCI home region used by the deleted OKE estate.
+    original_constraint: Kubernetes required an OKE control plane, CNI/CSI, managed pools, DaemonSets, and duplicate controllers before any product workload could run.
+    preserved_behavior: Isolated application, platform, and TerraBase capacity with measured resource admission, failure-domain spread, and elastic growth.
+    native_replacement: Direct A1 instances managed by a regional scheduler and one host agent using cgroups v2, systemd, and containerd without a pod ceiling.
+    owner_workstream: provider-foundation-and-host-agent
+    removal: {phase: cleanup-after-L3S-host-admission, pr: pending-WRK-001}
+    regression: {layer: L3S-and-L4, scenario: compact-profile density, one-host loss, scale-out, scale-in, and seven-day cost gate}
+    recovery_boundary: Pulumi retains durable network/IAM/bootstrap ownership; the regional controller resumes concrete node operations from its journal.
+    cleanup_proof: Repository scan plus provider inventory show no OKE cluster, node pool, CNI/CSI resource, kubeconfig, or charged orphan remains in the new ownership graph.
+
+  - id: WRK-002
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/clusters/production-gru/reconciliation.yaml
+        line: 70
+        detail: Flux Kustomization disables readiness waiting; the same pattern repeats in GRU, SFO, and FRA.
+      - repository: TerraScale.Infrastructure
+        path: gitops/bootstrap/flux/sync.yaml
+        line: 29
+        detail: Bootstrap reconciliation also uses wait false.
+    original_constraint: Flux dependency health and acknowledgement were insufficiently reliable, so reconciliation returned before dependent workloads were healthy.
+    preserved_behavior: Ordered dependencies, asynchronous progress, health gates, and restart-safe acknowledgement.
+    native_replacement: Typed dependency and health state machines with a journaled operation receipt that is acknowledged only after the configured durable checkpoint.
+    owner_workstream: desired-state-and-gitops
+    removal: {phase: cleanup-after-native-reconcile-L3S, pr: pending-WRK-002}
+    regression: {layer: L2-plus-L3S, scenario: dependency failure and controller restart at every acknowledgement checkpoint}
+    recovery_boundary: The regional journal and last accepted CellSpec remain authoritative when Git, GRU, or the controller process is unavailable.
+    cleanup_proof: All Flux Kustomizations and bootstrap sync resources are deleted and CI rejects wait-false or Flux API resources.
+
+  - id: WRK-003
+    status: identified
+    evidence:
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs
+        line: 959
+        detail: The release pipeline always requests kubectl reconciliation after sending the webhook.
+      - repository: TerraBase
+        path: bench/TerraBase.Replication.Benchmark/history/20260710T031822Z-production-terrabase-v0.1.35/summary.md
+        line: 25
+        detail: Historical rollout failed when the Flux receiver token was absent and interval polling became the fallback.
+      - repository: TerraScale.Infrastructure
+        path: gitops/controllers/flux-image-automation/production-sfo/receivers.yaml
+        line: 2
+        detail: Per-region Flux Receiver resources expose webhook-triggered reconciliation.
+    original_constraint: A webhook did not prove reconciliation, so the pipeline forced a second kubectl action and still depended on interval polling.
+    preserved_behavior: Prompt deployment triggering, durable acceptance, safe replay, and a clear operator-visible failure when a trigger cannot be accepted.
+    native_replacement: One signed native reconcile command journaled before acknowledgement with generation, deadline, idempotency key, and fenced writer identity.
+    owner_workstream: release-and-deployment
+    removal: {phase: cleanup-after-command-journal-L3S, pr: pending-WRK-003}
+    regression: {layer: L2-plus-L3S, scenario: webhook loss, NATS loss, controller crash, duplicate command, and stale-writer replay}
+    recovery_boundary: The command is replayed from regional JetStream and cannot complete under a stale generation or fence.
+    cleanup_proof: Flux Receivers, webhook token secrets, forced kubectl reconcile code, related IAM/Vault material, and endpoint/DNS remnants are absent.
+
+  - id: WRK-004
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml
+        line: 45
+        detail: Secondary image writers are suspended to approximate single-writer ownership.
+      - repository: TerraScale.Infrastructure
+        path: gitops/controllers/flux-image-automation/production-sfo/image-update-automation.yaml
+        line: 10
+        detail: Regional ImageUpdateAutomation writers are statically suspended.
+    original_constraint: Multiple image automation controllers could race, so configuration used suspension and rollout-guard coordination to approximate exclusive publication.
+    preserved_behavior: Build-once immutable candidates, exact-digest promotion, one release writer, and safe rollback.
+    native_replacement: Fenced release writer plus promotion lease and compare-and-swap generation over the immutable candidate digest.
+    owner_workstream: release-and-deployment
+    removal: {phase: cleanup-after-release-fencing-L3S, pr: pending-WRK-004}
+    regression: {layer: L2-plus-L3S, scenario: concurrent publishers, lease expiry, stale writer, partial promotion, and adversarial rollback}
+    recovery_boundary: A replacement writer resumes only after acquiring a newer fence; accepted digests are immutable.
+    cleanup_proof: ImageUpdateAutomation resources, suspend toggles, rollout-guard scripts/controllers, and associated permissions are deleted.
+
+  - id: WRK-005
+    status: identified
+    evidence:
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs
+        line: 280
+        detail: Release validation requires kubectl and fans rollout state through Kubernetes contexts.
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Notifications/NotifyDeploymentCommand.cs
+        line: 384
+        detail: Deployment completion is polled on a configurable interval.
+    original_constraint: Kubernetes rollout state had to be polled and stitched together with shell phases and per-context kubectl invocations.
+    preserved_behavior: Cross-region progress, explicit failure reporting, exact-digest convergence, timeout, and resumable deployment.
+    native_replacement: Typed regional deployment operations with explicit checkpoints, idempotent resume, and a global same-digest barrier.
+    owner_workstream: release-and-deployment
+    removal: {phase: cleanup-after-deployment-state-machine-L3S, pr: pending-WRK-005}
+    regression: {layer: L2-plus-L3S, scenario: crash at every phase, regional timeout, WAN loss, partial convergence, and retry}
+    recovery_boundary: Each region completes or resumes its own accepted operation; global promotion freezes during WAN loss.
+    cleanup_proof: kubectl rollout/context code and shell phase recovery are removed, with no Kubernetes credential packaged into CI or the orchestrator.
+
+  - id: WRK-006
+    status: identified
+    evidence:
+      - repository: Terrabase.Operator
+        path: api/v1/cluster_types.go
+        line: 7
+        detail: The CRD advertises StatefulSet, Service, Ingress, Job, ServiceAccount, and ConfigMap actors.
+      - repository: Terrabase.Operator
+        path: bundle/terrabase-operator/1.2.0/manifests/terrabase-operator.clusterserviceversion.yaml
+        line: 127
+        detail: Shipped operator metadata owns StatefulSets.
+    original_constraint: Kubernetes objects supplied identity, storage attachment, initialization jobs, admission, upgrades, and process lifecycle.
+    preserved_behavior: Stable members and volumes, topology safety, one-member upgrades, backup/restore, health, certificate naming, and autoscaling holds.
+    native_replacement: C# TerraBase member, volume, topology, upgrade, backup, and restore state machines over typed TerraBase administration APIs.
+    owner_workstream: terrabase-lifecycle
+    removal: {phase: cleanup-after-terrabase-L3S-and-destructive-suite, pr: pending-WRK-006}
+    regression: {layer: L2-plus-L3S-plus-L4, scenario: port all operator safety tests and crash each destructive checkpoint}
+    recovery_boundary: Stable member/volume identity and fenced operation journals survive agent/controller replacement; permanent members are never removed.
+    cleanup_proof: CRDs, operator deployment, StatefulSets, Jobs, PVC actors, webhooks, bootstrap ConfigMaps/scripts, RBAC, and images are absent after compatibility proof.
+
+  - id: WRK-007
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: src/TerraScale.Infrastructure/ObservabilityIngestTls.cs
+        line: 101
+        detail: One observability ingest client certificate is provisioned for edge forwarding.
+      - repository: Terrabase.Operator
+        path: config/certmanager/certificate.yaml
+        line: 2
+        detail: cert-manager Certificate resources supply operator webhook identity.
+    original_constraint: cert-manager/cainjector automated Kubernetes certificates while edge telemetry shared one client identity.
+    preserved_behavior: Automated issuance, DNS names, trust bundles, renewal, revocation, and mutually authenticated privileged channels.
+    native_replacement: Regional PKI with unique workload identities, short leases, dual-bundle rotation, revocation, and selective mTLS.
+    owner_workstream: identity-vault-and-pki
+    removal: {phase: cleanup-after-PKI-rotation-L3S, pr: pending-WRK-007}
+    regression: {layer: L2-plus-L3S, scenario: identity uniqueness, renewal, dual-bundle rotation, revocation, stolen certificate, and captured-output scan}
+    recovery_boundary: Existing identities renew regionally during GRU loss; root protection remains in OCI KMS/Vault.
+    cleanup_proof: cert-manager, cainjector, shared client certificate, Kubernetes TLS secrets, issuers, RBAC, and related DNS challenges are absent.
+
+  - id: WRK-008
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/observability/runtime-secrets/production/external-secrets.yaml
+        line: 2
+        detail: Runtime credentials are materialized through ExternalSecret resources.
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 74
+        detail: The historical autoscaler uses instance-principal authentication across discovered pools.
+    original_constraint: External Secrets copied durable cloud secrets into Kubernetes, while node-level instance principals needed broad access for generic controllers.
+    preserved_behavior: Durable encrypted secret storage, automated delivery/rotation, and cloud-native workload authentication.
+    native_replacement: Closed vault policy and lease delivery over workload-scoped identity with compartment-minimal OCI dynamic groups and policies.
+    owner_workstream: identity-vault-and-pki
+    removal: {phase: cleanup-after-vault-denial-L3S, pr: pending-WRK-008}
+    regression: {layer: L2-plus-L3S-plus-L4, scenario: cross-workload denial, stolen node, expired lease, rotation, and OCI IAM negative tests}
+    recovery_boundary: Ciphertext/root protection stays in OCI Vault/KMS; regional lease renewal follows the approved GRU-outage contract.
+    cleanup_proof: ExternalSecret/SecretStore controllers and CRs, Kubernetes secret copies, broad dynamic groups/policies, and unused Vault entries are removed or quarantined.
+
+  - id: WRK-009
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/observability/resources/production/prometheus-rules.yaml
+        line: 124
+        detail: Kyverno is a monitored admission-policy runtime dependency.
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 104
+        detail: Kubernetes platform isolation depends on taints, tolerations, and admission policy.
+    original_constraint: A generic Kubernetes API required admission policies to reject unsafe arbitrary objects and placements after submission.
+    preserved_behavior: Closed role admission, isolation, resource bounds, capability denial, and validation before execution.
+    native_replacement: Exhaustive C# role catalog, schema, and compiler that rejects unknown roles, privileges, host paths, devices, and capabilities before persistence.
+    owner_workstream: contracts-policy-and-scheduler
+    removal: {phase: cleanup-after-admission-model-tests, pr: pending-WRK-009}
+    regression: {layer: L1-plus-L2, scenario: exhaustive invalid role, capability, device, mount, runtime, and placement manifests}
+    recovery_boundary: Only previously validated signed CellSpecs are executable during disconnection.
+    cleanup_proof: Kyverno controllers, policies, exceptions, CRDs, RBAC, and admission webhooks are absent and CI rejects Kubernetes admission APIs.
+
+  - id: WRK-010
+    status: identified
+    evidence:
+      - repository: Terrabase.Operator
+        path: api/v1/storage_types.go
+        line: 79
+        detail: TerraBase storage is expressed as a Kubernetes PersistentVolumeClaim source.
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 156
+        detail: Documentation promises PVC auto-expansion to the OCI Block Volume limit.
+    original_constraint: PVC/CSI exposed a resize request but did not prove provider, attachment, device, filesystem, and TerraBase logical-capacity completion end to end.
+    preserved_behavior: Stable single-writer volumes, expand-only storage, online capacity growth, utilization gates, and explicit operator status.
+    native_replacement: Journaled provider-to-application expansion state machine with fence, generation, device rescan, filesystem growth, TerraBase verification, and checkpoints.
+    owner_workstream: storage-and-terrabase-lifecycle
+    removal: {phase: cleanup-after-destructive-storage-L3S-and-L4, pr: pending-WRK-010}
+    regression: {layer: L2-plus-L3S-plus-L4, scenario: crash and stale writer at every cloud, attach, device, filesystem, and application checkpoint}
+    recovery_boundary: Volume identity and operation journal survive host loss; expansion never rolls back or attaches to two writers.
+    cleanup_proof: StorageClass/CSI/PVC resize glue and claims are deleted and real OCI evidence proves volume, filesystem, and TerraBase capacity agree.
+
+  - id: WRK-011
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 69
+        detail: Historical node-pool minima/maxima are encoded independently for app, database, and tools pools.
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 130
+        detail: Application HPAs separately encode replica minima and maxima.
+    original_constraint: HPA scheduled pods without capacity while Cluster Autoscaler supplied nodes, producing duplicated floors and contradictory ownership.
+    preserved_behavior: Demand-based application replicas, TerraBase R3 floor, capacity scale-out, safe scale-in, budget limits, and anti-oscillation.
+    native_replacement: One scheduler/provider autoscaler using measured resources, SLOs, topology floors, quotas, storage constraints, and cost budgets.
+    owner_workstream: scheduler-and-provider-autoscaling
+    removal: {phase: cleanup-after-autoscaling-L3S-and-L4, pr: pending-WRK-011}
+    regression: {layer: L2-plus-L3S-plus-L4, scenario: burst, oscillation, capacity denial, orphan cleanup, database floor, and cost ceiling}
+    recovery_boundary: Each region scales within pre-authorized limits during GRU/WAN loss and never removes permanent TerraBase members.
+    cleanup_proof: HPA, Cluster Autoscaler, node-pool autoscaler tags/IAM, and contradictory replica/pool settings are absent.
+
+  - id: WRK-012
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/observability/resources/production/prometheus-rules.yaml
+        line: 253
+        detail: Platform inventory depends on kube-state-metrics.
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 197
+        detail: Regional observability explicitly depends on Prometheus Operator, node exporter, and kube-state-metrics.
+    original_constraint: Kubernetes labels and ServiceMonitor/PodMonitor discovery were the authoritative target and workload inventory.
+    preserved_behavior: Complete server/workload inventory, stable labels, scrape/OTLP discovery, alerts, dashboards, and bounded cardinality.
+    native_replacement: Host-agent registry and OTel discovery with canonical TerraScale identity labels and generated targets, dashboards, and alerts.
+    owner_workstream: observability
+    removal: {phase: cleanup-after-full-inventory-L3S, pr: pending-WRK-012}
+    regression: {layer: L2-plus-L3S, scenario: all-server inventory, restart, stale target removal, label stability, and cardinality budget}
+    recovery_boundary: Edge collectors keep local bounded spool and discovery while GRU telemetry ingest is unavailable.
+    cleanup_proof: ServiceMonitor, PodMonitor, kube-state-metrics, pod-label discovery, and Kubernetes scrape RBAC are absent.
+
+  - id: WRK-013
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: gitops/observability/resources/production/terrascale-service-dashboards.yaml
+        line: 7
+        detail: Grafana dashboards are provisioned through Kubernetes ConfigMaps.
+      - repository: TerraScale.Infrastructure
+        path: gitops/observability/runtime-secrets/production/external-secrets.yaml
+        line: 4
+        detail: Grafana administrator state depends on a Kubernetes-projected secret.
+    original_constraint: Grafana provisioning/persistence was Kubernetes-local and operational state was inferred indirectly from metrics.
+    preserved_behavior: Immutable dashboards, replicated Grafana availability, durable data sources, and exact read-only operational status.
+    native_replacement: Immutable replicated Grafana provisioning plus mandatory sanitized orchestrator projection/data source with generation and freshness.
+    owner_workstream: observability-and-operator-projection
+    removal: {phase: cleanup-after-GRU-one-node-loss-L3S, pr: pending-WRK-013}
+    regression: {layer: L2-plus-L3S, scenario: one-node loss, stale projection, dashboard/data-source rebuild, and unauthorized-field scan}
+    recovery_boundary: Grafana is read-only; mutations remain in audited API/CLI and authoritative state stays in replicated control journals.
+    cleanup_proof: Kubernetes Grafana Deployment/ConfigMap/PVC/Secret glue is gone and a fresh host rebuild reproduces dashboards and exact status.
+
+  - id: WRK-014
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 54
+        detail: Local access assumes Tailscale, while no complete production route-policy lifecycle is identified in repository source.
+      - repository: TerraScale.Infrastructure
+        path: Pulumi.production-sfo.yaml
+        line: 20
+        detail: Durable regional connectivity is represented by fixed remote-peering identifiers rather than a complete workload VPN lifecycle.
+    original_constraint: Documents assumed private connectivity but did not implement production VPN peer, route, ACL, identity, and secret lifecycle end to end.
+    preserved_behavior: Private cross-region control/telemetry paths, least-privilege routes, peer rotation, and regional autonomy.
+    native_replacement: Selected established WireGuard implementation managed by a TerraScale route-policy controller and durable Pulumi networking.
+    owner_workstream: networking-and-vpn
+    removal: {phase: qualification-before-production, pr: pending-WRK-014}
+    regression: {layer: L3S-plus-L4, scenario: GRU-control loss, peer rotation/revocation, route denial, OCI UDP, and failover}
+    recovery_boundary: Existing regional peers/routes continue during GRU loss; new global policy freezes unless break-glass is audited.
+    cleanup_proof: Inventory proves obsolete routes, ACLs, keys, endpoints, public IPs, and peering remnants are removed or explicitly retained as independent Pulumi primitives.
+
+  - id: WRK-015
+    status: identified
+    evidence:
+      - repository: TerraScale.TypeScript
+        path: src/regions.ts
+        line: 15
+        detail: The SDK embeds a three-entry OCI-specific region catalog.
+      - repository: TerraScale.Infrastructure
+        path: src/TerraScale.Infrastructure/Program.cs
+        line: 13
+        detail: Infrastructure embeds sa-saopaulo-1 as the OCI home region.
+    original_constraint: Three launch regions and OCI codes were duplicated as compile-time constants across clients, infrastructure, and documentation.
+    preserved_behavior: Stable gru/sfo/fra aliases, client compatibility, residency metadata, and deterministic region selection.
+    native_replacement: Signed provider-discovered catalog with stable aliases, eligibility evidence, and at least twenty qualified OCI regions.
+    owner_workstream: provider-catalog-and-public-contracts
+    removal: {phase: contract-freeze-and-client-cleanup, pr: pending-WRK-015}
+    regression: {layer: L1-plus-L2-plus-L4, scenario: catalog signature, alias compatibility, unknown region, provider discovery, and twenty-region eligibility matrix}
+    recovery_boundary: Last accepted signed catalog remains usable regionally; activation changes require global authority.
+    cleanup_proof: Production code/docs contain no provider-specific fixed trio except explicit compatibility fixtures generated from the catalog.
+
+  - id: WRK-016
+    status: identified
+    evidence:
+      - repository: TerraScale.Internals
+        path: .terrascale/deploy.json
+        line: 17
+        detail: Build targets include API and Dashboard but omit the production Authentication process.
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Services/ServiceProfileDiscovery.cs
+        line: 18
+        detail: Release behavior selects either explicit deploy configuration or repository discovery rather than one exhaustive admitted-role graph.
+    original_constraint: CI/release configuration evolved independently by repository and branch, leaving a production role outside the build target inventory.
+    preserved_behavior: Affected-change validation, per-role tests, build once, immutable candidates, approval, exact promotion, and bootstrap recovery exception.
+    native_replacement: Exhaustive admitted-role/build inventory and one typed native pipeline graph, with a minimal independent orchestrator recovery workflow.
+    owner_workstream: ci-cd-and-role-catalog
+    removal: {phase: native-pipeline-L3S, pr: pending-WRK-016}
+    regression: {layer: L1-plus-L2-plus-L3S, scenario: affected-change matrix, every admitted role built, digest immutability, approval, and bootstrap recovery}
+    recovery_boundary: The independent bootstrap lane can rebuild the orchestrator when the orchestrator is unavailable; product pipelines resume from journals.
+    cleanup_proof: Conflicting workflows/descriptors are removed, every production role maps to exactly one build target, and no branch rebuilds a promoted digest.
+
+  - id: WRK-017
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: AGENTS.md
+        line: 130
+        detail: HPA replica values are maintained in prose independently of manifests and verifiers.
+      - repository: Terrascale.Documentation
+        path: src/content/docs/en/reference/regions.svx
+        line: 74
+        detail: Public documentation declares a fixed three-region canonical catalog.
+    original_constraint: Documentation, manifests, verification code, and dashboards independently encoded RF, replica, region, and storage claims.
+    preserved_behavior: Clear public promises, executable validation, localized documentation, dashboards, and operational runbooks.
+    native_replacement: Canonical versioned C# contracts generate JSON Schema, docs facts, dashboards, alerts, and fixtures; drift fails CI.
+    owner_workstream: contract-generation-and-documentation
+    removal: {phase: contract-freeze, pr: pending-WRK-017}
+    regression: {layer: L1-plus-L2, scenario: generated-artifact cleanliness and deliberate RF, minima, storage, and catalog mutation}
+    recovery_boundary: Generated artifacts identify their contract version and remain usable with the last accepted CellSpec.
+    cleanup_proof: Hand-maintained duplicate counts/claims are removed or explicitly marked explanatory; regeneration produces a clean tree.
+
+  - id: WRK-018
+    status: identified
+    evidence:
+      - repository: TerraScale.Infrastructure
+        path: src/TerraScale.Infrastructure/Program.cs
+        line: 366
+        detail: Pulumi still derives a Flux receiver webhook credential.
+      - repository: TerraScale.Infrastructure
+        path: gitops/controllers/flux-image-automation/production-sfo/receiver-secret.yaml
+        line: 2
+        detail: Deleted-estate credentials are materialized as ExternalSecret resources.
+      - repository: TerraScale.Infrastructure
+        path: Pulumi.production-gru.yaml
+        line: 19
+        detail: Historical stack configuration retains concrete regional peer resource identifiers.
+    original_constraint: The deleted OKE estate leaves repository configuration and potentially cloud IAM, DNS, secrets, load balancers, volumes, IPs, and documentation outside any live adoption path.
+    preserved_behavior: Safe inventory, ownership attribution, unrelated-resource protection, auditable deletion, and quarantine of unknown ownership.
+    native_replacement: Greenfield Pulumi state and resource IDs; read-only provider/repository inventory with removal only after positive stale-resource identification and approval.
+    owner_workstream: greenfield-audit-and-cleanup
+    removal: {phase: phase-0-inventory-then-approved-cleanup-packages, pr: one-WRK-scoped-PR-per-repository}
+    regression: {layer: L1-plus-L3S-plus-L4, scenario: forbidden Kubernetes/Flux parser and credential scan plus provider orphan inventory}
+    recovery_boundary: Cleanup PRs are independently revertible; unknown and unrelated resources are quarantined rather than adopted or deleted.
+    cleanup_proof: Signed old/new inventory accounts for repository paths and cloud/IAM/DNS/secret artifacts and proves the new runtime has no compatibility path.
+
+  - id: WRK-019
+    status: identified
+    evidence:
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs
+        line: 7
+        detail: Fixed transient-discovery delays retry kubectl when Kubernetes API discovery fails.
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs
+        line: 20
+        detail: A fixed three-second polling interval drives the Flux notification barrier.
+      - repository: TerraScale.Deploy
+        path: src/TerraScale.Deploy.Cli/Notifications/NotifyDeploymentCommand.cs
+        line: 796
+        detail: Rollout polling is configured through a deployment environment variable.
+    original_constraint: Eventually consistent Kubernetes discovery and Flux status forced CLI-local polling and transient retry policy without a durable operation subscription.
+    preserved_behavior: Tolerate transient control-plane unavailability, bounded wait, cancellation, progress, and actionable timeout diagnostics.
+    native_replacement: Durable command receipts and event-driven operation observation over NATS with bounded reconnect/backoff and authoritative terminal status.
+    owner_workstream: operator-api-cli-and-deployment
+    removal: {phase: cleanup-after-operation-watch-L3S, pr: pending-WRK-019}
+    regression: {layer: L2-plus-L3S, scenario: disconnect, reconnect, missed event replay, cancellation, deadline, duplicate terminal event, and controller restart}
+    recovery_boundary: Consumers resume from durable sequence and query authoritative state; loss of the watch connection never changes operation ownership.
+    cleanup_proof: Kubernetes discovery retries, Flux barrier polling, rollout poll environment variables, and kubectl dependencies are absent from native paths.
+
+  - id: WRK-020
+    status: identified
+    evidence:
+      - repository: Terrabase.Operator
+        path: cmd/main.go
+        line: 93
+        detail: The controller hosts a Kubernetes admission webhook server with mounted serving certificates.
+      - repository: Terrabase.Operator
+        path: config/default/manager_webhook_patch.yaml
+        line: 16
+        detail: Webhook TLS is injected through a Kubernetes Secret volume.
+      - repository: Terrabase.Operator
+        path: api/v1/replication_types.go
+        line: 121
+        detail: Cross-region database mirroring is driven by a configured polling interval.
+    original_constraint: Kubernetes admission and Secret mounts supplied trust/bootstrap, while replication observation used controller polling.
+    preserved_behavior: Fail-closed configuration validation, certificate readiness, replication peer trust, mirror convergence, and bounded reconciliation cadence.
+    native_replacement: Validate typed TerraBase plans before persistence, deliver certificates through the host identity boundary, and reconcile replication from typed admin state/events with bounded fallback polling only at the TerraBase API boundary.
+    owner_workstream: terrabase-lifecycle-and-identity
+    removal: {phase: cleanup-after-terrabase-bootstrap-L3S, pr: pending-WRK-020}
+    regression: {layer: L1-plus-L2-plus-L3S, scenario: invalid plan, missing/rotated certificate, peer revocation, mirror lag, restart, and stale generation}
+    recovery_boundary: A region can validate and renew existing TerraBase identities locally; topology changes remain fenced and journaled.
+    cleanup_proof: Admission webhook, serving Secret mount, cert-manager injection, bootstrap hooks, and Kubernetes poll controllers are removed after behavioral parity tests pass.
+
+  - id: WRK-021
+    status: identified
+    evidence:
+      - repository: Terrascale.Documentation
+        path: src/content/docs/en/reference/api/index.svx
+        line: 20
+        detail: Routes without checked-in OpenAPI artifacts are documented manually from endpoint source.
+      - repository: Terrascale.Documentation
+        path: src/content/docs/en/guides/api-strategy.svx
+        line: 77
+        detail: The docs sync script copies only a fixed subset of checked-in OpenAPI artifacts.
+    original_constraint: Incomplete generated API artifacts required manual documentation and a fixed copy list, creating another source of truth.
+    preserved_behavior: Complete public API reference, localized narrative guidance, examples, and stable customer contracts.
+    native_replacement: Generate complete public OpenAPI and documentation inputs from the canonical endpoint/contract registry, with coverage and drift gates.
+    owner_workstream: contract-generation-and-documentation
+    removal: {phase: contract-generation, pr: pending-WRK-021}
+    regression: {layer: L1-plus-L2, scenario: every public route represented, no internal route leaked, localization source complete, and clean regeneration}
+    recovery_boundary: Published docs remain versioned artifacts independent of control-plane availability.
+    cleanup_proof: Manual endpoint-source transcription and fixed OpenAPI copy lists are removed; route inventory equals generated reference inventory.
+
+  - id: WRK-022
+    status: identified
+    evidence:
+      - repository: TerraScale.TypeScript
+        path: src/regions.ts
+        line: 81
+        detail: Empty or invalid region selections silently fall back to GRU.
+      - repository: Terrascale.Documentation
+        path: src/content/docs/en/reference/regions.svx
+        line: 25
+        detail: Documentation separately promises the same SDK-specific GRU normalization.
+      - repository: TerraScale.TypeScript
+        path: src/regions.test.ts
+        line: 41
+        detail: Tests freeze invalid-region fallback to GRU as expected behavior.
+    original_constraint: A compile-time three-region SDK needed a deterministic fallback, but silently treating invalid input as GRU hid catalog and placement errors.
+    preserved_behavior: Backward-compatible empty-selection default where contractually approved, canonical aliases, deterministic ordering, and clear validation.
+    native_replacement: Catalog-aware selection distinguishes absent preference from invalid/unavailable region, preserves the approved default explicitly, and returns typed placement errors.
+    owner_workstream: provider-catalog-and-public-contracts
+    removal: {phase: catalog-contract-freeze, pr: pending-WRK-022}
+    regression: {layer: L1-plus-L2, scenario: absent selection, invalid alias, unavailable region, stale catalog, compatibility version, and explicit GRU preference}
+    recovery_boundary: Last accepted catalog and explicit placement policy determine regional behavior during catalog-authority loss.
+    cleanup_proof: No SDK silently converts invalid regions to GRU; docs and generated tests describe the single canonical default/validation contract.
+
+gaps:
+  - id: GAP-WRK-001
+    disposition: follow-up-required
+    detail: No live OCI mutation or inventory was authorized by this package, so cloud/IAM/DNS/secret remnants in WRK-018 are repository-evidenced but not yet provider-proven.
+    follow_up: Create a read-only residual-account inventory package, then one explicitly approved cleanup package per positively identified remnant.
+  - id: GAP-WRK-002
+    disposition: follow-up-required
+    detail: Owner questions and measurable storage, cost, RPO, and RTO targets remain open, so removal phases are gates rather than scheduled releases.
+    follow_up: Freeze owner decisions and targets before converting pending cleanup identifiers into repository-local PRs.
+  - id: GAP-WRK-003
+    disposition: explicit-none-found
+    detail: The read-only scan found no distinct production-orchestrator retirement workaround in TerraScale.DotNet, TerraScale.DevHost, or Terrascale.Landingpage beyond cross-repository generated-contract drift already dispositioned above.
+    follow_up: Re-scan these repositories when their native workload descriptors or generated catalogs are introduced.
