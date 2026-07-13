@@ -15,7 +15,7 @@ Certificate issue/renew/rotate/revoke decisions consume explicit caller lifecycl
 
 Authorization requires one complete, unique, consistent principal record; independent expected and current principal generations; independent requested and current policy generations; a current revocation view; one exact current-policy grant; same-cell access; and bounded role/capability semantics. No matching grant is a denial. Untrusted CI cannot read or lease encrypted secrets, and non-operator principals cannot administer global trust even if a forged broader grant is supplied.
 
-Vault decisions contain encrypted metadata only: secret/version/scope/purpose, wrapping-key identity, and ciphertext digest. Grant, renewal, and revocation bind an exact requested lease identity and require current identity, policy, revocation, exact action-specific grant, retained version, availability, explicit maximum lease duration, and exact existing-lease evidence when applicable. Regional survival accepts exact encrypted version/digest references only when matching available metadata and a current unexpired retention policy exist.
+Vault decisions contain encrypted metadata only: secret/version/scope/purpose, wrapping-key identity, and ciphertext digest. Grant and renewal bind an exact requested lease identity and require current identity, policy, revocation, exact action-specific grant, retained version, availability, explicit maximum lease duration, and exact existing-lease evidence when applicable. Revocation still requires exact lease/principal/secret digest/scope plus current authorization and revocation evidence, but deliberately does not depend on the encrypted version remaining available/retained, retention-policy expiry, or a duration extension. Regional survival accepts exact encrypted version/digest references only when matching available metadata and a current unexpired retention policy exist.
 
 ## Structural exclusions
 
@@ -34,7 +34,7 @@ dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestr
 git diff --check
 ```
 
-The final local suite completed with 129 tests passed, 0 failed, and 0 skipped. The build completed with 0 warnings and 0 errors.
+The final local suite completed with 130 tests passed, 0 failed, and 0 skipped. The build completed with 0 warnings and 0 errors.
 
 ## Deferred adapter and owner inputs
 

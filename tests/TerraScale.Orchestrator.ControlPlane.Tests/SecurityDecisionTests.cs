@@ -224,6 +224,30 @@ public sealed class SecurityDecisionTests
     }
 
     [Test]
+    public async Task LeaseRevokeDoesNotDependOnSecretAvailabilityRetentionExpiryOrDuration()
+    {
+        var missingSecret = SecurityDecisionEngine.EvaluateLease(Lease(
+            action: LeaseAction.Revoke, secret: Secret(availability: SecretAvailability.Missing),
+            existing: ExistingLease()));
+        var stalePolicy = SecurityDecisionEngine.EvaluateLease(Lease(
+            action: LeaseAction.Revoke, policy: Retention(generation: 1, expiry: EvidenceStatus.Stale),
+            existing: ExistingLease(), duration: 999));
+        var unretainedSecret = Secret(version: 3);
+        var unretained = SecurityDecisionEngine.EvaluateLease(Lease(
+            action: LeaseAction.Revoke, secret: unretainedSecret,
+            policy: Retention(), existing: ExistingLease(version: 3)));
+
+        foreach (var decision in new[] { missingSecret, stalePolicy, unretained })
+        {
+            await Assert.That(decision.Authorized).IsTrue();
+            await Assert.That(decision.Intent is RevokeSecretLeaseIntent).IsTrue();
+            await Assert.That(Reason(decision, SecurityDecisionCode.SecretAvailable).Outcome).IsEqualTo(SecurityDecisionOutcome.NotApplicable);
+            await Assert.That(Reason(decision, SecurityDecisionCode.SecretVersionRetained).Outcome).IsEqualTo(SecurityDecisionOutcome.NotApplicable);
+            await Assert.That(Reason(decision, SecurityDecisionCode.PolicyCurrent).Outcome).IsEqualTo(SecurityDecisionOutcome.NotApplicable);
+        }
+    }
+
+    [Test]
     public async Task RetainedRollbackVersionIsAllowedButUnretainedOrExpiredPolicyIsNot()
     {
         var rollbackSecret = Secret(version: 1);
@@ -369,13 +393,13 @@ public sealed class SecurityDecisionTests
         SecretAvailability availability = SecretAvailability.Available) => new(
         SecretId, new(version), cell ?? Cell, SecurityEnvironment.Production, SecretPurpose.Database,
         new("wrapping-key-1"), Digest(), availability);
-    private static SecretRetentionPolicy Retention(EvidenceStatus expiry = EvidenceStatus.Valid) => new(
-        new(2), SecretId, Cell, SecurityEnvironment.Production, SecretPurpose.Database,
+    private static SecretRetentionPolicy Retention(EvidenceStatus expiry = EvidenceStatus.Valid, ulong generation = 2) => new(
+        new(generation), SecretId, Cell, SecurityEnvironment.Production, SecretPurpose.Database,
         [new SecretVersion(1), new SecretVersion(2)], new(300), expiry);
     private static SecretLeaseEvidence ExistingLease(
         SecurityPrincipalId? principalId = null, ValidityStatus validity = ValidityStatus.RenewalDue,
-        SecurityDigest? ciphertextDigest = null) => new(
-        new("lease-1"), principalId ?? new("principal-1"), SecretId, new(2), Cell,
+        SecurityDigest? ciphertextDigest = null, ulong version = 2) => new(
+        new("lease-1"), principalId ?? new("principal-1"), SecretId, new(version), Cell,
         SecurityEnvironment.Production, SecretPurpose.Database, new("wrapping-key-1"), ciphertextDigest ?? Digest(), new(1), new(2),
         LeaseStatus.Active, validity);
     private static AuthorizationGrant LeaseGrant(LeaseAction action)

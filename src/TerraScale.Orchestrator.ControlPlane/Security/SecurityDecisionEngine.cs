@@ -179,16 +179,25 @@ public static class SecurityDecisionEngine
         var revocation = principal.Status == EvidenceStatus.Valid && principal.Revocation == RevocationStatus.Current &&
                          principal.RevocationGeneration == request.CurrentRevocationGeneration;
         trace.Add(Reject(SecurityDecisionCode.RevocationCurrent, revocation, principal.RevocationGeneration.Value, request.CurrentRevocationGeneration.Value));
-        var metadata = request.Secret.SecretId == request.Policy.SecretId && request.Secret.CellId == request.Policy.CellId &&
-                       request.Secret.Environment == request.Policy.Environment && request.Secret.Purpose == request.Policy.Purpose;
+        var revoking = request.Action == LeaseAction.Revoke;
+        var metadata = revoking
+            ? ExistingLeaseCoreExact(request)
+            : request.Secret.SecretId == request.Policy.SecretId && request.Secret.CellId == request.Policy.CellId &&
+              request.Secret.Environment == request.Policy.Environment && request.Secret.Purpose == request.Policy.Purpose;
         trace.Add(Reject(SecurityDecisionCode.SecretMetadataExact, metadata, metadata ? 1UL : 0UL, 1));
         var retained = request.Policy.RetainedVersions.Contains(request.Secret.Version) && request.Policy.ExpiryEvidence == EvidenceStatus.Valid;
-        trace.Add(Reject(SecurityDecisionCode.SecretVersionRetained, retained, retained ? 1UL : 0UL, 1));
+        trace.Add(revoking
+            ? NotApplicable(SecurityDecisionCode.SecretVersionRetained)
+            : Reject(SecurityDecisionCode.SecretVersionRetained, retained, retained ? 1UL : 0UL, 1));
         var available = request.Secret.Availability == SecretAvailability.Available;
-        trace.Add(available ? Pass(SecurityDecisionCode.SecretAvailable) : Hold(SecurityDecisionCode.SecretAvailable, false, 0, 1));
+        trace.Add(revoking
+            ? NotApplicable(SecurityDecisionCode.SecretAvailable)
+            : available ? Pass(SecurityDecisionCode.SecretAvailable) : Hold(SecurityDecisionCode.SecretAvailable, false, 0, 1));
         var policyCurrent = request.Policy.Generation == request.CurrentPolicyGeneration &&
                             request.RequestedDuration.Value <= request.Policy.MaximumLeaseDuration.Value;
-        trace.Add(Reject(SecurityDecisionCode.PolicyCurrent, policyCurrent, request.Policy.Generation.Value, request.CurrentPolicyGeneration.Value));
+        trace.Add(revoking
+            ? NotApplicable(SecurityDecisionCode.PolicyCurrent)
+            : Reject(SecurityDecisionCode.PolicyCurrent, policyCurrent, request.Policy.Generation.Value, request.CurrentPolicyGeneration.Value));
         var capability = request.Action switch
         {
             LeaseAction.Grant => AuthorizationCapability.GrantSecretLease,
@@ -204,7 +213,9 @@ public static class SecurityDecisionEngine
         trace.Add(Reject(SecurityDecisionCode.ExactGrantPresent, exactGrants.Length == 1 && request.Grants.Count == 1, checked((ulong)exactGrants.Length), 1));
         var privilege = PrivilegeBounded(principal.Principal, capability, resourceScope);
         trace.Add(Reject(SecurityDecisionCode.PrivilegeBounded, privilege, privilege ? 1UL : 0UL, 1));
-        var exactLease = request.Action == LeaseAction.Grant || ExistingLeaseExact(request);
+        var exactLease = request.Action == LeaseAction.Grant ||
+                         ExistingLeaseCoreExact(request) &&
+                         (revoking || request.ExistingLease!.PolicyGeneration == request.Policy.Generation);
         trace.Add(request.Action == LeaseAction.Grant ? NotApplicable(SecurityDecisionCode.LeaseExact) : Reject(SecurityDecisionCode.LeaseExact, exactLease, exactLease ? 1UL : 0UL, 1));
         var actionValidity = request.Action switch
         {
@@ -256,15 +267,14 @@ public static class SecurityDecisionEngine
             : Deny(request.OperationId, trace);
     }
 
-    private static bool ExistingLeaseExact(SecretLeaseRequest request)
+    private static bool ExistingLeaseCoreExact(SecretLeaseRequest request)
     {
         var lease = request.ExistingLease!;
         return lease.LeaseId == request.RequestedLeaseId &&
                lease.PrincipalId == request.PrincipalEvidence.Principal.Id && lease.SecretId == request.Secret.SecretId &&
                lease.Version == request.Secret.Version && lease.CellId == request.Secret.CellId &&
                lease.Environment == request.Secret.Environment && lease.Purpose == request.Secret.Purpose &&
-               lease.WrappingKeyId == request.Secret.WrappingKeyId && lease.CiphertextDigest == request.Secret.CiphertextDigest &&
-               lease.PolicyGeneration == request.Policy.Generation;
+               lease.WrappingKeyId == request.Secret.WrappingKeyId && lease.CiphertextDigest == request.Secret.CiphertextDigest;
     }
 
     private static bool PrivilegeBounded(SecurityPrincipal principal, AuthorizationCapability capability, SecurityResourceScope scope)
