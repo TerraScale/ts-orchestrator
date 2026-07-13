@@ -17,6 +17,8 @@ ADR 0004 preserves the specification's two-owner boundary: Pulumi retains durabl
 
 ADR 0020 scopes provider correctness to trusted-code crash-stop failures and defines persisted intent plus same-operation resume. It records the minimum proposed `ProviderOperationContext`, late-call/timeout/leadership-loss recovery matrix, and why tags, IAM propagation, timeouts, or a new epoch cannot fence an already accepted OCI request.
 
+Review identified an ambiguous irreversible commit point in the first draft. The revision now distinguishes provisional `Prepared`/`Held` operations from the atomic `AuthorizedForProviderCall` commit. Pre-commit expiry, stale evidence, approval withdrawal, or leadership loss permits a no-call hold; post-commit leadership/deadline changes may hold dispatch but cannot replace the frozen action, payload, request identity, or terminal target. The context contract and failure matrix use the same boundary.
+
 Both drafts preserve unknown details instead of accepting them. They trace the current requirement/invariant IDs and clearly label state-machine, security, error, and gate identifiers from the registry audit as proposals that are not yet canonical.
 
 ## Validation

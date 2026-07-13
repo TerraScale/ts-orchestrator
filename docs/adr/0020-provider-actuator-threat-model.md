@@ -17,41 +17,44 @@ This threat model is scoped to crash-stop failure of trusted, signed orchestrato
 
 Use **persisted intent plus same-operation resume** as the control fence:
 
-1. A pure controller decision creates an authoritative operation with exact target/creation key, expected observation and generation, desired terminal state, permitted compensations, approvals, deadline, controller epoch, and operation identity.
-2. The operation and planned provider request are durably recorded before the adapter receives mutation intent.
-3. The compartment-scoped regional actuator rechecks current authority immediately before the provider call. A failed check records a typed hold and makes no call.
-4. The adapter supplies the operation-bound OCI retry/idempotency token and captures the work-request identifier or exact provider resource identity when OCI exposes them. The exact OCI SDK/service semantics remain unselected until primary sources and spikes establish them.
-5. The adapter persists the returned identity/result. A timeout or transport loss is `outcome unknown`, never `operation failed` and never permission to issue a fresh logical operation.
-6. Recovery reads provider truth and the recorded work request/idempotency key. A new leader resumes or re-observes the **same operation and desired terminal state**. It cannot supersede a durably authorized destructive step with a conflicting operation.
-7. Late completion is accepted only when it completes that already-authorized operation safely. Otherwise it is quarantined as an inconsistent observation and cannot authorize compensating destruction by itself.
-8. Tags aid discovery and mismatch detection only. Mutation authority requires the scoped OCI capability and the authoritative persisted operation; IAM propagation is never treated as a fencing signal.
+1. A pure controller decision persists an operation as `Prepared`, with exact target/creation key, expected observation and generation, proposed terminal state, permitted compensations, required approvals, deadline, preparing controller epoch, and operation identity. `Prepared` is durable intent, but **is not provider-call authorization**.
+2. While `Prepared`, the current fenced writer evaluates fresh provider observation, positive ownership, generation, approvals, policy/quorum/budget gates, and the unexpired deadline. A failed or stale check transitions to `Held` and makes no provider call. The controller may safely abandon or re-plan a never-authorized preparation according to its owning state machine.
+3. If every gate passes, the writer atomically persists `AuthorizedForProviderCall`. That record freezes the exact provider action and payload digest, target OCID or create key, desired terminal state, provider idempotency/retry key, allowed compensations, authorizing epoch, evidence/approval digests, deadline evaluated at authorization, and authorization commit sequence/digest.
+4. The durable transition to `AuthorizedForProviderCall` is the **irreversible commit point**. Before it, expiry, leadership loss, stale observation, or approval withdrawal may hold the operation without a call. After it, a leadership or deadline change may pause an as-yet-unsent dispatch or force reconciliation/escalation, but cannot cancel the committed provider step, replace its terminal target, change its payload/request key, or authorize a conflicting operation.
+5. Only an exact `AuthorizedForProviderCall` record can produce a `ProviderOperationContext`. The compartment-scoped regional actuator verifies that record and its digest immediately before dispatch. If the current executor cannot safely dispatch—for example, it lost leadership before crossing the API boundary—it records a hold/transfer of execution; a successor continues the same committed operation rather than preparing a replacement.
+6. Before crossing the provider boundary, the actuator durably records the dispatch attempt against the authorization commit. It supplies the frozen operation-bound OCI retry/idempotency token and captures the work-request identifier or exact provider resource identity when OCI exposes them. The exact OCI SDK/service semantics remain unselected until primary sources and spikes establish them.
+7. The adapter persists the returned identity/result. A timeout or transport loss is `outcome unknown`, never `operation failed` and never permission to issue a fresh logical operation.
+8. Recovery reads provider truth and the recorded work request/idempotency key. A new leader resumes or re-observes the **same authorized operation and desired terminal state**. Any renewed execution lease or approval to resume dispatch is attached to that operation; it cannot change the authorization commit's action, target, payload, request key, or terminal target.
+9. Late completion is accepted only when it completes that already-authorized operation safely. Otherwise it is quarantined as an inconsistent observation and cannot authorize compensating destruction by itself.
+10. Tags aid discovery and mismatch detection only. Mutation authority requires the scoped OCI capability and the authoritative `AuthorizedForProviderCall` record; IAM propagation is never treated as a fencing signal.
 
-Once a destructive provider step is durably authorized, it is irrevocable in the control model. “Irrevocable” means the desired terminal intent cannot be replaced with a conflicting intent merely because leadership changed or a call timed out. It does not mean the provider call must succeed, that every action lacks a deliberate compensation, or that an operator can never approve a later independent operation after the first reaches a known terminal state.
+Once the `AuthorizedForProviderCall` transition commits, the destructive provider step is irrevocable in the control model. “Irrevocable” means the exact action and desired terminal intent cannot be replaced with a conflicting intent merely because leadership changed, the deadline elapsed, or a call timed out. It does not mean the provider call must succeed, that execution may ignore an expired dispatch/leadership gate, that every action lacks a deliberate compensation, or that an operator can never approve a later independent operation after the committed operation reaches a known terminal state. A post-commit hold preserves the committed target and request identity; recovery reconciles or resumes that same operation.
 
 ## `ProviderOperationContext` contract
 
 The proposed minimum fields are:
 
 - authoritative operation ID and operation kind;
+- `AuthorizedForProviderCall` commit sequence and record digest;
 - cell and exact compartment;
-- controller/fencing epoch;
+- authorizing controller/fencing epoch and current executor identity/lease;
 - exact target OCID, or a deterministic idempotent create key before an OCID exists;
 - expected provider observation and resource/template/bootstrap generation;
 - desired terminal state;
-- explicit approvals and permitted compensations;
-- absolute deadline and persisted attempt/request sequence;
+- exact action/payload digest, approval/evidence digests, and permitted compensations;
+- absolute deadline evaluated at authorization and persisted dispatch-attempt sequence;
 - provider idempotency/retry token and, once known, work-request ID;
 - immutable correlation to the owning handoff receipt and accepted desired-state generation.
 
-This ADR does not freeze serialization, OCI header names, token lifetimes, SDK versions, per-operation compensation policy, or the exact action-specific required fields.
+The adapter must reject a context whose authorization state, commit digest, payload digest, target, request key, or correlation does not match the authoritative journal. A `Prepared` or `Held` operation cannot be converted to an adapter context. This ADR does not freeze serialization, OCI header names, token lifetimes, SDK versions, per-operation compensation policy, or the exact action-specific required fields.
 
 ## Safety rules
 
-- Every mutating adapter call consumes a previously persisted intent; an adapter cannot invent business intent.
+- Every mutating adapter call consumes an exact committed `AuthorizedForProviderCall` record; an adapter cannot invent business intent or execute a merely `Prepared` operation.
 - Exactly one logical operation may own a target transition. A leadership change changes the executor, not the authorized terminal outcome.
 - All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second VM ([scale-out rule, lines 706-725](../../ORCHESTRATOR.md#L706-L725)).
-- Destructive calls require fresh observation, exact target identity, generation match, unexpired authorization, all required approvals, and positive ownership under ADR 0004.
-- Wall-clock anomalies hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps; it does not extend or recreate an expired authorization ([partition rule, line 589](../../ORCHESTRATOR.md#L589)).
+- The irreversible commit requires fresh observation, exact target identity, generation match, an unexpired deadline, all required approvals, and positive ownership under ADR 0004.
+- Wall-clock anomalies before commit hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps ([partition rule, line 589](../../ORCHESTRATOR.md#L589)). After commit, anomaly or expiry can hold dispatch but cannot erase or alter the committed authorization; resume/reconciliation stays on the same operation.
 - An unknown response is reconciled through read/work-request APIs before retry or compensation.
 - A stale leader's late call can only be absent or safely complete the existing operation; it cannot create a second accepted writer or conflicting terminal state.
 - Discovery results and tags cannot authorize mutation, adoption, cleanup, or compensation.
@@ -62,14 +65,16 @@ This ADR does not freeze serialization, OCI header names, token lifetimes, SDK v
 
 | Failure point | Required recovery behavior |
 |---|---|
-| Before intent persistence | No provider call is permitted. Replanning may create a new operation. |
-| After intent, before authority recheck | Resume the same operation; hold if authority/generation/approval is stale. |
-| After authority recheck, before request reaches OCI | A stale leader may still race. The new leader reconciles truth before issuing the same operation-bound request. |
+| Before `Prepared` persistence | No provider call is permitted. Replanning may create a new operation. |
+| `Prepared`, before authorization checks | Resume evaluation; transition to `Held` if authority, observation, generation, approval, ownership, or deadline is stale. No provider call is permitted. |
+| Checks passed, before `AuthorizedForProviderCall` commits | The irreversible boundary has not been crossed. Leadership loss or expiry holds without a call; the successor must re-evaluate all gates. |
+| `AuthorizedForProviderCall` committed, before dispatch record | The exact action/target/payload/request key/terminal state are irrevocably fixed. A leadership/deadline change may hold dispatch, but cannot authorize a replacement; a successor resumes the same committed operation. |
+| Dispatch recorded, before request reaches OCI | Treat provider outcome as potentially unknown if boundary crossing cannot be disproved. Reconcile before reusing the same operation-bound request key. |
 | OCI accepted request, response lost | Read by work-request/idempotency/resource identity; never infer failure from timeout. |
 | Resource created, ID not persisted | Discover only within the exact compartment and create identity, verify the full operation/generation/ownership tuple, then bind or quarantine. Tags alone are insufficient. |
 | Leadership changes while work request runs | New leader observes/resumes the same terminal target; it cannot cancel by issuing a conflicting destructive request. |
 | Late old-leader completion | Accept only as safe completion of the same authorized operation; otherwise hold and alert for review. |
-| Deadline expires with unknown provider state | Deadline stops blind retries; it does not negate an in-flight provider mutation. Continue read-only reconciliation and enter an explicit held/unknown state. |
+| Deadline expires after authorization commit | Deadline stops blind dispatch/retries and may enter a held/escalated state; it does not negate the committed target or an in-flight mutation. Continue read-only reconciliation, and resume only the same operation under its action-specific recovery policy. |
 | Provider returns inconsistent target/generation | `ERR-PROVIDER-OWNERSHIP-MISMATCH`; quarantine and make no further mutation. |
 | Credential revoked or access denied | Persist denial, make no broader-credential fallback, and require scoped recovery. |
 
@@ -102,6 +107,7 @@ Rejected. The provider cannot enforce that cancellation. Once durably authorized
 ## Consequences
 
 - Provider adapters return typed observations and never contain ownership, retry, compensation, or terminal-state business rules.
+- Journals distinguish `Prepared`, `Held`, and the immutable `AuthorizedForProviderCall` commit from dispatch attempts and provider outcomes.
 - Journals retain enough sanitized request/work-request identity to distinguish `not sent`, `unknown`, `in progress`, `succeeded`, `failed`, and `inconsistent` after crashes.
 - Journals, errors, logs, traces, metrics, and evidence obey `SEC-NO-SECRET-OUTPUT`; credential material and private keys are never persisted as provider-operation diagnostics.
 - Each provider operation needs explicit idempotency, ambiguity, reconciliation, and compensation semantics; a generic retry policy is unsafe.
@@ -116,7 +122,7 @@ The readiness map requires exact OCI SDK idempotency/work-request semantics, a c
 - per-OCI-service retry token support, token scope/retention, work-request lookup, cancellation, timeout, and eventual-consistency behavior from primary documentation and executable spikes;
 - the exact per-operation ambiguity and compensation table for compute, boot/block volume, attachment, LB backend, and any later provider mutations;
 - exact regional compartment IAM statements, workload identity issuance/rotation/revocation, and denial behavior;
-- the controller leadership-loss state model and persisted journal schema;
+- the controller leadership-loss state model, `Prepared`/`Held`/`AuthorizedForProviderCall` journal schema, and action-specific post-commit dispatch-expiry policy;
 - approved regional RPO/RTO, storage SLO, maximum survival window, and cost limits where they control deadlines, safe holds, expansion, and replacement;
 - owner decisions governing regional outage mutation policy, storage cleanup, runtime defaults, and provider portability where downstream operations differ;
 - independent review of the crash-stop assumption and the residual risk of host or credential compromise.
@@ -126,7 +132,7 @@ The incomplete read-only OCI audit grants no mutation authority and establishes 
 ## Required verification before acceptance
 
 - **Review:** primary OCI semantics for every mutating API, exact `ProviderOperationContext`, per-operation ambiguity/compensation matrix, compartment policy, and independent security threat-model review.
-- **L0:** exhaustively inject leader loss before and after every persistence, authority-check, call, response, work-request, reconciliation, compensation, and completion checkpoint. Explore duplicate, reordered, delayed, and contradictory observations. Prove one owned terminal outcome, no stale accepted mutation, and no tag-authorized action.
+- **L0:** exhaustively inject leader loss and deadline/approval/observation changes on both sides of the `AuthorizedForProviderCall` commit, then before and after every dispatch, call, response, work-request, reconciliation, compensation, and completion checkpoint. Explore duplicate, reordered, delayed, and contradictory observations. Prove pre-commit changes make no call, post-commit changes cannot alter the exact terminal target/request identity, one owned terminal outcome, no stale accepted mutation, and no tag-authorized action.
 - **L3S:** fake-provider full-region scenarios for lost responses, arbitrarily delayed completions, actuator crash/restart, leadership churn, GRU/WAN loss, duplicate callbacks, stale observations, and operation-journal restore.
 - **L4:** targeted disposable OCI A1/IAM/storage/LB tests after the exact-tree credential gate. Delay real work requests across leadership change and prove a new leader resumes the same operation without duplicate creation or conflicting destruction.
 - **Security:** demonstrate that an identity cannot mutate another region/compartment or an unlisted resource/action, and that access denial never falls back to broader credentials.
