@@ -1,0 +1,9 @@
+{
+  "data": [{
+    "id": "ocid1.instance.oc1.example.fullidentifier",
+    "display-name": "customer-production",
+    "ip-address": "203.0.113.10",
+    "secret": "do-not-emit",
+    "nested": {"user": "ocid1.user.oc1..example", "count": 1}
+  }]
+}

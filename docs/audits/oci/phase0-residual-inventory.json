@@ -1,0 +1,241 @@
+{
+  "categories": {
+    "block-volume-attachments": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "block-volume-backups": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "block-volumes": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "boot-volume-attachments": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "boot-volume-backups": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "boot-volumes": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "certificate-authorities-metadata": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "certificates-metadata": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "compute-instances": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "dns-records": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "dns-zones": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "iam-dynamic-groups": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "iam-policies": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "kms-vaults-metadata": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "load-balancers": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "nats-streams-consumers": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "network-load-balancers": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "object-storage-buckets": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "oke-clusters": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "oke-node-pools": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "public-ips": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "vault-secrets-metadata": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    },
+    "workload-runtime-inventory": {
+      "minimum_observed_count": 0,
+      "scopes_attempted": 0,
+      "scopes_failed": 0,
+      "scopes_permission_denied": 0,
+      "scopes_succeeded": 0,
+      "state": "not-queried"
+    }
+  },
+  "command_templates": [
+    "oci bv backup list --compartment-id <redacted> --all",
+    "oci bv boot-volume list --compartment-id <redacted> --all",
+    "oci bv boot-volume-backup list --compartment-id <redacted> --all",
+    "oci bv volume list --compartment-id <redacted> --all",
+    "oci ce cluster list --compartment-id <redacted> --all",
+    "oci ce node-pool list --compartment-id <redacted> --all",
+    "oci certs-mgmt certificate list --compartment-id <redacted> --all",
+    "oci certs-mgmt certificate-authority list --compartment-id <redacted> --all",
+    "oci compute boot-volume-attachment list --compartment-id <redacted> --all",
+    "oci compute instance list --compartment-id <redacted> --all",
+    "oci compute volume-attachment list --compartment-id <redacted> --all",
+    "oci dns record zone get --zone-name-or-id <redacted> --all",
+    "oci dns zone list --compartment-id <redacted> --all",
+    "oci iam compartment list",
+    "oci iam dynamic-group list --compartment-id <redacted> --all",
+    "oci iam policy list --compartment-id <redacted> --all",
+    "oci iam region-subscription list",
+    "oci kms management vault list --compartment-id <redacted> --all",
+    "oci lb load-balancer list --compartment-id <redacted> --all",
+    "oci network public-ip list --compartment-id <redacted> --all",
+    "oci nlb network-load-balancer list --compartment-id <redacted> --all",
+    "oci object-storage bucket list --namespace-name <redacted> --compartment-id <redacted> --all",
+    "oci object-storage namespace get",
+    "oci usage-api usage-summary request-summarized-usages --tenant-id <redacted> --query-type COST --granularity DAILY --is-aggregate-by-time false --time-usage-started <utc> --time-usage-ended <utc> --all",
+    "oci vault secret list --compartment-id <redacted> --all"
+  ],
+  "cost_window": {
+    "currencies": [],
+    "duration_days": 7.0,
+    "end_utc": "2026-07-13T12:00:00Z",
+    "measured_total": null,
+    "seven_day_residual_bill_established": false,
+    "start_utc": "2026-07-06T12:00:00Z",
+    "state": "not-queried"
+  },
+  "generated_at_utc": "2026-07-13T12:00:00Z",
+  "oke_absence_proven": false,
+  "profile": "redacted",
+  "safety": {
+    "mutation_commands_present": false,
+    "raw_identifiers_persisted": false,
+    "read_only_allowlist_enforced": true,
+    "secret_contents_queried": false
+  },
+  "schema_version": 1,
+  "scope": {
+    "accessible_compartment_count": null,
+    "discovery": "region-subscriptions",
+    "discovery_state": "permission-denied",
+    "region_identifiers": [],
+    "subscribed_region_count": null
+  }
+}
