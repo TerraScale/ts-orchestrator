@@ -1,0 +1,12 @@
+bin/
+obj/
+.idea/
+.vs/
+.vscode/
+TestResults/
+coverage/
+artifacts/
+test-evidence/runs/
+*.user
+*.suo
+

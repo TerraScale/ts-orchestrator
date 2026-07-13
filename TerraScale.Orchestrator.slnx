@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/_SolutionItems/">
+    <File Path=".editorconfig" />
+    <File Path="AGENTS.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="ORCHESTRATOR.md" />
+    <File Path="README.md" />
+    <File Path="requirements/registry.yaml" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj" />
+  </Folder>
+</Solution>
+

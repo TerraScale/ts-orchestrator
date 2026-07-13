@@ -1,0 +1,49 @@
+schemaVersion: 1
+status: draft
+source: ORCHESTRATOR.md
+unresolvedOwnerQuestions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+entries:
+  - { id: REQ-O001, owner: integration, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: REQ-O002, owner: core, acceptanceLayers: [L0, L4, L5] }
+  - { id: REQ-O003, owner: core, acceptanceLayers: [L0, L3S, L4] }
+  - { id: REQ-O004, owner: integration, acceptanceLayers: [L0, L3S] }
+  - { id: REQ-O005, owner: runtime, acceptanceLayers: [L0, L1R, L4] }
+  - { id: REQ-O006, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S] }
+  - { id: REQ-O007, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S, L4] }
+  - { id: REQ-O008, owner: operations, acceptanceLayers: [L0, L3S, L5] }
+  - { id: REQ-O009, owner: verification, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: REQ-O010, owner: cloud, acceptanceLayers: [L0, L3S, L4] }
+  - { id: REQ-O011, owner: cloud-storage, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: REQ-O012, owner: runtime, acceptanceLayers: [L0, L1R, L3S, L4] }
+  - { id: REQ-O013, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S, L4] }
+  - { id: REQ-O014, owner: delivery, acceptanceLayers: [L0, L3S] }
+  - { id: REQ-O015, owner: delivery-security, acceptanceLayers: [L0, L3S, L4] }
+  - { id: REQ-O016, owner: operations, acceptanceLayers: [L0, L3S] }
+  - { id: REQ-O017, owner: verification, acceptanceLayers: [L0, L0C] }
+  - { id: REQ-O018, owner: verification, acceptanceLayers: [L0, L1S, L2S, L3S] }
+  - { id: REQ-O019, owner: cloud, acceptanceLayers: [L0, L4, L5] }
+  - { id: REQ-O020, owner: storage, acceptanceLayers: [L0, L1R, L3S, L4, L5] }
+  - { id: REQ-O021, owner: verification, acceptanceLayers: [L3S] }
+  - { id: REQ-O022, owner: integration, acceptanceLayers: [review, L0, L3S] }
+  - { id: REQ-O023, owner: cloud, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: INV-001, owner: integration, acceptanceLayers: [L0, L3S, L5] }
+  - { id: INV-002, owner: control-plane, acceptanceLayers: [L0, L3S] }
+  - { id: INV-003, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S] }
+  - { id: INV-004, owner: control-plane, acceptanceLayers: [L0, L3S] }
+  - { id: INV-005, owner: control-plane, acceptanceLayers: [L0, L3S] }
+  - { id: INV-006, owner: verification, acceptanceLayers: [L0, L3S, L4] }
+  - { id: INV-007, owner: terrabase, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: INV-008, owner: terrabase, acceptanceLayers: [L0, L3S, L4] }
+  - { id: INV-009, owner: storage, acceptanceLayers: [L0, L1R, L4] }
+  - { id: INV-010, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S, L4] }
+  - { id: INV-011, owner: delivery, acceptanceLayers: [L0, L3S] }
+  - { id: INV-012, owner: operations, acceptanceLayers: [L0, L3S] }
+  - { id: INV-013, owner: integration, acceptanceLayers: [L0, L3S] }
+  - { id: INV-014, owner: cloud, acceptanceLayers: [L0, L3S, L4] }
+  - { id: INV-015, owner: integration, acceptanceLayers: [L0, review] }
+  - { id: INV-016, owner: verification, acceptanceLayers: [L0, L3S, L4, L5] }
+  - { id: INV-017, owner: runtime, acceptanceLayers: [L0, L1R, L3S] }
+  - { id: INV-018, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S, L4] }
+  - { id: ERR-PHASE0-NOTREADY, owner: integration, acceptanceLayers: [L0] }
+  - { id: SEC-NO-SECRET-OUTPUT, owner: messaging-security, acceptanceLayers: [L0, L0C, L3S, L4] }
+

@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="TUnit" Version="1.56.18" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>
+
