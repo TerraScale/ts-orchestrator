@@ -22,6 +22,16 @@ internal static class StorageTestData
     public static StorageBytes B(long v){StorageBytes.TryCreate(v,out var r);return r;}
     public static StorageGeneration Generation(ulong v=4){StorageGeneration.TryCreate(v,out var r);return r;}
     public static StorageWriterEpoch Epoch(ulong v=7){StorageWriterEpoch.TryCreate(v,out var r);return r;}
+    public static StorageFormatEvidence Format(StorageProof provider=StorageProof.Proven,
+        StorageDeviceClassification classification=StorageDeviceClassification.Blank,StorageProof blank=StorageProof.Proven,
+        StorageProof filesystem=StorageProof.Proven,StorageEvidenceScope? scope=null) =>
+        new(scope??Scope(),provider,classification,blank,filesystem);
+    public static StorageEvidenceScope Scope(ProviderVolumeId? provider=null,StorageOperationId? operation=null,
+        StorageFenceId? fence=null,StorageGeneration? generation=null,StorageWriterEpoch? epoch=null,long requested=200,
+        StorageRetention retention=StorageRetention.ElasticQuarantine) =>
+        new(Claim(),provider??Provider(),Attachment(),Cell(),Node(),Workload(),Member(),Device(),Filesystem(),
+            StorageFilesystemType.Xfs,StorageLayout.Lvm,B(requested),retention,Backup(),
+            operation??Operation(),fence??Fence(),generation??Generation(),epoch??Epoch());
 
     public static StorageVolumeRecord Volume(
         long requested=200,long provider=100,long block=100,long filesystem=100,long used=60,long free=40,
@@ -48,8 +58,9 @@ internal static class StorageTestData
         StorageProof providerVerified=StorageProof.Unknown,StorageProof rescan=StorageProof.Unknown,
         StorageProof layout=StorageProof.Unknown,StorageProof grown=StorageProof.Unknown,
         StorageProof sizes=StorageProof.Unknown,StorageProof health=StorageProof.Unknown,
-        StorageProof metrics=StorageProof.Unknown,StorageConflictClass conflicts=StorageConflictClass.None) =>
-        new(intent,prechecks,recovery,request,providerVerified,rescan,layout,grown,sizes,health,metrics,conflicts);
+        StorageProof metrics=StorageProof.Unknown,StorageConflictClass conflicts=StorageConflictClass.None,
+        StorageEvidenceScope? scope=null) =>
+        new(scope??Scope(),intent,prechecks,recovery,request,providerVerified,rescan,layout,grown,sizes,health,metrics,conflicts);
 
     public static StorageDeletionEvidence Deletion(
         StorageProof leadership=StorageProof.Proven,StorageProof topology=StorageProof.Proven,
@@ -58,6 +69,7 @@ internal static class StorageTestData
         StorageProof ownerFence=StorageProof.Proven,StorageProof quarantine=StorageProof.Proven,
         StorageProof disposable=StorageProof.Proven,StorageProof auditReady=StorageProof.Proven,
         StorageProof requested=StorageProof.Unknown,StorageProof absent=StorageProof.Unknown,
-        StorageProof auditPassed=StorageProof.Unknown) =>
-        new(leadership,topology,quorum,noReference,backup,retention,ownerFence,quarantine,disposable,auditReady,requested,absent,auditPassed);
+        StorageProof auditPassed=StorageProof.Unknown,StorageRetention scopeRetention=StorageRetention.ElasticQuarantine,
+        StorageEvidenceScope? scope=null) =>
+        new(scope??Scope(retention:scopeRetention),leadership,topology,quorum,noReference,backup,retention,ownerFence,quarantine,disposable,auditReady,requested,absent,auditPassed);
 }

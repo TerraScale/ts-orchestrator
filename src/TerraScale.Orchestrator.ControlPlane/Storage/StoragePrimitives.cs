@@ -126,6 +126,7 @@ public enum StorageDecisionCode
     StepContradicted, ProviderConvergencePending, PermanentRetention, DeletionProofMissing,
     QuarantineProofMissing, DisposableProofMissing, PostDeleteAuditRequired,
     ConflictingObservation,
+    WrongEvidenceScope,
 }
 
 public sealed record StorageNumericTrace

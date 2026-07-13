@@ -5,6 +5,17 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 public sealed class StorageExpansionTests
 {
     [Test]
+    public async Task Evidence_from_other_owner_or_requested_size_is_rejected()
+    {
+        var otherOwner=StorageTestData.Scope() with { Member=StorageTestData.Member("other") };
+        var oldRequest=StorageTestData.Scope(requested:200);
+        var ownerReplay=StorageExpansionPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Expansion(scope:otherOwner));
+        var sizeReplay=StorageExpansionPlanner.Plan(StorageTestData.Volume(requested:400),StorageTestData.Context(),StorageTestData.Expansion(scope:oldRequest));
+        await Assert.That(ownerReplay.Code).IsEqualTo(StorageDecisionCode.WrongEvidenceScope);
+        await Assert.That(sizeReplay.Code).IsEqualTo(StorageDecisionCode.WrongEvidenceScope);
+        await Assert.That(new[]{ownerReplay,sizeReplay}.Any(static x=>x.IsMutationAuthorized)).IsFalse();
+    }
+    [Test]
     public async Task Crash_at_every_checkpoint_resumes_at_first_unproven_step()
     {
         var cases=new (StorageVolumeRecord Volume,StorageExpansionEvidence Evidence,StorageAction Action,StorageIntentTarget Target)[]
@@ -78,10 +89,10 @@ public sealed class StorageExpansionTests
     [Test]
     public async Task Shrink_no_growth_size_disagreement_and_overflow_fail_closed()
     {
-        var shrink=StorageExpansionPlanner.Plan(StorageTestData.Volume(requested:99),StorageTestData.Context(),StorageTestData.Expansion());
-        var equal=StorageExpansionPlanner.Plan(StorageTestData.Volume(requested:100),StorageTestData.Context(),StorageTestData.Expansion());
+        var shrink=StorageExpansionPlanner.Plan(StorageTestData.Volume(requested:99),StorageTestData.Context(),StorageTestData.Expansion(scope:StorageTestData.Scope(requested:99)));
+        var equal=StorageExpansionPlanner.Plan(StorageTestData.Volume(requested:100),StorageTestData.Context(),StorageTestData.Expansion(scope:StorageTestData.Scope(requested:100)));
         var disagreement=StorageExpansionPlanner.Plan(StorageTestData.Volume(used:60,free:39),StorageTestData.Context(),StorageTestData.Expansion());
-        var overflow=StorageExpansionPlanner.Plan(StorageTestData.Volume(filesystem:long.MaxValue-1,used:long.MaxValue,free:1,requested:long.MaxValue),StorageTestData.Context(),StorageTestData.Expansion());
+        var overflow=StorageExpansionPlanner.Plan(StorageTestData.Volume(filesystem:long.MaxValue-1,used:long.MaxValue,free:1,requested:long.MaxValue),StorageTestData.Context(),StorageTestData.Expansion(scope:StorageTestData.Scope(requested:long.MaxValue)));
         await Assert.That(shrink.Code).IsEqualTo(StorageDecisionCode.ShrinkForbidden);
         await Assert.That(equal.Code).IsEqualTo(StorageDecisionCode.NoGrowthRequested);
         await Assert.That(disagreement.Code).IsEqualTo(StorageDecisionCode.SizeDisagreement);

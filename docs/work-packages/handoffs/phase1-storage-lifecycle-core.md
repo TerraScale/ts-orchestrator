@@ -7,6 +7,7 @@
 - Ordered expansion authorization with persisted checkpoints, caller-declared conflict serialization, checked arithmetic, no shrink, convergence checks, and replay protection for provider extension, guest rescan, and filesystem growth.
 - Retention-aware deletion authorization. Permanent retention always holds. Elastic and explicitly disposable volumes require their distinct policy proof plus all common topology, quorum, reference, backup, retention, owner/fence, and audit-readiness proofs.
 - Defensive-copy, replay, permutation, culture, wrong-authority, crash-matrix, overflow, disagreement, conflict, retention, and secret-redaction tests.
+- Every proof aggregate is structurally bound to the complete decision-relevant evidence scope: ownership tuple, provider/attachment/device/filesystem identities, filesystem/layout, requested size, retention/backup, operation/fence, generation, and writer epoch. Format classification and its blank/filesystem proofs are one immutable scoped aggregate.
 
 ## Deletion contract interpretation
 
@@ -19,7 +20,7 @@ The core contains no device paths, mount or shell commands, callbacks, provider/
 ## Verification
 
 - `dotnet build TerraScale.Orchestrator.slnx --no-restore` — passed with 0 warnings and 0 errors.
-- `dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build -- --minimum-expected-tests 100` — passed (112/112).
+- `dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build -- --minimum-expected-tests 100` — passed (114/114).
 
 ## Contract gaps
 

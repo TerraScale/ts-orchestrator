@@ -21,8 +21,7 @@ public sealed class StorageLifecycleTests
         };
         foreach(var item in expected)
         {
-            var decision=StorageCreatePlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),item.Key,
-                StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Proven,StorageProof.Proven);
+            var decision=StorageCreatePlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),item.Key,StorageTestData.Format());
             await Assert.That(decision.Action).IsEqualTo(item.Value);
         }
     }
@@ -31,11 +30,11 @@ public sealed class StorageLifecycleTests
     public async Task Format_requires_exact_owner_provider_blank_and_current_fence()
     {
         var volume=StorageTestData.Volume();
-        var valid=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Proven,StorageProof.Proven);
-        var wrongProvider=StorageFormatPlanner.Plan(volume,StorageTestData.Context(provider:StorageTestData.Provider("other")),StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Proven,StorageProof.Proven);
-        var wrongOwner=StorageFormatPlanner.Plan(volume,StorageTestData.Context(member:StorageTestData.Member("other")),StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Proven,StorageProof.Proven);
-        var staleFence=StorageFormatPlanner.Plan(volume,StorageTestData.Context(fence:StorageTestData.Fence("other")),StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Proven,StorageProof.Proven);
-        var noBlank=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageProof.Proven,StorageDeviceClassification.Blank,StorageProof.Unknown,StorageProof.Proven);
+        var valid=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageTestData.Format());
+        var wrongProvider=StorageFormatPlanner.Plan(volume,StorageTestData.Context(provider:StorageTestData.Provider("other")),StorageTestData.Format());
+        var wrongOwner=StorageFormatPlanner.Plan(volume,StorageTestData.Context(member:StorageTestData.Member("other")),StorageTestData.Format());
+        var staleFence=StorageFormatPlanner.Plan(volume,StorageTestData.Context(fence:StorageTestData.Fence("other")),StorageTestData.Format());
+        var noBlank=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageTestData.Format(blank:StorageProof.Unknown));
 
         await Assert.That(valid.Action).IsEqualTo(StorageAction.Format);
         await Assert.That(valid.Scope!.DeviceId).IsEqualTo(StorageTestData.Device());
@@ -44,21 +43,26 @@ public sealed class StorageLifecycleTests
         await Assert.That(wrongOwner.Code).IsEqualTo(StorageDecisionCode.WrongOwner);
         await Assert.That(staleFence.Code).IsEqualTo(StorageDecisionCode.WrongFence);
         await Assert.That(noBlank.Code).IsEqualTo(StorageDecisionCode.BlankProofRequired);
+
+        var replayed=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageTestData.Format(
+            scope:StorageTestData.Scope(operation:StorageTestData.Operation("other"))));
+        await Assert.That(replayed.Code).IsEqualTo(StorageDecisionCode.WrongEvidenceScope);
+        await Assert.That(replayed.IsMutationAuthorized).IsFalse();
     }
 
     [Test]
     public async Task Recognized_volume_never_formats_through_either_planner()
     {
-        var direct=StorageFormatPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageProof.Proven,StorageDeviceClassification.Recognized,StorageProof.Proven,StorageProof.Proven);
+        var direct=StorageFormatPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Format(classification:StorageDeviceClassification.Recognized));
         var workflow=StorageCreatePlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageCreateCheckpoint.Classified,
-            StorageProof.Proven,StorageDeviceClassification.Recognized,StorageProof.Proven,StorageProof.Proven);
+            StorageTestData.Format(classification:StorageDeviceClassification.Recognized));
 
         await Assert.That(direct.Action).IsEqualTo(StorageAction.Mount);
         await Assert.That(workflow.Action).IsEqualTo(StorageAction.Mount);
         await Assert.That(new[]{direct,workflow}.Any(static d=>d.Action==StorageAction.Format)).IsFalse();
 
-        var unidentified=StorageFormatPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageProof.Proven,
-            StorageDeviceClassification.Recognized,StorageProof.Proven,StorageProof.Unknown);
+        var unidentified=StorageFormatPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),
+            StorageTestData.Format(classification:StorageDeviceClassification.Recognized,filesystem:StorageProof.Unknown));
         await Assert.That(unidentified.Action).IsEqualTo(StorageAction.Hold);
     }
 
@@ -70,7 +74,7 @@ public sealed class StorageLifecycleTests
             new(StorageTestData.Node("a"),StorageTestData.Attachment("a"),StorageTestData.Epoch(7)),
             new(StorageTestData.Node("b"),StorageTestData.Attachment("b"),StorageTestData.Epoch(8)),
         };
-        var evidence=new StorageReattachEvidence(writers,StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,
+        var evidence=new StorageReattachEvidence(StorageTestData.Scope(),writers,StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,
             StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(9),4);
         writers.Clear();
         var decision=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("c"),evidence);
@@ -84,7 +88,7 @@ public sealed class StorageLifecycleTests
     {
         var writer=new StorageWriterObservation(StorageTestData.Node("old"),StorageTestData.Attachment(),StorageTestData.Epoch(7));
         StorageReattachEvidence E(StorageProof stop,StorageProof lease,StorageProof detached,ulong epoch) =>
-            new([writer],stop,lease,detached,StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(epoch),2);
+            new(StorageTestData.Scope(),[writer],stop,lease,detached,StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(epoch),2);
         var missing=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Unknown,StorageProof.Proven,StorageProof.Proven,8));
         var detach=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Proven,StorageProof.Proven,StorageProof.Unknown,8));
         var stale=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,7));
@@ -100,12 +104,22 @@ public sealed class StorageLifecycleTests
     [Test]
     public async Task Empty_writer_inventory_must_be_proven_complete_before_attach()
     {
-        StorageReattachEvidence E(StorageProof complete) => new([],StorageProof.Proven,StorageProof.Proven,
+        StorageReattachEvidence E(StorageProof complete) => new(StorageTestData.Scope(),[],StorageProof.Proven,StorageProof.Proven,
             StorageProof.Proven,StorageProof.Unknown,complete,StorageTestData.Epoch(8),2);
         var unknown=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Unknown));
         var complete=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Proven));
         await Assert.That(unknown.Action).IsEqualTo(StorageAction.Hold);
         await Assert.That(complete.Action).IsEqualTo(StorageAction.Attach);
+        await Assert.That(complete.Trace!.Epoch).IsEqualTo(StorageTestData.Epoch(8));
+        var stale=new StorageReattachEvidence(StorageTestData.Scope(),[],StorageProof.Proven,StorageProof.Proven,
+            StorageProof.Proven,StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(7),2);
+        var staleDecision=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),stale);
+        await Assert.That(staleDecision.Code).IsEqualTo(StorageDecisionCode.NewWriterEpochRequired);
+
+        var replayed=new StorageReattachEvidence(StorageTestData.Scope(provider:StorageTestData.Provider("other")),[],
+            StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(8),2);
+        var replayedDecision=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),replayed);
+        await Assert.That(replayedDecision.Code).IsEqualTo(StorageDecisionCode.WrongEvidenceScope);
     }
 
     [Test]
@@ -115,7 +129,7 @@ public sealed class StorageLifecycleTests
         var b=new StorageWriterObservation(StorageTestData.Node("b"),StorageTestData.Attachment("b"),StorageTestData.Epoch(8));
         StorageDecision Plan(IEnumerable<StorageWriterObservation> writers) => StorageAttachmentPlanner.Plan(
             StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("c"),
-            new StorageReattachEvidence(writers,StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,
+            new StorageReattachEvidence(StorageTestData.Scope(),writers,StorageProof.Proven,StorageProof.Proven,StorageProof.Proven,
                 StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(9),4));
         await Assert.That(Plan([a,b])).IsEqualTo(Plan([b,a]));
     }

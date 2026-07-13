@@ -42,7 +42,7 @@ public sealed class StorageDeletionTests
         var elastic=StorageDeletionPlanner.Plan(StorageTestData.Volume(retention:StorageRetention.ElasticQuarantine),
             StorageTestData.Context(),StorageTestData.Deletion(quarantine:StorageProof.Unknown));
         var disposable=StorageDeletionPlanner.Plan(StorageTestData.Volume(retention:StorageRetention.ExplicitDisposable),
-            StorageTestData.Context(),StorageTestData.Deletion(disposable:StorageProof.Unknown));
+            StorageTestData.Context(),StorageTestData.Deletion(disposable:StorageProof.Unknown,scopeRetention:StorageRetention.ExplicitDisposable));
         await Assert.That(elastic.Code).IsEqualTo(StorageDecisionCode.QuarantineProofMissing);
         await Assert.That(disposable.Code).IsEqualTo(StorageDecisionCode.DisposableProofMissing);
     }
@@ -99,5 +99,24 @@ public sealed class StorageDeletionTests
         await Assert.That(decisions.Select(static d=>d.Code).ToArray()).IsEquivalentTo(new[]{
             StorageDecisionCode.WrongOwner,StorageDecisionCode.WrongFence,StorageDecisionCode.StaleGeneration,StorageDecisionCode.StaleWriterEpoch});
         await Assert.That(decisions.Any(static d=>d.IsMutationAuthorized)).IsFalse();
+    }
+
+    [Test]
+    public async Task Otherwise_complete_deletion_evidence_cannot_replay_across_operation_fence_or_generation()
+    {
+        var scopes=new[]
+        {
+            StorageTestData.Scope(operation:StorageTestData.Operation("other")),
+            StorageTestData.Scope(fence:StorageTestData.Fence("other")),
+            StorageTestData.Scope(generation:StorageTestData.Generation(9)),
+        };
+        foreach(var scope in scopes)
+        {
+            var evidence=StorageTestData.Deletion(requested:StorageProof.Proven,absent:StorageProof.Proven,
+                auditPassed:StorageProof.Proven,scope:scope);
+            var decision=StorageDeletionPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),evidence);
+            await Assert.That(decision.Code).IsEqualTo(StorageDecisionCode.WrongEvidenceScope);
+            await Assert.That(decision.IsMutationAuthorized).IsFalse();
+        }
     }
 }

@@ -68,7 +68,26 @@ public sealed class StorageVolumeRecord
             ObservedBytes, RequestedBytes, ProviderBytes, BlockBytes, FilesystemBytes, UsedBytes, FreeBytes,
             ForecastExhaustion, Generation, authorizedEpoch ?? WriterEpoch, Performance, conflicts);
 
+    public StorageEvidenceScope EvidenceScope => new(Claim,ProviderVolume,Attachment,Cell,Node,Workload,Member,DeviceId,
+        FilesystemId,FilesystemType,Layout,RequestedBytes,Retention,Backup,Operation,WriterFence,Generation,WriterEpoch);
+
     public override string ToString() => "<storage-volume-record>";
+}
+
+public sealed record StorageEvidenceScope(
+    VolumeClaimId Claim, ProviderVolumeId ProviderVolume, StorageAttachmentId Attachment, StorageCellId Cell,
+    StorageNodeId Node, StorageWorkloadId Workload, StorageMemberId Member, StorageDeviceId DeviceId,
+    FilesystemId FilesystemId, StorageFilesystemType FilesystemType, StorageLayout Layout, StorageBytes RequestedBytes,
+    StorageRetention Retention, StorageBackupId Backup, StorageOperationId Operation,
+    StorageFenceId Fence, StorageGeneration Generation, StorageWriterEpoch WriterEpoch)
+{
+    internal bool IsWellFormed => Claim is not null && ProviderVolume is not null && Attachment is not null
+        && Cell is not null && Node is not null && Workload is not null && Member is not null
+        && DeviceId is not null && FilesystemId is not null && FilesystemType != StorageFilesystemType.Unknown
+        && Layout != StorageLayout.Unknown && Retention != StorageRetention.Unknown && Backup is not null
+        && Operation is not null && Fence is not null
+        && Generation.IsValid && WriterEpoch.IsValid;
+    public override string ToString() => "<storage-evidence-scope>";
 }
 
 public sealed record StorageIntentScope

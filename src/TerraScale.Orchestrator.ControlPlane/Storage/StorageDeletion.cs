@@ -3,20 +3,21 @@ namespace TerraScale.Orchestrator.ControlPlane.Storage;
 public sealed class StorageDeletionEvidence
 {
     public StorageDeletionEvidence(
-        StorageProof leadershipTransferred, StorageProof topologyRemoved,
+        StorageEvidenceScope scope, StorageProof leadershipTransferred, StorageProof topologyRemoved,
         StorageProof quorumAndReplicationHealthy, StorageProof noDatabaseReference,
         StorageProof applicationBackupVerified, StorageProof retentionSatisfied,
         StorageProof ownerFenceVerified, StorageProof quarantined,
         StorageProof disposablePolicyVerified, StorageProof postDeleteAuditReady,
         StorageProof deletionRequested, StorageProof providerAbsent, StorageProof postDeleteAuditPassed)
     {
-        LeadershipTransferred=leadershipTransferred; TopologyRemoved=topologyRemoved;
+        Scope=scope; LeadershipTransferred=leadershipTransferred; TopologyRemoved=topologyRemoved;
         QuorumAndReplicationHealthy=quorumAndReplicationHealthy; NoDatabaseReference=noDatabaseReference;
         ApplicationBackupVerified=applicationBackupVerified; RetentionSatisfied=retentionSatisfied;
         OwnerFenceVerified=ownerFenceVerified; Quarantined=quarantined;
         DisposablePolicyVerified=disposablePolicyVerified; PostDeleteAuditReady=postDeleteAuditReady;
         DeletionRequested=deletionRequested; ProviderAbsent=providerAbsent; PostDeleteAuditPassed=postDeleteAuditPassed;
     }
+    public StorageEvidenceScope Scope { get; }
     public StorageProof LeadershipTransferred { get; }
     public StorageProof TopologyRemoved { get; }
     public StorageProof QuorumAndReplicationHealthy { get; }
@@ -48,6 +49,8 @@ public static class StorageDeletionPlanner
         var trace=volume!.Trace();
         if (evidence is null) return StorageDecision.Hold(StorageDecisionCode.InvalidInput,trace);
         if (volume.Retention == StorageRetention.Permanent) return StorageDecision.Hold(StorageDecisionCode.PermanentRetention,trace);
+        if (evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume.EvidenceScope)
+            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope,trace);
         if (evidence.CommonPreconditions().Any(static proof => proof != StorageProof.Proven))
             return StorageDecision.Hold(StorageDecisionCode.DeletionProofMissing,trace);
         if (volume.Retention == StorageRetention.ElasticQuarantine && evidence.Quarantined != StorageProof.Proven)

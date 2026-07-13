@@ -3,17 +3,18 @@ namespace TerraScale.Orchestrator.ControlPlane.Storage;
 public sealed class StorageExpansionEvidence
 {
     public StorageExpansionEvidence(
-        StorageProof intentPersisted, StorageProof prechecksPassed, StorageProof recoveryPointVerified,
+        StorageEvidenceScope scope, StorageProof intentPersisted, StorageProof prechecksPassed, StorageProof recoveryPointVerified,
         StorageProof providerRequestRecorded, StorageProof providerSizeVerified, StorageProof guestRescanned,
         StorageProof layoutExtended, StorageProof filesystemGrown, StorageProof sizesVerified,
         StorageProof applicationHealthVerified, StorageProof metricsAndCostUpdated,
         StorageConflictClass conflicts)
     {
-        IntentPersisted=intentPersisted; PrechecksPassed=prechecksPassed; RecoveryPointVerified=recoveryPointVerified;
+        Scope=scope; IntentPersisted=intentPersisted; PrechecksPassed=prechecksPassed; RecoveryPointVerified=recoveryPointVerified;
         ProviderRequestRecorded=providerRequestRecorded; ProviderSizeVerified=providerSizeVerified; GuestRescanned=guestRescanned;
         LayoutExtended=layoutExtended; FilesystemGrown=filesystemGrown; SizesVerified=sizesVerified;
         ApplicationHealthVerified=applicationHealthVerified; MetricsAndCostUpdated=metricsAndCostUpdated; Conflicts=conflicts;
     }
+    public StorageEvidenceScope Scope { get; }
     public StorageProof IntentPersisted { get; }
     public StorageProof PrechecksPassed { get; }
     public StorageProof RecoveryPointVerified { get; }
@@ -44,6 +45,8 @@ public static class StorageExpansionPlanner
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace(evidence?.Conflicts ?? StorageConflictClass.None));
         var trace=volume!.Trace(evidence?.Conflicts ?? StorageConflictClass.None);
         if (evidence is null) return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
+        if (evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume.EvidenceScope)
+            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope,trace);
         if (evidence.Conflicts != StorageConflictClass.None) return StorageDecision.Hold(StorageDecisionCode.ConflictingOperation, trace);
         if (evidence.OrderedProofs().Any(static proof => proof == StorageProof.Contradicted))
             return StorageDecision.Hold(StorageDecisionCode.StepContradicted, trace);
