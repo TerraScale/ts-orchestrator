@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "22a445a2775a0c67798651078afbb20cb0eeaed84b8eb658d25fce1d7ff7dadd",
+  "inputSha256": "6978be999c2019ae9abbfdadc1e198b41cd0aecb9a066fc232feaf6ff4f3c373",
   "counts": {
     "registered": 43,
-    "linked": 0,
-    "production-only": 3,
-    "test-only": 1,
-    "unreferenced": 39,
+    "linked": 1,
+    "production-only": 4,
+    "test-only": 0,
+    "unreferenced": 38,
     "unknownReferences": 0
   },
   "unknownReferences": [],
@@ -749,8 +749,17 @@
         "L3S"
       ],
       "evidenceState": "missing",
-      "traceStatus": "unreferenced",
-      "productionReferences": [],
+      "traceStatus": "production-only",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.Contracts/Resources/AdmittedRoles.cs",
+          "line": 53
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.Contracts/Resources/RoleDescriptor.cs",
+          "line": 222
+        }
+      ],
       "testReferences": []
     },
     {
@@ -788,8 +797,13 @@
         "L4"
       ],
       "evidenceState": "missing",
-      "traceStatus": "test-only",
-      "productionReferences": [],
+      "traceStatus": "linked",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.Contracts/Resources/RoleDescriptor.cs",
+          "line": 224
+        }
+      ],
       "testReferences": [
         {
           "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
