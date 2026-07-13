@@ -1,0 +1,217 @@
+using TerraScale.Orchestrator.Contracts;
+
+namespace TerraScale.Orchestrator.Protocol;
+
+public enum VerificationOutcome
+{
+    Invalid = 0,
+    Valid = 1,
+}
+
+public interface IPayloadDigestVerifier
+{
+    VerificationOutcome Verify(OpaquePayload payload, PayloadDigest expectedDigest);
+}
+
+public interface ICommandSignatureVerifier
+{
+    VerificationOutcome Verify(CommandSignedMaterial signedMaterial, OpaqueSignature signature);
+}
+
+public enum CommandValidationError
+{
+    Uninitialized = 0,
+    None,
+    InvalidValidationContext,
+    MalformedEnvelope,
+    UnsupportedProtocolVersion,
+    InvalidValidityWindow,
+    NotYetValid,
+    Expired,
+    WrongCell,
+    WrongAggregateIdentity,
+    StaleGeneration,
+    StaleWriterEpoch,
+    PayloadDigestMismatch,
+    PayloadDigestVerificationFailed,
+    InvalidSignature,
+    SignatureVerificationFailed,
+}
+
+public readonly record struct CommandValidationResult
+{
+    private CommandValidationResult(CommandValidationError error) => Error = error;
+
+    public CommandValidationError Error { get; }
+
+    public bool IsValid => Error == CommandValidationError.None;
+
+    internal static CommandValidationResult Accepted() => new(CommandValidationError.None);
+
+    internal static CommandValidationResult Rejected(CommandValidationError error) => new(error);
+}
+
+public sealed class CommandValidationContext
+{
+    private readonly HashSet<ProtocolRevision> _acceptedProtocolVersions;
+
+    public CommandValidationContext(
+        CellId expectedCell,
+        AggregateId expectedAggregateId,
+        DesiredGeneration minimumDesiredGeneration,
+        WriterEpoch minimumWriterEpoch,
+        IEnumerable<ProtocolRevision>? acceptedProtocolVersions,
+        TimeSpan allowedClockSkew,
+        IPayloadDigestVerifier? payloadDigestVerifier,
+        ICommandSignatureVerifier? signatureVerifier)
+    {
+        ExpectedCell = expectedCell;
+        ExpectedAggregateId = expectedAggregateId;
+        MinimumDesiredGeneration = minimumDesiredGeneration;
+        MinimumWriterEpoch = minimumWriterEpoch;
+        _acceptedProtocolVersions = acceptedProtocolVersions?.ToHashSet() ?? [];
+        AllowedClockSkew = allowedClockSkew;
+        PayloadDigestVerifier = payloadDigestVerifier;
+        SignatureVerifier = signatureVerifier;
+    }
+
+    public CellId ExpectedCell { get; }
+
+    public AggregateId ExpectedAggregateId { get; }
+
+    public DesiredGeneration MinimumDesiredGeneration { get; }
+
+    public WriterEpoch MinimumWriterEpoch { get; }
+
+    public TimeSpan AllowedClockSkew { get; }
+
+    public IPayloadDigestVerifier? PayloadDigestVerifier { get; }
+
+    public ICommandSignatureVerifier? SignatureVerifier { get; }
+
+    internal bool IsWellFormed =>
+        ExpectedCell.IsValid
+        && ExpectedAggregateId.IsValid
+        && MinimumDesiredGeneration.IsValid
+        && MinimumWriterEpoch.IsValid
+        && _acceptedProtocolVersions.Count > 0
+        && _acceptedProtocolVersions.All(static version => version.IsValid)
+        && AllowedClockSkew >= TimeSpan.Zero
+        && PayloadDigestVerifier is not null
+        && SignatureVerifier is not null;
+
+    internal bool Accepts(ProtocolRevision version) => _acceptedProtocolVersions.Contains(version);
+}
+
+/// <summary>
+/// Pure, deterministic INV-005 command admission validation.
+/// </summary>
+public static class CommandEnvelopeValidator
+{
+    public static CommandValidationResult Validate(
+        CommandEnvelope? envelope,
+        CommandValidationContext? context,
+        DateTimeOffset now)
+    {
+        if (context is null || !context.IsWellFormed)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.InvalidValidationContext);
+        }
+
+        if (!IsWellFormed(envelope))
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.MalformedEnvelope);
+        }
+
+        if (!context.Accepts(envelope!.ProtocolVersion))
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.UnsupportedProtocolVersion);
+        }
+
+        if (envelope.ExpiresAt < envelope.IssuedAt)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.InvalidValidityWindow);
+        }
+
+        if (envelope.IssuedAt - now > context.AllowedClockSkew)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.NotYetValid);
+        }
+
+        if (now - envelope.ExpiresAt > context.AllowedClockSkew)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.Expired);
+        }
+
+        if (envelope.Cell != context.ExpectedCell)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.WrongCell);
+        }
+
+        if (envelope.AggregateId != context.ExpectedAggregateId)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.WrongAggregateIdentity);
+        }
+
+        if (envelope.DesiredGeneration.Value < context.MinimumDesiredGeneration.Value)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.StaleGeneration);
+        }
+
+        if (envelope.WriterEpoch.Value < context.MinimumWriterEpoch.Value)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.StaleWriterEpoch);
+        }
+
+        VerificationOutcome digestOutcome;
+        try
+        {
+            digestOutcome = context.PayloadDigestVerifier!.Verify(envelope.Payload, envelope.PayloadDigest);
+        }
+        catch
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.PayloadDigestVerificationFailed);
+        }
+
+        if (digestOutcome == VerificationOutcome.Invalid)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.PayloadDigestMismatch);
+        }
+
+        if (digestOutcome != VerificationOutcome.Valid)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.PayloadDigestVerificationFailed);
+        }
+
+        VerificationOutcome signatureOutcome;
+        try
+        {
+            signatureOutcome = context.SignatureVerifier!.Verify(envelope.SignedMaterial, envelope.Signature);
+        }
+        catch
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.SignatureVerificationFailed);
+        }
+
+        return signatureOutcome switch
+        {
+            VerificationOutcome.Valid => CommandValidationResult.Accepted(),
+            VerificationOutcome.Invalid => CommandValidationResult.Rejected(CommandValidationError.InvalidSignature),
+            _ => CommandValidationResult.Rejected(CommandValidationError.SignatureVerificationFailed),
+        };
+    }
+
+    private static bool IsWellFormed(CommandEnvelope? envelope) =>
+        envelope is not null
+        && envelope.ProtocolVersion.IsValid
+        && envelope.Cell.IsValid
+        && envelope.AggregateId.IsValid
+        && envelope.DesiredGeneration.IsValid
+        && envelope.WriterEpoch.IsValid
+        && envelope.OperationId.IsValid
+        && envelope.IdempotencyKey.IsValid
+        && envelope.Attempt.IsValid
+        && envelope.Payload is not null
+        && envelope.PayloadDigest is { IsValid: true }
+        && envelope.Signature is { IsValid: true };
+}
