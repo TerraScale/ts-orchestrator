@@ -65,10 +65,13 @@ VALIDATIONS = {
     "maximum-regional-survival-window": {"type": "integer", "minimum": 1},
 }
 LATER_SELECTIONS = {
-    "artifact-and-evidence-signing": [14, 23], "dns-implementation": [15],
-    "vpn-implementation": [16], "operator-identity-provider": [17],
-    "regional-artifact-mirror": [21], "arm64-host-image": [22],
-    "nats-n-minus-one-policy": [22],
+    "artifact-and-evidence-signing": ([14, 23], ["phase-0-exit", "L0"]),
+    "dns-implementation": ([15], ["phase-0-exit", "L3S", "L4"]),
+    "vpn-implementation": ([16], ["phase-0-exit", "L3S", "L4"]),
+    "operator-identity-provider": ([17], ["phase-0-exit", "L3S", "L5"]),
+    "regional-artifact-mirror": ([21], ["phase-0-exit", "L3S", "L4"]),
+    "arm64-host-image": ([22], ["phase-0-exit", "L1R", "L4"]),
+    "nats-n-minus-one-policy": ([22], ["phase-0-exit", "L0C", "L3S"]),
 }
 GATES = {"phase-0-planning", "contract-freeze", "phase-0-exit", "L0", "L0C", "L1R", "L3S", "L4", "L5"}
 
@@ -166,8 +169,15 @@ def validate_document(document: dict[str, Any], root: Path = ROOT, require_unset
         for item in selections:
             if not isinstance(item, dict) or item.get("id") not in LATER_SELECTIONS:
                 continue
-            if item.get("impactedAdrs") != LATER_SELECTIONS[item["id"]]:
+            expected_adrs, expected_gates = LATER_SELECTIONS[item["id"]]
+            if item.get("readinessStage") != "later-phase0-selection":
+                errors.append(f"selection {item['id']}: readiness stage must be later-phase0-selection")
+            if item.get("requiredBeforeContractFreeze") is not False:
+                errors.append(f"selection {item['id']}: must remain segregated from contract-freeze inputs")
+            if item.get("impactedAdrs") != expected_adrs:
                 errors.append(f"selection {item['id']}: canonical ADR impact mismatch")
+            if item.get("impactedGates") != expected_gates:
+                errors.append(f"selection {item['id']}: canonical gate impact mismatch")
             if require_unset and item.get("selection") is not None:
                 errors.append(f"selection {item['id']}: checked-in selection must remain null")
 

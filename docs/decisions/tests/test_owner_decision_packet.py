@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,22 +27,32 @@ class OwnerDecisionPacketTests(unittest.TestCase):
 
     def test_adversarial_fixtures_are_rejected_for_expected_reason(self) -> None:
         fixtures = sorted((HERE / "fixtures").glob("*.json"))
-        self.assertEqual(4, len(fixtures))
+        self.assertEqual(6, len(fixtures))
         for path in fixtures:
             fixture = json.loads(path.read_text())
             with self.subTest(fixture=fixture["name"]):
                 document = copy.deepcopy(self.packet)
-                parent = document
-                for segment in fixture["path"][:-1]:
-                    parent = parent[segment]
-                leaf = fixture["path"][-1]
-                if fixture["operation"] == "set":
-                    parent[leaf] = fixture["value"]
-                elif fixture["operation"] == "delete":
-                    del parent[leaf]
+                if fixture["operation"] == "replace-spec":
+                    with tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        source = (validator.ROOT / "ORCHESTRATOR.md").read_text()
+                        self.assertEqual(1, source.count(fixture["old"]))
+                        (root / "ORCHESTRATOR.md").write_text(
+                            source.replace(fixture["old"], fixture["new"])
+                        )
+                        errors = validator.validate_document(document, root=root)
                 else:
-                    self.fail(f"unknown fixture operation {fixture['operation']}")
-                errors = validator.validate_document(document)
+                    parent = document
+                    for segment in fixture["path"][:-1]:
+                        parent = parent[segment]
+                    leaf = fixture["path"][-1]
+                    if fixture["operation"] == "set":
+                        parent[leaf] = fixture["value"]
+                    elif fixture["operation"] == "delete":
+                        del parent[leaf]
+                    else:
+                        self.fail(f"unknown fixture operation {fixture['operation']}")
+                    errors = validator.validate_document(document)
                 self.assertTrue(
                     any(fixture["expected"] in error for error in errors),
                     f"expected {fixture['expected']!r} in {errors!r}",

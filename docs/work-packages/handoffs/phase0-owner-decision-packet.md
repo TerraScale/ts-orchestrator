@@ -32,7 +32,7 @@ python3 -m json.tool docs/decisions/owner-decision-packet.json
 git diff --check
 ```
 
-The validator derives exact question text and checksums directly from `ORCHESTRATOR.md`, enforces questions 1–10 exactly once, rejects any checked-in answer/value/selection, checks exact units and validation rules, and enforces canonical ADR/gate mappings. Four data fixtures adversarially mutate the valid packet to prove rejection of an accidental recommendation default, omitted question, invalid option, and invalid unit.
+The validator derives exact question text and checksums directly from `ORCHESTRATOR.md`, enforces questions 1–10 exactly once, rejects any checked-in answer/value/selection, checks exact units and validation rules, and enforces canonical ADR/gate mappings. Six data fixtures adversarially mutate the valid packet or a temporary copy of the specification to prove rejection of an accidental recommendation default, omitted question, invalid option, invalid unit, source semantic drift, and accidental later implementation selection. Later selections also fail closed unless their readiness stage, contract-freeze segregation, ADR impacts, and gate impacts match the canonical packet.
 
 ## Remaining gaps
 

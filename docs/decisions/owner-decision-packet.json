@@ -45,13 +45,13 @@
     {"id": "maximum-regional-survival-window", "readinessStage": "contract-freeze", "requiredBeforeContractFreeze": true, "value": null, "unit": "hours", "validation": {"type": "integer", "minimum": 1}, "impactedAdrs": [11, 12, 21], "impactedGates": ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]}
   ],
   "laterImplementationSelections": [
-    {"id": "artifact-and-evidence-signing", "selection": null, "impactedAdrs": [14, 23]},
-    {"id": "dns-implementation", "selection": null, "impactedAdrs": [15]},
-    {"id": "vpn-implementation", "selection": null, "impactedAdrs": [16]},
-    {"id": "operator-identity-provider", "selection": null, "impactedAdrs": [17]},
-    {"id": "regional-artifact-mirror", "selection": null, "impactedAdrs": [21]},
-    {"id": "arm64-host-image", "selection": null, "impactedAdrs": [22]},
-    {"id": "nats-n-minus-one-policy", "selection": null, "impactedAdrs": [22]}
+    {"id": "artifact-and-evidence-signing", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [14, 23], "impactedGates": ["phase-0-exit", "L0"]},
+    {"id": "dns-implementation", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [15], "impactedGates": ["phase-0-exit", "L3S", "L4"]},
+    {"id": "vpn-implementation", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [16], "impactedGates": ["phase-0-exit", "L3S", "L4"]},
+    {"id": "operator-identity-provider", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [17], "impactedGates": ["phase-0-exit", "L3S", "L5"]},
+    {"id": "regional-artifact-mirror", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [21], "impactedGates": ["phase-0-exit", "L3S", "L4"]},
+    {"id": "arm64-host-image", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [22], "impactedGates": ["phase-0-exit", "L1R", "L4"]},
+    {"id": "nats-n-minus-one-policy", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [22], "impactedGates": ["phase-0-exit", "L0C", "L3S"]}
   ],
   "compactResponse": "1=_ 2=_ 3=_ 4=_ 5=_ 6=_ 7=_ 8=_ 9=_ 10=_; team-size=_ people; first-production-date=_; maximum-cost=_ BRL/day; storage-iops=_ IOPS; storage-throughput=_ MiB/s; storage-read-p95=_ ms; storage-read-p99=_ ms; storage-write-p95=_ ms; storage-write-p99=_ ms; regional-rpo=_ seconds; regional-rto=_ minutes; security-revocation=_ seconds; certificate-ttl=_ hours; certificate-renewal-lead=_ hours; break-glass-ttl=_ minutes; security-critical-remediation=_ hours; orchestrator-rss=_ MiB; compact-post-failure-utilization=_ percent; audit-hot-retention=_ days; audit-immutable-retention=_ days; regional-survival=_ hours"
 }

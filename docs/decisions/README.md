@@ -44,4 +44,4 @@ python3 -m json.tool docs/decisions/owner-decision-packet.json
 git diff --check
 ```
 
-The adversarial fixtures prove rejection of accidental recommendation defaulting, a missing question, an invalid option, and a changed unit.
+The adversarial fixtures prove rejection of accidental recommendation defaulting, a missing question, an invalid option, a changed unit, exact specification semantic drift, and accidental selection of a later implementation dependency.
