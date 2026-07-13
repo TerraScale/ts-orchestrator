@@ -14,7 +14,7 @@ python3 tools/phase0/oci-inventory/oci_inventory.py --live \
 ```
 
 The first live API category, `iam region-subscription list`, returned an
-authentication/authorization-class failure. The tool suppressed the raw OCI
+authentication-class failure. The tool suppressed the raw OCI
 response and persisted only the coarse state. Because region discovery is the
 scope boundary, every resource category is correctly `not-queried`, not
 `observed-empty`.

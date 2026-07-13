@@ -34,6 +34,15 @@ ADDRESS_RE = re.compile(
     r"(?:\b\d{1,3}\.){3}\d{1,3}\b|(?:\b[0-9a-f]{0,4}:){2,}[0-9a-f:]{0,4}\b",
     re.IGNORECASE,
 )
+DROP_KEYS = {
+    "secret", "secret-content", "secret-value", "content", "auth",
+    "authorization", "auth-token", "token", "private-key", "key-file",
+    "key", "password", "credential", "credentials",
+}
+HASH_KEYS = {
+    "id", "ocid", "name", "display-name", "hostname", "dns-name", "user",
+    "tenancy", "fingerprint",
+}
 
 # Only OCI CLI operations in this allowlist may be executed. There are no
 # create/update/delete/get-secret-bundle/start/stop/Pulumi operations here.
@@ -85,18 +94,16 @@ def stable_hash(value: str) -> str:
 
 def sanitize(value: Any) -> Any:
     """Recursively remove forbidden identifiers/addresses and unsafe keys."""
-    forbidden_keys = {
-        "id", "ocid", "name", "display-name", "display_name", "hostname",
-        "dns-name", "dns_name", "address", "ip-address", "ip_address",
-        "key", "key-file", "key_file", "fingerprint", "user", "tenancy",
-        "secret", "secret-content", "secret_content", "auth", "authorization",
-    }
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for key, item in value.items():
             normalized = key.lower().replace("_", "-")
-            if normalized in {entry.replace("_", "-") for entry in forbidden_keys}:
+            if normalized in DROP_KEYS or normalized.endswith(("-secret", "-token", "-private-key", "-secret-content", "-password", "-credential", "-key")):
+                continue
+            if normalized in HASH_KEYS:
                 result[f"{key}_hash"] = stable_hash(str(item))
+            elif normalized in {"address", "ip-address"}:
+                result[key] = "<address-redacted>"
             else:
                 result[key] = sanitize(item)
         return result
@@ -113,9 +120,30 @@ def assert_sanitized(value: Any) -> None:
     encoded = json.dumps(value, sort_keys=True)
     if OCID_RE.search(encoded) or IPV4_RE.search(encoded):
         raise ValueError("sanitization invariant failed")
-    forbidden = ("private_key", "private-key", "auth_token", "authorization")
-    if any(token in encoded.lower() for token in forbidden):
-        raise ValueError("forbidden secret-bearing field in report")
+    def check_keys(item: Any) -> None:
+        if isinstance(item, dict):
+            for key, child in item.items():
+                normalized = key.lower().replace("_", "-")
+                if normalized in DROP_KEYS or normalized.endswith(("-secret", "-token", "-private-key", "-secret-content", "-password", "-credential", "-key")):
+                    raise ValueError("forbidden secret-bearing field in report")
+                check_keys(child)
+        elif isinstance(item, list):
+            for child in item:
+                check_keys(child)
+    check_keys(value)
+
+
+def classify_cli_failure(stderr: str) -> tuple[str, dict[str, str]]:
+    lowered = stderr.lower()
+    # Authentication failures mean the observation was not made. They are not
+    # evidence that an otherwise valid identity lacks a particular permission.
+    if any(marker in lowered for marker in ("notauthenticated", "not authenticated", "invalid signing", "status: 401", "status code: 401", '"status": 401')):
+        return "query-failed", {"error_class": "authentication"}
+    if any(marker in lowered for marker in ("notauthorized", "not authorized", "forbidden", "permission denied", "status: 403", "status code: 403", '"status": 403')):
+        return "permission-denied", {"error_class": "authorization"}
+    if any(marker in lowered for marker in ("config", "key_file", "profile", "signing")):
+        return "query-failed", {"error_class": "local-auth-configuration"}
+    return "query-failed", {"error_class": "oci-cli-or-service"}
 
 
 class OciReadOnly:
@@ -135,12 +163,7 @@ class OciReadOnly:
         except (OSError, subprocess.TimeoutExpired) as exc:
             return "query-failed", {"error_class": type(exc).__name__}
         if result.returncode != 0:
-            lowered = result.stderr.lower()
-            if any(marker in lowered for marker in ("notauthorized", "not authorized", "forbidden", "permission", "401", "403")):
-                return "permission-denied", {"error_class": "authorization"}
-            if any(marker in lowered for marker in ("config", "key_file", "profile", "signing")):
-                return "query-failed", {"error_class": "local-auth-configuration"}
-            return "query-failed", {"error_class": "oci-cli-or-service"}
+            return classify_cli_failure(result.stderr)
         try:
             return "ok", json.loads(result.stdout)
         except json.JSONDecodeError:
@@ -217,7 +240,7 @@ def discovery_failure_report(
     categories = {name: category_result(0, 0, 0, 0, 0) for name in sorted(names)}
     report = {
         "schema_version": 1,
-        "generated_at_utc": ended.isoformat().replace("+00:00", "Z"),
+        "inventory_as_of_utc": ended.isoformat().replace("+00:00", "Z"),
         "profile": "redacted",
         "scope": {
             "subscribed_region_count": None,
@@ -391,7 +414,7 @@ def inventory(profile: str, started: dt.datetime, ended: dt.datetime) -> dict[st
 
     report = {
         "schema_version": 1,
-        "generated_at_utc": ended.isoformat().replace("+00:00", "Z"),
+        "inventory_as_of_utc": ended.isoformat().replace("+00:00", "Z"),
         "profile": "redacted",
         "scope": {
             "subscribed_region_count": len(regions),

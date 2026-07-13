@@ -221,7 +221,7 @@
     "start_utc": "2026-07-06T12:00:00Z",
     "state": "not-queried"
   },
-  "generated_at_utc": "2026-07-13T12:00:00Z",
+  "inventory_as_of_utc": "2026-07-13T12:00:00Z",
   "oke_absence_proven": false,
   "profile": "redacted",
   "safety": {
@@ -234,7 +234,7 @@
   "scope": {
     "accessible_compartment_count": null,
     "discovery": "region-subscriptions",
-    "discovery_state": "permission-denied",
+    "discovery_state": "query-failed",
     "region_identifiers": [],
     "subscribed_region_count": null
   }
