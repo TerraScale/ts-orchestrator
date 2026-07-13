@@ -27,8 +27,21 @@
     },
     {
       "name": "registered-id-omission",
-      "mutation": {"op": "set", "path": "/findings/0/registryId", "value": "REQ-O999"},
-      "expected": "audit does not cover registered ID REQ-O001"
+      "target": "registry",
+      "mutation": {"op": "remove-entry", "id": "REQ-O001"},
+      "expected": "registry is missing required seeded ID REQ-O001"
+    },
+    {
+      "name": "block-entry-missing-owner",
+      "target": "registry",
+      "mutation": {"op": "remove-block-owner", "id": "REQ-O001"},
+      "expected": "registry entry REQ-O001 at line 3 is missing owner"
+    },
+    {
+      "name": "block-entry-cannot-be-skipped",
+      "target": "registry",
+      "mutation": {"op": "misindent-block-entry", "id": "REQ-O001"},
+      "expected": "skipped/misindented '- id:' entry at line 3"
     }
   ]
 }
