@@ -20,7 +20,7 @@ Created a fail-closed candidate evidence set for build, runtime, property, cover
 
 The manifest records 13 version-specific official candidates/alternatives and 6 unresolved capability gaps. Every candidate is unselected, unmirrored, locally unexecuted, and not production-qualified. Artifact signing, evidence signing, and attestation tool selections remain explicitly `null`; Cosign and Notation remain peer candidates.
 
-Following review, the manifest also binds the existing checked-in baseline: SDK `10.0.301` with `latestFeature` roll-forward, TUnit `1.56.18`, transitive Microsoft.Testing.Platform `2.2.3`, their lock content hashes, and SHA-256 provenance for all four checked-in lock files. It explicitly records that `latestFeature` permits a higher installed feature band, so the SDK is not an exact closure pending a steward decision. No central package/build file was edited.
+Following review, the manifest also binds the existing checked-in baseline: SDK `10.0.301` with `latestFeature` roll-forward, TUnit `1.56.18`, transitive Microsoft.Testing.Platform `2.2.3`, their lock content hashes, and SHA-256 provenance for every checked-in lock file. It explicitly records that `latestFeature` permits a higher installed feature band, so the SDK is not an exact closure pending a steward decision. No central package/build file was edited.
 
 Current technical/version claims use only owning-project GitHub release pages or official NuGet package pages. Trivy is a reviewed alternative rather than a recommendation because the owning project published an official March 2026 supply-chain advisory; the audit does not claim its later candidate version is compromised.
 
