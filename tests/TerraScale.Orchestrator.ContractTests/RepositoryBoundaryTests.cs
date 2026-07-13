@@ -15,13 +15,60 @@ public sealed class RepositoryBoundaryTests
         var pureProjects = new[]
         {
             "src/TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj",
-            "src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj"
+            "src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj",
+            "src/TerraScale.Orchestrator.ControlPlane/TerraScale.Orchestrator.ControlPlane.csproj",
+            "src/TerraScale.Orchestrator.Scheduler/TerraScale.Orchestrator.Scheduler.csproj"
         };
 
         foreach (var relativePath in pureProjects)
         {
             var text = await File.ReadAllTextAsync(Path.Combine(root, relativePath));
             await Assert.That(text).DoesNotContain("PackageReference");
+        }
+    }
+
+    [Test]
+    public async Task PureProductionSourcesDoNotReachInfrastructureOrAmbientTime()
+    {
+        var root = FindRepositoryRoot();
+        var pureDirectories = new[]
+        {
+            "src/TerraScale.Orchestrator.Contracts",
+            "src/TerraScale.Orchestrator.Protocol",
+            "src/TerraScale.Orchestrator.ControlPlane",
+            "src/TerraScale.Orchestrator.Scheduler"
+        };
+        var forbiddenTokens = new[]
+        {
+            "System.IO",
+            "System.Net",
+            "System.Net.Http",
+            "System.Net.Sockets",
+            "System.Environment",
+            "Environment.GetEnvironmentVariable",
+            "DateTime.Now",
+            "DateTime.UtcNow",
+            "DateTimeOffset.Now",
+            "DateTimeOffset.UtcNow",
+            "TimeProvider.System",
+            "NATS.Client",
+            "Oci."
+        };
+
+        foreach (var relativeDirectory in pureDirectories)
+        {
+            var directory = Path.Combine(root, relativeDirectory);
+            foreach (var path in Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
+                         .Where(static path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                                               !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+            {
+                var source = await File.ReadAllTextAsync(path);
+                foreach (var forbiddenToken in forbiddenTokens)
+                {
+                    await Assert.That(source).DoesNotContain(forbiddenToken)
+                        .Because($"pure source {Path.GetRelativePath(root, path)} must receive infrastructure and time as explicit inputs");
+                }
+            }
         }
     }
 
