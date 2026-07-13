@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "runtime": "smolvm",
+  "version": "1.5.0",
+  "hostPlatform": {
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hypervisor": "kvm",
+    "kvmApiVersion": 12
+  },
+  "distributionArtifacts": [
+    {
+      "path": "smolvm",
+      "role": "launcher",
+      "sha256": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2"
+    },
+    {
+      "path": "smolvm-bin",
+      "role": "runtime",
+      "sha256": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a"
+    },
+    {
+      "path": "lib/libkrun.so",
+      "role": "hypervisor-library",
+      "sha256": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e"
+    },
+    {
+      "path": "lib/libkrunfw.so.5.5.0",
+      "role": "firmware-library",
+      "sha256": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5"
+    }
+  ],
+  "api": {
+    "discoveryCommand": [
+      "serve",
+      "openapi"
+    ],
+    "openapiVersion": "3.1.0",
+    "requiredPaths": [
+      "/api/v1/machines",
+      "/api/v1/machines/{name}",
+      "/api/v1/machines/{name}/exec",
+      "/api/v1/machines/{name}/start",
+      "/api/v1/machines/{name}/stop",
+      "/health"
+    ]
+  },
+  "source": {
+    "project": "smol-machines/smolvm",
+    "repository": "https://github.com/smol-machines/smolvm"
+  }
+}

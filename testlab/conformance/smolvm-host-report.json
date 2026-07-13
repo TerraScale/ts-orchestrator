@@ -1,0 +1,119 @@
+{
+  "checks": [
+    {
+      "expected": true,
+      "name": "runtime-on-path",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": "1.5.0",
+      "name": "runtime-version",
+      "observed": "1.5.0",
+      "passed": true
+    },
+    {
+      "expected": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2",
+      "name": "artifact-sha256:launcher",
+      "observed": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2",
+      "passed": true
+    },
+    {
+      "expected": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a",
+      "name": "artifact-sha256:runtime",
+      "observed": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a",
+      "passed": true
+    },
+    {
+      "expected": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e",
+      "name": "artifact-sha256:hypervisor-library",
+      "observed": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e",
+      "passed": true
+    },
+    {
+      "expected": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5",
+      "name": "artifact-sha256:firmware-library",
+      "observed": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5",
+      "passed": true
+    },
+    {
+      "expected": "linux",
+      "name": "host-operating-system",
+      "observed": "linux",
+      "passed": true
+    },
+    {
+      "expected": "x86_64",
+      "name": "host-architecture",
+      "observed": "x86_64",
+      "passed": true
+    },
+    {
+      "expected": true,
+      "name": "kvm-character-device",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "name": "kvm-user-access",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": 12,
+      "name": "kvm-api-version",
+      "observed": 12,
+      "passed": true
+    },
+    {
+      "expected": "3.1.0",
+      "name": "api-openapi-version",
+      "observed": "3.1.0",
+      "passed": true
+    },
+    {
+      "expected": [
+        "/api/v1/machines",
+        "/api/v1/machines/{name}",
+        "/api/v1/machines/{name}/exec",
+        "/api/v1/machines/{name}/start",
+        "/api/v1/machines/{name}/stop",
+        "/health"
+      ],
+      "name": "api-required-paths",
+      "observed": [
+        "/api/v1/machines",
+        "/api/v1/machines/{id}/exec",
+        "/api/v1/machines/{id}/exec/stream",
+        "/api/v1/machines/{id}/files/{path}",
+        "/api/v1/machines/{id}/images",
+        "/api/v1/machines/{id}/images/pull",
+        "/api/v1/machines/{id}/logs",
+        "/api/v1/machines/{id}/run",
+        "/api/v1/machines/{name}",
+        "/api/v1/machines/{name}/exec",
+        "/api/v1/machines/{name}/export",
+        "/api/v1/machines/{name}/fork",
+        "/api/v1/machines/{name}/resize",
+        "/api/v1/machines/{name}/start",
+        "/api/v1/machines/{name}/stop",
+        "/capacity",
+        "/health"
+      ],
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "pin": "testlab/pins/smolvm-v1.5.0.json",
+  "runtime": "smolvm",
+  "schemaVersion": 1,
+  "untestedGates": [
+    "No VM or system under test was created, started, stopped, or queried.",
+    "The HTTP API schema was exported, but no API server was started and no live request was sent.",
+    "Guest boot, networking, persistence, fault injection, and nine-VM GRU/FRA/SFO topology remain gated.",
+    "Real systemd-as-PID-1 behavior remains gated.",
+    "linux-arm64 and real OCI A1/IAM/block-volume/storage-performance boundaries remain gated."
+  ],
+  "version": "1.5.0"
+}
