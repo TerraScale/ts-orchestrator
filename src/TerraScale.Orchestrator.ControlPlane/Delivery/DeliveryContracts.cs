@@ -57,8 +57,24 @@ public enum DeliveryErrorCode
     RollbackUnavailable,
 }
 
-public sealed record DeliveryError(DeliveryErrorCode Code, DeliveryRequirementCode Requirement, JobId? Job, ReleaseId? Release, DeliveryCellId? Cell);
-public sealed record DeliveryTrace(int Sequence, DeliveryTraceCode Code, DeliveryAction Action);
+public sealed class DeliveryError
+{
+    internal DeliveryError(DeliveryErrorCode code, DeliveryRequirementCode requirement, JobId? job, ReleaseId? release, DeliveryCellId? cell)
+    { Code = code; Requirement = requirement; Job = job; Release = release; Cell = cell; }
+    public DeliveryErrorCode Code { get; }
+    public DeliveryRequirementCode Requirement { get; }
+    public JobId? Job { get; }
+    public ReleaseId? Release { get; }
+    public DeliveryCellId? Cell { get; }
+}
+public sealed class DeliveryTrace
+{
+    internal DeliveryTrace(int sequence, DeliveryTraceCode code, DeliveryAction action)
+    { Sequence = sequence; Code = code; Action = action; }
+    public int Sequence { get; }
+    public DeliveryTraceCode Code { get; }
+    public DeliveryAction Action { get; }
+}
 
 public sealed record DependencyProof(ManifestId Manifest, long Generation, DigestId Digest);
 
@@ -204,16 +220,17 @@ public sealed record CellArtifactAvailability(
     SignatureId ForwardSignature,
     ArtifactId RollbackArtifact,
     DigestId RollbackDigest,
+    SignatureId RollbackSignature,
     bool ForwardAvailable,
     bool RollbackAvailable);
 public sealed class ReleaseSpec
 {
     public ReleaseSpec(ReleaseId release, DeliveryOperationId operation, long generation, ArtifactId artifact,
-        DigestId digest, SignatureId signature, ArtifactId rollbackArtifact, DigestId rollbackDigest,
+        DigestId digest, SignatureId signature, ArtifactId rollbackArtifact, DigestId rollbackDigest, SignatureId rollbackSignature,
         RolloutStrategy strategy, RollbackPolicy rollbackPolicy, IEnumerable<DeliveryCellId> orderedCells)
     {
         Release = release; Operation = operation; Generation = generation; Artifact = artifact; Digest = digest;
-        Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest;
+        Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature;
         Strategy = strategy; RollbackPolicy = rollbackPolicy;
         OrderedCells = new ReadOnlyCollection<DeliveryCellId>((orderedCells ?? throw new ArgumentNullException(nameof(orderedCells))).ToArray());
     }
@@ -225,6 +242,7 @@ public sealed class ReleaseSpec
     public SignatureId Signature { get; }
     public ArtifactId RollbackArtifact { get; }
     public DigestId RollbackDigest { get; }
+    public SignatureId RollbackSignature { get; }
     public RolloutStrategy Strategy { get; }
     public RollbackPolicy RollbackPolicy { get; }
     public IReadOnlyList<DeliveryCellId> OrderedCells { get; }
@@ -277,14 +295,138 @@ public sealed class RolloutRequest
     }
 }
 
-public abstract record DeliveryIntent(DeliveryAction Action);
-public sealed record FetchSourceIntent(SourceId Source, CommitId Commit, TreeId Tree) : DeliveryIntent(DeliveryAction.Fetch);
-public sealed record VerifySourceIntent(SourceId Source, CommitId Commit, TreeId Tree, ManifestId Manifest, DigestId Digest, SignatureId Signature) : DeliveryIntent(DeliveryAction.Verify);
-public sealed record PlanApplyIntent(SourceId Source, CommitId Commit, TreeId Tree, ManifestId Manifest, long Generation, DigestId Digest, IReadOnlyList<DependencyProof> Dependencies) : DeliveryIntent(DeliveryAction.Plan);
-public sealed record DispatchJobIntent(PipelineId Pipeline, JobId Job, RunnerId Runner, TreeId Tree, long Generation, int Attempt, IdempotencyId Idempotency) : DeliveryIntent(DeliveryAction.Dispatch);
-public sealed record PromoteArtifactIntent(ReleaseId Release, long Generation, EvidenceSubject Subject, SigningIdentityId SigningIdentity, SignatureId Signature, ApprovalId Approval, AttestationId Evidence, CompatibilityProof Compatibility) : DeliveryIntent(DeliveryAction.Promote);
-public sealed record StageReleaseIntent(ReleaseId Release, DeliveryOperationId Operation, DeliveryCellId Cell, long Generation, ArtifactId Artifact, DigestId Digest, SignatureId Signature, ArtifactId RollbackArtifact, DigestId RollbackDigest) : DeliveryIntent(DeliveryAction.Stage);
-public sealed record AdvanceReleaseIntent(ReleaseId Release, DeliveryCellId CompletedCell, DeliveryCellId? NextCell, long Generation, ArtifactId Artifact, DigestId Digest, AttestationId HealthProof) : DeliveryIntent(DeliveryAction.Advance);
-public sealed record RollbackReleaseIntent(ReleaseId Release, DeliveryOperationId Operation, DeliveryCellId Cell, long Generation, ArtifactId FailedArtifact, DigestId FailedDigest, ArtifactId RollbackArtifact, DigestId RollbackDigest, AttestationId HealthProof) : DeliveryIntent(DeliveryAction.Rollback);
-public sealed record HoldDeliveryIntent(DeliveryErrorCode Reason, JobId? Job, ReleaseId? Release, DeliveryCellId? Cell) : DeliveryIntent(DeliveryAction.Hold);
-public sealed record DeliveryDecision(IReadOnlyList<DeliveryIntent> Intents, IReadOnlyList<DeliveryError> Errors, IReadOnlyList<DeliveryTrace> Trace);
+public abstract class DeliveryIntent
+{
+    internal DeliveryIntent(DeliveryAction action) => Action = action;
+    public DeliveryAction Action { get; }
+}
+public sealed class FetchSourceIntent : DeliveryIntent
+{
+    internal FetchSourceIntent(SourceId source, CommitId commit, TreeId tree) : base(DeliveryAction.Fetch)
+    { Source = source; Commit = commit; Tree = tree; }
+    public SourceId Source { get; }
+    public CommitId Commit { get; }
+    public TreeId Tree { get; }
+}
+public sealed class VerifySourceIntent : DeliveryIntent
+{
+    internal VerifySourceIntent(SourceId source, CommitId commit, TreeId tree, ManifestId manifest, DigestId digest, SignatureId signature) : base(DeliveryAction.Verify)
+    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Digest = digest; Signature = signature; }
+    public SourceId Source { get; }
+    public CommitId Commit { get; }
+    public TreeId Tree { get; }
+    public ManifestId Manifest { get; }
+    public DigestId Digest { get; }
+    public SignatureId Signature { get; }
+}
+public sealed class PlanApplyIntent : DeliveryIntent
+{
+    internal PlanApplyIntent(SourceId source, CommitId commit, TreeId tree, ManifestId manifest, long generation,
+        DigestId digest, IReadOnlyList<DependencyProof> dependencies) : base(DeliveryAction.Plan)
+    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Generation = generation; Digest = digest; Dependencies = dependencies; }
+    public SourceId Source { get; }
+    public CommitId Commit { get; }
+    public TreeId Tree { get; }
+    public ManifestId Manifest { get; }
+    public long Generation { get; }
+    public DigestId Digest { get; }
+    public IReadOnlyList<DependencyProof> Dependencies { get; }
+}
+public sealed class DispatchJobIntent : DeliveryIntent
+{
+    internal DispatchJobIntent(PipelineId pipeline, JobId job, RunnerId runner, TreeId tree, long generation,
+        int attempt, IdempotencyId idempotency) : base(DeliveryAction.Dispatch)
+    { Pipeline = pipeline; Job = job; Runner = runner; Tree = tree; Generation = generation; Attempt = attempt; Idempotency = idempotency; }
+    public PipelineId Pipeline { get; }
+    public JobId Job { get; }
+    public RunnerId Runner { get; }
+    public TreeId Tree { get; }
+    public long Generation { get; }
+    public int Attempt { get; }
+    public IdempotencyId Idempotency { get; }
+}
+public sealed class PromoteArtifactIntent : DeliveryIntent
+{
+    internal PromoteArtifactIntent(ReleaseId release, long generation, EvidenceSubject subject,
+        SigningIdentityId signingIdentity, SignatureId signature, ApprovalId approval, AttestationId evidence,
+        CompatibilityProof compatibility) : base(DeliveryAction.Promote)
+    { Release = release; Generation = generation; Subject = subject; SigningIdentity = signingIdentity; Signature = signature; Approval = approval; Evidence = evidence; Compatibility = compatibility; }
+    public ReleaseId Release { get; }
+    public long Generation { get; }
+    public EvidenceSubject Subject { get; }
+    public SigningIdentityId SigningIdentity { get; }
+    public SignatureId Signature { get; }
+    public ApprovalId Approval { get; }
+    public AttestationId Evidence { get; }
+    public CompatibilityProof Compatibility { get; }
+}
+public sealed class StageReleaseIntent : DeliveryIntent
+{
+    internal StageReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId cell, long generation,
+        ArtifactId artifact, DigestId digest, SignatureId signature, ArtifactId rollbackArtifact,
+        DigestId rollbackDigest, SignatureId rollbackSignature) : base(DeliveryAction.Stage)
+    { Release = release; Operation = operation; Cell = cell; Generation = generation; Artifact = artifact; Digest = digest; Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature; }
+    public ReleaseId Release { get; }
+    public DeliveryOperationId Operation { get; }
+    public DeliveryCellId Cell { get; }
+    public long Generation { get; }
+    public ArtifactId Artifact { get; }
+    public DigestId Digest { get; }
+    public SignatureId Signature { get; }
+    public ArtifactId RollbackArtifact { get; }
+    public DigestId RollbackDigest { get; }
+    public SignatureId RollbackSignature { get; }
+}
+public sealed class AdvanceReleaseIntent : DeliveryIntent
+{
+    internal AdvanceReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId completedCell,
+        DeliveryCellId? nextCell, long generation, ArtifactId artifact, DigestId digest, SignatureId signature,
+        AttestationId healthProof) : base(DeliveryAction.Advance)
+    { Release = release; Operation = operation; CompletedCell = completedCell; NextCell = nextCell; Generation = generation; Artifact = artifact; Digest = digest; Signature = signature; HealthProof = healthProof; }
+    public ReleaseId Release { get; }
+    public DeliveryOperationId Operation { get; }
+    public DeliveryCellId CompletedCell { get; }
+    public DeliveryCellId? NextCell { get; }
+    public long Generation { get; }
+    public ArtifactId Artifact { get; }
+    public DigestId Digest { get; }
+    public SignatureId Signature { get; }
+    public AttestationId HealthProof { get; }
+}
+public sealed class RollbackReleaseIntent : DeliveryIntent
+{
+    internal RollbackReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId cell,
+        long generation, ArtifactId failedArtifact, DigestId failedDigest, SignatureId failedSignature,
+        ArtifactId rollbackArtifact, DigestId rollbackDigest, SignatureId rollbackSignature,
+        AttestationId healthProof) : base(DeliveryAction.Rollback)
+    { Release = release; Operation = operation; Cell = cell; Generation = generation; FailedArtifact = failedArtifact; FailedDigest = failedDigest; FailedSignature = failedSignature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature; HealthProof = healthProof; }
+    public ReleaseId Release { get; }
+    public DeliveryOperationId Operation { get; }
+    public DeliveryCellId Cell { get; }
+    public long Generation { get; }
+    public ArtifactId FailedArtifact { get; }
+    public DigestId FailedDigest { get; }
+    public SignatureId FailedSignature { get; }
+    public ArtifactId RollbackArtifact { get; }
+    public DigestId RollbackDigest { get; }
+    public SignatureId RollbackSignature { get; }
+    public AttestationId HealthProof { get; }
+}
+public sealed class HoldDeliveryIntent : DeliveryIntent
+{
+    internal HoldDeliveryIntent(DeliveryErrorCode reason, JobId? job, ReleaseId? release, DeliveryCellId? cell) : base(DeliveryAction.Hold)
+    { Reason = reason; Job = job; Release = release; Cell = cell; }
+    public DeliveryErrorCode Reason { get; }
+    public JobId? Job { get; }
+    public ReleaseId? Release { get; }
+    public DeliveryCellId? Cell { get; }
+}
+public sealed class DeliveryDecision
+{
+    internal DeliveryDecision(IReadOnlyList<DeliveryIntent> intents, IReadOnlyList<DeliveryError> errors,
+        IReadOnlyList<DeliveryTrace> trace)
+    { Intents = intents; Errors = errors; Trace = trace; }
+    public IReadOnlyList<DeliveryIntent> Intents { get; }
+    public IReadOnlyList<DeliveryError> Errors { get; }
+    public IReadOnlyList<DeliveryTrace> Trace { get; }
+}

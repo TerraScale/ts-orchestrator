@@ -176,12 +176,18 @@ public sealed class DeliveryEngineTests
     {
         var release = Release();
         var initial = DeliveryEngine.DecideRollout(Rollout(release));
-        await Assert.That(((StageReleaseIntent)initial.Intents.Single()).Cell.Value).IsEqualTo("sfo");
+        var stage = (StageReleaseIntent)initial.Intents.Single();
+        await Assert.That(stage.Cell.Value).IsEqualTo("sfo");
+        await Assert.That(stage.Operation).IsEqualTo(release.Operation);
+        await Assert.That(stage.Signature).IsEqualTo(release.Signature);
+        await Assert.That(stage.RollbackSignature).IsEqualTo(release.RollbackSignature);
 
         var observed = DeliveryEngine.DecideRollout(Rollout(release, stage: Stage("sfo", StageHealth.Healthy)));
         var advance = (AdvanceReleaseIntent)observed.Intents.Single();
         await Assert.That(advance.CompletedCell.Value).IsEqualTo("sfo");
         await Assert.That(advance.NextCell!.Value).IsEqualTo("fra");
+        await Assert.That(advance.Operation).IsEqualTo(release.Operation);
+        await Assert.That(advance.Signature).IsEqualTo(release.Signature);
         await Assert.That(observed.Intents.Any(static value => value is StageReleaseIntent)).IsFalse();
 
         var second = DeliveryEngine.DecideRollout(Rollout(release, completed: [Completion("sfo")]));
@@ -209,6 +215,7 @@ public sealed class DeliveryEngineTests
             valid[0] with { Generation = 3 },
             valid[0] with { ForwardDigest = new("other-digest") },
             valid[0] with { RollbackDigest = new("other-rollback") },
+            valid[0] with { RollbackSignature = new("other-rollback-signature") },
         })
         {
             var availability = valid.ToArray();
@@ -225,6 +232,8 @@ public sealed class DeliveryEngineTests
         var intent = (RollbackReleaseIntent)rollback.Intents.Single();
         await Assert.That(intent.FailedDigest.Value).IsEqualTo("digest-n");
         await Assert.That(intent.RollbackDigest.Value).IsEqualTo("digest-n-1");
+        await Assert.That(intent.FailedSignature.Value).IsEqualTo("signature-n");
+        await Assert.That(intent.RollbackSignature.Value).IsEqualTo("signature-n-1");
 
         await AssertHeld(DeliveryEngine.DecideRollout(Rollout(Release(policy: RollbackPolicy.HoldForApproval),
             stage: Stage("sfo", StageHealth.Failed))), DeliveryErrorCode.HealthDenied);
@@ -268,6 +277,11 @@ public sealed class DeliveryEngineTests
             .IsEqualTo(typeof(DeliveryRequirementCode));
         var held = DeliveryEngine.DecideSource(new(Source(generation: 2), Source(generation: 3), null, 64));
         await Assert.That(held.Errors.Single().Requirement).IsEqualTo(DeliveryRequirementCode.Inv005);
+
+        var closedOutputs = typeof(DeliveryIntent).Assembly.GetTypes()
+            .Where(type => type == typeof(DeliveryDecision) || type == typeof(DeliveryError) ||
+                type == typeof(DeliveryTrace) || typeof(DeliveryIntent).IsAssignableFrom(type));
+        await Assert.That(closedOutputs.All(static type => type.GetConstructors().Length == 0)).IsTrue();
     }
 
     private static SourceRevision Source(string reference = "develop", string tree = "tree-1", long generation = 3,
@@ -295,20 +309,20 @@ public sealed class DeliveryEngineTests
         new(new("compatibility-n-n"), new("compatibility-n-prev"), new("compatibility-prev-n"), true, true, true),
         true, true, true, true);
     private static ReleaseSpec Release(RollbackPolicy policy = RollbackPolicy.AutomaticOnFailedHealth) => new(new("release"), new("operation"),
-        4, new("artifact-n"), new("digest-n"), new("signature"), new("artifact-n-1"), new("digest-n-1"),
+        4, new("artifact-n"), new("digest-n"), new("signature-n"), new("artifact-n-1"), new("digest-n-1"), new("signature-n-1"),
         RolloutStrategy.Canary, policy, [new("sfo"), new("fra"), new("gru")]);
     private static StageEvidence Stage(string cell, StageHealth health) => new(new("stage-observation"), new("operation"),
-        new(cell), new("release"), 4, new("artifact-n"), new("digest-n"), new("signature"),
+        new(cell), new("release"), 4, new("artifact-n"), new("digest-n"), new("signature-n"),
         health, new("health-proof"), true, true);
     private static CellCompletionEvidence Completion(string cell) => new(new("operation"), new(cell), new("release"),
-        4, new("artifact-n"), new("digest-n"), new("signature"), new("health-proof"), StageHealth.Healthy);
+        4, new("artifact-n"), new("digest-n"), new("signature-n"), new("health-proof"), StageHealth.Healthy);
     private static RolloutRequest Rollout(ReleaseSpec release, IReadOnlyList<CellCompletionEvidence>? completed = null,
         StageEvidence? stage = null, bool rollbackAvailable = true) => new(release, completed ?? [],
         Availability(release, rollbackAvailable), stage, 64);
     private static CellArtifactAvailability[] Availability(ReleaseSpec release, bool rollbackAvailable = true) =>
         release.OrderedCells.Select(cell => new CellArtifactAvailability(release.Release, release.Operation, release.Generation,
             cell, release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
-            true, rollbackAvailable)).ToArray();
+            release.RollbackSignature, true, rollbackAvailable)).ToArray();
     private static async Task AssertHeld(DeliveryDecision decision, DeliveryErrorCode code)
     {
         await Assert.That(decision.Errors.Any(error => error.Code == code)).IsTrue();

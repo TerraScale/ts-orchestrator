@@ -12,6 +12,9 @@ rollout decision engines for `INV-005`. The engines consume caller-supplied
 typed evidence and emit closed fetch, verify, plan, dispatch, promote, stage,
 advance, rollback, or hold intents. They contain no Git, Forgejo, process,
 filesystem, network, clock, signing, approval, or provider implementation.
+Every emitted intent, decision, error, and trace has assembly-internal
+construction and public read-only inspection, so external callers cannot forge
+an authorized-looking mutation result without executing the decision engine.
 
 Source reconciliation binds evidence to the exact source, ref, generation,
 commit, tree, manifest, desired digest, signature, schema attestation,
@@ -37,7 +40,8 @@ entire qualification rather than partially reusing evidence.
 
 Rollout consumes one exact signed artifact and desired generation, an ordered
 cell list, exact per-cell forward and rollback availability bound to the release,
-operation, generation, artifacts, digests, and signature, disruption and
+operation, generation, artifacts, digests, and both forward and rollback
+signatures, disruption and
 availability authorization, and staged health proof. Completed-cell evidence
 binds operation, release, cell, generation, artifact, digest, signature, and
 healthy proof and must form the exact prefix. A lost stage response advances
@@ -71,7 +75,10 @@ generations, deterministic runner selection, trust-zone escape, explicit retry,
 full promotion invalidation, N/N-1 compatibility, staged regional progress,
 lost responses, availability, local rollback, exact operation/signature/cell
 completion proofs, culture/permutation stability, and reflection-based denial
-of executable, secret, callback, process, network, and I/O surfaces.
+of executable, secret, callback, process, network, and I/O surfaces. Reflection
+also proves that intents, decisions, errors, and traces expose no public
+instance constructor. Stage, advance, and rollback payload tests prove exact
+operation and forward/rollback signature preservation.
 The final direct executable run passed all 247 repository tests: Contract 8,
 ControlPlane 139, Model 17, Protocol 42, and Scheduler 41.
 

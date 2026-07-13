@@ -130,7 +130,8 @@ public static class DeliveryEngine
         if (request.CurrentStage is null)
         {
             var stage = new StageReleaseIntent(release.Release, release.Operation, expected, release.Generation,
-                release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest);
+                release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
+                release.RollbackSignature);
             return One(stage, DeliveryTraceCode.StageReady);
         }
         var current = request.CurrentStage;
@@ -147,15 +148,16 @@ public static class DeliveryEngine
             if (release.RollbackPolicy != RollbackPolicy.AutomaticOnFailedHealth)
                 return Held(DeliveryErrorCode.HealthDenied, release: release.Release, cell: expected);
             var rollback = new RollbackReleaseIntent(release.Release, release.Operation, expected, release.Generation,
-                release.Artifact, release.Digest, release.RollbackArtifact, release.RollbackDigest, current.HealthProof);
+                release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
+                release.RollbackSignature, current.HealthProof);
             return One(rollback, DeliveryTraceCode.RollbackRequired);
         }
         if (current.Health != StageHealth.Healthy)
             return Held(DeliveryErrorCode.HealthDenied, release: release.Release, cell: expected);
         var next = request.CompletedCells.Count + 1 < release.OrderedCells.Count
             ? release.OrderedCells[request.CompletedCells.Count + 1] : null;
-        var advance = new AdvanceReleaseIntent(release.Release, expected, next, release.Generation,
-            release.Artifact, release.Digest, current.HealthProof);
+        var advance = new AdvanceReleaseIntent(release.Release, release.Operation, expected, next, release.Generation,
+            release.Artifact, release.Digest, release.Signature, current.HealthProof);
         return One(advance, DeliveryTraceCode.AdvanceReady);
     }
 
@@ -198,7 +200,8 @@ public static class DeliveryEngine
     private static bool ValidRelease(ReleaseSpec release, int max) => release is not null && max > 0 &&
         Valid(release.Release?.Value, max) && Valid(release.Operation?.Value, max) && release.Generation > 0 &&
         Valid(release.Artifact?.Value, max) && Valid(release.Digest?.Value, max) && Valid(release.Signature?.Value, max) &&
-        Valid(release.RollbackArtifact?.Value, max) && Valid(release.RollbackDigest?.Value, max) && Defined(release.Strategy) &&
+        Valid(release.RollbackArtifact?.Value, max) && Valid(release.RollbackDigest?.Value, max) &&
+        Valid(release.RollbackSignature?.Value, max) && Defined(release.Strategy) &&
         Defined(release.RollbackPolicy) && release.OrderedCells.Count > 0 && release.OrderedCells.All(value => Valid(value?.Value, max)) &&
         release.OrderedCells.Distinct().Count() == release.OrderedCells.Count && release.Artifact != release.RollbackArtifact &&
         release.Digest != release.RollbackDigest;
@@ -227,10 +230,11 @@ public static class DeliveryEngine
         value.Generation > 0 && Valid(value.Cell?.Value, max) && Valid(value.ForwardArtifact?.Value, max) &&
         Valid(value.ForwardDigest?.Value, max) && Valid(value.ForwardSignature?.Value, max) &&
         Valid(value.RollbackArtifact?.Value, max) && Valid(value.RollbackDigest?.Value, max) &&
+        Valid(value.RollbackSignature?.Value, max) &&
         value.Release == release.Release && value.Operation == release.Operation && value.Generation == release.Generation &&
         value.ForwardArtifact == release.Artifact && value.ForwardDigest == release.Digest &&
         value.ForwardSignature == release.Signature && value.RollbackArtifact == release.RollbackArtifact &&
-        value.RollbackDigest == release.RollbackDigest;
+        value.RollbackDigest == release.RollbackDigest && value.RollbackSignature == release.RollbackSignature;
 
     private static bool Valid(string? value, int maximumLength)
     {
