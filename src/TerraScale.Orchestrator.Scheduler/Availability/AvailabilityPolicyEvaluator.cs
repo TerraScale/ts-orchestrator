@@ -56,6 +56,7 @@ public sealed class AvailabilityPolicyEvaluator
         {
             case PlaceReplicaChange placement:
                 projectedReplicaCount = projectedReplicaCount.AddChecked(new(1));
+                projectedAvailable = projectedAvailable.AddChecked(new(1));
                 var planned = new ReplicaObservation(
                     placement.ReplicaId,
                     request.Policy.ServiceId,

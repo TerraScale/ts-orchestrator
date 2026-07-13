@@ -17,6 +17,10 @@ every available service replica on the target node. Maintenance requires one exa
 currently available target. Disruption arithmetic is checked and quorum is the exact
 caller value; the evaluator never computes an implicit majority.
 
+An admitted planned placement contributes one checked unit to both projected replica
+count and projected availability. This lets an explicit placement restore a supplied
+minimum/quorum while `ulong.MaxValue + 1` fails closed rather than wrapping.
+
 Observation completeness is explicit because an absent whole observation cannot be
 inferred from the remaining records. Duplicate IDs, conflicting duplicate records,
 missing node/domain identity, wrong service identity, and an incomplete set hold

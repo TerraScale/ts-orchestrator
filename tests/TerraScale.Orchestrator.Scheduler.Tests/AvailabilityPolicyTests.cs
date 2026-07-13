@@ -67,6 +67,28 @@ public sealed class AvailabilityPolicyTests
     }
 
     [Test]
+    public async Task PlacementRestoresExplicitMinimumAndQuorumFromTwoToThree()
+    {
+        var observations = HealthyThree().Take(2).ToArray();
+        var placement = Place("replica-c", "node-c", "fd-c", ResourceVector.Zero, ResourceVector.Zero);
+        var decision = Evaluate(Policy(3, 3, 3, 0, domains: 3, reserve: ResourceVector.Zero), placement, observations);
+
+        await Assert.That(decision.Admitted).IsTrue();
+        await Assert.That(Reason(decision, AvailabilityReasonCode.MinimumAvailable).Observed).IsEqualTo(3UL);
+        await Assert.That(Reason(decision, AvailabilityReasonCode.MinimumAvailable).Outcome).IsEqualTo(AvailabilityReasonOutcome.Passed);
+        await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Observed).IsEqualTo(3UL);
+        await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Outcome).IsEqualTo(AvailabilityReasonOutcome.Passed);
+    }
+
+    [Test]
+    public async Task CheckedProjectedAvailabilityAdditionFailsClosedAtMaximumBoundary()
+    {
+        var maximumProjectedAvailable = new AvailabilityCount(ulong.MaxValue);
+
+        await Assert.That(Throws<OverflowException>(() => maximumProjectedAvailable.AddChecked(new(1)))).IsTrue();
+    }
+
+    [Test]
     public async Task UnavailableAllocationStillBlocksOnePerHostPlacement()
     {
         var observations = HealthyThree().ToArray();
