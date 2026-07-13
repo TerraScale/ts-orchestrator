@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "8c414be323f3a3f84879eda0be725a62afaa0c8a1131215b634b6a0ef6389bbe",
+  "inputSha256": "1c71cb7412b5847678d495437714ce217f999d008060d60da31c0d04eb5b133f",
   "counts": {
     "registered": 43,
     "linked": 6,
     "production-only": 0,
-    "test-only": 0,
-    "unreferenced": 37,
+    "test-only": 1,
+    "unreferenced": 36,
     "unknownReferences": 0
   },
   "unknownReferences": [],
@@ -1099,9 +1099,14 @@
         "L0"
       ],
       "evidenceState": "missing",
-      "traceStatus": "unreferenced",
+      "traceStatus": "test-only",
       "productionReferences": [],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ContractTests/GeneratedSchemaTests.cs",
+          "line": 40
+        }
+      ]
     },
     {
       "id": "INV-016",
@@ -1138,6 +1143,14 @@
         }
       ],
       "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ContractTests/GeneratedSchemaTests.cs",
+          "line": 30
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.ContractTests/GeneratedSchemaTests.cs",
+          "line": 40
+        },
         {
           "path": "tests/TerraScale.Orchestrator.ModelTests/ResourceContractTests.cs",
           "line": 8
@@ -1187,6 +1200,10 @@
         }
       ],
       "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ContractTests/GeneratedSchemaTests.cs",
+          "line": 40
+        },
         {
           "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
           "line": 19
