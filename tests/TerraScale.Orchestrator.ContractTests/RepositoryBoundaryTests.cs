@@ -1,5 +1,6 @@
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using System.Text.RegularExpressions;
 
 namespace TerraScale.Orchestrator.ContractTests;
 
@@ -83,6 +84,39 @@ public sealed class RepositoryBoundaryTests
             {
                 await Assert.That(canonicalOwners).Contains(collaborator);
             }
+        }
+    }
+
+    [Test]
+    public async Task TrackedSourceContainsNoPrivateKeysOrRawOciIdentifiers()
+    {
+        var root = FindRepositoryRoot();
+        var excludedDirectories = new HashSet<string>(StringComparer.Ordinal)
+        {
+            ".git", "artifacts", "bin", "obj", "TestResults"
+        };
+        var textExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".cs", ".csproj", ".json", ".md", ".props", ".py", ".slnx", ".targets", ".txt", ".yaml", ".yml"
+        };
+        var rawOcid = new Regex(
+            @"ocid1\.(?:tenancy|user|instance|volume|cluster|nodepool|vcn|subnet|loadbalancer|vault|key|bucket)\.[a-z0-9._-]{16,}",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(root, path);
+            if (relativePath.Split(Path.DirectorySeparatorChar).Any(excludedDirectories.Contains) ||
+                !textExtensions.Contains(Path.GetExtension(path)))
+            {
+                continue;
+            }
+
+            var text = await File.ReadAllTextAsync(path);
+            var privateKeyMarker = "-----BEGIN " + "PRIVATE KEY-----";
+            await Assert.That(text).DoesNotContain(privateKeyMarker);
+            await Assert.That(rawOcid.IsMatch(text)).IsFalse()
+                .Because($"raw OCI identifier found in {relativePath}");
         }
     }
 
