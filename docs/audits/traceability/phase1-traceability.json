@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "1c71cb7412b5847678d495437714ce217f999d008060d60da31c0d04eb5b133f",
+  "inputSha256": "623763bdee64813c1592c98f756ec46bf2af00d28f43fdcac0d4f609f6abcd08",
   "counts": {
     "registered": 43,
     "linked": 6,
@@ -900,6 +900,10 @@
           "line": 467
         },
         {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Reconciliation/ReconciliationEngine.cs",
+          "line": 7
+        },
+        {
           "path": "src/TerraScale.Orchestrator.Protocol/CommandValidation.cs",
           "line": 107
         }
@@ -907,6 +911,10 @@
       "testReferences": [
         {
           "path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/OperationEngineTests.cs",
+          "line": 5
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/ReconciliationEngineTests.cs",
           "line": 5
         },
         {
@@ -1066,6 +1074,10 @@
       "evidenceState": "missing",
       "traceStatus": "linked",
       "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.Scheduler/Availability/AvailabilityPolicyEvaluator.cs",
+          "line": 7
+        },
         {
           "path": "src/TerraScale.Orchestrator.Scheduler/DeterministicScheduler.cs",
           "line": 8
