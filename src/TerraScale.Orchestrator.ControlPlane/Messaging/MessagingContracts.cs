@@ -2,34 +2,35 @@ using System.Collections.ObjectModel;
 
 namespace TerraScale.Orchestrator.ControlPlane.Messaging;
 
-public sealed record CellId(string Value);
-public sealed record ClusterId(string Value);
-public sealed record ServerId(string Value);
-public sealed record AccountId(string Value);
-public sealed record StreamId(string Value);
-public sealed record BucketId(string Value);
-public sealed record PeerId(string Value);
-public sealed record StoreId(string Value);
-public sealed record PlacementId(string Value);
-public sealed record MessagingOperationId(string Value);
-public sealed record MessagingObservationId(string Value);
+public sealed record CellId { public CellId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record ClusterId { public ClusterId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record ServerId { public ServerId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record AccountId { public AccountId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record StreamId { public StreamId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record BucketId { public BucketId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record PeerId { public PeerId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record StoreId { public StoreId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record PlacementId { public PlacementId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record MessagingOperationId { public MessagingOperationId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
+public sealed record MessagingObservationId { public MessagingObservationId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
 
-public enum MessagingPlane { Control, Product }
-public enum MessagingDurability { Critical, Bounded }
-public enum MessagingRetention { Limits, WorkQueue, Interest }
-public enum MessagingDiscard { Old, New }
-public enum MessagingAcknowledgement { None, Leader, Replicated }
-public enum MessagingDiskSyncClass { AcknowledgedWriteStrict, BoundedLoss }
-public enum MessagingAction { Configure, Observe, AddPeer, ReattachStore, WaitCatchup, RemovePeer, Hold }
-public enum PeerHealth { Current, Failed, Ambiguous }
-public enum StoreClassification { Surviving, Lost, Ambiguous }
-public enum CompatibilityFeature { Commands, Snapshots, SchemaReads, LeadershipTransfer }
-public enum CompatibilityPair { CurrentToCurrent, CurrentToPrevious, PreviousToCurrent }
-public enum AuthorityScope { Regional, Global }
-public enum ConnectivityState { Connected, GlobalDisconnected, RegionalQuorumLost }
+public enum MessagingPlane { Unspecified, Control, Product }
+public enum MessagingDurability { Unspecified, Critical, Bounded }
+public enum MessagingRetention { Unspecified, Limits, WorkQueue, Interest }
+public enum MessagingDiscard { Unspecified, Old, New }
+public enum MessagingAcknowledgement { Unspecified, NoAck, Leader, Replicated }
+public enum MessagingDiskSyncClass { Unspecified, AcknowledgedWriteStrict, BoundedLoss }
+public enum MessagingAction { Unspecified, Configure, Observe, AddPeer, ReattachStore, WaitCatchup, RemovePeer, Hold }
+public enum PeerHealth { Unspecified, Current, Failed, Ambiguous }
+public enum StoreClassification { Unspecified, Surviving, Lost, Ambiguous }
+public enum CompatibilityFeature { Unspecified, Commands, Snapshots, SchemaReads, LeadershipTransfer }
+public enum CompatibilityPair { Unspecified, CurrentToCurrent, CurrentToPrevious, PreviousToCurrent }
+public enum AuthorityScope { Unspecified, Regional, Global }
+public enum ConnectivityState { Unspecified, Connected, GlobalDisconnected, RegionalQuorumLost }
 
 public enum MessagingErrorCode
 {
+    Unspecified,
     InvalidInput,
     InvalidCatalog,
     IsolationViolation,
@@ -51,6 +52,7 @@ public enum MessagingErrorCode
 
 public enum MessagingTraceCode
 {
+    Unspecified,
     ConfigurationAccepted,
     ObservationRequired,
     ReplacementMustPersist,
@@ -78,13 +80,19 @@ public sealed class AccountPolicy
 {
     public AccountPolicy(AccountId id, IEnumerable<string> subjectRoots)
     {
-        Id = id;
+        Id = id ?? throw new ArgumentNullException(nameof(id));
         SubjectRoots = Copy(subjectRoots);
     }
     public AccountId Id { get; }
     public IReadOnlyList<string> SubjectRoots { get; }
     private static IReadOnlyList<string> Copy(IEnumerable<string> values) =>
-        new ReadOnlyCollection<string>((values ?? throw new ArgumentNullException(nameof(values))).ToArray());
+        CopyValues(values);
+    private static IReadOnlyList<string> CopyValues(IEnumerable<string> values)
+    {
+        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
+        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
+        return new ReadOnlyCollection<string>(copy);
+    }
 }
 
 public sealed record ServerPolicy(ServerId Server, PeerId Peer, PlacementId Placement);
@@ -132,8 +140,8 @@ public sealed class PlanePolicy
         IEnumerable<BucketPolicy> buckets)
     {
         Plane = plane;
-        Cell = cell;
-        Cluster = cluster;
+        Cell = cell ?? throw new ArgumentNullException(nameof(cell));
+        Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
         Generation = generation;
         MembershipFloor = membershipFloor;
         Servers = ReadOnly(servers);
@@ -155,7 +163,13 @@ public sealed class PlanePolicy
     public IReadOnlyList<StreamPolicy> Streams { get; }
     public IReadOnlyList<BucketPolicy> Buckets { get; }
     private static IReadOnlyList<T> ReadOnly<T>(IEnumerable<T> values) =>
-        new ReadOnlyCollection<T>((values ?? throw new ArgumentNullException(nameof(values))).ToArray());
+        ReadOnlyChecked(values);
+    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values)
+    {
+        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
+        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
+        return new ReadOnlyCollection<T>(copy);
+    }
 }
 
 public sealed class MessagingTopologyPolicy
@@ -168,8 +182,8 @@ public sealed class MessagingTopologyPolicy
         int maximumResources,
         IEnumerable<CompatibilityFeature> knownFeatures)
     {
-        Control = control;
-        Product = product;
+        Control = control ?? throw new ArgumentNullException(nameof(control));
+        Product = product ?? throw new ArgumentNullException(nameof(product));
         MaximumIdentityLength = maximumIdentityLength;
         MaximumSubjectLength = maximumSubjectLength;
         MaximumResources = maximumResources;
@@ -223,8 +237,8 @@ public sealed class ClusterObservation
         IEnumerable<ReplicaObservation> streamReplicas,
         IEnumerable<ReplicaObservation> bucketReplicas)
     {
-        ObservationId = observationId;
-        Cluster = cluster;
+        ObservationId = observationId ?? throw new ArgumentNullException(nameof(observationId));
+        Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
         ConfigurationGeneration = configurationGeneration;
         MembershipSequence = membershipSequence;
         Peers = ReadOnly(peers);
@@ -239,7 +253,13 @@ public sealed class ClusterObservation
     public IReadOnlyList<ReplicaObservation> StreamReplicas { get; }
     public IReadOnlyList<ReplicaObservation> BucketReplicas { get; }
     private static IReadOnlyList<T> ReadOnly<T>(IEnumerable<T> values) =>
-        new ReadOnlyCollection<T>((values ?? throw new ArgumentNullException(nameof(values))).ToArray());
+        ReadOnlyChecked(values);
+    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values)
+    {
+        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
+        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
+        return new ReadOnlyCollection<T>(copy);
+    }
 }
 
 public sealed record ReplacementOperation(
@@ -276,8 +296,9 @@ public sealed class CompatibilityPolicy
     {
         CurrentVersion = currentVersion;
         PreviousVersion = previousVersion;
-        Outcomes = new ReadOnlyCollection<CompatibilityOutcome>(
-            (outcomes ?? throw new ArgumentNullException(nameof(outcomes))).ToArray());
+        var copy = (outcomes ?? throw new ArgumentNullException(nameof(outcomes))).ToArray();
+        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(outcomes));
+        Outcomes = new ReadOnlyCollection<CompatibilityOutcome>(copy);
     }
     public long CurrentVersion { get; }
     public long PreviousVersion { get; }
@@ -308,9 +329,9 @@ public sealed record ReattachSurvivingStoreIntent(
     MessagingPlane Plane,
     CellId Cell,
     ClusterId Cluster,
-    ServerId FailedServer,
-    ServerId ReplacementServer,
-    PeerId ReplacementPeer,
+    ServerId RecordedServer,
+    PeerId RecordedPeer,
+    PlacementId ReplacementPlacement,
     StoreId Store,
     long StoreGeneration,
     long ObservedMembershipSequence,

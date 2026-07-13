@@ -4,9 +4,10 @@
 
 - Pure typed control/product plane policies for cells, clusters, servers, peers, placements, accounts, subject roots, streams, buckets, routes, gateways, retention, discard, acknowledgement, disk-sync/RPO classification, and compatibility features.
 - Explicit caller bounds and values throughout; there is no R3, storage, timing, sync, retention, or compatibility default.
-- Closed scalar-safe identities and enum catalogs with positive generation/epoch/sequence validation and overflow-safe arithmetic.
+- Closed scalar-safe identities and enum catalogs with `Unspecified=0` rejected throughout, positive generation/epoch/sequence validation, and overflow-safe arithmetic.
+- Subject roots use a canonical lowercase token grammar with an optional terminal `>` only; empty tokens, uppercase, embedded `*`, embedded `>`, and malformed wildcards are rejected before any overlap decision.
 - Control/product isolation rejects shared cluster/server/peer/account/stream/bucket/subject authority, product gateways, overlapping account namespaces, and stream/bucket subjects outside their owning account.
-- Critical durability rejects singleton or below-floor replicas, non-replicated acknowledgement, and non-strict acknowledged-write classification. Exact directed route sets and explicit membership floors are validated.
+- Critical durability rejects singleton or below-floor replicas, non-replicated acknowledgement, and non-strict acknowledged-write classification. Caller-supplied route sets must be unique, known, non-self, and strongly connected; a complete directed mesh is not assumed. Explicit membership floors are validated.
 - Configure intents carry the complete immutable typed plane policy rather than generated NATS text or an under-specified flag.
 - Lost-peer replacement progression is observation-driven and ordered: observe, persist exact operation, add one replacement, wait for catch-up, verify exact stream/bucket replicas, then remove the exact failed peer. A lost add response that is visible in membership never emits a second add.
 - Observed peers must match admitted policy or the exact replacement; unknown peers cannot satisfy membership floors. Failed-process fencing is separate from positive current-peer ownership proof.
@@ -18,12 +19,12 @@
 
 The package output list initially omitted the `ReattachSurvivingStore` branch required by `ORCHESTRATOR.md`. The steward explicitly approved a closed `ReattachSurvivingStoreIntent`. It binds:
 
-- exact operation, plane, cell, cluster, failed server, replacement server/peer;
+- exact operation, plane, cell, cluster, recorded server/peer, and replacement placement evidence;
 - surviving store identity and positive observed store generation;
 - exact observed membership sequence and ownership epoch;
 - recorded owner, compatibility proof, and absence of a conflicting active attachment.
 
-Wrong-plane, incompatible, stale/future proof, or a conflicting attachment holds. When an observation proves a lost reattach response already attached the store to the exact replacement and the peer/replicas are healthy, replay completes without emitting another reattach.
+Wrong-plane, incompatible, stale/future proof, a conflicting attachment, or any attempted server/peer identity swap holds. Reattachment targets the recorded failed server and peer identity at the replacement placement; it never invents a peer and never enters the remove-peer path. When an observation proves a lost reattach response already restored that same recorded identity and its replicas are healthy, replay completes without emitting another reattach.
 
 ## Files
 
@@ -41,8 +42,8 @@ git diff --check
 ```
 
 - Solution build: 0 warnings, 0 errors.
-- Control Plane suite: 74 passed, 0 failed (14 messaging tests plus 60 existing authority, operation, reconciliation, and snapshot tests).
-- All five repository test executables: 182 passed, 0 failed (Contract 8, Control Plane 74, Model 17, Protocol 42, Scheduler 41).
+- Control Plane suite: 75 passed, 0 failed (15 messaging tests plus 60 existing authority, operation, reconciliation, and snapshot tests).
+- All five repository test executables: 183 passed, 0 failed (Contract 8, Control Plane 75, Model 17, Protocol 42, Scheduler 41).
 
 ## Deliberate boundaries
 

@@ -35,8 +35,12 @@ public sealed class MessagingPolicyEngineTests
         var cases = new MessagingTopologyPolicy[]
         {
             Topology(product: Product(cluster: baseline.Control.Cluster)),
-            Topology(product: Product(servers: Servers("control"))),
-            Topology(product: Product(accounts: [Account("control-account", "ts.product.>")])),
+            Topology(product: Product(servers: Servers("control"), routes: Routes("control"))),
+            Topology(product: Product(accounts:
+            [
+                Account("product-account", "ts.product.>"),
+                Account("control-account", "aux.control.>"),
+            ])),
             Topology(product: Product(streams: [Stream("control-stream", "product-account", "ts.product.stream.>")])),
             Topology(product: Product(buckets: [Bucket("control-bucket", "product-account", "ts.product.kv.>")])),
             Topology(product: Product(accounts: [Account("product-account", "ts.control.child.>")])),
@@ -62,7 +66,20 @@ public sealed class MessagingPolicyEngineTests
             await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(control: control)), MessagingErrorCode.DurabilityViolation);
         }
 
-        var incompleteRoutes = Control(routes: Routes("control").Skip(1));
+        var cycleRoutes = Control(routes:
+        [
+            new(new ServerId("control-server-1"), new ServerId("control-server-2")),
+            new(new ServerId("control-server-2"), new ServerId("control-server-3")),
+            new(new ServerId("control-server-3"), new ServerId("control-server-1")),
+        ]);
+        await Assert.That(MessagingPolicyEngine.DecideTopology(Topology(control: cycleRoutes)).Errors).IsEmpty();
+
+        var incompleteRoutes = Control(routes:
+        [
+            new(new ServerId("control-server-1"), new ServerId("control-server-2")),
+            new(new ServerId("control-server-2"), new ServerId("control-server-1")),
+            new(new ServerId("control-server-2"), new ServerId("control-server-3")),
+        ]);
         await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(control: incompleteRoutes)), MessagingErrorCode.IncompleteObservation);
     }
 
@@ -85,6 +102,14 @@ public sealed class MessagingPolicyEngineTests
 
         var outsideAccount = Product(streams: [Stream("product-stream", "product-account", "ts.other.>")]);
         await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(product: outsideAccount)), MessagingErrorCode.IsolationViolation);
+
+        foreach (var malformed in new[] { "ts..product", ".ts.product", "ts.product.", "ts.*.product", "ts.>.product", "TS.product", "ts.product.>>" })
+        {
+            var malformedSubject = Product(accounts: [Account("product-account", malformed)]);
+            await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(product: malformedSubject)), MessagingErrorCode.InvalidInput);
+        }
+
+        await Assert.That(Throws<ArgumentException>(() => Account("product-account", null!))).IsTrue();
     }
 
     [Test]
@@ -143,22 +168,28 @@ public sealed class MessagingPolicyEngineTests
         var initial = SurvivingObservation(operation, activeAttachment: null);
         var decision = MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation, initial, 64));
         var intent = (ReattachSurvivingStoreIntent)decision.Intents.Single();
+        await Assert.That(decision.Intents.Any(static value => value is AddPeerIntent or RemovePeerIntent)).IsFalse();
 
         await Assert.That(intent.Operation).IsEqualTo(operation.OperationId);
         await Assert.That(intent.Plane).IsEqualTo(operation.Plane);
         await Assert.That(intent.Cell).IsEqualTo(operation.Cell);
         await Assert.That(intent.Cluster).IsEqualTo(operation.Cluster);
-        await Assert.That(intent.FailedServer).IsEqualTo(operation.FailedServer);
-        await Assert.That(intent.ReplacementServer).IsEqualTo(operation.ReplacementServer);
+        await Assert.That(intent.RecordedServer).IsEqualTo(operation.FailedServer);
+        await Assert.That(intent.RecordedPeer).IsEqualTo(operation.FailedPeer);
+        await Assert.That(intent.ReplacementPlacement).IsEqualTo(operation.ReplacementPlacement);
         await Assert.That(intent.Store).IsEqualTo(new StoreId("control-store-3"));
         await Assert.That(intent.StoreGeneration).IsEqualTo(4);
         await Assert.That(intent.OwnershipEpoch).IsEqualTo(operation.AuthorityEpoch);
 
         var replay = MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation,
-            SurvivingObservation(operation, operation.ReplacementServer, includeReplacement: true), 64));
+            SurvivingObservation(operation, operation.FailedServer), 64));
         await Assert.That(replay.Errors).IsEmpty();
         await Assert.That(replay.Intents).IsEmpty();
         await Assert.That(replay.Trace.Single().Code).IsEqualTo(MessagingTraceCode.ReplacementComplete);
+
+        var swapped = MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation,
+            SurvivingObservation(operation, operation.FailedServer, includeReplacement: true), 64));
+        await AssertHeld(swapped, MessagingErrorCode.ConflictingEvidence);
     }
 
     [Test]
@@ -261,7 +292,7 @@ public sealed class MessagingPolicyEngineTests
     [Test]
     public async Task CompatibilityRequiresExplicitNNAndBothNMinusOneDirectionsPerFeature()
     {
-        var features = Enum.GetValues<CompatibilityFeature>();
+        var features = Features();
         var complete = Compatibility(features, available: true);
         var accepted = MessagingPolicyEngine.DecideCompatibility(features, complete);
         await Assert.That(accepted.Errors).IsEmpty();
@@ -320,7 +351,7 @@ public sealed class MessagingPolicyEngineTests
     public async Task MaximumValuesDoNotOverflowAndIntentsExposeNoSecretOrExecutableSurface()
     {
         var topology = new MessagingTopologyPolicy(Control(), Product(), 64, 128, int.MaxValue,
-            Enum.GetValues<CompatibilityFeature>());
+            Features());
         await Assert.That(MessagingPolicyEngine.DecideTopology(topology).Errors).IsEmpty();
 
         var operation = Operation() with
@@ -342,9 +373,62 @@ public sealed class MessagingPolicyEngineTests
         await Assert.That(propertyNames.Any(name => forbidden.Any(name.Contains))).IsFalse();
     }
 
+    [Test]
+    public async Task DefaultEnumValuesAreRejectedAcrossEveryInputDecision()
+    {
+        await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(control: Plane(
+            MessagingPlane.Unspecified, "control"))), MessagingErrorCode.InvalidInput);
+
+        var unspecifiedStream = Stream("control-stream", "control-account", "ts.control.stream.>") with
+        {
+            Durability = MessagingDurability.Unspecified,
+            Retention = MessagingRetention.Unspecified,
+            Discard = MessagingDiscard.Unspecified,
+            Acknowledgement = MessagingAcknowledgement.Unspecified,
+            DiskSyncClass = MessagingDiskSyncClass.Unspecified,
+        };
+        await AssertHeld(MessagingPolicyEngine.DecideTopology(Topology(control: Control(streams: [unspecifiedStream]))),
+            MessagingErrorCode.InvalidInput);
+
+        await AssertHeld(MessagingPolicyEngine.DecidePartition(
+            Partition(ConnectivityState.Unspecified, AuthorityScope.Regional)), MessagingErrorCode.InvalidInput);
+        await AssertHeld(MessagingPolicyEngine.DecidePartition(
+            Partition(ConnectivityState.Connected, AuthorityScope.Unspecified)), MessagingErrorCode.InvalidInput);
+
+        await AssertHeld(MessagingPolicyEngine.DecideCompatibility(
+            [CompatibilityFeature.Unspecified], new CompatibilityPolicy(2, 1, [])), MessagingErrorCode.InvalidCatalog);
+
+        var operation = Operation();
+        var defaultPeer = Observation(operation, false, false, 2).Peers
+            .Select((peer, index) => index == 0 ? peer with { Health = PeerHealth.Unspecified } : peer);
+        var baseline = Observation(operation, false, false, 2);
+        var observation = new ClusterObservation(baseline.ObservationId, baseline.Cluster,
+            baseline.ConfigurationGeneration, baseline.MembershipSequence,
+            defaultPeer, baseline.StreamReplicas, baseline.BucketReplicas);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation, observation, 64)),
+            MessagingErrorCode.IncompleteObservation);
+
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(Control(),
+            operation with { Plane = MessagingPlane.Unspecified }, null, null, 64)), MessagingErrorCode.InvalidInput);
+
+        var boundedNoAck = Stream("control-stream", "control-account", "ts.control.stream.>") with
+        {
+            Replicas = 1,
+            Durability = MessagingDurability.Bounded,
+            Acknowledgement = MessagingAcknowledgement.NoAck,
+            DiskSyncClass = MessagingDiskSyncClass.BoundedLoss,
+        };
+        await Assert.That(MessagingPolicyEngine.DecideTopology(Topology(control: Control(streams: [boundedNoAck]))).Errors).IsEmpty();
+
+        await Assert.That(Throws<ArgumentNullException>(() => new CellId(null!))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new PlanePolicy(
+            MessagingPlane.Control, new CellId("gru"), new ClusterId("control-cluster"), 1, 3,
+            [null!], [], [], [], [], []))).IsTrue();
+    }
+
     private static MessagingTopologyPolicy Topology(PlanePolicy? control = null, PlanePolicy? product = null, bool reverse = false) => new(
         control ?? Control(reverse: reverse), product ?? Product(reverse: reverse), 64, 128, 100,
-        reverse ? Enum.GetValues<CompatibilityFeature>().Reverse() : Enum.GetValues<CompatibilityFeature>());
+        reverse ? Features().Reverse() : Features());
 
     private static PlanePolicy Control(IEnumerable<RouteLink>? routes = null, IEnumerable<StreamPolicy>? streams = null, bool reverse = false) =>
         Plane(MessagingPlane.Control, "control", routes, streams, null, null, null, reverse);
@@ -352,11 +436,12 @@ public sealed class MessagingPolicyEngineTests
     private static PlanePolicy Product(
         ClusterId? cluster = null,
         IEnumerable<ServerPolicy>? servers = null,
+        IEnumerable<RouteLink>? routes = null,
         IEnumerable<ClusterId>? gateways = null,
         IEnumerable<AccountPolicy>? accounts = null,
         IEnumerable<StreamPolicy>? streams = null,
         IEnumerable<BucketPolicy>? buckets = null,
-        bool reverse = false) => Plane(MessagingPlane.Product, "product", null, streams, cluster, servers, gateways, reverse, accounts, buckets);
+        bool reverse = false) => Plane(MessagingPlane.Product, "product", routes, streams, cluster, servers, gateways, reverse, accounts, buckets);
 
     private static PlanePolicy Plane(
         MessagingPlane plane,
@@ -452,9 +537,13 @@ public sealed class MessagingPolicyEngineTests
             plane, operation.Cell, operation.Cluster, operation.FailedServer, activeAttachment, ownershipEpoch, compatible);
         var peers = new List<PeerObservation>
         {
-            new(operation.FailedServer, operation.FailedPeer, PeerHealth.Failed,
-                StoreClassification.Surviving, ProcessFenced: true, OwnershipProven: false,
-                CaughtUp: false, SurvivingStoreProof: proof),
+            new(operation.FailedServer, operation.FailedPeer,
+                activeAttachment == operation.FailedServer ? PeerHealth.Current : PeerHealth.Failed,
+                StoreClassification.Surviving,
+                ProcessFenced: activeAttachment != operation.FailedServer,
+                OwnershipProven: activeAttachment == operation.FailedServer,
+                CaughtUp: activeAttachment == operation.FailedServer,
+                SurvivingStoreProof: proof),
             new(new ServerId("control-server-1"), new PeerId("control-peer-1"), PeerHealth.Current,
                 StoreClassification.Surviving, ProcessFenced: false, OwnershipProven: true, CaughtUp: true),
             new(new ServerId("control-server-2"), new PeerId("control-peer-2"), PeerHealth.Current,
@@ -472,8 +561,13 @@ public sealed class MessagingPolicyEngineTests
         new CellId("gru"), 64, connectivity, scope, 7, 7, 9, 9, 11, 11, true, false);
 
     private static CompatibilityPolicy Compatibility(IEnumerable<CompatibilityFeature> features, bool available) => new(
-        2, 1, features.SelectMany(feature => Enum.GetValues<CompatibilityPair>()
+        2, 1, features.SelectMany(feature => Pairs()
             .Select(pair => new CompatibilityOutcome(feature, pair, available))));
+
+    private static CompatibilityFeature[] Features() => Enum.GetValues<CompatibilityFeature>()
+        .Where(static value => value != CompatibilityFeature.Unspecified).ToArray();
+    private static CompatibilityPair[] Pairs() => Enum.GetValues<CompatibilityPair>()
+        .Where(static value => value != CompatibilityPair.Unspecified).ToArray();
 
     private static string Signature(MessagingDecision decision) => string.Join('|',
         decision.Intents.Select(static intent => $"{intent.Action}:{intent.GetType().Name}")
@@ -483,5 +577,11 @@ public sealed class MessagingPolicyEngineTests
     {
         await Assert.That(decision.Errors.Any(error => error.Code == code)).IsTrue();
         await Assert.That(decision.Intents.Single()).IsTypeOf<HoldMessagingIntent>();
+    }
+
+    private static bool Throws<TException>(Action action) where TException : Exception
+    {
+        try { action(); return false; }
+        catch (TException) { return true; }
     }
 }

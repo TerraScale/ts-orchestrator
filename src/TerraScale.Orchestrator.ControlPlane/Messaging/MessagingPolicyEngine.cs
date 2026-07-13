@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 
 namespace TerraScale.Orchestrator.ControlPlane.Messaging;
 
@@ -50,10 +51,14 @@ public static class MessagingPolicyEngine
         }
         if (failed.Store == StoreClassification.Ambiguous)
             return Held([Error(MessagingErrorCode.StoreAmbiguous, operation)]);
-        if (failed.Health != PeerHealth.Failed || !failed.ProcessFenced)
+        if (failed.Store == StoreClassification.Lost && (failed.Health != PeerHealth.Failed || !failed.ProcessFenced))
             return Held([Error(MessagingErrorCode.ReplacementConflict, operation)]);
         if (failed.Store == StoreClassification.Surviving)
         {
+            if (failed.Health == PeerHealth.Failed && !failed.ProcessFenced ||
+                failed.Health == PeerHealth.Current && !failed.OwnershipProven ||
+                failed.Health is not (PeerHealth.Failed or PeerHealth.Current))
+                return Held([Error(MessagingErrorCode.ReplacementConflict, operation)]);
             var proofError = ValidateSurvivingStoreProof(operation, observation, failed, request.MaximumIdentityLength);
             if (proofError is not null) return Held([proofError]);
         }
@@ -123,14 +128,14 @@ public static class MessagingPolicyEngine
         var proofError = ValidateSurvivingStoreProof(operation, observation, failed, maximumIdentityLength);
         if (proofError is not null) return Held([proofError]);
         var proof = failed.SurvivingStoreProof!;
-        if (proof.ActiveAttachment is not null && proof.ActiveAttachment != operation.ReplacementServer)
+        if (observation.Peers.Any(peer => peer.Server == operation.ReplacementServer || peer.Peer == operation.ReplacementPeer))
             return Held([Error(MessagingErrorCode.ConflictingEvidence, operation)]);
-        if (proof.ActiveAttachment == operation.ReplacementServer)
+        if (proof.ActiveAttachment is not null && proof.ActiveAttachment != operation.FailedServer)
+            return Held([Error(MessagingErrorCode.ConflictingEvidence, operation)]);
+        if (proof.ActiveAttachment == operation.FailedServer)
         {
-            var replayed = observation.Peers.SingleOrDefault(peer =>
-                peer.Server == operation.ReplacementServer && peer.Peer == operation.ReplacementPeer);
-            if (replayed is not null && replayed.Health == PeerHealth.Current && replayed.CaughtUp &&
-                replayed.OwnershipProven && ReplicasVerified(policy, observation))
+            if (failed.Health == PeerHealth.Current && failed.CaughtUp && failed.OwnershipProven &&
+                ReplicasVerified(policy, observation))
                 return Decision([], [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
             var observe = new ObserveClusterIntent(operation.OperationId, operation.Cluster,
                 operation.MinimumObservationSequence, operation.MaximumObservationSequence);
@@ -139,7 +144,7 @@ public static class MessagingPolicyEngine
 
         var intent = new ReattachSurvivingStoreIntent(
             operation.OperationId, operation.Plane, operation.Cell, operation.Cluster,
-            operation.FailedServer, operation.ReplacementServer, operation.ReplacementPeer,
+            operation.FailedServer, operation.FailedPeer, operation.ReplacementPlacement,
             proof.Store, proof.StoreGeneration, proof.ObservedMembershipSequence, proof.OwnershipEpoch);
         return Decision([intent], [], [new(1, MessagingTraceCode.SurvivingStoreReattachRequired, intent.Action)]);
     }
@@ -151,7 +156,8 @@ public static class MessagingPolicyEngine
         int maximumIdentityLength)
     {
         var proof = failed.SurvivingStoreProof;
-        if (proof is null || !Valid(proof.Store.Value, maximumIdentityLength) || proof.StoreGeneration <= 0 ||
+        if (proof is null || proof.Store is null || proof.Cell is null || proof.Cluster is null || proof.RecordedOwner is null ||
+            !Valid(proof.Store.Value, maximumIdentityLength) || proof.StoreGeneration <= 0 ||
             proof.RecordedOwner != operation.FailedServer || proof.Cell != operation.Cell || proof.Cluster != operation.Cluster ||
             !proof.Compatible)
             return Error(MessagingErrorCode.ConflictingEvidence, operation);
@@ -167,8 +173,8 @@ public static class MessagingPolicyEngine
     public static MessagingDecision DecidePartition(PartitionRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.MaximumIdentityLength <= 0 || !Valid(request.Cell.Value, request.MaximumIdentityLength) ||
-            !Enum.IsDefined(request.Connectivity) || !Enum.IsDefined(request.Scope) ||
+        if (request.Cell is null || request.MaximumIdentityLength <= 0 || !Valid(request.Cell.Value, request.MaximumIdentityLength) ||
+            !Defined(request.Connectivity) || !Defined(request.Scope) ||
             request.CurrentRegionalEpoch <= 0 || request.CommandRegionalEpoch <= 0 ||
             request.AcceptedGlobalGeneration <= 0 || request.CommandGlobalGeneration <= 0 ||
             request.CurrentGlobalEpoch <= 0 || request.CommandGlobalEpoch <= 0)
@@ -200,14 +206,14 @@ public static class MessagingPolicyEngine
         ArgumentNullException.ThrowIfNull(knownFeatures);
         ArgumentNullException.ThrowIfNull(policy);
         if (policy.CurrentVersion <= 0 || policy.PreviousVersion <= 0 || policy.CurrentVersion - 1 != policy.PreviousVersion ||
-            knownFeatures.Count == 0 || knownFeatures.Any(static feature => !Enum.IsDefined(feature)) ||
+            knownFeatures.Count == 0 || knownFeatures.Any(static feature => !Defined(feature)) ||
             knownFeatures.Distinct().Count() != knownFeatures.Count ||
-            !knownFeatures.ToHashSet().SetEquals(Enum.GetValues<CompatibilityFeature>()) ||
-            policy.Outcomes.Any(static outcome => !Enum.IsDefined(outcome.Feature) || !Enum.IsDefined(outcome.Pair)))
+            !knownFeatures.ToHashSet().SetEquals(DefinedValues<CompatibilityFeature>()) ||
+            policy.Outcomes.Any(static outcome => !Defined(outcome.Feature) || !Defined(outcome.Pair)))
             return Held([Error(MessagingErrorCode.InvalidCatalog)]);
 
         var expected = knownFeatures
-            .SelectMany(static feature => Enum.GetValues<CompatibilityPair>().Select(pair => (feature, pair)))
+            .SelectMany(static feature => DefinedValues<CompatibilityPair>().Select(pair => (feature, pair)))
             .ToHashSet();
         var actual = policy.Outcomes.Select(static outcome => (outcome.Feature, outcome.Pair)).ToArray();
         if (actual.Distinct().Count() != actual.Length)
@@ -224,14 +230,15 @@ public static class MessagingPolicyEngine
         var errors = new List<MessagingError>();
         if (policy.Control is null || policy.Product is null || policy.MaximumIdentityLength <= 0 ||
             policy.MaximumSubjectLength <= 0 || policy.MaximumResources <= 0 ||
-            policy.KnownFeatures.Count == 0 || policy.KnownFeatures.Any(static feature => !Enum.IsDefined(feature)) ||
+            policy.KnownFeatures.Count == 0 || policy.KnownFeatures.Any(static feature => !Defined(feature)) ||
             policy.KnownFeatures.Distinct().Count() != policy.KnownFeatures.Count ||
-            !policy.KnownFeatures.ToHashSet().SetEquals(Enum.GetValues<CompatibilityFeature>()))
+            !policy.KnownFeatures.ToHashSet().SetEquals(DefinedValues<CompatibilityFeature>()))
             return [Error(MessagingErrorCode.InvalidCatalog)];
         if (policy.Control.Plane != MessagingPlane.Control || policy.Product.Plane != MessagingPlane.Product)
             errors.Add(Error(MessagingErrorCode.IsolationViolation));
         ValidatePlane(policy.Control, policy, errors);
         ValidatePlane(policy.Product, policy, errors);
+        if (errors.Count != 0) return errors.Distinct().OrderBy(static error => error.Code).ToList();
         if (policy.Control.Cell != policy.Product.Cell || policy.Control.Cluster == policy.Product.Cluster ||
             Intersects(policy.Control.Servers.Select(static server => server.Server.Value), policy.Product.Servers.Select(static server => server.Server.Value)) ||
             Intersects(policy.Control.Servers.Select(static server => server.Peer.Value), policy.Product.Servers.Select(static server => server.Peer.Value)) ||
@@ -247,7 +254,18 @@ public static class MessagingPolicyEngine
     private static void ValidatePlane(PlanePolicy plane, MessagingTopologyPolicy topology, List<MessagingError> errors)
     {
         var resourceCount = (long)plane.Servers.Count + plane.Accounts.Count + plane.Streams.Count + plane.Buckets.Count;
-        if (!Enum.IsDefined(plane.Plane) || !Valid(plane.Cell.Value, topology.MaximumIdentityLength) ||
+        if (plane.Cell is null || plane.Cluster is null ||
+            plane.Servers.Any(static server => server.Server is null || server.Peer is null || server.Placement is null) ||
+            plane.Routes.Any(static route => route.From is null || route.To is null) ||
+            plane.Gateways.Any(static gateway => gateway is null) ||
+            plane.Accounts.Any(static account => account.Id is null) ||
+            plane.Streams.Any(static stream => stream.Id is null || stream.Account is null || stream.Placement is null) ||
+            plane.Buckets.Any(static bucket => bucket.Id is null || bucket.Account is null || bucket.Placement is null))
+        {
+            errors.Add(Error(MessagingErrorCode.InvalidInput));
+            return;
+        }
+        if (!Defined(plane.Plane) || !Valid(plane.Cell.Value, topology.MaximumIdentityLength) ||
             !Valid(plane.Cluster.Value, topology.MaximumIdentityLength) || plane.Generation <= 0 ||
             plane.MembershipFloor < 2 || plane.Servers.Count != plane.MembershipFloor || resourceCount > topology.MaximumResources)
         {
@@ -264,14 +282,14 @@ public static class MessagingPolicyEngine
                 !Valid(server.Peer.Value, topology.MaximumIdentityLength) || !Valid(server.Placement.Value, topology.MaximumIdentityLength)) ||
             plane.Gateways.Any(gateway => !Valid(gateway.Value, topology.MaximumIdentityLength)) ||
             plane.Accounts.Any(account => !Valid(account.Id.Value, topology.MaximumIdentityLength) ||
-                account.SubjectRoots.Count == 0 || account.SubjectRoots.Any(subject => !Valid(subject, topology.MaximumSubjectLength))))
+                account.SubjectRoots.Count == 0 || account.SubjectRoots.Any(subject => !ValidSubjectRoot(subject, topology.MaximumSubjectLength))))
             errors.Add(Error(MessagingErrorCode.InvalidInput));
 
         var serverSet = plane.Servers.Select(static server => server.Server).ToHashSet();
         var routeSet = plane.Routes.Select(static route => (route.From, route.To)).ToArray();
         if (routeSet.Distinct().Count() != routeSet.Length || routeSet.Any(route => route.From == route.To ||
                 !serverSet.Contains(route.From) || !serverSet.Contains(route.To)) ||
-            routeSet.LongLength != (long)plane.Servers.Count * (plane.Servers.Count - 1))
+            !StronglyConnected(serverSet, plane.Routes))
             errors.Add(Error(MessagingErrorCode.IncompleteObservation));
 
         if (!Unique(plane.Gateways.Select(static gateway => gateway.Value)) || plane.Gateways.Contains(plane.Cluster))
@@ -287,9 +305,9 @@ public static class MessagingPolicyEngine
         foreach (var stream in plane.Streams)
         {
             if (!Valid(stream.Id.Value, topology.MaximumIdentityLength) || !accounts.Contains(stream.Account) ||
-                !Valid(stream.SubjectRoot, topology.MaximumSubjectLength) || !Valid(stream.Placement.Value, topology.MaximumIdentityLength) ||
-                !Enum.IsDefined(stream.Durability) || !Enum.IsDefined(stream.Retention) || !Enum.IsDefined(stream.Discard) ||
-                !Enum.IsDefined(stream.Acknowledgement) || !Enum.IsDefined(stream.DiskSyncClass) ||
+                !ValidSubjectRoot(stream.SubjectRoot, topology.MaximumSubjectLength) || !Valid(stream.Placement.Value, topology.MaximumIdentityLength) ||
+                !Defined(stream.Durability) || !Defined(stream.Retention) || !Defined(stream.Discard) ||
+                !Defined(stream.Acknowledgement) || !Defined(stream.DiskSyncClass) ||
                 stream.Replicas <= 0 || stream.Replicas > plane.Servers.Count || stream.MaximumAgeTicks <= 0 ||
                 stream.MaximumBytes <= 0 || stream.DuplicateWindowTicks <= 0)
                 errors.Add(Error(MessagingErrorCode.InvalidInput));
@@ -301,8 +319,8 @@ public static class MessagingPolicyEngine
         foreach (var bucket in plane.Buckets)
         {
             if (!Valid(bucket.Id.Value, topology.MaximumIdentityLength) || !accounts.Contains(bucket.Account) ||
-                !Valid(bucket.SubjectRoot, topology.MaximumSubjectLength) || !Valid(bucket.Placement.Value, topology.MaximumIdentityLength) ||
-                !Enum.IsDefined(bucket.Durability) || !Enum.IsDefined(bucket.Acknowledgement) || !Enum.IsDefined(bucket.DiskSyncClass) ||
+                !ValidSubjectRoot(bucket.SubjectRoot, topology.MaximumSubjectLength) || !Valid(bucket.Placement.Value, topology.MaximumIdentityLength) ||
+                !Defined(bucket.Durability) || !Defined(bucket.Acknowledgement) || !Defined(bucket.DiskSyncClass) ||
                 bucket.Replicas <= 0 || bucket.Replicas > plane.Servers.Count || bucket.MaximumAgeTicks <= 0 || bucket.MaximumBytes <= 0)
                 errors.Add(Error(MessagingErrorCode.InvalidInput));
             var owningAccount = plane.Accounts.SingleOrDefault(account => account.Id == bucket.Account);
@@ -323,7 +341,10 @@ public static class MessagingPolicyEngine
     private static MessagingError? ValidateReplacementInput(ReplacementRequest request)
     {
         var operation = request.Proposed;
-        if (request.Policy is null || operation is null || !Enum.IsDefined(operation.Plane) ||
+        if (request.Policy is null || operation is null || operation.OperationId is null || operation.Cell is null ||
+            operation.Cluster is null || operation.FailedServer is null || operation.FailedPeer is null ||
+            operation.ReplacementServer is null || operation.ReplacementPeer is null || operation.ReplacementPlacement is null ||
+            !Defined(operation.Plane) ||
             operation.Plane != request.Policy.Plane || operation.Cell != request.Policy.Cell || operation.Cluster != request.Policy.Cluster ||
             operation.ConfigurationGeneration != request.Policy.Generation ||
             operation.OperationGeneration <= 0 || operation.AuthorityEpoch <= 0 || operation.ConfigurationGeneration <= 0 ||
@@ -356,9 +377,11 @@ public static class MessagingPolicyEngine
         ClusterObservation observation,
         int maximumIdentityLength)
     {
-        if (!Valid(observation.ObservationId.Value, maximumIdentityLength) || observation.Cluster != operation.Cluster ||
+        if (observation.ObservationId is null || observation.Cluster is null ||
+            !Valid(observation.ObservationId.Value, maximumIdentityLength) || observation.Cluster != operation.Cluster ||
             observation.ConfigurationGeneration <= 0 || observation.MembershipSequence <= 0 ||
-            observation.Peers.Any(peer => !Enum.IsDefined(peer.Health) || !Enum.IsDefined(peer.Store) ||
+            observation.Peers.Any(peer => peer.Server is null || peer.Peer is null ||
+                !Defined(peer.Health) || !Defined(peer.Store) ||
                 !Valid(peer.Server.Value, maximumIdentityLength) || !Valid(peer.Peer.Value, maximumIdentityLength)) ||
             observation.StreamReplicas.Any(replica => !Valid(replica.ResourceIdentity, maximumIdentityLength) ||
                 replica.CurrentReplicas < 0 || replica.HealthyReplicas < 0 || replica.LastSequence <= 0) ||
@@ -418,6 +441,52 @@ public static class MessagingPolicyEngine
         var candidate = Prefix(child);
         return Ordinal.Equals(root, candidate) || candidate.StartsWith(root + ".", StringComparison.Ordinal);
     }
+
+    private static bool ValidSubjectRoot(string? value, int maximumLength)
+    {
+        if (!Valid(value, maximumLength)) return false;
+        var tokens = value!.Split('.');
+        if (tokens.Length == 0 || tokens.Any(static token => token.Length == 0)) return false;
+        for (var index = 0; index < tokens.Length; index++)
+        {
+            var token = tokens[index];
+            if (token == ">") return index == tokens.Length - 1 && index > 0;
+            if (token.Contains('*') || token.Contains('>') || token.Any(static character =>
+                    character is not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '-' and not '_'))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool StronglyConnected(IReadOnlySet<ServerId> servers, IReadOnlyList<RouteLink> routes)
+    {
+        if (servers.Count == 0) return false;
+        var start = servers.OrderBy(static server => server.Value, Ordinal).First();
+        return Reachable(start, servers, routes, reverse: false) && Reachable(start, servers, routes, reverse: true);
+    }
+
+    private static bool Reachable(ServerId start, IReadOnlySet<ServerId> servers, IReadOnlyList<RouteLink> routes, bool reverse)
+    {
+        var seen = new HashSet<ServerId> { start };
+        var pending = new Queue<ServerId>();
+        pending.Enqueue(start);
+        while (pending.TryDequeue(out var current))
+        {
+            foreach (var route in routes)
+            {
+                var from = reverse ? route.To : route.From;
+                var to = reverse ? route.From : route.To;
+                if (from == current && seen.Add(to)) pending.Enqueue(to);
+            }
+        }
+        return seen.SetEquals(servers);
+    }
+
+    private static bool Defined<T>(T value) where T : struct, Enum =>
+        Enum.IsDefined(value) && Convert.ToInt64(value, CultureInfo.InvariantCulture) != 0;
+
+    private static T[] DefinedValues<T>() where T : struct, Enum =>
+        Enum.GetValues<T>().Where(Defined).ToArray();
 
     private static bool Intersects(IEnumerable<string> left, IEnumerable<string> right) =>
         left.Intersect(right, Ordinal).Any();
