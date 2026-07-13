@@ -1,0 +1,10 @@
+{
+  "watchlist": [
+    {
+      "id": "unproven-image",
+      "status": "not-oci-candidate",
+      "reason": "fixture",
+      "sourceIds": ["secondary-blog"]
+    }
+  ]
+}

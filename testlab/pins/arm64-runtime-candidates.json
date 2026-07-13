@@ -1,0 +1,398 @@
+{
+  "schemaVersion": 1,
+  "status": "proposal-unqualified",
+  "asOfDate": "2026-07-13",
+  "target": {
+    "cloud": "oci",
+    "shape": "VM.Standard.A1.Flex",
+    "operatingSystem": "linux",
+    "architecture": "aarch64"
+  },
+  "selection": {
+    "hostImageCandidateId": null,
+    "kernelBuild": null,
+    "glibcBuild": null,
+    "filesystemCandidateId": null,
+    "systemdBuild": null,
+    "containerdCandidateId": null,
+    "containerdBuild": null,
+    "runcCandidateId": null,
+    "runcBuild": null,
+    "buildkitCandidateId": null,
+    "buildkitBuild": null
+  },
+  "localObservation": {
+    "status": "observed-not-qualified",
+    "architecture": "x86_64",
+    "operatingSystem": "NixOS 26.11",
+    "kernel": "6.18.38",
+    "glibc": "2.42",
+    "pid1": "systemd",
+    "systemd": "261",
+    "rootFilesystem": "ext4",
+    "containerd": "absent",
+    "runc": "absent",
+    "buildkitd": "absent",
+    "buildctl": "absent",
+    "resize2fs": "1.47.4",
+    "xfsGrowfs": "absent",
+    "qualificationLayers": [],
+    "commands": [
+      "uname -srmo",
+      "uname -m",
+      "sed -n '1,12p' /etc/os-release",
+      "getconf GNU_LIBC_VERSION",
+      "ps -p 1 -o comm=,args=",
+      "systemctl --version | sed -n '1,2p'",
+      "findmnt -no FSTYPE /",
+      "command -v containerd",
+      "command -v runc",
+      "command -v buildkitd",
+      "command -v buildctl",
+      "command -v resize2fs",
+      "command -v xfs_growfs",
+      "resize2fs -V"
+    ]
+  },
+  "hostImageCandidates": [
+    {
+      "id": "oracle-linux-9-aarch64-platform",
+      "status": "candidate-unqualified",
+      "imageFamilyPattern": "Oracle-Linux-9.*-aarch64-*",
+      "architecture": "aarch64",
+      "supportTrack": "Oracle Linux 9",
+      "kernelTrack": "UEK; exact image kernel unset",
+      "glibcTrack": "2.34 ABI family; exact image package unset",
+      "systemdTrack": "distribution package; exact image package unset",
+      "sourceIds": [
+        "oci-arm-a1",
+        "oci-platform-images",
+        "oracle-linux9-aarch64",
+        "oracle-uek8",
+        "oracle-yum-ol9-aarch64"
+      ],
+      "gaps": [
+        "Immutable per-region image identifiers and image release notes not captured",
+        "Exact UEK build and booted kernel not observed on A1",
+        "Exact glibc/systemd/filesystem package set not observed",
+        "Upstream containerd 2.3 dynamic artifacts declare glibc 2.35 while the OL9 ABI family is 2.34; distro/source/static packaging needs explicit security and compatibility disposition",
+        "L1R and L4 evidence absent"
+      ]
+    },
+    {
+      "id": "ubuntu-24.04-lts-aarch64-platform",
+      "status": "candidate-unqualified",
+      "imageFamilyPattern": "Canonical-Ubuntu-24.04-aarch64-*",
+      "architecture": "aarch64",
+      "supportTrack": "Ubuntu 24.04 LTS standard maintenance through May 2029",
+      "kernelTrack": "OCI image-supplied Ubuntu kernel; exact build unset",
+      "glibcTrack": "2.39 ABI family; exact image package unset",
+      "systemdTrack": "255 package family; exact image package unset",
+      "sourceIds": [
+        "oci-arm-a1",
+        "oci-platform-images",
+        "oci-ubuntu2404-images",
+        "ubuntu-lifecycle",
+        "ubuntu-noble-glibc",
+        "ubuntu-noble-systemd"
+      ],
+      "gaps": [
+        "Immutable per-region image identifiers and exact release note not captured",
+        "OCI says to use the standard Ubuntu image for Arm; Minimal is not a candidate",
+        "Exact kernel/glibc/systemd/filesystem package set not observed",
+        "L1R and L4 evidence absent"
+      ]
+    }
+  ],
+  "watchlist": [
+    {
+      "id": "ubuntu-26.04-lts-aarch64",
+      "status": "not-oci-candidate",
+      "reason": "Canonical documents an ARM64 LTS release, but the cited OCI platform-image catalog does not list an Ubuntu 26.04 family; availability and A1 support require new primary evidence.",
+      "sourceIds": ["ubuntu-lifecycle", "oci-platform-images"]
+    }
+  ],
+  "filesystemCandidates": [
+    {
+      "id": "ext4-expand-only",
+      "status": "candidate-unqualified",
+      "toolFamily": "e2fsprogs resize2fs",
+      "sourceIds": ["e2fsprogs-resize2fs"],
+      "requiredProof": [
+        "online expand after provider and guest block rescan",
+        "UUID/provider-volume identity preserved",
+        "crash recovery at every expand checkpoint",
+        "known-volume no-format and shrink rejection",
+        "approved storage latency/throughput/IOPS SLO"
+      ]
+    },
+    {
+      "id": "xfs-expand-only",
+      "status": "candidate-unqualified",
+      "toolFamily": "xfsprogs xfs_growfs",
+      "sourceIds": ["xfsprogs-xfs-growfs"],
+      "requiredProof": [
+        "online expand after provider and guest block rescan",
+        "UUID/provider-volume identity preserved",
+        "crash recovery at every expand checkpoint",
+        "known-volume no-format and shrink rejection",
+        "approved storage latency/throughput/IOPS SLO"
+      ]
+    }
+  ],
+  "runtimeCandidates": [
+    {
+      "id": "systemd-distribution-bundled",
+      "component": "systemd",
+      "status": "candidate-unqualified",
+      "versionTrack": "host-image package",
+      "architectures": ["aarch64"],
+      "sourceIds": ["systemd-manager", "systemd-exec", "systemd-resource-control"],
+      "requiredProof": [
+        "systemd is PID 1",
+        "D-Bus transient-unit lifecycle and reconnect",
+        "credentials are atomic and not emitted",
+        "cgroups v2 CPU/memory/IO/PID controls",
+        "journald capture and bounded retention",
+        "restart, timeout, drain, rollback, and daemon-reexec behavior"
+      ]
+    },
+    {
+      "id": "containerd-2.3-lts-upstream",
+      "component": "containerd",
+      "status": "candidate-unqualified",
+      "versionTrack": "2.3 LTS; exact patch unset",
+      "architectures": ["aarch64"],
+      "sourceIds": ["containerd-releases", "containerd-getting-started"],
+      "requiredProof": [
+        "internally mirrored and signature/checksum verified ARM64 artifacts",
+        "dynamic glibc floor or static non-PIE packaging explicitly matched to the selected host and security policy",
+        "pinned configuration and socket permissions",
+        "OCI image pull by digest and snapshot lifecycle",
+        "cgroups v2, seccomp, user, mount, signal, log, restart, and garbage-collection behavior",
+        "N/N-1 upgrade and rollback with paired runc"
+      ]
+    },
+    {
+      "id": "containerd-distribution-bundled",
+      "component": "containerd",
+      "status": "candidate-unqualified",
+      "versionTrack": "selected host distribution package; exact build unset",
+      "architectures": ["aarch64"],
+      "sourceIds": ["containerd-getting-started", "ubuntu-noble-containerd"],
+      "requiredProof": [
+        "vendor security support and package provenance for the selected host",
+        "same runtime, cgroup, isolation, upgrade, and rollback matrix as upstream track",
+        "paired runc version is supported and independently pinned"
+      ]
+    },
+    {
+      "id": "runc-upstream-supported-stable",
+      "component": "runc",
+      "status": "candidate-unqualified",
+      "versionTrack": "supported stable branch at freeze; exact release unset",
+      "architectures": ["aarch64"],
+      "sourceIds": ["runc-releases", "runc-project"],
+      "requiredProof": [
+        "release signature and internally mirrored ARM64 artifact",
+        "paired containerd compatibility",
+        "OCI runtime-spec conformance",
+        "seccomp/capability/cgroup/mount/user-namespace denial tests",
+        "escape regression and N/N-1 upgrade/rollback"
+      ]
+    },
+    {
+      "id": "runc-distribution-bundled",
+      "component": "runc",
+      "status": "candidate-unqualified",
+      "versionTrack": "selected host distribution package; exact build unset",
+      "architectures": ["aarch64"],
+      "sourceIds": ["runc-project", "ubuntu-noble-runc"],
+      "requiredProof": [
+        "vendor security support and source/binary provenance",
+        "paired containerd compatibility and full runtime denial matrix",
+        "no assumption that x86 package version equals ARM64 package version"
+      ]
+    },
+    {
+      "id": "buildkit-0.30-upstream",
+      "component": "buildkit",
+      "status": "candidate-unqualified",
+      "versionTrack": "0.30; exact patch unset and no LTS claim",
+      "architectures": ["aarch64", "x86_64"],
+      "sourceIds": ["buildkit-releases", "buildkit-project"],
+      "requiredProof": [
+        "internally mirrored signature/checksum/provenance/SBOM verification",
+        "isolated rootless or otherwise explicitly constrained worker profile",
+        "no host-wide Docker socket or production credentials",
+        "multi-platform exact-digest output and reproducibility",
+        "cache poisoning, secret, network, cancellation, disk-budget, and cleanup tests"
+      ]
+    }
+  ],
+  "qualification": {
+    "L1R": {
+      "status": "not-run",
+      "architectureRequired": "aarch64",
+      "providerRequired": false,
+      "systemdPid1Required": true,
+      "requiredEvidence": [
+        "immutable candidate/image and package manifest",
+        "booted architecture/kernel/glibc/systemd/cgroup/filesystem inventory",
+        "native systemd and containerd/runc lifecycle scenarios",
+        "ext4 and XFS loop/block online-grow crash matrix",
+        "BuildKit worker isolation and deterministic multi-platform build",
+        "signed result bound to exact harness and artifact digests"
+      ]
+    },
+    "L4": {
+      "status": "not-run",
+      "architectureRequired": "aarch64",
+      "providerRequired": true,
+      "shapeRequired": "VM.Standard.A1.Flex",
+      "systemdPid1Required": true,
+      "requiredEvidence": [
+        "immutable per-region OCI image identifiers and launch template",
+        "real A1 boot and orchestrator linux-arm64 execution",
+        "OCI block attach/rescan/expand/detach with ext4 and XFS crash recovery",
+        "container workload lifecycle and multi-platform digest resolution",
+        "IAM/metadata/network/storage denial boundaries",
+        "performance, reboot, replacement, generation rotation, and cleanup proof"
+      ]
+    }
+  },
+  "primarySources": [
+    {
+      "id": "oci-arm-a1",
+      "publisher": "Oracle",
+      "url": "https://docs.oracle.com/en-us/iaas/Content/Compute/References/arm.htm",
+      "claim": "Ampere A1 is Arm-based and Oracle Linux and Ubuntu platform images are supported."
+    },
+    {
+      "id": "oci-platform-images",
+      "publisher": "Oracle",
+      "url": "https://docs.oracle.com/en-us/iaas/Content/Compute/References/images.htm",
+      "claim": "OCI lists Oracle Linux 9 and Ubuntu 24.04 platform-image families for Arm shapes and currently directs Arm users to the standard, not Minimal, Ubuntu image."
+    },
+    {
+      "id": "oci-ubuntu2404-images",
+      "publisher": "Oracle",
+      "url": "https://docs.oracle.com/en-us/iaas/images/ubuntu-2404/",
+      "claim": "OCI publishes Ubuntu 24.04 aarch64 image release notes; an exact immutable release remains to be selected."
+    },
+    {
+      "id": "ubuntu-lifecycle",
+      "publisher": "Canonical",
+      "url": "https://ubuntu.com/about/release-cycle",
+      "claim": "Ubuntu 24.04 and 26.04 are ARM64 LTS releases; 24.04 standard maintenance ends May 2029 and 26.04 ends May 2031."
+    },
+    {
+      "id": "ubuntu-noble-glibc",
+      "publisher": "Canonical",
+      "url": "https://packages.ubuntu.com/noble/arm64/libs/",
+      "claim": "Ubuntu 24.04 ARM64 uses the glibc 2.39 package family."
+    },
+    {
+      "id": "ubuntu-noble-systemd",
+      "publisher": "Canonical",
+      "url": "https://packages.ubuntu.com/noble/systemd",
+      "claim": "Ubuntu 24.04 publishes a systemd 255 package family for ARM64; exact updated image build must be observed."
+    },
+    {
+      "id": "ubuntu-noble-containerd",
+      "publisher": "Canonical",
+      "url": "https://packages.ubuntu.com/search?arch=arm64&keywords=containerd",
+      "claim": "Ubuntu publishes containerd packages for ARM64, with release/update pockets that can differ."
+    },
+    {
+      "id": "ubuntu-noble-runc",
+      "publisher": "Canonical",
+      "url": "https://packages.ubuntu.com/noble/runc",
+      "claim": "Ubuntu publishes runc for ARM64 and the displayed ARM64 build can differ from amd64."
+    },
+    {
+      "id": "oracle-linux9-aarch64",
+      "publisher": "Oracle",
+      "url": "https://docs.oracle.com/en/operating-systems/oracle-linux/9/relnotes9.3/ol9-AboutOracleLinux9.html",
+      "claim": "Oracle Linux 9 supports aarch64 and uses UEK on that architecture."
+    },
+    {
+      "id": "oracle-uek8",
+      "publisher": "Oracle",
+      "url": "https://docs.oracle.com/en-us/iaas/oracle-linux/uek/8/uek8.0-installation-and-availability.htm",
+      "claim": "UEK 8 is available on Oracle Linux 9 aarch64 and is default for fresh Oracle Linux 9.6 installations; exact OCI image behavior must be inspected."
+    },
+    {
+      "id": "oracle-yum-ol9-aarch64",
+      "publisher": "Oracle",
+      "url": "https://yum.oracle.com/repo/OracleLinux/OL9/baseos/latest/aarch64/index.html",
+      "claim": "Oracle Linux 9 BaseOS publishes aarch64 glibc 2.34 packages; the moving latest repository is candidate evidence, not an immutable pin."
+    },
+    {
+      "id": "systemd-manager",
+      "publisher": "systemd",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.html",
+      "claim": "systemd provides the system and service manager/PID 1 boundary."
+    },
+    {
+      "id": "systemd-exec",
+      "publisher": "systemd",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html",
+      "claim": "systemd defines unit execution, credential, sandboxing, and process settings that require real PID-1 tests."
+    },
+    {
+      "id": "systemd-resource-control",
+      "publisher": "systemd",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html",
+      "claim": "systemd exposes cgroup resource controls whose effective behavior depends on the booted manager and kernel."
+    },
+    {
+      "id": "containerd-releases",
+      "publisher": "containerd",
+      "url": "https://github.com/containerd/containerd/releases",
+      "claim": "containerd 2.3 is the first annual LTS track and publishes ARM64 artifacts; an exact patch is not selected here."
+    },
+    {
+      "id": "containerd-getting-started",
+      "publisher": "containerd",
+      "url": "https://github.com/containerd/containerd/blob/main/docs/getting-started.md",
+      "claim": "Official containerd binaries are available for ARM64 and upstream requires checksum verification."
+    },
+    {
+      "id": "runc-releases",
+      "publisher": "Open Container Initiative",
+      "url": "https://github.com/opencontainers/runc/releases",
+      "claim": "runc publishes supported release branches whose status must be re-evaluated at freeze."
+    },
+    {
+      "id": "runc-project",
+      "publisher": "Open Container Initiative",
+      "url": "https://github.com/opencontainers/runc",
+      "claim": "runc is Linux-only, runs OCI bundles, and official releases are signed by project keys."
+    },
+    {
+      "id": "buildkit-releases",
+      "publisher": "Moby",
+      "url": "https://github.com/moby/buildkit/releases",
+      "claim": "BuildKit 0.30 release artifacts include ARM64 builds and supply-chain metadata; no LTS claim is made."
+    },
+    {
+      "id": "buildkit-project",
+      "publisher": "Moby",
+      "url": "https://github.com/moby/buildkit",
+      "claim": "BuildKit documents OCI/containerd workers, rootless operation, multi-platform output, and reproducibility controls."
+    },
+    {
+      "id": "e2fsprogs-resize2fs",
+      "publisher": "e2fsprogs",
+      "url": "https://git.kernel.org/pub/scm/fs/ext2/e2fsprogs.git/tree/resize/resize2fs.8.in",
+      "claim": "resize2fs supports mounted ext4 expansion when the kernel/filesystem support it and does not resize the underlying partition."
+    },
+    {
+      "id": "xfsprogs-xfs-growfs",
+      "publisher": "xfsprogs",
+      "url": "https://git.kernel.org/pub/scm/fs/xfs/xfsprogs-dev.git/tree/man/man8/xfs_growfs.8",
+      "claim": "xfs_growfs expands a mounted XFS filesystem; exact kernel/tool behavior requires real tests."
+    }
+  ]
+}
