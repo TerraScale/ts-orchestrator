@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "name": "duplicate-proposed-id",
+      "mutation": {"op": "set", "path": "/findings/44/proposedId", "value": "SM-SELF-UPGRADE"},
+      "expected": "proposed IDs are not unique"
+    },
+    {
+      "name": "noncanonical-owner",
+      "mutation": {"op": "set", "path": "/findings/41/owner", "value": "control-plane"},
+      "expected": "uses noncanonical owner"
+    },
+    {
+      "name": "invalid-layer",
+      "mutation": {"op": "set", "path": "/findings/41/acceptanceLayers/0", "value": "unit"},
+      "expected": "missing/invalid acceptance layers"
+    },
+    {
+      "name": "bad-citation",
+      "mutation": {"op": "set", "path": "/findings/41/citation/contains", "value": "text absent from the cited lines"},
+      "expected": "citation text does not match"
+    },
+    {
+      "name": "duplicate-finding",
+      "mutation": {"op": "append-copy", "path": "/findings/0"},
+      "expected": "duplicate finding IDs"
+    },
+    {
+      "name": "registered-id-omission",
+      "mutation": {"op": "set", "path": "/findings/0/registryId", "value": "REQ-O999"},
+      "expected": "audit does not cover registered ID REQ-O001"
+    }
+  ]
+}
