@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "schemaRef": "testlab/pins/provider-qualification-schema.json",
+  "asOf": "2026-07-13",
+  "status": "not-qualified",
+  "productionQualified": false,
+  "normalization": {
+    "topology": null,
+    "baseCurrency": null,
+    "billingPeriodUnit": null,
+    "fxAsOf": null,
+    "fxSourceRef": null,
+    "taxTreatment": null,
+    "discountCommitmentTreatment": null,
+    "measurementWindow": null
+  },
+  "providers": [
+    {"provider":"oci","evidenceStatus":"unknown","costComponents":null,"benchmark":null,"normalizedResults":null,"resultsComplete":false,"qualified":false},
+    {"provider":"aws","evidenceStatus":"unknown","costComponents":null,"benchmark":null,"normalizedResults":null,"resultsComplete":false,"qualified":false},
+    {"provider":"gcp","evidenceStatus":"unknown","costComponents":null,"benchmark":null,"normalizedResults":null,"resultsComplete":false,"qualified":false},
+    {"provider":"azure","evidenceStatus":"unknown","costComponents":null,"benchmark":null,"normalizedResults":null,"resultsComplete":false,"qualified":false}
+  ],
+  "decision": {
+    "cheapestProvider": null,
+    "selectedProvider": null,
+    "normalizedResultsComplete": false,
+    "decisionEvidenceRefs": []
+  },
+  "ociEligibility": {
+    "requiredMinimum": 20,
+    "eligibleCount": 0,
+    "claimSatisfied": false,
+    "regionRowTemplate": {
+      "regionKey": null,
+      "publicRegion": null,
+      "realm": null,
+      "subscriptionEnabled": null,
+      "homeGeography": null,
+      "pairedGeography": null,
+      "availabilityDomains": null,
+      "faultDomains": null,
+      "a1Availability": null,
+      "approvedArmFallback": null,
+      "capacityProbe": null,
+      "images": null,
+      "blockVolume": null,
+      "objectStorageAvailable": null,
+      "kmsAvailable": null,
+      "vaultAvailable": null,
+      "loadBalancerAvailable": null,
+      "iamAvailable": null,
+      "dnsAvailable": null,
+      "billingApiAvailable": null,
+      "serviceLimits": null,
+      "quotaRequest": null,
+      "interRegionPaths": null,
+      "interRegionLatencyMs": null,
+      "interRegionEgressPrice": null,
+      "dataResidencyConstraints": null,
+      "normalizedBrlFloorPerDay": null,
+      "qualificationTimestamp": null,
+      "evidenceRefs": [],
+      "qualificationStatus": "not-qualified",
+      "disqualificationReasons": ["blank template; no region-specific evidence"]
+    },
+    "rows": []
+  },
+  "sourceCatalogRef": "testlab/pins/provider-source-catalog.json"
+}

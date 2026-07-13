@@ -1,0 +1,20 @@
+[
+  {"name":"stale-source","target":"sources","operation":"set","path":["sources",0,"checkedAt"],"value":"2025-01-01","error":"stale or future evidence"},
+  {"name":"future-source","target":"sources","operation":"set","path":["sources",0,"checkedAt"],"value":"2026-07-14","error":"stale or future evidence"},
+  {"name":"non-official-source","target":"sources","operation":"set","path":["sources",0,"url"],"value":"https://example.com/regions","error":"allowed official host"},
+  {"name":"source-topic-gap","target":"sources","operation":"delete-list-index","path":["sources"],"value":2,"error":"incomplete provider/topic coverage"},
+  {"name":"cost-schema-field-erased","target":"schema","operation":"delete-list-value","path":["costComponentFields"],"value":"publicIpv4","error":"field set drift"},
+  {"name":"partial-region-row","target":"dataset","operation":"set","path":["ociEligibility","rows"],"value":[{"regionKey":"sa-saopaulo-1"}],"error":"missing fields"},
+  {"name":"region-template-field-erased","target":"dataset","operation":"delete-key","path":["ociEligibility","regionRowTemplate"],"value":"realm","error":"missing fields"},
+  {"name":"false-twenty-claim","target":"dataset","operation":"set","path":["ociEligibility","claimSatisfied"],"value":true,"error":"false >=20 eligibility claim"},
+  {"name":"fabricated-eligible-count","target":"dataset","operation":"set","path":["ociEligibility","eligibleCount"],"value":20,"error":"fully qualified row count"},
+  {"name":"cheapest-without-results","target":"dataset","operation":"set","path":["decision","cheapestProvider"],"value":"oci","error":"requires complete normalized results"},
+  {"name":"selection-without-results","target":"dataset","operation":"set","path":["decision","selectedProvider"],"value":"oci","error":"requires complete normalized results"},
+  {"name":"partial-normalization-policy","target":"dataset","operation":"set","path":["normalization","baseCurrency"],"value":"BRL","error":"normalization fields must remain null"},
+  {"name":"false-provider-qualification","target":"dataset","operation":"set","path":["providers",0,"qualified"],"value":true,"error":"qualification claims are prohibited"},
+  {"name":"partial-provider-results","target":"dataset","operation":"set","path":["providers",0,"costComponents"],"value":{},"error":"partial results"},
+  {"name":"ambiguous-currency","target":"dataset","operation":"ambiguous-cost","path":["providers",0],"error":"currency/unit/evidence ambiguity"},
+  {"name":"missing-provider","target":"dataset","operation":"delete-list-index","path":["providers"],"value":3,"error":"exactly four provider rows"},
+  {"name":"qualified-row-with-unknowns","target":"dataset","operation":"qualified-template-row","path":["ociEligibility"],"error":"qualified row cannot contain unknown evidence"},
+  {"name":"secret-field","target":"dataset","operation":"add-key","path":["decision"],"key":"apiToken","value":"synthetic-not-a-secret","error":"secret-bearing fields are prohibited"}
+]
