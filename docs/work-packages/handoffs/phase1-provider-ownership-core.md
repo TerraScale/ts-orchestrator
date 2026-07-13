@@ -13,7 +13,9 @@ Authorization requires complete, unique, consistent evidence; exact regional aut
 
 Successful decisions emit one closed typed intent. Accepted or response-lost calls are read by work-request ID when available and otherwise re-observed, so an accepted mutation is never blindly repeated. A higher-epoch leader can resume only the identical durably authorized irreversible context and cannot replace its terminal target or compensation set.
 
-Fresh bootstrap handoff requires exact, duplicate-free agreement among expected, Pulumi, and regional inventories plus verified retain/unmanage, regional R3 journal receipt, provider readiness, trust readiness, backup readiness, and activated regional fence evidence. Only then is a typed self-management intent emitted with the exact defensively copied inventory. The model exposes no historical/adoption input.
+Action-critical inputs are a closed immutable union and are included in that durable identity: node template, placement, and bootstrap-envelope digest; volume size and performance; expansion target; attachment volume and node; and backend identity. Typed mutation intents expose only their matching parameter type. Create authorization additionally requires an exact create-key observation proving absence; unrelated resource observations or an already-resolved create key cannot authorize another create call.
+
+Fresh bootstrap handoff requires exact, duplicate-free agreement among expected, Pulumi, and regional inventories plus verified retain/unmanage, regional R3 journal receipt, provider readiness, trust readiness, backup readiness, and activated regional fence evidence. Every proof carries the exact cell, compartment, bootstrap generation, operation, and expected-inventory fingerprint, preventing cross-cell, stale-generation, or different-inventory replay. Only then is a typed self-management intent emitted with the exact scoped, defensively copied inventory. The model exposes no historical/adoption input.
 
 ## Adversarial coverage
 
@@ -28,7 +30,7 @@ dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestr
 git diff --check
 ```
 
-The final local test run completed with 62 tests passed, 0 failed, and 0 skipped. The build completed with 0 warnings and 0 errors.
+The final local test run completed with 66 tests passed, 0 failed, and 0 skipped. The build completed with 0 warnings and 0 errors.
 
 ## Adapter boundary
 

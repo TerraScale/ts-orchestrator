@@ -111,11 +111,81 @@ public sealed class ProviderOwnershipTests
             ProviderAction.CreateVolume, new IdempotentProviderCreate(new("volume-create-1")), Generation,
             ProviderObservedState.Absent, ProviderTerminalState.Present, [ProviderApproval.RegionalAuthority],
             new(DeadlineEvidenceStatus.Valid, new(1)), new("idempotency-1"),
-            [ProviderCompensation.ObserveOnly], null);
+            [ProviderCompensation.ObserveOnly], new CreateVolumeProviderParameters(new(1_000), ProviderVolumePerformance.Balanced));
         var decision = ProviderOwnershipEngine.Authorize(Request(
             context: context, ownership: [], required: [ProviderApproval.RegionalAuthority]));
         await Assert.That(decision.Authorized).IsTrue();
-        await Assert.That(decision.Intents.Single() is CreateVolumeProviderIntent).IsTrue();
+        var intent = (CreateVolumeProviderIntent)decision.Intents.Single();
+        await Assert.That(intent.Parameters.Size.Value).IsEqualTo(1_000UL);
+    }
+
+    [Test]
+    public async Task ActionCriticalParametersAreCompatibleTypedAndDurablyFingerprintBound()
+    {
+        var original = VolumeContext(new ExpandVolumeProviderParameters(new(2_000)));
+        var changed = VolumeContext(new ExpandVolumeProviderParameters(new(3_000)));
+        var intentDecision = ProviderOwnershipEngine.Authorize(Request(
+            context: original, observedState: ProviderObservedState.Present));
+        var prior = DurableProviderAuthorization.Capture(original, irreversible: true);
+        var changedDecision = ProviderOwnershipEngine.Authorize(Request(
+            context: changed, observedState: ProviderObservedState.Present, prior: prior));
+        var wrongParameters = VolumeContext(new ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance.Iops));
+        var incompatible = ProviderOwnershipEngine.Authorize(Request(
+            context: wrongParameters, observedState: ProviderObservedState.Present));
+
+        await Assert.That(((ExpandVolumeProviderIntent)intentDecision.Intents.Single()).Parameters.NewSize.Value).IsEqualTo(2_000UL);
+        await Assert.That(Reason(changedDecision, ProviderDecisionCode.PriorAuthorizationCompatible).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+        await Assert.That(Reason(incompatible, ProviderDecisionCode.ActionResourceCompatible).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+    }
+
+    [Test]
+    public async Task ArgumentBearingIntentsExposeTheirExactClosedParameters()
+    {
+        var performance = ExistingContext(
+            ProviderResourceKind.Volume, ProviderAction.ChangeVolumePerformance,
+            ProviderTerminalState.PerformanceChanged,
+            new ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance.Iops));
+        var attach = ExistingContext(
+            ProviderResourceKind.Attachment, ProviderAction.AttachVolume, ProviderTerminalState.Attached,
+            new AttachVolumeProviderParameters(new("volume:one"), new("node:one")));
+        var backend = ExistingContext(
+            ProviderResourceKind.Backend, ProviderAction.RegisterBackend, ProviderTerminalState.Registered,
+            new RegisterBackendProviderParameters(new("backend:one")));
+
+        var performanceIntent = (ChangeVolumePerformanceProviderIntent)ProviderOwnershipEngine
+            .Authorize(Request(context: performance)).Intents.Single();
+        var attachIntent = (AttachVolumeProviderIntent)ProviderOwnershipEngine
+            .Authorize(Request(context: attach)).Intents.Single();
+        var backendIntent = (RegisterBackendProviderIntent)ProviderOwnershipEngine
+            .Authorize(Request(context: backend)).Intents.Single();
+
+        await Assert.That(performanceIntent.Parameters.Performance).IsEqualTo(ProviderVolumePerformance.Iops);
+        await Assert.That(attachIntent.Parameters.VolumeId).IsEqualTo(new ProviderResourceId("volume:one"));
+        await Assert.That(attachIntent.Parameters.NodeId).IsEqualTo(new ProviderResourceId("node:one"));
+        await Assert.That(backendIntent.Parameters.BackendId).IsEqualTo(new ProviderBackendId("backend:one"));
+    }
+
+    [Test]
+    public async Task CreateAuthorizationRequiresAbsenceEvidenceForTheExactCreateKey()
+    {
+        var context = CreateNodeContext();
+        var exact = new ProviderCreateObservation(new("node-create-1"), Generation, ProviderObservedState.Absent, null);
+        var unrelated = new ProviderCreateObservation(new("other-create"), Generation, ProviderObservedState.Absent, null);
+        var resolved = new ProviderCreateObservation(new("node-create-1"), Generation, ProviderObservedState.Present, Resource);
+        var resolvedContext = CreateNodeContext(ProviderObservedState.Present);
+
+        var authorized = ProviderOwnershipEngine.Authorize(Request(context: context, ownership: [], createObservations: [exact]));
+        var unrelatedDecision = ProviderOwnershipEngine.Authorize(Request(context: context, ownership: [], createObservations: [unrelated]));
+        var resolvedDecision = ProviderOwnershipEngine.Authorize(Request(context: context, ownership: [], createObservations: [resolved]));
+        var resolvedObservation = ProviderOwnershipEngine.Authorize(Request(context: resolvedContext, ownership: [], createObservations: [resolved]));
+
+        await Assert.That(authorized.Authorized).IsTrue();
+        await Assert.That(((CreateNodeProviderIntent)authorized.Intents.Single()).Parameters.PlacementId).IsEqualTo(new ProviderPlacementId("placement-a"));
+        await Assert.That(unrelatedDecision.Authorized).IsFalse();
+        await Assert.That(resolvedDecision.Authorized).IsFalse();
+        await Assert.That(((ObserveResolvedProviderCreateIntent)resolvedObservation.Intents.Single()).ResolvedResourceId).IsEqualTo(Resource);
+        await Assert.That(Reason(unrelatedDecision, ProviderDecisionCode.GenerationMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+        await Assert.That(Reason(resolvedDecision, ProviderDecisionCode.GenerationMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
     }
 
     [Test]
@@ -129,7 +199,7 @@ public sealed class ProviderOwnershipTests
         var wrongObservation = ProviderOwnershipEngine.Authorize(Request(observedState: ProviderObservedState.Stopped));
         var incomplete = ProviderOwnershipEngine.Authorize(new(
             Context(), Authority(), [Ownership()], [], ProviderObservationCompleteness.Incomplete,
-            [Observation()], [ProviderApproval.RegionalAuthority], null,
+            [Observation()], [], [ProviderApproval.RegionalAuthority], null,
             new(ProviderCallStatus.NotCalled, null)));
         await Assert.That(Reason(wrongGeneration, ProviderDecisionCode.GenerationMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
         await Assert.That(Reason(wrongScope, ProviderDecisionCode.ScopeMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
@@ -177,22 +247,52 @@ public sealed class ProviderOwnershipTests
     public async Task ExactHandoffInventoryAndEveryProofEnableSelfManagement()
     {
         var items = Inventory();
-        var decision = ProviderOwnershipEngine.EvaluateHandoff(new(items, items.Reverse(), items), Evidence());
+        var inventory = new FreshBootstrapInventory(items, items.Reverse(), items);
+        var scope = Scope(inventory);
+        var decision = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, scope, Evidence(scope)));
         await Assert.That(decision.Ready).IsTrue();
         await Assert.That(decision.Intent).IsNotNull();
+        await Assert.That(decision.Intent!.Scope).IsEqualTo(scope);
     }
 
     [Test]
     public async Task HandoffMissingProofMismatchAndDuplicateNeverEnable()
     {
         var items = Inventory();
-        var missing = ProviderOwnershipEngine.EvaluateHandoff(new(items, items, items), Evidence(backup: HandoffEvidenceStatus.Missing));
-        var mismatch = ProviderOwnershipEngine.EvaluateHandoff(new(items, items.Take(1), items), Evidence());
-        var duplicate = ProviderOwnershipEngine.EvaluateHandoff(new(items.Append(items[0]), items, items), Evidence());
+        var exactInventory = new FreshBootstrapInventory(items, items, items);
+        var exactScope = Scope(exactInventory);
+        var mismatchInventory = new FreshBootstrapInventory(items, items.Take(1), items);
+        var duplicateInventory = new FreshBootstrapInventory(items.Append(items[0]), items, items);
+        var missing = ProviderOwnershipEngine.EvaluateHandoff(new(exactInventory, exactScope, Evidence(exactScope, backup: HandoffEvidenceStatus.Missing)));
+        var mismatch = ProviderOwnershipEngine.EvaluateHandoff(new(mismatchInventory, Scope(mismatchInventory), Evidence(Scope(mismatchInventory))));
+        var duplicate = ProviderOwnershipEngine.EvaluateHandoff(new(duplicateInventory, Scope(duplicateInventory), Evidence(Scope(duplicateInventory))));
         await Assert.That(missing.Ready).IsFalse();
         await Assert.That(mismatch.Ready).IsFalse();
         await Assert.That(duplicate.Ready).IsFalse();
         await Assert.That(duplicate.Trace.Single(x => x.Code == ProviderDecisionCode.HandoffInventoryUnique).Outcome).IsEqualTo(ProviderDecisionOutcome.Held);
+    }
+
+    [Test]
+    public async Task HandoffProofsCannotReplayAcrossCellGenerationOrInventory()
+    {
+        var items = Inventory();
+        var inventory = new FreshBootstrapInventory(items, items, items);
+        var expected = Scope(inventory);
+        var otherCell = Scope(inventory, cell: new("sfo"));
+        var staleGeneration = Scope(inventory, generation: new(6));
+        var alteredItems = items.Append(new HandoffInventoryItem(new("extra-node"), ProviderResourceKind.Node, new(1))).ToArray();
+        var alteredInventory = new FreshBootstrapInventory(alteredItems, alteredItems, alteredItems);
+
+        var crossCell = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, Evidence(otherCell)));
+        var stale = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, Evidence(staleGeneration)));
+        var mismatchedInventory = ProviderOwnershipEngine.EvaluateHandoff(new(alteredInventory, expected, Evidence(expected)));
+
+        await Assert.That(crossCell.Ready).IsFalse();
+        await Assert.That(stale.Ready).IsFalse();
+        await Assert.That(mismatchedInventory.Ready).IsFalse();
+        await Assert.That(Reason(crossCell, ProviderDecisionCode.HandoffRetainUnmanage).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+        await Assert.That(Reason(stale, ProviderDecisionCode.HandoffJournalReceipt).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+        await Assert.That(Reason(mismatchedInventory, ProviderDecisionCode.HandoffScopeMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
     }
 
     [Test]
@@ -226,7 +326,8 @@ public sealed class ProviderOwnershipTests
         await Assert.That(Throws<ArgumentException>(() => Context(approvals: [ProviderApproval.RegionalAuthority, ProviderApproval.RegionalAuthority]))).IsTrue();
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new ProviderResourceObservation(Resource, Generation, (ProviderObservedState)0))).IsTrue();
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new HandoffInventoryItem(Resource, (ProviderResourceKind)0, Generation))).IsTrue();
-        await Assert.That(Throws<ArgumentOutOfRangeException>(() => Evidence((HandoffEvidenceStatus)0))).IsTrue();
+        var inventory = new FreshBootstrapInventory(Inventory(), Inventory(), Inventory());
+        await Assert.That(Throws<ArgumentOutOfRangeException>(() => Evidence(Scope(inventory), (HandoffEvidenceStatus)0))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new ProviderCallEvidence(ProviderCallStatus.NotCalled, new("impossible-work")))).IsTrue();
     }
 
@@ -244,7 +345,48 @@ public sealed class ProviderOwnershipTests
         IEnumerable<ProviderApproval>? approvals = null) => new(
         new("operation-1"), Cell, Compartment, new(epoch), kind, action, new ExistingProviderResource(Resource),
         Generation, ProviderObservedState.Running, terminal, approvals ?? [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation],
-        new(deadline, new(1)), new("idempotency-1"), [ProviderCompensation.ObserveOnly], null);
+        new(deadline, new(1)), new("idempotency-1"), [ProviderCompensation.ObserveOnly], Parameters(action));
+
+    private static ProviderActionParameters Parameters(ProviderAction action) => action switch
+    {
+        ProviderAction.Observe => new ObserveProviderParameters(),
+        ProviderAction.StartNode => new StartNodeProviderParameters(),
+        ProviderAction.StopNode => new StopNodeProviderParameters(),
+        ProviderAction.TerminateNode => new TerminateNodeProviderParameters(),
+        ProviderAction.DetachVolume => new DetachVolumeProviderParameters(),
+        ProviderAction.CreateNode => new CreateNodeProviderParameters(new("node-template"), new("placement-a"), Digest()),
+        ProviderAction.CreateVolume => new CreateVolumeProviderParameters(new(1_000), ProviderVolumePerformance.Balanced),
+        ProviderAction.ExpandVolume => new ExpandVolumeProviderParameters(new(2_000)),
+        ProviderAction.ChangeVolumePerformance => new ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance.Iops),
+        ProviderAction.AttachVolume => new AttachVolumeProviderParameters(new("volume-1"), new("node-1")),
+        ProviderAction.RegisterBackend => new RegisterBackendProviderParameters(new("backend-1")),
+        ProviderAction.DeregisterBackend => new DeregisterBackendProviderParameters(new("backend-1")),
+        _ => throw new ArgumentOutOfRangeException(nameof(action)),
+    };
+
+    private static ProviderBootstrapEnvelopeDigest Digest() => new(new string('a', 64));
+
+    private static ProviderOperationContext VolumeContext(ProviderActionParameters parameters) => new(
+        new("operation-1"), Cell, Compartment, Epoch, ProviderResourceKind.Volume, ProviderAction.ExpandVolume,
+        new ExistingProviderResource(Resource), Generation, ProviderObservedState.Present, ProviderTerminalState.Expanded,
+        [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], new(DeadlineEvidenceStatus.Valid, new(1)),
+        new("idempotency-1"), [ProviderCompensation.ObserveOnly], parameters);
+
+    private static ProviderOperationContext ExistingContext(
+        ProviderResourceKind kind, ProviderAction action, ProviderTerminalState terminal,
+        ProviderActionParameters parameters) => new(
+        new("operation-1"), Cell, Compartment, Epoch, kind, action, new ExistingProviderResource(Resource),
+        Generation, ProviderObservedState.Running, terminal,
+        [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation],
+        new(DeadlineEvidenceStatus.Valid, new(1)), new("idempotency-1"),
+        [ProviderCompensation.ObserveOnly], parameters);
+
+    private static ProviderOperationContext CreateNodeContext(ProviderObservedState expectedState = ProviderObservedState.Absent) => new(
+        new("operation-1"), Cell, Compartment, Epoch, ProviderResourceKind.Node, ProviderAction.CreateNode,
+        new IdempotentProviderCreate(new("node-create-1")), Generation, expectedState,
+        ProviderTerminalState.Present, [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation],
+        new(DeadlineEvidenceStatus.Valid, new(1)), new("idempotency-1"), [ProviderCompensation.ObserveOnly],
+        new CreateNodeProviderParameters(new("node-template"), new("placement-a"), Digest()));
 
     private static RegionalProviderAuthority Authority(ulong epoch = 5) => new(Cell, Compartment, new(epoch));
     private static ProviderOwnershipRecord Ownership() => new(Resource, Cell, Compartment, Generation);
@@ -254,20 +396,39 @@ public sealed class ProviderOwnershipTests
         ProviderOperationContext? context = null, RegionalProviderAuthority? authority = null,
         IEnumerable<ProviderOwnershipRecord>? ownership = null, IEnumerable<ProviderInventoryTagEvidence>? tags = null,
         ulong observationGeneration = 7, ProviderObservedState observedState = ProviderObservedState.Running,
+        IEnumerable<ProviderCreateObservation>? createObservations = null,
         IEnumerable<ProviderApproval>? required = null,
         DurableProviderAuthorization? prior = null, ProviderCallEvidence? call = null,
-        bool includeAuthority = true) => new(
-        context ?? Context(), includeAuthority ? authority ?? Authority() : null, ownership ?? [Ownership()], tags ?? [],
-        ProviderObservationCompleteness.Complete, [Observation(observationGeneration, observedState)],
-        required ?? [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], prior,
-        call ?? new(ProviderCallStatus.NotCalled, null));
+        bool includeAuthority = true)
+    {
+        var actualContext = context ?? Context();
+        var create = actualContext.Target as IdempotentProviderCreate;
+        var isCreate = create is not null;
+        return new(
+            actualContext, includeAuthority ? authority ?? Authority() : null,
+            ownership ?? (isCreate ? [] : [Ownership()]), tags ?? [], ProviderObservationCompleteness.Complete,
+            isCreate ? [] : [Observation(observationGeneration, observedState)],
+            createObservations ?? (isCreate ? [new ProviderCreateObservation(create!.Key, Generation, ProviderObservedState.Absent, null)] : []),
+            required ?? [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], prior,
+            call ?? new(ProviderCallStatus.NotCalled, null));
+    }
 
     private static HandoffInventoryItem[] Inventory() =>
     [new(new("seed-node"), ProviderResourceKind.Node, new(1)), new(new("control-volume"), ProviderResourceKind.Volume, new(1))];
-    private static HandoffEvidence Evidence(HandoffEvidenceStatus backup = HandoffEvidenceStatus.Verified) => new(
-        HandoffEvidenceStatus.Verified, HandoffEvidenceStatus.Verified, HandoffEvidenceStatus.Verified,
-        HandoffEvidenceStatus.Verified, backup, HandoffEvidenceStatus.Verified);
+    private static HandoffScope Scope(
+        FreshBootstrapInventory inventory, ProviderCellId? cell = null,
+        ProviderGeneration? generation = null) => HandoffScope.ForFreshBootstrap(
+        cell ?? Cell, Compartment, generation ?? Generation, new("handoff-operation"), inventory);
+    private static HandoffEvidence Evidence(
+        HandoffScope scope, HandoffEvidenceStatus backup = HandoffEvidenceStatus.Verified) => new(
+        new RetainUnmanageHandoffProof(scope, HandoffEvidenceStatus.Verified),
+        new RegionalJournalHandoffProof(scope, HandoffEvidenceStatus.Verified),
+        new ProviderReadyHandoffProof(scope, HandoffEvidenceStatus.Verified),
+        new TrustReadyHandoffProof(scope, HandoffEvidenceStatus.Verified),
+        new BackupReadyHandoffProof(scope, backup),
+        new RegionalFenceHandoffProof(scope, HandoffEvidenceStatus.Verified));
     private static ProviderDecisionReason Reason(ProviderAuthorizationDecision d, ProviderDecisionCode c) => d.Trace.Single(x => x.Code == c);
+    private static ProviderDecisionReason Reason(HandoffDecision d, ProviderDecisionCode c) => d.Trace.Single(x => x.Code == c);
     private static string Serialize(ProviderAuthorizationDecision d) => $"{d.Authorized}|{string.Join(';', d.Trace.Select(x => $"{x.Code}:{x.Outcome}:{x.Observed}:{x.Required}"))}|{string.Join(',', d.Intents.Select(x => x.GetType().Name))}";
     private static bool Throws<T>(Action action) where T : Exception { try { action(); return false; } catch (T) { return true; } }
 }

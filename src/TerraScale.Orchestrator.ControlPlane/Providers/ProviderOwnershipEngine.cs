@@ -11,11 +11,13 @@ public static class ProviderOwnershipEngine
         var context = request.Context;
         var ownershipGroups = request.OwnershipRecords.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
         var observationGroups = request.Observations.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
+        var createObservationGroups = request.CreateObservations.GroupBy(x => x.CreateKey.Value, StringComparer.Ordinal).ToArray();
         var tagGroups = request.Tags.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
         var duplicateCount = CheckedDuplicates(ownershipGroups.Select(x => x.Count())
-            .Concat(observationGroups.Select(x => x.Count())).Concat(tagGroups.Select(x => x.Count())));
+            .Concat(observationGroups.Select(x => x.Count())).Concat(createObservationGroups.Select(x => x.Count()))
+            .Concat(tagGroups.Select(x => x.Count())));
         var conflictCount = ownershipGroups.Count(HasOwnershipConflict) + observationGroups.Count(HasObservationConflict) +
-                            tagGroups.Count(HasTagConflict);
+                            createObservationGroups.Count(HasCreateObservationConflict) + tagGroups.Count(HasTagConflict);
         var trace = new List<ProviderDecisionReason>(13)
         {
             Hold(ProviderDecisionCode.EvidenceComplete, request.ObservationCompleteness == ProviderObservationCompleteness.Complete, request.ObservationCompleteness == ProviderObservationCompleteness.Complete ? 1UL : 0UL, 1),
@@ -52,6 +54,14 @@ public static class ProviderOwnershipEngine
                                 observations[0].Generation == context.ExpectedGeneration &&
                                 observations[0].State == context.ExpectedObservedState;
         }
+        else if (context.Target is IdempotentProviderCreate create)
+        {
+            var observations = request.CreateObservations.Where(x => x.CreateKey == create.Key).ToArray();
+            ownershipMatches = request.OwnershipRecords.Count == 0;
+            generationMatches = observations is [var observation] &&
+                                observation.Generation == context.ExpectedGeneration &&
+                                observation.State == context.ExpectedObservedState;
+        }
         trace.Add(Reject(ProviderDecisionCode.OwnershipMatches, ownershipMatches, ownershipMatches ? 1UL : 0UL, 1));
         trace.Add(Reject(ProviderDecisionCode.GenerationMatches, generationMatches, generationMatches ? context.ExpectedGeneration.Value : 0UL, context.ExpectedGeneration.Value));
 
@@ -67,7 +77,7 @@ public static class ProviderOwnershipEngine
 
         var priorCompatible = request.PriorAuthorization is null || priorExact;
         trace.Add(Reject(ProviderDecisionCode.PriorAuthorizationCompatible, priorCompatible, priorCompatible ? 1UL : 0UL, 1));
-        var compatible = Compatible(context.ResourceKind, context.Action, context.DesiredTerminalState);
+        var compatible = Compatible(context);
         trace.Add(Reject(ProviderDecisionCode.ActionResourceCompatible, compatible, compatible ? 1UL : 0UL, 1));
         var tagsConsistent = TagsConsistent(request);
         trace.Add(Reject(ProviderDecisionCode.TagsConsistent, tagsConsistent, tagsConsistent ? 1UL : 0UL, 1));
@@ -77,27 +87,31 @@ public static class ProviderOwnershipEngine
         return Decision(trace, [NextIntent(request)]);
     }
 
-    public static HandoffDecision EvaluateHandoff(FreshBootstrapInventory inventory, HandoffEvidence evidence)
+    public static HandoffDecision EvaluateHandoff(HandoffRequest request)
     {
-        ArgumentNullException.ThrowIfNull(inventory); ArgumentNullException.ThrowIfNull(evidence);
+        ArgumentNullException.ThrowIfNull(request);
+        var inventory = request.Inventory;
+        var evidence = request.Evidence;
         var all = new[] { inventory.Expected, inventory.Pulumi, inventory.Regional };
         var duplicates = all.Aggregate(0, (count, items) => checked(count +
             items.Count - items.Select(x => x.ResourceId.Value).Distinct(StringComparer.Ordinal).Count()));
         var expected = Projection(inventory.Expected);
         var exact = expected == Projection(inventory.Pulumi) && expected == Projection(inventory.Regional);
+        var scopeMatchesInventory = request.ExpectedScope.InventoryFingerprint == HandoffInventoryFingerprint.Compute(inventory.Expected);
         var trace = new List<ProviderDecisionReason>
         {
             Hold(ProviderDecisionCode.HandoffInventoryUnique, duplicates == 0, checked((ulong)duplicates), 0),
             Reject(ProviderDecisionCode.HandoffInventoryExact, exact, exact ? 1UL : 0UL, 1),
-            Evidence(ProviderDecisionCode.HandoffRetainUnmanage, evidence.RetainUnmanage),
-            Evidence(ProviderDecisionCode.HandoffJournalReceipt, evidence.RegionalJournalReceipt),
-            Evidence(ProviderDecisionCode.HandoffProviderReady, evidence.ProviderReady),
-            Evidence(ProviderDecisionCode.HandoffTrustReady, evidence.TrustReady),
-            Evidence(ProviderDecisionCode.HandoffBackupReady, evidence.BackupReady),
-            Evidence(ProviderDecisionCode.HandoffFenceActivated, evidence.RegionalFenceActivated),
+            Reject(ProviderDecisionCode.HandoffScopeMatches, scopeMatchesInventory, scopeMatchesInventory ? 1UL : 0UL, 1),
+            Evidence(ProviderDecisionCode.HandoffRetainUnmanage, evidence.RetainUnmanage, request.ExpectedScope),
+            Evidence(ProviderDecisionCode.HandoffJournalReceipt, evidence.RegionalJournalReceipt, request.ExpectedScope),
+            Evidence(ProviderDecisionCode.HandoffProviderReady, evidence.ProviderReady, request.ExpectedScope),
+            Evidence(ProviderDecisionCode.HandoffTrustReady, evidence.TrustReady, request.ExpectedScope),
+            Evidence(ProviderDecisionCode.HandoffBackupReady, evidence.BackupReady, request.ExpectedScope),
+            Evidence(ProviderDecisionCode.HandoffFenceActivated, evidence.RegionalFenceActivated, request.ExpectedScope),
         };
         var ready = trace.All(x => x.Outcome == ProviderDecisionOutcome.Passed);
-        return new(ready, new ReadOnlyCollection<ProviderDecisionReason>(trace), ready ? new(inventory) : null);
+        return new(ready, new ReadOnlyCollection<ProviderDecisionReason>(trace), ready ? new(inventory, request.ExpectedScope) : null);
     }
 
     private static ProviderIntent NextIntent(ProviderAuthorizationRequest request)
@@ -106,6 +120,12 @@ public static class ProviderOwnershipEngine
             return new ReadProviderWorkRequestIntent(request.Context, request.CallEvidence.WorkRequestId);
         if (request.CallEvidence.Status is ProviderCallStatus.Accepted or ProviderCallStatus.ResponseLost or ProviderCallStatus.Completed)
             return new ObserveProviderResourceIntent(request.Context);
+        if (request.Context.Target is IdempotentProviderCreate create)
+        {
+            var observation = request.CreateObservations.Single(x => x.CreateKey == create.Key);
+            if (observation.ResolvedResourceId is not null)
+                return new ObserveResolvedProviderCreateIntent(request.Context, observation);
+        }
         return request.Context.Action switch
         {
             ProviderAction.CreateNode => new CreateNodeProviderIntent(request.Context),
@@ -124,20 +144,21 @@ public static class ProviderOwnershipEngine
         };
     }
 
-    private static bool Compatible(ProviderResourceKind kind, ProviderAction action, ProviderTerminalState terminal) => (kind, action, terminal) switch
+    private static bool Compatible(ProviderOperationContext context) =>
+        (context.ResourceKind, context.Action, context.DesiredTerminalState, context.ActionParameters) switch
     {
-        (ProviderResourceKind.Node, ProviderAction.CreateNode, ProviderTerminalState.Present) => true,
-        (ProviderResourceKind.Node, ProviderAction.StartNode, ProviderTerminalState.Running) => true,
-        (ProviderResourceKind.Node, ProviderAction.StopNode, ProviderTerminalState.Stopped) => true,
-        (ProviderResourceKind.Node, ProviderAction.TerminateNode, ProviderTerminalState.Terminated) => true,
-        (ProviderResourceKind.Node or ProviderResourceKind.Volume or ProviderResourceKind.Attachment or ProviderResourceKind.Backend, ProviderAction.Observe, _) => true,
-        (ProviderResourceKind.Volume, ProviderAction.CreateVolume, ProviderTerminalState.Present) => true,
-        (ProviderResourceKind.Volume, ProviderAction.ExpandVolume, ProviderTerminalState.Expanded) => true,
-        (ProviderResourceKind.Volume, ProviderAction.ChangeVolumePerformance, ProviderTerminalState.PerformanceChanged) => true,
-        (ProviderResourceKind.Attachment, ProviderAction.AttachVolume, ProviderTerminalState.Attached) => true,
-        (ProviderResourceKind.Attachment, ProviderAction.DetachVolume, ProviderTerminalState.Detached) => true,
-        (ProviderResourceKind.Backend, ProviderAction.RegisterBackend, ProviderTerminalState.Registered) => true,
-        (ProviderResourceKind.Backend, ProviderAction.DeregisterBackend, ProviderTerminalState.Deregistered) => true,
+        (ProviderResourceKind.Node, ProviderAction.CreateNode, ProviderTerminalState.Present, CreateNodeProviderParameters) => true,
+        (ProviderResourceKind.Node, ProviderAction.StartNode, ProviderTerminalState.Running, StartNodeProviderParameters) => true,
+        (ProviderResourceKind.Node, ProviderAction.StopNode, ProviderTerminalState.Stopped, StopNodeProviderParameters) => true,
+        (ProviderResourceKind.Node, ProviderAction.TerminateNode, ProviderTerminalState.Terminated, TerminateNodeProviderParameters) => true,
+        (ProviderResourceKind.Node or ProviderResourceKind.Volume or ProviderResourceKind.Attachment or ProviderResourceKind.Backend, ProviderAction.Observe, _, ObserveProviderParameters) => true,
+        (ProviderResourceKind.Volume, ProviderAction.CreateVolume, ProviderTerminalState.Present, CreateVolumeProviderParameters) => true,
+        (ProviderResourceKind.Volume, ProviderAction.ExpandVolume, ProviderTerminalState.Expanded, ExpandVolumeProviderParameters) => true,
+        (ProviderResourceKind.Volume, ProviderAction.ChangeVolumePerformance, ProviderTerminalState.PerformanceChanged, ChangeVolumePerformanceProviderParameters) => true,
+        (ProviderResourceKind.Attachment, ProviderAction.AttachVolume, ProviderTerminalState.Attached, AttachVolumeProviderParameters) => true,
+        (ProviderResourceKind.Attachment, ProviderAction.DetachVolume, ProviderTerminalState.Detached, DetachVolumeProviderParameters) => true,
+        (ProviderResourceKind.Backend, ProviderAction.RegisterBackend, ProviderTerminalState.Registered, RegisterBackendProviderParameters) => true,
+        (ProviderResourceKind.Backend, ProviderAction.DeregisterBackend, ProviderTerminalState.Deregistered, DeregisterBackendProviderParameters) => true,
         _ => false,
     };
 
@@ -147,6 +168,9 @@ public static class ProviderOwnershipEngine
         .Distinct(StringComparer.Ordinal).Skip(1).Any();
     private static bool HasObservationConflict(IGrouping<string, ProviderResourceObservation> g) => g
         .Select(x => string.Join('|', Invariant(x.Generation.Value), x.State))
+        .Distinct(StringComparer.Ordinal).Skip(1).Any();
+    private static bool HasCreateObservationConflict(IGrouping<string, ProviderCreateObservation> g) => g
+        .Select(x => string.Join('|', Invariant(x.Generation.Value), x.State, x.ResolvedResourceId?.Value ?? "-"))
         .Distinct(StringComparer.Ordinal).Skip(1).Any();
     private static bool HasTagConflict(IGrouping<string, ProviderInventoryTagEvidence> g) => g
         .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, x.OperationId.Value, Invariant(x.Generation.Value)))
@@ -167,6 +191,15 @@ public static class ProviderOwnershipEngine
     private static string Invariant(ulong value) => value.ToString(CultureInfo.InvariantCulture);
     private static ProviderDecisionReason Hold(ProviderDecisionCode c, bool pass, ulong o, ulong r) => new(c, pass ? ProviderDecisionOutcome.Passed : ProviderDecisionOutcome.Held, o, r);
     private static ProviderDecisionReason Reject(ProviderDecisionCode c, bool pass, ulong o, ulong r) => new(c, pass ? ProviderDecisionOutcome.Passed : ProviderDecisionOutcome.Rejected, o, r);
-    private static ProviderDecisionReason Evidence(ProviderDecisionCode c, HandoffEvidenceStatus s) => s switch { HandoffEvidenceStatus.Verified => new(c, ProviderDecisionOutcome.Passed, 1, 1), HandoffEvidenceStatus.Missing => new(c, ProviderDecisionOutcome.Held, 0, 1), _ => new(c, ProviderDecisionOutcome.Rejected, 0, 1) };
+    private static ProviderDecisionReason Evidence(ProviderDecisionCode c, HandoffProof proof, HandoffScope expectedScope)
+    {
+        if (proof.Scope != expectedScope) return new(c, ProviderDecisionOutcome.Rejected, 0, 1);
+        return proof.Status switch
+        {
+            HandoffEvidenceStatus.Verified => new(c, ProviderDecisionOutcome.Passed, 1, 1),
+            HandoffEvidenceStatus.Missing => new(c, ProviderDecisionOutcome.Held, 0, 1),
+            _ => new(c, ProviderDecisionOutcome.Rejected, 0, 1),
+        };
+    }
     private static ProviderAuthorizationDecision Decision(List<ProviderDecisionReason> trace, IReadOnlyList<ProviderIntent> intents) => new(intents.Count > 0, new ReadOnlyCollection<ProviderDecisionReason>(trace), new ReadOnlyCollection<ProviderIntent>(intents.ToArray()));
 }

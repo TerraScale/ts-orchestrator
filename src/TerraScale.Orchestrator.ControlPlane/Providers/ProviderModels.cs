@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace TerraScale.Orchestrator.ControlPlane.Providers;
@@ -47,6 +49,8 @@ public sealed record ProviderCompartmentId : ProviderToken { public ProviderComp
 public sealed record ProviderResourceId : ProviderToken { public ProviderResourceId(string value) : base(value, nameof(value), providerNative: true) { } }
 public sealed record ProviderCreateKey : ProviderToken { public ProviderCreateKey(string value) : base(value, nameof(value)) { } }
 public sealed record ProviderTemplateId : ProviderToken { public ProviderTemplateId(string value) : base(value, nameof(value)) { } }
+public sealed record ProviderPlacementId : ProviderToken { public ProviderPlacementId(string value) : base(value, nameof(value)) { } }
+public sealed record ProviderBackendId : ProviderToken { public ProviderBackendId(string value) : base(value, nameof(value), providerNative: true) { } }
 public sealed record ProviderIdempotencyKey : ProviderToken { public ProviderIdempotencyKey(string value) : base(value, nameof(value)) { } }
 public sealed record ProviderWorkRequestId : ProviderToken { public ProviderWorkRequestId(string value) : base(value, nameof(value), providerNative: true) { } }
 
@@ -60,6 +64,24 @@ public sealed record ProviderEpoch
 {
     public ProviderEpoch(ulong value) => Value = value > 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
     public ulong Value { get; }
+}
+
+public sealed record ProviderByteCount
+{
+    public ProviderByteCount(ulong value) => Value = value > 0 ? value : throw new ArgumentOutOfRangeException(nameof(value));
+    public ulong Value { get; }
+}
+
+public sealed record ProviderBootstrapEnvelopeDigest
+{
+    public ProviderBootstrapEnvelopeDigest(string sha256)
+    {
+        ArgumentNullException.ThrowIfNull(sha256);
+        if (sha256.Length != 64 || sha256.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')))
+            throw new ArgumentException("Bootstrap envelope digest must be canonical SHA-256.", nameof(sha256));
+        Sha256 = sha256;
+    }
+    public string Sha256 { get; }
 }
 
 public enum ProviderResourceKind
@@ -89,6 +111,8 @@ public enum ProviderCompensation
 {
     ObserveOnly = 1, StopCreatedNode = 2, TerminateCreatedNode = 3, DetachNewAttachment = 4, DeregisterNewBackend = 5,
 }
+
+public enum ProviderVolumePerformance { Balanced = 1, Throughput = 2, Iops = 3 }
 
 public enum DeadlineEvidenceStatus { Valid = 1, Expired = 2, Unknown = 3 }
 public sealed record DeadlineEvidence
@@ -121,6 +145,81 @@ public sealed record IdempotentProviderCreate : ProviderTarget
     internal override string Projection => $"create:{Key.Value}";
 }
 
+public abstract record ProviderActionParameters
+{
+    internal ProviderActionParameters() { }
+    internal abstract string Projection { get; }
+}
+public sealed record ObserveProviderParameters : ProviderActionParameters { internal override string Projection => "observe"; }
+public sealed record StartNodeProviderParameters : ProviderActionParameters { internal override string Projection => "start-node"; }
+public sealed record StopNodeProviderParameters : ProviderActionParameters { internal override string Projection => "stop-node"; }
+public sealed record TerminateNodeProviderParameters : ProviderActionParameters { internal override string Projection => "terminate-node"; }
+public sealed record DetachVolumeProviderParameters : ProviderActionParameters { internal override string Projection => "detach-volume"; }
+public sealed record CreateNodeProviderParameters : ProviderActionParameters
+{
+    public CreateNodeProviderParameters(ProviderTemplateId templateId, ProviderPlacementId placementId, ProviderBootstrapEnvelopeDigest bootstrapEnvelopeDigest)
+    {
+        TemplateId = templateId ?? throw new ArgumentNullException(nameof(templateId));
+        PlacementId = placementId ?? throw new ArgumentNullException(nameof(placementId));
+        BootstrapEnvelopeDigest = bootstrapEnvelopeDigest ?? throw new ArgumentNullException(nameof(bootstrapEnvelopeDigest));
+    }
+    public ProviderTemplateId TemplateId { get; }
+    public ProviderPlacementId PlacementId { get; }
+    public ProviderBootstrapEnvelopeDigest BootstrapEnvelopeDigest { get; }
+    internal override string Projection => string.Join('|', "create-node", TemplateId.Value, PlacementId.Value, BootstrapEnvelopeDigest.Sha256);
+}
+public sealed record CreateVolumeProviderParameters : ProviderActionParameters
+{
+    public CreateVolumeProviderParameters(ProviderByteCount size, ProviderVolumePerformance performance)
+    {
+        Size = size ?? throw new ArgumentNullException(nameof(size));
+        if (!Enum.IsDefined(performance)) throw new ArgumentOutOfRangeException(nameof(performance));
+        Performance = performance;
+    }
+    public ProviderByteCount Size { get; }
+    public ProviderVolumePerformance Performance { get; }
+    internal override string Projection => string.Join('|', "create-volume", Size.Value.ToString(CultureInfo.InvariantCulture), Performance);
+}
+public sealed record ExpandVolumeProviderParameters : ProviderActionParameters
+{
+    public ExpandVolumeProviderParameters(ProviderByteCount newSize) => NewSize = newSize ?? throw new ArgumentNullException(nameof(newSize));
+    public ProviderByteCount NewSize { get; }
+    internal override string Projection => $"expand-volume|{NewSize.Value.ToString(CultureInfo.InvariantCulture)}";
+}
+public sealed record ChangeVolumePerformanceProviderParameters : ProviderActionParameters
+{
+    public ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance performance)
+    {
+        if (!Enum.IsDefined(performance)) throw new ArgumentOutOfRangeException(nameof(performance));
+        Performance = performance;
+    }
+    public ProviderVolumePerformance Performance { get; }
+    internal override string Projection => $"change-volume-performance|{Performance}";
+}
+public sealed record AttachVolumeProviderParameters : ProviderActionParameters
+{
+    public AttachVolumeProviderParameters(ProviderResourceId volumeId, ProviderResourceId nodeId)
+    {
+        VolumeId = volumeId ?? throw new ArgumentNullException(nameof(volumeId));
+        NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
+    }
+    public ProviderResourceId VolumeId { get; }
+    public ProviderResourceId NodeId { get; }
+    internal override string Projection => string.Join('|', "attach-volume", VolumeId.Value, NodeId.Value);
+}
+public sealed record RegisterBackendProviderParameters : ProviderActionParameters
+{
+    public RegisterBackendProviderParameters(ProviderBackendId backendId) => BackendId = backendId ?? throw new ArgumentNullException(nameof(backendId));
+    public ProviderBackendId BackendId { get; }
+    internal override string Projection => $"register-backend|{BackendId.Value}";
+}
+public sealed record DeregisterBackendProviderParameters : ProviderActionParameters
+{
+    public DeregisterBackendProviderParameters(ProviderBackendId backendId) => BackendId = backendId ?? throw new ArgumentNullException(nameof(backendId));
+    public ProviderBackendId BackendId { get; }
+    internal override string Projection => $"deregister-backend|{BackendId.Value}";
+}
+
 public sealed class ProviderOperationContext
 {
     public ProviderOperationContext(
@@ -130,7 +229,7 @@ public sealed class ProviderOperationContext
         ProviderTerminalState desiredTerminalState,
         IEnumerable<ProviderApproval> approvals, DeadlineEvidence deadlineEvidence,
         ProviderIdempotencyKey idempotencyKey, IEnumerable<ProviderCompensation> permittedCompensations,
-        ProviderTemplateId? templateId)
+        ProviderActionParameters actionParameters)
     {
         OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
         CellId = cellId ?? throw new ArgumentNullException(nameof(cellId));
@@ -146,14 +245,10 @@ public sealed class ProviderOperationContext
         DeadlineEvidence = deadlineEvidence ?? throw new ArgumentNullException(nameof(deadlineEvidence));
         IdempotencyKey = idempotencyKey ?? throw new ArgumentNullException(nameof(idempotencyKey));
         PermittedCompensations = CopyEnums(permittedCompensations, nameof(permittedCompensations));
-        TemplateId = templateId;
+        ActionParameters = actionParameters ?? throw new ArgumentNullException(nameof(actionParameters));
         var isCreate = action is ProviderAction.CreateNode or ProviderAction.CreateVolume;
-        if (action == ProviderAction.CreateNode && (target is not IdempotentProviderCreate || templateId is null))
-            throw new ArgumentException("Create node requires a create key and template ID.");
-        if (action == ProviderAction.CreateVolume && target is not IdempotentProviderCreate)
-            throw new ArgumentException("Create volume requires a create key.");
-        if (action != ProviderAction.CreateNode && templateId is not null)
-            throw new ArgumentException("Template ID is only valid for create node.");
+        if (isCreate && target is not IdempotentProviderCreate)
+            throw new ArgumentException("Create actions require a create key.");
         if (!isCreate && target is not ExistingProviderResource)
             throw new ArgumentException("Non-create actions require an existing resource target.");
     }
@@ -172,13 +267,13 @@ public sealed class ProviderOperationContext
     public DeadlineEvidence DeadlineEvidence { get; }
     public ProviderIdempotencyKey IdempotencyKey { get; }
     public IReadOnlyList<ProviderCompensation> PermittedCompensations { get; }
-    public ProviderTemplateId? TemplateId { get; }
+    public ProviderActionParameters ActionParameters { get; }
 
     internal string Fingerprint => string.Join('|', OperationId.Value, CellId.Value, CompartmentId.Value,
         Invariant(ControllerEpoch.Value), ResourceKind, Action, Target.Projection, Invariant(ExpectedGeneration.Value), ExpectedObservedState,
         DesiredTerminalState, string.Join(',', Approvals), DeadlineEvidence.Status,
         Invariant(DeadlineEvidence.EvidenceGeneration.Value), IdempotencyKey.Value,
-        string.Join(',', PermittedCompensations), TemplateId?.Value ?? "-");
+        string.Join(',', PermittedCompensations), ActionParameters.Projection);
 
     private static string Invariant(ulong value) => value.ToString(CultureInfo.InvariantCulture);
 
@@ -246,6 +341,26 @@ public sealed record ProviderResourceObservation
     public ProviderObservedState State { get; }
 }
 
+public sealed record ProviderCreateObservation
+{
+    public ProviderCreateObservation(
+        ProviderCreateKey createKey, ProviderGeneration generation, ProviderObservedState state,
+        ProviderResourceId? resolvedResourceId)
+    {
+        CreateKey = createKey ?? throw new ArgumentNullException(nameof(createKey));
+        Generation = generation ?? throw new ArgumentNullException(nameof(generation));
+        if (!Enum.IsDefined(state)) throw new ArgumentOutOfRangeException(nameof(state));
+        if ((state == ProviderObservedState.Absent) != (resolvedResourceId is null))
+            throw new ArgumentException("Only an absent create observation may omit the resolved resource ID.", nameof(resolvedResourceId));
+        State = state;
+        ResolvedResourceId = resolvedResourceId;
+    }
+    public ProviderCreateKey CreateKey { get; }
+    public ProviderGeneration Generation { get; }
+    public ProviderObservedState State { get; }
+    public ProviderResourceId? ResolvedResourceId { get; }
+}
+
 public enum ProviderCallStatus { NotCalled = 1, Accepted = 2, ResponseLost = 3, Completed = 4 }
 public sealed record ProviderCallEvidence
 {
@@ -279,6 +394,7 @@ public sealed class ProviderAuthorizationRequest
         ProviderOperationContext context, RegionalProviderAuthority? authority,
         IEnumerable<ProviderOwnershipRecord> ownershipRecords, IEnumerable<ProviderInventoryTagEvidence> tags,
         ProviderObservationCompleteness observationCompleteness, IEnumerable<ProviderResourceObservation> observations,
+        IEnumerable<ProviderCreateObservation> createObservations,
         IEnumerable<ProviderApproval> requiredApprovals, DurableProviderAuthorization? priorAuthorization,
         ProviderCallEvidence callEvidence)
     {
@@ -286,6 +402,7 @@ public sealed class ProviderAuthorizationRequest
         OwnershipRecords = Copy(ownershipRecords, nameof(ownershipRecords)); Tags = Copy(tags, nameof(tags));
         if (!Enum.IsDefined(observationCompleteness)) throw new ArgumentOutOfRangeException(nameof(observationCompleteness));
         ObservationCompleteness = observationCompleteness; Observations = Copy(observations, nameof(observations));
+        CreateObservations = Copy(createObservations, nameof(createObservations));
         RequiredApprovals = CopyEnums(requiredApprovals, nameof(requiredApprovals)); PriorAuthorization = priorAuthorization;
         CallEvidence = callEvidence ?? throw new ArgumentNullException(nameof(callEvidence));
     }
@@ -295,6 +412,7 @@ public sealed class ProviderAuthorizationRequest
     public IReadOnlyList<ProviderInventoryTagEvidence> Tags { get; }
     public ProviderObservationCompleteness ObservationCompleteness { get; }
     public IReadOnlyList<ProviderResourceObservation> Observations { get; }
+    public IReadOnlyList<ProviderCreateObservation> CreateObservations { get; }
     public IReadOnlyList<ProviderApproval> RequiredApprovals { get; }
     public DurableProviderAuthorization? PriorAuthorization { get; }
     public ProviderCallEvidence CallEvidence { get; }
@@ -311,8 +429,9 @@ public enum ProviderDecisionCode
     GenerationMatches = 8, DeadlineValid = 9, ApprovalsComplete = 10,
     PriorAuthorizationCompatible = 11, ActionResourceCompatible = 12, TagsConsistent = 13,
     TagsNotAuthority = 14, HandoffInventoryUnique = 15, HandoffInventoryExact = 16,
-    HandoffRetainUnmanage = 17, HandoffJournalReceipt = 18, HandoffProviderReady = 19,
-    HandoffTrustReady = 20, HandoffBackupReady = 21, HandoffFenceActivated = 22,
+    HandoffScopeMatches = 17, HandoffRetainUnmanage = 18, HandoffJournalReceipt = 19,
+    HandoffProviderReady = 20, HandoffTrustReady = 21, HandoffBackupReady = 22,
+    HandoffFenceActivated = 23,
 }
 public enum ProviderDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record ProviderDecisionReason
@@ -327,19 +446,29 @@ public sealed record ProviderDecisionReason
 
 public abstract record ProviderIntent { internal ProviderIntent(ProviderOperationContext context) => Context = context; public ProviderOperationContext Context { get; } }
 public sealed record ObserveProviderResourceIntent : ProviderIntent { internal ObserveProviderResourceIntent(ProviderOperationContext c) : base(c) { } }
+public sealed record ObserveResolvedProviderCreateIntent : ProviderIntent
+{
+    internal ObserveResolvedProviderCreateIntent(ProviderOperationContext context, ProviderCreateObservation observation) : base(context)
+    {
+        CreateKey = observation.CreateKey;
+        ResolvedResourceId = observation.ResolvedResourceId ?? throw new ArgumentException("Resolved create observation requires a resource ID.", nameof(observation));
+    }
+    public ProviderCreateKey CreateKey { get; }
+    public ProviderResourceId ResolvedResourceId { get; }
+}
 public sealed record ReadProviderWorkRequestIntent : ProviderIntent { internal ReadProviderWorkRequestIntent(ProviderOperationContext c, ProviderWorkRequestId id) : base(c) => WorkRequestId = id; public ProviderWorkRequestId WorkRequestId { get; } }
 public abstract record ProviderMutationIntent : ProviderIntent { internal ProviderMutationIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record CreateNodeProviderIntent : ProviderMutationIntent { internal CreateNodeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record StartNodeProviderIntent : ProviderMutationIntent { internal StartNodeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record StopNodeProviderIntent : ProviderMutationIntent { internal StopNodeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record TerminateNodeProviderIntent : ProviderMutationIntent { internal TerminateNodeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record CreateVolumeProviderIntent : ProviderMutationIntent { internal CreateVolumeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record ExpandVolumeProviderIntent : ProviderMutationIntent { internal ExpandVolumeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record ChangeVolumePerformanceProviderIntent : ProviderMutationIntent { internal ChangeVolumePerformanceProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record AttachVolumeProviderIntent : ProviderMutationIntent { internal AttachVolumeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record DetachVolumeProviderIntent : ProviderMutationIntent { internal DetachVolumeProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record RegisterBackendProviderIntent : ProviderMutationIntent { internal RegisterBackendProviderIntent(ProviderOperationContext c) : base(c) { } }
-public sealed record DeregisterBackendProviderIntent : ProviderMutationIntent { internal DeregisterBackendProviderIntent(ProviderOperationContext c) : base(c) { } }
+public sealed record CreateNodeProviderIntent : ProviderMutationIntent { internal CreateNodeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (CreateNodeProviderParameters)c.ActionParameters; public CreateNodeProviderParameters Parameters { get; } }
+public sealed record StartNodeProviderIntent : ProviderMutationIntent { internal StartNodeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (StartNodeProviderParameters)c.ActionParameters; public StartNodeProviderParameters Parameters { get; } }
+public sealed record StopNodeProviderIntent : ProviderMutationIntent { internal StopNodeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (StopNodeProviderParameters)c.ActionParameters; public StopNodeProviderParameters Parameters { get; } }
+public sealed record TerminateNodeProviderIntent : ProviderMutationIntent { internal TerminateNodeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (TerminateNodeProviderParameters)c.ActionParameters; public TerminateNodeProviderParameters Parameters { get; } }
+public sealed record CreateVolumeProviderIntent : ProviderMutationIntent { internal CreateVolumeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (CreateVolumeProviderParameters)c.ActionParameters; public CreateVolumeProviderParameters Parameters { get; } }
+public sealed record ExpandVolumeProviderIntent : ProviderMutationIntent { internal ExpandVolumeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (ExpandVolumeProviderParameters)c.ActionParameters; public ExpandVolumeProviderParameters Parameters { get; } }
+public sealed record ChangeVolumePerformanceProviderIntent : ProviderMutationIntent { internal ChangeVolumePerformanceProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (ChangeVolumePerformanceProviderParameters)c.ActionParameters; public ChangeVolumePerformanceProviderParameters Parameters { get; } }
+public sealed record AttachVolumeProviderIntent : ProviderMutationIntent { internal AttachVolumeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (AttachVolumeProviderParameters)c.ActionParameters; public AttachVolumeProviderParameters Parameters { get; } }
+public sealed record DetachVolumeProviderIntent : ProviderMutationIntent { internal DetachVolumeProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (DetachVolumeProviderParameters)c.ActionParameters; public DetachVolumeProviderParameters Parameters { get; } }
+public sealed record RegisterBackendProviderIntent : ProviderMutationIntent { internal RegisterBackendProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (RegisterBackendProviderParameters)c.ActionParameters; public RegisterBackendProviderParameters Parameters { get; } }
+public sealed record DeregisterBackendProviderIntent : ProviderMutationIntent { internal DeregisterBackendProviderIntent(ProviderOperationContext c) : base(c) => Parameters = (DeregisterBackendProviderParameters)c.ActionParameters; public DeregisterBackendProviderParameters Parameters { get; } }
 
 public sealed record ProviderAuthorizationDecision
 {
@@ -378,34 +507,112 @@ public sealed class FreshBootstrapInventory
     private static IReadOnlyList<HandoffInventoryItem> Copy(IEnumerable<HandoffInventoryItem> source)
     { ArgumentNullException.ThrowIfNull(source); var copy = source.ToArray(); if (copy.Any(x => x is null)) throw new ArgumentException("Null inventory item."); return new ReadOnlyCollection<HandoffInventoryItem>(copy); }
 }
+
+public sealed record HandoffInventoryFingerprint
+{
+    private HandoffInventoryFingerprint(string value) => Value = value;
+    internal string Value { get; }
+    internal static HandoffInventoryFingerprint Compute(IEnumerable<HandoffInventoryItem> items)
+    {
+        var projection = string.Join(';', items.OrderBy(item => item.ResourceId.Value, StringComparer.Ordinal)
+            .ThenBy(item => item.Kind).ThenBy(item => item.Generation.Value)
+            .Select(item => string.Join('|', item.ResourceId.Value, item.Kind,
+                item.Generation.Value.ToString(CultureInfo.InvariantCulture))));
+        return new(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(projection))).ToLowerInvariant());
+    }
+}
+
+public sealed record HandoffScope
+{
+    private HandoffScope(
+        ProviderCellId cellId, ProviderCompartmentId compartmentId, ProviderGeneration bootstrapGeneration,
+        ProviderOperationId operationId, HandoffInventoryFingerprint inventoryFingerprint)
+    {
+        CellId = cellId;
+        CompartmentId = compartmentId;
+        BootstrapGeneration = bootstrapGeneration;
+        OperationId = operationId;
+        InventoryFingerprint = inventoryFingerprint;
+    }
+    public ProviderCellId CellId { get; }
+    public ProviderCompartmentId CompartmentId { get; }
+    public ProviderGeneration BootstrapGeneration { get; }
+    public ProviderOperationId OperationId { get; }
+    public HandoffInventoryFingerprint InventoryFingerprint { get; }
+    public static HandoffScope ForFreshBootstrap(
+        ProviderCellId cellId, ProviderCompartmentId compartmentId, ProviderGeneration bootstrapGeneration,
+        ProviderOperationId operationId, FreshBootstrapInventory inventory)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        return new(
+            cellId ?? throw new ArgumentNullException(nameof(cellId)),
+            compartmentId ?? throw new ArgumentNullException(nameof(compartmentId)),
+            bootstrapGeneration ?? throw new ArgumentNullException(nameof(bootstrapGeneration)),
+            operationId ?? throw new ArgumentNullException(nameof(operationId)),
+            HandoffInventoryFingerprint.Compute(inventory.Expected));
+    }
+}
+
+public abstract record HandoffProof
+{
+    internal HandoffProof(HandoffScope scope, HandoffEvidenceStatus status)
+    {
+        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
+        Status = status;
+    }
+    public HandoffScope Scope { get; }
+    public HandoffEvidenceStatus Status { get; }
+}
+public sealed record RetainUnmanageHandoffProof : HandoffProof { public RetainUnmanageHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+public sealed record RegionalJournalHandoffProof : HandoffProof { public RegionalJournalHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+public sealed record ProviderReadyHandoffProof : HandoffProof { public ProviderReadyHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+public sealed record TrustReadyHandoffProof : HandoffProof { public TrustReadyHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+public sealed record BackupReadyHandoffProof : HandoffProof { public BackupReadyHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+public sealed record RegionalFenceHandoffProof : HandoffProof { public RegionalFenceHandoffProof(HandoffScope scope, HandoffEvidenceStatus status) : base(scope, status) { } }
+
 public sealed record HandoffEvidence
 {
     public HandoffEvidence(
-        HandoffEvidenceStatus retainUnmanage, HandoffEvidenceStatus regionalJournalReceipt,
-        HandoffEvidenceStatus providerReady, HandoffEvidenceStatus trustReady,
-        HandoffEvidenceStatus backupReady, HandoffEvidenceStatus regionalFenceActivated)
+        RetainUnmanageHandoffProof retainUnmanage, RegionalJournalHandoffProof regionalJournalReceipt,
+        ProviderReadyHandoffProof providerReady, TrustReadyHandoffProof trustReady,
+        BackupReadyHandoffProof backupReady, RegionalFenceHandoffProof regionalFenceActivated)
     {
-        var statuses = new[] { retainUnmanage, regionalJournalReceipt, providerReady, trustReady, backupReady, regionalFenceActivated };
-        if (statuses.Any(status => !Enum.IsDefined(status))) throw new ArgumentOutOfRangeException(nameof(retainUnmanage));
-        RetainUnmanage = retainUnmanage;
-        RegionalJournalReceipt = regionalJournalReceipt;
-        ProviderReady = providerReady;
-        TrustReady = trustReady;
-        BackupReady = backupReady;
-        RegionalFenceActivated = regionalFenceActivated;
+        RetainUnmanage = retainUnmanage ?? throw new ArgumentNullException(nameof(retainUnmanage));
+        RegionalJournalReceipt = regionalJournalReceipt ?? throw new ArgumentNullException(nameof(regionalJournalReceipt));
+        ProviderReady = providerReady ?? throw new ArgumentNullException(nameof(providerReady));
+        TrustReady = trustReady ?? throw new ArgumentNullException(nameof(trustReady));
+        BackupReady = backupReady ?? throw new ArgumentNullException(nameof(backupReady));
+        RegionalFenceActivated = regionalFenceActivated ?? throw new ArgumentNullException(nameof(regionalFenceActivated));
     }
-    public HandoffEvidenceStatus RetainUnmanage { get; }
-    public HandoffEvidenceStatus RegionalJournalReceipt { get; }
-    public HandoffEvidenceStatus ProviderReady { get; }
-    public HandoffEvidenceStatus TrustReady { get; }
-    public HandoffEvidenceStatus BackupReady { get; }
-    public HandoffEvidenceStatus RegionalFenceActivated { get; }
+    public RetainUnmanageHandoffProof RetainUnmanage { get; }
+    public RegionalJournalHandoffProof RegionalJournalReceipt { get; }
+    public ProviderReadyHandoffProof ProviderReady { get; }
+    public TrustReadyHandoffProof TrustReady { get; }
+    public BackupReadyHandoffProof BackupReady { get; }
+    public RegionalFenceHandoffProof RegionalFenceActivated { get; }
+}
+public sealed record HandoffRequest
+{
+    public HandoffRequest(FreshBootstrapInventory inventory, HandoffScope expectedScope, HandoffEvidence evidence)
+    {
+        Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
+        ExpectedScope = expectedScope ?? throw new ArgumentNullException(nameof(expectedScope));
+        Evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
+    }
+    public FreshBootstrapInventory Inventory { get; }
+    public HandoffScope ExpectedScope { get; }
+    public HandoffEvidence Evidence { get; }
 }
 public sealed record EnableRegionalSelfManagementIntent
 {
-    internal EnableRegionalSelfManagementIntent(FreshBootstrapInventory inventory) =>
+    internal EnableRegionalSelfManagementIntent(FreshBootstrapInventory inventory, HandoffScope scope)
+    {
         Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
+        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+    }
     public FreshBootstrapInventory Inventory { get; }
+    public HandoffScope Scope { get; }
 }
 public sealed record HandoffDecision
 {
