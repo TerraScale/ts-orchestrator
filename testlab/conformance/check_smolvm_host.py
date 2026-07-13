@@ -29,14 +29,24 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run_read_only(executable: str, *arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [executable, *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+def run_read_only(
+    executable: str, *arguments: str
+) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    try:
+        return (
+            subprocess.run(
+                [executable, *arguments],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            ),
+            None,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except OSError as error:
+        return None, f"exec-error:{type(error).__name__}"
 
 
 def check(name: str, passed: bool, observed: Any, expected: Any) -> dict[str, Any]:
@@ -60,13 +70,21 @@ def inspect(pin_path: Path) -> dict[str, Any]:
     launcher = Path(executable).resolve()
     distribution_root = launcher.parent
 
-    version_result = run_read_only(executable, "--version")
-    version_output = (version_result.stdout or version_result.stderr).strip()
-    observed_version = version_output.removeprefix(f'{pin["runtime"]} ').strip()
+    version_result, version_failure = run_read_only(executable, "--version")
+    version_output = (
+        (version_result.stdout or version_result.stderr).strip() if version_result is not None else ""
+    )
+    observed_version: Any = (
+        version_output.removeprefix(f'{pin["runtime"]} ').strip()
+        if version_result is not None
+        else {"failure": version_failure}
+    )
     checks.append(
         check(
             "runtime-version",
-            version_result.returncode == 0 and observed_version == pin["version"],
+            version_result is not None
+            and version_result.returncode == 0
+            and observed_version == pin["version"],
             observed_version,
             pin["version"],
         )
@@ -119,9 +137,18 @@ def inspect(pin_path: Path) -> dict[str, Any]:
         )
     )
 
-    api_result = run_read_only(executable, *pin["api"]["discoveryCommand"])
+    api_result, api_failure = run_read_only(executable, *pin["api"]["discoveryCommand"])
+    api_discovery_passed = api_result is not None and api_result.returncode == 0
+    checks.append(
+        check(
+            "api-discovery-command",
+            api_discovery_passed,
+            {"returnCode": api_result.returncode} if api_result is not None else {"failure": api_failure},
+            {"returnCode": 0},
+        )
+    )
     try:
-        api_document = json.loads(api_result.stdout) if api_result.returncode == 0 else {}
+        api_document = json.loads(api_result.stdout) if api_discovery_passed and api_result else {}
     except json.JSONDecodeError:
         api_document = {}
     observed_openapi_version = api_document.get("openapi")
@@ -133,16 +160,53 @@ def inspect(pin_path: Path) -> dict[str, Any]:
             pin["api"]["openapiVersion"],
         )
     )
-    observed_paths = sorted(api_document.get("paths", {}).keys())
-    expected_paths = sorted(pin["api"]["requiredPaths"])
-    checks.append(
-        check(
-            "api-required-paths",
-            all(path in observed_paths for path in expected_paths),
-            observed_paths,
-            expected_paths,
+    api_paths = api_document.get("paths", {})
+    for operation in pin["api"]["requiredOperations"]:
+        method = operation["method"].lower()
+        observed_spec = api_paths.get(operation["path"], {}).get(method)
+        observed_operation = (
+            {
+                "method": operation["method"],
+                "operationId": observed_spec.get("operationId"),
+                "path": operation["path"],
+            }
+            if isinstance(observed_spec, dict)
+            else None
         )
-    )
+        expected_operation = {
+            "method": operation["method"],
+            "operationId": operation["operationId"],
+            "path": operation["path"],
+        }
+        checks.append(
+            check(
+                f'api-operation:{operation["capability"]}',
+                observed_operation == expected_operation,
+                observed_operation,
+                expected_operation,
+            )
+        )
+
+    for gap in pin["api"]["gatedAdapterGaps"]:
+        checks.append(
+            check(
+                f'api-adapter-gap-status:{gap["capability"]}',
+                gap["status"] == "not-established",
+                gap["status"],
+                "not-established",
+            )
+        )
+
+    supply_chain = pin["provenance"]["terrascaleSupplyChain"]
+    for field in ("internalMirrorStatus", "internalSignatureStatus"):
+        checks.append(
+            check(
+                f"supply-chain-gap-status:{field}",
+                supply_chain[field] == "not-established",
+                supply_chain[field],
+                "not-established",
+            )
+        )
 
     return report(pin_path, pin, checks)
 
@@ -159,12 +223,16 @@ def report(pin_path: Path, pin: dict[str, Any], checks: list[dict[str, Any]]) ->
         "version": pin["version"],
         "passed": all(item["passed"] for item in checks),
         "checks": checks,
+        "gatedAdapterGaps": pin["api"]["gatedAdapterGaps"],
+        "provenance": pin["provenance"],
         "untestedGates": [
             "No VM or system under test was created, started, stopped, or queried.",
             "The HTTP API schema was exported, but no API server was started and no live request was sent.",
             "Guest boot, networking, persistence, fault injection, and nine-VM GRU/FRA/SFO topology remain gated.",
             "Real systemd-as-PID-1 behavior remains gated.",
             "linux-arm64 and real OCI A1/IAM/block-volume/storage-performance boundaries remain gated.",
+            "The SmolVM update capability remains gated pending one reviewed host adapter and contract test.",
+            "The TerraScale internal mirror and internal artifact signature are not yet established.",
         ],
     }
 

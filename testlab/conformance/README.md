@@ -5,6 +5,18 @@ architecture, `/dev/kvm` access and API version, and the exported HTTP API
 schema. It is intentionally read-only: it invokes only `KVM_GET_API_VERSION`,
 `smolvm --version`, and `smolvm serve openapi`.
 
+The API check pins HTTP method, path, and OpenAPI operation ID for every driver
+capability currently exposed: create, start, status, exec, stream, log,
+bidirectional copy, stop, and delete. SmolVM 1.5.0 does not export a general
+update operation; only resource resize is present. The pin records `update` as
+a gated host-adapter gap rather than treating resize as equivalent.
+
+The pin also records the installed version marker, upstream lightweight tag and
+commit, release/archive/checksum metadata, and the absence of an upstream
+release signature or source-provenance attestation. TerraScale's required
+internal mirror and internal signature are explicitly `not-established`; this
+Phase 0 report is not supply-chain completion evidence.
+
 Run the check from the repository root:
 
 ```bash
