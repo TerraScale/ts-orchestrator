@@ -21,7 +21,7 @@ The core treats every candidate stream sequence less than or equal to the curren
 
 ## Adversarial coverage
 
-The 12 focused TUnit tests cover:
+The 13 focused TUnit tests cover:
 
 - all identity and byte bounds, malformed surrogate sequences, defensive copies, and secret-safe formatting;
 - zero and `ulong.MaxValue` numeric boundaries;
@@ -29,7 +29,7 @@ The 12 focused TUnit tests cover:
 - exact verifier projection of all nine authenticated fields;
 - wrong authority/stream/key, unknown/incompatible schema, stale epoch, older/equal stream position, digest mismatch, invalid signature, unknown verifier outcomes, and exception closure;
 - a tamper-one-field matrix for every material field plus the signature; and
-- deterministic replay planning, anti-rollback, exact replay start, expected digest/epoch, and overflow closure.
+- deterministic replay planning, cross-epoch monotonic anti-rollback, exact replay start, expected digest/epoch, and overflow closure.
 
 Verification:
 
@@ -41,7 +41,7 @@ dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestr
 git diff --check
 ```
 
-Result: solution build passed with zero warnings/errors; snapshot tests passed 12/12; full ControlPlane tests passed 43/43.
+Result: solution build passed with zero warnings/errors; snapshot tests passed 13/13; full ControlPlane tests passed 44/44.
 
 ## Deliberate limitations
 

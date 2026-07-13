@@ -44,6 +44,34 @@ public sealed class SnapshotRestoreTests
     }
 
     [Test]
+    public async Task Newer_epoch_does_not_reset_monotonic_stream_position()
+    {
+        var newerEpochEqualPosition = SnapshotRestorePlanner.Plan(
+            SnapshotTestData.Snapshot(SnapshotTestData.Material(
+                epoch: SnapshotTestData.Epoch(8),
+                sequence: SnapshotTestData.Sequence(100))),
+            SnapshotTestData.Context());
+        var newerEpochLowerPosition = SnapshotRestorePlanner.Plan(
+            SnapshotTestData.Snapshot(SnapshotTestData.Material(
+                epoch: SnapshotTestData.Epoch(8),
+                sequence: SnapshotTestData.Sequence(99))),
+            SnapshotTestData.Context());
+        var newerEpochAdvancingPosition = SnapshotRestorePlanner.Plan(
+            SnapshotTestData.Snapshot(SnapshotTestData.Material(
+                epoch: SnapshotTestData.Epoch(8),
+                sequence: SnapshotTestData.Sequence(101))),
+            SnapshotTestData.Context());
+
+        await Assert.That(newerEpochEqualPosition.IsPlanned).IsFalse();
+        await Assert.That(newerEpochEqualPosition.ValidationError).IsEqualTo(SnapshotValidationError.StreamRollback);
+        await Assert.That(newerEpochLowerPosition.IsPlanned).IsFalse();
+        await Assert.That(newerEpochLowerPosition.ValidationError).IsEqualTo(SnapshotValidationError.StreamRollback);
+        await Assert.That(newerEpochAdvancingPosition.IsPlanned).IsTrue();
+        await Assert.That(newerEpochAdvancingPosition.Plan!.ExpectedRestoredEpoch).IsEqualTo(SnapshotTestData.Epoch(8));
+        await Assert.That(newerEpochAdvancingPosition.Plan.ReplayStartSequence).IsEqualTo(SnapshotTestData.Sequence(102));
+    }
+
+    [Test]
     public async Task Maximum_stream_position_fails_closed_without_overflow()
     {
         var material = SnapshotTestData.Material(sequence: SnapshotTestData.Sequence(ulong.MaxValue));
