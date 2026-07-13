@@ -2,7 +2,7 @@
 
 The draft registry now binds every seeded entry to a normative source range and digest, a canonical owner, and explicit missing evidence targets. It is still not a frozen Phase 1 traceability contract: the proposed state-machine/error/security/gate families require steward review, and all acceptance evidence remains missing.
 
-The audit found 43 registered IDs: all 23 owner requirements, all 18 numbered invariants, one error, and one security rule. All 43 are classified `id-only`, not semantically complete, because the canonical entries carry no normative statement, source anchor, implementation intent, or evidence target. All 43 owner values are aliases rather than the exact 11 exclusive lane names defined by `ORCHESTRATOR.md`; the checked `owner-mapping.json` makes their intended normalization explicit and leaves zero aliases unmapped.
+The audit found 43 registered IDs: all 23 owner requirements, all 18 numbered invariants, one error, and one security rule. All 43 now carry source-anchored semantic metadata and canonical lane names; zero are verified or contract-complete, and every evidence state remains `missing`. The separate discovery inventory still contains 43 unregistered proposals whose names, kinds, relationships, owners, and per-assertion gate decomposition require steward and owner review before registration.
 
 The machine-readable audit proposes 43 missing IDs grouped as:
 
@@ -27,7 +27,7 @@ The checker uses only the Python standard library. It parses both inline and nor
 ## Steward actions
 
 1. Preserve the schema-v2 normative statement/source digest and evidence-target checks as entries evolve.
-2. Add the proposed SM/ERR/SEC/gate IDs after reviewing naming and the per-assertion gate split.
+2. Resolve the independent v2 review findings before registering any proposed SM/ERR/SEC/gate ID; in particular, do not add the contradictory `REQ-GATE-*`/`acceptance-gate` pairs unchanged.
 3. Review co-review metadata for cross-lane entries, especially the former `control-plane`, `cloud-storage`, and `delivery-security` aliases.
 4. Keep contract status draft while questions 1–10 and cost, storage, RPO, and RTO targets remain unresolved.
 5. Make the checker (or its steward-integrated successor) a Phase 0 CI input before generating code/test/evidence traceability.
