@@ -7,6 +7,7 @@ TestResults/
 coverage/
 artifacts/
 test-evidence/runs/
+__pycache__/
+*.py[cod]
 *.user
 *.suo
-
