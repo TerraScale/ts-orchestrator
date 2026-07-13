@@ -28,9 +28,14 @@ Absent locally: NATS CLI, containerd, runc, BuildKit, XFS tools, growpart, parte
 
 ```text
 python3 docs/adr/validate_readiness.py
+python3 -m unittest discover -s docs/adr/tests -v
 python3 -m json.tool docs/adr/readiness-index.yaml
+python3 testlab/conformance/check_smolvm_host.py > /tmp/orch-adr-smolvm-host-report.json
+cmp /tmp/orch-adr-smolvm-host-report.json testlab/conformance/smolvm-host-report.json
 git diff --check
 ```
+
+The validator derives and checks the exact owner lane names and ADR titles against `ORCHESTRATOR.md`. It resolves every local evidence `path:start-end` anchor, rejects missing/out-of-bounds/blank ranges, and requires each `draft-ready` item to cite both the specification and an audit or retirement-ledger range. Adversarial fixtures prove rejection of a missing ADR, stale line anchor, accepted/open-owner conflict, unknown lane, and unknown dependency.
 
 The tool audit additionally used bounded local `command -v` and version queries, host/kernel/architecture reads, `/dev/kvm` metadata, and checked-in pin/report reads. It did not start a service, VM, container, or cloud operation.
 

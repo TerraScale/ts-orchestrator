@@ -11,6 +11,6 @@ This directory records Phase 0 decision readiness without accepting any architec
 - `evidence-required`: the decision is not controlled by an open owner choice, but a measurement, inventory, threat-model result, product-contract reconciliation, or primary implementation source is still missing.
 - `accepted`: requires an explicit owner/architecture approval record plus every exit-evidence item. Phase 0 has no accepted ADRs.
 
-Only these canonical owner lanes from `ORCHESTRATOR.md`'s exclusive-workstream table are valid: `integration`, `core`, `messaging-security`, `runtime`, `cloud`, `storage`, `terrabase`, `delivery`, `operations`, `cross-repository-cleanup`, and `verification`.
+Only the exact canonical owner lane names from `ORCHESTRATOR.md`'s exclusive-workstream table are valid: `Integration/contract steward`, `Core`, `Messaging/security`, `Runtime`, `Cloud`, `Storage`, `TerraBase`, `Delivery`, `Operations`, `Cross-repository cleanup`, and `Verification`.
 
-Run `python3 docs/adr/validate_readiness.py` after any update. The validator proves IDs 1 through 24 occur exactly once, fields are populated, lanes and statuses are canonical, `accepted` is absent while owner inputs remain open, and every `draft-ready` record cites local or primary-source evidence.
+Run `python3 docs/adr/validate_readiness.py` and `python3 -m unittest discover -s docs/adr/tests -v` after any update. The validator proves IDs 1 through 24 occur exactly once, fields are populated, lanes and statuses are canonical, `accepted` is absent while owner inputs remain open, every local evidence anchor resolves to nonblank in-bounds lines, and every `draft-ready` record has both a precise specification anchor and a checked-in audit/ledger anchor.
