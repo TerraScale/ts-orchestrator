@@ -85,6 +85,7 @@ def parse_registry_text(text: str) -> list[dict[str, object]]:
             raise ValueError(f"registry entry {item_id} at line {line_no} is missing acceptanceLayers")
         entries.append({
             "id": item_id, "owner": owner_match.group(1).strip(), "layers": layers, "line": line_no,
+            "coReviewers": list_value("coReviewers"),
             "kind": scalar("kind"), "contractStatus": scalar("contractStatus"),
             "normativeStatement": scalar("normativeStatement"), "normativeSource": scalar("normativeSource"),
             "normativeStartLine": scalar("normativeStartLine"), "normativeEndLine": scalar("normativeEndLine"),
@@ -99,13 +100,18 @@ def parse_registry(path: Path) -> list[dict[str, object]]:
 
 
 def render_block_registry(entries: list[dict[str, object]]) -> str:
-    lines = ["schemaVersion: 2", "entries:"]
+    lines = [
+        "schemaVersion: 2", "status: draft", "source: ORCHESTRATOR.md",
+        "unresolvedOwnerQuestions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
+        "evidenceStateVocabulary: [missing, partial, verified]", "entries:",
+    ]
     for entry in entries:
         lines.extend([
             f"  - id: {entry['id']}",
             f"    kind: {entry['kind']}",
             f"    contractStatus: {entry['contractStatus']}",
             f"    owner: {entry['owner']}",
+            f"    coReviewers: [{', '.join(entry['coReviewers'])}]",
             f"    normativeStatement: {json.dumps(entry['normativeStatement'])}",
             f"    normativeSource: {entry['normativeSource']}",
             f"    normativeStartLine: {entry['normativeStartLine']}",
@@ -132,6 +138,16 @@ def validate(
     registry_ids = [str(entry["id"]) for entry in registry]
     source_lines = source_path.read_text(encoding="utf-8").splitlines()
 
+    root_expectations = {
+        "schemaVersion": "2", "status": "draft", "source": "ORCHESTRATOR.md",
+        "unresolvedOwnerQuestions": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]",
+        "evidenceStateVocabulary": "[missing, partial, verified]",
+    }
+    for key, expected_value in root_expectations.items():
+        match = re.search(rf"^{key}:\s*(.+?)\s*$", registry_text, re.MULTILINE)
+        if match is None or match.group(1) != expected_value:
+            errors.append(f"registry root {key} must be {expected_value}")
+
     if set(audit.get("canonicalOwners", [])) != CANONICAL_OWNERS:
         errors.append("audit canonicalOwners does not equal the 11 exact workstream lane names")
     if set(owner_mapping.values()) - CANONICAL_OWNERS:
@@ -142,6 +158,11 @@ def validate(
         for layer in entry["layers"]:
             if layer not in CANONICAL_LAYERS:
                 errors.append(f"registry {entry['id']} uses invalid acceptance layer {layer}")
+        co_reviewers = entry["coReviewers"]
+        if len(co_reviewers) != len(set(co_reviewers)) or any(lane not in CANONICAL_OWNERS for lane in co_reviewers):
+            errors.append(f"registry {entry['id']} has invalid/duplicate co-reviewers")
+        if entry["owner"] in co_reviewers:
+            errors.append(f"registry {entry['id']} repeats its primary owner as co-reviewer")
     if len(registry_ids) != len(set(registry_ids)):
         errors.append("registry contains duplicate IDs")
     expected = [f"REQ-O{i:03d}" for i in range(1, 24)] + [f"INV-{i:03d}" for i in range(1, 19)]
@@ -179,13 +200,18 @@ def validate(
                 expected_kind = {"REQ": "requirement", "INV": "invariant", "ERR": "error", "SEC": "security", "SM": "state-machine"}[item_id.split("-", 1)[0]]
                 if entry["kind"] != expected_kind or entry["contractStatus"] != "proposed":
                     errors.append(f"{finding_id} semantic kind/status mismatch")
+                if entry["owner"] != finding.get("owner") or entry["layers"] != finding.get("acceptanceLayers"):
+                    errors.append(f"{finding_id} semantic owner/layer parity mismatch")
                 if entry["normativeSource"] != "ORCHESTRATOR.md" or entry["normativeStartLine"] != str(start) or entry["normativeEndLine"] != str(end):
                     errors.append(f"{finding_id} semantic source anchor mismatch")
                 exact = "\n".join(source_lines[start - 1:end]) if isinstance(start, int) and isinstance(end, int) and 1 <= start <= end <= len(source_lines) else ""
                 if entry["normativeContains"] != text or entry["normativeSha256"] != hashlib.sha256(exact.encode()).hexdigest():
                     errors.append(f"{finding_id} semantic source digest mismatch")
-                if not entry["normativeStatement"] or entry["evidenceState"] != "missing" or len(entry["evidenceTargets"]) != len(entry["layers"]):
+                if not entry["normativeStatement"] or len(str(entry["normativeStatement"])) < 20 or entry["evidenceState"] != "missing" or len(entry["evidenceTargets"]) != len(entry["layers"]):
                     errors.append(f"{finding_id} semantic statement/evidence targets incomplete")
+                for layer, target in zip(entry["layers"], entry["evidenceTargets"], strict=True):
+                    if len(target) < 20 or layer not in target:
+                        errors.append(f"{finding_id} semantic evidence target does not identify layer {layer}")
         else:
             errors.append(f"{finding_id} has unsupported status {status}")
         if finding.get("owner") not in CANONICAL_OWNERS:
@@ -267,6 +293,28 @@ def mutate_registry(text: str, fixture: dict[str, object]) -> str:
             rf"(^  - id: {item_id}\n(?:(?!^  - id:).)*?^    {field}:)[^\n]*$",
             rf"\1 {value}", block, count=1, flags=re.MULTILINE | re.DOTALL,
         )
+    if mutation["op"] == "set-root-field":
+        field = re.escape(str(mutation["field"]))
+        return re.sub(rf"^{field}:[^\n]*$", f"{mutation['field']}: {mutation['value']}", text, count=1, flags=re.MULTILINE)
+    if mutation["op"] == "replace-text":
+        old, new = str(mutation["old"]), str(mutation["new"])
+        if text.count(old) != 1:
+            raise ValueError(f"registry mutation expected one occurrence of {old!r}")
+        return text.replace(old, new)
+    if mutation["op"] == "set-block-list-item":
+        block = render_block_registry(parse_registry_text(text))
+        item_id = re.escape(str(mutation["id"]))
+        field = re.escape(str(mutation["field"]))
+        index = int(mutation["index"])
+        match = re.search(
+            rf"(^  - id: {item_id}\n(?:(?!^  - id:).)*?^    {field}:\n)((?:      - [^\n]+\n?)+)",
+            block, flags=re.MULTILINE | re.DOTALL,
+        )
+        if match is None:
+            raise ValueError("registry list mutation target not found")
+        values = match.group(2).splitlines()
+        values[index] = f"      - {json.dumps(str(mutation['value']))}"
+        return block[:match.start(2)] + "\n".join(values) + "\n" + block[match.end(2):]
     raise ValueError(f"unsupported registry mutation {mutation['op']}")
 
 

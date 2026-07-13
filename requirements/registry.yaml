@@ -214,7 +214,7 @@ entries:
     kind: requirement
     contractStatus: proposed
     owner: Storage
-    coReviewers: []
+    coReviewers: [Cloud, TerraBase]
     normativeStatement: "Compute autoscaler, expand-only storage controller, TerraBase-specific policy, budget/performance gates"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 123
@@ -298,7 +298,7 @@ entries:
     kind: requirement
     contractStatus: proposed
     owner: Delivery
-    coReviewers: []
+    coReviewers: [Messaging/security]
     normativeStatement: "Vault/PKI/policy service and immutable promotion/isolated runners; authority/bootstrap boundaries remain questions 3 and 7"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 127
@@ -730,7 +730,7 @@ entries:
     kind: invariant
     contractStatus: proposed
     owner: Cloud
-    coReviewers: []
+    coReviewers: [Integration/contract steward]
     normativeStatement: "Durable networking, IAM, root keys, launch templates, and bootstrap generation belong to Pulumi. After the signed handoff, concrete regional nodes, attachments, and workload volumes belong only to the regional orchestrator."
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 156
@@ -768,7 +768,7 @@ entries:
     kind: invariant
     contractStatus: proposed
     owner: Verification
-    coReviewers: []
+    coReviewers: [Core, Messaging/security, Runtime, Cloud, Storage, TerraBase, Delivery, Operations]
     normativeStatement: "GRU is single-node-failure tolerant. No critical global or GRU-cell capability, authoritative state, credential issuer, ingress path, observability ingest path, or VPN coordination path may have a one-node failure mode."
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 158
@@ -810,7 +810,7 @@ entries:
     kind: invariant
     contractStatus: proposed
     owner: Messaging/security
-    coReviewers: []
+    coReviewers: [Cloud, Runtime, Storage]
     normativeStatement: "Every active region has operationally and cryptographically separate orchestrator-control and TerraScale-product NATS clusters, each with three servers and separate stores; host isolation follows question 8 and physical disk layout is the cheapest tested safe layout."
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 160
@@ -866,4 +866,3 @@ entries:
       - "L0C evidence bound to the exact integration tree"
       - "L3S evidence bound to the exact integration tree"
       - "L4 evidence bound to the exact integration tree"
-

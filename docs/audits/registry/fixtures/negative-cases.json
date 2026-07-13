@@ -35,13 +35,13 @@
       "name": "block-entry-missing-owner",
       "target": "registry",
       "mutation": {"op": "remove-block-owner", "id": "REQ-O001"},
-      "expected": "registry entry REQ-O001 at line 3 is missing owner"
+      "expected": "registry entry REQ-O001 at line 7 is missing owner"
     },
     {
       "name": "block-entry-cannot-be-skipped",
       "target": "registry",
       "mutation": {"op": "misindent-block-entry", "id": "REQ-O001"},
-      "expected": "skipped/misindented '- id:' entry at line 3"
+      "expected": "skipped/misindented '- id:' entry at line 7"
     },
     {
       "name": "semantic-source-digest-drift",
@@ -54,6 +54,35 @@
       "target": "registry",
       "mutation": {"op": "set-block-field", "id": "REQ-O001", "field": "evidenceState", "value": "verified"},
       "expected": "semantic statement/evidence targets incomplete"
+    },
+    {
+      "name": "root-schema-version-drift",
+      "target": "registry",
+      "mutation": {"op": "set-root-field", "field": "schemaVersion", "value": "999"},
+      "expected": "registry root schemaVersion must be 2"
+    },
+    {
+      "name": "audit-registry-owner-parity",
+      "mutation": {"op": "set", "path": "/findings/0/owner", "value": "Cloud"},
+      "expected": "semantic owner/layer parity mismatch"
+    },
+    {
+      "name": "invalid-co-reviewer",
+      "target": "registry",
+      "mutation": {"op": "set-block-field", "id": "REQ-O001", "field": "coReviewers", "value": "[NOT-A-LANE]"},
+      "expected": "invalid/duplicate co-reviewers"
+    },
+    {
+      "name": "vacuous-normative-statement",
+      "target": "registry",
+      "mutation": {"op": "set-block-field", "id": "REQ-O001", "field": "normativeStatement", "value": "\"x\""},
+      "expected": "semantic statement/evidence targets incomplete"
+    },
+    {
+      "name": "vacuous-evidence-target",
+      "target": "registry",
+      "mutation": {"op": "set-block-list-item", "id": "REQ-O001", "field": "evidenceTargets", "index": 0, "value": "x"},
+      "expected": "semantic evidence target does not identify layer L0"
     }
   ]
 }

@@ -43,6 +43,11 @@ public sealed class RepositoryBoundaryTests
             "Storage", "TerraBase", "Delivery", "Operations", "Cross-repository cleanup", "Verification"
         };
 
+        await Assert.That(registry.SchemaVersion).IsEqualTo(2);
+        await Assert.That(registry.Status).IsEqualTo("draft");
+        await Assert.That(registry.Source).IsEqualTo("ORCHESTRATOR.md");
+        await Assert.That(registry.UnresolvedOwnerQuestions).IsEquivalentTo(Enumerable.Range(1, 10));
+        await Assert.That(registry.EvidenceStateVocabulary).IsEquivalentTo(new[] { "missing", "partial", "verified" });
         await Assert.That(entries).IsNotEmpty();
         await Assert.That(entries.Select(static entry => entry.Id).Distinct(StringComparer.Ordinal).Count())
             .IsEqualTo(entries.Count);
@@ -52,12 +57,19 @@ public sealed class RepositoryBoundaryTests
             await Assert.That(entry.Id).Matches("^(REQ|INV|ERR|SM|SEC)-[A-Z0-9]+(?:-[A-Z0-9]+)*$");
             await Assert.That(entry.ContractStatus).IsEqualTo("proposed");
             await Assert.That(canonicalOwners).Contains(entry.Owner);
+            await Assert.That(entry.CoReviewers.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(entry.CoReviewers.Count);
+            await Assert.That(entry.CoReviewers).DoesNotContain(entry.Owner);
+            foreach (var coReviewer in entry.CoReviewers)
+            {
+                await Assert.That(canonicalOwners).Contains(coReviewer);
+            }
             await Assert.That(entry.Kind).IsEqualTo(entry.Id.Split('-', 2)[0] switch
             {
                 "REQ" => "requirement", "INV" => "invariant", "ERR" => "error",
                 "SM" => "state-machine", "SEC" => "security", _ => "invalid"
             });
             await Assert.That(entry.NormativeStatement).IsNotNullOrWhiteSpace();
+            await Assert.That(entry.NormativeStatement.Length).IsGreaterThanOrEqualTo(20);
             await Assert.That(entry.NormativeSource).IsEqualTo("ORCHESTRATOR.md");
             await Assert.That(entry.NormativeStartLine).IsGreaterThanOrEqualTo(1);
             await Assert.That(entry.NormativeEndLine).IsGreaterThanOrEqualTo(entry.NormativeStartLine);
@@ -69,7 +81,11 @@ public sealed class RepositoryBoundaryTests
             await Assert.That(entry.AcceptanceLayers).IsNotEmpty();
             await Assert.That(entry.EvidenceState).IsEqualTo("missing");
             await Assert.That(entry.EvidenceTargets.Count).IsEqualTo(entry.AcceptanceLayers.Count);
-            await Assert.That(entry.EvidenceTargets.All(static target => !string.IsNullOrWhiteSpace(target))).IsTrue();
+            for (var index = 0; index < entry.EvidenceTargets.Count; index++)
+            {
+                await Assert.That(entry.EvidenceTargets[index].Length).IsGreaterThanOrEqualTo(20);
+                await Assert.That(entry.EvidenceTargets[index]).Contains(entry.AcceptanceLayers[index]);
+            }
         }
     }
 
@@ -159,6 +175,16 @@ public sealed class RepositoryBoundaryTests
 
     private sealed class RequirementRegistry
     {
+        public required int SchemaVersion { get; init; }
+
+        public required string Status { get; init; }
+
+        public required string Source { get; init; }
+
+        public required List<int> UnresolvedOwnerQuestions { get; init; }
+
+        public required List<string> EvidenceStateVocabulary { get; init; }
+
         public List<RegistryEntry>? Entries { get; init; }
     }
 
@@ -171,6 +197,8 @@ public sealed class RepositoryBoundaryTests
         public required string ContractStatus { get; init; }
 
         public required string Owner { get; init; }
+
+        public required List<string> CoReviewers { get; init; }
 
         public required string NormativeStatement { get; init; }
 
