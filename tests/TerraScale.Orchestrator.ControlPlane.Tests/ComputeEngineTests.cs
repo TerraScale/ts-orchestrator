@@ -116,16 +116,23 @@ public sealed class ComputeEngineTests
     public async Task StaleDemandAllowsOnlyExplicitBoundedSafetyScaleOut()
     {
         await AssertHeld(ComputeEngine.DecideScaleOut(Out(ScaleOutState.DemandObserved,
-            demand: Demand() with { FreshThroughSequence = 40 })), ComputeErrorCode.EvidenceStale);
+            demand: Demand() with { ObservationSequence = 35, FreshThroughSequence = 40 })), ComputeErrorCode.EvidenceStale);
         var safety = Demand() with
         {
             Trigger = ComputeTrigger.FailedHostReplacement,
+            ObservationSequence = 35,
             FreshThroughSequence = 40,
             SafetyBounded = true,
             Sustained = false,
         };
         await Assert.That(ComputeEngine.DecideScaleOut(Out(ScaleOutState.DemandObserved, demand: safety)).Intents.Single())
             .IsTypeOf<PersistScalePlanIntent>();
+        await AssertHeld(ComputeEngine.DecideScaleOut(Out(ScaleOutState.DemandObserved,
+            demand: safety with { ObservationSequence = 51, FreshThroughSequence = 60 })),
+            ComputeErrorCode.EvidenceStale);
+        await AssertHeld(ComputeEngine.DecideScaleOut(Out(ScaleOutState.DemandObserved,
+            demand: safety with { ObservationSequence = 45, FreshThroughSequence = 44 })),
+            ComputeErrorCode.InvalidInput);
         await AssertHeld(ComputeEngine.DecideScaleOut(Out(ScaleOutState.DemandObserved,
             demand: safety with { ExplicitDemand = false })), ComputeErrorCode.EvidenceStale);
     }
@@ -291,6 +298,13 @@ public sealed class ComputeEngineTests
         { Evidence = request.Evidence with { ArtifactsLocal = false } }), ComputeErrorCode.BundleIncomplete);
         await AssertHeld(ComputeEngine.DecideSurvival(request with
         { Authority = request.Authority with { AuthorityEpoch = 8 } }), ComputeErrorCode.AuthorityDenied);
+        foreach (var inverted in new[]
+        {
+            Bundle(snapshotPosition: 91, journalPosition: 90),
+            Bundle(journalPosition: 151, freshThroughPosition: 150),
+            Bundle(freshThroughPosition: 201, expiresAfterPosition: 200),
+        })
+            await AssertHeld(ComputeEngine.DecideSurvival(Survival(inverted)), ComputeErrorCode.InvalidInput);
     }
 
     [Test]
@@ -482,11 +496,14 @@ public sealed class ComputeEngineTests
 
     private static RegionalSurvivalBundle Bundle(string provider = "provider-fingerprint", long generation = 2,
         string rollbackDigest = "rollback-digest", IEnumerable<SecretVersionId>? secrets = null,
-        IEnumerable<SurvivalNodeTemplate>? templates = null, long authorityEpoch = 7) => new(new("bundle-1"), new("gru"),
+        IEnumerable<SurvivalNodeTemplate>? templates = null, long authorityEpoch = 7, long journalPosition = 90,
+        long snapshotPosition = 80, long freshThroughPosition = 150, long expiresAfterPosition = 200) =>
+        new(new("bundle-1"), new("gru"),
         generation, new(provider), new("orchestrator-n"), new("accepted-digest"), new("accepted-signature"),
         new("orchestrator-n-1"), new(rollbackDigest), new("rollback-signature"),
         secrets ?? [new("secret-v2"), new("secret-v1")], templates ?? [Template("template-2"), Template("template-1")],
-        new("trust-ref"), new("nats-ref"), new("dns-ref"), new("backup-ref"), authorityEpoch, 90, 80, 150, 200);
+        new("trust-ref"), new("nats-ref"), new("dns-ref"), new("backup-ref"), authorityEpoch, journalPosition,
+        snapshotPosition, freshThroughPosition, expiresAfterPosition);
     private static SurvivalRequest Survival(RegionalSurvivalBundle? required = null, RegionalSurvivalBundle? observed = null)
     {
         var exact = required ?? Bundle();

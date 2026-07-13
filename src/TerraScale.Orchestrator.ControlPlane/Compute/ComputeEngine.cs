@@ -17,8 +17,9 @@ public static class ComputeEngine
             !ValidPlan(request.Plan, request.Binding!, request.MaximumIdentityLength))
             return Held(ComputeErrorCode.InvalidInput, operation);
         var binding = request.Binding!;
-        var demandFresh = request.Demand.ObservationSequence <= request.EvaluationSequence &&
-            request.Demand.FreshThroughSequence >= request.EvaluationSequence;
+        if (request.Demand.ObservationSequence > request.EvaluationSequence)
+            return Held(ComputeErrorCode.EvidenceStale, operation);
+        var demandFresh = request.Demand.FreshThroughSequence >= request.EvaluationSequence;
         var boundedSafety = request.Demand.ExplicitDemand && request.Demand.SafetyBounded &&
             request.Demand.Trigger is ComputeTrigger.FailedHostReplacement or ComputeTrigger.SafetyRecovery;
         if (!demandFresh && !boundedSafety)
@@ -246,7 +247,7 @@ public static class ComputeEngine
         Valid(value.ProviderFingerprint?.Value, max) && value.Generation > 0 && value.ControllerEpoch > 0;
     private static bool ValidDemand(DemandEvidence value, ComputeBinding binding, int max) => value is not null &&
         value.Binding == binding && Defined(value.Trigger) && value.ObservationSequence > 0 && value.FreshThroughSequence > 0 &&
-        value.RequiredNodes > 0 && Valid(value.Binding.Demand?.Value, max);
+        value.FreshThroughSequence >= value.ObservationSequence && value.RequiredNodes > 0 && Valid(value.Binding.Demand?.Value, max);
     private static bool ValidCreate(ProviderCreateEvidence? value, ComputeBinding binding, int max) => value is not null &&
         value.Binding == binding && Defined(value.Status) && Valid(value.CreateKey?.Value, max) &&
         Valid(value.ObservationProof?.Value, max) &&
@@ -297,7 +298,9 @@ public static class ComputeEngine
         value.Templates.Select(static item => item.Template).Distinct().Count() == value.Templates.Count && Valid(value.Trust?.Value, max) &&
         Valid(value.Nats?.Value, max) && Valid(value.Dns?.Value, max) && Valid(value.Backup?.Value, max) &&
         value.AuthorityEpoch > 0 && value.JournalPosition > 0 && value.SnapshotPosition > 0 &&
-        value.FreshThroughPosition > 0 && value.ExpiresAfterPosition > 0;
+        value.FreshThroughPosition > 0 && value.ExpiresAfterPosition > 0 &&
+        value.SnapshotPosition <= value.JournalPosition && value.JournalPosition <= value.FreshThroughPosition &&
+        value.FreshThroughPosition <= value.ExpiresAfterPosition;
     private static bool ValidAuthority(RegionalAuthorityProof value, int max) => value is not null &&
         Valid(value.Cell?.Value, max) && value.AuthorityEpoch > 0 && value.JournalPosition > 0 && Valid(value.Proof?.Value, max);
     private static bool ValidReplacementTarget(SurvivalReplacementTarget? value, RegionalSurvivalBundle bundle, int max) =>

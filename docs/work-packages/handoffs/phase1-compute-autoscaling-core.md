@@ -33,8 +33,10 @@ the persist-plan intent freezes desired count, resources, and plan identity,
 while authorization consumes the exact persistence proof without requiring its
 future authorization result.
 
-Stale or missing ordinary demand holds. Explicit, bounded failed-host or safety
-replacement may continue without a sustained metric window, but still requires
+Stale or missing ordinary demand holds. Future observations always hold, and a
+fresh-through position cannot precede its observation. Explicit, bounded
+failed-host or safety replacement may continue after an already-observed demand
+window expires without a sustained metric window, but still requires
 an explicit typed demand and all normal plan/capacity proofs. This exception is
 structurally limited to the two closed safety triggers.
 
@@ -56,7 +58,8 @@ Regional survival readiness binds the exact signed/encrypted bundle generation,
 provider fingerprint, accepted and rollback artifacts/digests/signatures,
 encrypted secret-version identities, full node-class/template/shape/domain
 tuples, trust, NATS, DNS, backup, authority epoch, journal/snapshot positions,
-and caller-supplied freshness/expiry positions. Disconnected replacement also
+and caller-supplied positions ordered snapshot <= journal <= freshness <=
+expiry. Disconnected replacement also
 binds its exact cell, template tuple, accepted artifact, operation, provider,
 idempotent create key, bundle generation, and controller epoch. Ordinary
 readiness requires that this irrelevant replacement target be absent;
