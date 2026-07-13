@@ -15,25 +15,30 @@ internal static class NetworkingTestData
     public static NetworkOperationId Op(string v="op"){NetworkOperationId.TryCreate(v,M,out var x);return x!;}public static NetworkOrdinal O(ulong v){NetworkOrdinal.TryCreate(v,out var x);return x;}public static NetworkPort Port(ushort v=443){NetworkPort.TryCreate(v,out var x);return x;}
     public static NetworkPrefix Prefix(byte a,byte b=0,byte c=0,byte d=0,byte bits=8){NetworkAddress.TryCreate([a,b,c,d],out var address);NetworkPrefix.TryCreate(address,bits,out var prefix);return prefix!;}
     public static NetworkRouteScope RouteScope(NetworkPrefix? destination=null,NetworkTrustPlane plane=NetworkTrustPlane.Product,
-        NetworkRouteKind kind=NetworkRouteKind.Peer)=>
-        new(Cell(),Net(),Subnet(),Route(),Peer(),Tunnel(),plane,destination??Prefix(10),kind,O(7),O(3),Op());
+        NetworkRouteKind kind=NetworkRouteKind.Peer,NetworkCellId? peerCell=null)=>
+        new(Cell(),peerCell??Cell("sfo"),Net(),Subnet(),Route(),Peer(),Tunnel(),plane,destination??Prefix(10),kind,O(7),O(3),Op());
     public static NetworkRouteEvidence RouteEvidence(NetworkRouteScope? scope=null,IEnumerable<NetworkRouteObservation?>? routes=null,
-        IEnumerable<NetworkPrefix?>? approved=null,NetworkTopologyShape shape=NetworkTopologyShape.HubAndSpoke,uint cells=20,
+        IEnumerable<NetworkPrefix?>? approved=null,IEnumerable<NetworkCellId?>? cellInventory=null,IEnumerable<NetworkPeerLink?>? links=null,
+        NetworkTopologyShape shape=NetworkTopologyShape.HubAndSpoke,uint cells=20,
         NetworkProof noMutation=NetworkProof.Proven,NetworkProof local=NetworkProof.Proven,NetworkProof configured=NetworkProof.Proven,
-        NetworkProof traffic=NetworkProof.Proven,NetworkProof healthy=NetworkProof.Proven,NetworkProof routeConfigured=NetworkProof.Proven,bool partitioned=false)=>
-        new(scope??RouteScope(),routes??[],approved??[Prefix(10)],shape,cells,noMutation,local,configured,traffic,healthy,routeConfigured,partitioned,32,16);
+        NetworkProof traffic=NetworkProof.Proven,NetworkProof healthy=NetworkProof.Proven,NetworkProof routeConfigured=NetworkProof.Proven,
+        bool partitioned=false,int maximumCells=32)=>
+        new(scope??RouteScope(),routes??[],approved??[Prefix(10)],cellInventory??Cells(cells),links??HubLinks(cells),shape,noMutation,local,
+            configured,traffic,healthy,routeConfigured,partitioned,32,16,64,maximumCells);
+    private static NetworkCellId[] Cells(uint count)=>Enumerable.Range(0,(int)count).Select(i=>i switch{0=>Cell(),1=>Cell("sfo"),_=>Cell($"cell{i}")}).ToArray();
+    private static NetworkPeerLink[] HubLinks(uint count){var cells=Cells(count);return cells.Skip(1).Select(cell=>new NetworkPeerLink(cells[0],cell)).ToArray();}
     public static NetworkEndpointScope EndpointScope(NetworkExposure exposure=NetworkExposure.Public,NetworkServiceKind kind=NetworkServiceKind.Product,
         NetworkCertificateRef? cert=null,NetworkOrdinal? generation=null)=>new(Cell(),Workload(),Service(),Endpoint(),Node(),Lb(),Backend(),Dns(),cert??Cert(),kind,exposure,
             NetworkProtocol.Https,Port(),generation??O(9),O(4),Op());
     public static NetworkEndpointEvidence EndpointEvidence(NetworkEndpointScope? scope=null,NetworkHealth health=NetworkHealth.Healthy,
-        NetworkProof admitted=NetworkProof.Proven,NetworkProof ready=NetworkProof.Proven,NetworkProof cert=NetworkProof.Proven,
+        NetworkProof admitted=NetworkProof.Proven,NetworkProof processLive=NetworkProof.Proven,NetworkProof ready=NetworkProof.Proven,NetworkProof cert=NetworkProof.Proven,
         NetworkProof publicApproved=NetworkProof.Proven,NetworkProof gates=NetworkProof.Proven,NetworkProof withdrawalTested=NetworkProof.Proven,
         NetworkProof registered=NetworkProof.Proven,NetworkProof promoted=NetworkProof.Proven,NetworkProof dnsRequested=NetworkProof.Proven,
         NetworkProof dnsObserved=NetworkProof.Proven,NetworkProof deregistered=NetworkProof.Proven,NetworkProof drained=NetworkProof.Proven,
         NetworkProof dnsWithdrawalRequested=NetworkProof.Proven,NetworkProof dnsWithdrawn=NetworkProof.Proven,
         NetworkProof lbWithdrawalRequested=NetworkProof.Proven,NetworkProof lbWithdrawn=NetworkProof.Proven,
         NetworkProof deregistrationRequested=NetworkProof.Proven)=>
-        new(scope??EndpointScope(),scope?.ServiceGeneration??O(9),scope?.Epoch??O(4),admitted,NetworkProof.Proven,ready,health,cert,NetworkProof.Proven,
+        new(scope??EndpointScope(),scope?.ServiceGeneration??O(9),scope?.Epoch??O(4),admitted,processLive,ready,health,cert,NetworkProof.Proven,
             publicApproved,gates,withdrawalTested,registered,promoted,dnsRequested,dnsObserved,deregistered,drained,
             dnsWithdrawalRequested,dnsWithdrawn,lbWithdrawalRequested,lbWithdrawn,deregistrationRequested);
 }

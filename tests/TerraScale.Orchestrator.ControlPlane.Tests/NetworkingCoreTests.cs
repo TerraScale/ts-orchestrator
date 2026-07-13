@@ -13,6 +13,7 @@ public sealed class NetworkingCoreTests
         NetworkAddress.TryCreate([10,1,0,0],out var host);await Assert.That(NetworkPrefix.TryCreate(host,8,out _)).IsFalse();
         await Assert.That(NetworkPort.TryCreate(0,out _)).IsFalse();
         await Assert.That(NetworkServiceId.TryCreate("two words",64,out _)).IsFalse();
+        await Assert.That(typeof(NetworkIdentity).GetProperty(nameof(NetworkIdentity.Value))!.SetMethod is null).IsTrue();
     }
 
     [Test]
@@ -36,6 +37,11 @@ public sealed class NetworkingCoreTests
         await Assert.That(Plan(NetworkingTestData.RouteEvidence(routes:[forgedOwner])).Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
         var duplicate=new NetworkRouteObservation(NetworkingTestData.Route("dup"),s.Cell,s.Peer,null,s.TrustPlane,NetworkingTestData.Prefix(10,2,bits:16));
         await Assert.That(Plan(NetworkingTestData.RouteEvidence(routes:[duplicate,duplicate])).Code).IsEqualTo(NetworkCode.Duplicate);
+        var malformed=new NetworkRouteObservation(null!,s.Cell,s.Peer,null,s.TrustPlane,null!);
+        await Assert.That(Plan(NetworkingTestData.RouteEvidence(routes:[malformed])).IsMutationAuthorized).IsFalse();
+        await Assert.That(NetworkRoutePlanner.Plan(null,s.Generation,s.Epoch,null).Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
+        var invalidScope=s with{TrustPlane=(NetworkTrustPlane)99};
+        await Assert.That(NetworkRoutePlanner.Plan(invalidScope,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(scope:invalidScope)).IsMutationAuthorized).IsFalse();
     }
 
     [Test]
@@ -49,6 +55,15 @@ public sealed class NetworkingCoreTests
         await Assert.That(mesh.Code).IsEqualTo(NetworkCode.QuadraticMesh);
         await Assert.That(partitionHold.Code).IsEqualTo(NetworkCode.LocalPolicyRequired);
         await Assert.That(local.Code).IsEqualTo(NetworkCode.Completed);
+        var cells=new[]{NetworkingTestData.Cell(),NetworkingTestData.Cell("sfo"),NetworkingTestData.Cell("fra"),NetworkingTestData.Cell("iad")};
+        var disguised=cells.SelectMany(source=>cells.Where(target=>target!=source).Select(target=>new NetworkPeerLink(source,target))).ToArray();
+        var hiddenMesh=NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(cellInventory:cells,links:disguised,cells:4));
+        await Assert.That(hiddenMesh.Code).IsEqualTo(NetworkCode.QuadraticMesh);
+        var absentScope=NetworkingTestData.RouteScope(kind:NetworkRouteKind.Local,peerCell:NetworkingTestData.Cell("absent"));
+        await Assert.That(NetworkRoutePlanner.Plan(absentScope,absentScope.Generation,absentScope.Epoch,
+            NetworkingTestData.RouteEvidence(scope:absentScope,cellInventory:cells,cells:4,partitioned:true)).IsMutationAuthorized).IsFalse();
+        await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,
+            NetworkingTestData.RouteEvidence(cellInventory:cells,cells:4,maximumCells:3)).IsMutationAuthorized).IsFalse();
     }
 
     [Test]
@@ -74,11 +89,16 @@ public sealed class NetworkingCoreTests
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(publicApproved:NetworkProof.Unknown)).Code).IsEqualTo(NetworkCode.PublicApprovalRequired);
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(gates:NetworkProof.Unknown)).Code).IsEqualTo(NetworkCode.PublicApprovalRequired);
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(health:NetworkHealth.Stale)).Code).IsEqualTo(NetworkCode.BackendHealthRequired);
+        await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(processLive:NetworkProof.Unknown)).Code).IsEqualTo(NetworkCode.ReadinessRequired);
+        await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(processLive:NetworkProof.Contradicted)).Code).IsEqualTo(NetworkCode.ReadinessRequired);
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(cert:NetworkProof.Unknown)).Code).IsEqualTo(NetworkCode.CertificateMismatch);
         var wrong=NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence(scope:s with{Certificate=NetworkingTestData.Cert("forged")}));
         await Assert.That(wrong.Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence() with{ObservedGeneration=NetworkingTestData.O(8)}).Code).IsEqualTo(NetworkCode.StaleGeneration);
         await Assert.That(NetworkEndpointPlanner.PlanRegister(s,NetworkingTestData.EndpointEvidence()).ToString()).DoesNotContain("cert-ref");
+        await Assert.That(NetworkEndpointPlanner.PlanRegister(null,null).Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
+        var invalid=s with{Exposure=(NetworkExposure)99};
+        await Assert.That(NetworkEndpointPlanner.PlanRegister(invalid,NetworkingTestData.EndpointEvidence(scope:invalid)).IsMutationAuthorized).IsFalse();
     }
 
     [Test]

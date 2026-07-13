@@ -12,7 +12,12 @@ internal static class NetworkValueRules
         return true;
     }
 }
-public abstract record NetworkIdentity(string Value){public override string ToString()=>Value;}
+public abstract record NetworkIdentity
+{
+    protected NetworkIdentity(string value)=>Value=value;
+    public string Value{get;}
+    public override string ToString()=>Value;
+}
 public sealed record NetworkCellId:NetworkIdentity{private NetworkCellId(string v):base(v){}public static bool TryCreate(string? v,int m,out NetworkCellId? x){x=NetworkValueRules.Valid(v,m)?new(v!):null;return x is not null;}}
 public sealed record NetworkId:NetworkIdentity{private NetworkId(string v):base(v){}public static bool TryCreate(string? v,int m,out NetworkId? x){x=NetworkValueRules.Valid(v,m)?new(v!):null;return x is not null;}}
 public sealed record NetworkSubnetId:NetworkIdentity{private NetworkSubnetId(string v):base(v){}public static bool TryCreate(string? v,int m,out NetworkSubnetId? x){x=NetworkValueRules.Valid(v,m)?new(v!):null;return x is not null;}}
@@ -69,7 +74,7 @@ public sealed record NetworkNumericTrace(NetworkOrdinal Generation,NetworkOrdina
 {public override string ToString()=>string.Create(CultureInfo.InvariantCulture,$"generation={Generation.Value};epoch={Epoch.Value};routes={RouteCount};peers={PeerCount}");}
 
 public abstract record NetworkIntentSubject{private protected NetworkIntentSubject(){}public override string ToString()=>"<network-intent-subject>";}
-public sealed record NetworkRouteIntentSubject(NetworkCellId Cell,NetworkId Network,NetworkSubnetId Subnet,NetworkRouteId Route,
+public sealed record NetworkRouteIntentSubject(NetworkCellId Cell,NetworkCellId PeerCell,NetworkId Network,NetworkSubnetId Subnet,NetworkRouteId Route,
     NetworkPeerId Peer,NetworkTunnelId Tunnel,NetworkTrustPlane TrustPlane,NetworkRouteKind RouteKind,NetworkPrefix Destination,
     NetworkOrdinal Generation,NetworkOrdinal Epoch,NetworkOperationId Operation):NetworkIntentSubject{public override string ToString()=>"<network-route-intent>";}
 public sealed record NetworkEndpointIntentSubject(NetworkCellId Cell,NetworkWorkloadId Workload,NetworkServiceId Service,
