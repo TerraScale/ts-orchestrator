@@ -111,6 +111,15 @@
           "Microsoft.Testing.Platform.MSBuild": "2.2.3",
           "TUnit.Core": "1.56.18"
         }
+      },
+      "terrascale.orchestrator.contracts": {
+        "type": "Project"
+      },
+      "terrascale.orchestrator.schemagenerator": {
+        "type": "Project",
+        "dependencies": {
+          "TerraScale.Orchestrator.Contracts": "[1.0.0, )"
+        }
       }
     }
   }

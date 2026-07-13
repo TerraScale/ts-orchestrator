@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.terrascale.tech/orchestrator/v1/role-descriptor.schema.json",
+  "title": "Read-only built-in role descriptor projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "role",
+    "allowedRuntimes",
+    "ports",
+    "capabilities",
+    "volumePurposes",
+    "secretProfiles",
+    "healthSignals",
+    "failureDomainSpread",
+    "scalingControllerOwner"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "terrascale.io/orchestrator/v1"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "Api",
+        "Authentication",
+        "CustomerDashboard",
+        "TerraBaseMember",
+        "Orchestrator",
+        "ControlNatsServer",
+        "ProductNatsServer",
+        "Grafana",
+        "MetricsStore",
+        "Loki",
+        "Tempo",
+        "Alertmanager",
+        "OtlpIngest",
+        "SyntheticCheck",
+        "RegionalTelemetryAgent",
+        "VpnCoordinationRelay",
+        "RoutePolicyController",
+        "CiRunner"
+      ]
+    },
+    "allowedRuntimes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "NativeSystemd",
+          "OciContainer"
+        ]
+      }
+    },
+    "ports": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol",
+          "port"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "Tcp",
+              "Udp"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "PublicHttp",
+          "ProductDatabase",
+          "ControlAuthority",
+          "ControlMessaging",
+          "ProductMessaging",
+          "TelemetryQuery",
+          "TelemetryIngest",
+          "Alerting",
+          "SyntheticProbe",
+          "NetworkCoordination",
+          "RoutePolicy",
+          "IsolatedBuild"
+        ]
+      }
+    },
+    "volumePurposes": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "TerraBaseData",
+          "NatsControlStore",
+          "NatsProductStore",
+          "MetricsData",
+          "LogData",
+          "TraceData",
+          "TelemetrySpool",
+          "EphemeralBuild"
+        ]
+      }
+    },
+    "secretProfiles": {
+      "type": "array",
+      "minItems": 0,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 63,
+        "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+      }
+    },
+    "healthSignals": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "ProcessLiveness",
+          "ApplicationLiveness",
+          "Readiness",
+          "DependencyReadiness",
+          "DrainReadiness",
+          "RolloutVerification"
+        ]
+      }
+    },
+    "failureDomainSpread": {
+      "type": "string",
+      "enum": [
+        "None",
+        "PreferDistinct",
+        "RequireDistinct"
+      ]
+    },
+    "scalingControllerOwner": {
+      "type": "string",
+      "enum": [
+        "Fixed",
+        "Stateless",
+        "TerraBase",
+        "ControlPlane"
+      ]
+    }
+  },
+  "readOnly": true,
+  "$comment": "Generated documentation shape only. RoleDescriptor construction is assembly-internal."
+}

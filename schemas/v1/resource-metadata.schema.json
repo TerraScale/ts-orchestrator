@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.terrascale.tech/orchestrator/v1/resource-metadata.schema.json",
+  "title": "TerraScale Orchestrator resource metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "id",
+    "generation",
+    "resourceVersion",
+    "ownership",
+    "creationActor",
+    "auditCorrelationId"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "terrascale.io/orchestrator/v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "resourceVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "authorityId"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "GlobalController",
+            "RegionalController",
+            "DomainController"
+          ]
+        },
+        "authorityId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+        }
+      }
+    },
+    "creationActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "actorId"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Bootstrap",
+            "Controller",
+            "GitOps",
+            "Operator"
+          ]
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+        }
+      }
+    },
+    "auditCorrelationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+    }
+  }
+}

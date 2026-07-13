@@ -18,7 +18,7 @@ internal static partial class CanonicalText
         return value;
     }
 
-    [GeneratedRegex("^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(ResourceId.JsonSchemaPattern, RegexOptions.CultureInvariant)]
     private static partial Regex TokenPattern();
 }
 
@@ -42,7 +42,10 @@ public sealed record ApiVersion
 
 public sealed record ResourceId
 {
-    public ResourceId(string value) => Value = CanonicalText.Token(value, nameof(value));
+    public const int MaximumLength = 63;
+    public const string JsonSchemaPattern = "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
+
+    public ResourceId(string value) => Value = CanonicalText.Token(value, nameof(value), MaximumLength);
 
     public string Value { get; }
 

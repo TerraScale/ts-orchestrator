@@ -6,6 +6,6 @@
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <PackageReference Include="YamlDotNet" />
+    <ProjectReference Include="../../tools/TerraScale.Orchestrator.SchemaGenerator/TerraScale.Orchestrator.SchemaGenerator.csproj" />
   </ItemGroup>
 </Project>
-
