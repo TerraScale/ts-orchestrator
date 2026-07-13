@@ -1,0 +1,796 @@
+{
+  "schemaVersion": 1,
+  "reportKind": "draft-lexical-traceability",
+  "claimsAcceptanceEvidence": false,
+  "inputSha256": "4f0c1a33513f0f27593df194264e45a29630a8dad1e948d36efd3816785286d5",
+  "counts": {
+    "registered": 43,
+    "linked": 0,
+    "production-only": 3,
+    "test-only": 0,
+    "unreferenced": 40,
+    "unknownReferences": 0
+  },
+  "unknownReferences": [],
+  "entries": [
+    {
+      "id": "REQ-O001",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O002",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O003",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O004",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O005",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O006",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O007",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O008",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O009",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O010",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O011",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O012",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O013",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O014",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O015",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O016",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O017",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L0C"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O018",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L1S",
+        "L2S",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O019",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O020",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O021",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O022",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "REQ-O023",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-001",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-002",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-003",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-004",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "production-only",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 100
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 113
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 134
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 143
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 152
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 158
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 176
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 183
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 241
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 292
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 328
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 360
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 387
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 422
+        }
+      ],
+      "testReferences": []
+    },
+    {
+      "id": "INV-005",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "production-only",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 30
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 43
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 53
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 60
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 106
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 119
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 150
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 154
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 156
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 189
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 200
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 221
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 227
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 254
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 256
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 288
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 326
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 333
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 349
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 356
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 358
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 371
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 394
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 402
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 407
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 428
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 443
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 467
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.Protocol/CommandValidation.cs",
+          "line": 107
+        }
+      ],
+      "testReferences": []
+    },
+    {
+      "id": "INV-006",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "production-only",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 247
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 262
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 300
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 307
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 313
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 330
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 362
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 435
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 449
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 452
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
+          "line": 461
+        }
+      ],
+      "testReferences": []
+    },
+    {
+      "id": "INV-007",
+      "owner": "TerraBase",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-008",
+      "owner": "TerraBase",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-009",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-010",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-011",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-012",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-013",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-014",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-015",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-016",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-017",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "INV-018",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "ERR-PHASE0-NOTREADY",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    },
+    {
+      "id": "SEC-NO-SECRET-OUTPUT",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "evidenceState": "missing",
+      "traceStatus": "unreferenced",
+      "productionReferences": [],
+      "testReferences": []
+    }
+  ]
+}
