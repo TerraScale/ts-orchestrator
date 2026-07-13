@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "4f0c1a33513f0f27593df194264e45a29630a8dad1e948d36efd3816785286d5",
+  "inputSha256": "22a445a2775a0c67798651078afbb20cb0eeaed84b8eb658d25fce1d7ff7dadd",
   "counts": {
     "registered": 43,
     "linked": 0,
     "production-only": 3,
-    "test-only": 0,
-    "unreferenced": 40,
+    "test-only": 1,
+    "unreferenced": 39,
     "unknownReferences": 0
   },
   "unknownReferences": [],
@@ -788,9 +788,26 @@
         "L4"
       ],
       "evidenceState": "missing",
-      "traceStatus": "unreferenced",
+      "traceStatus": "test-only",
       "productionReferences": [],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
+          "line": 19
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
+          "line": 33
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
+          "line": 34
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPermissionTests.cs",
+          "line": 35
+        }
+      ]
     }
   ]
 }
