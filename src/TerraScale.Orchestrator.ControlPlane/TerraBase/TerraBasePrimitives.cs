@@ -50,9 +50,10 @@ public enum TerraBaseHealth{Unknown=0,Healthy,Degraded,Failed}
 public enum TerraBaseProof{Unknown=0,Proven,Contradicted}
 public enum TerraBaseReplication{Unknown=0,CaughtUp,Lagging,Conflicting,Future}
 public enum TerraBaseUpgradeCompatibility{Unknown=0,CompatibleNAndNMinusOne,Incompatible}
+public enum TerraBaseLossCount{Unknown=0,None,One,TwoOrMore}
 public enum TerraBaseAction{Uninitialized=0,Observe,Add,CatchUp,Transfer,Remove,StartWithRetainedVolume,Backup,Restore,Upgrade,Rollback,Hold,Verify}
 public enum TerraBaseTarget{None=0,Member,Topology,Volume,BackupChain,RestoreCandidate,Release,Application}
-public enum TerraBaseCode{Uninitialized=0,NextStep,Completed,InvalidInput,WrongEvidenceScope,PermanentMember,ConflictingTopologyMutation,SplitWriter,ProofMissing,ReplicationUnsafe,CompatibilityRequired,RollbackMaterialRequired,ChainGap,DigestProofMissing,ApplicationConsistencyRequired,AntiRollback,SideBySideRequired,PromotionProofMissing}
+public enum TerraBaseCode{Uninitialized=0,NextStep,Completed,InvalidInput,WrongEvidenceScope,PermanentMember,ConflictingTopologyMutation,SplitWriter,ProofMissing,ReplicationUnsafe,CompatibilityRequired,RollbackMaterialRequired,ChainGap,DigestProofMissing,ApplicationConsistencyRequired,AntiRollback,SideBySideRequired,PromotionProofMissing,RolledBack}
 
 public sealed record TerraBaseEvidenceScope(TerraBaseCellId Cell,TerraBaseDatabaseId Database,TerraBaseMemberId Member,
     TerraBaseNodeId Node,TerraBaseVolumeId RetainedVolume,TerraBaseFenceId Fence,TerraBaseOrdinal DatabaseGeneration,
@@ -65,11 +66,49 @@ public sealed record TerraBaseEvidenceScope(TerraBaseCellId Cell,TerraBaseDataba
 
 public sealed record TerraBaseTrace(TerraBaseEvidenceScope Scope,TerraBaseOrdinal Position,TerraBaseOrdinal Generation)
 {public override string ToString()=>$"position={Position};generation={Generation}";}
+
+public abstract record TerraBaseIntentSubject
+{
+    private protected TerraBaseIntentSubject() { }
+    public abstract TerraBaseEvidenceScope Scope { get; }
+    public override string ToString()=>"<terrabase-intent-subject>";
+}
+public sealed record TerraBaseScopedIntentSubject:TerraBaseIntentSubject
+{ internal TerraBaseScopedIntentSubject(TerraBaseEvidenceScope scope)=>Scope=scope; public override TerraBaseEvidenceScope Scope{get;} public override string ToString()=>"<terrabase-scoped-intent>"; }
+public sealed record TerraBaseTopologyIntentSubject:TerraBaseIntentSubject
+{ internal TerraBaseTopologyIntentSubject(TerraBaseEvidenceScope scope,TerraBaseMemberKind kind,TerraBaseOrdinal position){Scope=scope;MemberKind=kind;ReplicationPosition=position;}
+  public override TerraBaseEvidenceScope Scope{get;} public TerraBaseMemberKind MemberKind{get;} public TerraBaseOrdinal ReplicationPosition{get;} public override string ToString()=>"<terrabase-topology-intent>"; }
+public sealed record TerraBaseRetainedVolumeIntentSubject:TerraBaseIntentSubject
+{ internal TerraBaseRetainedVolumeIntentSubject(TerraBaseEvidenceScope scope,TerraBaseOrdinal epoch){Scope=scope;NewAuthorityEpoch=epoch;}
+  public override TerraBaseEvidenceScope Scope{get;} public TerraBaseOrdinal NewAuthorityEpoch{get;} public override string ToString()=>"<terrabase-volume-intent>"; }
+public sealed record TerraBaseUpgradeIntentSubject:TerraBaseIntentSubject
+{ internal TerraBaseUpgradeIntentSubject(TerraBaseEvidenceScope scope,TerraBaseReleaseId current,TerraBaseReleaseId target){Scope=scope;Current=current;Target=target;}
+  public override TerraBaseEvidenceScope Scope{get;} public TerraBaseReleaseId Current{get;} public TerraBaseReleaseId Target{get;} public override string ToString()=>"<terrabase-upgrade-intent>"; }
+public sealed record TerraBaseBackupRequestIntentSubject:TerraBaseIntentSubject
+{ internal TerraBaseBackupRequestIntentSubject(TerraBaseEvidenceScope scope,TerraBaseBackupId backup,TerraBaseOrdinal sequence,
+    TerraBaseOrdinal? parent,TerraBaseBackupId? parentBackup,TerraBaseObjectRef destination,TerraBaseKeyRef key){Scope=scope;Backup=backup;Sequence=sequence;ParentSequence=parent;ParentBackup=parentBackup;Destination=destination;EncryptionKey=key;}
+  public override TerraBaseEvidenceScope Scope{get;} public TerraBaseBackupId Backup{get;} public TerraBaseOrdinal Sequence{get;}
+  public TerraBaseOrdinal? ParentSequence{get;} public TerraBaseBackupId? ParentBackup{get;} public TerraBaseObjectRef Destination{get;} public TerraBaseKeyRef EncryptionKey{get;} public override string ToString()=>"<terrabase-backup-request-intent>"; }
+
 public readonly record struct TerraBaseDecision
 {
-    private TerraBaseDecision(TerraBaseAction a,TerraBaseTarget t,TerraBaseCode c,TerraBaseTrace? trace){Action=a;Target=t;Code=c;Trace=trace;}
-    public TerraBaseAction Action{get;} public TerraBaseTarget Target{get;} public TerraBaseCode Code{get;} public TerraBaseTrace? Trace{get;}
-    public bool IsMutationAuthorized=>Action is TerraBaseAction.Add or TerraBaseAction.Remove or TerraBaseAction.StartWithRetainedVolume or TerraBaseAction.Backup or TerraBaseAction.Restore or TerraBaseAction.Upgrade or TerraBaseAction.Rollback;
-    internal static TerraBaseDecision Emit(TerraBaseAction a,TerraBaseTarget t,TerraBaseCode c,TerraBaseTrace trace)=>new(a,t,c,trace);
-    internal static TerraBaseDecision Hold(TerraBaseCode c,TerraBaseTrace? trace=null)=>new(TerraBaseAction.Hold,TerraBaseTarget.None,c,trace);
+    private TerraBaseDecision(TerraBaseAction a,TerraBaseTarget t,TerraBaseCode c,TerraBaseTrace? trace,TerraBaseIntentSubject? subject){Action=a;Target=t;Code=c;Trace=trace;Subject=subject;}
+    public TerraBaseAction Action{get;} public TerraBaseTarget Target{get;} public TerraBaseCode Code{get;} public TerraBaseTrace? Trace{get;} public TerraBaseIntentSubject? Subject{get;}
+    public bool IsMutationAuthorized=>Action is TerraBaseAction.Add or TerraBaseAction.CatchUp or TerraBaseAction.Transfer or TerraBaseAction.Remove
+        or TerraBaseAction.StartWithRetainedVolume or TerraBaseAction.Backup or TerraBaseAction.Restore or TerraBaseAction.Upgrade or TerraBaseAction.Rollback;
+    internal static TerraBaseDecision Emit(TerraBaseAction a,TerraBaseTarget t,TerraBaseCode c,TerraBaseTrace trace)=>new(a,t,c,trace,new TerraBaseScopedIntentSubject(trace.Scope));
+    internal static TerraBaseDecision Emit(TerraBaseAction a,TerraBaseTarget t,TerraBaseCode c,TerraBaseTrace trace,TerraBaseIntentSubject subject)
+    {
+        var valid=a switch
+        {
+            TerraBaseAction.Add or TerraBaseAction.CatchUp or TerraBaseAction.Transfer or TerraBaseAction.Remove=>subject is TerraBaseTopologyIntentSubject,
+            TerraBaseAction.StartWithRetainedVolume=>subject is TerraBaseRetainedVolumeIntentSubject,
+            TerraBaseAction.Upgrade or TerraBaseAction.Rollback=>subject is TerraBaseUpgradeIntentSubject,
+            TerraBaseAction.Backup=>subject is TerraBaseBackupRequestIntentSubject,
+            TerraBaseAction.Restore=>subject is TerraBaseRestoreIntentSubject,
+            _=>true,
+        };
+        return valid&&subject.Scope==trace.Scope?new(a,t,c,trace,subject):Hold(TerraBaseCode.InvalidInput,trace);
+    }
+    internal static TerraBaseDecision Hold(TerraBaseCode c,TerraBaseTrace? trace=null)=>new(TerraBaseAction.Hold,TerraBaseTarget.None,c,trace,null);
 }
