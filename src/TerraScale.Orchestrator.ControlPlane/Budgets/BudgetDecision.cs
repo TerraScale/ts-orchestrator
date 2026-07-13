@@ -260,7 +260,7 @@ public static class BudgetAuthorizationEngine
             }
             if (proposal.Purpose == BudgetSafetyPurpose.DataLossPreventionStorageExpansion)
             {
-                if (proposal.NodeCount != 0 || !proposal.Delta.HasOnlyStorageIncrease)
+                if (proposal.NodeCount != 0 || !proposal.Delta.IsStorageSafetyDomainIncrease)
                 {
                     return BudgetDecision.Create(BudgetDecisionKind.Held, BudgetDecisionReason.InvalidEmergencySafetyClaim, trace);
                 }

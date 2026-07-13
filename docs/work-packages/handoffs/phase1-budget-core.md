@@ -19,7 +19,7 @@
 - Projection uses checked arithmetic. Overflow/underflow holds without wrapping. Node minimum/maximum, warm protection, every automatic/approval/forbidden band, budget ceilings, and provider/account hard limits are evaluated deterministically.
 - `Automatic` is the only immediately authorized kind. `ApprovalRequired` is not authorized and contains only a typed immutable approval scope plus the numeric trace; there is no callback, command, arbitrary message, lookup, or provider action.
 - The stable invariant trace includes current/projected cell/global usage, delta, every automatic/approval/budget/provider vector, current/projected/minimum/warm/maximum node counts, all evidence ages and maximum age, and binding dimensions.
-- In emergency posture, ordinary growth is forbidden and every decrease is held, so this core cannot authorize termination. Availability repair still passes through hard policy. An explicitly classified storage-only/no-node data-loss-prevention increase is automatic even beyond budget bands, but never beyond provider/account hard limits.
+- In emergency posture, ordinary growth is forbidden and every decrease is held, so this core cannot authorize termination. Availability repair still passes through hard policy. An explicitly classified no-node data-loss-prevention increase may include storage, IOPS/throughput, and associated hourly/daily spend, but no CPU, memory, public IP, or LB backend. It is automatic even beyond budget bands, but never beyond provider/account hard limits.
 
 ## Anomaly behavior
 
@@ -35,7 +35,7 @@ Findings are defensively copied, canonically ordered, secret-safe, and never dec
 
 ## Verification
 
-The 25 focused TUnit tests cover identity/quantity boundaries, culture stability, default closure, policy construction, defensive copies, all nine independent dimensions, exact bands, cell/global budget and hard limits, node min/warm/max, arithmetic limits, approval secrecy, evidence permutations/failures/ages/bounds, emergency safety behavior, and anomaly discrepancy/evidence matrices.
+The 26 focused TUnit tests cover identity/quantity boundaries, culture stability, default closure, policy construction, defensive copies, all nine independent dimensions, exact bands, cell/global budget and hard limits, node min/warm/max, arithmetic limits, approval secrecy, evidence permutations/failures/ages/bounds, emergency safety behavior, and anomaly discrepancy/evidence matrices.
 
 ```text
 dotnet restore TerraScale.Orchestrator.slnx --locked-mode
@@ -45,7 +45,7 @@ dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestr
 git diff --check
 ```
 
-Result: solution build passed with zero warnings/errors; focused budget tests passed 25/25; full ControlPlane tests passed 69/69.
+Result: solution build passed with zero warnings/errors; focused budget tests passed 26/26; full ControlPlane tests passed 70/70.
 
 ## Deliberate semantic choices and limitations
 

@@ -199,11 +199,12 @@ public sealed class BudgetVector : IEquatable<BudgetVector>
         return dimensions;
     }
 
-    internal bool HasOnlyStorageIncrease =>
+    internal bool IsStorageSafetyDomainIncrease =>
         Storage.Value > 0
-        && Cpu.Value == 0 && Memory.Value == 0 && Iops.Value == 0 && Throughput.Value == 0
-        && PublicIp.Value == 0 && LoadBalancerBackend.Value == 0
-        && HourlySpend.Value == 0 && DailySpend.Value == 0;
+        && Cpu.Value == 0
+        && Memory.Value == 0
+        && PublicIp.Value == 0
+        && LoadBalancerBackend.Value == 0;
 
     private bool TryCombine(BudgetVector other, bool add, out BudgetVector? result)
     {

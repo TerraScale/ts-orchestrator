@@ -55,4 +55,46 @@ public sealed class BudgetEmergencyTests
         await Assert.That(withNode.Reason).IsEqualTo(BudgetDecisionReason.InvalidEmergencySafetyClaim);
         await Assert.That(decrease.Reason).IsEqualTo(BudgetDecisionReason.EmergencyDecreaseHeld);
     }
+
+    [Test]
+    public async Task Emergency_storage_safety_domain_allows_performance_and_cost_but_rejects_capacity_piggyback()
+    {
+        var policy = BudgetTestData.Policy(
+            BudgetEmergencyPosture.Emergency,
+            automatic: BudgetTestData.Vector(10),
+            approval: BudgetTestData.Vector(20),
+            ceiling: BudgetTestData.Vector(25),
+            provider: BudgetTestData.Vector(100));
+        var storagePerformanceAndCost = new BudgetVector(
+            BudgetTestData.Q(0), BudgetTestData.Q(0), BudgetTestData.Q(20),
+            BudgetTestData.Q(15), BudgetTestData.Q(15), BudgetTestData.Q(0), BudgetTestData.Q(0),
+            BudgetTestData.Q(5), BudgetTestData.Q(10));
+        var cpuPiggyback = new BudgetVector(
+            BudgetTestData.Q(1), BudgetTestData.Q(0), BudgetTestData.Q(1),
+            BudgetTestData.Q(0), BudgetTestData.Q(0), BudgetTestData.Q(0), BudgetTestData.Q(0),
+            BudgetTestData.Q(1), BudgetTestData.Q(1));
+        var publicIpPiggyback = new BudgetVector(
+            BudgetTestData.Q(0), BudgetTestData.Q(0), BudgetTestData.Q(1),
+            BudgetTestData.Q(0), BudgetTestData.Q(0), BudgetTestData.Q(1), BudgetTestData.Q(0),
+            BudgetTestData.Q(1), BudgetTestData.Q(1));
+
+        var allowed = BudgetTestData.Evaluate(policy,
+            BudgetTestData.Proposal(storagePerformanceAndCost,
+                purpose: BudgetSafetyPurpose.DataLossPreventionStorageExpansion, nodeCount: 0));
+        var cpuRejected = BudgetTestData.Evaluate(policy,
+            BudgetTestData.Proposal(cpuPiggyback,
+                purpose: BudgetSafetyPurpose.DataLossPreventionStorageExpansion, nodeCount: 0));
+        var publicIpRejected = BudgetTestData.Evaluate(policy,
+            BudgetTestData.Proposal(publicIpPiggyback,
+                purpose: BudgetSafetyPurpose.DataLossPreventionStorageExpansion, nodeCount: 0));
+        var nodeRejected = BudgetTestData.Evaluate(policy,
+            BudgetTestData.Proposal(storagePerformanceAndCost,
+                purpose: BudgetSafetyPurpose.DataLossPreventionStorageExpansion, nodeCount: 1));
+
+        await Assert.That(allowed.Kind).IsEqualTo(BudgetDecisionKind.Automatic);
+        await Assert.That(allowed.Reason).IsEqualTo(BudgetDecisionReason.EmergencyDataLossPrevention);
+        await Assert.That(cpuRejected.Reason).IsEqualTo(BudgetDecisionReason.InvalidEmergencySafetyClaim);
+        await Assert.That(publicIpRejected.Reason).IsEqualTo(BudgetDecisionReason.InvalidEmergencySafetyClaim);
+        await Assert.That(nodeRejected.Reason).IsEqualTo(BudgetDecisionReason.InvalidEmergencySafetyClaim);
+    }
 }
