@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "45cddef715efdd8e33749758f4ec03fe22ee9ec3faaee6cf405425632ede3589",
+  "inputSha256": "17daf40e8a5c9ea88329f82658502669ae1030c9c7b202d8a1cacd842ca30543",
   "counts": {
     "registered": 43,
     "linked": 6,
