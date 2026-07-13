@@ -225,7 +225,7 @@ public sealed record ResourceBounds
 /// </summary>
 public sealed class RoleDescriptor : IEquatable<RoleDescriptor>
 {
-    public RoleDescriptor(
+    internal RoleDescriptor(
         ApiVersion apiVersion,
         AdmittedRole role,
         IEnumerable<RuntimeDriver> allowedRuntimes,
@@ -244,7 +244,11 @@ public sealed class RoleDescriptor : IEquatable<RoleDescriptor>
         Ports = StableValues(ports, nameof(ports), port => ((int)port.Protocol, port.Port));
         Capabilities = StableEnums(capabilities, nameof(capabilities), requireNonempty: false);
         VolumePurposes = StableEnums(volumePurposes, nameof(volumePurposes), requireNonempty: false);
-        SecretProfiles = StableValues(secretProfiles, nameof(secretProfiles), profile => profile.ProfileId.Value);
+        SecretProfiles = StableValues(
+            secretProfiles,
+            nameof(secretProfiles),
+            profile => profile.ProfileId.Value,
+            StringComparer.Ordinal);
         Health = health ?? throw new ArgumentNullException(nameof(health));
         Placement = placement ?? throw new ArgumentNullException(nameof(placement));
         if (!Enum.IsDefined(scalingControllerOwner))
@@ -325,7 +329,11 @@ public sealed class RoleDescriptor : IEquatable<RoleDescriptor>
         return new ReadOnlyCollection<T>(values.Order().ToArray());
     }
 
-    private static IReadOnlyList<T> StableValues<T, TKey>(IEnumerable<T> source, string name, Func<T, TKey> key)
+    private static IReadOnlyList<T> StableValues<T, TKey>(
+        IEnumerable<T> source,
+        string name,
+        Func<T, TKey> key,
+        IComparer<TKey>? comparer = null)
         where T : notnull
     {
         ArgumentNullException.ThrowIfNull(source, name);
@@ -340,7 +348,7 @@ public sealed class RoleDescriptor : IEquatable<RoleDescriptor>
             throw new ArgumentException("Duplicate values are not allowed.", name);
         }
 
-        return new ReadOnlyCollection<T>(values.OrderBy(key).ToArray());
+        return new ReadOnlyCollection<T>(values.OrderBy(key, comparer ?? Comparer<TKey>.Default).ToArray());
     }
 
     private static string Join<T>(IEnumerable<T> values) => string.Join(',', values);

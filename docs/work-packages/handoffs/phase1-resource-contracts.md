@@ -29,7 +29,15 @@ unit text/directive, privileged flag, Linux capability, or NATS permission surfa
 This satisfies representability constraints only; an adapter must still enforce the
 built-in mapping.
 
+`RoleDescriptor` construction is assembly-internal. External manifests/clients can
+read reviewed descriptors but cannot synthesize combinations such as an API role
+with control authority, NATS storage, and unrelated secret profiles. Model tests
+receive narrowly scoped friend access. A later same-assembly built-in catalog must
+publish the reviewed instances; manifests may reference only those catalog entries.
+
 Collections are defensively copied, duplicate-rejected, enum-validated, and sorted.
+String-key ordering is explicitly ordinal; construction, projection, and structural
+hashes are identical under invariant, `ar-SA`, and `tr-TR` cultures.
 Canonical UTF-8 projections are independent of input ordering and include only
 secret-profile references, never secret values, supporting the
 `SEC-NO-SECRET-OUTPUT` boundary.

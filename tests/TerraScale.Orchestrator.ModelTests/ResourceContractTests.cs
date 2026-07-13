@@ -163,6 +163,25 @@ public sealed class ResourceContractTests
     }
 
     [Test]
+    public async Task DescriptorConstructionOrderingProjectionAndHashAreCultureIndependent()
+    {
+        var invariant = DescriptorUnderCulture(CultureInfo.InvariantCulture);
+        var arabic = DescriptorUnderCulture(CultureInfo.GetCultureInfo("ar-SA"));
+        var turkish = DescriptorUnderCulture(CultureInfo.GetCultureInfo("tr-TR"));
+
+        await Assert.That(arabic.SecretProfiles.Select(profile => profile.ProfileId.Value).ToArray())
+            .IsEquivalentTo(invariant.SecretProfiles.Select(profile => profile.ProfileId.Value).ToArray());
+        await Assert.That(string.Join(',', arabic.SecretProfiles.Select(profile => profile.ProfileId.Value)))
+            .IsEqualTo(string.Join(',', invariant.SecretProfiles.Select(profile => profile.ProfileId.Value)));
+        await Assert.That(string.Join(',', turkish.SecretProfiles.Select(profile => profile.ProfileId.Value)))
+            .IsEqualTo(string.Join(',', invariant.SecretProfiles.Select(profile => profile.ProfileId.Value)));
+        await Assert.That(arabic.ToCanonicalString()).IsEqualTo(invariant.ToCanonicalString());
+        await Assert.That(turkish.ToCanonicalString()).IsEqualTo(invariant.ToCanonicalString());
+        await Assert.That(arabic.GetHashCode()).IsEqualTo(invariant.GetHashCode());
+        await Assert.That(turkish.GetHashCode()).IsEqualTo(invariant.GetHashCode());
+    }
+
+    [Test]
     public async Task EveryDescriptorCollectionRejectsDuplicates()
     {
         await Assert.That(Throws<ArgumentException>(() => Descriptor(runtimes: [RuntimeDriver.NativeSystemd, RuntimeDriver.NativeSystemd]))).IsTrue();
@@ -226,7 +245,8 @@ public sealed class ResourceContractTests
         };
         var names = typeof(RoleDescriptor).GetMembers(BindingFlags.Instance | BindingFlags.Public)
             .Select(member => member.Name)
-            .Concat(typeof(RoleDescriptor).GetConstructors().SelectMany(constructor => constructor.GetParameters())
+            .Concat(typeof(RoleDescriptor).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .SelectMany(constructor => constructor.GetParameters())
                 .Select(parameter => parameter.Name ?? string.Empty))
             .Select(name => name.Replace("_", "", StringComparison.Ordinal).ToLowerInvariant())
             .ToArray();
@@ -237,7 +257,8 @@ public sealed class ResourceContractTests
         }
 
         await Assert.That(typeof(RoleDescriptor).GetProperties().Any(property => property.PropertyType == typeof(string))).IsFalse();
-        await Assert.That(typeof(RoleDescriptor).GetConstructors().SelectMany(constructor => constructor.GetParameters())
+        await Assert.That(typeof(RoleDescriptor).GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .SelectMany(constructor => constructor.GetParameters())
             .Any(parameter => parameter.ParameterType == typeof(string))).IsFalse();
         await Assert.That(typeof(AdmittedRole).Assembly.GetTypes()
             .Where(type => type.BaseType == typeof(AdmittedRole))
@@ -253,12 +274,27 @@ public sealed class ResourceContractTests
         }.Concat(typeof(AdmittedRole).Assembly.GetTypes().Where(type => type.BaseType == typeof(AdmittedRole)));
         var exposedTypes = safeSurfaceTypes.SelectMany(type => type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
                 .Select(property => property.PropertyType)
-                .Concat(type.GetConstructors().SelectMany(constructor => constructor.GetParameters())
+                .Concat(type.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .SelectMany(constructor => constructor.GetParameters())
                     .Select(parameter => parameter.ParameterType)))
             .ToArray();
         await Assert.That(exposedTypes.Any(type => forbiddenTypes.Contains(type) ||
                                                    (type.IsGenericType && forbiddenTypes.Contains(type.GetGenericTypeDefinition())))).IsFalse();
         await Assert.That(exposedTypes.Any(IsStringCollection)).IsFalse();
+    }
+
+    [Test]
+    public async Task ReflectionProvesExternalConsumersCannotSynthesizeDescriptors()
+    {
+        var publicConstructors = typeof(RoleDescriptor).GetConstructors(BindingFlags.Instance | BindingFlags.Public);
+        var internalConstructors = typeof(RoleDescriptor).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic);
+        var publicFactories = typeof(RoleDescriptor).GetMethods(BindingFlags.Static | BindingFlags.Public)
+            .Where(method => method.ReturnType == typeof(RoleDescriptor)).ToArray();
+
+        await Assert.That(publicConstructors).IsEmpty();
+        await Assert.That(internalConstructors).IsNotEmpty();
+        await Assert.That(internalConstructors.All(constructor => constructor.IsAssembly)).IsTrue();
+        await Assert.That(publicFactories).IsEmpty();
     }
 
     [Test]
@@ -313,6 +349,22 @@ public sealed class ResourceContractTests
         new PlacementConstraints(new("compact"), FailureDomainSpread.PreferDistinct, false),
         scaling,
         new ResourceBounds(new(1, 1, 0, 0, 1, 1, 1, 0), new(8, 16, 8, 32, 8, 1024, 4096, 0)));
+
+    private static RoleDescriptor DescriptorUnderCulture(CultureInfo culture)
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = culture;
+            return Descriptor(
+                ports: [new(TransportProtocol.Udp, 9000), new(TransportProtocol.Tcp, 443)],
+                secrets: [new(new("z-profile")), new(new("a.z-profile")), new(new("a-profile")), new(new("az-profile"))]);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
 
     private static bool Throws<TException>(Action action)
         where TException : Exception
