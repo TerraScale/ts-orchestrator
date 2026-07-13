@@ -20,6 +20,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj" />
     <Project Path="tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchestrator.ModelTests.csproj" />
     <Project Path="tests/TerraScale.Orchestrator.Protocol.Tests/TerraScale.Orchestrator.Protocol.Tests.csproj" />
     <Project Path="tests/TerraScale.Orchestrator.Scheduler.Tests/TerraScale.Orchestrator.Scheduler.Tests.csproj" />
   </Folder>
