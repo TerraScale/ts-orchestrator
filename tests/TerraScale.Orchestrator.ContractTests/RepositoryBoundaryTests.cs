@@ -46,6 +46,46 @@ public sealed class RepositoryBoundaryTests
         }
     }
 
+    [Test]
+    public async Task WorkaroundLedgerHasStableIdsEvidenceAndCanonicalOwners()
+    {
+        var root = FindRepositoryRoot();
+        var yaml = await File.ReadAllTextAsync(Path.Combine(root, "docs/retirement/workaround-ledger.yaml"));
+        var deserializer = new DeserializerBuilder()
+            .WithNamingConvention(UnderscoredNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
+        var ledger = deserializer.Deserialize<WorkaroundLedger>(yaml);
+        var entries = ledger.Entries ?? [];
+        var canonicalOwners = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Integration/contract steward",
+            "Core",
+            "Messaging/security",
+            "Runtime",
+            "Cloud",
+            "Storage",
+            "TerraBase",
+            "Delivery",
+            "Operations",
+            "Cross-repository cleanup",
+            "Verification"
+        };
+
+        await Assert.That(entries.Count).IsEqualTo(22);
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            await Assert.That(entry.Id).IsEqualTo($"WRK-{index + 1:000}");
+            await Assert.That(entry.Evidence).IsNotEmpty();
+            await Assert.That(canonicalOwners).Contains(entry.OwnerWorkstream.Primary);
+            foreach (var collaborator in entry.OwnerWorkstream.Collaborators)
+            {
+                await Assert.That(canonicalOwners).Contains(collaborator);
+            }
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -69,5 +109,28 @@ public sealed class RepositoryBoundaryTests
         public required string Owner { get; init; }
 
         public required List<string> AcceptanceLayers { get; init; }
+    }
+
+    private sealed class WorkaroundLedger
+    {
+        public List<WorkaroundEntry>? Entries { get; init; }
+    }
+
+    private sealed class WorkaroundEntry
+    {
+        public required string Id { get; init; }
+
+        public required List<WorkaroundEvidence> Evidence { get; init; }
+
+        public required WorkstreamOwner OwnerWorkstream { get; init; }
+    }
+
+    private sealed class WorkaroundEvidence;
+
+    private sealed class WorkstreamOwner
+    {
+        public required string Primary { get; init; }
+
+        public required List<string> Collaborators { get; init; }
     }
 }
