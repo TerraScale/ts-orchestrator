@@ -13,13 +13,8 @@ public static class ReconciliationEngine
         var desired = request.Desired.ToArray();
         var observed = request.Observed.ToArray();
         var errors = Validate(request.Policy, desired, observed);
-        var orderedDesired = desired
-            .Where(static item => item?.Identity?.Value is not null)
-            .OrderBy(static item => item.Identity.Value, Sorter)
-            .ToArray();
-
         if (errors.Any(IsFatal))
-            return InvalidPlan(orderedDesired, errors);
+            return InvalidPlan(errors);
 
         var resources = desired.ToDictionary(static item => item.Identity, ResourceIdentityComparer.Instance);
         var observations = observed.ToDictionary(static item => item.Identity, ResourceIdentityComparer.Instance);
@@ -34,8 +29,7 @@ public static class ReconciliationEngine
         var (order, cyclic) = TopologicalOrder(resources);
         foreach (var identity in cyclic)
         {
-            errors.Add(Error(ReconciliationErrorCode.DependencyCycle, identity, identity,
-                "Dependency cycle prevents a complete topological order."));
+            errors.Add(Error(ReconciliationErrorCode.DependencyCycle, identity, identity));
         }
 
         var steps = new List<ReconciliationStep>(desired.Length);
@@ -48,7 +42,7 @@ public static class ReconciliationEngine
             observations.TryGetValue(identity, out var observation);
             var evaluation = Evaluate(resource, observation, request.Policy, missing, cyclic, byIdentity);
             var stepTrace = new ReconciliationTrace(
-                trace.Count + 1, identity, evaluation.Reason, evaluation.Related, Message(evaluation.Reason));
+                trace.Count + 1, identity, evaluation.Reason, evaluation.Related);
             trace.Add(stepTrace);
             var step = new ReconciliationStep(
                 steps.Count + 1,
@@ -136,14 +130,12 @@ public static class ReconciliationEngine
             policy.GenerationFloors.Any(pair => pair.Key is null ||
                 !Valid(pair.Key.Value, policy.MaximumIdentityLength) || pair.Value < 0))
         {
-            errors.Add(Error(ReconciliationErrorCode.InvalidPolicy, null, null,
-                "Caller policy must provide positive bounds, a unique closed kind catalog, and non-negative generation/freshness floors."));
+            errors.Add(Error(ReconciliationErrorCode.InvalidPolicy, null, null));
             return errors;
         }
 
         if (desired.Count > policy.MaximumResources || observed.Count > policy.MaximumResources)
-            errors.Add(Error(ReconciliationErrorCode.ResourceLimitExceeded, null, null,
-                "Desired or observed resources exceed the caller-supplied resource bound."));
+            errors.Add(Error(ReconciliationErrorCode.ResourceLimitExceeded, null, null));
 
         var allowedKinds = new HashSet<string>(policy.AllowedKinds, Sorter);
         var identities = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
@@ -151,32 +143,32 @@ public static class ReconciliationEngine
         {
             if (resource is null || !Valid(resource.Identity?.Value, policy.MaximumIdentityLength))
             {
-                errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, resource?.Identity, null, "Desired resource identity is blank or out of bounds."));
+                errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, null, null));
                 continue;
             }
             if (!identities.Add(resource.Identity!))
-                errors.Add(Error(ReconciliationErrorCode.DuplicateResource, resource.Identity, null, "Desired resource identity is duplicated."));
+                errors.Add(Error(ReconciliationErrorCode.DuplicateResource, resource.Identity, null));
             if (!Valid(resource.Kind, policy.MaximumKindLength))
-                errors.Add(Error(ReconciliationErrorCode.InvalidKind, resource.Identity, null, "Desired resource kind is blank or out of bounds."));
+                errors.Add(Error(ReconciliationErrorCode.InvalidKind, resource.Identity, null));
             else if (!allowedKinds.Contains(resource.Kind))
-                errors.Add(Error(ReconciliationErrorCode.KindNotAllowed, resource.Identity, null, "Desired resource kind is outside the closed caller catalog."));
+                errors.Add(Error(ReconciliationErrorCode.KindNotAllowed, resource.Identity, null));
             if (resource.Generation <= 0)
-                errors.Add(Error(ReconciliationErrorCode.InvalidGeneration, resource.Identity, null, "Desired generation must be positive."));
+                errors.Add(Error(ReconciliationErrorCode.InvalidGeneration, resource.Identity, null));
             if (policy.GenerationFloors.TryGetValue(resource.Identity!, out var floor) && resource.Generation < floor)
-                errors.Add(Error(ReconciliationErrorCode.GenerationRegression, resource.Identity, null, "Desired generation is lower than the caller-supplied accepted floor."));
+                errors.Add(Error(ReconciliationErrorCode.GenerationRegression, resource.Identity, null));
             if (!Valid(resource.Digest, policy.MaximumDigestLength))
-                errors.Add(Error(ReconciliationErrorCode.InvalidDigest, resource.Identity, null, "Desired digest is blank or out of bounds."));
+                errors.Add(Error(ReconciliationErrorCode.InvalidDigest, resource.Identity, null));
             if (resource.Dependencies.Count > policy.MaximumDependenciesPerResource)
-                errors.Add(Error(ReconciliationErrorCode.DependencyLimitExceeded, resource.Identity, null, "Dependency count exceeds the caller-supplied bound."));
+                errors.Add(Error(ReconciliationErrorCode.DependencyLimitExceeded, resource.Identity, null));
             var dependencySet = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
             foreach (var dependency in resource.Dependencies)
             {
                 if (!Valid(dependency?.Value, policy.MaximumIdentityLength))
-                    errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, resource.Identity, dependency, "Dependency identity is blank or out of bounds."));
+                    errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, resource.Identity, null));
                 else if (!dependencySet.Add(dependency!))
-                    errors.Add(Error(ReconciliationErrorCode.DuplicateDependency, resource.Identity, dependency, "Dependency identity is duplicated."));
+                    errors.Add(Error(ReconciliationErrorCode.DuplicateDependency, resource.Identity, dependency));
                 else if (ResourceIdentityComparer.Instance.Equals(resource.Identity, dependency))
-                    errors.Add(Error(ReconciliationErrorCode.SelfDependency, resource.Identity, dependency, "Resource depends on itself."));
+                    errors.Add(Error(ReconciliationErrorCode.SelfDependency, resource.Identity, dependency));
             }
         }
 
@@ -186,7 +178,7 @@ public static class ReconciliationEngine
             foreach (var dependency in resource.Dependencies)
             {
                 if (!identities.Contains(dependency))
-                    errors.Add(Error(ReconciliationErrorCode.MissingDependency, resource.Identity, dependency, "Dependency does not exist in desired state."));
+                    errors.Add(Error(ReconciliationErrorCode.MissingDependency, resource.Identity, dependency));
             }
         }
 
@@ -196,19 +188,20 @@ public static class ReconciliationEngine
         {
             if (observation is null || !Valid(observation.Identity?.Value, policy.MaximumIdentityLength) ||
                 !Valid(observation.Kind, policy.MaximumKindLength) ||
-                observation.Generation < 0 || !Valid(observation.Digest, policy.MaximumDigestLength) ||
+                observation.Generation <= 0 || !Valid(observation.Digest, policy.MaximumDigestLength) ||
                 !Valid(observation.ObservationId, policy.MaximumObservationIdLength) || observation.FreshnessSequence < 0 ||
                 !Enum.IsDefined(observation.Condition))
             {
-                errors.Add(Error(ReconciliationErrorCode.InvalidObservation, observation?.Identity, null, "Observation is malformed or out of bounds."));
+                errors.Add(Error(ReconciliationErrorCode.InvalidObservation,
+                    Valid(observation?.Identity?.Value, policy.MaximumIdentityLength) ? observation!.Identity : null, null));
                 continue;
             }
             if (!observationIdentities.Add(observation.Identity!))
-                errors.Add(Error(ReconciliationErrorCode.DuplicateObservation, observation.Identity, null, "Observation identity is duplicated."));
+                errors.Add(Error(ReconciliationErrorCode.DuplicateObservation, observation.Identity, null));
             if (!desiredByIdentity.TryGetValue(observation.Identity!, out var desiredResource))
-                errors.Add(Error(ReconciliationErrorCode.ObservationWithoutDesired, observation.Identity, null, "Observation has no exact desired identity."));
+                errors.Add(Error(ReconciliationErrorCode.ObservationWithoutDesired, observation.Identity, null));
             else if (!Sorter.Equals(observation.Kind, desiredResource.Kind))
-                errors.Add(Error(ReconciliationErrorCode.IdentityMismatch, observation.Identity, null, "Observed kind does not exactly match desired identity pairing."));
+                errors.Add(Error(ReconciliationErrorCode.IdentityMismatch, observation.Identity, null));
         }
 
         return errors;
@@ -251,25 +244,11 @@ public static class ReconciliationEngine
         return (ordered, cyclic);
     }
 
-    private static ReconciliationPlan InvalidPlan(
-        IReadOnlyList<DesiredResource> desired,
-        IReadOnlyList<ReconciliationError> errors)
+    private static ReconciliationPlan InvalidPlan(IReadOnlyList<ReconciliationError> errors)
     {
-        var trace = new List<ReconciliationTrace>(desired.Count);
-        var steps = new List<ReconciliationStep>(desired.Count);
-        foreach (var resource in desired)
-        {
-            var item = new ReconciliationTrace(trace.Count + 1, resource.Identity,
-                ReconciliationReasonCode.InputInvalid, null, Message(ReconciliationReasonCode.InputInvalid));
-            trace.Add(item);
-            steps.Add(new ReconciliationStep(steps.Count + 1, Copy(resource), null,
-                new HoldResource(resource.Identity, resource.Kind, resource.Generation, resource.Digest,
-                    ReconciliationReasonCode.InputInvalid, resource.Identity),
-                new ReadOnlyCollection<ReconciliationTrace>([item])));
-        }
-        return new(new ReadOnlyCollection<ReconciliationStep>(steps),
+        return new(Array.Empty<ReconciliationStep>(),
             new ReadOnlyCollection<ReconciliationError>(errors.OrderBy(ErrorKey, Sorter).ToArray()),
-            new ReadOnlyCollection<ReconciliationTrace>(trace));
+            Array.Empty<ReconciliationTrace>());
     }
 
     private static bool IsFatal(ReconciliationError error) => error.Code is not (
@@ -284,34 +263,28 @@ public static class ReconciliationEngine
         reason,
         related ?? root);
 
-    private static bool Valid(string? value, int maximumLength) =>
-        !string.IsNullOrWhiteSpace(value) && value.Length <= maximumLength;
+    private static bool Valid(string? value, int maximumLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length > maximumLength) return false;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (char.IsWhiteSpace(character) || char.IsControl(character)) return false;
+            if (!char.IsSurrogate(character)) continue;
+            if (!char.IsHighSurrogate(character) || index + 1 >= value.Length ||
+                !char.IsLowSurrogate(value[index + 1])) return false;
+            index++;
+        }
+        return true;
+    }
 
     private static ReconciliationError Error(
         ReconciliationErrorCode code,
         ResourceIdentity? resource,
-        ResourceIdentity? related,
-        string message) => new(code, Invariant, resource, related, message);
+        ResourceIdentity? related) => new(code, Invariant, resource, related);
 
     private static string ErrorKey(ReconciliationError error) =>
-        $"{error.Resource?.Value}\u001f{error.RelatedResource?.Value}\u001f{(int)error.Code:D3}\u001f{error.Message}";
-
-    private static string Message(ReconciliationReasonCode reason) => reason switch
-    {
-        ReconciliationReasonCode.InputInvalid => "Input validation failed; reconciliation is held.",
-        ReconciliationReasonCode.MissingObservation => "No observation exists; obtain one before mutation.",
-        ReconciliationReasonCode.StaleObservation => "Observation freshness is below the explicit caller floor.",
-        ReconciliationReasonCode.DependencyNotConverged => "A dependency is not exactly converged.",
-        ReconciliationReasonCode.MissingDependency => "A declared dependency is missing.",
-        ReconciliationReasonCode.CyclicDependency => "A dependency cycle prevents safe ordering.",
-        ReconciliationReasonCode.FailedObservation => "The resource observation reports failure.",
-        ReconciliationReasonCode.HeldObservation => "The resource observation reports a hold.",
-        ReconciliationReasonCode.FutureObservation => "Observed generation is newer than desired generation.",
-        ReconciliationReasonCode.ConflictingObservation => "Observed digest conflicts at the desired generation.",
-        ReconciliationReasonCode.ExactConvergence => "Observed generation and digest exactly match desired state.",
-        ReconciliationReasonCode.DriftEligible => "Older observed generation is eligible for typed reconciliation.",
-        _ => throw new ArgumentOutOfRangeException(nameof(reason)),
-    };
+        $"{error.Resource?.Value}\u001f{error.RelatedResource?.Value}\u001f{(int)error.Code:D3}";
 
     private static DesiredResource Copy(DesiredResource value) => new(
         value.Identity, value.Kind, value.Generation, value.Digest, value.Dependencies);

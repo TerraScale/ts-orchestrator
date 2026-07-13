@@ -155,7 +155,7 @@ public sealed class ReconciliationEngineTests
     {
         var self = Plan([Desired("a", "a")], []);
         await Assert.That(self.Errors.Any(static error => error.Code == ReconciliationErrorCode.SelfDependency)).IsTrue();
-        await Assert.That(self.Steps.Single().Output).IsTypeOf<HoldResource>();
+        await Assert.That(self.Steps).IsEmpty();
 
         var cycleDesired = new[] { Desired("a", "b"), Desired("b", "a"), Desired("c", "b") };
         var cycle = Plan(cycleDesired, cycleDesired.Select(Exact));
@@ -191,10 +191,57 @@ public sealed class ReconciliationEngineTests
 
         var wrongKind = Plan([resource], [Exact(resource) with { Kind = "database" }]);
         await AssertError(wrongKind, ReconciliationErrorCode.IdentityMismatch);
-        await Assert.That(wrongKind.Steps.Single().Output).IsTypeOf<HoldResource>();
 
         var extraObservation = Plan([resource], [Exact(resource), Exact(Desired("other"))]);
         await AssertError(extraObservation, ReconciliationErrorCode.ObservationWithoutDesired);
+    }
+
+    [Test]
+    public async Task ExternalScalarsRejectWhitespaceControlsAndUnpairedSurrogates()
+    {
+        string[] invalidScalars = ["a b", "a\nb", "a\u0001b", "a\uD800b", "a\uDC00b"];
+        foreach (var invalid in invalidScalars)
+        {
+            await AssertError(Plan([Desired(invalid)], []), ReconciliationErrorCode.InvalidIdentity);
+            var invalidIdentityPlan = Plan([Desired(invalid)], []);
+            await Assert.That(invalidIdentityPlan.Steps).IsEmpty();
+            await Assert.That(invalidIdentityPlan.Trace).IsEmpty();
+            await Assert.That(invalidIdentityPlan.Errors.All(static error =>
+                error.Resource is null && error.RelatedResource is null)).IsTrue();
+
+            var invalidCatalog = ReconciliationEngine.Plan(new ReconciliationRequest(
+                [Desired("a")], [], Policy([invalid], new Dictionary<ResourceIdentity, long>())));
+            await AssertError(invalidCatalog, ReconciliationErrorCode.InvalidPolicy);
+
+            var invalidDigest = new DesiredResource(Id("a"), "service", 2, invalid, []);
+            await AssertError(Plan([invalidDigest], []), ReconciliationErrorCode.InvalidDigest);
+
+            var desired = Desired("a");
+            await AssertError(Plan([desired], [Exact(desired) with { ObservationId = invalid }]),
+                ReconciliationErrorCode.InvalidObservation);
+        }
+
+        var scalarIdentity = Desired("service-\U0001F680");
+        var validScalar = Plan([scalarIdentity], [Exact(scalarIdentity)]);
+        await Assert.That(validScalar.Errors).IsEmpty();
+        await Assert.That(validScalar.Steps.Single().Output).IsTypeOf<ConvergedResource>();
+    }
+
+    [Test]
+    public async Task ZeroObservedGenerationIsInvalidRatherThanDriftEligible()
+    {
+        var desired = Desired("a");
+        var plan = Plan([desired], [Exact(desired) with { Generation = 0 }]);
+
+        await AssertError(plan, ReconciliationErrorCode.InvalidObservation);
+        await Assert.That(plan.Steps).IsEmpty();
+    }
+
+    [Test]
+    public async Task PublicErrorAndTraceContractsExposeOnlyClosedCodesNotMessages()
+    {
+        await Assert.That(typeof(ReconciliationError).GetProperty("Message")).IsNull();
+        await Assert.That(typeof(ReconciliationTrace).GetProperty("Message")).IsNull();
     }
 
     [Test]

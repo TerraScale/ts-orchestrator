@@ -35,7 +35,6 @@ public enum ReconciliationErrorCode
 
 public enum ReconciliationReasonCode
 {
-    InputInvalid,
     MissingObservation,
     StaleObservation,
     DependencyNotConverged,
@@ -53,8 +52,7 @@ public sealed record ReconciliationError(
     ReconciliationErrorCode Code,
     string Requirement,
     ResourceIdentity? Resource,
-    ResourceIdentity? RelatedResource,
-    string Message);
+    ResourceIdentity? RelatedResource);
 
 public sealed class DesiredResource
 {
@@ -188,8 +186,7 @@ public sealed record ReconciliationTrace(
     int Sequence,
     ResourceIdentity Resource,
     ReconciliationReasonCode Reason,
-    ResourceIdentity? RelatedResource,
-    string Message);
+    ResourceIdentity? RelatedResource);
 
 public sealed record ReconciliationStep(
     int Order,
