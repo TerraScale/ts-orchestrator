@@ -1,0 +1,1555 @@
+{
+  "coverageGaps": [
+    {
+      "conflict": "CI-CONFLICT-003",
+      "id": "CI-GAP-001",
+      "repository": "TerraScale.Internals",
+      "status": "open",
+      "summary": "Authentication lacks build and release-test targets."
+    },
+    {
+      "conflict": null,
+      "id": "CI-GAP-002",
+      "repository": "TerraScale.DevHost",
+      "status": "open",
+      "summary": "No .terrascale descriptor or Forgejo workflow exists; DevHost is local-only and must not be inferred as a production role."
+    },
+    {
+      "conflict": "CI-CONFLICT-002",
+      "id": "CI-GAP-003",
+      "repository": "TerraScale.Internals",
+      "status": "open",
+      "summary": "CI documentation references three absent per-service workflow paths."
+    },
+    {
+      "conflict": "CI-CONFLICT-001",
+      "id": "CI-GAP-004",
+      "repository": "cross-repository",
+      "status": "open",
+      "summary": "Observed generic workflow, repository policy, and historical cleanup targets have no single accepted native pipeline contract yet."
+    }
+  ],
+  "deploymentDescriptors": [
+    {
+      "buildTargets": [
+        "studio",
+        "linux-amd64",
+        "linux-arm64"
+      ],
+      "candidatePackage": "ci-candidates-terrabase",
+      "dependencies": [
+        {
+          "reason": "TerraBase runtime changes require API/Auth consumer compatibility",
+          "source": "src/",
+          "target": "internals-api-auth"
+        },
+        {
+          "reason": "runtime changes require Operator compatibility",
+          "source": "src/",
+          "target": "operator"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "flux-rolling",
+      "releaseProfiles": [
+        "release-e2e",
+        "slow",
+        "issues",
+        "rachis",
+        "embedded"
+      ],
+      "repository": "TerraBase",
+      "source": "TerraBase@349cd1a11e5b252ffc193d3c3cdf059b954828fd:.terrascale/deploy.json:1-30"
+    },
+    {
+      "buildTargets": [
+        "linux-amd64",
+        "linux-arm64",
+        "helm"
+      ],
+      "candidatePackage": "ci-candidates-operator",
+      "dependencies": [
+        {
+          "reason": "CRD changes require TerraBase rollout compatibility",
+          "source": "api/",
+          "target": "terrabase-manifests"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "flux-rolling",
+      "releaseProfiles": [
+        "go-regression",
+        "helm-generated"
+      ],
+      "repository": "Terrabase.Operator",
+      "source": "Terrabase.Operator@b3b105be880e169d62e3cb4506846b8a11342d5c:.terrascale/deploy.json:1-24"
+    },
+    {
+      "buildTargets": [
+        "cli-nuget"
+      ],
+      "candidatePackage": "ci-candidates-deploy",
+      "dependencies": [
+        {
+          "reason": "Deploy CLI contract changes require every workflow/profile compatibility fixture",
+          "source": "src/",
+          "target": "all-workflow-fixtures"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "package",
+      "releaseProfiles": [
+        "cli-regression",
+        "fixture-regression"
+      ],
+      "repository": "TerraScale.Deploy",
+      "source": "TerraScale.Deploy@cacb596cd0f6f25a40e76160554fecc14f047965:.terrascale/deploy.json:1-15"
+    },
+    {
+      "buildTargets": [
+        "sdk-nuget",
+        "ef-nuget"
+      ],
+      "candidatePackage": "ci-candidates-dotnet",
+      "dependencies": [
+        {
+          "reason": "SDK changes require API and Dashboard consumer validation",
+          "source": "src/",
+          "target": "internals-api-dashboard"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "package",
+      "releaseProfiles": [
+        "base-sdk-release-e2e",
+        "ef-core-release-e2e"
+      ],
+      "repository": "TerraScale.DotNet",
+      "source": "TerraScale.DotNet@9d98e4e3dc3e05eb955ba06f03b05bf462cfb21b:.terrascale/deploy.json:1-18"
+    },
+    {
+      "buildTargets": [
+        "npm"
+      ],
+      "candidatePackage": "ci-candidates-typescript",
+      "dependencies": [
+        {
+          "reason": "SDK changes require Dashboard build and browser E2E",
+          "source": "src/",
+          "target": "internals-dashboard"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "package",
+      "releaseProfiles": [
+        "regression",
+        "release-e2e"
+      ],
+      "repository": "TerraScale.TypeScript",
+      "source": "TerraScale.TypeScript@7d9b629ce5a5d41a3fa457911305b057749e3252:.terrascale/deploy.json:1-15"
+    },
+    {
+      "buildTargets": [
+        "rendered-gitops"
+      ],
+      "candidatePackage": "ci-candidates-infrastructure",
+      "dependencies": [
+        {
+          "reason": "workload and route policy changes require render, rollout, and endpoint verification",
+          "source": "gitops/apps/terrascale/",
+          "target": "affected-public-service"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "none",
+      "releaseProfiles": [
+        "offline-validators",
+        "preview-gru",
+        "preview-sfo",
+        "preview-fra"
+      ],
+      "repository": "TerraScale.Infrastructure",
+      "source": "TerraScale.Infrastructure@3bfdb4ee0124fbcce43e7db57cf00045f374fbcb:.terrascale/deploy.json:1-17"
+    },
+    {
+      "buildTargets": [
+        "api-amd64",
+        "api-arm64",
+        "dashboard"
+      ],
+      "candidatePackage": "ci-candidates-internals",
+      "dependencies": [
+        {
+          "reason": "shared Core/Hosting changes affect every service",
+          "source": "src/Core/",
+          "target": "all-internals"
+        },
+        {
+          "reason": "public API contract changes require both SDK live suites",
+          "source": "src/API/",
+          "target": "dotnet-typescript-e2e"
+        },
+        {
+          "reason": "Dashboard consumes the TypeScript SDK",
+          "source": "src/Dashboard/",
+          "target": "typescript"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "flux-blue-green",
+      "releaseProfiles": [
+        "api-regression",
+        "apphost-regression",
+        "dashboard-release-e2e"
+      ],
+      "repository": "TerraScale.Internals",
+      "source": "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:.terrascale/deploy.json:1-24"
+    },
+    {
+      "buildTargets": [
+        "pages"
+      ],
+      "candidatePackage": "ci-candidates-documentation",
+      "dependencies": [
+        {
+          "reason": "OpenAPI snapshots require TypeScript and DotNet drift validation",
+          "source": "static/openapi",
+          "target": "sdk-contracts"
+        }
+      ],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "pages",
+      "releaseProfiles": [
+        "release-e2e"
+      ],
+      "repository": "Terrascale.Documentation",
+      "source": "Terrascale.Documentation@ccca078a99f4d0702d4e55ac02d6585277ea08e9:.terrascale/deploy.json:1-12"
+    },
+    {
+      "buildTargets": [
+        "pages"
+      ],
+      "candidatePackage": "ci-candidates-landing",
+      "dependencies": [],
+      "prProfiles": [
+        "static",
+        "build"
+      ],
+      "promotionStrategy": "pages",
+      "releaseProfiles": [
+        "release-e2e"
+      ],
+      "repository": "Terrascale.Landingpage",
+      "source": "Terrascale.Landingpage@0a763469d3d086e672be673b080a97dbc31dff26:.terrascale/deploy.json:1-12"
+    }
+  ],
+  "descriptorRules": {
+    "excludedSegments": [
+      "bin",
+      "node_modules",
+      "obj",
+      "vendor"
+    ],
+    "included": "first-party workflow, delivery, runtime, container/bake, dependency lock/toolchain, language/project/solution/build-policy, Makefile, and Pulumi descriptors",
+    "pathPattern": "(^|/)(\\.terrascale/[^/]+|\\.forgejo/workflows/[^/]+|\\.github/workflows/[^/]+|Dockerfile[^/]*|[^/]*\\.service|(?:docker-)?compose[^/]*\\.(?:ya?ml)|package\\.json|[^/]*\\.csproj|[^/]*\\.fsproj|[^/]*\\.slnx?|global\\.json|Directory\\.(?:Build|Packages)\\.(?:props|targets)|Pulumi(?:\\.[^/]*)?\\.ya?ml|packages\\.lock\\.json|package-lock\\.json|npm-shrinkwrap\\.json|pnpm-lock\\.ya?ml|yarn\\.lock|bun\\.lockb?|NuGet\\.Config|\\.config/dotnet-tools\\.json|Makefile|GNUmakefile|go\\.(?:mod|sum|work|work\\.sum)|Cargo\\.(?:toml|lock)|rust-toolchain(?:\\.toml)?|docker-bake[^/]*\\.(?:hcl|json|ya?ml)|pyproject\\.toml)$",
+    "scriptBoundary": "local scripts referenced by pinned delivery descriptors or workflows are enumerated; unreferenced standalone scripts are outside this inventory"
+  },
+  "generatedAt": "2026-07-13",
+  "policyConflicts": [
+    {
+      "accepted": false,
+      "evidence": [
+        "Terrabase.Operator@b3b105be880e169d62e3cb4506846b8a11342d5c:AGENTS.md:11-12",
+        "TerraScale.Deploy@cacb596cd0f6f25a40e76160554fecc14f047965:AGENTS.md:75-76",
+        "TerraScale.DotNet@9d98e4e3dc3e05eb955ba06f03b05bf462cfb21b:AGENTS.md:83-84",
+        "TerraScale.TypeScript@7d9b629ce5a5d41a3fa457911305b057749e3252:AGENTS.md:25-26",
+        "TerraScale.Infrastructure@3bfdb4ee0124fbcce43e7db57cf00045f374fbcb:AGENTS.md:5-5",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:AGENTS.md:19-20",
+        "Terrascale.Documentation@ccca078a99f4d0702d4e55ac02d6585277ea08e9:AGENTS.md:49-50",
+        "Terrascale.Landingpage@0a763469d3d086e672be673b080a97dbc31dff26:AGENTS.md:105-105",
+        "Terrabase.Operator@b3b105be880e169d62e3cb4506846b8a11342d5c:.forgejo/workflows/ci.yml:43-103",
+        "TerraScale.Deploy@cacb596cd0f6f25a40e76160554fecc14f047965:.forgejo/workflows/ci.yml:43-103",
+        "TerraScale.DotNet@9d98e4e3dc3e05eb955ba06f03b05bf462cfb21b:.forgejo/workflows/ci.yml:43-103",
+        "TerraScale.TypeScript@7d9b629ce5a5d41a3fa457911305b057749e3252:.forgejo/workflows/ci.yml:43-103",
+        "TerraScale.Infrastructure@3bfdb4ee0124fbcce43e7db57cf00045f374fbcb:.forgejo/workflows/ci.yml:43-103",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:.forgejo/workflows/ci.yml:43-103",
+        "Terrascale.Documentation@ccca078a99f4d0702d4e55ac02d6585277ea08e9:.forgejo/workflows/ci.yml:43-103",
+        "Terrascale.Landingpage@0a763469d3d086e672be673b080a97dbc31dff26:.forgejo/workflows/ci.yml:43-103"
+      ],
+      "id": "CI-CONFLICT-001",
+      "proposedReconciliation": "Choose one feature-validation authority and update policies/workflows together; preserve affected-change validation without duplicate execution.",
+      "repositories": [
+        "Terrabase.Operator",
+        "TerraScale.Deploy",
+        "TerraScale.DotNet",
+        "TerraScale.TypeScript",
+        "TerraScale.Infrastructure",
+        "TerraScale.Internals",
+        "Terrascale.Documentation",
+        "Terrascale.Landingpage"
+      ],
+      "status": "observed-unresolved",
+      "summary": "Eight repository policies say feature PRs intentionally run no Forgejo automation, while each pinned ci.yml runs policy, static, and build jobs for pull requests targeting develop."
+    },
+    {
+      "accepted": false,
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:docs/ci-setup.md:5-15",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:.forgejo/workflows/ci.yml:1-171"
+      ],
+      "id": "CI-CONFLICT-002",
+      "proposedReconciliation": "Make the consolidated descriptor/workflow graph authoritative and remove or regenerate stale per-service workflow documentation after compatibility review.",
+      "repositories": [
+        "TerraScale.Internals"
+      ],
+      "status": "observed-unresolved",
+      "summary": "Internals CI documentation names API, Authentication, and Dashboard image workflows that are absent from the pinned tree, which contains only consolidated ci.yml."
+    },
+    {
+      "accepted": false,
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:41-43",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:79-86",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:.terrascale/deploy.json:12-20"
+      ],
+      "id": "CI-CONFLICT-003",
+      "proposedReconciliation": "Add explicit Authentication tests and linux-amd64/linux-arm64 immutable build targets in the future native descriptor revision.",
+      "repositories": [
+        "TerraScale.Internals"
+      ],
+      "status": "observed-unresolved",
+      "summary": "Authentication is a production runtime in AppHost and policy, but Internals deploy.json has no Authentication build target or Authentication regression profile."
+    },
+    {
+      "accepted": false,
+      "evidence": [
+        "TerraBase@349cd1a11e5b252ffc193d3c3cdf059b954828fd:.terrascale/deploy.json:1-30",
+        "Terrabase.Operator@b3b105be880e169d62e3cb4506846b8a11342d5c:.terrascale/deploy.json:1-24",
+        "TerraScale.Infrastructure@3bfdb4ee0124fbcce43e7db57cf00045f374fbcb:.terrascale/deploy.json:1-17",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:.terrascale/deploy.json:17-23"
+      ],
+      "id": "CI-CONFLICT-004",
+      "proposedReconciliation": "Port semantic release dependencies and immutable promotion to the native pipeline, then retire Flux/Helm/Kubernetes targets only after replacement gates pass.",
+      "repositories": [
+        "TerraBase",
+        "Terrabase.Operator",
+        "TerraScale.Infrastructure",
+        "TerraScale.Internals"
+      ],
+      "status": "observed-unresolved",
+      "summary": "Several observed promotion/build targets still encode Flux, Helm, or rendered Kubernetes GitOps while the orchestrator contract requires native GitOps and separate cleanup gates."
+    }
+  ],
+  "productionRoles": [
+    {
+      "buildTargets": [
+        "linux-amd64",
+        "linux-arm64"
+      ],
+      "coverage": "present",
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:38-74",
+        "TerraBase@349cd1a11e5b252ffc193d3c3cdf059b954828fd:scripts/linux/pkg/deb/assets/terrabase/debian/terrabase.service:1-27"
+      ],
+      "role": "TerraBase",
+      "runtimeOwner": "TerraBase"
+    },
+    {
+      "buildTargets": [
+        "api-amd64",
+        "api-arm64"
+      ],
+      "coverage": "present",
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:44-46",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:87-97"
+      ],
+      "role": "API",
+      "runtimeOwner": "TerraScale.Internals"
+    },
+    {
+      "buildTargets": [],
+      "coverage": "missing-build-target",
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:41-43",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:79-86"
+      ],
+      "role": "Authentication",
+      "runtimeOwner": "TerraScale.Internals"
+    },
+    {
+      "buildTargets": [
+        "dashboard"
+      ],
+      "coverage": "present",
+      "evidence": [
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:50-55",
+        "TerraScale.Internals@3643df207f9f1129c9f677148e6890d436339141:src/Hosting/TerraScale.AppHost/AppHost.cs:98-113"
+      ],
+      "role": "Dashboard",
+      "runtimeOwner": "TerraScale.Internals"
+    }
+  ],
+  "proposedPolicy": {
+    "rules": [
+      "affected feature validation",
+      "develop-to-main release qualification",
+      "build once",
+      "immutable candidate",
+      "exact candidate promotion",
+      "native GitOps after replacement gate"
+    ],
+    "source": "ORCHESTRATOR.md:199,961-1010,1492,1573-1583",
+    "status": "proposal-not-accepted"
+  },
+  "repositories": [
+    {
+      "commit": "349cd1a11e5b252ffc193d3c3cdf059b954828fd",
+      "descriptorCount": 64,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "1fe9d96c0c27c886f7afcfba47e0f181d4b6377f",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "e93f8284250c2ea83d0cdc344905df642fe63958",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "6348a593d88364ba63cee88b8fc0ce68e660120c",
+          "mode": "100644",
+          "path": "Directory.Packages.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "d16a57dfeceb3c682b56225cbc22fda3ce9b4f41",
+          "mode": "100644",
+          "path": "NuGet.Config",
+          "type": "dotnet-dependency-lock"
+        },
+        {
+          "gitBlob": "c0fcf05e0af984a09d05844ccf7ba6a89c8eb79d",
+          "mode": "100644",
+          "path": "TerraBase.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "6cfd4f1ce8b0ffcc346c24f354c1375713c45e77",
+          "mode": "100644",
+          "path": "bench/Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "c3fcd34f4374ae4f4eeeb899f30d50634696088d",
+          "mode": "100644",
+          "path": "bench/TerraBase.BulkInsert.Benchmark/TerraBase.BulkInsert.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "7a1992094bbddbae4adf4b9da6e10b3fdf367ddb",
+          "mode": "100644",
+          "path": "bench/TerraBase.Indexing.Benchmark/TerraBase.Indexing.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "7e68d76c5cfdd7e13810bd515dae4fceb48e137d",
+          "mode": "100644",
+          "path": "bench/TerraBase.Micro.Benchmark/TerraBase.Micro.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "f200595c53bca4ed414179963c5a79e082d01702",
+          "mode": "100644",
+          "path": "bench/TerraBase.Regression.Benchmark/TerraBase.Regression.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "e66d4943e9193bb6298d13bec54ea82390132ad7",
+          "mode": "100644",
+          "path": "bench/TerraBase.RequestHandler.Benchmark/TerraBase.RequestHandler.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "3bdfbe38d7b6d2ecec130e78c7486943c615e8bd",
+          "mode": "100644",
+          "path": "bench/TerraBase.ServerStoreTxMerger.Benchmark/TerraBase.ServerStoreTxMerger.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "f2cbc36fda1d54bf8357127c1d747a4ab6aa3904",
+          "mode": "100644",
+          "path": "bench/TerraBase.SubscriptionFailover.Benchmark/TerraBase.SubscriptionFailover.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "df399d234beeb13a25e44d66aa276a0ea762b9d6",
+          "mode": "100644",
+          "path": "bench/TerraBase.Subscriptions.Benchmark/TerraBase.Subscriptions.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "dbfaf54b992bf7d664cfe0fe749fff75f81f0f2e",
+          "mode": "100644",
+          "path": "bench/TerraBase.TimeSeries.Benchmark/TerraBase.TimeSeries.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "4b6629376ad36b436336ed1291cc5d37196c8112",
+          "mode": "100644",
+          "path": "bench/TerraBase.Vector.Benchmark/TerraBase.Vector.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "898626a733b680dd1ca9a4e896e11bbea800e5da",
+          "mode": "100644",
+          "path": "bench/TerraBase.Voron.Benchmark/TerraBase.Voron.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "5797d907d5842d25776b0408236016691bcb2c22",
+          "mode": "100644",
+          "path": "bench/TerraBase.VxSort.Benchmark/TerraBase.VxSort.Benchmark.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "c931afb7310b9fa6c2a5c87dfd81d5b20f09278e",
+          "mode": "100644",
+          "path": "docker/debug/terrabase-ubuntu-debug/Dockerfile",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "6c4bdc32ef1f24e587421c2c6aded30ce58b5284",
+          "mode": "100644",
+          "path": "docker/terrabase-nanoserver/Dockerfile.1809",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "f5812cde2b84bf6e9e2df7b6d17dc69c503350ba",
+          "mode": "100644",
+          "path": "docker/terrabase-nanoserver/Dockerfile.ltsc2022",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "021d0bbfbea9b3b3e0e19dd4aac8441ff37d5568",
+          "mode": "100644",
+          "path": "docker/terrabase-ubuntu/Dockerfile.arm32v7",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "9e0316b48449d133720a402bbf1cc6bca6c4dd70",
+          "mode": "100644",
+          "path": "docker/terrabase-ubuntu/Dockerfile.arm64v8",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "92b53832add07fd08a5d2fd5d858693ea6f5d3cc",
+          "mode": "100644",
+          "path": "docker/terrabase-ubuntu/Dockerfile.arm64v8.tarball",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "fae1bbd0a37ee36cc21703f30557ee06b2011beb",
+          "mode": "100644",
+          "path": "docker/terrabase-ubuntu/Dockerfile.x64",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "9080e6b97b31b13cfb7bd910ec77cb6312d10263",
+          "mode": "100644",
+          "path": "docker/terrabase-ubuntu/Dockerfile.x64.tarball",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "42fb9a45b6f254865546660f481d77eaa8548bcd",
+          "mode": "100644",
+          "path": "global.json",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "64793cd5eef32c4a4bcdb7246f7ad676ed629b9d",
+          "mode": "100644",
+          "path": "scripts/linux/pkg/deb/assets/terrabase/debian/terrabase.service",
+          "type": "systemd-runtime"
+        },
+        {
+          "gitBlob": "42489717b83d22ed97bd05abde9d43dce8c60b5f",
+          "mode": "100644",
+          "path": "scripts/linux/terrabase.service",
+          "type": "systemd-runtime"
+        },
+        {
+          "gitBlob": "b617a462a19a509cf928e360dfa97ccb6e3c5197",
+          "mode": "100644",
+          "path": "src/Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "e3c1e54a480939ab525b3bd644b1608b047be014",
+          "mode": "100644",
+          "path": "src/Directory.Build.targets",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "6dd3779c2bd5d72311b2fea2c12bb596e44ca2d1",
+          "mode": "100644",
+          "path": "src/TerraBase.Client/TerraBase.Client.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "d45d818d2e700cd2da608ec2f56e3d6bac723dfd",
+          "mode": "100644",
+          "path": "src/TerraBase.Corax/TerraBase.Corax.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "da3a66c8779106de4e28a109ced7f061796cc596",
+          "mode": "100644",
+          "path": "src/TerraBase.Embedded/TerraBase.Embedded.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "57e3b5cb36c9e449cc8247f5aaf30dbef6780f7b",
+          "mode": "100644",
+          "path": "src/TerraBase.Server/TerraBase.Server.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "e131759df07912c9a84a310082ac34fcc653869e",
+          "mode": "100644",
+          "path": "src/TerraBase.Sparrow.Server/TerraBase.Sparrow.Server.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "b2c74a6e7a361d433067c28782d50e72e7af1062",
+          "mode": "100644",
+          "path": "src/TerraBase.Sparrow/TerraBase.Sparrow.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "717468a96a751826513c28a53cdec99ba04ff673",
+          "mode": "100644",
+          "path": "src/TerraBase.Studio/TerraBase.Studio.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "25e343933b32aaf39c4b96697cd3c73f660132b9",
+          "mode": "100644",
+          "path": "src/TerraBase.Studio/aceBuild/package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "1d856e3634c5a5f0dd45c3d5955f42c4ae94400c",
+          "mode": "100644",
+          "path": "src/TerraBase.Studio/aceBuild/package.json",
+          "type": "node-build"
+        },
+        {
+          "gitBlob": "823fcc29be3f3473111b5debaae209aa2c3d92d1",
+          "mode": "100644",
+          "path": "src/TerraBase.Studio/package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "846e6c77b6acc1903d843369c50c594ffd9595a7",
+          "mode": "100644",
+          "path": "src/TerraBase.Studio/package.json",
+          "type": "node-build"
+        },
+        {
+          "gitBlob": "2baedd69cc6302aa50e0336b3443a5c8bf4b1498",
+          "mode": "100644",
+          "path": "src/TerraBase.TestDriver/TerraBase.TestDriver.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "921895ec88648ab744124dbce26a13c2d3ce298c",
+          "mode": "100644",
+          "path": "src/TerraBase.Voron/TerraBase.Voron.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "218e72fdf51acb00eb4de64ede62bf71597f8618",
+          "mode": "100644",
+          "path": "test/Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "8ba8f0db97ab2c4a88b53e6643a8983bd1220d17",
+          "mode": "100644",
+          "path": "test/TerraBase.BenchmarkTests/TerraBase.BenchmarkTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "f5fccb3f914a7fa74858f854619b0de901911e60",
+          "mode": "100644",
+          "path": "test/TerraBase.EmbeddedTests/TerraBase.EmbeddedTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "2727cd9939910cfa6f62477167c1e0c0e9d1e7ad",
+          "mode": "100644",
+          "path": "test/TerraBase.EndToEndTests/TerraBase.EndToEndTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "e98fc21a0c1a27c89003d0a4d9b6b0b59704c76a",
+          "mode": "100644",
+          "path": "test/TerraBase.RachisTests/TerraBase.RachisTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "b00444d421c4f31342cc82de4dbc953d6d652ef1",
+          "mode": "100644",
+          "path": "test/TerraBase.SlowTests.Issues/TerraBase.SlowTests.Issues.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "adfe823765d753670d7f73ab92a31bebb13aa408",
+          "mode": "100644",
+          "path": "test/TerraBase.SlowTests.Tools/TerraBase.SlowTests.Tools.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "8bb4fdc09678497f60f1ffe8deb5cb30329e4432",
+          "mode": "100644",
+          "path": "test/TerraBase.SlowTests/TerraBase.SlowTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "5f72585da4060b51b45358dfef82a10795376a51",
+          "mode": "100644",
+          "path": "test/TerraBase.StressTests/TerraBase.StressTests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "845037446aafe0a5e63c4819a26cf139d4bc2701",
+          "mode": "100644",
+          "path": "test/TerraBase.Tests.Infrastructure/TerraBase.Tests.Infrastructure.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "380b62277fa67929ba477a41719d672be6b559cd",
+          "mode": "100644",
+          "path": "test/TerraBase.Tryouts.Fast/TerraBase.Tryouts.Fast.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "1e7489a9299fdbf9d0636801aed907e4864f8ff8",
+          "mode": "100644",
+          "path": "test/TerraBase.Tryouts/TerraBase.Tryouts.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "7c50027e314191ec1554edba7293b088dd25689e",
+          "mode": "100644",
+          "path": "tools/Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "4aef2dc7ea9242c633c80bb503b5069e9fe6c86c",
+          "mode": "100644",
+          "path": "tools/TerraBase.Debug/TerraBase.Debug.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "b7d1a859b365de64f301c758d6088d44867d2dc3",
+          "mode": "100644",
+          "path": "tools/TerraBase.Migrator/TerraBase.Migrator.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "60c7e71826c38712d7aad3bade4b45ac57bedd60",
+          "mode": "100644",
+          "path": "tools/TerraBase.TypingsGenerator/TerraBase.TypingsGenerator.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "a1af693374f9e2f0b5f8ca2b607d19d9c77c101d",
+          "mode": "100644",
+          "path": "tools/TerraBase.Voron.Dictionary.Generator/TerraBase.Voron.Dictionary.Generator.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "6f2db0ac065566b83f8e06fac3e897553b8483cb",
+          "mode": "100644",
+          "path": "tools/TerraBase.Voron.Recovery/TerraBase.Voron.Recovery.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "d7aa0db1acd2a9bc0a3607500de5971195e7c27c",
+          "mode": "100644",
+          "path": "tools/TerraBase.rvn/TerraBase.rvn.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraBase",
+      "referencedLocalScripts": [
+        {
+          "classification": "referenced-build-script-or-executable",
+          "gitBlob": "43ea3442aef8a824ceaef9e379a590632e1e6cdc",
+          "mode": "100755",
+          "path": "build/linux/build-server-payload.sh",
+          "referencedBy": ".terrascale/deploy.json"
+        },
+        {
+          "classification": "referenced-build-script-or-executable",
+          "gitBlob": "ccb2e3a58d64798879fc868272a97881c8b5957a",
+          "mode": "100755",
+          "path": "build/linux/build-studio.sh",
+          "referencedBy": ".terrascale/deploy.json"
+        }
+      ],
+      "referencedScriptCount": 2,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "b3b105be880e169d62e3cb4506846b8a11342d5c",
+      "descriptorCount": 7,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "fc9cb80b4b4b81e4756384a1b9219f9ec6926acd",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "24c4343b3a6236399446120bcc9b19168a12eb69",
+          "mode": "100644",
+          "path": "Dockerfile",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "f855b8c298ceba83abbe74fdb335c3df4482976d",
+          "mode": "100644",
+          "path": "Dockerfile.prebuilt",
+          "type": "container-build"
+        },
+        {
+          "gitBlob": "11a4b07da85174cf4cbff5402c4e9b9aad9ddc27",
+          "mode": "100644",
+          "path": "Makefile",
+          "type": "make-build"
+        },
+        {
+          "gitBlob": "86f589adbf6b2d6e47280d7662712563de011e34",
+          "mode": "100644",
+          "path": "go.mod",
+          "type": "go-build"
+        },
+        {
+          "gitBlob": "77cba4082389ec32401c386b9547066c3035e714",
+          "mode": "100644",
+          "path": "go.sum",
+          "type": "go-lock"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "Terrabase.Operator",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "cacb596cd0f6f25a40e76160554fecc14f047965",
+      "descriptorCount": 10,
+      "descriptors": [
+        {
+          "gitBlob": "205c7e7694a7c036e2420c023de0832663c634ca",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "f6d5a019dc5fe0eec6f062ef0fcbc6bcb8657543",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "8a5bcee0e5638c0e0d4fbeab5a0b45b24c684a09",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "5323aec507baddd650a1ed44692097156bf2e3c3",
+          "mode": "100644",
+          "path": "Directory.Packages.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "dd4ddb00c3cdf24ff6f9ce9cc832c27393735aa5",
+          "mode": "100644",
+          "path": "TerraScale.Deploy.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "b3d9d5e26d751e9f905017e828cfc73ac96fe48d",
+          "mode": "100644",
+          "path": "global.json",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "83a7030697badd7450b34f56f530555df708a8ca",
+          "mode": "100644",
+          "path": "src/TerraScale.Deploy.Cli/TerraScale.Deploy.Cli.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "dbb038020a6f6456fcaef23eff25da9e5157ca2a",
+          "mode": "100644",
+          "path": "tests/TerraScale.Deploy.Cli.Tests/TerraScale.Deploy.Cli.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "2539bc73528d75759ac1856a30257a473dc19bb1",
+          "mode": "100644",
+          "path": "tests/TerraScale.Deploy.Fixture.Service.Tests/TerraScale.Deploy.Fixture.Service.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "9bb1f757dbcf4fcaee260991c16bd9f86595f8f1",
+          "mode": "100644",
+          "path": "tests/TerraScale.Deploy.Fixture.Service/TerraScale.Deploy.Fixture.Service.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraScale.Deploy",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "dd2b8762beb85199578ee41bdfafc199e977a0b4",
+      "descriptorCount": 4,
+      "descriptors": [
+        {
+          "gitBlob": "4baed55f2130490e09889d767359ceef3be23196",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "7dc0b5df3d963e9b5e32325c876d424e408b0d0f",
+          "mode": "100644",
+          "path": "Directory.Packages.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "97f06394eb40383c2cfe68b6850438a13388db58",
+          "mode": "100644",
+          "path": "TerraScale.DevHost.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "a8aa6db41d75ef8f7e490fd027a1f5fb2df41537",
+          "mode": "100644",
+          "path": "src/TerraScale.DevHost/TerraScale.DevHost.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraScale.DevHost",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "9d98e4e3dc3e05eb955ba06f03b05bf462cfb21b",
+      "descriptorCount": 10,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "4ff7a17ce978d3605d19f5f8370177454fe6decc",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "c856c42f5fd02f3c625835ad26458cfff43f9a37",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "f039726fbb3b68355dc58844bd23470b333a6308",
+          "mode": "100644",
+          "path": "TerraScale.DotNet.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "08dc726c59260074e425e10535c9a281a90d3938",
+          "mode": "100644",
+          "path": "global.json",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "3f5105b9d99244e9e600d1826780448b4ee033e8",
+          "mode": "100644",
+          "path": "samples/TerraScale.Samples.Quickstart/TerraScale.Samples.Quickstart.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "edca77b23d2955f866b2f5fca684df809ed605b7",
+          "mode": "100644",
+          "path": "src/TerraScale.DotNet/TerraScale.DotNet.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "e1ead8ebc41831453f30b68536729a9aea48e2de",
+          "mode": "100644",
+          "path": "src/TerraScale.EntityFrameworkCore/TerraScale.EntityFrameworkCore.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "fd6a31cc20a5308e453ef95b22e5652fd3c70e2b",
+          "mode": "100644",
+          "path": "tests/TerraScale.DotNet.Tests/TerraScale.DotNet.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "f3a149ce887f72158344d41956fc774d48873845",
+          "mode": "100644",
+          "path": "tests/TerraScale.EntityFrameworkCore.Tests/TerraScale.EntityFrameworkCore.Tests.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraScale.DotNet",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "7d9b629ce5a5d41a3fa457911305b057749e3252",
+      "descriptorCount": 4,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "5ca3cbbca6ea4294f5858523a399deed1e22f2f3",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "26074e1d15752569a15bebaf07b57c982b90a94d",
+          "mode": "100644",
+          "path": "package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "c0f7b5d42a7bcb338a32ae4b7f14cb7c7bb6cb7a",
+          "mode": "100644",
+          "path": "package.json",
+          "type": "node-build"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraScale.TypeScript",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "3bfdb4ee0124fbcce43e7db57cf00045f374fbcb",
+      "descriptorCount": 14,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "5dc34591feeb42cd1e4361f0494f9ba6091af2f5",
+          "mode": "100644",
+          "path": ".forgejo/workflows/oci-container-retention.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "03d3209c6a1b183929a1b13555f1ed61d14b6798",
+          "mode": "100644",
+          "path": ".forgejo/workflows/service-deployment-notification.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "7fba51eb59e7451ccd8bd58128765d9b1e7d2a80",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "f269241687cf3da936dbb4cd22601775ff473dea",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "5b064bcb4c6cf71ce41c9a599de9038a1fc294d4",
+          "mode": "100644",
+          "path": "Pulumi.production-fra.yaml",
+          "type": "pulumi-stack"
+        },
+        {
+          "gitBlob": "e80fa518df89405323122f404cd04efda3e35d87",
+          "mode": "100644",
+          "path": "Pulumi.production-gru.yaml",
+          "type": "pulumi-stack"
+        },
+        {
+          "gitBlob": "45096d9595614e71350262bc0f17e32982a31bbc",
+          "mode": "100644",
+          "path": "Pulumi.production-sfo.yaml",
+          "type": "pulumi-stack"
+        },
+        {
+          "gitBlob": "aba0f693456a6f0098aede325c54137daaf4e9ba",
+          "mode": "100644",
+          "path": "Pulumi.yaml",
+          "type": "pulumi-stack"
+        },
+        {
+          "gitBlob": "3d1b70f6a0e7c135bf9903d1f033c211876c9321",
+          "mode": "100644",
+          "path": "TerraScale.Infrastructure.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "7c8e277cf07fce40a61edef6283ffc6d1ce13c89",
+          "mode": "100644",
+          "path": "global.json",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "d55fa84b0bf12acc7daa938914776a6040b97282",
+          "mode": "100644",
+          "path": "src/TerraScale.Infrastructure.Cli/TerraScale.Infrastructure.Cli.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "dc529a382426e40cbe20884e6b17a96b01543df8",
+          "mode": "100644",
+          "path": "src/TerraScale.Infrastructure.Verifier/TerraScale.Infrastructure.Verifier.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "64e71a69a53e4cd8b9d3be2ad59b4db437324b63",
+          "mode": "100644",
+          "path": "src/TerraScale.Infrastructure/TerraScale.Infrastructure.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "TerraScale.Infrastructure",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "3643df207f9f1129c9f677148e6890d436339141",
+      "descriptorCount": 35,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "2a2a613c66a66a2fd3c88aeca0c9155532829499",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "e074ea73fbaa47774d3e1b4889f39529cac7242e",
+          "mode": "100644",
+          "path": "Directory.Build.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "a3a72a1fba94a0172bb823aa7553b927ac801106",
+          "mode": "100644",
+          "path": "Directory.Packages.props",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "94b85f6cd12c7651423758df9cc0a80c94ed0249",
+          "mode": "100644",
+          "path": "NuGet.config",
+          "type": "dotnet-dependency-lock"
+        },
+        {
+          "gitBlob": "f40291f1790dd2d978c89f260992314d77904ac5",
+          "mode": "100644",
+          "path": "TerraScale.Internals.slnx",
+          "type": "dotnet-solution"
+        },
+        {
+          "gitBlob": "08dc726c59260074e425e10535c9a281a90d3938",
+          "mode": "100644",
+          "path": "global.json",
+          "type": "dotnet-build-policy"
+        },
+        {
+          "gitBlob": "2aca56f6b8aaeb6a7811e62b341c11ef3c8cc500",
+          "mode": "100644",
+          "path": "src/API/TerraScale.API.Tests/TerraScale.API.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "48d9a0ee77d9469a954ae2d0802b0128fd943c11",
+          "mode": "100644",
+          "path": "src/API/TerraScale.API/TerraScale.API.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "666ce9ebed73fd4d0256a3a380b1229f6da7c8ba",
+          "mode": "100644",
+          "path": "src/Auth/TerraScale.Authentication.Abstractions/TerraScale.Authentication.Abstractions.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "5109fa6b545683752a2027d470e0a7820f8ee0b3",
+          "mode": "100644",
+          "path": "src/Auth/TerraScale.Authentication.Tests/TerraScale.Authentication.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "0707f8dc189204b2921c0106b277032896358366",
+          "mode": "100644",
+          "path": "src/Auth/TerraScale.Authentication/TerraScale.Authentication.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "da512b24e977e1d39ccb35ac605de26bf5015fb1",
+          "mode": "100644",
+          "path": "src/CLI/TerraScale.CLI.Tests/TerraScale.CLI.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "139913a0032da6c584b77d4a64178821baa3def6",
+          "mode": "100644",
+          "path": "src/CLI/TerraScale.CLI/TerraScale.CLI.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "666ce9ebed73fd4d0256a3a380b1229f6da7c8ba",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Abstractions/TerraScale.Abstractions.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "9e0bcf3a96beafec882b20eb5a7e872198a7d970",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Core.Tests/TerraScale.Core.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "9ddb8617855e9a666add0ba55312139ada344111",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Core/TerraScale.Core.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "7c2be70787067ab5da6a5e2e6804678b7c3b1a91",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.DataProtection/TerraScale.DataProtection.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "9b76a57011ab7bc22018de972a6b25457e499e79",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Email/TerraScale.Email.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "7ed997ec226c4c33b3aedf2d2161247165716ab2",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Endpoints.Example/TerraScale.Endpoints.Example.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "c21d1ec6ce032b4f3df50e7ce7fdd177ba75f1fc",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Endpoints/TerraScale.Endpoints.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "703df262c6ff49e346baaff2a9be23c7d0c3cd34",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Queue.Benchmarks/TerraScale.Queue.Benchmarks.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "850a13b73783eb451f32ab5ab1ad7f256cf4c6e0",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Queue.Tests/TerraScale.Queue.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "6168076ba7d044c42c12bf7c0e8728f8da32546e",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Queue/TerraScale.Queue.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "b357ab8b84be734f28055da74e164683d3378023",
+          "mode": "100644",
+          "path": "src/Core/TerraScale.Testing/TerraScale.Testing.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "e76b6a819777c16d4c985c4783047833b2ff2b10",
+          "mode": "100644",
+          "path": "src/Dashboard/TerraScale.Dashboard.Next/package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "0f8fffba5f5ac7bbc9c9ea50a262ce07d7857d84",
+          "mode": "100644",
+          "path": "src/Dashboard/TerraScale.Dashboard.Next/package.json",
+          "type": "node-build"
+        },
+        {
+          "gitBlob": "fd94dfb1bdd5e7c2da755038dd9a4320921e8766",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.AppHost.Tests/TerraScale.AppHost.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "97b4313004616fb2a879ac266db1fe930a94c312",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.AppHost/TerraScale.AppHost.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "ca98e40bf0429f7a71ed420a725fa0638035ac1a",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.LocalEmulators/TerraScale.LocalEmulators.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "0be78eb133de418d661f26327b13e60beb96742c",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.Nats.AppHost/TerraScale.Nats.AppHost.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "c240b1d21defa9172fd13ef155c5a6caca701b53",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.ServiceDefaults.Tests/TerraScale.ServiceDefaults.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "b21652706df41b19bf2f1c571ed424930674676e",
+          "mode": "100644",
+          "path": "src/Hosting/TerraScale.ServiceDefaults/TerraScale.ServiceDefaults.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "21edba3d2a5d0ddf82a5b20886172f97a6818fd5",
+          "mode": "100644",
+          "path": "src/Payments/TerraScale.Payments.Tests/TerraScale.Payments.Tests.csproj",
+          "type": "dotnet-project"
+        },
+        {
+          "gitBlob": "352c8d7f9da0ac85439eccead12f1780d1eac9c2",
+          "mode": "100644",
+          "path": "src/Payments/TerraScale.Payments/TerraScale.Payments.csproj",
+          "type": "dotnet-project"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": true,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 13
+      },
+      "name": "TerraScale.Internals",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "ccca078a99f4d0702d4e55ac02d6585277ea08e9",
+      "descriptorCount": 4,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "0eef9784bf2430089e64e11bff8a061e7756bd13",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "5f7aec61a18e36e35b73ab3b70e0f089cb0e1902",
+          "mode": "100644",
+          "path": "package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "b9bf573c93f96be69b60fa5f24618089ffe8b3ec",
+          "mode": "100644",
+          "path": "package.json",
+          "type": "node-build"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "Terrascale.Documentation",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    },
+    {
+      "commit": "0a763469d3d086e672be673b080a97dbc31dff26",
+      "descriptorCount": 4,
+      "descriptors": [
+        {
+          "gitBlob": "d262aaa08d4b3ceb095a4afd6d2d70d72e8b9f83",
+          "mode": "100644",
+          "path": ".forgejo/workflows/ci.yml",
+          "type": "workflow"
+        },
+        {
+          "gitBlob": "79b19f9d489b5589bb3714798a67a5c667d07cc9",
+          "mode": "100644",
+          "path": ".terrascale/deploy.json",
+          "type": "delivery-descriptor"
+        },
+        {
+          "gitBlob": "ce4de34d307331647dbbe5ac46677e931e61dcfe",
+          "mode": "100644",
+          "path": "package-lock.json",
+          "type": "node-lock"
+        },
+        {
+          "gitBlob": "1e761118b31f4b0ce9d6d97f33a5aa8d1fd2c9bb",
+          "mode": "100644",
+          "path": "package.json",
+          "type": "node-build"
+        }
+      ],
+      "dirtyWorktreeObservation": {
+        "excludedFromPinnedTreeInventory": true,
+        "observedAt": "2026-07-13",
+        "observedDirty": false,
+        "preservation": "not-inventoried-not-modified-not-cleaned",
+        "statusEntryCount": 0
+      },
+      "name": "Terrascale.Landingpage",
+      "referencedLocalScripts": [],
+      "referencedScriptCount": 0,
+      "sourceMode": "immutable-git-tree"
+    }
+  ],
+  "schemaVersion": 1,
+  "scope": "pinned sibling commit trees; dirty worktree content excluded and preserved",
+  "status": "observed-inventory-not-reconciled-policy"
+}

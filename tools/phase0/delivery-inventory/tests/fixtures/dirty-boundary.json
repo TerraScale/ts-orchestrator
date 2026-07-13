@@ -1,0 +1,1 @@
+{"name":"dirty worktree included","operation":"set","path":["repositories",7,"dirtyWorktreeObservation","excludedFromPinnedTreeInventory"],"value":false,"expected":"dirty worktree preservation boundary is missing"}

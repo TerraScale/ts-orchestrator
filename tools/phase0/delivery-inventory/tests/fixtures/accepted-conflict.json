@@ -1,0 +1,1 @@
+{"name":"accepted policy conflict","operation":"set","path":["policyConflicts",0,"accepted"],"value":true,"expected":"observed conflict cannot be accepted"}

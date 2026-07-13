@@ -1,0 +1,1 @@
+{"name":"missing repository","operation":"delete","path":["repositories",0],"expected":"all ten canonical sibling repositories must occur exactly once"}

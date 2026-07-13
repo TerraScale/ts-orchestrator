@@ -1,0 +1,1 @@
+{"name":"missing dependency closure file","operation":"delete","path":["repositories",0,"descriptors",39],"expected":"descriptor inventory differs from the pinned tree"}
