@@ -44,10 +44,18 @@ public sealed class RepositoryBoundaryTests
         };
 
         await Assert.That(registry.SchemaVersion).IsEqualTo(2);
-        await Assert.That(registry.Status).IsEqualTo("draft");
+        await Assert.That(new[] { "draft", "frozen" }).Contains(registry.Status);
         await Assert.That(registry.Source).IsEqualTo("ORCHESTRATOR.md");
-        await Assert.That(registry.UnresolvedOwnerQuestions).IsEquivalentTo(Enumerable.Range(1, 10));
+        await Assert.That(registry.UnresolvedOwnerQuestions.Distinct().Count()).IsEqualTo(registry.UnresolvedOwnerQuestions.Count);
+        await Assert.That(registry.UnresolvedOwnerQuestions.All(question => question is >= 1 and <= 10)).IsTrue();
         await Assert.That(registry.EvidenceStateVocabulary).IsEquivalentTo(new[] { "missing", "partial", "verified" });
+        var rootKeys = yaml.Split("entries:", 2, StringSplitOptions.None)[0]
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split(':', 2)[0].Trim())
+            .ToList();
+        var expectedRootKeys = new[] { "schemaVersion", "status", "source", "unresolvedOwnerQuestions", "evidenceStateVocabulary" };
+        await Assert.That(rootKeys).IsEquivalentTo(expectedRootKeys);
+        await Assert.That(rootKeys.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(rootKeys.Count);
         await Assert.That(entries).IsNotEmpty();
         await Assert.That(entries.Select(static entry => entry.Id).Distinct(StringComparer.Ordinal).Count())
             .IsEqualTo(entries.Count);
@@ -86,6 +94,11 @@ public sealed class RepositoryBoundaryTests
                 await Assert.That(entry.EvidenceTargets[index].Length).IsGreaterThanOrEqualTo(20);
                 await Assert.That(entry.EvidenceTargets[index]).Contains(entry.AcceptanceLayers[index]);
             }
+        }
+        if (registry.Status == "frozen")
+        {
+            await Assert.That(registry.UnresolvedOwnerQuestions).IsEmpty();
+            await Assert.That(entries.All(entry => entry.EvidenceState == "verified")).IsTrue();
         }
     }
 

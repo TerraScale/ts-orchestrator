@@ -59,7 +59,7 @@
       "name": "root-schema-version-drift",
       "target": "registry",
       "mutation": {"op": "set-root-field", "field": "schemaVersion", "value": "999"},
-      "expected": "registry root schemaVersion must be 2"
+      "expected": "registry root schemaVersion/source mismatch"
     },
     {
       "name": "audit-registry-owner-parity",
@@ -83,6 +83,29 @@
       "target": "registry",
       "mutation": {"op": "set-block-list-item", "id": "REQ-O001", "field": "evidenceTargets", "index": 0, "value": "x"},
       "expected": "semantic evidence target does not identify layer L0"
+    },
+    {
+      "name": "audit-registry-kind-parity",
+      "mutation": {"op": "set", "path": "/findings/0/kind", "value": "security"},
+      "expected": "semantic audit kind mismatch"
+    },
+    {
+      "name": "missing-explicit-co-reviewers",
+      "target": "registry",
+      "mutation": {"op": "remove-block-field", "id": "REQ-O001", "field": "coReviewers"},
+      "expected": "missing explicit coReviewers"
+    },
+    {
+      "name": "unknown-root-field",
+      "target": "registry",
+      "mutation": {"op": "add-root-field", "field": "unknownContract", "value": "true"},
+      "expected": "registry root contains unknown key unknownContract"
+    },
+    {
+      "name": "duplicate-root-status",
+      "target": "registry",
+      "mutation": {"op": "duplicate-root-field", "field": "status", "value": "frozen"},
+      "expected": "registry root contains duplicate key status"
     }
   ]
 }

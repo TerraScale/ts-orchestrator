@@ -22,7 +22,7 @@ python3 docs/audits/registry/check_registry_audit.py \
   --negative-fixtures docs/audits/registry/fixtures/negative-cases.json
 ```
 
-The checker uses only the Python standard library. It parses both inline and normal block-style registry entries, fails closed on incomplete or skipped list items, validates root schema/status, seeded-ID presence, proposed-ID uniqueness, canonical owners/co-reviewers, audit parity, acceptance layers, normative source ranges/digests, explicit evidence state/targets, exact citations against `ORCHESTRATOR.md`, and summary counts. Fifteen negative fixtures cover the corresponding drift and false-completion cases.
+The checker uses only the Python standard library. It parses both inline and normal block-style registry entries, fails closed on incomplete or skipped list items, validates duplicate-free root schema/lifecycle metadata, seeded-ID presence, proposed-ID uniqueness, canonical owners/co-reviewers, audit parity, acceptance layers, normative source ranges/digests, explicit evidence state/targets, exact citations against `ORCHESTRATOR.md`, and summary counts. Nineteen negative fixtures cover the corresponding drift and false-completion cases.
 
 ## Steward actions
 
