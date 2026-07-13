@@ -10,6 +10,7 @@ python3 -m unittest discover -s tools/phase0/runtime-readiness -p 'test_*.py' -v
 
 The validator fails if a host, kernel, filesystem, or runtime becomes selected;
 if local x86_64 inspection is represented as ARM64 qualification; if L1R/L4 is
-represented as run; if required candidate classes disappear; or if evidence uses
-an unknown/non-primary source. Adversarial overlays under `fixtures/` exercise
+represented as run; if any of the four host-by-filesystem combinations is
+missing; if required candidate classes disappear; or if evidence uses an
+unknown/non-primary source. Adversarial overlays under `fixtures/` exercise
 those fail-closed rules.

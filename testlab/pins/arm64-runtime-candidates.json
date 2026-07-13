@@ -236,6 +236,12 @@
       "architectureRequired": "aarch64",
       "providerRequired": false,
       "systemdPid1Required": true,
+      "requiredHostFilesystemCombinations": [
+        "oracle-linux-9-aarch64-platform|ext4-expand-only",
+        "oracle-linux-9-aarch64-platform|xfs-expand-only",
+        "ubuntu-24.04-lts-aarch64-platform|ext4-expand-only",
+        "ubuntu-24.04-lts-aarch64-platform|xfs-expand-only"
+      ],
       "requiredEvidence": [
         "immutable candidate/image and package manifest",
         "booted architecture/kernel/glibc/systemd/cgroup/filesystem inventory",
@@ -251,6 +257,12 @@
       "providerRequired": true,
       "shapeRequired": "VM.Standard.A1.Flex",
       "systemdPid1Required": true,
+      "requiredHostFilesystemCombinations": [
+        "oracle-linux-9-aarch64-platform|ext4-expand-only",
+        "oracle-linux-9-aarch64-platform|xfs-expand-only",
+        "ubuntu-24.04-lts-aarch64-platform|ext4-expand-only",
+        "ubuntu-24.04-lts-aarch64-platform|xfs-expand-only"
+      ],
       "requiredEvidence": [
         "immutable per-region OCI image identifiers and launch template",
         "real A1 boot and orchestrator linux-arm64 execution",

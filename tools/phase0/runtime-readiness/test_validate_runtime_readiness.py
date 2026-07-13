@@ -27,6 +27,7 @@ class RuntimeReadinessValidatorTests(unittest.TestCase):
             "accepted-selection.json": "status must remain proposal-unqualified",
             "arm64-local-masquerade.json": "local observation must remain observed-not-qualified",
             "missing-filesystem.json": "filesystem candidates must contain ext4 and XFS exactly once",
+            "missing-host-filesystem-combination.json": "must require all four host/filesystem combinations exactly once",
             "unknown-source.json": "unknown source IDs",
         }
         for name, marker in expected.items():

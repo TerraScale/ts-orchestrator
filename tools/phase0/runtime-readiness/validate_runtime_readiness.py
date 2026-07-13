@@ -18,6 +18,11 @@ EXPECTED_HOSTS = {
 }
 EXPECTED_FILESYSTEMS = {"ext4-expand-only", "xfs-expand-only"}
 EXPECTED_COMPONENTS = {"systemd", "containerd", "runc", "buildkit"}
+EXPECTED_HOST_FILESYSTEM_COMBINATIONS = {
+    f"{host}|{filesystem}"
+    for host in EXPECTED_HOSTS
+    for filesystem in EXPECTED_FILESYSTEMS
+}
 SELECTION_FIELDS = {
     "hostImageCandidateId", "kernelBuild", "glibcBuild",
     "filesystemCandidateId", "systemdBuild", "containerdCandidateId",
@@ -158,6 +163,16 @@ def validate(document: dict[str, Any]) -> list[str]:
                 errors.append(f"{layer} must require aarch64")
             if entry.get("systemdPid1Required") is not True:
                 errors.append(f"{layer} must require systemd as PID 1")
+            combinations = entry.get("requiredHostFilesystemCombinations")
+            if not isinstance(combinations, list):
+                errors.append(f"{layer} required host/filesystem combinations must be a list")
+            elif (
+                set(combinations) != EXPECTED_HOST_FILESYSTEM_COMBINATIONS
+                or len(combinations) != len(EXPECTED_HOST_FILESYSTEM_COMBINATIONS)
+            ):
+                errors.append(
+                    f"{layer} must require all four host/filesystem combinations exactly once"
+                )
             if not entry.get("requiredEvidence"):
                 errors.append(f"{layer} requires exit evidence")
         if qualification["L4"].get("providerRequired") is not True:
@@ -204,7 +219,8 @@ def main() -> None:
         raise SystemExit("\n".join(errors))
     print(
         "validated ARM64 runtime proposal: 2 host candidates, 2 filesystem "
-        "candidates, 6 runtime tracks; selection unset; L1R/L4 not run"
+        "candidates, 6 runtime tracks, 4 host/filesystem combinations per layer; "
+        "selection unset; L1R/L4 not run"
     )
 
 

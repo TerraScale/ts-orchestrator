@@ -23,8 +23,10 @@ local observations with no qualification layer. No ARM64 execution occurred.
 
 The audit defines fail-closed L1R and L4 command contracts, required immutable
 inputs, scenario matrices, evidence bindings, failure criteria, and cleanup
-proof. The qualification harness is intentionally recorded as missing rather
-than represented as runnable.
+proof. Both layers require OL9/ext4, OL9/XFS, Ubuntu/ext4, and Ubuntu/XFS until a
+later explicit coupled selection deliberately narrows the matrix. The
+qualification harness is intentionally recorded as missing rather than
+represented as runnable.
 
 ## Validation
 
@@ -42,7 +44,8 @@ git diff --check
 
 The adversarial overlays prove rejection of an accepted/selected proposal, an
 ARM64-qualified local-observation masquerade, a missing filesystem comparison,
-and an unknown evidence source.
+an incomplete host-by-filesystem interaction matrix, and an unknown evidence
+source.
 
 ## Remaining gates
 
@@ -50,8 +53,8 @@ and an unknown evidence source.
 2. Immutable per-region image IDs, exact package manifests, mirror/signature policy, and runtime pairing/pins.
 3. Approved storage SLO, memory/runtime budget, cost/TTL, and destructive scratch/cloud authorization.
 4. Implemented qualification harness and valid exact-tree L0/L0C pre-deployment attestation.
-5. Real aarch64 systemd-as-PID-1 L1R for both host candidates and both filesystems.
-6. Explicitly authorized disposable OCI A1 L4 for both host candidates, both filesystems, runtime boundaries, performance, replacement, and cleanup.
+5. Real aarch64 systemd-as-PID-1 L1R for all four host-by-filesystem combinations.
+6. Explicitly authorized disposable OCI A1 L4 for all four combinations, runtime boundaries, performance, replacement, and cleanup.
 
 No image was downloaded, package installed, service/VM started, filesystem
 changed, cloud API called, or sibling/shared file edited.

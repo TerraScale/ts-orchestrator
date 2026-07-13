@@ -171,8 +171,21 @@ not run a unit, D-Bus lifecycle, container, or filesystem test.
 
 L1R starts only after valid exact-tree L0/L0C pre-deployment evidence exists
 (`ORCHESTRATOR.md:1114-1154`). Run each host candidate independently on a real
-aarch64 Linux host with systemd as PID 1. Never reuse one candidate's result for
-the other.
+aarch64 Linux host with systemd as PID 1. Within each host run both filesystem
+candidates. Readiness therefore requires this full interaction matrix:
+
+| Host | ext4 | XFS |
+|---|---|---|
+| Oracle Linux 9 aarch64 | Required L1R report | Required L1R report |
+| Ubuntu 24.04 LTS standard aarch64 | Required L1R report | Required L1R report |
+
+Never reuse one host's filesystem result for the other: kernel, block-rescan,
+partition/LVM, filesystem-tool, systemd-mount, package, and recovery behavior can
+differ. The machine-readable record enumerates all four combinations explicitly.
+A later owner-approved ADR may narrow future qualification only by selecting a
+coupled host/filesystem pair and revising the record/validator deliberately; a
+standalone host or filesystem preference, missing row, or convenient result is
+not such a selection.
 
 ### Required immutable inputs
 
@@ -224,10 +237,10 @@ runtime-qualification l1r verify-inputs --manifest <signed-manifest> --predeploy
 runtime-qualification l1r systemd --manifest <signed-manifest> --scenario all
 runtime-qualification l1r container --manifest <signed-manifest> --scenario all
 runtime-qualification l1r buildkit --manifest <signed-manifest> --scenario all
-runtime-qualification l1r filesystem --manifest <signed-manifest> --filesystem ext4 --scratch-id <approved-id> --crash-checkpoint each
-runtime-qualification l1r filesystem --manifest <signed-manifest> --filesystem xfs --scratch-id <approved-id> --crash-checkpoint each
-runtime-qualification evidence finalize --layer L1R --output <candidate-id>-l1r-evidence.json
-runtime-qualification evidence verify <candidate-id>-l1r-evidence.json
+runtime-qualification l1r filesystem --manifest <signed-host-manifest> --host-candidate <host-candidate-id> --filesystem ext4 --scratch-id <approved-id> --crash-checkpoint each
+runtime-qualification l1r filesystem --manifest <signed-host-manifest> --host-candidate <host-candidate-id> --filesystem xfs --scratch-id <approved-id> --crash-checkpoint each
+runtime-qualification evidence finalize --layer L1R --output <host-candidate-id>-l1r-evidence.json
+runtime-qualification evidence verify <host-candidate-id>-l1r-evidence.json
 ```
 
 `--scenario all` must include success plus denials, stale generation/fence,
@@ -238,16 +251,21 @@ cover cloud/device-size observation (faked only at L1R), guest rescan, partition
 or LVM growth if selected, filesystem grow, verification, reboot/fsck, and retry.
 Known data is never formatted; shrink requests always fail.
 
-L1R passes only with two complete filesystem candidate reports and host/runtime
-reports. A later owner choice may use those comparable results; the harness must
-not mark either filesystem selected.
+L1R readiness passes only with four complete host-by-filesystem reports—OL9/ext4,
+OL9/XFS, Ubuntu/ext4, and Ubuntu/XFS—plus both host/runtime reports. One ext4 and
+one XFS report on different hosts is insufficient. A later owner choice may use
+these comparable results; the harness must not mark a host or filesystem
+selected.
 
 ## L4 evidence plan
 
 L4 requires explicit cloud-mutation authorization, a credential scope limited to
 fresh disposable resources, approved cost/TTL, default-closed ingress, and a
 cleanup/quarantine owner. It repeats relevant L1R commands on the exact OCI A1
-image and adds provider boundaries.
+image and adds provider boundaries. Until an explicit coupled host/filesystem
+selection deliberately narrows the matrix, L4 also requires all four host-by-
+filesystem combinations because OCI image kernels, guest tooling, and provider
+block integration can change the outcome.
 
 ```text
 runtime-qualification l4 verify-inputs --manifest <signed-manifest> --predeployment-evidence <signed-evidence> --shape VM.Standard.A1.Flex
@@ -255,8 +273,8 @@ runtime-qualification l4 provision --manifest <signed-manifest> --ttl <approved-
 runtime-qualification l4 host --scenario boot-reboot-replace-generation
 runtime-qualification l4 orchestrator --artifact <linux-arm64-digest> --scenario start-health-restart-rollback
 runtime-qualification l4 container --manifest-digest <multi-platform-digest> --scenario all
-runtime-qualification l4 volume --filesystem ext4 --scenario attach-rescan-expand-crash-detach-reattach
-runtime-qualification l4 volume --filesystem xfs --scenario attach-rescan-expand-crash-detach-reattach
+runtime-qualification l4 volume --host-candidate <host-candidate-id> --filesystem ext4 --scenario attach-rescan-expand-crash-detach-reattach
+runtime-qualification l4 volume --host-candidate <host-candidate-id> --filesystem xfs --scenario attach-rescan-expand-crash-detach-reattach
 runtime-qualification l4 boundaries --scenario iam-metadata-network-link-local-wrong-volume-stale-fence
 runtime-qualification l4 performance --storage-slo <approved-slo> --runtime-budget <approved-budget>
 runtime-qualification l4 cleanup --operation-id <operation-id>
@@ -283,6 +301,7 @@ No component is selected. The only justified state is:
 
 - two host-image candidates, both unqualified;
 - ext4 and XFS candidates, both unqualified and unselected;
+- all four host-by-filesystem combinations required independently at L1R and L4;
 - systemd/containerd/runc/BuildKit tracks requiring exact pins and L1R/L4 proof;
 - local x86_64 observation with zero qualification layers; and
 - L1R/L4 not run because image/tool selections, harness, approved SLOs,
@@ -290,4 +309,5 @@ No component is selected. The only justified state is:
 
 The deterministic validator enforces this state and rejects adversarial attempts
 to accept/select a candidate, masquerade x64 observation as ARM64 evidence,
-remove a filesystem candidate, or cite an unknown source.
+remove a filesystem candidate or one required interaction pair, or cite an
+unknown source.
