@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "623763bdee64813c1592c98f756ec46bf2af00d28f43fdcac0d4f609f6abcd08",
+  "inputSha256": "e61531ebd8198ee04dba2d1a8e0e87393146b3096c6a3ebf1f3d0d9adfaf38a3",
   "counts": {
     "registered": 43,
     "linked": 6,
@@ -786,6 +786,10 @@
         {
           "path": "src/TerraScale.Orchestrator.ControlPlane/Authority/AuthorityEngine.cs",
           "line": 555
+        },
+        {
+          "path": "src/TerraScale.Orchestrator.ControlPlane/Messaging/MessagingPolicyEngine.cs",
+          "line": 8
         },
         {
           "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
