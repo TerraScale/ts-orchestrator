@@ -14,6 +14,57 @@ scope:
     - TerraScale.DevHost
     - Terrascale.Documentation
     - Terrascale.Landingpage
+  source_provenance:
+    - repository: TerraBase
+      head: 349cd1a11e5b252ffc193d3c3cdf059b954828fd
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: Terrabase.Operator
+      head: b3b105be880e169d62e3cb4506846b8a11342d5c
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.Internals
+      head: 3643df207f9f1129c9f677148e6890d436339141
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.DotNet
+      head: 9d98e4e3dc3e05eb955ba06f03b05bf462cfb21b
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.TypeScript
+      head: 7d9b629ce5a5d41a3fa457911305b057749e3252
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.Infrastructure
+      head: 3bfdb4ee0124fbcce43e7db57cf00045f374fbcb
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.Deploy
+      head: cacb596cd0f6f25a40e76160554fecc14f047965
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: TerraScale.DevHost
+      head: dd2b8762beb85199578ee41bdfafc199e977a0b4
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: Terrascale.Documentation
+      head: ccca078a99f4d0702d4e55ac02d6585277ea08e9
+      checkout_state: branch
+      branch: develop
+      dirty: false
+    - repository: Terrascale.Landingpage
+      head: 0a763469d3d086e672be673b080a97dbc31dff26
+      checkout_state: branch
+      branch: develop
+      dirty: false
   scan_method: >-
     Read-only repository scan for Kubernetes, OKE, Flux, kubectl, retry and polling,
     manual mutation, duplicated state, certificate copying, fixed region/count,
@@ -63,7 +114,9 @@ entries:
     original_constraint: Kubernetes required an OKE control plane, CNI/CSI, managed pools, DaemonSets, and duplicate controllers before any product workload could run.
     preserved_behavior: Isolated application, platform, and TerraBase capacity with measured resource admission, failure-domain spread, and elastic growth.
     native_replacement: Direct A1 instances managed by a regional scheduler and one host agent using cgroups v2, systemd, and containerd without a pod ceiling.
-    owner_workstream: provider-foundation-and-host-agent
+    owner_workstream:
+      primary: Cloud
+      collaborators: [Runtime, Core, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-L3S-host-admission, pr: pending-WRK-001}
     regression: {layer: L3S-and-L4, scenario: compact-profile density, one-host loss, scale-out, scale-in, and seven-day cost gate}
     recovery_boundary: Pulumi retains durable network/IAM/bootstrap ownership; the regional controller resumes concrete node operations from its journal.
@@ -83,7 +136,9 @@ entries:
     original_constraint: Flux dependency health and acknowledgement were insufficiently reliable, so reconciliation returned before dependent workloads were healthy.
     preserved_behavior: Ordered dependencies, asynchronous progress, health gates, and restart-safe acknowledgement.
     native_replacement: Typed dependency and health state machines with a journaled operation receipt that is acknowledged only after the configured durable checkpoint.
-    owner_workstream: desired-state-and-gitops
+    owner_workstream:
+      primary: Delivery
+      collaborators: [Core, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-native-reconcile-L3S, pr: pending-WRK-002}
     regression: {layer: L2-plus-L3S, scenario: dependency failure and controller restart at every acknowledgement checkpoint}
     recovery_boundary: The regional journal and last accepted CellSpec remain authoritative when Git, GRU, or the controller process is unavailable.
@@ -107,7 +162,9 @@ entries:
     original_constraint: A webhook did not prove reconciliation, so the pipeline forced a second kubectl action and still depended on interval polling.
     preserved_behavior: Prompt deployment triggering, durable acceptance, safe replay, and a clear operator-visible failure when a trigger cannot be accepted.
     native_replacement: One signed native reconcile command journaled before acknowledgement with generation, deadline, idempotency key, and fenced writer identity.
-    owner_workstream: release-and-deployment
+    owner_workstream:
+      primary: Delivery
+      collaborators: [Messaging/security, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-command-journal-L3S, pr: pending-WRK-003}
     regression: {layer: L2-plus-L3S, scenario: webhook loss, NATS loss, controller crash, duplicate command, and stale-writer replay}
     recovery_boundary: The command is replayed from regional JetStream and cannot complete under a stale generation or fence.
@@ -127,7 +184,9 @@ entries:
     original_constraint: Multiple image automation controllers could race, so configuration used suspension and rollout-guard coordination to approximate exclusive publication.
     preserved_behavior: Build-once immutable candidates, exact-digest promotion, one release writer, and safe rollback.
     native_replacement: Fenced release writer plus promotion lease and compare-and-swap generation over the immutable candidate digest.
-    owner_workstream: release-and-deployment
+    owner_workstream:
+      primary: Delivery
+      collaborators: [Core, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-release-fencing-L3S, pr: pending-WRK-004}
     regression: {layer: L2-plus-L3S, scenario: concurrent publishers, lease expiry, stale writer, partial promotion, and adversarial rollback}
     recovery_boundary: A replacement writer resumes only after acquiring a newer fence; accepted digests are immutable.
@@ -147,7 +206,9 @@ entries:
     original_constraint: Kubernetes rollout state had to be polled and stitched together with shell phases and per-context kubectl invocations.
     preserved_behavior: Cross-region progress, explicit failure reporting, exact-digest convergence, timeout, and resumable deployment.
     native_replacement: Typed regional deployment operations with explicit checkpoints, idempotent resume, and a global same-digest barrier.
-    owner_workstream: release-and-deployment
+    owner_workstream:
+      primary: Delivery
+      collaborators: [Operations, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-deployment-state-machine-L3S, pr: pending-WRK-005}
     regression: {layer: L2-plus-L3S, scenario: crash at every phase, regional timeout, WAN loss, partial convergence, and retry}
     recovery_boundary: Each region completes or resumes its own accepted operation; global promotion freezes during WAN loss.
@@ -167,7 +228,9 @@ entries:
     original_constraint: Kubernetes objects supplied identity, storage attachment, initialization jobs, admission, upgrades, and process lifecycle.
     preserved_behavior: Stable members and volumes, topology safety, one-member upgrades, backup/restore, health, certificate naming, and autoscaling holds.
     native_replacement: C# TerraBase member, volume, topology, upgrade, backup, and restore state machines over typed TerraBase administration APIs.
-    owner_workstream: terrabase-lifecycle
+    owner_workstream:
+      primary: TerraBase
+      collaborators: [Runtime, Storage, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-terrabase-L3S-and-destructive-suite, pr: pending-WRK-006}
     regression: {layer: L2-plus-L3S-plus-L4, scenario: port all operator safety tests and crash each destructive checkpoint}
     recovery_boundary: Stable member/volume identity and fenced operation journals survive agent/controller replacement; permanent members are never removed.
@@ -187,7 +250,9 @@ entries:
     original_constraint: cert-manager/cainjector automated Kubernetes certificates while edge telemetry shared one client identity.
     preserved_behavior: Automated issuance, DNS names, trust bundles, renewal, revocation, and mutually authenticated privileged channels.
     native_replacement: Regional PKI with unique workload identities, short leases, dual-bundle rotation, revocation, and selective mTLS.
-    owner_workstream: identity-vault-and-pki
+    owner_workstream:
+      primary: Messaging/security
+      collaborators: [Runtime, Operations, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-PKI-rotation-L3S, pr: pending-WRK-007}
     regression: {layer: L2-plus-L3S, scenario: identity uniqueness, renewal, dual-bundle rotation, revocation, stolen certificate, and captured-output scan}
     recovery_boundary: Existing identities renew regionally during GRU loss; root protection remains in OCI KMS/Vault.
@@ -207,7 +272,9 @@ entries:
     original_constraint: External Secrets copied durable cloud secrets into Kubernetes, while node-level instance principals needed broad access for generic controllers.
     preserved_behavior: Durable encrypted secret storage, automated delivery/rotation, and cloud-native workload authentication.
     native_replacement: Closed vault policy and lease delivery over workload-scoped identity with compartment-minimal OCI dynamic groups and policies.
-    owner_workstream: identity-vault-and-pki
+    owner_workstream:
+      primary: Messaging/security
+      collaborators: [Cloud, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-vault-denial-L3S, pr: pending-WRK-008}
     regression: {layer: L2-plus-L3S-plus-L4, scenario: cross-workload denial, stolen node, expired lease, rotation, and OCI IAM negative tests}
     recovery_boundary: Ciphertext/root protection stays in OCI Vault/KMS; regional lease renewal follows the approved GRU-outage contract.
@@ -227,7 +294,9 @@ entries:
     original_constraint: A generic Kubernetes API required admission policies to reject unsafe arbitrary objects and placements after submission.
     preserved_behavior: Closed role admission, isolation, resource bounds, capability denial, and validation before execution.
     native_replacement: Exhaustive C# role catalog, schema, and compiler that rejects unknown roles, privileges, host paths, devices, and capabilities before persistence.
-    owner_workstream: contracts-policy-and-scheduler
+    owner_workstream:
+      primary: Runtime
+      collaborators: [Integration/contract steward, Core, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-admission-model-tests, pr: pending-WRK-009}
     regression: {layer: L1-plus-L2, scenario: exhaustive invalid role, capability, device, mount, runtime, and placement manifests}
     recovery_boundary: Only previously validated signed CellSpecs are executable during disconnection.
@@ -247,7 +316,9 @@ entries:
     original_constraint: PVC/CSI exposed a resize request but did not prove provider, attachment, device, filesystem, and TerraBase logical-capacity completion end to end.
     preserved_behavior: Stable single-writer volumes, expand-only storage, online capacity growth, utilization gates, and explicit operator status.
     native_replacement: Journaled provider-to-application expansion state machine with fence, generation, device rescan, filesystem growth, TerraBase verification, and checkpoints.
-    owner_workstream: storage-and-terrabase-lifecycle
+    owner_workstream:
+      primary: Storage
+      collaborators: [TerraBase, Cloud, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-destructive-storage-L3S-and-L4, pr: pending-WRK-010}
     regression: {layer: L2-plus-L3S-plus-L4, scenario: crash and stale writer at every cloud, attach, device, filesystem, and application checkpoint}
     recovery_boundary: Volume identity and operation journal survive host loss; expansion never rolls back or attaches to two writers.
@@ -267,7 +338,9 @@ entries:
     original_constraint: HPA scheduled pods without capacity while Cluster Autoscaler supplied nodes, producing duplicated floors and contradictory ownership.
     preserved_behavior: Demand-based application replicas, TerraBase R3 floor, capacity scale-out, safe scale-in, budget limits, and anti-oscillation.
     native_replacement: One scheduler/provider autoscaler using measured resources, SLOs, topology floors, quotas, storage constraints, and cost budgets.
-    owner_workstream: scheduler-and-provider-autoscaling
+    owner_workstream:
+      primary: Core
+      collaborators: [Cloud, TerraBase, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-autoscaling-L3S-and-L4, pr: pending-WRK-011}
     regression: {layer: L2-plus-L3S-plus-L4, scenario: burst, oscillation, capacity denial, orphan cleanup, database floor, and cost ceiling}
     recovery_boundary: Each region scales within pre-authorized limits during GRU/WAN loss and never removes permanent TerraBase members.
@@ -287,7 +360,9 @@ entries:
     original_constraint: Kubernetes labels and ServiceMonitor/PodMonitor discovery were the authoritative target and workload inventory.
     preserved_behavior: Complete server/workload inventory, stable labels, scrape/OTLP discovery, alerts, dashboards, and bounded cardinality.
     native_replacement: Host-agent registry and OTel discovery with canonical TerraScale identity labels and generated targets, dashboards, and alerts.
-    owner_workstream: observability
+    owner_workstream:
+      primary: Operations
+      collaborators: [Runtime, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-full-inventory-L3S, pr: pending-WRK-012}
     regression: {layer: L2-plus-L3S, scenario: all-server inventory, restart, stale target removal, label stability, and cardinality budget}
     recovery_boundary: Edge collectors keep local bounded spool and discovery while GRU telemetry ingest is unavailable.
@@ -307,7 +382,9 @@ entries:
     original_constraint: Grafana provisioning/persistence was Kubernetes-local and operational state was inferred indirectly from metrics.
     preserved_behavior: Immutable dashboards, replicated Grafana availability, durable data sources, and exact read-only operational status.
     native_replacement: Immutable replicated Grafana provisioning plus mandatory sanitized orchestrator projection/data source with generation and freshness.
-    owner_workstream: observability-and-operator-projection
+    owner_workstream:
+      primary: Operations
+      collaborators: [Integration/contract steward, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-GRU-one-node-loss-L3S, pr: pending-WRK-013}
     regression: {layer: L2-plus-L3S, scenario: one-node loss, stale projection, dashboard/data-source rebuild, and unauthorized-field scan}
     recovery_boundary: Grafana is read-only; mutations remain in audited API/CLI and authoritative state stays in replicated control journals.
@@ -327,7 +404,9 @@ entries:
     original_constraint: Documents assumed private connectivity but did not implement production VPN peer, route, ACL, identity, and secret lifecycle end to end.
     preserved_behavior: Private cross-region control/telemetry paths, least-privilege routes, peer rotation, and regional autonomy.
     native_replacement: Selected established WireGuard implementation managed by a TerraScale route-policy controller and durable Pulumi networking.
-    owner_workstream: networking-and-vpn
+    owner_workstream:
+      primary: Operations
+      collaborators: [Cloud, Messaging/security, Cross-repository cleanup, Verification]
     removal: {phase: qualification-before-production, pr: pending-WRK-014}
     regression: {layer: L3S-plus-L4, scenario: GRU-control loss, peer rotation/revocation, route denial, OCI UDP, and failover}
     recovery_boundary: Existing regional peers/routes continue during GRU loss; new global policy freezes unless break-glass is audited.
@@ -347,7 +426,9 @@ entries:
     original_constraint: Three launch regions and OCI codes were duplicated as compile-time constants across clients, infrastructure, and documentation.
     preserved_behavior: Stable gru/sfo/fra aliases, client compatibility, residency metadata, and deterministic region selection.
     native_replacement: Signed provider-discovered catalog with stable aliases, eligibility evidence, and at least twenty qualified OCI regions.
-    owner_workstream: provider-catalog-and-public-contracts
+    owner_workstream:
+      primary: Cloud
+      collaborators: [Integration/contract steward, Cross-repository cleanup, Verification]
     removal: {phase: contract-freeze-and-client-cleanup, pr: pending-WRK-015}
     regression: {layer: L1-plus-L2-plus-L4, scenario: catalog signature, alias compatibility, unknown region, provider discovery, and twenty-region eligibility matrix}
     recovery_boundary: Last accepted signed catalog remains usable regionally; activation changes require global authority.
@@ -367,7 +448,9 @@ entries:
     original_constraint: CI/release configuration evolved independently by repository and branch, leaving a production role outside the build target inventory.
     preserved_behavior: Affected-change validation, per-role tests, build once, immutable candidates, approval, exact promotion, and bootstrap recovery exception.
     native_replacement: Exhaustive admitted-role/build inventory and one typed native pipeline graph, with a minimal independent orchestrator recovery workflow.
-    owner_workstream: ci-cd-and-role-catalog
+    owner_workstream:
+      primary: Delivery
+      collaborators: [Integration/contract steward, Runtime, Cross-repository cleanup, Verification]
     removal: {phase: native-pipeline-L3S, pr: pending-WRK-016}
     regression: {layer: L1-plus-L2-plus-L3S, scenario: affected-change matrix, every admitted role built, digest immutability, approval, and bootstrap recovery}
     recovery_boundary: The independent bootstrap lane can rebuild the orchestrator when the orchestrator is unavailable; product pipelines resume from journals.
@@ -387,7 +470,9 @@ entries:
     original_constraint: Documentation, manifests, verification code, and dashboards independently encoded RF, replica, region, and storage claims.
     preserved_behavior: Clear public promises, executable validation, localized documentation, dashboards, and operational runbooks.
     native_replacement: Canonical versioned C# contracts generate JSON Schema, docs facts, dashboards, alerts, and fixtures; drift fails CI.
-    owner_workstream: contract-generation-and-documentation
+    owner_workstream:
+      primary: Integration/contract steward
+      collaborators: [Operations, Cross-repository cleanup, Verification]
     removal: {phase: contract-freeze, pr: pending-WRK-017}
     regression: {layer: L1-plus-L2, scenario: generated-artifact cleanliness and deliberate RF, minima, storage, and catalog mutation}
     recovery_boundary: Generated artifacts identify their contract version and remain usable with the last accepted CellSpec.
@@ -411,7 +496,9 @@ entries:
     original_constraint: The deleted OKE estate leaves repository configuration and potentially cloud IAM, DNS, secrets, load balancers, volumes, IPs, and documentation outside any live adoption path.
     preserved_behavior: Safe inventory, ownership attribution, unrelated-resource protection, auditable deletion, and quarantine of unknown ownership.
     native_replacement: Greenfield Pulumi state and resource IDs; read-only provider/repository inventory with removal only after positive stale-resource identification and approval.
-    owner_workstream: greenfield-audit-and-cleanup
+    owner_workstream:
+      primary: Cross-repository cleanup
+      collaborators: [Operations, Cloud, Verification]
     removal: {phase: phase-0-inventory-then-approved-cleanup-packages, pr: one-WRK-scoped-PR-per-repository}
     regression: {layer: L1-plus-L3S-plus-L4, scenario: forbidden Kubernetes/Flux parser and credential scan plus provider orphan inventory}
     recovery_boundary: Cleanup PRs are independently revertible; unknown and unrelated resources are quarantined rather than adopted or deleted.
@@ -435,7 +522,9 @@ entries:
     original_constraint: Eventually consistent Kubernetes discovery and Flux status forced CLI-local polling and transient retry policy without a durable operation subscription.
     preserved_behavior: Tolerate transient control-plane unavailability, bounded wait, cancellation, progress, and actionable timeout diagnostics.
     native_replacement: Durable command receipts and event-driven operation observation over NATS with bounded reconnect/backoff and authoritative terminal status.
-    owner_workstream: operator-api-cli-and-deployment
+    owner_workstream:
+      primary: Operations
+      collaborators: [Delivery, Messaging/security, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-operation-watch-L3S, pr: pending-WRK-019}
     regression: {layer: L2-plus-L3S, scenario: disconnect, reconnect, missed event replay, cancellation, deadline, duplicate terminal event, and controller restart}
     recovery_boundary: Consumers resume from durable sequence and query authoritative state; loss of the watch connection never changes operation ownership.
@@ -459,7 +548,9 @@ entries:
     original_constraint: Kubernetes admission and Secret mounts supplied trust/bootstrap, while replication observation used controller polling.
     preserved_behavior: Fail-closed configuration validation, certificate readiness, replication peer trust, mirror convergence, and bounded reconciliation cadence.
     native_replacement: Validate typed TerraBase plans before persistence, deliver certificates through the host identity boundary, and reconcile replication from typed admin state/events with bounded fallback polling only at the TerraBase API boundary.
-    owner_workstream: terrabase-lifecycle-and-identity
+    owner_workstream:
+      primary: TerraBase
+      collaborators: [Messaging/security, Runtime, Cross-repository cleanup, Verification]
     removal: {phase: cleanup-after-terrabase-bootstrap-L3S, pr: pending-WRK-020}
     regression: {layer: L1-plus-L2-plus-L3S, scenario: invalid plan, missing/rotated certificate, peer revocation, mirror lag, restart, and stale generation}
     recovery_boundary: A region can validate and renew existing TerraBase identities locally; topology changes remain fenced and journaled.
@@ -479,7 +570,9 @@ entries:
     original_constraint: Incomplete generated API artifacts required manual documentation and a fixed copy list, creating another source of truth.
     preserved_behavior: Complete public API reference, localized narrative guidance, examples, and stable customer contracts.
     native_replacement: Generate complete public OpenAPI and documentation inputs from the canonical endpoint/contract registry, with coverage and drift gates.
-    owner_workstream: contract-generation-and-documentation
+    owner_workstream:
+      primary: Integration/contract steward
+      collaborators: [Delivery, Cross-repository cleanup, Verification]
     removal: {phase: contract-generation, pr: pending-WRK-021}
     regression: {layer: L1-plus-L2, scenario: every public route represented, no internal route leaked, localization source complete, and clean regeneration}
     recovery_boundary: Published docs remain versioned artifacts independent of control-plane availability.
@@ -503,7 +596,9 @@ entries:
     original_constraint: A compile-time three-region SDK needed a deterministic fallback, but silently treating invalid input as GRU hid catalog and placement errors.
     preserved_behavior: Backward-compatible empty-selection default where contractually approved, canonical aliases, deterministic ordering, and clear validation.
     native_replacement: Catalog-aware selection distinguishes absent preference from invalid/unavailable region, preserves the approved default explicitly, and returns typed placement errors.
-    owner_workstream: provider-catalog-and-public-contracts
+    owner_workstream:
+      primary: Integration/contract steward
+      collaborators: [Cloud, Cross-repository cleanup, Verification]
     removal: {phase: catalog-contract-freeze, pr: pending-WRK-022}
     regression: {layer: L1-plus-L2, scenario: absent selection, invalid alias, unavailable region, stale catalog, compatibility version, and explicit GRU preference}
     recovery_boundary: Last accepted catalog and explicit placement policy determine regional behavior during catalog-authority loss.
