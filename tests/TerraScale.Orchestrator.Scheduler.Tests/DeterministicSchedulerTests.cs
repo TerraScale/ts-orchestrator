@@ -98,13 +98,19 @@ public sealed class DeterministicSchedulerTests
     [Test]
     public async Task CallerVetoAndCallerSafetyCapAreExplicitAndIndependent()
     {
-        var vetoed = Node("vetoed", Abundant, veto: new("STATEFUL_HOLD", "Controller has not approved a move."));
+        var vetoed = Node("vetoed", Abundant, veto: new(CandidateVetoCode.StatefulSafetyHold));
         var capped = Node("capped", Abundant, safetyCap: new(7, 7));
         var result = scheduler.Schedule(Workload(), [vetoed, capped], Policy);
 
         await Assert.That(result is Unschedulable).IsTrue();
-        await Assert.That(result.Candidates.Single(trace => trace.CandidateId == "vetoed").Reasons
-            .Single(reason => reason.Check == PlacementCheck.CallerVeto).Detail).Contains("STATEFUL_HOLD");
+        var vetoTrace = result.Candidates.Single(trace => trace.CandidateId == "vetoed").Reasons
+            .Single(reason => reason.Check == PlacementCheck.CallerVeto).Detail;
+        await Assert.That(vetoTrace).IsEqualTo("code=StatefulSafetyHold");
+        await Assert.That(vetoTrace).DoesNotContain("Controller has not approved a move.");
+        await Assert.That(typeof(CandidateVeto).GetProperties().Any(property => property.PropertyType == typeof(string))).IsFalse();
+        await Assert.That(typeof(CandidateVeto).GetConstructors().SelectMany(constructor => constructor.GetParameters())
+            .Any(parameter => parameter.ParameterType == typeof(string))).IsFalse();
+        await Assert.That(Throws<ArgumentOutOfRangeException>(() => new CandidateVeto((CandidateVetoCode)999))).IsTrue();
         await Assert.That(result.Candidates.Single(trace => trace.CandidateId == "capped").Reasons
             .Single(reason => reason.Check == PlacementCheck.SafetyCap).Outcome).IsEqualTo(CheckOutcome.Rejected);
     }
@@ -217,6 +223,35 @@ public sealed class DeterministicSchedulerTests
         await Assert.That(Throws<ArgumentException>(() => Workload(requiredPorts: [443, 443]))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => Workload(requiredAffinityFacts: ["rack:r1", "rack:r1"]))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => scheduler.Schedule(Workload(), [Node("same", Abundant), Node("same", Abundant)], Policy))).IsTrue();
+    }
+
+    [Test]
+    public async Task OptionalNodeClassDistinguishesAbsentFromSuppliedBlank()
+    {
+        var absent = new WorkloadRequest("api", "arm64", Tiny, requiredNodeClass: null);
+
+        await Assert.That(absent.RequiredNodeClass is null).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() =>
+            new WorkloadRequest("api", "arm64", Tiny, requiredNodeClass: ""))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() =>
+            new WorkloadRequest("api", "arm64", Tiny, requiredNodeClass: " \t\r\n"))).IsTrue();
+    }
+
+    [Test]
+    public async Task EveryOptionalStringCollectionRejectsSuppliedWhitespace()
+    {
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, requiredTrustZones: [" "]))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, requiredNetworkZones: ["\n"]))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, requiredSecretZones: ["\t"]))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, allowedFailureDomains: [""]))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, requiredAffinityFacts: [" "]))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new WorkloadRequest(
+            "api", "arm64", Tiny, prohibitedAffinityFacts: [" "]))).IsTrue();
     }
 
     [Test]

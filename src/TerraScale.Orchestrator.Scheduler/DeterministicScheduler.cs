@@ -51,7 +51,7 @@ public sealed class DeterministicScheduler
         var reasons = new List<PlacementReason>(22);
 
         Add(reasons, PlacementCheck.CallerVeto, candidate.Veto is null,
-            candidate.Veto is null ? "No caller veto." : $"{candidate.Veto.Code}: {candidate.Veto.Detail}");
+            candidate.Veto is null ? "No caller veto." : $"code={candidate.Veto.Code}");
         Add(reasons, PlacementCheck.Architecture,
             string.Equals(candidate.Architecture, workload.Architecture, StringComparison.Ordinal),
             $"required={workload.Architecture}; actual={candidate.Architecture}");

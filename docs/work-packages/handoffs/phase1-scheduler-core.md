@@ -17,6 +17,11 @@ bandwidth, PIDs, file descriptors, and huge pages. Every check is recorded even 
 an earlier check rejects the candidate. Score and selection records complete the
 22-item trace; candidates themselves are globally ordered by ordinal ID.
 
+Caller vetoes use a closed `CandidateVetoCode` enum. No arbitrary caller detail can
+enter a reason trace, preventing secret leakage and newline/control-character
+injection through the veto path. Optional strings distinguish null/absent from an
+invalid supplied blank; optional string collections likewise reject blank members.
+
 Resource quantities are non-negative `long` values. Vector addition is checked,
 subtraction fails closed on underflow, and exact score calculation uses `BigInteger`.
 There is no floating-point/decimal division or overflow-dependent comparison. The

@@ -110,20 +110,32 @@ public enum ResourceDimension
     HugePages,
 }
 
+public enum CandidateVetoCode
+{
+    StatefulSafetyHold,
+    DisruptionBudgetHold,
+    VolumeLocalityMismatch,
+    TopologySafetyHold,
+    ControllerHold,
+}
+
+/// <summary>
+/// A closed, non-secret-bearing caller veto. Arbitrary caller text is deliberately
+/// impossible because reason traces may be exported to logs and evidence.
+/// </summary>
 public sealed record CandidateVeto
 {
-    public CandidateVeto(string code, string detail)
+    public CandidateVeto(CandidateVetoCode code)
     {
-        Code = RequireText(code, nameof(code));
-        Detail = RequireText(detail, nameof(detail));
+        if (!Enum.IsDefined(code))
+        {
+            throw new ArgumentOutOfRangeException(nameof(code));
+        }
+
+        Code = code;
     }
 
-    public string Code { get; }
-
-    public string Detail { get; }
-
-    private static string RequireText(string value, string parameterName) =>
-        !string.IsNullOrWhiteSpace(value) ? value : throw new ArgumentException("A nonempty value is required.", parameterName);
+    public CandidateVetoCode Code { get; }
 }
 
 public sealed record AllocationSafetyCap
@@ -330,7 +342,9 @@ public sealed class WorkloadRequest
         Architecture = RequireText(architecture, nameof(architecture));
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         RequiredPorts = CopyPorts(requiredPorts);
-        RequiredNodeClass = string.IsNullOrWhiteSpace(requiredNodeClass) ? null : requiredNodeClass;
+        RequiredNodeClass = requiredNodeClass is null
+            ? null
+            : RequireText(requiredNodeClass, nameof(requiredNodeClass));
         RequiredLabels = CopyLabels(requiredLabels);
         RequiredTrustZones = CopyFacts(requiredTrustZones);
         RequiredNetworkZones = CopyFacts(requiredNetworkZones);
