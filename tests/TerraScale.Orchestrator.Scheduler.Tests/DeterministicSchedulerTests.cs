@@ -7,6 +7,24 @@ public sealed class DeterministicSchedulerTests
     private readonly DeterministicScheduler scheduler = new();
 
     [Test]
+    public async Task PublicSchedulerSurfaceCannotBecomeASecondProductPlacementAuthority()
+    {
+        // INV-013: product/database geography remains outside the host scheduler contract.
+        var forbiddenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ProjectId", "ProjectRegions", "PlacementGeneration", "DatabaseId", "DatabaseRegions"
+        };
+        var assemblyTypes = typeof(DeterministicScheduler).Assembly.GetExportedTypes();
+        var exposedNames = assemblyTypes
+            .SelectMany(type => type.GetProperties().Select(property => property.Name)
+                .Concat(type.GetConstructors().SelectMany(constructor => constructor.GetParameters())
+                    .Select(parameter => parameter.Name ?? string.Empty)))
+            .ToArray();
+
+        await Assert.That(exposedNames.Any(forbiddenNames.Contains)).IsFalse();
+    }
+
+    [Test]
     public async Task EveryResourceDimensionAcceptsExactFitAndRejectsOneUnitShort()
     {
         foreach (var dimension in Enum.GetValues<ResourceDimension>())

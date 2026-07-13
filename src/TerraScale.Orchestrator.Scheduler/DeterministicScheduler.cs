@@ -5,7 +5,7 @@ namespace TerraScale.Orchestrator.Scheduler;
 
 /// <summary>
 /// Pure regional constrained least-waste placement. Project geography and stateful
-/// move safety are deliberately caller-owned constraints/vetoes.
+/// move safety are deliberately caller-owned constraints/vetoes (`INV-013`).
 /// </summary>
 public sealed class DeterministicScheduler
 {

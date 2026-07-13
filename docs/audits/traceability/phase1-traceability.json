@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "6978be999c2019ae9abbfdadc1e198b41cd0aecb9a066fc232feaf6ff4f3c373",
+  "inputSha256": "4a7797223ae02850c040230fc3f90a41338ad31d86ed2c3bc989311284f5430e",
   "counts": {
     "registered": 43,
-    "linked": 1,
-    "production-only": 4,
+    "linked": 6,
+    "production-only": 0,
     "test-only": 0,
-    "unreferenced": 38,
+    "unreferenced": 37,
     "unknownReferences": 0
   },
   "unknownReferences": [],
@@ -363,7 +363,7 @@
         "L3S"
       ],
       "evidenceState": "missing",
-      "traceStatus": "production-only",
+      "traceStatus": "linked",
       "productionReferences": [
         {
           "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
@@ -422,7 +422,12 @@
           "line": 422
         }
       ],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/OperationEngineTests.cs",
+          "line": 5
+        }
+      ]
     },
     {
       "id": "INV-005",
@@ -432,7 +437,7 @@
         "L3S"
       ],
       "evidenceState": "missing",
-      "traceStatus": "production-only",
+      "traceStatus": "linked",
       "productionReferences": [
         {
           "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
@@ -551,7 +556,16 @@
           "line": 107
         }
       ],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/OperationEngineTests.cs",
+          "line": 5
+        },
+        {
+          "path": "tests/TerraScale.Orchestrator.Protocol.Tests/CommandEnvelopeValidatorTests.cs",
+          "line": 5
+        }
+      ]
     },
     {
       "id": "INV-006",
@@ -562,7 +576,7 @@
         "L4"
       ],
       "evidenceState": "missing",
-      "traceStatus": "production-only",
+      "traceStatus": "linked",
       "productionReferences": [
         {
           "path": "src/TerraScale.Orchestrator.ControlPlane/Operations/OperationEngine.cs",
@@ -609,7 +623,12 @@
           "line": 461
         }
       ],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/OperationEngineTests.cs",
+          "line": 5
+        }
+      ]
     },
     {
       "id": "INV-007",
@@ -697,9 +716,19 @@
         "L3S"
       ],
       "evidenceState": "missing",
-      "traceStatus": "unreferenced",
-      "productionReferences": [],
-      "testReferences": []
+      "traceStatus": "linked",
+      "productionReferences": [
+        {
+          "path": "src/TerraScale.Orchestrator.Scheduler/DeterministicScheduler.cs",
+          "line": 8
+        }
+      ],
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.Scheduler.Tests/DeterministicSchedulerTests.cs",
+          "line": 12
+        }
+      ]
     },
     {
       "id": "INV-014",
@@ -749,7 +778,7 @@
         "L3S"
       ],
       "evidenceState": "missing",
-      "traceStatus": "production-only",
+      "traceStatus": "linked",
       "productionReferences": [
         {
           "path": "src/TerraScale.Orchestrator.Contracts/Resources/AdmittedRoles.cs",
@@ -760,7 +789,12 @@
           "line": 222
         }
       ],
-      "testReferences": []
+      "testReferences": [
+        {
+          "path": "tests/TerraScale.Orchestrator.ModelTests/ResourceContractTests.cs",
+          "line": 8
+        }
+      ]
     },
     {
       "id": "INV-018",

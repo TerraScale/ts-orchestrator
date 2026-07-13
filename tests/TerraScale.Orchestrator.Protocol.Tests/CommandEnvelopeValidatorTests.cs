@@ -2,6 +2,7 @@ using TerraScale.Orchestrator.Contracts;
 
 namespace TerraScale.Orchestrator.Protocol.Tests;
 
+/// <summary>Adversarial command replay, generation, epoch, and deadline tests for INV-005.</summary>
 public class CommandEnvelopeValidatorTests
 {
     [Test]

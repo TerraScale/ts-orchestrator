@@ -5,6 +5,7 @@ using TerraScale.Orchestrator.Contracts.Resources;
 
 namespace TerraScale.Orchestrator.ModelTests;
 
+/// <summary>Closed admitted-role and non-representability coverage for INV-017.</summary>
 public sealed class ResourceContractTests
 {
     [Test]

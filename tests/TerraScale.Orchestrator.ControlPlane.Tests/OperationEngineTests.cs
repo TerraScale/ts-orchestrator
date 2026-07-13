@@ -2,6 +2,7 @@ using TerraScale.Orchestrator.ControlPlane.Operations;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
+/// <summary>Fenced writer, replay, and stale-completion coverage for INV-004, INV-005, and INV-006.</summary>
 public sealed class OperationEngineTests
 {
     private static readonly DateTimeOffset Start = new(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
