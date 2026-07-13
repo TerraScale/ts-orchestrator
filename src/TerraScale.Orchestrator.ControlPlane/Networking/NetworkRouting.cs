@@ -49,7 +49,7 @@ public static class NetworkRoutePlanner
         if(observedGeneration.Value<expected.Generation.Value||observedEpoch.Value<expected.Epoch.Value)return NetworkDecision.Hold(NetworkCode.StaleGeneration,trace);
         if(observedGeneration.Value>expected.Generation.Value||observedEpoch.Value>expected.Epoch.Value)return NetworkDecision.Hold(NetworkCode.FutureGeneration,trace);
         if(e.CellCount==0||e.Links.Select(x=>(x.From,x.To)).Distinct().Count()!=e.Links.Count)return NetworkDecision.Hold(NetworkCode.InvalidInput,trace);
-        if(!TopologyIsBounded(e))return NetworkDecision.Hold(NetworkCode.QuadraticMesh,trace);
+        if(!TopologyMatchesDeclaredShape(e))return NetworkDecision.Hold(NetworkCode.QuadraticMesh,trace);
         if(expected.RouteKind!=NetworkRouteKind.Local&&!e.Links.Any(x=>x.From==expected.Cell&&x.To==expected.PeerCell))return NetworkDecision.Hold(NetworkCode.WrongEvidenceScope,trace);
         if(e.NoOverlappingMutation!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.AmbiguousOwnership,trace);
         if(!e.ApprovedPrefixes.Any(prefix=>prefix.Contains(expected.Destination)))return NetworkDecision.Hold(NetworkCode.RouteLeak,trace);
@@ -80,13 +80,15 @@ public static class NetworkRoutePlanner
         return NetworkDecision.Emit(NetworkAction.Verify,NetworkTarget.Route,NetworkCode.Completed,subject,trace);
     }
 
-    private static bool TopologyIsBounded(NetworkRouteEvidence e)
+    private static bool TopologyMatchesDeclaredShape(NetworkRouteEvidence e)
     {
         var cells=(ulong)e.CellCount;var links=(ulong)e.Links.Count;
-        if(e.Shape==NetworkTopologyShape.InitialThreeFullMesh)return cells<=3&&links<=checked(cells*(cells-1));
+        if(e.Shape==NetworkTopologyShape.InitialThreeFullMesh)
+            return cells==3&&links==6&&e.Cells.All(from=>e.Cells.Where(to=>to!=from).All(to=>e.Links.Any(link=>link.From==from&&link.To==to)));
         if(e.Shape==NetworkTopologyShape.ExplicitReplication)return links<=checked(cells*2);
-        if(e.Shape!=NetworkTopologyShape.HubAndSpoke||links>checked(2*(cells-1)))return false;
-        var linkedCells=e.Links.SelectMany(x=>new[]{x.From,x.To}).Distinct().ToArray();
-        return linkedCells.Any(hub=>e.Links.All(link=>link.From==hub||link.To==hub));
+        if(e.Shape!=NetworkTopologyShape.HubAndSpoke||cells<3||links!=checked(2*(cells-1)))return false;
+        return e.Cells.Count(hub=>e.Links.All(link=>link.From==hub||link.To==hub)
+            &&e.Cells.Where(spoke=>spoke!=hub).All(spoke=>e.Links.Any(link=>link.From==hub&&link.To==spoke)
+                &&e.Links.Any(link=>link.From==spoke&&link.To==hub)))==1;
     }
 }

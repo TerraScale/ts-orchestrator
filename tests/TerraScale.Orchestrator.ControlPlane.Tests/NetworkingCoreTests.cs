@@ -59,6 +59,19 @@ public sealed class NetworkingCoreTests
         var disguised=cells.SelectMany(source=>cells.Where(target=>target!=source).Select(target=>new NetworkPeerLink(source,target))).ToArray();
         var hiddenMesh=NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(cellInventory:cells,links:disguised,cells:4));
         await Assert.That(hiddenMesh.Code).IsEqualTo(NetworkCode.QuadraticMesh);
+        var threeCells=cells.Take(3).ToArray();
+        var fullMesh=threeCells.SelectMany(source=>threeCells.Where(target=>target!=source).Select(target=>new NetworkPeerLink(source,target))).ToArray();
+        await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(
+            cellInventory:threeCells,links:fullMesh,shape:NetworkTopologyShape.InitialThreeFullMesh,cells:3)).Code).IsEqualTo(NetworkCode.Completed);
+        await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(
+            cellInventory:threeCells,links:fullMesh[..^1],shape:NetworkTopologyShape.InitialThreeFullMesh,cells:3)).Code).IsEqualTo(NetworkCode.QuadraticMesh);
+        var missingInventoryCell=new[]{new NetworkPeerLink(cells[0],cells[1]),new NetworkPeerLink(cells[1],cells[0]),
+            new NetworkPeerLink(cells[0],cells[2]),new NetworkPeerLink(cells[2],cells[0])};
+        await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(
+            cellInventory:cells,links:missingInventoryCell,cells:4)).Code).IsEqualTo(NetworkCode.QuadraticMesh);
+        var oneWaySpokes=cells.Skip(1).Select(cell=>new NetworkPeerLink(cells[0],cell)).ToArray();
+        await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(
+            cellInventory:cells,links:oneWaySpokes,cells:4)).Code).IsEqualTo(NetworkCode.QuadraticMesh);
         var absentScope=NetworkingTestData.RouteScope(kind:NetworkRouteKind.Local,peerCell:NetworkingTestData.Cell("absent"));
         await Assert.That(NetworkRoutePlanner.Plan(absentScope,absentScope.Generation,absentScope.Epoch,
             NetworkingTestData.RouteEvidence(scope:absentScope,cellInventory:cells,cells:4,partitioned:true)).IsMutationAuthorized).IsFalse();

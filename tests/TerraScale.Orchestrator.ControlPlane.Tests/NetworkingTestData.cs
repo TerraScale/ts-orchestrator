@@ -26,7 +26,7 @@ internal static class NetworkingTestData
         new(scope??RouteScope(),routes??[],approved??[Prefix(10)],cellInventory??Cells(cells),links??HubLinks(cells),shape,noMutation,local,
             configured,traffic,healthy,routeConfigured,partitioned,32,16,64,maximumCells);
     private static NetworkCellId[] Cells(uint count)=>Enumerable.Range(0,(int)count).Select(i=>i switch{0=>Cell(),1=>Cell("sfo"),_=>Cell($"cell{i}")}).ToArray();
-    private static NetworkPeerLink[] HubLinks(uint count){var cells=Cells(count);return cells.Skip(1).Select(cell=>new NetworkPeerLink(cells[0],cell)).ToArray();}
+    private static NetworkPeerLink[] HubLinks(uint count){var cells=Cells(count);return cells.Skip(1).SelectMany(cell=>new[]{new NetworkPeerLink(cells[0],cell),new NetworkPeerLink(cell,cells[0])}).ToArray();}
     public static NetworkEndpointScope EndpointScope(NetworkExposure exposure=NetworkExposure.Public,NetworkServiceKind kind=NetworkServiceKind.Product,
         NetworkCertificateRef? cert=null,NetworkOrdinal? generation=null)=>new(Cell(),Workload(),Service(),Endpoint(),Node(),Lb(),Backend(),Dns(),cert??Cert(),kind,exposure,
             NetworkProtocol.Https,Port(),generation??O(9),O(4),Op());
