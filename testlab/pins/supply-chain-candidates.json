@@ -39,9 +39,16 @@
     ],
     "lockProvenance": [
       {"path": "src/TerraScale.Orchestrator.Contracts/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"},
+      {"path": "src/TerraScale.Orchestrator.ControlPlane/packages.lock.json", "sha256": "47c0f39f53ec76b72a23907cd0ed18671d546828d7ae96f8ba7041dfe4750715"},
       {"path": "src/TerraScale.Orchestrator.Protocol/packages.lock.json", "sha256": "47c0f39f53ec76b72a23907cd0ed18671d546828d7ae96f8ba7041dfe4750715"},
+      {"path": "src/TerraScale.Orchestrator.Scheduler/packages.lock.json", "sha256": "47c0f39f53ec76b72a23907cd0ed18671d546828d7ae96f8ba7041dfe4750715"},
       {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "3747e05a35f802982eeb00ea3eb2f6d34171a3f9e98e08798f77c87e9722e89a"},
-      {"path": "tests/TerraScale.Orchestrator.ContractTests/packages.lock.json", "sha256": "26b15a84c7ee37899121b07d9a51f57be098ae95f6cbbb3bd2542584901f5fbe"}
+      {"path": "tests/TerraScale.Orchestrator.ContractTests/packages.lock.json", "sha256": "cd734b2f461cf81c21e3f46bc28f01439d8a13e7fa3857d7be3faf9ecdebedaa"},
+      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "24563353106aa3c1e0ca0a90bec6d995a665868f6563b750926595648669d916"},
+      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "496ac10d88acd1e2040cef2304dd7678a884f19cfa29d32742fa2b8ae4c9ed92"},
+      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "d48eec4ca2632b7807d0071bbd5f0a45abf103ffd2da712fd406b6eba51b8e49"},
+      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "906f33abdbea853f146e165cec29fa94ad198be9e10da797e0e4a9bfe63aaa51"},
+      {"path": "tools/TerraScale.Orchestrator.SchemaGenerator/packages.lock.json", "sha256": "47c0f39f53ec76b72a23907cd0ed18671d546828d7ae96f8ba7041dfe4750715"}
     ],
     "lockProvenanceStatus": "checked-in-lock-files-bound-by-sha256-but-not-yet-qualified-against-an-internal-mirror"
   },
