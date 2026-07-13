@@ -1,0 +1,29 @@
+{
+  "checks": {
+    "corePubSub": true,
+    "coreRequestReply": true,
+    "jetStreamCreatePublishGet": true,
+    "monitoringLoopback": true,
+    "processCleanup": true,
+    "temporaryStoreCleanup": true
+  },
+  "classification": "bounded-local-x64-l0c-smoke-not-production-qualification",
+  "credentials": "none",
+  "hostArchitecture": "x86_64",
+  "network": "loopback-only-dynamic-ports",
+  "notTested": [
+    "ARM64",
+    "JWT/NKeys/accounts/permissions",
+    "TLS/mTLS/routes/gateways",
+    "R3/peer-loss/snapshot-restore",
+    "KV CAS/watch",
+    "Object Store",
+    "durable-consumer-redelivery/backoff",
+    "N/N-1 mixed versions"
+  ],
+  "schemaVersion": 1,
+  "server": {
+    "binarySha256": "4eb890bba37997898c81ef16c736f2c34cb594f4279b194c0404c7508dad5149",
+    "version": "2.14.3"
+  }
+}

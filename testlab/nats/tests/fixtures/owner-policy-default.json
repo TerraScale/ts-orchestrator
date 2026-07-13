@@ -1,0 +1,1 @@
+{"name":"accidental N-minus-one policy","target":"pin","operation":"set","path":["nMinusOnePolicy"],"value":"2.14-to-2.12","expected":"N/N-1 policy and candidate pair must remain unset"}
