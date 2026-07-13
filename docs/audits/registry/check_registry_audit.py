@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import re
 import sys
@@ -54,24 +55,42 @@ def parse_registry_text(text: str) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     for line_no, block_lines in blocks:
         block = "\n".join(block_lines).replace("{", "").replace("}", "")
-        id_match = re.search(r"(?:^|[,\n])\s*id:\s*([^,\s]+)", block)
-        owner_match = re.search(r"(?:^|[,\n])\s*owner:\s*([^,\n]+)", block)
-        inline_layers = re.search(r"acceptanceLayers:\s*\[([^]]*)\]", block, re.DOTALL)
-        block_layers = re.search(r"acceptanceLayers:\s*\n((?:\s+-\s*[^\n]+\n?)*)", block)
+        id_match = re.search(r"(?:^|[,\n])[ \t]*id:[ \t]*([^,\s]+)", block)
+        owner_match = re.search(r"(?:^|[,\n])[ \t]*owner:[ \t]*([^,\n]+)", block)
+        def scalar(name: str) -> str | None:
+            match = re.search(rf"(?:^|\n)\s*{name}:\s*(.+?)\s*$", block, re.MULTILINE)
+            if not match:
+                return None
+            value = match.group(1).strip()
+            if value.startswith('"'):
+                return str(json.loads(value))
+            return value
+
+        def list_value(name: str) -> list[str]:
+            inline = re.search(rf"{name}:\s*\[([^]]*)\]", block, re.DOTALL)
+            normal = re.search(rf"{name}:\s*\n((?:\s+-\s*[^\n]+\n?)*)", block)
+            if inline:
+                return [part.strip() for part in inline.group(1).split(",") if part.strip()]
+            if normal:
+                values = [re.sub(r"^\s+-\s*", "", line).strip() for line in normal.group(1).splitlines()]
+                return [str(json.loads(value)) if value.startswith('"') else value for value in values]
+            return []
         if not id_match:
             raise ValueError(f"registry entry at line {line_no} is missing id")
         item_id = id_match.group(1).strip()
         if not owner_match:
             raise ValueError(f"registry entry {item_id} at line {line_no} is missing owner")
-        if inline_layers:
-            layers = [part.strip() for part in inline_layers.group(1).split(",") if part.strip()]
-        elif block_layers:
-            layers = [re.sub(r"^\s+-\s*", "", line).strip() for line in block_layers.group(1).splitlines()]
-        else:
-            raise ValueError(f"registry entry {item_id} at line {line_no} is missing acceptanceLayers")
+        layers = list_value("acceptanceLayers")
         if not layers:
-            raise ValueError(f"registry entry {item_id} at line {line_no} has empty acceptanceLayers")
-        entries.append({"id": item_id, "owner": owner_match.group(1).strip(), "layers": layers, "line": line_no})
+            raise ValueError(f"registry entry {item_id} at line {line_no} is missing acceptanceLayers")
+        entries.append({
+            "id": item_id, "owner": owner_match.group(1).strip(), "layers": layers, "line": line_no,
+            "kind": scalar("kind"), "contractStatus": scalar("contractStatus"),
+            "normativeStatement": scalar("normativeStatement"), "normativeSource": scalar("normativeSource"),
+            "normativeStartLine": scalar("normativeStartLine"), "normativeEndLine": scalar("normativeEndLine"),
+            "normativeContains": scalar("normativeContains"), "normativeSha256": scalar("normativeSha256"),
+            "evidenceState": scalar("evidenceState"), "evidenceTargets": list_value("evidenceTargets"),
+        })
     return entries
 
 
@@ -80,13 +99,24 @@ def parse_registry(path: Path) -> list[dict[str, object]]:
 
 
 def render_block_registry(entries: list[dict[str, object]]) -> str:
-    lines = ["schemaVersion: 1", "entries:"]
+    lines = ["schemaVersion: 2", "entries:"]
     for entry in entries:
         lines.extend([
             f"  - id: {entry['id']}",
+            f"    kind: {entry['kind']}",
+            f"    contractStatus: {entry['contractStatus']}",
             f"    owner: {entry['owner']}",
+            f"    normativeStatement: {json.dumps(entry['normativeStatement'])}",
+            f"    normativeSource: {entry['normativeSource']}",
+            f"    normativeStartLine: {entry['normativeStartLine']}",
+            f"    normativeEndLine: {entry['normativeEndLine']}",
+            f"    normativeContains: {json.dumps(entry['normativeContains'])}",
+            f"    normativeSha256: {entry['normativeSha256']}",
             "    acceptanceLayers:",
             *[f"      - {layer}" for layer in entry["layers"]],
+            f"    evidenceState: {entry['evidenceState']}",
+            "    evidenceTargets:",
+            *[f"      - {json.dumps(target)}" for target in entry["evidenceTargets"]],
         ])
     return "\n".join(lines) + "\n"
 
@@ -133,15 +163,29 @@ def validate(
         finding_id = str(finding.get("id", "<missing>"))
         status = finding.get("status")
         item_id = finding.get("registryId") or finding.get("proposedId")
+        citation = finding.get("citation", {})
+        start, end, text = citation.get("start"), citation.get("end"), citation.get("contains")
         if not isinstance(item_id, str) or not ID_RE.fullmatch(item_id):
             errors.append(f"{finding_id} has invalid or missing registry/proposed ID")
         if status == "missing":
             proposed.append(str(finding.get("proposedId", "")))
             if item_id in registry_ids:
                 errors.append(f"{finding_id} calls registered ID {item_id} missing")
-        elif status == "id-only":
+        elif status in {"id-only", "semantic"}:
             if item_id not in registry_ids:
                 errors.append(f"{finding_id} references absent registry ID {item_id}")
+            elif status == "semantic":
+                entry = next(entry for entry in registry if entry["id"] == item_id)
+                expected_kind = {"REQ": "requirement", "INV": "invariant", "ERR": "error", "SEC": "security", "SM": "state-machine"}[item_id.split("-", 1)[0]]
+                if entry["kind"] != expected_kind or entry["contractStatus"] != "proposed":
+                    errors.append(f"{finding_id} semantic kind/status mismatch")
+                if entry["normativeSource"] != "ORCHESTRATOR.md" or entry["normativeStartLine"] != str(start) or entry["normativeEndLine"] != str(end):
+                    errors.append(f"{finding_id} semantic source anchor mismatch")
+                exact = "\n".join(source_lines[start - 1:end]) if isinstance(start, int) and isinstance(end, int) and 1 <= start <= end <= len(source_lines) else ""
+                if entry["normativeContains"] != text or entry["normativeSha256"] != hashlib.sha256(exact.encode()).hexdigest():
+                    errors.append(f"{finding_id} semantic source digest mismatch")
+                if not entry["normativeStatement"] or entry["evidenceState"] != "missing" or len(entry["evidenceTargets"]) != len(entry["layers"]):
+                    errors.append(f"{finding_id} semantic statement/evidence targets incomplete")
         else:
             errors.append(f"{finding_id} has unsupported status {status}")
         if finding.get("owner") not in CANONICAL_OWNERS:
@@ -149,8 +193,6 @@ def validate(
         layers = finding.get("acceptanceLayers", [])
         if not layers or any(layer not in CANONICAL_LAYERS for layer in layers):
             errors.append(f"{finding_id} has missing/invalid acceptance layers")
-        citation = finding.get("citation", {})
-        start, end, text = citation.get("start"), citation.get("end"), citation.get("contains")
         if not isinstance(start, int) or not isinstance(end, int) or start < 1 or end < start or end > len(source_lines):
             errors.append(f"{finding_id} has invalid source line range")
         elif not isinstance(text, str) or not text or text not in "\n".join(source_lines[start - 1:end]):
@@ -160,7 +202,7 @@ def validate(
     covered = [
         str(f.get("registryId"))
         for f in findings
-        if isinstance(f, dict) and f.get("status") == "id-only"
+        if isinstance(f, dict) and f.get("status") in {"id-only", "semantic"}
     ]
     for item_id in registry_ids:
         if covered.count(item_id) == 0:
@@ -171,6 +213,7 @@ def validate(
     expected_counts = {
         "registryEntries": len(registry),
         "idOnly": sum(1 for f in findings if isinstance(f, dict) and f.get("status") == "id-only"),
+        "semantic": sum(1 for f in findings if isinstance(f, dict) and f.get("status") == "semantic"),
         "missing": sum(1 for f in findings if isinstance(f, dict) and f.get("status") == "missing"),
         "registryOwnerAliases": sum(1 for entry in registry if entry["owner"] not in CANONICAL_OWNERS),
         "unmappedRegistryOwners": sum(1 for entry in registry if entry["owner"] not in CANONICAL_OWNERS and entry["owner"] not in owner_mapping),
@@ -207,11 +250,23 @@ def mutate_registry(text: str, fixture: dict[str, object]) -> str:
     if mutation["op"] == "remove-block-owner":
         block = render_block_registry(parse_registry_text(text))
         item_id = re.escape(str(mutation["id"]))
-        return re.sub(rf"(\s+- id: {item_id}\n)\s+owner:[^\n]+\n", r"\1", block, count=1)
+        return re.sub(
+            rf"(^  - id: {item_id}\n(?:(?!^  - id:).)*?)^    owner:[^\n]+\n",
+            r"\1", block, count=1, flags=re.MULTILINE | re.DOTALL,
+        )
     if mutation["op"] == "misindent-block-entry":
         block = render_block_registry(parse_registry_text(text))
         item_id = re.escape(str(mutation["id"]))
         return re.sub(rf"^  (- id: {item_id})$", r"    \1", block, count=1, flags=re.MULTILINE)
+    if mutation["op"] == "set-block-field":
+        block = render_block_registry(parse_registry_text(text))
+        item_id = re.escape(str(mutation["id"]))
+        field = re.escape(str(mutation["field"]))
+        value = str(mutation["value"])
+        return re.sub(
+            rf"(^  - id: {item_id}\n(?:(?!^  - id:).)*?^    {field}:)[^\n]*$",
+            rf"\1 {value}", block, count=1, flags=re.MULTILINE | re.DOTALL,
+        )
     raise ValueError(f"unsupported registry mutation {mutation['op']}")
 
 

@@ -42,6 +42,18 @@
       "target": "registry",
       "mutation": {"op": "misindent-block-entry", "id": "REQ-O001"},
       "expected": "skipped/misindented '- id:' entry at line 3"
+    },
+    {
+      "name": "semantic-source-digest-drift",
+      "target": "registry",
+      "mutation": {"op": "set-block-field", "id": "REQ-O001", "field": "normativeSha256", "value": "0000000000000000000000000000000000000000000000000000000000000000"},
+      "expected": "semantic source digest mismatch"
+    },
+    {
+      "name": "semantic-evidence-state-default",
+      "target": "registry",
+      "mutation": {"op": "set-block-field", "id": "REQ-O001", "field": "evidenceState", "value": "verified"},
+      "expected": "semantic statement/evidence targets incomplete"
     }
   ]
 }

@@ -1,5 +1,7 @@
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace TerraScale.Orchestrator.ContractTests;
@@ -34,6 +36,12 @@ public sealed class RepositoryBoundaryTests
             .Build();
         var registry = deserializer.Deserialize<RequirementRegistry>(yaml);
         var entries = registry.Entries ?? [];
+        var sourceLines = await File.ReadAllLinesAsync(Path.Combine(root, "ORCHESTRATOR.md"));
+        var canonicalOwners = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Integration/contract steward", "Core", "Messaging/security", "Runtime", "Cloud",
+            "Storage", "TerraBase", "Delivery", "Operations", "Cross-repository cleanup", "Verification"
+        };
 
         await Assert.That(entries).IsNotEmpty();
         await Assert.That(entries.Select(static entry => entry.Id).Distinct(StringComparer.Ordinal).Count())
@@ -42,8 +50,26 @@ public sealed class RepositoryBoundaryTests
         foreach (var entry in entries)
         {
             await Assert.That(entry.Id).Matches("^(REQ|INV|ERR|SM|SEC)-[A-Z0-9]+(?:-[A-Z0-9]+)*$");
-            await Assert.That(entry.Owner).IsNotNullOrWhiteSpace();
+            await Assert.That(entry.ContractStatus).IsEqualTo("proposed");
+            await Assert.That(canonicalOwners).Contains(entry.Owner);
+            await Assert.That(entry.Kind).IsEqualTo(entry.Id.Split('-', 2)[0] switch
+            {
+                "REQ" => "requirement", "INV" => "invariant", "ERR" => "error",
+                "SM" => "state-machine", "SEC" => "security", _ => "invalid"
+            });
+            await Assert.That(entry.NormativeStatement).IsNotNullOrWhiteSpace();
+            await Assert.That(entry.NormativeSource).IsEqualTo("ORCHESTRATOR.md");
+            await Assert.That(entry.NormativeStartLine).IsGreaterThanOrEqualTo(1);
+            await Assert.That(entry.NormativeEndLine).IsGreaterThanOrEqualTo(entry.NormativeStartLine);
+            await Assert.That(entry.NormativeEndLine).IsLessThanOrEqualTo(sourceLines.Length);
+            var exactSource = string.Join('\n', sourceLines[(entry.NormativeStartLine - 1)..entry.NormativeEndLine]);
+            await Assert.That(exactSource).Contains(entry.NormativeContains);
+            var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(exactSource)));
+            await Assert.That(entry.NormativeSha256).IsEqualTo(digest);
             await Assert.That(entry.AcceptanceLayers).IsNotEmpty();
+            await Assert.That(entry.EvidenceState).IsEqualTo("missing");
+            await Assert.That(entry.EvidenceTargets.Count).IsEqualTo(entry.AcceptanceLayers.Count);
+            await Assert.That(entry.EvidenceTargets.All(static target => !string.IsNullOrWhiteSpace(target))).IsTrue();
         }
     }
 
@@ -140,9 +166,29 @@ public sealed class RepositoryBoundaryTests
     {
         public required string Id { get; init; }
 
+        public required string Kind { get; init; }
+
+        public required string ContractStatus { get; init; }
+
         public required string Owner { get; init; }
 
+        public required string NormativeStatement { get; init; }
+
+        public required string NormativeSource { get; init; }
+
+        public required int NormativeStartLine { get; init; }
+
+        public required int NormativeEndLine { get; init; }
+
+        public required string NormativeContains { get; init; }
+
+        public required string NormativeSha256 { get; init; }
+
         public required List<string> AcceptanceLayers { get; init; }
+
+        public required string EvidenceState { get; init; }
+
+        public required List<string> EvidenceTargets { get; init; }
     }
 
     private sealed class WorkaroundLedger
