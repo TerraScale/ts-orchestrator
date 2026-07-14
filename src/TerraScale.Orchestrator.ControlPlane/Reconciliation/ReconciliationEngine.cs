@@ -126,7 +126,8 @@ public static class ReconciliationEngine
                     observation.ObservationId,
                     observation.FreshnessSequence,
                     observation.Condition),
-                new ReadOnlyCollection<DependencyProof>(proofs)),
+                new ReadOnlyCollection<DependencyProof>(proofs),
+                policy),
             ReconciliationReasonCode.DriftEligible, null);
     }
 

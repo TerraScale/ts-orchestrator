@@ -272,15 +272,18 @@ public sealed record ReconcileResourceIntent : ReconciliationOutput
         long generation,
         string digest,
         ReconciliationObservationProof observationProof,
-        IReadOnlyList<DependencyProof> dependencyProofs)
+        IReadOnlyList<DependencyProof> dependencyProofs,
+        ReconciliationPolicy acceptedPolicy)
         : base(identity, kind, generation, digest)
     {
         ObservationProof = observationProof;
         DependencyProofs = dependencyProofs;
+        AcceptedPolicy = acceptedPolicy;
     }
 
     public ReconciliationObservationProof ObservationProof { get; }
     public IReadOnlyList<DependencyProof> DependencyProofs { get; }
+    public ReconciliationPolicy AcceptedPolicy { get; }
 }
 
 public sealed record HoldResource : ReconciliationOutput
