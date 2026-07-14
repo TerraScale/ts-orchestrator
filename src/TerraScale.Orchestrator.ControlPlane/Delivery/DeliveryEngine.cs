@@ -34,7 +34,8 @@ public static class DeliveryEngine
             request.Evidence.DesiredDigest != request.Proposed.DesiredDigest || request.Evidence.Signature != request.Proposed.Signature ||
             !EquivalentDependencies(request.Evidence.Dependencies, request.Proposed.Dependencies))
             return Held(DeliveryErrorCode.EvidenceInvalidated);
-        if (request.Evidence.State < SourceState.Verified || !request.Evidence.SchemaValid || !request.Evidence.DependenciesValid)
+        if (request.Evidence.State < SourceState.Verified || !request.Evidence.SignatureValid ||
+            !request.Evidence.SchemaValid || !request.Evidence.DependenciesValid)
         {
             var verify = new VerifySourceIntent(request.Proposed.Source, request.Proposed.Commit, request.Proposed.Tree,
                 request.Proposed.Manifest, request.Proposed.DesiredDigest, request.Proposed.Signature);
@@ -43,6 +44,7 @@ public static class DeliveryEngine
         var plan = new PlanApplyIntent(request.Proposed.Source, request.Proposed.Commit, request.Proposed.Tree,
             request.Proposed.Manifest, request.Proposed.Generation, request.Proposed.DesiredDigest,
             request.Proposed.Signature, request.Evidence.SchemaAttestation, request.Evidence.DependencyAttestation,
+            request.Evidence.SignatureAttestation,
             new ReadOnlyCollection<DependencyProof>(request.Proposed.Dependencies.OrderBy(static value => value.Manifest.Value, Ordinal).ToArray()));
         return One(plan, DeliveryTraceCode.PlanReady);
     }
@@ -190,7 +192,7 @@ public static class DeliveryEngine
         Valid(evidence.Reference?.Value, max) && evidence.Generation > 0 && Valid(evidence.Commit?.Value, max) &&
         Valid(evidence.Tree?.Value, max) && Valid(evidence.Manifest?.Value, max) && Valid(evidence.DesiredDigest?.Value, max) &&
         Valid(evidence.Signature?.Value, max) && Valid(evidence.SchemaAttestation?.Value, max) &&
-        Valid(evidence.DependencyAttestation?.Value, max) &&
+        Valid(evidence.DependencyAttestation?.Value, max) && Valid(evidence.SignatureAttestation?.Value, max) &&
         evidence.Dependencies.Select(static value => value.Manifest).Distinct().Count() == evidence.Dependencies.Count &&
         evidence.Dependencies.All(value => value.Generation > 0 && Valid(value.Manifest?.Value, max) && Valid(value.Digest?.Value, max));
     private static bool ValidJob(JobRequest job, int max) => max > 0 && Valid(job.Pipeline?.Value, max) && Valid(job.Job?.Value, max) &&

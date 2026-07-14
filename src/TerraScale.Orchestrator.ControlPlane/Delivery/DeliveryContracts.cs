@@ -148,16 +148,16 @@ public sealed class SourceEvidence
     public SourceEvidence(ObservationId observation, SourceState state, SourceId source, RefId reference,
         long generation, CommitId commit, TreeId tree,
         ManifestId manifest, DigestId desiredDigest, SignatureId signature, AttestationId schemaAttestation,
-        AttestationId dependencyAttestation, IEnumerable<DependencyProof> dependencies,
-        bool schemaValid, bool dependenciesValid)
+        AttestationId dependencyAttestation, AttestationId signatureAttestation, IEnumerable<DependencyProof> dependencies,
+        bool signatureValid, bool schemaValid, bool dependenciesValid)
     {
         Observation = observation; State = state; Source = source; Reference = reference; Generation = generation;
         Commit = commit; Tree = tree; Manifest = manifest;
         DesiredDigest = desiredDigest; Signature = signature; SchemaAttestation = schemaAttestation;
-        DependencyAttestation = dependencyAttestation;
+        DependencyAttestation = dependencyAttestation; SignatureAttestation = signatureAttestation;
         Dependencies = DeliveryInputSnapshot.Copy(dependencies, DeliveryTechnicalInputLimits.MaximumDependencyCount,
             nameof(dependencies), "Source evidence dependency input");
-        SchemaValid = schemaValid; DependenciesValid = dependenciesValid;
+        SignatureValid = signatureValid; SchemaValid = schemaValid; DependenciesValid = dependenciesValid;
     }
     public ObservationId Observation { get; }
     public SourceState State { get; }
@@ -171,7 +171,9 @@ public sealed class SourceEvidence
     public SignatureId Signature { get; }
     public AttestationId SchemaAttestation { get; }
     public AttestationId DependencyAttestation { get; }
+    public AttestationId SignatureAttestation { get; }
     public IReadOnlyList<DependencyProof> Dependencies { get; }
+    public bool SignatureValid { get; }
     public bool SchemaValid { get; }
     public bool DependenciesValid { get; }
 }
@@ -374,8 +376,8 @@ public sealed class PlanApplyIntent : DeliveryIntent
 {
     internal PlanApplyIntent(SourceId source, CommitId commit, TreeId tree, ManifestId manifest, long generation,
         DigestId digest, SignatureId signature, AttestationId schemaAttestation, AttestationId dependencyAttestation,
-        IReadOnlyList<DependencyProof> dependencies) : base(DeliveryAction.Plan)
-    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Generation = generation; Digest = digest; Signature = signature; SchemaAttestation = schemaAttestation; DependencyAttestation = dependencyAttestation; Dependencies = dependencies; }
+        AttestationId signatureAttestation, IReadOnlyList<DependencyProof> dependencies) : base(DeliveryAction.Plan)
+    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Generation = generation; Digest = digest; Signature = signature; SchemaAttestation = schemaAttestation; DependencyAttestation = dependencyAttestation; SignatureAttestation = signatureAttestation; Dependencies = dependencies; }
     public SourceId Source { get; }
     public CommitId Commit { get; }
     public TreeId Tree { get; }
@@ -385,6 +387,7 @@ public sealed class PlanApplyIntent : DeliveryIntent
     public SignatureId Signature { get; }
     public AttestationId SchemaAttestation { get; }
     public AttestationId DependencyAttestation { get; }
+    public AttestationId SignatureAttestation { get; }
     public IReadOnlyList<DependencyProof> Dependencies { get; }
 }
 public sealed class DispatchJobIntent : DeliveryIntent
