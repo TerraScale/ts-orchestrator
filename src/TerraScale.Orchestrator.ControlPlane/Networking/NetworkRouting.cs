@@ -11,7 +11,7 @@ public sealed record NetworkRouteObservation(NetworkRouteId Route,NetworkCellId 
     NetworkPeerId? LearnedFromPeer,NetworkTrustPlane TrustPlane,NetworkPrefix Destination);
 public sealed record NetworkPeerLink(NetworkCellId From,NetworkCellId To);
 
-public sealed class NetworkRouteEvidence
+public sealed class NetworkRouteEvidence:IEquatable<NetworkRouteEvidence>
 {
     private readonly NetworkRouteObservation[] _routes;private readonly NetworkPrefix[] _approved;private readonly NetworkPeerLink[] _links;private readonly NetworkCellId[] _cells;
     public NetworkRouteEvidence(NetworkRouteScope scope,IEnumerable<NetworkRouteObservation?>? routes,IEnumerable<NetworkPrefix?>? approved,
@@ -40,6 +40,32 @@ public sealed class NetworkRouteEvidence
     public IReadOnlyList<NetworkRouteObservation> Routes=>Array.AsReadOnly(_routes);public IReadOnlyList<NetworkPrefix> ApprovedPrefixes=>Array.AsReadOnly(_approved);
     public IReadOnlyList<NetworkPeerLink> Links=>Array.AsReadOnly(_links);
     public IReadOnlyList<NetworkCellId> Cells=>Array.AsReadOnly(_cells);
+
+    public bool Equals(NetworkRouteEvidence? other)=>other is not null&&Scope==other.Scope&&Shape==other.Shape
+        &&NoOverlappingMutation==other.NoOverlappingMutation&&LocalPolicy==other.LocalPolicy&&TunnelConfigured==other.TunnelConfigured
+        &&TrafficProven==other.TrafficProven&&TunnelHealthy==other.TunnelHealthy&&RouteConfigured==other.RouteConfigured
+        &&Partitioned==other.Partitioned&&IsValid==other.IsValid
+        &&Canonical(_routes,RouteKey).SequenceEqual(Canonical(other._routes,RouteKey),StringComparer.Ordinal)
+        &&Canonical(_approved,PrefixKey).SequenceEqual(Canonical(other._approved,PrefixKey),StringComparer.Ordinal)
+        &&Canonical(_links,LinkKey).SequenceEqual(Canonical(other._links,LinkKey),StringComparer.Ordinal)
+        &&Canonical(_cells,static value=>IdentityKey(value)).SequenceEqual(Canonical(other._cells,static value=>IdentityKey(value)),StringComparer.Ordinal);
+    public override bool Equals(object? value)=>Equals(value as NetworkRouteEvidence);
+    public override int GetHashCode()
+    {
+        var hash=new HashCode();hash.Add(Scope);hash.Add(Shape);hash.Add(NoOverlappingMutation);hash.Add(LocalPolicy);hash.Add(TunnelConfigured);
+        hash.Add(TrafficProven);hash.Add(TunnelHealthy);hash.Add(RouteConfigured);hash.Add(Partitioned);hash.Add(IsValid);
+        Add(ref hash,"routes",Canonical(_routes,RouteKey));Add(ref hash,"prefixes",Canonical(_approved,PrefixKey));
+        Add(ref hash,"links",Canonical(_links,LinkKey));Add(ref hash,"cells",Canonical(_cells,static value=>IdentityKey(value)));
+        return hash.ToHashCode();
+    }
+    private static string[] Canonical<T>(IEnumerable<T> values,Func<T,string> key)=>values.Select(key).Order(StringComparer.Ordinal).ToArray();
+    private static void Add(ref HashCode hash,string type,IReadOnlyList<string> values)
+    {hash.Add(type,StringComparer.Ordinal);hash.Add(values.Count);foreach(var value in values)hash.Add(value,StringComparer.Ordinal);}
+    private static string Frame(string value)=>$"{value.Length}:{value}";
+    private static string IdentityKey(NetworkIdentity value)=>$"identity:{Frame(value.GetType().FullName!)}:{Frame(value.Value)}";
+    private static string PrefixKey(NetworkPrefix value)=>$"prefix:{value.Address.BitLength}:{Convert.ToHexString(value.Address.Bytes)}:{value.Bits}";
+    private static string RouteKey(NetworkRouteObservation value)=>$"route:{IdentityKey(value.Route)}:{IdentityKey(value.Owner)}:{IdentityKey(value.NextPeer)}:{(value.LearnedFromPeer is null?"null":IdentityKey(value.LearnedFromPeer))}:{(int)value.TrustPlane}:{PrefixKey(value.Destination)}";
+    private static string LinkKey(NetworkPeerLink value)=>$"link:{IdentityKey(value.From)}:{IdentityKey(value.To)}";
 }
 
 public static class NetworkRoutePlanner
@@ -69,8 +95,7 @@ public static class NetworkRoutePlanner
             if(e.Partitioned&&e.LocalPolicy!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.LocalPolicyRequired,trace);
             return NetworkDecision.Hold(e.Partitioned?NetworkCode.PartitionAuthorityDenied:NetworkCode.WrongEvidenceScope,trace);
         }
-        var subject=new NetworkRouteIntentSubject(expected.Cell,expected.PeerCell,expected.Network,expected.Subnet,expected.Route,expected.Peer,expected.Tunnel,
-            expected.TrustPlane,expected.RouteKind,expected.Destination,expected.Generation,expected.Epoch,expected.Operation);
+        var subject=new NetworkRouteIntentSubject(expected,observedGeneration,observedEpoch,e);
         if(e.Partitioned)
         {
             if(e.LocalPolicy!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.LocalPolicyRequired,trace);

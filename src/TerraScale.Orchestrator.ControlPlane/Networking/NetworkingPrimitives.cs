@@ -66,6 +66,7 @@ public enum NetworkHealth{Unknown=0,Healthy,Unhealthy,Stale}
 public enum NetworkServiceKind{Unknown=0,Product,Monitoring,Administration}
 public enum NetworkTopologyShape{Unknown=0,InitialThreeFullMesh,HubAndSpoke,ExplicitReplication}
 public enum NetworkProof{Unknown=0,Proven,Contradicted}
+public enum NetworkEndpointPlanKind{Unknown=0,Register,Removal,EmergencyWithdrawal}
 public enum NetworkAction{Uninitialized=0,Observe,ConfigureRoute,ConfigureTunnel,Register,Deregister,Promote,DnsUpdate,Rollback,Hold,Verify}
 public enum NetworkTarget{None=0,Route,Tunnel,Backend,LoadBalancer,Dns,Ingress,LocalService}
 public enum NetworkCode{Uninitialized=0,NextStep,Completed,InvalidInput,WrongEvidenceScope,StaleGeneration,FutureGeneration,Overlap,AmbiguousOwnership,Duplicate,RouteLeak,TrustPlaneCrossover,Reflection,QuadraticMesh,PartitionAuthorityDenied,LocalPolicyRequired,TunnelHealthRequired,DefaultDeny,PublicApprovalRequired,ForbiddenExposure,CertificateMismatch,ReadinessRequired,BackendHealthRequired,DnsConvergencePending,DeregisterBeforeDrain,EmergencyWithdrawal}
@@ -76,20 +77,21 @@ public sealed record NetworkNumericTrace(NetworkOrdinal Generation,NetworkOrdina
 public abstract record NetworkIntentSubject{private protected NetworkIntentSubject(){}public override string ToString()=>"<network-intent-subject>";}
 public sealed record NetworkRouteIntentSubject:NetworkIntentSubject
 {
-    internal NetworkRouteIntentSubject(NetworkCellId cell,NetworkCellId peerCell,NetworkId network,NetworkSubnetId subnet,NetworkRouteId route,
-        NetworkPeerId peer,NetworkTunnelId tunnel,NetworkTrustPlane trustPlane,NetworkRouteKind routeKind,NetworkPrefix destination,
-        NetworkOrdinal generation,NetworkOrdinal epoch,NetworkOperationId operation)
-    {Cell=cell;PeerCell=peerCell;Network=network;Subnet=subnet;Route=route;Peer=peer;Tunnel=tunnel;TrustPlane=trustPlane;RouteKind=routeKind;Destination=destination;Generation=generation;Epoch=epoch;Operation=operation;}
-    public NetworkCellId Cell{get;}public NetworkCellId PeerCell{get;}public NetworkId Network{get;}public NetworkSubnetId Subnet{get;}public NetworkRouteId Route{get;}public NetworkPeerId Peer{get;}public NetworkTunnelId Tunnel{get;}public NetworkTrustPlane TrustPlane{get;}public NetworkRouteKind RouteKind{get;}public NetworkPrefix Destination{get;}public NetworkOrdinal Generation{get;}public NetworkOrdinal Epoch{get;}public NetworkOperationId Operation{get;}
+    internal NetworkRouteIntentSubject(NetworkRouteScope scope,NetworkOrdinal observedGeneration,NetworkOrdinal observedEpoch,NetworkRouteEvidence evidence)
+    {Scope=scope;ObservedGeneration=observedGeneration;ObservedEpoch=observedEpoch;Evidence=evidence;}
+    public NetworkRouteScope Scope{get;}public NetworkOrdinal ObservedGeneration{get;}public NetworkOrdinal ObservedEpoch{get;}public NetworkRouteEvidence Evidence{get;}
+    public NetworkCellId Cell=>Scope.Cell;public NetworkCellId PeerCell=>Scope.PeerCell;public NetworkId Network=>Scope.Network;public NetworkSubnetId Subnet=>Scope.Subnet;public NetworkRouteId Route=>Scope.Route;public NetworkPeerId Peer=>Scope.Peer;public NetworkTunnelId Tunnel=>Scope.Tunnel;public NetworkTrustPlane TrustPlane=>Scope.TrustPlane;public NetworkRouteKind RouteKind=>Scope.RouteKind;public NetworkPrefix Destination=>Scope.Destination;public NetworkOrdinal Generation=>Scope.Generation;public NetworkOrdinal Epoch=>Scope.Epoch;public NetworkOperationId Operation=>Scope.Operation;
     public override string ToString()=>"<network-route-intent>";
 }
 public sealed record NetworkEndpointIntentSubject:NetworkIntentSubject
 {
-    internal NetworkEndpointIntentSubject(NetworkCellId cell,NetworkWorkloadId workload,NetworkServiceId service,NetworkEndpointId endpoint,NetworkNodeId node,
-        NetworkLoadBalancerId loadBalancer,NetworkBackendId backend,NetworkDnsId dns,NetworkCertificateRef certificate,NetworkServiceKind serviceKind,
-        NetworkExposure exposure,NetworkProtocol protocol,NetworkPort port,NetworkOrdinal serviceGeneration,NetworkOrdinal epoch,NetworkOperationId operation)
-    {Cell=cell;Workload=workload;Service=service;Endpoint=endpoint;Node=node;LoadBalancer=loadBalancer;Backend=backend;Dns=dns;Certificate=certificate;ServiceKind=serviceKind;Exposure=exposure;Protocol=protocol;Port=port;ServiceGeneration=serviceGeneration;Epoch=epoch;Operation=operation;}
-    public NetworkCellId Cell{get;}public NetworkWorkloadId Workload{get;}public NetworkServiceId Service{get;}public NetworkEndpointId Endpoint{get;}public NetworkNodeId Node{get;}public NetworkLoadBalancerId LoadBalancer{get;}public NetworkBackendId Backend{get;}public NetworkDnsId Dns{get;}public NetworkCertificateRef Certificate{get;}public NetworkServiceKind ServiceKind{get;}public NetworkExposure Exposure{get;}public NetworkProtocol Protocol{get;}public NetworkPort Port{get;}public NetworkOrdinal ServiceGeneration{get;}public NetworkOrdinal Epoch{get;}public NetworkOperationId Operation{get;}
+    internal NetworkEndpointIntentSubject(NetworkEndpointPlanKind planKind,NetworkEndpointScope scope,NetworkEndpointEvidence evidence)
+    {
+        if(!Enum.IsDefined(planKind)||planKind==NetworkEndpointPlanKind.Unknown)throw new ArgumentOutOfRangeException(nameof(planKind));
+        PlanKind=planKind;Scope=scope;Evidence=evidence;
+    }
+    public NetworkEndpointPlanKind PlanKind{get;}public NetworkEndpointScope Scope{get;}public NetworkEndpointEvidence Evidence{get;}
+    public NetworkCellId Cell=>Scope.Cell;public NetworkWorkloadId Workload=>Scope.Workload;public NetworkServiceId Service=>Scope.Service;public NetworkEndpointId Endpoint=>Scope.Endpoint;public NetworkNodeId Node=>Scope.Node;public NetworkLoadBalancerId LoadBalancer=>Scope.LoadBalancer;public NetworkBackendId Backend=>Scope.Backend;public NetworkDnsId Dns=>Scope.Dns;public NetworkCertificateRef Certificate=>Scope.Certificate;public NetworkServiceKind ServiceKind=>Scope.ServiceKind;public NetworkExposure Exposure=>Scope.Exposure;public NetworkProtocol Protocol=>Scope.Protocol;public NetworkPort Port=>Scope.Port;public NetworkOrdinal ServiceGeneration=>Scope.ServiceGeneration;public NetworkOrdinal Epoch=>Scope.Epoch;public NetworkOperationId Operation=>Scope.Operation;
     public override string ToString()=>"<network-endpoint-intent>";
 }
 public readonly record struct NetworkDecision

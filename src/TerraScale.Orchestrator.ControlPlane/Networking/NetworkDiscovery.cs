@@ -34,7 +34,7 @@ public static class NetworkEndpointPlanner
         if(e.CertificateMatches!=NetworkProof.Proven||e.TrustProven!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.CertificateMismatch,trace);
         if(scope.Exposure==NetworkExposure.Public&&(e.PublicApproved!=NetworkProof.Proven||e.ProductionGates!=NetworkProof.Proven||e.WithdrawalTested!=NetworkProof.Proven))
             return NetworkDecision.Hold(NetworkCode.PublicApprovalRequired,trace);
-        var subject=Subject(scope);
+        var subject=Subject(NetworkEndpointPlanKind.Register,scope,e);
         if(e.BackendRegistered!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Register,NetworkTarget.Backend,NetworkCode.NextStep,subject,validTrace);
         if(e.BackendPromoted!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Promote,NetworkTarget.LoadBalancer,NetworkCode.NextStep,subject,validTrace);
         if(e.DnsRequestRecorded!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.DnsUpdate,NetworkTarget.Dns,NetworkCode.NextStep,subject,validTrace);
@@ -45,7 +45,7 @@ public static class NetworkEndpointPlanner
     public static NetworkDecision PlanRemoval(NetworkEndpointScope? expected,NetworkEndpointEvidence? e)
     {
         var trace=expected is null?null:Trace(expected);var code=Validate(expected,e);if(code!=NetworkCode.Completed)return NetworkDecision.Hold(code,trace);var scope=expected!;var validTrace=trace!;
-        var subject=Subject(scope);
+        var subject=Subject(NetworkEndpointPlanKind.Removal,scope,e!);
         if(e!.BackendHealth is NetworkHealth.Unknown or NetworkHealth.Stale)return NetworkDecision.Hold(NetworkCode.BackendHealthRequired,trace);
         if(e.DeregistrationRequested!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Deregister,NetworkTarget.Backend,NetworkCode.DeregisterBeforeDrain,subject,validTrace);
         if(e.Deregistered!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Observe,NetworkTarget.Backend,NetworkCode.DeregisterBeforeDrain,subject,validTrace);
@@ -56,7 +56,7 @@ public static class NetworkEndpointPlanner
     public static NetworkDecision PlanEmergencyWithdrawal(NetworkEndpointScope? expected,NetworkEndpointEvidence? e)
     {
         var trace=expected is null?null:Trace(expected);var code=Validate(expected,e);if(code!=NetworkCode.Completed)return NetworkDecision.Hold(code,trace);var scope=expected!;var validTrace=trace!;
-        var subject=Subject(scope);
+        var subject=Subject(NetworkEndpointPlanKind.EmergencyWithdrawal,scope,e!);
         if(e!.DnsWithdrawalRequested!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.DnsUpdate,NetworkTarget.Dns,NetworkCode.EmergencyWithdrawal,subject,validTrace);
         if(e.DnsWithdrawn!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Observe,NetworkTarget.Dns,NetworkCode.EmergencyWithdrawal,subject,validTrace);
         if(e.LoadBalancerWithdrawalRequested!=NetworkProof.Proven)return NetworkDecision.Emit(NetworkAction.Deregister,NetworkTarget.LoadBalancer,NetworkCode.EmergencyWithdrawal,subject,validTrace);
@@ -77,7 +77,6 @@ public static class NetworkEndpointPlanner
         if(e.ObservedGeneration.Value>expected.ServiceGeneration.Value||e.ObservedEpoch.Value>expected.Epoch.Value)return NetworkCode.FutureGeneration;
         return NetworkCode.Completed;
     }
-    private static NetworkEndpointIntentSubject Subject(NetworkEndpointScope x)=>new(x.Cell,x.Workload,x.Service,x.Endpoint,x.Node,x.LoadBalancer,x.Backend,x.Dns,
-        x.Certificate,x.ServiceKind,x.Exposure,x.Protocol,x.Port,x.ServiceGeneration,x.Epoch,x.Operation);
+    private static NetworkEndpointIntentSubject Subject(NetworkEndpointPlanKind kind,NetworkEndpointScope scope,NetworkEndpointEvidence evidence)=>new(kind,scope,evidence);
     private static NetworkNumericTrace Trace(NetworkEndpointScope x)=>new(x.ServiceGeneration,x.Epoch,0,0);
 }
