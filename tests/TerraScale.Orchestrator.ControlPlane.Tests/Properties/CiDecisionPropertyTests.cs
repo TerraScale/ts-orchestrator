@@ -164,7 +164,13 @@ public sealed class CiDecisionPropertyTests
             if (intent is null) throw new InvalidOperationException($"selection failed at {index}.");
             Require(intent.Runner.Value == oracle && intent.Job == job.Job && intent.Tree == job.Tree &&
                 intent.Generation == job.Generation && intent.Idempotency == job.Idempotency, "selection", index);
-            Require(((DispatchJobIntent)alternate.Intents.Single()).Runner.Value == oracle, "selection-permutation", index);
+            var alternateIntent = (DispatchJobIntent)alternate.Intents.Single();
+            Require(alternateIntent.Runner.Value == oracle &&
+                CiDispatchFingerprint.Create(alternateIntent) == CiDispatchFingerprint.Create(intent),
+                "selection-permutation", index);
+            Require(ReferenceEquals(intent.Request, job) &&
+                ReferenceEquals(intent.SelectedRunnerEvidence, candidates.Single(runner => runner.Runner.Value == oracle)),
+                "selection-provenance", index);
             selected.Add(intent.Runner.Value); digest = Mix(digest, intent.Runner.Value, intent.Generation);
         }
         return new(Cases, 1, selected.Count, rotations.Count, digest);
@@ -244,10 +250,7 @@ public sealed class CiDecisionPropertyTests
     }
 
     private static string Fingerprint(DispatchJobIntent intent)
-    {
-        var value = $"{intent.Pipeline.Value}|{intent.Job.Value}|{intent.Runner.Value}|{intent.Tree.Value}|{intent.Generation.ToString(CultureInfo.InvariantCulture)}|{intent.Attempt.ToString(CultureInfo.InvariantCulture)}|{intent.Idempotency.Value}";
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
-    }
+        => CiDispatchFingerprint.Create(intent);
     private static string EntryJson(CiCorpusEntry entry) => JsonSerializer.Serialize(new
         { id = entry.Id, seed = entry.Seed, scenario = entry.Scenario, expected = entry.Expected });
 
@@ -287,7 +290,7 @@ internal sealed record CiCorpusResult(CiCorpusCode Code, IReadOnlyList<CiCorpusE
 internal static class CiDecisionCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.CiDecisionReplayCorpus.v1.json";
-    private const string Digest = "780cc2d0e5ac5298eeec0dfa1b2d937dda844e2a47c5a4e75fa2be092ad7a967";
+    private const string Digest = "36f8b90e91d94e3ae0c03d2c45dd2372aa3ad5df2226aa377131b2f8abf22431";
     private const int MaximumBytes = 32_768;
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal) { "version", "entries" };
     private static readonly HashSet<string> EntryFields = new(StringComparer.Ordinal) { "id", "seed", "scenario", "expected" };
