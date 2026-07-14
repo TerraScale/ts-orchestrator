@@ -277,6 +277,9 @@ public sealed class RuntimeDecisionTests
         await Assert.That(lifecycle.Generation).IsSameReferenceAs(lifecycleRequest.Spec.Generation);
         await Assert.That(lifecycle.HealthTimeout).IsSameReferenceAs(lifecycleRequest.HealthTimeout);
         await Assert.That(lifecycle.RequiredHealth).IsEquivalentTo(lifecycleRequest.Spec.RequiredHealth);
+        var serving = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
+            phase: LifecyclePhase.Serving, process: ProcessStatus.Running, health: Health())).Intent;
+        await Assert.That(HealthIntentFingerprint(serving)).IsEqualTo(HealthIntentFingerprint(lifecycle));
 
         var updateRequest = Update(phase: UpdatePhase.ProcessRestarted);
         var updateDecision = RuntimeDecisionEngine.EvaluateSelfUpdate(updateRequest);
@@ -293,6 +296,9 @@ public sealed class RuntimeDecisionTests
             HealthDimension.LocalReadiness,
             HealthDimension.DependencyReadiness,
         });
+        var locallyReady = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.ProcessRestarted, health: Health(generation: 6))).Intent;
+        await Assert.That(HealthIntentFingerprint(locallyReady)).IsEqualTo(HealthIntentFingerprint(update));
     }
 
     [Test]
