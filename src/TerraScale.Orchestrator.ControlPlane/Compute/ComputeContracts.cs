@@ -341,7 +341,23 @@ public abstract class ComputeIntent { internal ComputeIntent(ComputeAction actio
 public sealed class ObserveCreateIntent : ComputeIntent { internal ObserveCreateIntent(ComputeBinding binding, ProviderCreateKey key) : base(ComputeAction.Observe) { Binding = binding; CreateKey = key; } public ComputeBinding Binding { get; } public ProviderCreateKey CreateKey { get; } }
 public sealed class PersistScalePlanIntent : ComputeIntent { internal PersistScalePlanIntent(ComputeBinding binding, ResourceEnvelope resources, int desiredNodes, ComputeProofId planIdentity) : base(ComputeAction.PersistPlan) { Binding = binding; Resources = resources; DesiredNodes = desiredNodes; PlanIdentity = planIdentity; } public ComputeBinding Binding { get; } public ResourceEnvelope Resources { get; } public int DesiredNodes { get; } public ComputeProofId PlanIdentity { get; } }
 public sealed class AuthorizeCapacityIntent : ComputeIntent { internal AuthorizeCapacityIntent(ComputeBinding binding, PersistedScaleOutPlan persistedPlan) : base(ComputeAction.Authorize) { Binding = binding; PersistedPlan = persistedPlan; } public ComputeBinding Binding { get; } public PersistedScaleOutPlan PersistedPlan { get; } }
-public sealed class RequestCreateIntent : ComputeIntent { internal RequestCreateIntent(ComputeBinding binding, ProviderCreateKey key) : base(ComputeAction.RequestCreate) { Binding = binding; CreateKey = key; } public ComputeBinding Binding { get; } public ProviderCreateKey CreateKey { get; } }
+public sealed class RequestCreateIntent : ComputeIntent
+{
+    internal RequestCreateIntent(ComputeBinding binding, ProviderCreateKey key, PersistedScaleOutPlan persistedPlan,
+        CapacityAuthorization authorization, ProviderCreateEvidence createEvidence) : base(ComputeAction.RequestCreate)
+    {
+        Binding = binding;
+        CreateKey = key;
+        PersistedPlan = persistedPlan;
+        Authorization = authorization;
+        CreateEvidence = createEvidence;
+    }
+    public ComputeBinding Binding { get; }
+    public ProviderCreateKey CreateKey { get; }
+    public PersistedScaleOutPlan PersistedPlan { get; }
+    public CapacityAuthorization Authorization { get; }
+    public ProviderCreateEvidence CreateEvidence { get; }
+}
 public sealed class EnrollNodeIntent : ComputeIntent { internal EnrollNodeIntent(ComputeBinding binding, ProviderResourceId resource, ComputeNodeId node, ComputeProofId identityProof) : base(ComputeAction.Enroll) { Binding = binding; Resource = resource; Node = node; IdentityProof = identityProof; } public ComputeBinding Binding { get; } public ProviderResourceId Resource { get; } public ComputeNodeId Node { get; } public ComputeProofId IdentityProof { get; } }
 public sealed class ReadyNodeIntent : ComputeIntent { internal ReadyNodeIntent(ComputeBinding binding, ProviderResourceId resource, ComputeNodeId node, ComputeProofId bootstrapProof, ComputeProofId diskProof, ComputeProofId placementProof) : base(ComputeAction.Ready) { Binding = binding; Resource = resource; Node = node; BootstrapProof = bootstrapProof; DiskProof = diskProof; PlacementProof = placementProof; } public ComputeBinding Binding { get; } public ProviderResourceId Resource { get; } public ComputeNodeId Node { get; } public ComputeProofId BootstrapProof { get; } public ComputeProofId DiskProof { get; } public ComputeProofId PlacementProof { get; } }
 public sealed class CordonNodeIntent : ComputeIntent { internal CordonNodeIntent(ScaleInBinding binding) : base(ComputeAction.Cordon) => Binding = binding; public ScaleInBinding Binding { get; } }
@@ -349,7 +365,21 @@ public sealed class DrainNodeIntent : ComputeIntent { internal DrainNodeIntent(S
 public sealed class DeregisterNodeIntent : ComputeIntent { internal DeregisterNodeIntent(ScaleInBinding binding, ComputeProofId statefulProof) : base(ComputeAction.Deregister) { Binding = binding; StatefulProof = statefulProof; } public ScaleInBinding Binding { get; } public ComputeProofId StatefulProof { get; } }
 public sealed class DetachVolumeIntent : ComputeIntent { internal DetachVolumeIntent(ScaleInBinding binding, VolumeDisposition disposition, StatefulOwnerId? owner) : base(ComputeAction.Detach) { Binding = binding; Disposition = disposition; StatefulOwner = owner; } public ScaleInBinding Binding { get; } public VolumeDisposition Disposition { get; } public StatefulOwnerId? StatefulOwner { get; } }
 public sealed class RevokeNodeIntent : ComputeIntent { internal RevokeNodeIntent(ScaleInBinding binding, ComputeProofId volumeProof) : base(ComputeAction.Revoke) { Binding = binding; VolumeProof = volumeProof; } public ScaleInBinding Binding { get; } public ComputeProofId VolumeProof { get; } }
-public sealed class TerminateNodeIntent : ComputeIntent { internal TerminateNodeIntent(ScaleInBinding binding, ComputeProofId revocationProof) : base(ComputeAction.Terminate) { Binding = binding; RevocationProof = revocationProof; } public ScaleInBinding Binding { get; } public ComputeProofId RevocationProof { get; } }
+public sealed class TerminateNodeIntent : ComputeIntent
+{
+    internal TerminateNodeIntent(ScaleInBinding binding, ComputeProofId revocationProof,
+        ScaleInAuthorization authorization, ScaleInProgress progress) : base(ComputeAction.Terminate)
+    {
+        Binding = binding;
+        RevocationProof = revocationProof;
+        Authorization = authorization;
+        Progress = progress;
+    }
+    public ScaleInBinding Binding { get; }
+    public ComputeProofId RevocationProof { get; }
+    public ScaleInAuthorization Authorization { get; }
+    public ScaleInProgress Progress { get; }
+}
 public sealed class AuditOrphansIntent : ComputeIntent { internal AuditOrphansIntent(ScaleInBinding binding, ComputeProofId terminationProof, ComputeProofId bootAbsenceProof) : base(ComputeAction.Audit) { Binding = binding; TerminationProof = terminationProof; BootAbsenceProof = bootAbsenceProof; } public ScaleInBinding Binding { get; } public ComputeProofId TerminationProof { get; } public ComputeProofId BootAbsenceProof { get; } }
 public sealed class AuthorizeSurvivalIntent : ComputeIntent { internal AuthorizeSurvivalIntent(RegionalSurvivalBundle bundle, RegionalAuthorityProof authority, SurvivalReplacementTarget target) : base(ComputeAction.Authorize) { Bundle = bundle; Authority = authority; Target = target; } public RegionalSurvivalBundle Bundle { get; } public RegionalAuthorityProof Authority { get; } public SurvivalReplacementTarget Target { get; } }
 public sealed class ReadySurvivalIntent : ComputeIntent { internal ReadySurvivalIntent(RegionalSurvivalBundle bundle) : base(ComputeAction.Ready) => Bundle = bundle; public RegionalSurvivalBundle Bundle { get; } }

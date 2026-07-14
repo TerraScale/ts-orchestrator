@@ -72,7 +72,8 @@ public static class ComputeEngine
                 if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength) ||
                     request.CreateEvidence!.Status != ProviderCreateStatus.ProvenAbsent)
                     return Held(ComputeErrorCode.MissingProof, operation);
-                return One(new RequestCreateIntent(binding, request.CreateEvidence.CreateKey), ComputeTraceCode.CreateReady);
+                return One(new RequestCreateIntent(binding, request.CreateEvidence.CreateKey, request.PersistedPlan!,
+                    request.Authorization!, request.CreateEvidence), ComputeTraceCode.CreateReady);
             case ScaleOutState.RequestRecorded:
                 if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength))
                     return Held(ComputeErrorCode.MissingProof, operation);
@@ -165,7 +166,8 @@ public static class ComputeEngine
             case ScaleInState.StorageHandled:
                 return One(new RevokeNodeIntent(binding, progress.VolumeProof!), ComputeTraceCode.RevocationReady);
             case ScaleInState.Revoked:
-                return One(new TerminateNodeIntent(binding, progress.RevocationProof!), ComputeTraceCode.TerminationReady);
+                return One(new TerminateNodeIntent(binding, progress.RevocationProof!, authorization, progress),
+                    ComputeTraceCode.TerminationReady);
             case ScaleInState.Terminated:
                 return One(new AuditOrphansIntent(binding, progress.TerminationProof!, progress.BootAbsenceProof!),
                     ComputeTraceCode.AuditReady);
