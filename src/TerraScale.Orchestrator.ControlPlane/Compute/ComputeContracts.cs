@@ -301,6 +301,7 @@ public sealed record SurvivalRequest(
     RegionalSurvivalBundle Required,
     SurvivalBundleEvidence Evidence,
     RegionalAuthorityProof Authority,
+    long CurrentAcceptedGeneration,
     long EvaluationPosition,
     bool DisconnectedReplacementRequested,
     SurvivalReplacementTarget? ReplacementTarget,

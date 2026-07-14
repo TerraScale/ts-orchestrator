@@ -187,10 +187,15 @@ public static class ComputeEngine
         if (!ValidBundle(request.Required, request.MaximumIdentityLength) || request.Evidence is null ||
             !ValidBundle(request.Evidence.Observed, request.MaximumIdentityLength) ||
             !Valid(request.Evidence.BundleSignature?.Value, request.MaximumIdentityLength) ||
-            !Valid(request.Evidence.EncryptionProof?.Value, request.MaximumIdentityLength) || request.EvaluationPosition <= 0 ||
+            !Valid(request.Evidence.EncryptionProof?.Value, request.MaximumIdentityLength) ||
+            request.CurrentAcceptedGeneration <= 0 || request.EvaluationPosition <= 0 ||
             !ValidAuthority(request.Authority, request.MaximumIdentityLength))
             return Held(ComputeErrorCode.InvalidInput, operation);
         if (!EquivalentBundle(request.Required, request.Evidence.Observed))
+            return Held(ComputeErrorCode.EvidenceMismatch, operation);
+        if (request.Required.Generation < request.CurrentAcceptedGeneration)
+            return Held(ComputeErrorCode.EvidenceStale, operation);
+        if (request.Required.Generation > request.CurrentAcceptedGeneration)
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         var evidence = request.Evidence;
         if (!evidence.SignatureValid || !evidence.MetadataEncrypted || !evidence.ArtifactsLocal || !evidence.SecretsLocal ||
