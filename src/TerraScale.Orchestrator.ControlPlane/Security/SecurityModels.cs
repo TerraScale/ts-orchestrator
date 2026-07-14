@@ -184,10 +184,11 @@ public sealed record SecurityAttestationEvidence
 
 public sealed record EnrollmentRequest
 {
-    public EnrollmentRequest(SecurityOperationId operationId, SecurityPrincipal expectedPrincipal, SecurityKeyId subjectKeyId, SecurityGeneration attestationPolicyGeneration, IssuerSigningCapability issuer, SecurityGeneration currentIssuerGeneration, SecurityGeneration currentRevocationGeneration, IEnumerable<BootstrapEnrollmentEvidence> bootstrapEvidence, IEnumerable<SecurityAttestationEvidence> attestations)
+    public EnrollmentRequest(SecurityOperationId operationId, SecurityPrincipal expectedPrincipal, SecurityGeneration currentPrincipalGeneration, SecurityKeyId subjectKeyId, SecurityGeneration attestationPolicyGeneration, IssuerSigningCapability issuer, SecurityGeneration currentIssuerGeneration, SecurityGeneration currentRevocationGeneration, IEnumerable<BootstrapEnrollmentEvidence> bootstrapEvidence, IEnumerable<SecurityAttestationEvidence> attestations)
     {
         OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
         ExpectedPrincipal = expectedPrincipal ?? throw new ArgumentNullException(nameof(expectedPrincipal));
+        CurrentPrincipalGeneration = currentPrincipalGeneration ?? throw new ArgumentNullException(nameof(currentPrincipalGeneration));
         SubjectKeyId = subjectKeyId ?? throw new ArgumentNullException(nameof(subjectKeyId));
         AttestationPolicyGeneration = attestationPolicyGeneration ?? throw new ArgumentNullException(nameof(attestationPolicyGeneration));
         Issuer = issuer ?? throw new ArgumentNullException(nameof(issuer));
@@ -198,6 +199,7 @@ public sealed record EnrollmentRequest
     }
     public SecurityOperationId OperationId { get; }
     public SecurityPrincipal ExpectedPrincipal { get; }
+    public SecurityGeneration CurrentPrincipalGeneration { get; }
     public SecurityKeyId SubjectKeyId { get; }
     public SecurityGeneration AttestationPolicyGeneration { get; }
     public IssuerSigningCapability Issuer { get; }

@@ -38,8 +38,10 @@ public static class SecurityDecisionEngine
         trace.Add(Reject(SecurityDecisionCode.CellMatches, cellMatches, cellMatches ? 1UL : 0UL, 1));
         var roleMatches = exactBootstrap.Role == principal.Role && exactAttestation.Role == principal.Role;
         trace.Add(Reject(SecurityDecisionCode.RoleMatches, roleMatches, roleMatches ? 1UL : 0UL, 1));
-        var generationMatches = exactBootstrap.NodeGeneration == principal.Generation && exactAttestation.Generation == principal.Generation;
-        trace.Add(Reject(SecurityDecisionCode.GenerationCurrent, generationMatches, generationMatches ? principal.Generation.Value : 0UL, principal.Generation.Value));
+        var generationMatches = exactBootstrap.NodeGeneration == principal.Generation && exactAttestation.Generation == principal.Generation &&
+                                principal.Generation == request.CurrentPrincipalGeneration;
+        trace.Add(Reject(SecurityDecisionCode.GenerationCurrent, generationMatches,
+            principal.Generation.Value, request.CurrentPrincipalGeneration.Value));
         var attestationCurrent = exactAttestation.PolicyGeneration == request.AttestationPolicyGeneration && exactAttestation.Status == EvidenceStatus.Valid;
         trace.Add(exactAttestation.Status == EvidenceStatus.Missing
             ? Hold(SecurityDecisionCode.AttestationCurrent, false, 0, request.AttestationPolicyGeneration.Value)
