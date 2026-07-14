@@ -145,9 +145,18 @@ public static class TerraBaseRestorePlanner
         if(ordered[^1].Backup!=expectedTerminalBackup)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         var chainSubject=new TerraBaseBackupChainIntentSubject(e.Chain.Scope,ordered);
         var subject=new TerraBaseRestoreIntentSubject(expected,e.Restore,e.SourceGeneration,e.TargetGeneration,chainSubject);
-        if(e.RestoreApplied!=TerraBaseProof.Proven)return TerraBaseDecision.Emit(TerraBaseAction.Restore,TerraBaseTarget.RestoreCandidate,TerraBaseCode.NextStep,trace,subject);
+        if(e.RestoreApplied!=TerraBaseProof.Proven)
+        {
+            if(e.TopologyVerified!=TerraBaseProof.Unknown||e.QueryVerified!=TerraBaseProof.Unknown
+                ||e.PromotionAuthorized!=TerraBaseProof.Unknown)
+                return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+            return TerraBaseDecision.Emit(TerraBaseAction.Restore,TerraBaseTarget.RestoreCandidate,TerraBaseCode.NextStep,trace,subject);
+        }
         if(e.TopologyVerified!=TerraBaseProof.Proven||e.QueryVerified!=TerraBaseProof.Proven)
+        {
+            if(e.PromotionAuthorized!=TerraBaseProof.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
             return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.RestoreCandidate,TerraBaseCode.NextStep,trace,subject);
+        }
         if(e.PromotionAuthorized!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.PromotionProofMissing,trace);
         return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.RestoreCandidate,TerraBaseCode.Completed,trace,subject);
     }

@@ -162,19 +162,27 @@ public static class TerraBaseUpgradePlanner
         if(e.Compatibility!=TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne)return TerraBaseDecision.Hold(TerraBaseCode.CompatibilityRequired,trace);
         if(e.RollbackMaterial!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.RollbackMaterialRequired,trace);
         if(e.OneFailureDomain!=TerraBaseProof.Proven||e.LeadershipTransferred!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.ProofMissing,trace);
-        if((e.UpgradeApplied!=TerraBaseProof.Proven&&(e.RollbackApplied==TerraBaseProof.Proven||e.PostRollbackHealthy==TerraBaseProof.Proven))
-            ||(e.RollbackApplied!=TerraBaseProof.Proven&&e.PostRollbackHealthy==TerraBaseProof.Proven))
-            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         var subject=new TerraBaseUpgradeIntentSubject(expected,expectedCurrent,expectedTarget);
-        if(e.UpgradeApplied!=TerraBaseProof.Proven)return TerraBaseDecision.Emit(TerraBaseAction.Upgrade,TerraBaseTarget.Release,TerraBaseCode.NextStep,trace,subject);
+        if(e.UpgradeApplied!=TerraBaseProof.Proven)
+        {
+            if(e.ProcessHealthy!=TerraBaseProof.Unknown||e.Ready!=TerraBaseProof.Unknown||e.CaughtUp!=TerraBaseProof.Unknown
+                ||e.RollbackApplied!=TerraBaseProof.Unknown||e.PostRollbackHealthy!=TerraBaseProof.Unknown)
+                return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+            return TerraBaseDecision.Emit(TerraBaseAction.Upgrade,TerraBaseTarget.Release,TerraBaseCode.NextStep,trace,subject);
+        }
         if(e.ProcessHealthy==TerraBaseProof.Contradicted||e.Ready==TerraBaseProof.Contradicted||e.CaughtUp==TerraBaseProof.Contradicted)
         {
-            if(e.RollbackApplied!=TerraBaseProof.Proven)return TerraBaseDecision.Emit(TerraBaseAction.Rollback,TerraBaseTarget.Release,TerraBaseCode.NextStep,trace,subject);
+            if(e.RollbackApplied!=TerraBaseProof.Proven)
+            {
+                if(e.PostRollbackHealthy!=TerraBaseProof.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+                return TerraBaseDecision.Emit(TerraBaseAction.Rollback,TerraBaseTarget.Release,TerraBaseCode.NextStep,trace,subject);
+            }
             return e.PostRollbackHealthy==TerraBaseProof.Proven
                 ? TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Release,TerraBaseCode.RolledBack,trace,subject)
                 : TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace,subject);
         }
-        if(e.RollbackApplied==TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+        if(e.RollbackApplied!=TerraBaseProof.Unknown||e.PostRollbackHealthy!=TerraBaseProof.Unknown)
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(e.ProcessHealthy!=TerraBaseProof.Proven||e.Ready!=TerraBaseProof.Proven||e.CaughtUp!=TerraBaseProof.Proven)
             return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace);
         return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Release,TerraBaseCode.Completed,trace);
