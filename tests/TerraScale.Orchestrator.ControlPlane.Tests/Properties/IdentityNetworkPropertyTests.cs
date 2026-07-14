@@ -238,7 +238,7 @@ internal static class SecurityData
         var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest(), principal.Id, new($"subject-key-{seed}"), principal.Kind,
             variant == 4 ? new("sfo") : Cell, variant == 5 ? SecurityRole.TerraBase : principal.Role, Generation, new(2),
             variant == 1 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
-        return new(operation, principal, new($"subject-key-{seed}"), new(2), Issuer(), new(1), Revocation, [bootstrap], [attestation]);
+        return new(operation, principal, principal.Generation, new($"subject-key-{seed}"), new(2), Issuer(), new(1), Revocation, [bootstrap], [attestation]);
     }
 
     internal static CertificateLifecycleRequest Certificate(int variant, ulong seed)

@@ -11,6 +11,7 @@ public sealed class SecurityAcceptedOutputGapTests
         var substituted = new EnrollmentRequest(
             original.OperationId,
             original.ExpectedPrincipal,
+            original.CurrentPrincipalGeneration,
             new SecurityKeyId("attacker-subject-key"),
             original.AttestationPolicyGeneration,
             original.Issuer,
@@ -34,6 +35,7 @@ public sealed class SecurityAcceptedOutputGapTests
         var substituted = new EnrollmentRequest(
             original.OperationId,
             original.ExpectedPrincipal,
+            original.CurrentPrincipalGeneration,
             new SecurityKeyId("attacker-subject-key"),
             original.AttestationPolicyGeneration,
             original.Issuer,
@@ -143,6 +145,7 @@ public sealed class SecurityAcceptedOutputGapTests
         return new EnrollmentRequest(
             Operation,
             principal,
+            principal.Generation,
             new SecurityKeyId("subject-key"),
             PolicyGeneration,
             issuer,

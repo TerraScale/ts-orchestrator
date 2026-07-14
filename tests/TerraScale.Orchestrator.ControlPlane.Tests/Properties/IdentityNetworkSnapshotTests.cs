@@ -99,7 +99,7 @@ public sealed class IdentityNetworkSnapshotTests
         var cell = new SecurityCellId("gru"); var generation = new SecurityGeneration(5); var operation = new SecurityOperationId("operation-1");
         var principal = new SecurityPrincipal(new("principal-1"), SecurityPrincipalKind.Node, SecurityRole.Agent, cell, generation);
         var issuer = new IssuerSigningCapability(new("issuer-gru"), IssuerCapabilityKind.RegionalIntermediate, cell, TrustScope.Cell, new(1), new(3));
-        return new(operation, principal, new("subject-key-1"), new(2), issuer, new(1), new(3), bootstrap,
+        return new(operation, principal, principal.Generation, new("subject-key-1"), new(2), issuer, new(1), new(3), bootstrap,
             [new(new("attestation-1"), new(new string('a', 64)), principal.Id, new("subject-key-1"), principal.Kind, cell, principal.Role, generation, new(2), EvidenceStatus.Valid)]);
     }
 

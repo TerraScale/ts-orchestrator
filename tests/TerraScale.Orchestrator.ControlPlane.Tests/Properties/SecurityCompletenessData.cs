@@ -16,24 +16,28 @@ internal static class SecurityCompletenessData
 
     internal static EnrollmentRequest Enrollment(int variant, ulong seed)
     {
-        var operation = Operation("enrollment", seed); var principal = Principal(seed);
+        var operation = Operation("enrollment", seed);
+        var principalGeneration = variant is 16 or 18 ? new SecurityGeneration(4) :
+            variant == 17 ? new SecurityGeneration(6) : Generation;
+        var principal = new SecurityPrincipal(new($"principal-{seed}"), SecurityPrincipalKind.Node,
+            SecurityRole.Agent, Cell, principalGeneration);
         var issuer = variant == 13
             ? new IssuerSigningCapability(new("issuer-global"), IssuerCapabilityKind.GlobalAdministrativeIntermediate, Cell, TrustScope.GlobalAdministration, IssuerGeneration, RevocationGeneration)
             : Issuer(variant == 12 ? new(2) : RevocationGeneration);
         var bootstrap = new BootstrapEnrollmentEvidence(new($"bootstrap-{seed}"), variant == 4 ? new("other-operation") : operation,
             variant == 5 ? new("other-principal") : principal.Id, principal.Kind, Cell, principal.Role,
-            variant == 8 ? new(4) : Generation, variant == 10 ? EvidenceStatus.Consumed : EvidenceStatus.Valid);
+            variant == 8 ? new(4) : principalGeneration, variant == 10 ? EvidenceStatus.Consumed : EvidenceStatus.Valid);
         var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest("attestation", seed), principal.Id,
             variant is 14 or 15 ? new("attacker-subject-key") : new($"subject-key-{seed}"), principal.Kind,
-            variant == 6 ? new("sfo") : Cell, variant is 7 or 3 ? SecurityRole.TerraBase : principal.Role, Generation, PolicyGeneration,
-            variant is 1 or 15 ? EvidenceStatus.Missing : variant == 9 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
+            variant == 6 ? new("sfo") : Cell, variant is 7 or 3 ? SecurityRole.TerraBase : principal.Role, principalGeneration, PolicyGeneration,
+            variant is 1 or 15 or 18 ? EvidenceStatus.Missing : variant == 9 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
         IEnumerable<BootstrapEnrollmentEvidence> bootstraps = variant switch
         {
             2 => [bootstrap, bootstrap],
             3 => [bootstrap, new(new($"bootstrap-{seed}"), operation, principal.Id, principal.Kind, Cell, SecurityRole.TerraBase, Generation, EvidenceStatus.Valid)],
             _ => [bootstrap],
         };
-        return new(operation, principal, new($"subject-key-{seed}"), PolicyGeneration, issuer,
+        return new(operation, principal, Generation, new($"subject-key-{seed}"), PolicyGeneration, issuer,
             variant == 11 ? new(2) : IssuerGeneration, RevocationGeneration, bootstraps, [attestation]);
     }
 
@@ -168,7 +172,7 @@ internal static class SecurityCompletenessData
         string.Join(';', value.Trace.Select(x => $"{x.Code}:{x.Outcome}:{x.Observed}:{x.Required}"));
 
     private static string EnrollmentFingerprint(EnrollmentRequest value) =>
-        $"op={value.OperationId.Value}|principal={PrincipalFingerprint(value.ExpectedPrincipal)}|key={value.SubjectKeyId.Value}|att-policy={value.AttestationPolicyGeneration.Value}|issuer={IssuerFingerprint(value.Issuer)}|current-issuer={value.CurrentIssuerGeneration.Value}|current-revocation={value.CurrentRevocationGeneration.Value}|bootstrap=" +
+        $"op={value.OperationId.Value}|principal={PrincipalFingerprint(value.ExpectedPrincipal)}|current-principal={value.CurrentPrincipalGeneration.Value}|key={value.SubjectKeyId.Value}|att-policy={value.AttestationPolicyGeneration.Value}|issuer={IssuerFingerprint(value.Issuer)}|current-issuer={value.CurrentIssuerGeneration.Value}|current-revocation={value.CurrentRevocationGeneration.Value}|bootstrap=" +
         string.Join(';', value.BootstrapEvidence.Select(x => $"{x.Id.Value},{x.OperationId.Value},{x.PrincipalId.Value},{x.Audience},{x.CellId.Value},{x.Role},{x.NodeGeneration.Value},{x.Status}")) + "|attestations=" +
         string.Join(';', value.Attestations.Select(x => $"{x.Id.Value},{x.Measurement.Sha256},{x.PrincipalId.Value},{x.SubjectKeyId.Value},{x.Kind},{x.CellId.Value},{x.Role},{x.Generation.Value},{x.PolicyGeneration.Value},{x.Status}"));
 
@@ -190,8 +194,8 @@ internal static class SecurityCompletenessData
 
     private static string SubjectFingerprint(SecurityIntent value) => value switch
     {
-        AttestIdentityIntent x => $"{x.OperationId.Value},{x.AttestationId.Value}",
-        IssueIdentityIntent x => $"{x.OperationId.Value},{x.Principal.Id.Value},{x.Issuer.IssuerId.Value}",
+        AttestIdentityIntent x => $"{x.OperationId.Value},{x.AttestationId.Value},current-principal={x.Request.CurrentPrincipalGeneration.Value}",
+        IssueIdentityIntent x => $"{x.OperationId.Value},{x.Principal.Id.Value},{x.Issuer.IssuerId.Value},current-principal={x.Request.CurrentPrincipalGeneration.Value}",
         IssueCertificateIntent x => CertificateSubject(x.Request), RenewCertificateIntent x => CertificateSubject(x.Request),
         RotateCertificateIntent x => CertificateSubject(x.Request), RevokeCertificateIntent x => CertificateSubject(x.Request),
         AuthorizeCapabilityIntent x => $"{x.OperationId.Value},{x.PrincipalId.Value},{x.Capability},{ScopeFingerprint(x.ResourceScope)},expected={x.ExpectedPrincipalGeneration.Value},current={x.CurrentPrincipalGeneration.Value},policy={x.PolicyGeneration.Value},current-policy={x.CurrentPolicyGeneration.Value},current-revocation={x.CurrentRevocationGeneration.Value},evidence={PrincipalFingerprint(x.Evidence.Principal)},{x.Evidence.RevocationGeneration.Value},{x.Evidence.Revocation},{x.Evidence.Status},grant={GrantFingerprint(x.Grant)}",
@@ -230,10 +234,10 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "8c3110ab332c3b3e5bd61671ef16cdac8a9d0c1fea05b0b75fea67bc00b7bf7b";
+    private const string Digest = "b41d2774e085ceff2ed58b5b0061d4ae40db69776db2186d89a09a61cb14e165";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
-    { ["enrollment"] = 15, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };
+    { ["enrollment"] = 18, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };
 
     internal static IReadOnlyList<SecurityPolicyReplayEntry> Load()
     {

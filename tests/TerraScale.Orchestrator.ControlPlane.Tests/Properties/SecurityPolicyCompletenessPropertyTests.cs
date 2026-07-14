@@ -19,6 +19,8 @@ public sealed class SecurityPolicyCompletenessPropertyTests
         Reject(SecurityDecisionCode.BootstrapUnused), Reject(SecurityDecisionCode.IssuerCurrent), Reject(SecurityDecisionCode.RevocationCurrent), Reject(SecurityDecisionCode.IssuerScopeValid),
         Reject(SecurityDecisionCode.SubjectKeyMatches),
         [.. Reject(SecurityDecisionCode.SubjectKeyMatches), .. Hold(SecurityDecisionCode.AttestationCurrent)],
+        Reject(SecurityDecisionCode.GenerationCurrent), Reject(SecurityDecisionCode.GenerationCurrent),
+        [.. Reject(SecurityDecisionCode.GenerationCurrent), .. Hold(SecurityDecisionCode.AttestationCurrent)],
     ];
     private static readonly SecurityDecisionCode[] EnrollmentReasonOrder =
     [
@@ -82,6 +84,9 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.IssuerScopeValid, SecurityDecisionOutcome.Rejected),
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.SubjectKeyMatches, SecurityDecisionOutcome.Rejected),
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.SubjectKeyMatches, SecurityDecisionOutcome.Rejected),
+            (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.GenerationCurrent, SecurityDecisionOutcome.Rejected),
+            (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.GenerationCurrent, SecurityDecisionOutcome.Rejected),
+            (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.GenerationCurrent, SecurityDecisionOutcome.Rejected),
         };
         var executed = 0; for (var seed = 1; seed <= Cases; seed++)
         {
@@ -93,14 +98,20 @@ public sealed class SecurityPolicyCompletenessPropertyTests
                 ? EnrollmentReasonOrder[..3]
                 : EnrollmentReasonOrder), seed, "enrollment exact reason order");
             Require(decision.Intent.OperationId == request.OperationId, seed, "enrollment subject");
-            if (decision.Intent is IssueIdentityIntent issue) Require(issue.Request == request && issue.Principal == request.ExpectedPrincipal && issue.Issuer == request.Issuer, seed, "identity intent binding");
-            if (decision.Intent is AttestIdentityIntent attest) Require(attest.Request == request && attest.AttestationId == request.Attestations.Single().Id, seed, "attestation intent binding");
+            if (decision.Intent is IssueIdentityIntent issue) Require(ReferenceEquals(issue.Request, request) &&
+                ReferenceEquals(issue.Request.CurrentPrincipalGeneration, request.CurrentPrincipalGeneration) &&
+                issue.Principal == request.ExpectedPrincipal && issue.Issuer == request.Issuer, seed, "identity intent binding");
+            if (decision.Intent is AttestIdentityIntent attest) Require(ReferenceEquals(attest.Request, request) &&
+                ReferenceEquals(attest.Request.CurrentPrincipalGeneration, request.CurrentPrincipalGeneration) &&
+                attest.AttestationId == request.Attestations.Single().Id, seed, "attestation intent binding");
             if (oracle.Code is { } code) Require(Outcome(decision, code) == oracle.Outcome, seed, "enrollment trace");
             if (variant == 0) Require(decision.Trace.All(x => x.Outcome == SecurityDecisionOutcome.Passed), seed, "enrollment accepted trace");
             if (variant == 1) Require(decision.Trace.Count(x => x.Outcome == SecurityDecisionOutcome.Held) == 1 &&
                 decision.Trace.All(x => x.Outcome is SecurityDecisionOutcome.Passed or SecurityDecisionOutcome.Held), seed, "attestation trace");
             if (variant is 14 or 15) Require(decision.Intent is HoldSecurityOperationIntent &&
                 decision.Intent is not IssueIdentityIntent && decision.Intent is not AttestIdentityIntent, seed, "subject-key substitution denied");
+            if (variant is 16 or 17 or 18) Require(decision.Intent is HoldSecurityOperationIntent &&
+                decision.Intent is not IssueIdentityIntent && decision.Intent is not AttestIdentityIntent, seed, "coherent generation replay denied");
             Require(Canonical(decision) == Canonical(SecurityDecisionEngine.EvaluateEnrollment(SecurityCompletenessData.Enrollment(variant, (ulong)seed))), seed, "enrollment replay");
             executed++;
         }
@@ -313,7 +324,7 @@ public sealed class SecurityPolicyCompletenessPropertyTests
     }
 
     private static EnrollmentRequest CopyEnrollment(EnrollmentRequest value, IEnumerable<BootstrapEnrollmentEvidence> evidence) => new(
-        value.OperationId, value.ExpectedPrincipal, value.SubjectKeyId, value.AttestationPolicyGeneration, value.Issuer,
+        value.OperationId, value.ExpectedPrincipal, value.CurrentPrincipalGeneration, value.SubjectKeyId, value.AttestationPolicyGeneration, value.Issuer,
         value.CurrentIssuerGeneration, value.CurrentRevocationGeneration, evidence, value.Attestations);
     private static CertificateLifecycleRequest CertificateRequest(SecurityIntent intent) => intent switch
     {
@@ -339,7 +350,7 @@ public sealed class SecurityPolicyCompletenessPropertyTests
     {
         var survival = SecurityCompletenessData.Survival(0, seed, reverse);
         var authorization = SecurityCompletenessData.ConflictingAuthorization(seed, reverse);
-        return string.Join("||", Canonical(SecurityDecisionEngine.EvaluateEnrollment(SecurityCompletenessData.Enrollment((int)(seed % 14), seed))),
+        return string.Join("||", Canonical(SecurityDecisionEngine.EvaluateEnrollment(SecurityCompletenessData.Enrollment((int)(seed % 19), seed))),
             Canonical(SecurityDecisionEngine.EvaluateCertificate(SecurityCompletenessData.Certificate((int)(seed % 16), seed))),
             Canonical(SecurityDecisionEngine.Authorize(authorization)), Canonical(SecurityDecisionEngine.EvaluateLease(SecurityCompletenessData.Lease((int)(seed % 12), seed))),
             Canonical(SecurityDecisionEngine.EvaluateSurvivalSecrets(survival)));

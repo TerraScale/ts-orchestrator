@@ -47,7 +47,7 @@ public sealed class SecurityDecisionTests
             new("bootstrap-1"), Operation, new("other-principal"), SecurityPrincipalKind.Node,
             Cell, SecurityRole.Agent, Generation, EvidenceStatus.Valid);
         var replay = SecurityDecisionEngine.EvaluateEnrollment(new(
-            exact.OperationId, exact.ExpectedPrincipal, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
+            exact.OperationId, exact.ExpectedPrincipal, exact.CurrentPrincipalGeneration, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
             exact.Issuer, exact.CurrentIssuerGeneration, exact.CurrentRevocationGeneration,
             [wrongPrincipalBootstrap], exact.Attestations));
         var staleIssuer = SecurityDecisionEngine.EvaluateEnrollment(Enrollment(currentIssuerGeneration: new(2)));
@@ -59,11 +59,11 @@ public sealed class SecurityDecisionTests
     public async Task DuplicateOrConflictingEnrollmentEvidenceHoldsBeforeIssue()
     {
         var exact = Enrollment();
-        var duplicate = new EnrollmentRequest(exact.OperationId, exact.ExpectedPrincipal, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
+        var duplicate = new EnrollmentRequest(exact.OperationId, exact.ExpectedPrincipal, exact.CurrentPrincipalGeneration, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
             exact.Issuer, exact.CurrentIssuerGeneration, exact.CurrentRevocationGeneration, [exact.BootstrapEvidence[0], exact.BootstrapEvidence[0]], exact.Attestations);
         var conflictBootstrap = new BootstrapEnrollmentEvidence(new("bootstrap-1"), Operation, new("principal-1"), SecurityPrincipalKind.Node,
             Cell, SecurityRole.TerraBase, Generation, EvidenceStatus.Valid);
-        var conflict = new EnrollmentRequest(exact.OperationId, exact.ExpectedPrincipal, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
+        var conflict = new EnrollmentRequest(exact.OperationId, exact.ExpectedPrincipal, exact.CurrentPrincipalGeneration, exact.SubjectKeyId, exact.AttestationPolicyGeneration,
             exact.Issuer, exact.CurrentIssuerGeneration, exact.CurrentRevocationGeneration, [exact.BootstrapEvidence[0], conflictBootstrap], exact.Attestations);
         var duplicateDecision = SecurityDecisionEngine.EvaluateEnrollment(duplicate);
         var conflictDecision = SecurityDecisionEngine.EvaluateEnrollment(conflict);
@@ -342,7 +342,7 @@ public sealed class SecurityDecisionTests
         SecurityGeneration? currentIssuerGeneration = null)
     {
         var principal = Principal();
-        return new(Operation, principal, new("subject-key-1"), new(2), Issuer(), currentIssuerGeneration ?? new(1), RevocationGeneration,
+        return new(Operation, principal, principal.Generation, new("subject-key-1"), new(2), Issuer(), currentIssuerGeneration ?? new(1), RevocationGeneration,
             [new(new("bootstrap-1"), Operation, principal.Id, SecurityPrincipalKind.Node, Cell, SecurityRole.Agent, Generation, bootstrapStatus)],
             [new(new("attestation-1"), Digest(), principal.Id, new("subject-key-1"), SecurityPrincipalKind.Node, attestationCell ?? Cell,
                 attestationRole, attestationGeneration ?? Generation, new(2), attestationStatus)]);
