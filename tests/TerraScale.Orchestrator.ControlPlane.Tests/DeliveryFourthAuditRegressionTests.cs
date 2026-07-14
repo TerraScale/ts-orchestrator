@@ -77,7 +77,9 @@ public sealed class DeliveryFourthAuditRegressionTests
             values with { RollbackArchitecture = DeliveryArchitecture.LinuxX64 },
             values with { Strategy = RolloutStrategy.BlueGreen },
             values with { RollbackPolicy = RollbackPolicy.HoldForApproval },
+            values with { OrderedCells = [new("sfo")] },
             values with { OrderedCells = [new("fra"), new("sfo")] },
+            values with { OrderedCells = [new("other"), new("fra")] },
         };
         var availabilityVariants = new[]
         {
@@ -154,13 +156,26 @@ public sealed class DeliveryFourthAuditRegressionTests
     public async Task Stage_intent_has_no_public_construction_or_deconstruction_route()
     {
         var type = typeof(StageReleaseIntent);
-        var assemblyTypes = type.Assembly.GetTypes();
+        var exportedTypes = type.Assembly.GetExportedTypes();
+        var externallyReturning = exportedTypes
+            .SelectMany(candidate => candidate.GetMethods(BindingFlags.Public | BindingFlags.Static |
+                BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => method.ReturnType == type)
+            .Select(method => $"{method.DeclaringType!.FullName}.{method.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var rolloutDecisionRoutes = typeof(DeliveryEngine)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(method => method.ReturnType == typeof(DeliveryDecision) &&
+                method.GetParameters().Select(parameter => parameter.ParameterType).SequenceEqual([typeof(RolloutRequest)]))
+            .Select(method => method.Name)
+            .ToArray();
 
         await Assert.That(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
         await Assert.That(type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Any(method => method.Name == "Deconstruct")).IsFalse();
         await Assert.That(type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Any(property => property.SetMethod?.IsPublic == true)).IsFalse();
-        await Assert.That(assemblyTypes.SelectMany(candidate => candidate.GetMethods(BindingFlags.Public | BindingFlags.Static))
-            .Any(method => method.ReturnType == type)).IsFalse();
+        await Assert.That(externallyReturning).IsEmpty();
+        await Assert.That(rolloutDecisionRoutes).IsEquivalentTo([nameof(DeliveryEngine.DecideRollout)]);
     }
 
     private static StageReleaseIntent Stage(ReleaseSpec release, IEnumerable<CellArtifactAvailability>? availability = null)
