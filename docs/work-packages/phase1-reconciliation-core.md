@@ -16,7 +16,7 @@ Implement a pure deterministic desired/observed state engine and dependency plan
 - Validate unique resources, closed caller-supplied kind catalog, dependency existence, no self-edge/cycle, generation monotonicity, and exact identity pairing.
 - Produce a deterministic topological plan independent of input order. A resource is converged only on exact desired generation/digest; stale/missing observations emit Observe, and eligible drift emits Reconcile intent only after dependencies converge.
 - A newer-than-desired or conflicting same-generation observation holds fail-closed. Failed/held dependencies propagate a typed hold without hiding the root reason.
-- Intents contain identity/generation/digest/dependency proof only; no callbacks, arbitrary payloads, executable data, or infrastructure behavior.
+- Mutation intents contain desired identity/generation/digest, the exact validated observation proof that authorized drift repair, and sorted dependency proofs; they contain no callbacks, arbitrary payloads, executable data, policy snapshots, or infrastructure behavior.
 - Complete stable reason trace, defensive copies, duplicate/permutation/cycle/missing/stale/future/conflict tests, 10k-resource deterministic benchmark-style test, and no mutation of inputs.
 - No wall clock, NATS, files, provider/runtime choices, retries, or domain policy defaults.
 

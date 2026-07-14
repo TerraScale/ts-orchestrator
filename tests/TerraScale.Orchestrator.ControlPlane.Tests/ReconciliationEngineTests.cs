@@ -51,7 +51,7 @@ public sealed class ReconciliationEngineTests
     }
 
     [Test]
-    public async Task EligibleDriftEmitsOnlyFrozenIdentityGenerationDigestAndDependencyProof()
+    public async Task EligibleDriftEmitsFrozenDesiredObservationAndDependencyProofs()
     {
         var desired = Graph();
         var observations = desired.Select(Exact).ToArray();
@@ -66,9 +66,40 @@ public sealed class ReconciliationEngineTests
         await Assert.That(intent.Kind).IsEqualTo("service");
         await Assert.That(intent.Generation).IsEqualTo(2);
         await Assert.That(intent.Digest).IsEqualTo("digest-api");
+        await Assert.That(intent.ObservationProof.Identity.Value).IsEqualTo("api");
+        await Assert.That(intent.ObservationProof.Kind).IsEqualTo("service");
+        await Assert.That(intent.ObservationProof.Generation).IsEqualTo(1);
+        await Assert.That(intent.ObservationProof.Digest).IsEqualTo("old-api");
+        await Assert.That(intent.ObservationProof.ObservationId).IsEqualTo("observation-api");
+        await Assert.That(intent.ObservationProof.FreshnessSequence).IsEqualTo(10);
+        await Assert.That(intent.ObservationProof.Condition).IsEqualTo(ObservedCondition.Ready);
         await Assert.That(intent.DependencyProofs).HasSingleItem();
         await Assert.That(intent.DependencyProofs[0])
             .IsEqualTo(new DependencyProof(Id("database"), 2, "digest-database"));
+    }
+
+    [Test]
+    public async Task EligibleDriftIntentBindsTheExactObservationThatAuthorizedMutation()
+    {
+        var desired = Desired("a");
+        var observation = Exact(desired) with
+        {
+            Generation = 1,
+            Digest = "old-a",
+            ObservationId = "observation-authorizing-a",
+            FreshnessSequence = 37,
+        };
+
+        var intent = (ReconcileResourceIntent)Plan([desired], [observation]).Steps.Single().Output;
+        var proof = intent.ObservationProof;
+
+        await Assert.That(proof.Identity).IsEqualTo(observation.Identity);
+        await Assert.That(proof.Kind).IsEqualTo(observation.Kind);
+        await Assert.That(proof.Generation).IsEqualTo(observation.Generation);
+        await Assert.That(proof.Digest).IsEqualTo(observation.Digest);
+        await Assert.That(proof.ObservationId).IsEqualTo(observation.ObservationId);
+        await Assert.That(proof.FreshnessSequence).IsEqualTo(observation.FreshnessSequence);
+        await Assert.That(proof.Condition).IsEqualTo(observation.Condition);
     }
 
     [Test]

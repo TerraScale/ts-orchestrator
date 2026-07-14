@@ -105,6 +105,7 @@ public sealed class AcceptedOutputConstructionClosureTests
         await Assert.That(IsAcceptedOutput(typeof(ReconciliationRequest))).IsFalse();
         await Assert.That(IsAcceptedOutput(typeof(ProviderCallEvidence))).IsFalse();
         await Assert.That(IsAcceptedOutput(typeof(DependencyProof))).IsFalse();
+        await Assert.That(IsAcceptedOutput(typeof(ReconciliationObservationProof))).IsTrue();
     }
 
     private static bool IsAcceptedOutput(Type type) =>
@@ -112,6 +113,7 @@ public sealed class AcceptedOutputConstructionClosureTests
         || type.Name.EndsWith("Permit", StringComparison.Ordinal)
         || type.Name.EndsWith("Intent", StringComparison.Ordinal)
         || typeof(ReconciliationOutput).IsAssignableFrom(type)
+        || type == typeof(ReconciliationObservationProof)
         || type == typeof(ReconciliationStep)
         || type == typeof(ReconciliationPlan)
         || typeof(NetworkIntentSubject).IsAssignableFrom(type)

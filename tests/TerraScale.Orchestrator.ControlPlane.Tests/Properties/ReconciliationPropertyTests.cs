@@ -84,11 +84,17 @@ public sealed class ReconciliationPropertyTests
         {
             var first = ReconciliationData.Resource($"proof-{seed:D4}-a");
             var second = ReconciliationData.Resource($"proof-{seed:D4}-b");
-            var target = new DesiredResource(new($"proof-{seed:D4}-target"), "service", 100 + (long)seed,
+            var target = new DesiredResource(new($"proof-{seed:D4}-target"),
+                seed % 2 == 0 ? "service" : "database", 100 + (long)seed,
                 $"digest-proof-{seed}", [second.Identity, first.Identity]);
             var observations = new[]
             {
-                ReconciliationData.Exact(target) with { Generation = target.Generation - 1, Digest = $"old-proof-{seed}" },
+                ReconciliationData.Exact(target) with
+                {
+                    Generation = target.Generation - 1,
+                    Digest = $"old-proof-{seed}",
+                    FreshnessSequence = 50 + (long)(seed % 101),
+                },
                 ReconciliationData.Exact(second),
                 ReconciliationData.Exact(first),
             };
@@ -106,6 +112,15 @@ public sealed class ReconciliationPropertyTests
             Require(intent.Identity == target.Identity && intent.Kind == target.Kind &&
                 intent.Generation == target.Generation && intent.Digest == target.Digest,
                 seed, "proof intent subject");
+            var observation = observations[0];
+            Require(intent.ObservationProof.Identity == observation.Identity &&
+                intent.ObservationProof.Kind == observation.Kind &&
+                intent.ObservationProof.Generation == observation.Generation &&
+                intent.ObservationProof.Digest == observation.Digest &&
+                intent.ObservationProof.ObservationId == observation.ObservationId &&
+                intent.ObservationProof.FreshnessSequence == observation.FreshnessSequence &&
+                intent.ObservationProof.Condition == observation.Condition,
+                seed, "exact authorizing observation proof");
             executed++;
         }
 
@@ -388,7 +403,7 @@ internal static class ReconciliationData
     internal static ReconciliationPlan Plan(IEnumerable<DesiredResource> desired, IEnumerable<ObservedResourceState> observed) =>
         ReconciliationEngine.Plan(new ReconciliationRequest(desired, observed, Policy()));
 
-    private static ReconciliationPolicy Policy() => new(["service"], new Dictionary<ResourceIdentity, long>(),
+    private static ReconciliationPolicy Policy() => new(["service", "database"], new Dictionary<ResourceIdentity, long>(),
         16, 64, 32, 128, 96, 4, 50);
 
     internal static (ReconciliationPlan Plan, DesiredResource Target) ObservationCase(ulong seed, int variant)
@@ -487,7 +502,8 @@ internal static class ReconciliationData
             };
             var related = variant is >= 3 and <= 6 ? identity : string.Empty;
             var root = variant is >= 3 and <= 6 ? identity : string.Empty;
-            return $"D:{identity}:service:100:{digest}|1:{identity}:service:100:{digest}:O:{observation}:X:{output}:{identity}:service:100:{digest}:R:{reason}:{related}:H:{root}:P:";
+            var observationProof = variant == 7 ? observation : string.Empty;
+            return $"D:{identity}:service:100:{digest}|1:{identity}:service:100:{digest}:O:{observation}:X:{output}:{identity}:service:100:{digest}:R:{reason}:{related}:H:{root}:OP:{observationProof}:P:";
         }
         return variant switch
         {
@@ -506,7 +522,10 @@ internal static class ReconciliationData
         var proofs = step.Output is ReconcileResourceIntent reconcile
             ? string.Join(',', reconcile.DependencyProofs.Select(proof => $"{proof.Identity.Value}:{proof.Generation}:{proof.Digest}"))
             : string.Empty;
-        return $"{step.Order}:{step.Desired.Identity.Value}:{step.Desired.Kind}:{step.Desired.Generation}:{step.Desired.Digest}:O:{observation}:X:{step.Output.GetType().Name}:{step.Output.Identity.Value}:{step.Output.Kind}:{step.Output.Generation}:{step.Output.Digest}:R:{trace.Reason}:{trace.RelatedResource?.Value}:H:{(step.Output is HoldResource hold ? hold.RootResource.Value : null)}:P:{proofs}";
+        var observationProof = step.Output is ReconcileResourceIntent intent
+            ? $"{intent.ObservationProof.Identity.Value}:{intent.ObservationProof.Kind}:{intent.ObservationProof.Generation}:{intent.ObservationProof.Digest}:{intent.ObservationProof.ObservationId}:{intent.ObservationProof.FreshnessSequence}:{intent.ObservationProof.Condition}"
+            : string.Empty;
+        return $"{step.Order}:{step.Desired.Identity.Value}:{step.Desired.Kind}:{step.Desired.Generation}:{step.Desired.Digest}:O:{observation}:X:{step.Output.GetType().Name}:{step.Output.Identity.Value}:{step.Output.Kind}:{step.Output.Generation}:{step.Output.Digest}:R:{trace.Reason}:{trace.RelatedResource?.Value}:H:{(step.Output is HoldResource hold ? hold.RootResource.Value : null)}:OP:{observationProof}:P:{proofs}";
     }
 }
 
