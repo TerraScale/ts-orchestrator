@@ -45,7 +45,7 @@ public sealed class AvailabilityPropertyTests
     [Test]
     public async Task Placement_enforces_one_per_host_and_exact_reserve_conservation_in_every_dimension()
     {
-        var reserveCodes=Enum.GetValues<AvailabilityReasonCode>().Where(code=>code>=AvailabilityReasonCode.ReserveCpu).ToArray();
+        var reserveCodes=ReserveCodes;
         for(ulong seed=60_001;seed<60_001+PropertyLimits.FeatureCases;seed++)
         {
             var property=AvailabilityPropertyGenerator.Maintenance(seed);var count=(ulong)property.Observations.Length;var amount=(long)(seed%20+1);
@@ -58,7 +58,7 @@ public sealed class AvailabilityPropertyTests
             var dimension=(int)(seed%8);var shortAvailable=SchedulerPropertyGenerator.WithOneDimension(available,dimension,-1);
             var shortPlacement=new PlaceReplicaChange(new($"replica-{count}"),new($"node-{count}"),new($"fd-{count}"),requested,shortAvailable);
             var shortDecision=Evaluate(policy,shortPlacement,property.Observations);await Rejected(shortDecision,reserveCodes[dimension]);
-            await Assert.That(shortDecision.Trace.Where(reason=>reason.Code>=AvailabilityReasonCode.ReserveCpu&&reason.Code!=reserveCodes[dimension])
+            await Assert.That(shortDecision.Trace.Where(reason=>ReserveCodes.Contains(reason.Code)&&reason.Code!=reserveCodes[dimension])
                 .All(reason=>reason.Outcome==AvailabilityReasonOutcome.Passed)).IsTrue();
         }
     }
@@ -151,6 +151,12 @@ public sealed class AvailabilityPropertyTests
         evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,observations));
     private static async Task Rejected(AvailabilityDecision decision,AvailabilityReasonCode code)=>
         await Assert.That(decision.Trace.Single(reason=>reason.Code==code).Outcome).IsEqualTo(AvailabilityReasonOutcome.Rejected);
+    private static AvailabilityReasonCode[] ReserveCodes { get; }=
+    [
+        AvailabilityReasonCode.ReserveCpu,AvailabilityReasonCode.ReserveMemory,AvailabilityReasonCode.ReserveBlockIo,
+        AvailabilityReasonCode.ReserveEphemeralDisk,AvailabilityReasonCode.ReserveBandwidth,AvailabilityReasonCode.ReservePids,
+        AvailabilityReasonCode.ReserveFileDescriptors,AvailabilityReasonCode.ReserveHugePages,
+    ];
     private static ResourceVector Resources(long value)=>new(value,value,value,value,value,value,value,value);
     private static ReplicaObservation[] ManyObservations(int count)=>Enumerable.Range(0,count).Select(index=>new ReplicaObservation(new($"replica-{index}"),
         AvailabilityPropertyGenerator.Service,new($"node-{index}"),new($"fd-{index}"),ReplicaAvailabilityState.Available)).ToArray();

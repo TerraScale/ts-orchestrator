@@ -16,7 +16,7 @@ public sealed class AvailabilityPolicyTests
         await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Observed).IsEqualTo(2UL);
         await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Required).IsEqualTo(2UL);
         await Assert.That(Reason(decision, AvailabilityReasonCode.DisruptionBudget).Observed).IsEqualTo(1UL);
-        await Assert.That(decision.Trace.Count).IsEqualTo(20);
+        await Assert.That(decision.Trace.Count).IsEqualTo(28);
     }
 
     [Test]
@@ -124,8 +124,7 @@ public sealed class AvailabilityPolicyTests
         await Assert.That(exact.Admitted).IsTrue();
         await Assert.That(ReserveReasons(exact).All(reason => reason.Outcome == AvailabilityReasonOutcome.Passed)).IsTrue();
 
-        var reserveCodes = Enum.GetValues<AvailabilityReasonCode>()
-            .Where(code => code >= AvailabilityReasonCode.ReserveCpu).ToArray();
+        var reserveCodes = ReserveCodes;
         for (var index = 0; index < reserveCodes.Length; index++)
         {
             var shortDecision = Evaluate(policy, Place(
@@ -144,6 +143,7 @@ public sealed class AvailabilityPolicyTests
         var decision = Evaluate(policy, Place("replica-d", "node-d", "fd-d", Resources(1), Resources(1)), HealthyThree());
 
         await Assert.That(ReserveReasons(decision).All(reason => reason.Outcome == AvailabilityReasonOutcome.NotApplicable)).IsTrue();
+        await Assert.That(CapacityReasons(decision).All(reason => reason.Outcome == AvailabilityReasonOutcome.Passed)).IsTrue();
     }
 
     [Test]
@@ -279,8 +279,7 @@ public sealed class AvailabilityPolicyTests
         await Assert.That(traceType.GetConstructors().SelectMany(constructor => constructor.GetParameters())
             .Any(parameter => forbidden.Contains(parameter.ParameterType))).IsFalse();
         await Assert.That(Serialize(decision)).DoesNotContain("secret");
-        await Assert.That(decision.Trace.Select(reason => reason.Code).ToArray())
-            .IsEquivalentTo(Enum.GetValues<AvailabilityReasonCode>());
+        await Assert.That(decision.Trace.Select(reason => reason.Code).SequenceEqual(Enum.GetValues<AvailabilityReasonCode>())).IsTrue();
     }
 
     [Test]
@@ -353,7 +352,34 @@ public sealed class AvailabilityPolicyTests
         decision.Trace.Single(reason => reason.Code == code);
 
     private static IEnumerable<AvailabilityReason> ReserveReasons(AvailabilityDecision decision) =>
-        decision.Trace.Where(reason => reason.Code >= AvailabilityReasonCode.ReserveCpu);
+        decision.Trace.Where(reason => ReserveCodes.Contains(reason.Code));
+
+    private static IEnumerable<AvailabilityReason> CapacityReasons(AvailabilityDecision decision) =>
+        decision.Trace.Where(reason => CapacityCodes.Contains(reason.Code));
+
+    private static AvailabilityReasonCode[] ReserveCodes { get; } =
+    [
+        AvailabilityReasonCode.ReserveCpu,
+        AvailabilityReasonCode.ReserveMemory,
+        AvailabilityReasonCode.ReserveBlockIo,
+        AvailabilityReasonCode.ReserveEphemeralDisk,
+        AvailabilityReasonCode.ReserveBandwidth,
+        AvailabilityReasonCode.ReservePids,
+        AvailabilityReasonCode.ReserveFileDescriptors,
+        AvailabilityReasonCode.ReserveHugePages,
+    ];
+
+    private static AvailabilityReasonCode[] CapacityCodes { get; } =
+    [
+        AvailabilityReasonCode.CapacityCpu,
+        AvailabilityReasonCode.CapacityMemory,
+        AvailabilityReasonCode.CapacityBlockIo,
+        AvailabilityReasonCode.CapacityEphemeralDisk,
+        AvailabilityReasonCode.CapacityBandwidth,
+        AvailabilityReasonCode.CapacityPids,
+        AvailabilityReasonCode.CapacityFileDescriptors,
+        AvailabilityReasonCode.CapacityHugePages,
+    ];
 
     private static IEnumerable<ReplicaObservation[]> Permutations(ReplicaObservation[] values)
     {

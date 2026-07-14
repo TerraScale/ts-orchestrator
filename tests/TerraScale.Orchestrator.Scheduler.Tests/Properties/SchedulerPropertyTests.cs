@@ -61,7 +61,7 @@ public sealed class SchedulerPropertyTests
     [Test]
     public async Task Typed_caller_safety_holds_always_prevent_selection()
     {
-        var vetoes=new[]{CandidateVetoCode.StatefulSafetyHold,CandidateVetoCode.DisruptionBudgetHold,CandidateVetoCode.TopologySafetyHold,CandidateVetoCode.ControllerHold};
+        var vetoes=Enum.GetValues<CandidateVetoCode>();
         for(ulong seed=30_001;seed<30_001+PropertyLimits.FeatureCases;seed++)
         {
             var property=SchedulerPropertyGenerator.Valid(seed);var veto=vetoes[(int)(seed%(ulong)vetoes.Length)];
