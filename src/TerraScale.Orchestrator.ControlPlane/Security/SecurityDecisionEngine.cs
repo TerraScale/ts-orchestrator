@@ -32,6 +32,8 @@ public static class SecurityDecisionEngine
                                exactBootstrap.Audience == principal.Kind && exactAttestation.Kind == principal.Kind &&
                                principal.Kind is SecurityPrincipalKind.Node or SecurityPrincipalKind.Workload;
         trace.Add(Reject(SecurityDecisionCode.PrincipalMatches, principalMatches, principalMatches ? 1UL : 0UL, 1));
+        var subjectKeyMatches = exactAttestation.SubjectKeyId == request.SubjectKeyId;
+        trace.Add(Reject(SecurityDecisionCode.SubjectKeyMatches, subjectKeyMatches, subjectKeyMatches ? 1UL : 0UL, 1));
         var cellMatches = exactBootstrap.CellId == principal.CellId && exactAttestation.CellId == principal.CellId && request.Issuer.CellId == principal.CellId;
         trace.Add(Reject(SecurityDecisionCode.CellMatches, cellMatches, cellMatches ? 1UL : 0UL, 1));
         var roleMatches = exactBootstrap.Role == principal.Role && exactAttestation.Role == principal.Role;
@@ -280,6 +282,16 @@ public static class SecurityDecisionEngine
 
     private static bool PrivilegeBounded(SecurityPrincipal principal, AuthorizationCapability capability, SecurityResourceScope scope)
     {
+        var resourceMatches = capability switch
+        {
+            AuthorizationCapability.EnrollNode or AuthorizationCapability.EnrollWorkload => scope.Kind == SecurityResourceKind.Enrollment,
+            AuthorizationCapability.IssueCellIdentity or AuthorizationCapability.RenewIdentity or AuthorizationCapability.RevokeIdentity => scope.Kind == SecurityResourceKind.Certificate,
+            AuthorizationCapability.ReadEncryptedSecret => scope.Kind == SecurityResourceKind.EncryptedSecret,
+            AuthorizationCapability.GrantSecretLease or AuthorizationCapability.RenewOwnLease or AuthorizationCapability.RevokeLease => scope.Kind == SecurityResourceKind.SecretLease,
+            AuthorizationCapability.AdministerGlobalTrust => scope.Kind == SecurityResourceKind.TrustBundle,
+            _ => false,
+        };
+        if (!resourceMatches) return false;
         if (capability == AuthorizationCapability.AdministerGlobalTrust)
             return principal.Kind == SecurityPrincipalKind.Operator && principal.Role == SecurityRole.Operator;
         if (principal.CellId != scope.CellId) return false;
@@ -292,7 +304,7 @@ public static class SecurityDecisionEngine
         current.Value < ulong.MaxValue && requested.Value == current.Value + 1;
     private static int Duplicates(IEnumerable<int> counts) => counts.Aggregate(0, (sum, count) => checked(sum + Math.Max(0, count - 1)));
     private static string BootstrapProjection(BootstrapEnrollmentEvidence e) => string.Join('|', e.OperationId.Value, e.PrincipalId.Value, e.Audience, e.CellId.Value, e.Role, Invariant(e.NodeGeneration.Value), e.Status);
-    private static string AttestationProjection(SecurityAttestationEvidence e) => string.Join('|', e.Measurement.Sha256, e.PrincipalId.Value, e.Kind, e.CellId.Value, e.Role, Invariant(e.Generation.Value), Invariant(e.PolicyGeneration.Value), e.Status);
+    private static string AttestationProjection(SecurityAttestationEvidence e) => string.Join('|', e.Measurement.Sha256, e.PrincipalId.Value, e.SubjectKeyId.Value, e.Kind, e.CellId.Value, e.Role, Invariant(e.Generation.Value), Invariant(e.PolicyGeneration.Value), e.Status);
     private static string PrincipalProjection(PrincipalAuthorizationEvidence e) => string.Join('|', e.Principal.Kind, e.Principal.Role, e.Principal.CellId.Value, Invariant(e.Principal.Generation.Value), Invariant(e.RevocationGeneration.Value), e.Revocation, e.Status);
     private static string ReferenceKey(SurvivalSecretReference r) => $"{r.SecretId.Value}|{Invariant(r.Version.Value)}";
     private static string MetadataKey(EncryptedSecretMetadata m) => $"{m.SecretId.Value}|{Invariant(m.Version.Value)}";

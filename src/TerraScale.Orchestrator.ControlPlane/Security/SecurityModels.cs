@@ -157,11 +157,12 @@ public sealed record BootstrapEnrollmentEvidence
 
 public sealed record SecurityAttestationEvidence
 {
-    public SecurityAttestationEvidence(SecurityAttestationId id, SecurityDigest measurement, SecurityPrincipalId principalId, SecurityPrincipalKind kind, SecurityCellId cellId, SecurityRole role, SecurityGeneration generation, SecurityGeneration policyGeneration, EvidenceStatus status)
+    public SecurityAttestationEvidence(SecurityAttestationId id, SecurityDigest measurement, SecurityPrincipalId principalId, SecurityKeyId subjectKeyId, SecurityPrincipalKind kind, SecurityCellId cellId, SecurityRole role, SecurityGeneration generation, SecurityGeneration policyGeneration, EvidenceStatus status)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
         Measurement = measurement ?? throw new ArgumentNullException(nameof(measurement));
         PrincipalId = principalId ?? throw new ArgumentNullException(nameof(principalId));
+        SubjectKeyId = subjectKeyId ?? throw new ArgumentNullException(nameof(subjectKeyId));
         Kind = SecurityEnums.Defined(kind, nameof(kind));
         CellId = cellId ?? throw new ArgumentNullException(nameof(cellId));
         Role = SecurityEnums.Defined(role, nameof(role));
@@ -172,6 +173,7 @@ public sealed record SecurityAttestationEvidence
     public SecurityAttestationId Id { get; }
     public SecurityDigest Measurement { get; }
     public SecurityPrincipalId PrincipalId { get; }
+    public SecurityKeyId SubjectKeyId { get; }
     public SecurityPrincipalKind Kind { get; }
     public SecurityCellId CellId { get; }
     public SecurityRole Role { get; }
@@ -574,7 +576,7 @@ public enum SecurityDecisionCode
     CompromiseProven = 17, ExactGrantPresent = 18, PrivilegeBounded = 19,
     SecretMetadataExact = 20, SecretVersionRetained = 21, SecretAvailable = 22,
     LeaseExact = 23, LeaseValidityAllowsAction = 24, SurvivalReferencesExact = 25,
-    ValidityEvidenceExact = 26,
+    ValidityEvidenceExact = 26, SubjectKeyMatches = 27,
 }
 public enum SecurityDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record SecurityDecisionReason
