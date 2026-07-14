@@ -38,12 +38,12 @@ internal static class StorageTestData
         StorageRetention retention=StorageRetention.ElasticQuarantine, ProviderVolumeId? providerId=null,
         VolumeClaimId? claim=null, StorageCellId? cell=null, StorageWorkloadId? workload=null,
         StorageMemberId? member=null, StorageFenceId? fence=null, StorageGeneration? generation=null,
-        StorageWriterEpoch? epoch=null) =>
+        StorageWriterEpoch? epoch=null, StoragePerformance? performance=null, long forecast=3600) =>
         new(claim??Claim(),providerId??Provider(),Attachment(),cell??Cell(),Node(),workload??Workload(),member??Member(),
             StorageDomain.TerraBase,Key(),Placement(),Device(),Filesystem(),StorageFilesystemType.Xfs,StorageLayout.Lvm,
             StorageMountPurpose.DatabaseData,B(filesystem),B(requested),B(provider),B(block),B(filesystem),B(used),B(free),
-            new StoragePerformance(StoragePerformanceTier.Balanced,B(10),B(1000),B(200),B(5),B(900),B(180),B(10)),
-            B(3600),retention,Backup(),generation??Generation(),fence??Fence(),epoch??Epoch(),Operation());
+            performance??new StoragePerformance(StoragePerformanceTier.Balanced,B(10),B(1000),B(200),B(5),B(900),B(180),B(10)),
+            B(forecast),retention,Backup(),generation??Generation(),fence??Fence(),epoch??Epoch(),Operation());
 
     public static StorageAuthorityContext Context(
         ProviderVolumeId? provider=null, VolumeClaimId? claim=null, StorageCellId? cell=null,

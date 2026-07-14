@@ -32,5 +32,7 @@
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.ReconciliationReplayCorpus.v1.json" />
     <EmbeddedResource Include="Properties/SecurityPolicyReplayCorpus.v1.json"
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json" />
+    <EmbeddedResource Include="Properties/StoragePlannerReplayCorpus.v1.json"
+                      LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.StoragePlannerReplayCorpus.v1.json" />
   </ItemGroup>
 </Project>
