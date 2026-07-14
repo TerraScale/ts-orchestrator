@@ -93,7 +93,7 @@ public sealed class ControlOperationPropertyTests
     {
         var loaded = ControlOperationCorpus.LoadEmbedded();
         await Assert.That(loaded.Code).IsEqualTo(CorpusCode.Accepted);
-        await Assert.That(loaded.Entries.Count).IsEqualTo(3);
+        await Assert.That(loaded.Entries.Count).IsEqualTo(4);
         foreach (var entry in loaded.Entries)
         {
             await Assert.That(ControlOperationCorpus.Digest(entry)).IsEqualTo(entry.Digest);
@@ -403,6 +403,32 @@ public sealed class ControlOperationPropertyTests
                     observed = authority.Errors.Single().Code.ToString();
                     Require(observed == entry.Expected, "corpus-authority", entry.Seed);
                     observed = $"{observed}|{pending.State.JournalDigest}|{baseline.Epoch}|{baseline.KvRevision}";
+                    break;
+                case ("authority", "permit-command-provenance"):
+                    var permitHealth = Healthy(Start, TimeSpan.Zero);
+                    var permitBaseline = new AuthorityObservation("regional-authority", entry.Seed,
+                        entry.Seed, $"baseline-{entry.Seed}", null);
+                    var permitPending = AuthorityEngine.Decide([], new AcquireAuthority("regional-authority",
+                        $"candidate-{entry.Seed}", $"acquire-{entry.Seed}", $"lease-{entry.Seed}",
+                        permitBaseline, permitHealth, TimeSpan.FromMinutes(5)));
+                    var set = (CompareAndSetLeaseIntent)permitPending.Intents.Single();
+                    var permitObservation = new AuthorityObservation("regional-authority", entry.Seed + 1,
+                        entry.Seed + 1, $"confirmed-{entry.Seed}", set.ProposedLease);
+                    var permitConfirmed = AuthorityEngine.Decide(permitPending.EventsToAppend,
+                        new ObserveAuthorityCas("regional-authority", $"candidate-{entry.Seed}",
+                            $"acquire-{entry.Seed}", AuthorityCasOutcome.Succeeded, permitObservation, permitHealth));
+                    var permitHistory = permitPending.EventsToAppend.Concat(permitConfirmed.EventsToAppend).ToArray();
+                    var firstPermit = AuthorityEngine.Decide(permitHistory, new EvaluateMutationAuthority(
+                        "regional-authority", $"candidate-{entry.Seed}", $"permit-{entry.Seed}",
+                        permitObservation, permitHealth));
+                    var secondPermit = AuthorityEngine.Decide(permitHistory, new EvaluateMutationAuthority(
+                        "regional-authority", $"candidate-{entry.Seed}", $"permit-{entry.Seed + entry.Delta}",
+                        permitObservation, permitHealth));
+                    observed = firstPermit.MutationPermit != secondPermit.MutationPermit &&
+                        firstPermit.DecisionDigest != secondPermit.DecisionDigest
+                        ? "ProvenanceDistinct" : "ProvenanceCollision";
+                    Require(observed == entry.Expected, "corpus-authority-permit", entry.Seed);
+                    observed = $"{observed}|{firstPermit.DecisionDigest}|{secondPermit.DecisionDigest}";
                     break;
                 case ("operations", "dispatch-before-authorization"):
                     var operationId = $"operation-{entry.Seed}"; var target = $"node-{entry.Seed}";

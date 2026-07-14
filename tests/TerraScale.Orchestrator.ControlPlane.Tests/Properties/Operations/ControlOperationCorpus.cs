@@ -14,7 +14,7 @@ internal static class ControlOperationCorpus
 {
     private const string Resource =
         "TerraScale.Orchestrator.ControlPlane.Tests.Properties.Operations.Corpus.minimal-counterexamples.json";
-    private const string ResourceDigest = "7310393426420c96523d6aba3b7010b981956915910a2cd00818e67dfd434037";
+    private const string ResourceDigest = "42ef7f191583e894bf82a1391d5d6818aa844bfa0f5f0073bd7ee489aac51a44";
     private const int MaximumBytes = 32_768;
     private const int MaximumEntries = 64;
     private const int MaximumText = 96;
@@ -96,6 +96,7 @@ internal static class ControlOperationCorpus
         c is >= '0' and <= '9' or >= 'a' and <= 'f');
     private static bool Known(CorpusEntry entry) => (entry.Family, entry.Mutation, entry.Expected) is
         ("authority", "stale-cas-request", "StaleObservation") or
+        ("authority", "permit-command-provenance", "ProvenanceDistinct") or
         ("operations", "dispatch-before-authorization", "InvalidTransition") or
         ("reconciliation", "future-observation", "FutureObservation");
     private static CorpusResult Result(CorpusCode code, IEnumerable<CorpusEntry> entries) => new(code,
