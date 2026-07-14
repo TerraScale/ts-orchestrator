@@ -3,7 +3,7 @@
 ## Scope
 
 - Adds seven deterministic property families with exactly 1,000 explicit cases each across enrollment, certificate lifecycle, authorization/secret lease, route/peer policy, ingress, and culture/permutation/replay behavior.
-- Adds a 21-entry embedded replay corpus. The complete resource is limited to 8,192 bytes and pinned to SHA-256 `db16e016adc275b4c962c9b311d1964cb1f12be8ec86895a0f6a97b57ff8f782`; parsing rejects comments, trailing commas, excess depth, unknown/missing fields, excess entries, duplicate identities, and zero seeds.
+- Adds a 23-entry embedded replay corpus, including the later public-HTTP and route-permutation regression seeds. The complete resource is limited to 8,192 bytes and pinned to SHA-256 `435c686afc9495cfcd03796fbdbafbe2d70bd9653363b647a1d59dead5e7213c`; parsing rejects comments, trailing commas, excess depth, unknown/missing fields, excess entries, duplicate identities, and zero seeds.
 - Adds independent closed scalar/action oracles and verifies stale, revoked, consumed, missing, duplicate, conflicting, cross-cell, route-leak, and generation evidence fail closed.
 - Verifies authorized security intents cannot be publicly constructed and network mutation decisions remain construction-closed; the two public network intent subjects remain typed data only and cannot authorize a decision.
 
