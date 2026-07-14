@@ -163,8 +163,14 @@ public sealed class SnapshotEvidencePropertyTests
                 EvidenceTestData.SuiteResult(EvidenceDomain.Storage, suite: EvidenceTestData.Suite($"storage-{seed}")),
             };
             fingerprints.Add($"{tree.Value}|{string.Join('|', suites.Select(suite => suite.Suite.Value))}");
-            var expected = EvidenceTestData.Subject(tree: tree, suites: suites);
-            var forward = EvidenceTestData.Gate(manifest: EvidenceTestData.Manifest(EvidenceTestData.Subject(tree: tree, suites: suites)), context: EvidenceTestData.Context(subject: expected));
+            var models = new[]
+            {
+                new EvidenceModelCorpus(EvidenceDomain.Control, EvidenceTestData.Corpus("control-model"), EvidenceTestData.D(9)),
+                new EvidenceModelCorpus(EvidenceDomain.Storage, EvidenceTestData.Corpus("storage-model"), EvidenceTestData.D(12)),
+            };
+            var policy = EvidenceTestData.Policy(domains: [EvidenceDomain.Control, EvidenceDomain.Storage]);
+            var expected = EvidenceTestData.Subject(tree: tree, suites: suites, models: models);
+            var forward = EvidenceTestData.Gate(manifest: EvidenceTestData.Manifest(EvidenceTestData.Subject(tree: tree, suites: suites, models: models)), policy: policy, context: EvidenceTestData.Context(subject: expected));
             await Assert.That(forward.Code).IsEqualTo(EvidenceCode.Allowed);
             await Assert.That(forward.Action).IsEqualTo(EvidenceAction.AllowL1SCredentialRelease);
             await Assert.That(forward.Subject).IsNotNull();
@@ -173,7 +179,7 @@ public sealed class SnapshotEvidencePropertyTests
             try
             {
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultures[seed % cultures.Length]);
-                var reverse = EvidenceTestData.Gate(manifest: EvidenceTestData.Manifest(EvidenceTestData.Subject(tree: tree, suites: suites.Reverse())), context: EvidenceTestData.Context(subject: expected));
+                var reverse = EvidenceTestData.Gate(manifest: EvidenceTestData.Manifest(EvidenceTestData.Subject(tree: tree, suites: suites.Reverse(), models: models.Reverse())), policy: policy, context: EvidenceTestData.Context(subject: expected));
                 await Assert.That(reverse.Code).IsEqualTo(forward.Code);
                 await Assert.That(reverse.Action).IsEqualTo(forward.Action);
             }
