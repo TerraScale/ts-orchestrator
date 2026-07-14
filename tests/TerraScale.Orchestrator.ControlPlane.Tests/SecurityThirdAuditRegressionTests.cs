@@ -9,21 +9,31 @@ public sealed class SecurityThirdAuditRegressionTests
     public async Task Accepted_authorization_intent_retains_exact_selected_provenance()
     {
         var operation=new SecurityOperationId("operation");var principalId=new SecurityPrincipalId("principal");var cell=new SecurityCellId("gru");
-        var generation=new SecurityGeneration(5);var policy=new SecurityGeneration(3);var revocation=new SecurityGeneration(7);
+        var evidencePrincipalGeneration=new SecurityGeneration(5);var expectedPrincipalGeneration=new SecurityGeneration(5);var currentPrincipalGeneration=new SecurityGeneration(5);
+        var grantPolicyGeneration=new SecurityGeneration(3);var policyGeneration=new SecurityGeneration(3);var currentPolicyGeneration=new SecurityGeneration(3);
+        var evidenceRevocationGeneration=new SecurityGeneration(7);var currentRevocationGeneration=new SecurityGeneration(7);
         var scope=new SecurityResourceScope(SecurityResourceKind.Certificate,cell,SecurityEnvironment.Production,null);
-        var exact=Decide(operation,principalId,cell,scope,SecurityPrincipalKind.Node,SecurityRole.Agent,generation,policy,revocation);
-        await Assert.That(exact.Decision.Authorized).IsTrue();
-        var intent=(AuthorizeCapabilityIntent)exact.Decision.Intent;
+        var principal=new SecurityPrincipal(principalId,SecurityPrincipalKind.Node,SecurityRole.Agent,cell,evidencePrincipalGeneration);
+        var evidence=new PrincipalAuthorizationEvidence(principal,evidenceRevocationGeneration,RevocationStatus.Current,EvidenceStatus.Valid);
+        var grant=new AuthorizationGrant(grantPolicyGeneration,SecurityPrincipalKind.Node,SecurityRole.Agent,AuthorizationCapability.RenewIdentity,scope);
+        var request=new AuthorizationRequest(operation,principalId,expectedPrincipalGeneration,currentPrincipalGeneration,AuthorizationCapability.RenewIdentity,scope,
+            policyGeneration,currentPolicyGeneration,currentRevocationGeneration,[evidence],[grant],EvidenceStatus.Valid);
+        var decision=SecurityDecisionEngine.Authorize(request);
+        await Assert.That(decision.Authorized).IsTrue();
+        var intent=(AuthorizeCapabilityIntent)decision.Intent;
         await Assert.That(ReferenceEquals(intent.OperationId,operation)).IsTrue();
         await Assert.That(ReferenceEquals(intent.PrincipalId,principalId)).IsTrue();
         await Assert.That(ReferenceEquals(intent.ResourceScope,scope)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.Evidence,exact.Evidence)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.Grant,exact.Grant)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.ExpectedPrincipalGeneration,generation)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.CurrentPrincipalGeneration,generation)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.PolicyGeneration,policy)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.CurrentPolicyGeneration,policy)).IsTrue();
-        await Assert.That(ReferenceEquals(intent.CurrentRevocationGeneration,revocation)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.Evidence,evidence)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.Evidence.Principal.Generation,evidencePrincipalGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.Evidence.RevocationGeneration,evidenceRevocationGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.Grant,grant)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.Grant.PolicyGeneration,grantPolicyGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.ExpectedPrincipalGeneration,expectedPrincipalGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.CurrentPrincipalGeneration,currentPrincipalGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.PolicyGeneration,policyGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.CurrentPolicyGeneration,currentPolicyGeneration)).IsTrue();
+        await Assert.That(ReferenceEquals(intent.CurrentRevocationGeneration,currentRevocationGeneration)).IsTrue();
     }
 
     [Test]
