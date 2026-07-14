@@ -66,7 +66,7 @@ public sealed class StorageVolumeRecord
     internal StorageNumericTrace Trace(StorageConflictClass conflicts = StorageConflictClass.None,
         StorageWriterEpoch? authorizedEpoch = null, StorageNodeId? authorizedNode = null) =>
         new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member, DeviceId,
-                FilesystemId, FilesystemType, Layout, Operation, WriterFence),
+                FilesystemId, FilesystemType, Layout, Retention, Backup, Operation, WriterFence),
             ObservedBytes, RequestedBytes, ProviderBytes, BlockBytes, FilesystemBytes, UsedBytes, FreeBytes,
             ForecastExhaustion, Generation, authorizedEpoch ?? WriterEpoch, Performance, conflicts);
 
@@ -103,10 +103,11 @@ public sealed record StorageIntentScope
     internal StorageIntentScope(VolumeClaimId claim, ProviderVolumeId providerVolume,
         StorageAttachmentId attachment, StorageCellId cell, StorageNodeId node, StorageWorkloadId workload,
         StorageMemberId member, StorageDeviceId deviceId, FilesystemId filesystemId,
-        StorageFilesystemType filesystemType, StorageLayout layout,
+        StorageFilesystemType filesystemType, StorageLayout layout, StorageRetention retention, StorageBackupId backup,
         StorageOperationId operation, StorageFenceId fence)
     { Claim=claim; ProviderVolume=providerVolume; Attachment=attachment; Cell=cell; Node=node; Workload=workload;
       Member=member; DeviceId=deviceId; FilesystemId=filesystemId; FilesystemType=filesystemType; Layout=layout;
+      Retention=retention; Backup=backup;
       Operation=operation; Fence=fence; }
     public VolumeClaimId Claim { get; }
     public ProviderVolumeId ProviderVolume { get; }
@@ -119,6 +120,8 @@ public sealed record StorageIntentScope
     public FilesystemId FilesystemId { get; }
     public StorageFilesystemType FilesystemType { get; }
     public StorageLayout Layout { get; }
+    public StorageRetention Retention { get; }
+    public StorageBackupId Backup { get; }
     public StorageOperationId Operation { get; }
     public StorageFenceId Fence { get; }
     public override string ToString() => "<storage-intent-scope>";
