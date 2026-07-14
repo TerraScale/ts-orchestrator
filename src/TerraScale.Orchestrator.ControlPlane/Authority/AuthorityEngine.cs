@@ -201,7 +201,7 @@ public static class AuthorityEngine
             var confirmed = Stamp(state, (sequence, previous, digest) => new AuthoritySetConfirmed(
                 sequence, previous, digest, command.AuthorityId, command.CandidateId, command.RequestId,
                 command.Observation, command.Health, pending.IsRenewal));
-            return Commit(state, confirmed, mutationPermit: CreatePermit(command.Observation, command.Health));
+            return Commit(state, confirmed, mutationPermit: CreatePermit(command));
         }
 
         var error = command.Outcome switch
@@ -278,7 +278,7 @@ public static class AuthorityEngine
             sequence, previous, digest, command.AuthorityId, command.CandidateId, command.RequestId,
             command.Observation, command.Health));
         return Commit(state, @event, mutationPermit: state.ReadResumeStatus == AuthorityStatus.Leader
-            ? CreatePermit(command.Observation, command.Health) : null);
+            ? CreatePermit(command) : null);
     }
 
     private static AuthorityDecision Evaluate(AuthorityState state, EvaluateMutationAuthority command)
@@ -290,7 +290,7 @@ public static class AuthorityEngine
         if (command.Observation.AuthorityId != command.AuthorityId || state.Confirmed.Lease?.CandidateId != command.CandidateId)
             return Reject(state, Error(AuthorityErrorCode.IdentityMismatch, "INV-004", "Mutation evaluation identity differs from confirmed lease."));
         var exact = EnsureExactCurrent(state, command.Observation, command.Health);
-        return exact is null ? AuthorityDecision.Create(state, mutationPermit: CreatePermit(command.Observation, command.Health)) :
+        return exact is null ? AuthorityDecision.Create(state, mutationPermit: CreatePermit(command)) :
             LoseAuthority(state, command, command.Observation, exact);
     }
 
@@ -663,10 +663,7 @@ public static class AuthorityEngine
 
     private static AuthorityError Error(AuthorityErrorCode code, string requirement, string message) => new(code, requirement, message);
 
-    private static MutationAuthorityPermit CreatePermit(AuthorityObservation observation, AuthorityHealth health) => new(
-        observation.AuthorityId, observation.Lease!.CandidateId, observation.Lease.LeaseId,
-        observation.Epoch, observation.KvRevision, observation.ObservationId,
-        health.ServerTime, health.MonotonicElapsed);
+    private static MutationAuthorityPermit CreatePermit(AuthorityCommand command) => new(command);
 
     private static AuthorityObservation? ObservationFrom(AuthorityCommand command) => command switch
     {

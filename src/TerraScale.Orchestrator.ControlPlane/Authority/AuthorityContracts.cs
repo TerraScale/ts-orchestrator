@@ -182,15 +182,40 @@ public sealed record ReadAuthorityIntent : AuthorityIntent
 
 public sealed record MutationAuthorityPermit
 {
-    internal MutationAuthorityPermit(string authorityId, string candidateId, string leaseId, long epoch,
-        long kvRevision, string observationId, DateTimeOffset evaluatedServerTime,
-        TimeSpan evaluatedMonotonicElapsed)
+    internal MutationAuthorityPermit(AuthorityCommand authorizingCommand)
     {
-        AuthorityId = authorityId; CandidateId = candidateId; LeaseId = leaseId; Epoch = epoch;
-        KvRevision = kvRevision; ObservationId = observationId; EvaluatedServerTime = evaluatedServerTime;
-        EvaluatedMonotonicElapsed = evaluatedMonotonicElapsed;
+        (AuthorityObservation observation, AuthorityHealth health, AuthorityLease lease) = authorizingCommand switch
+        {
+            ObserveAuthorityCas
+            {
+                Outcome: AuthorityCasOutcome.Succeeded,
+                Observation: { Lease: not null } acceptedObservation,
+            } accepted => (acceptedObservation, accepted.Health, acceptedObservation.Lease),
+            ObserveAuthorityRead
+            {
+                Outcome: AuthorityCasOutcome.Succeeded,
+                Observation: { Lease: not null } acceptedObservation,
+            } accepted => (acceptedObservation, accepted.Health, acceptedObservation.Lease),
+            EvaluateMutationAuthority { Observation.Lease: not null } accepted =>
+                (accepted.Observation, accepted.Health, accepted.Observation.Lease),
+            _ => throw new ArgumentException(
+                "A mutation permit requires an accepted CAS, read, or evaluation command with lease evidence.",
+                nameof(authorizingCommand)),
+        };
+
+        AuthorizingCommand = authorizingCommand;
+        AuthorityId = authorizingCommand.AuthorityId;
+        CandidateId = authorizingCommand.CandidateId;
+        LeaseId = lease.LeaseId;
+        Epoch = observation.Epoch;
+        KvRevision = observation.KvRevision;
+        ObservationId = observation.ObservationId;
+        EvaluatedServerTime = health.ServerTime;
+        EvaluatedMonotonicElapsed = health.MonotonicElapsed;
     }
 
+    public AuthorityCommand AuthorizingCommand { get; }
+    public string RequestId => AuthorizingCommand.RequestId;
     public string AuthorityId { get; }
     public string CandidateId { get; }
     public string LeaseId { get; }

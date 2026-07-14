@@ -90,7 +90,8 @@ public static class AuthorityDigest
                     intent.ResumeStatus, intent.ExpectedHighestEpoch, intent.ExpectedHighestKvRevision,
                     intent.ExpectedConfirmedObservation)); return;
             case MutationAuthorityPermit permit:
-                Append(builder, Encode("mutation-permit-v1", permit.AuthorityId, permit.CandidateId,
+                Append(builder, Encode("mutation-permit-v1", EncodePermitCommand(permit.AuthorizingCommand),
+                    permit.AuthorityId, permit.CandidateId, permit.RequestId,
                     permit.LeaseId, permit.Epoch, permit.KvRevision, permit.ObservationId,
                     permit.EvaluatedServerTime, permit.EvaluatedMonotonicElapsed)); return;
             case System.Collections.IEnumerable sequence:
@@ -101,6 +102,17 @@ public static class AuthorityDigest
             default: throw new ArgumentException($"Unsupported digest value {value.GetType().FullName}.", nameof(value));
         }
     }
+
+    private static string EncodePermitCommand(AuthorityCommand command) => command switch
+    {
+        ObserveAuthorityCas value => Encode("observe-authority-cas-command-v1",
+            value.AuthorityId, value.CandidateId, value.RequestId, value.Outcome, value.Observation, value.Health),
+        ObserveAuthorityRead value => Encode("observe-authority-read-command-v1",
+            value.AuthorityId, value.CandidateId, value.RequestId, value.Outcome, value.Observation, value.Health),
+        EvaluateMutationAuthority value => Encode("evaluate-mutation-authority-command-v1",
+            value.AuthorityId, value.CandidateId, value.RequestId, value.Observation, value.Health),
+        _ => throw new ArgumentOutOfRangeException(nameof(command)),
+    };
 
     private static string Hash(string value) => Convert.ToHexStringLower(
         SHA256.HashData(Encoding.UTF8.GetBytes(value)));
