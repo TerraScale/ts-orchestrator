@@ -104,6 +104,7 @@ internal static class SnapshotTestData
         SnapshotSchemaId? currentSchema = null,
         SnapshotEpoch? currentEpoch = null,
         SnapshotStreamSequence? currentSequence = null,
+        SnapshotGeneration? currentGeneration = null,
         SnapshotStateDigest? digest = null,
         ISnapshotSchemaCompatibility? compatibility = null,
         ISnapshotSignatureVerifier? signatureVerifier = null) =>
@@ -114,6 +115,7 @@ internal static class SnapshotTestData
             currentSchema ?? Schema(),
             currentEpoch ?? Epoch(),
             currentSequence ?? Sequence(100),
+            currentGeneration ?? Generation(),
             digest ?? Digest(),
             compatibility ?? new TestSchemaCompatibility(),
             signatureVerifier ?? new TestSnapshotSignatureVerifier());

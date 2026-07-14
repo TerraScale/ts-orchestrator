@@ -14,7 +14,7 @@ public sealed class SnapshotValidationTests
 
         var invalid = new SnapshotValidationContext(
             default, SnapshotTestData.Stream(), SnapshotTestData.Key(), SnapshotTestData.Schema(),
-            SnapshotTestData.Epoch(), SnapshotTestData.Sequence(100), SnapshotTestData.Digest(),
+            SnapshotTestData.Epoch(), SnapshotTestData.Sequence(100), SnapshotTestData.Generation(), SnapshotTestData.Digest(),
             new TestSchemaCompatibility(), new TestSnapshotSignatureVerifier());
         await Assert.That(SignedSnapshotValidator.Validate(SnapshotTestData.Snapshot(), invalid).Error)
             .IsEqualTo(SnapshotValidationError.InvalidContext);
