@@ -54,3 +54,11 @@ replicate an observation generation and does not prove adapter wiring or deploym
 evidence. The caller must obtain the current high-water mark from its authoritative
 accepted state. No topology, quorum, disruption, reserve, provider, runtime, NATS,
 network, filesystem, process, or wall-clock behavior is selected or exercised.
+
+## Exact-tree verification
+
+After the branch was rebased onto integration commit `369a3a1`, locked restore and
+the complete Release build with warnings as errors succeeded with zero warnings and
+zero errors. The focused Scheduler suite passed 77/77. All five executable suites
+passed 750/750: Contract 24, ControlPlane 546, Model 38, Protocol 65, and Scheduler
+77. `git diff --check` and the final clean-worktree check passed.
