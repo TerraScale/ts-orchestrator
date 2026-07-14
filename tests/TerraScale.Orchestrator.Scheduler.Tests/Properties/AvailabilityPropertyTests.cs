@@ -71,15 +71,16 @@ public sealed class AvailabilityPropertyTests
             var property=AvailabilityPropertyGenerator.Maintenance(seed);AvailabilityEvaluationRequest request;
             switch(seed%3)
             {
-                case 0:request=new(property.Policy,property.Maintenance,ObservationCompleteness.Incomplete,property.Observations);break;
-                case 1:request=new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,property.Observations.Append(property.Observations[0]));break;
+                case 0:request=new(property.Policy,property.Maintenance,ObservationCompleteness.Incomplete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations);break;
+                case 1:request=new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations.Append(property.Observations[0]));break;
                 default:
                     var conflict=new ReplicaObservation(property.Observations[0].ReplicaId,property.Observations[0].ServiceId,new("node-conflict"),new("fd-conflict"),ReplicaAvailabilityState.Available);
-                    request=new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,property.Observations.Append(conflict));break;
+                    request=new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations.Append(conflict));break;
             }
             var decision=evaluator.Evaluate(request);await Assert.That(decision.Admitted).IsFalse();
             await Assert.That(decision.Trace.Take(5).Any(reason=>reason.Outcome==AvailabilityReasonOutcome.Held)).IsTrue();
-            await Assert.That(decision.Trace.Skip(5).All(reason=>reason.Outcome is AvailabilityReasonOutcome.Held or AvailabilityReasonOutcome.NotApplicable)).IsTrue();
+            await Assert.That(decision.Trace.Skip(5).Take(23).All(reason=>reason.Outcome is AvailabilityReasonOutcome.Held or AvailabilityReasonOutcome.NotApplicable)).IsTrue();
+            await Assert.That(decision.Trace.Skip(28).All(reason=>reason.Outcome==AvailabilityReasonOutcome.Passed)).IsTrue();
         }
     }
 
@@ -119,8 +120,8 @@ public sealed class AvailabilityPropertyTests
     {
         var observations=ManyObservations(SchedulerTechnicalInputLimits.MaximumAvailabilityObservationCount);var policy=AvailabilityPropertyGenerator.Policy(
             (ulong)observations.Length,0,0,(ulong)observations.Length,0,false,ResourceVector.Zero);var change=new MaintainReplicaChange(new("replica-0"));
-        var forward=evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,observations));
-        var reverse=evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,observations.Reverse()));
+        var forward=evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),observations));
+        var reverse=evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),observations.Reverse()));
         await Assert.That(forward.Admitted).IsTrue();await Assert.That(PropertySerialization.Availability(reverse)).IsEqualTo(PropertySerialization.Availability(forward));
     }
 
@@ -128,13 +129,13 @@ public sealed class AvailabilityPropertyTests
     public async Task Observation_snapshot_rejects_maximum_plus_one_infinite_and_hostile_iterators_secret_safely()
     {
         var policy=AvailabilityPropertyGenerator.Policy(1,0,0,1,0,false,ResourceVector.Zero);var change=new MaintainReplicaChange(new("replica-0"));
-        var oversized=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,ManyObservations(SchedulerTechnicalInputLimits.MaximumAvailabilityObservationCount+1)));
-        var infinite=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,InfiniteObservations()));
+        var oversized=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),ManyObservations(SchedulerTechnicalInputLimits.MaximumAvailabilityObservationCount+1)));
+        var infinite=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),InfiniteObservations()));
         await Assert.That(oversized).IsTypeOf<ArgumentException>();await Assert.That(infinite).IsTypeOf<ArgumentException>();
         const string secret="observation-iterator-secret";var values=ManyObservations(3);
         foreach(var mode in Enum.GetValues<ObservationThrowMode>())
         {
-            var failure=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new ThrowingObservations(values,mode,secret)));
+            var failure=Capture(()=>new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),new ThrowingObservations(values,mode,secret)));
             await Assert.That(failure).IsTypeOf<ArgumentException>();await Assert.That(failure!.Message).DoesNotContain(secret);
         }
     }
@@ -143,12 +144,12 @@ public sealed class AvailabilityPropertyTests
     public async Task Observation_snapshot_is_defensive_against_source_mutation_on_dispose()
     {
         var values=ManyObservations(3).ToList();var policy=AvailabilityPropertyGenerator.Policy(3,0,0,3,0,false,ResourceVector.Zero);
-        var request=new AvailabilityEvaluationRequest(policy,new MaintainReplicaChange(new("replica-0")),ObservationCompleteness.Complete,new ClearingObservations(values));
+        var request=new AvailabilityEvaluationRequest(policy,new MaintainReplicaChange(new("replica-0")),ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),new ClearingObservations(values));
         await Assert.That(values).IsEmpty();await Assert.That(request.Observations.Count).IsEqualTo(3);await Assert.That(evaluator.Evaluate(request).Admitted).IsTrue();
     }
 
     private AvailabilityDecision Evaluate(ServiceAvailabilityPolicy policy,AvailabilityChange change,IEnumerable<ReplicaObservation> observations)=>
-        evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,observations));
+        evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),observations));
     private static async Task Rejected(AvailabilityDecision decision,AvailabilityReasonCode code)=>
         await Assert.That(decision.Trace.Single(reason=>reason.Code==code).Outcome).IsEqualTo(AvailabilityReasonOutcome.Rejected);
     private static AvailabilityReasonCode[] ReserveCodes { get; }=

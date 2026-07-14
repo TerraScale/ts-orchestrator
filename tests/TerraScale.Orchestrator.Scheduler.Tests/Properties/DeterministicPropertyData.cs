@@ -187,11 +187,11 @@ internal static class AvailabilityPropertyGenerator
             AvailabilityValidatorFamily.ChangeNull=>Throws(()=>(variant%6) switch{0=>new MaintainReplicaChange(null!),1=>new DrainNodeChange(null!),
                 2=>new PlaceReplicaChange(null!,new("node"),new("fd"),ResourceVector.Zero,ResourceVector.Zero),3=>new PlaceReplicaChange(new("replica"),null!,new("fd"),ResourceVector.Zero,ResourceVector.Zero),
                 4=>new PlaceReplicaChange(new("replica"),new("node"),null!,ResourceVector.Zero,ResourceVector.Zero),_=>new PlaceReplicaChange(new("replica"),new("node"),new("fd"),null!,ResourceVector.Zero)}),
-            AvailabilityValidatorFamily.RequestPolicyNull=>Throws(()=>new AvailabilityEvaluationRequest(null!,change,ObservationCompleteness.Complete,[observation])),
-            AvailabilityValidatorFamily.RequestChangeNull=>Throws(()=>new AvailabilityEvaluationRequest(policy,null!,ObservationCompleteness.Complete,[observation])),
-            AvailabilityValidatorFamily.RequestEnum=>Throws(()=>new AvailabilityEvaluationRequest(policy,change,(ObservationCompleteness)99,[observation])),
-            AvailabilityValidatorFamily.RequestObservationNull=>Throws(()=>variant%2==0?new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,null!)
-                :new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,[null!])),
+            AvailabilityValidatorFamily.RequestPolicyNull=>Throws(()=>new AvailabilityEvaluationRequest(null!,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),[observation])),
+            AvailabilityValidatorFamily.RequestChangeNull=>Throws(()=>new AvailabilityEvaluationRequest(policy,null!,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),[observation])),
+            AvailabilityValidatorFamily.RequestEnum=>Throws(()=>new AvailabilityEvaluationRequest(policy,change,(ObservationCompleteness)99,new(1),new(1),[observation])),
+            AvailabilityValidatorFamily.RequestObservationNull=>Throws(()=>variant%2==0?new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),null!)
+                :new AvailabilityEvaluationRequest(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),[null!])),
             AvailabilityValidatorFamily.EvaluatorNull=>Throws(()=>new AvailabilityPolicyEvaluator().Evaluate(null!)),
             _=>false
         };

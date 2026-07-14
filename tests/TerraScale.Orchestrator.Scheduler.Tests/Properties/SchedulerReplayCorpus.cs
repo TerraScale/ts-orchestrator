@@ -82,15 +82,15 @@ public sealed class SchedulerReplayCorpusTests
     {var property=SchedulerPropertyGenerator.Valid(seed);var result=new DeterministicScheduler().Schedule(property.Workload,[SchedulerPropertyGenerator.Vetoed(property.Workload,CandidateVetoCode.StatefulSafetyHold)],property.Policy);return result is Unschedulable?"rejected:caller-hold":"unexpected";}
     private static string ReplayAvailabilityFloor(ulong seed)
     {var property=AvailabilityPropertyGenerator.Maintenance(seed);var count=(ulong)property.Observations.Length;var policy=AvailabilityPropertyGenerator.Policy(count,count,count,1,count,true,ResourceVector.Zero);
-        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(policy,property.Maintenance,ObservationCompleteness.Complete,property.Observations));return decision.Admitted?"unexpected":"rejected:availability-floor";}
+        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(policy,property.Maintenance,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations));return decision.Admitted?"unexpected":"rejected:availability-floor";}
     private static string ReplayConflict(ulong seed)
     {var property=AvailabilityPropertyGenerator.Maintenance(seed);var conflict=new ReplicaObservation(property.Observations[0].ReplicaId,property.Observations[0].ServiceId,new("conflict"),new("conflict"),ReplicaAvailabilityState.Available);
-        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,property.Observations.Append(conflict)));return decision.Admitted?"unexpected":"rejected:observation-conflict";}
+        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations.Append(conflict)));return decision.Admitted?"unexpected":"rejected:observation-conflict";}
     private static string ReplayReserve(ulong seed)
     {var property=AvailabilityPropertyGenerator.Maintenance(seed);var count=(ulong)property.Observations.Length;var requested=Resources(2);var reserve=Resources(3);var dimension=(int)(seed%8);
         var available=SchedulerPropertyGenerator.WithOneDimension(SchedulerPropertyGenerator.Add(requested,3),dimension,-1);var policy=AvailabilityPropertyGenerator.Policy(count+1,count,count,1,count+1,true,reserve);
         var placement=new PlaceReplicaChange(new($"replica-{count}"),new($"node-{count}"),new($"fd-{count}"),requested,available);
-        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(policy,placement,ObservationCompleteness.Complete,property.Observations));var code=(AvailabilityReasonCode)((int)AvailabilityReasonCode.ReserveCpu+dimension);
+        var decision=new AvailabilityPolicyEvaluator().Evaluate(new(policy,placement,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations));var code=(AvailabilityReasonCode)((int)AvailabilityReasonCode.ReserveCpu+dimension);
         return decision.Admitted?"unexpected":$"rejected:reserve-boundary:{code}";}
     private static ResourceVector Resources(long value)=>new(value,value,value,value,value,value,value,value);
     private static bool Throws(Action action){try{action();return false;}catch(Exception exception)when(exception is InvalidOperationException or JsonException){return true;}}

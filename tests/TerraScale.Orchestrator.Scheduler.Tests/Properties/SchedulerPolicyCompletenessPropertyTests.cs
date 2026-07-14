@@ -39,18 +39,18 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
     }
 
     [Test]
-    public async Task EveryAvailabilityPathEmitsTheExactStableTwentyRowPrefixAndEightCapacityRows()
+    public async Task EveryAvailabilityPathPreservesTheExactTwentyEightRowPrefixAndAppendsGenerationRows()
     {
         for (ulong seed = 120_001; seed < 120_001 + PropertyLimits.FeatureCases; seed++)
         {
             var observation = Observation();
             var request = (seed % 5) switch
             {
-                0 => new AvailabilityEvaluationRequest(Policy(ReserveDisposition.Preserve), Place(Resources(1), Resources(1)), ObservationCompleteness.Complete, []),
-                1 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Complete, [observation]),
-                2 => new AvailabilityEvaluationRequest(MutationPolicy(), new DrainNodeChange(observation.NodeId!), ObservationCompleteness.Complete, [observation]),
-                3 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Incomplete, [observation]),
-                _ => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(new("replica-missing")), ObservationCompleteness.Complete, [observation]),
+                0 => new AvailabilityEvaluationRequest(Policy(ReserveDisposition.Preserve), Place(Resources(1), Resources(1)), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), []),
+                1 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
+                2 => new AvailabilityEvaluationRequest(MutationPolicy(), new DrainNodeChange(observation.NodeId!), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
+                3 => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(observation.ReplicaId), ObservationCompleteness.Incomplete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
+                _ => new AvailabilityEvaluationRequest(MutationPolicy(), new MaintainReplicaChange(new("replica-missing")), ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), [observation]),
             };
 
             var decision = evaluator.Evaluate(request);
@@ -58,9 +58,10 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
 
             await Assert.That(codes).IsEquivalentTo(AllReasonCodes);
             await Assert.That(codes.SequenceEqual(AllReasonCodes)).IsTrue();
-            await Assert.That(codes.Take(20).Select(code => (int)code).SequenceEqual(Enumerable.Range(1, 20))).IsTrue();
-            await Assert.That(decision.Trace.Count).IsEqualTo(28);
-            await Assert.That(codes.Distinct().Count()).IsEqualTo(28);
+            await Assert.That(codes.Take(28).Select(code => (int)code).SequenceEqual(Enumerable.Range(1, 28))).IsTrue();
+            await Assert.That(codes.Skip(28).Select(code => (int)code).SequenceEqual([29, 30])).IsTrue();
+            await Assert.That(decision.Trace.Count).IsEqualTo(30);
+            await Assert.That(codes.Distinct().Count()).IsEqualTo(30);
         }
     }
 
@@ -95,7 +96,7 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
         ServiceAvailabilityPolicy policy,
         AvailabilityChange change,
         IEnumerable<ReplicaObservation> observations) =>
-        evaluator.Evaluate(new(policy, change, ObservationCompleteness.Complete, observations));
+        evaluator.Evaluate(new(policy, change, ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations));
 
     private static ServiceAvailabilityPolicy Policy(ReserveDisposition disposition) => new(
         Service,

@@ -16,7 +16,7 @@ public sealed class AvailabilityPolicyTests
         await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Observed).IsEqualTo(2UL);
         await Assert.That(Reason(decision, AvailabilityReasonCode.Quorum).Required).IsEqualTo(2UL);
         await Assert.That(Reason(decision, AvailabilityReasonCode.DisruptionBudget).Observed).IsEqualTo(1UL);
-        await Assert.That(decision.Trace.Count).IsEqualTo(28);
+        await Assert.That(decision.Trace.Count).IsEqualTo(30);
     }
 
     [Test]
@@ -178,7 +178,7 @@ public sealed class AvailabilityPolicyTests
             new MaintainReplicaChange(new("replica-a")), missingIdentity);
         var incomplete = new AvailabilityEvaluationRequest(
             Policy(3, 2, 2, 1, domains: 2), new MaintainReplicaChange(new("replica-a")),
-            ObservationCompleteness.Incomplete, HealthyThree());
+            ObservationCompleteness.Incomplete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), HealthyThree());
         var wrongService = new[]
         {
             new ReplicaObservation(new("replica-a"), new("other-service"), new("node-a"), new("fd-a"), ReplicaAvailabilityState.Available),
@@ -260,7 +260,7 @@ public sealed class AvailabilityPolicyTests
         var observations = HealthyThree().ToList();
         var request = new AvailabilityEvaluationRequest(
             Policy(3, 2, 2, 1, domains: 2), new MaintainReplicaChange(new("replica-a")),
-            ObservationCompleteness.Complete, observations);
+            ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations);
         observations.Clear();
 
         await Assert.That(request.Observations.Count).IsEqualTo(3);
@@ -293,7 +293,7 @@ public sealed class AvailabilityPolicyTests
             new ReplicaObservation(new("replica-a"), Service, new("node-a"), new("fd-a"), (ReplicaAvailabilityState)0))).IsTrue();
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new AvailabilityEvaluationRequest(
             Policy(3, 2, 2, 1, domains: 2), new MaintainReplicaChange(new("replica-a")),
-            (ObservationCompleteness)0, HealthyThree()))).IsTrue();
+            (ObservationCompleteness)0, new(1), new(1), HealthyThree()))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new ReplicaId("secret\nvalue"))).IsTrue();
     }
 
@@ -303,7 +303,7 @@ public sealed class AvailabilityPolicyTests
         ServiceAvailabilityPolicy policy,
         AvailabilityChange change,
         IEnumerable<ReplicaObservation> observations) => evaluator.Evaluate(new(
-            policy, change, ObservationCompleteness.Complete, observations));
+            policy, change, ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1), observations));
 
     private static ServiceAvailabilityPolicy Policy(
         ulong desired,
