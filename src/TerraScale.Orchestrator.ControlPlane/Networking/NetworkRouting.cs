@@ -64,6 +64,11 @@ public static class NetworkRoutePlanner
         if(e.Routes.Any(route=>route.LearnedFromPeer==expected.Peer&&route.NextPeer==expected.Peer))return NetworkDecision.Hold(NetworkCode.Reflection,trace);
         if(e.Routes.Any(route=>route.Destination.Equals(expected.Destination)&&route.NextPeer!=expected.Peer))return NetworkDecision.Hold(NetworkCode.AmbiguousOwnership,trace);
         if(e.Routes.Any(route=>route.Destination.Overlaps(expected.Destination)&&route.NextPeer!=expected.Peer))return NetworkDecision.Hold(NetworkCode.Overlap,trace);
+        if(expected.RouteKind==NetworkRouteKind.Local&&expected.PeerCell!=expected.Cell)
+        {
+            if(e.Partitioned&&e.LocalPolicy!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.LocalPolicyRequired,trace);
+            return NetworkDecision.Hold(e.Partitioned?NetworkCode.PartitionAuthorityDenied:NetworkCode.WrongEvidenceScope,trace);
+        }
         var subject=new NetworkRouteIntentSubject(expected.Cell,expected.PeerCell,expected.Network,expected.Subnet,expected.Route,expected.Peer,expected.Tunnel,
             expected.TrustPlane,expected.RouteKind,expected.Destination,expected.Generation,expected.Epoch,expected.Operation);
         if(e.Partitioned)
