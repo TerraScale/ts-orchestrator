@@ -85,8 +85,7 @@ public static class DeliveryEngine
             .OrderBy(static runner => runner.Runner.Value, Ordinal).ToArray();
         if (compatible.Length == 0) return Held(DeliveryErrorCode.CapabilityMissing, job.Job);
         var selected = compatible[0];
-        var dispatch = new DispatchJobIntent(job.Pipeline, job.Job, selected.Runner, job.Tree,
-            job.Generation, job.Attempt, job.Idempotency);
+        var dispatch = new DispatchJobIntent(job, selected, maximumIdentityLength);
         return One(dispatch, DeliveryTraceCode.RunnerSelected);
     }
 

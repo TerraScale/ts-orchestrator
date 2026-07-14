@@ -392,16 +392,23 @@ public sealed class PlanApplyIntent : DeliveryIntent
 }
 public sealed class DispatchJobIntent : DeliveryIntent
 {
-    internal DispatchJobIntent(PipelineId pipeline, JobId job, RunnerId runner, TreeId tree, long generation,
-        int attempt, IdempotencyId idempotency) : base(DeliveryAction.Dispatch)
-    { Pipeline = pipeline; Job = job; Runner = runner; Tree = tree; Generation = generation; Attempt = attempt; Idempotency = idempotency; }
-    public PipelineId Pipeline { get; }
-    public JobId Job { get; }
-    public RunnerId Runner { get; }
-    public TreeId Tree { get; }
-    public long Generation { get; }
-    public int Attempt { get; }
-    public IdempotencyId Idempotency { get; }
+    internal DispatchJobIntent(JobRequest request, RunnerEvidence selectedRunnerEvidence, int maximumIdentityLength)
+        : base(DeliveryAction.Dispatch)
+    {
+        Request = request;
+        SelectedRunnerEvidence = selectedRunnerEvidence;
+        MaximumIdentityLength = maximumIdentityLength;
+    }
+    public JobRequest Request { get; }
+    public RunnerEvidence SelectedRunnerEvidence { get; }
+    public int MaximumIdentityLength { get; }
+    public PipelineId Pipeline => Request.Pipeline;
+    public JobId Job => Request.Job;
+    public RunnerId Runner => SelectedRunnerEvidence.Runner;
+    public TreeId Tree => Request.Tree;
+    public long Generation => Request.Generation;
+    public int Attempt => Request.Attempt;
+    public IdempotencyId Idempotency => Request.Idempotency;
 }
 public sealed class PromoteArtifactIntent : DeliveryIntent
 {
