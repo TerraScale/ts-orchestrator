@@ -87,7 +87,7 @@ internal static class SecurityEnums
     public static IReadOnlyList<T> CopyDistinct<T>(IEnumerable<T> source, string name) where T : struct, Enum
     {
         ArgumentNullException.ThrowIfNull(source, name);
-        var values = source.ToArray();
+        var values = SecurityInputSnapshot.Copy(source, SecurityTechnicalLimits.MaximumCapturedItems, name);
         if (values.Any(v => !Enum.IsDefined(v))) throw new ArgumentOutOfRangeException(name);
         if (values.Length != values.Distinct().Count()) throw new ArgumentException("Duplicate catalog values are invalid.", name);
         return new ReadOnlyCollection<T>(values.Order().ToArray());
@@ -206,7 +206,7 @@ public sealed record EnrollmentRequest
     internal static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, string name) where T : notnull
     {
         ArgumentNullException.ThrowIfNull(source, name);
-        var values = source.ToArray();
+        var values = SecurityInputSnapshot.Copy(source, SecurityTechnicalLimits.MaximumCapturedItems, name);
         if (values.Any(v => v is null)) throw new ArgumentException("Null evidence is invalid.", name);
         return new ReadOnlyCollection<T>(values);
     }
@@ -435,7 +435,7 @@ public sealed record SecretRetentionPolicy
         Environment = SecurityEnums.Defined(environment, nameof(environment));
         Purpose = SecurityEnums.Defined(purpose, nameof(purpose));
         ArgumentNullException.ThrowIfNull(retainedVersions);
-        var versions = retainedVersions.ToArray();
+        var versions = SecurityInputSnapshot.Copy(retainedVersions, SecurityTechnicalLimits.MaximumCapturedItems, nameof(retainedVersions));
         if (versions.Any(v => v is null)) throw new ArgumentException("Null secret version.", nameof(retainedVersions));
         if (versions.Length == 0 || versions.Length != versions.Distinct().Count()) throw new ArgumentException("Retention versions must be non-empty and unique.", nameof(retainedVersions));
         RetainedVersions = new ReadOnlyCollection<SecretVersion>(versions.OrderBy(v => v.Value).ToArray());

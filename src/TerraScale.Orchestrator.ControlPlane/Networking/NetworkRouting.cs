@@ -21,7 +21,10 @@ public sealed class NetworkRouteEvidence
     {
         Scope=scope;Shape=shape;NoOverlappingMutation=noOverlappingMutation;LocalPolicy=localPolicy;
         TunnelConfigured=tunnelConfigured;TrafficProven=trafficProven;TunnelHealthy=tunnelHealthy;RouteConfigured=routeConfigured;Partitioned=partitioned;
-        var r=routes?.ToArray()??[];var p=approved?.ToArray()??[];var l=links?.ToArray()??[];var c=cells?.ToArray()??[];
+        var r=routes is null?[]:NetworkInputSnapshot.Copy(routes,NetworkTechnicalLimits.MaximumCapturedItems,nameof(routes));
+        var p=approved is null?[]:NetworkInputSnapshot.Copy(approved,NetworkTechnicalLimits.MaximumCapturedItems,nameof(approved));
+        var l=links is null?[]:NetworkInputSnapshot.Copy(links,NetworkTechnicalLimits.MaximumCapturedItems,nameof(links));
+        var c=cells is null?[]:NetworkInputSnapshot.Copy(cells,NetworkTechnicalLimits.MaximumCapturedItems,nameof(cells));
         var validCells=c.Length>0&&c.All(x=>x is not null)&&c.Distinct().Count()==c.Length;
         IsValid=scope is not null&&scope.Valid&&maximumRoutes>0&&maximumPrefixes>0&&maximumLinks>0&&maximumCells>0&&r.Length<=maximumRoutes&&p.Length>0&&p.Length<=maximumPrefixes&&l.Length<=maximumLinks&&c.Length<=maximumCells&&validCells
             &&c.Contains(scope.Cell)&&c.Contains(scope.PeerCell)
