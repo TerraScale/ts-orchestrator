@@ -7,4 +7,8 @@
     <PackageReference Include="TUnit" />
     <ProjectReference Include="../../src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../test-corpus/protocol/*.json"
+                      Link="Fuzz/Corpus/%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

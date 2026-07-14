@@ -10,6 +10,7 @@ public enum SubjectPermissionPolicyError
     TooManyPatterns,
     DuplicatePattern,
     PatternInAllowAndDeny,
+    EnumerationFailed,
 }
 
 public enum SubjectPermissionReason
@@ -134,30 +135,49 @@ public sealed class SubjectPermissionPolicy
         var unique = new HashSet<SubjectPermissionPattern>();
         if (source is not null)
         {
-            foreach (var pattern in source)
+            IEnumerator<SubjectPermissionPattern?> enumerator;
+            try { enumerator = source.GetEnumerator(); }
+            catch
             {
-                if (collected.Count >= maximumCount)
-                {
-                    patterns = [];
-                    error = SubjectPermissionPolicyError.TooManyPatterns;
-                    return false;
-                }
+                patterns = [];
+                error = SubjectPermissionPolicyError.EnumerationFailed;
+                return false;
+            }
 
-                if (pattern is null)
+            error = SubjectPermissionPolicyError.None;
+            try
+            {
+                while (enumerator.MoveNext())
                 {
-                    patterns = [];
-                    error = SubjectPermissionPolicyError.NullPattern;
-                    return false;
-                }
+                    if (collected.Count >= maximumCount)
+                    {
+                        error = SubjectPermissionPolicyError.TooManyPatterns;
+                        break;
+                    }
 
-                if (!unique.Add(pattern))
-                {
-                    patterns = [];
-                    error = SubjectPermissionPolicyError.DuplicatePattern;
-                    return false;
-                }
+                    var pattern = enumerator.Current;
+                    if (pattern is null)
+                    {
+                        error = SubjectPermissionPolicyError.NullPattern;
+                        break;
+                    }
 
-                collected.Add(pattern);
+                    if (!unique.Add(pattern))
+                    {
+                        error = SubjectPermissionPolicyError.DuplicatePattern;
+                        break;
+                    }
+
+                    collected.Add(pattern);
+                }
+            }
+            catch { error = SubjectPermissionPolicyError.EnumerationFailed; }
+            try { enumerator.Dispose(); }
+            catch { error = SubjectPermissionPolicyError.EnumerationFailed; }
+            if (error != SubjectPermissionPolicyError.None)
+            {
+                patterns = [];
+                return false;
             }
         }
 
