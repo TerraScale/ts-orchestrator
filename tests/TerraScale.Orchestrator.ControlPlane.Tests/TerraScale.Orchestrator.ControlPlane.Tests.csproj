@@ -10,5 +10,7 @@
   <ItemGroup>
     <EmbeddedResource Include="../../test-corpus/control-operations/*.json"
                       Link="Properties/Operations/Corpus/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Properties/StorageComputeReplayCorpus.v1.json"
+                      LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.StorageComputeReplayCorpus.v1.json" />
   </ItemGroup>
 </Project>

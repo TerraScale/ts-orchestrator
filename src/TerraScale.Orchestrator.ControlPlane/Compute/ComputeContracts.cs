@@ -2,6 +2,40 @@ using System.Collections.ObjectModel;
 
 namespace TerraScale.Orchestrator.ControlPlane.Compute;
 
+/// <summary>Technical caller-input snapshot limits; these are not scaling, replica, or capacity policy caps.</summary>
+public static class ComputeTechnicalInputLimits
+{
+    public const int MaximumSurvivalSecretVersionCount = 4_096;
+    public const int MaximumSurvivalNodeTemplateCount = 4_096;
+}
+
+internal static class ComputeInputSnapshot
+{
+    internal static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, int maximum, string parameterName, string inputName)
+    {
+        ArgumentNullException.ThrowIfNull(source, parameterName);
+        var snapshot = new List<T>(Math.Min(maximum, 256));
+        try
+        {
+            using var enumerator = source.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                if (snapshot.Count == maximum)
+                    throw new ArgumentException($"{inputName} exceeds the technical snapshot bound.", parameterName);
+                var current = enumerator.Current;
+                if (current is null)
+                    throw new ArgumentException($"{inputName} contains a null item.", parameterName);
+                snapshot.Add(current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException($"{inputName} could not be captured within the technical snapshot bound.", parameterName);
+        }
+        return new ReadOnlyCollection<T>(snapshot.ToArray());
+    }
+}
+
 public sealed record ComputeCellId { public ComputeCellId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
 public sealed record ComputeNodeId { public ComputeNodeId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
 public sealed record NodeClassId { public NodeClassId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
@@ -203,7 +237,13 @@ public sealed class RegionalSurvivalBundle
         Bundle = bundle; Cell = cell; Generation = generation; ProviderFingerprint = providerFingerprint;
         AcceptedArtifact = acceptedArtifact; AcceptedDigest = acceptedDigest; AcceptedSignature = acceptedSignature;
         RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature;
-        EncryptedSecretVersions = Copy(encryptedSecretVersions); Templates = Copy(templates); Trust = trust; Nats = nats;
+        EncryptedSecretVersions = ComputeInputSnapshot.Copy(encryptedSecretVersions,
+            ComputeTechnicalInputLimits.MaximumSurvivalSecretVersionCount, nameof(encryptedSecretVersions),
+            "Survival secret versions");
+        Templates = ComputeInputSnapshot.Copy(templates,
+            ComputeTechnicalInputLimits.MaximumSurvivalNodeTemplateCount, nameof(templates),
+            "Survival node templates");
+        Trust = trust; Nats = nats;
         Dns = dns; Backup = backup; AuthorityEpoch = authorityEpoch; JournalPosition = journalPosition;
         SnapshotPosition = snapshotPosition; FreshThroughPosition = freshThroughPosition; ExpiresAfterPosition = expiresAfterPosition;
     }
@@ -228,12 +268,6 @@ public sealed class RegionalSurvivalBundle
     public long SnapshotPosition { get; }
     public long FreshThroughPosition { get; }
     public long ExpiresAfterPosition { get; }
-    private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Null item.", nameof(values));
-        return new ReadOnlyCollection<T>(copy);
-    }
 }
 
 public sealed record SurvivalNodeTemplate(
