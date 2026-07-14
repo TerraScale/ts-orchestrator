@@ -155,7 +155,8 @@ public static class ObservabilityDecisionEngine
                 changes.Add(new ReportGrafanaDrift(observed, request.Inventory));
                 continue;
             }
-            if (observed.Kind != desired.Selection.Kind || observed.Digest != desired.Digest || observed.Generation != desired.Generation)
+            if (observed.Kind != desired.Selection.Kind || observed.Digest != desired.Digest || observed.Generation != desired.Generation ||
+                observed.ManagedProvenance is not { } provenance || provenance.ReleaseId != desired.ReleaseId || provenance.Selection != desired.Selection)
                 changes.Add(new UpdateGrafanaResource(desired, observed, request.Inventory));
         }
         foreach (var observed in request.Observed.Where(r => !request.Desired.Any(d => d.Id == r.Id)))

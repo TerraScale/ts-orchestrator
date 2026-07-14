@@ -283,6 +283,18 @@ public sealed record AccessSelection : GrafanaCatalogSelection { public AccessSe
 
 public sealed record GrafanaResourceId : ObservabilityToken { public GrafanaResourceId(string value) : base(value, nameof(value)) { } }
 
+public sealed record ManagedGrafanaProjectionProvenance
+{
+    public ManagedGrafanaProjectionProvenance(ObservabilityReleaseId releaseId, GrafanaCatalogSelection selection)
+    {
+        ReleaseId = releaseId ?? throw new ArgumentNullException(nameof(releaseId));
+        Selection = selection ?? throw new ArgumentNullException(nameof(selection));
+    }
+
+    public ObservabilityReleaseId ReleaseId { get; }
+    public GrafanaCatalogSelection Selection { get; }
+}
+
 public sealed record DesiredGrafanaResource
 {
     public DesiredGrafanaResource(GrafanaResourceId id, ObservabilityOwnerId ownerId, ObservabilityTenantId tenantId, ObservabilityCellId cellId, ObservabilityGeneration generation, ObservabilityReleaseId releaseId, ObservabilityDigest digest, GrafanaCatalogSelection selection)
@@ -299,8 +311,22 @@ public sealed record DesiredGrafanaResource
 
 public sealed record ObservedGrafanaResource
 {
-    public ObservedGrafanaResource(GrafanaResourceId id, ObservabilityOwnerId ownerId, ObservabilityTenantId tenantId, ObservabilityCellId cellId, ObservabilityGeneration generation, ObservabilityDigest digest, TelemetryProjectionKind kind, GrafanaOwnership ownership)
-    { Id = id ?? throw new ArgumentNullException(nameof(id)); OwnerId = ownerId ?? throw new ArgumentNullException(nameof(ownerId)); TenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId)); CellId = cellId ?? throw new ArgumentNullException(nameof(cellId)); Generation = generation ?? throw new ArgumentNullException(nameof(generation)); Digest = digest ?? throw new ArgumentNullException(nameof(digest)); Kind = ObservabilityGuards.Defined(kind, nameof(kind)); Ownership = ObservabilityGuards.Defined(ownership, nameof(ownership)); }
+    public ObservedGrafanaResource(GrafanaResourceId id, ObservabilityOwnerId ownerId, ObservabilityTenantId tenantId, ObservabilityCellId cellId, ObservabilityGeneration generation, ObservabilityDigest digest, TelemetryProjectionKind kind, GrafanaOwnership ownership, ManagedGrafanaProjectionProvenance? managedProvenance)
+    {
+        Id = id ?? throw new ArgumentNullException(nameof(id));
+        OwnerId = ownerId ?? throw new ArgumentNullException(nameof(ownerId));
+        TenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId));
+        CellId = cellId ?? throw new ArgumentNullException(nameof(cellId));
+        Generation = generation ?? throw new ArgumentNullException(nameof(generation));
+        Digest = digest ?? throw new ArgumentNullException(nameof(digest));
+        Kind = ObservabilityGuards.Defined(kind, nameof(kind));
+        Ownership = ObservabilityGuards.Defined(ownership, nameof(ownership));
+        if ((Ownership == GrafanaOwnership.ManagedExact) != (managedProvenance is not null))
+            throw new ArgumentException("Exactly managed Grafana resources require exact projection provenance.", nameof(managedProvenance));
+        if (managedProvenance is not null && managedProvenance.Selection.Kind != Kind)
+            throw new ArgumentException("Managed Grafana projection kind must match its exact catalog selection.", nameof(managedProvenance));
+        ManagedProvenance = managedProvenance;
+    }
     public GrafanaResourceId Id { get; }
     public ObservabilityOwnerId OwnerId { get; }
     public ObservabilityTenantId TenantId { get; }
@@ -309,6 +335,7 @@ public sealed record ObservedGrafanaResource
     public ObservabilityDigest Digest { get; }
     public TelemetryProjectionKind Kind { get; }
     public GrafanaOwnership Ownership { get; }
+    public ManagedGrafanaProjectionProvenance? ManagedProvenance { get; }
 }
 
 public sealed record GrafanaInventoryEvidence
