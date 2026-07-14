@@ -279,7 +279,8 @@ public sealed class SnapshotEvidencePropertyTests
             await Assert.That(Capture(() => SnapshotEvidenceReplayCorpus.ParseForTest(CorpusWithFirstId(id)))).IsTypeOf<InvalidDataException>();
     }
 
-    private static string Projection(SnapshotRestorePlanResult result) => $"{result.Error}|{result.ValidationError}|{result.Plan!.SnapshotId.Value}|{result.Plan.Generation.Value}|{result.Plan.ExpectedRestoredEpoch.Value}|{result.Plan.ReplayStartSequence.Value}";
+    private static string Projection(SnapshotRestorePlanResult result) =>
+        $"{result.Error}|{result.ValidationError}|{SnapshotRestorePlanFingerprint.Create(result.Plan!)}";
     private static string Replay(SnapshotEvidenceReplayItem item) => item.Domain switch
     {
         "snapshot" => SignedSnapshotValidator.Validate(

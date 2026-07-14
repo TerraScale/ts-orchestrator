@@ -225,6 +225,7 @@ public sealed class SnapshotPolicyCompletenessTests
         SnapshotSignedMaterial material,
         ulong expectedReplayStart)
     {
+        await Assert.That(plan.AcceptedSnapshot.SignedMaterial).IsSameReferenceAs(material);
         await Assert.That(plan.SnapshotId).IsEqualTo(material.SnapshotId);
         await Assert.That(plan.Generation).IsEqualTo(material.Generation);
         await Assert.That(plan.ExpectedRestoredEpoch).IsEqualTo(material.Epoch);
