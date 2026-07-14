@@ -185,7 +185,7 @@ public static class TerraBaseUpgradePlanner
         if(e.RollbackApplied!=TerraBaseProof.Unknown||e.PostRollbackHealthy!=TerraBaseProof.Unknown)
             return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(e.ProcessHealthy!=TerraBaseProof.Proven||e.Ready!=TerraBaseProof.Proven||e.CaughtUp!=TerraBaseProof.Proven)
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace);
-        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Release,TerraBaseCode.Completed,trace);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace,subject);
+        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Release,TerraBaseCode.Completed,trace,subject);
     }
 }
