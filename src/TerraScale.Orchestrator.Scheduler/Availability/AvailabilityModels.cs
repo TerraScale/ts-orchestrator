@@ -351,12 +351,15 @@ public sealed record AvailabilityReason
 
 public sealed record AvailabilityDecision
 {
-    internal AvailabilityDecision(bool admitted, IReadOnlyList<AvailabilityReason> trace)
+    internal AvailabilityDecision(
+        AvailabilityEvaluationRequest? acceptedRequest,
+        IReadOnlyList<AvailabilityReason> trace)
     {
-        Admitted = admitted;
+        AcceptedRequest = acceptedRequest;
         Trace = trace ?? throw new ArgumentNullException(nameof(trace));
     }
 
-    public bool Admitted { get; }
+    public AvailabilityEvaluationRequest? AcceptedRequest { get; }
+    public bool Admitted => AcceptedRequest is not null;
     public IReadOnlyList<AvailabilityReason> Trace { get; }
 }

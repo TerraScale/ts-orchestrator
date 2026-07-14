@@ -56,7 +56,7 @@ public sealed class AvailabilityPolicyEvaluator
         if (held || target.Reason.Outcome != AvailabilityReasonOutcome.Passed)
         {
             AddUnavailablePolicyTrace(trace, held ? AvailabilityReasonOutcome.Held : AvailabilityReasonOutcome.NotApplicable);
-            return Decision(trace, generationTrace);
+            return Decision(request, trace, generationTrace);
         }
 
         var available = unique.Where(observation => observation.State == ReplicaAvailabilityState.Available).ToArray();
@@ -135,7 +135,7 @@ public sealed class AvailabilityPolicyEvaluator
             checked((ulong)distinctDomains), request.Policy.RequiredDistinctFailureDomains.Value));
 
         AddResourceTrace(trace, request.Change, request.Policy);
-        return Decision(trace, generationTrace);
+        return Decision(request, trace, generationTrace);
     }
 
     private static TargetResult EvaluateTarget(AvailabilityChange change, ReplicaObservation[] observations, bool held)
@@ -231,12 +231,13 @@ public sealed class AvailabilityPolicyEvaluator
     }
 
     private static AvailabilityDecision Decision(
+        AvailabilityEvaluationRequest request,
         List<AvailabilityReason> trace,
         IReadOnlyCollection<AvailabilityReason> generationTrace)
     {
         trace.AddRange(generationTrace);
         var admitted = trace.All(reason => reason.Outcome is AvailabilityReasonOutcome.Passed or AvailabilityReasonOutcome.NotApplicable);
-        return new(admitted, new ReadOnlyCollection<AvailabilityReason>(trace));
+        return new(admitted ? request : null, new ReadOnlyCollection<AvailabilityReason>(trace));
     }
 
     private static AvailabilityReason Reason(AvailabilityReasonCode code, bool passes, ulong observed, ulong required) =>
