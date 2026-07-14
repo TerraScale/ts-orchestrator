@@ -560,7 +560,16 @@ public sealed class FreshBootstrapInventory
     public IReadOnlyList<HandoffInventoryItem> Pulumi { get; }
     public IReadOnlyList<HandoffInventoryItem> Regional { get; }
     private static IReadOnlyList<HandoffInventoryItem> Copy(IEnumerable<HandoffInventoryItem> source)
-    { var copy = ProviderInputSnapshot.Copy(source, ProviderTechnicalInputLimits.MaximumHandoffInventoryCount, nameof(source), "Handoff inventory input"); if (copy.Any(x => x is null)) throw new ArgumentException("Null inventory item."); return new ReadOnlyCollection<HandoffInventoryItem>(copy); }
+    {
+        var copy = ProviderInputSnapshot.Copy(source, ProviderTechnicalInputLimits.MaximumHandoffInventoryCount,
+            nameof(source), "Handoff inventory input");
+        if (copy.Any(x => x is null)) throw new ArgumentException("Null inventory item.");
+        return new ReadOnlyCollection<HandoffInventoryItem>(copy
+            .OrderBy(item => item.ResourceId.Value, StringComparer.Ordinal)
+            .ThenBy(item => item.Kind)
+            .ThenBy(item => item.Generation.Value)
+            .ToArray());
+    }
 }
 
 public sealed record HandoffInventoryFingerprint
