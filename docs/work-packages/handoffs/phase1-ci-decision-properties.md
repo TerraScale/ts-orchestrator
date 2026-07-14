@@ -15,22 +15,28 @@ The eight-entry replay corpus is capped at 32 KiB and 64 entries, uses a closed 
 
 ## Compatibility and production impact
 
-None. This shard changes tests, an embedded test corpus, and work-package documentation only. The prior Delivery bounded-snapshot hardening already covers hostile enumerable inputs; no new unbounded production input or fail-closed defect was found.
+The completeness audit proved a production trust-boundary defect: a trust-valid job could dispatch to a runner whose capability inventory also carried authority forbidden in that runner's zone. For example, an untrusted product runner with `Compile`, `Test`, and `ProductionDeploy` was accepted because selection checked only the requested subset.
+
+`DeliveryEngine.DecideJob` now confines every fresh requested-zone candidate to the closed runner inventory before required-capability matching: untrusted product permits `Compile`/`Test`; trusted build permits `Compile`/`Test`/`Sign`; production release permits `Promote`/`ProductionDeploy`; control recovery permits only `ControlRecover`. An unsafe candidate does not poison a request when a safe candidate remains.
+
+The independent matrix covers all 16 forbidden zone/capability pairs and all 8 allowed job/capability pairs. Review corrections fixed the initial erroneous forbidden-pair count and split job enum validation from runner enum validation across 10 independent unspecified/undefined modes. Every generated family compares an `en-US` baseline with `tr-TR`, `ar-SA`, and `ja-JP` replays.
 
 ## Verification
 
+The pre-fix exact-tree regression failed both safety families because the unsafe runner emitted `DispatchJobIntent` with no error. Post-fix verification is recorded below.
+
 ```text
-dotnet build tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-restore --nologo -m:1
+dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
+Passed
+
+dotnet build TerraScale.Orchestrator.slnx -c Release --no-restore --nologo -m:1 -warnaserror
 Build succeeded: 0 warnings, 0 errors
 
-dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build --no-restore -- --no-progress --output Normal
-Passed: 346, failed: 0, skipped: 0
+Focused CI completeness properties: 4 passed, 0 failed, 0 skipped
+Full ControlPlane suite: 468 passed, 0 failed, 0 skipped
 
 git diff --check
 Passed
-
-Serial full-solution build passed with zero warnings/errors. Other executable suites passed:
-Contract 24, Model 38, Protocol 50, Scheduler 69. Whole-repository total: 527 passed, 0 failed, 0 skipped.
 ```
 
 ## Non-claims

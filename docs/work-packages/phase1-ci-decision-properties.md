@@ -2,11 +2,12 @@
 
 ## Goal
 
-Add deterministic property and replay evidence for the existing pure CI job scheduling decision in `DeliveryEngine.DecideJob`, with independent trust-policy, runner-selection, retry, and failure-precedence oracles.
+Audit and complete the existing pure CI job scheduling decision in `DeliveryEngine.DecideJob`, with independent trust-policy, runner-selection, retry, and failure-precedence oracles. Prevent a job from being dispatched to a runner whose full capability set exceeds its declared trust zone.
 
 ## Allowed paths
 
 - `tests/TerraScale.Orchestrator.ControlPlane.Tests/Properties/CiDecision*`
+- `src/TerraScale.Orchestrator.ControlPlane/Delivery/DeliveryEngine.cs`
 - `tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj`
 - `docs/work-packages/phase1-ci-decision-properties.md`
 - `docs/work-packages/handoffs/phase1-ci-decision-properties.md`
@@ -20,6 +21,7 @@ Add deterministic property and replay evidence for the existing pure CI job sche
 - Duplicate, stale, unavailable, wrong-zone, and capability-missing runner evidence precedence.
 - Strict byte-bounded whole-file-pinned replay with exact input-derived fingerprints.
 - Construction-closed accepted decisions and intents.
+- Exact trust-zone confinement for every capability carried by selected runner evidence.
 
 ## Exclusions
 
