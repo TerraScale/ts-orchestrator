@@ -1,6 +1,6 @@
 # Phase 1 compute survival-generation anti-rollback handoff
 
-- Base: `2418569`
+- Final rebased base: `b1e0c76`
 - Scope: pure compute survival request/decision, tests, and this handoff
 - External I/O or mutation: none
 
@@ -50,11 +50,14 @@ generation must equal the new high-water, so their public shapes are unchanged.
 - Reflection pins eight `SurvivalRequest` properties and all 16 existing
   compute intent shapes.
 
-## Validation boundary
+## Validation
 
-Release build passed with zero warnings and errors before the focused suite.
-The integration handoff records the final post-rebase locked restore, all-suite
-result, and diff check.
+- Locked solution restore passed after the final rebase.
+- Release build with warnings as errors passed with zero warnings and zero
+  errors.
+- All five executable suites passed: Contract 24, ControlPlane 537, Model 38,
+  Protocol 65, and Scheduler 72, for 736/736 total.
+- `git diff --check` passed and the worktree was clean.
 
 This is pure decision-core evidence only. It makes no disconnected lab,
 provider, OCI, Pulumi, VM, destructive replacement, ARM64, L0C, or deployment
