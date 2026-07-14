@@ -72,7 +72,7 @@ public static class PreDeploymentEvidenceGate
         if(context.CurrentSequence.Value>envelope.Material.ExpirySequence.Value)return EvidenceDecision.Hold(EvidenceCode.Expired,trace);
         EvidenceSignatureVerificationOutcome verification;
         try{verification=context.Verifier.Verify(envelope.Material,envelope.Signature);}
-        catch{return EvidenceDecision.Hold(EvidenceCode.SignatureVerificationFailed,trace);}
+        catch(Exception exception)when(exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException){return EvidenceDecision.Hold(EvidenceCode.SignatureVerificationFailed,trace);}
         if(verification==EvidenceSignatureVerificationOutcome.Invalid)return EvidenceDecision.Hold(EvidenceCode.InvalidSignature,trace);
         if(verification!=EvidenceSignatureVerificationOutcome.Valid)return EvidenceDecision.Hold(EvidenceCode.SignatureVerificationFailed,trace);
         if(context.Target==EvidenceGateTarget.L1SCredentialRelease&&manifest.Lane!=EvidenceLane.Full)

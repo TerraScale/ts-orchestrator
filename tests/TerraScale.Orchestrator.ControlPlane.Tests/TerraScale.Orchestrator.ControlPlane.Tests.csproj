@@ -22,5 +22,7 @@
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.BudgetProviderReplayCorpus.v1.json" />
     <EmbeddedResource Include="Properties/RuntimeUpgradeReplayCorpus.v1.json"
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.RuntimeUpgradeReplayCorpus.v1.json" />
+    <EmbeddedResource Include="Properties/SnapshotEvidenceReplayCorpus.v1.json"
+                      LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.SnapshotEvidenceReplayCorpus.v1.json" />
   </ItemGroup>
 </Project>

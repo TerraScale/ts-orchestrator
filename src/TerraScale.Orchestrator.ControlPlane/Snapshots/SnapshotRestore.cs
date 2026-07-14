@@ -130,7 +130,7 @@ public static class SignedSnapshotValidator
         {
             compatibility = context.SchemaCompatibility.Evaluate(context.CurrentSchema, material.Schema);
         }
-        catch
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
         {
             return SnapshotValidationResult.Rejected(SnapshotValidationError.SchemaCompatibilityFailed);
         }
@@ -165,7 +165,7 @@ public static class SignedSnapshotValidator
         {
             signature = context.SignatureVerifier.Verify(material, snapshot.Signature);
         }
-        catch
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
         {
             return SnapshotValidationResult.Rejected(SnapshotValidationError.SignatureVerificationFailed);
         }

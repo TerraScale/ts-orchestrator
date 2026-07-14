@@ -130,7 +130,7 @@ internal static class EvidenceCollections
                 builder.Add(enumerator.Current);
             }
         }
-        catch{return builder.ToImmutable();}
+        catch(Exception exception)when(exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException){return builder.ToImmutable();}
         valid=!requireNonEmpty||builder.Count>0;return builder.ToImmutable();
     }
 }
