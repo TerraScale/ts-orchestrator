@@ -186,6 +186,35 @@ public sealed class ReconciliationRequest
 
 public sealed record DependencyProof(ResourceIdentity Identity, long Generation, string Digest);
 
+public sealed record ReconciliationObservationProof
+{
+    internal ReconciliationObservationProof(
+        ResourceIdentity identity,
+        string kind,
+        long generation,
+        string digest,
+        string observationId,
+        long freshnessSequence,
+        ObservedCondition condition)
+    {
+        Identity = identity;
+        Kind = kind;
+        Generation = generation;
+        Digest = digest;
+        ObservationId = observationId;
+        FreshnessSequence = freshnessSequence;
+        Condition = condition;
+    }
+
+    public ResourceIdentity Identity { get; }
+    public string Kind { get; }
+    public long Generation { get; }
+    public string Digest { get; }
+    public string ObservationId { get; }
+    public long FreshnessSequence { get; }
+    public ObservedCondition Condition { get; }
+}
+
 public abstract record ReconciliationOutput
 {
     internal ReconciliationOutput(ResourceIdentity identity, string kind, long generation, string digest)
@@ -215,9 +244,15 @@ public sealed record ReconcileResourceIntent : ReconciliationOutput
         string kind,
         long generation,
         string digest,
+        ReconciliationObservationProof observationProof,
         IReadOnlyList<DependencyProof> dependencyProofs)
-        : base(identity, kind, generation, digest) => DependencyProofs = dependencyProofs;
+        : base(identity, kind, generation, digest)
+    {
+        ObservationProof = observationProof;
+        DependencyProofs = dependencyProofs;
+    }
 
+    public ReconciliationObservationProof ObservationProof { get; }
     public IReadOnlyList<DependencyProof> DependencyProofs { get; }
 }
 

@@ -111,6 +111,14 @@ public static class ReconciliationEngine
             .ToArray();
         return new(new ReconcileResourceIntent(
                 resource.Identity, resource.Kind, resource.Generation, resource.Digest,
+                new ReconciliationObservationProof(
+                    observation.Identity,
+                    observation.Kind,
+                    observation.Generation,
+                    observation.Digest,
+                    observation.ObservationId,
+                    observation.FreshnessSequence,
+                    observation.Condition),
                 new ReadOnlyCollection<DependencyProof>(proofs)),
             ReconciliationReasonCode.DriftEligible, null);
     }
