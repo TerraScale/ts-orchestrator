@@ -74,8 +74,48 @@ public sealed class ReconciliationEngineTests
         await Assert.That(intent.ObservationProof.FreshnessSequence).IsEqualTo(10);
         await Assert.That(intent.ObservationProof.Condition).IsEqualTo(ObservedCondition.Ready);
         await Assert.That(intent.DependencyProofs).HasSingleItem();
-        await Assert.That(intent.DependencyProofs[0])
-            .IsEqualTo(new DependencyProof(Id("database"), 2, "digest-database"));
+        var dependencyProof = intent.DependencyProofs[0];
+        await Assert.That(dependencyProof.Identity).IsEqualTo(Id("database"));
+        await Assert.That(dependencyProof.Kind).IsEqualTo("service");
+        await Assert.That(dependencyProof.Generation).IsEqualTo(2);
+        await Assert.That(dependencyProof.Digest).IsEqualTo("digest-database");
+        await Assert.That(dependencyProof.ObservationId).IsEqualTo("observation-database");
+        await Assert.That(dependencyProof.FreshnessSequence).IsEqualTo(10);
+        await Assert.That(dependencyProof.Condition).IsEqualTo(ObservedCondition.Ready);
+    }
+
+    [Test]
+    public async Task DependencyProofBindsExactObservationIdentityAndFreshness()
+    {
+        var dependency = Desired("database");
+        var target = Desired("api", "database");
+        var targetObservation = Exact(target) with { Generation = 1, Digest = "old-api" };
+        var firstDependency = Exact(dependency) with
+        {
+            ObservationId = "dependency-observation-a",
+            FreshnessSequence = 10,
+        };
+        var secondDependency = firstDependency with
+        {
+            ObservationId = "dependency-observation-b",
+            FreshnessSequence = 999,
+        };
+
+        var first = (ReconcileResourceIntent)Plan(
+            [target, dependency], [targetObservation, firstDependency]).Steps
+            .Single(step => step.Desired.Identity == target.Identity).Output;
+        var second = (ReconcileResourceIntent)Plan(
+            [target, dependency], [targetObservation, secondDependency]).Steps
+            .Single(step => step.Desired.Identity == target.Identity).Output;
+
+        await Assert.That(first.DependencyProofs).HasSingleItem();
+        await Assert.That(second.DependencyProofs).HasSingleItem();
+        await Assert.That(first.DependencyProofs[0]).IsNotEqualTo(second.DependencyProofs[0]);
+        await Assert.That(first).IsNotEqualTo(second);
+        await Assert.That(first.DependencyProofs[0].ObservationId).IsEqualTo("dependency-observation-a");
+        await Assert.That(first.DependencyProofs[0].FreshnessSequence).IsEqualTo(10);
+        await Assert.That(second.DependencyProofs[0].ObservationId).IsEqualTo("dependency-observation-b");
+        await Assert.That(second.DependencyProofs[0].FreshnessSequence).IsEqualTo(999);
     }
 
     [Test]

@@ -99,12 +99,12 @@ public sealed class AcceptedOutputConstructionClosureTests
     }
 
     [Test]
-    public async Task Input_and_evidence_dtos_are_not_misclassified_as_accepted_outputs()
+    public async Task Input_dtos_are_excluded_and_accepted_evidence_is_construction_closed()
     {
         await Assert.That(IsAcceptedOutput(typeof(EvidenceSignedEnvelope))).IsFalse();
         await Assert.That(IsAcceptedOutput(typeof(ReconciliationRequest))).IsFalse();
         await Assert.That(IsAcceptedOutput(typeof(ProviderCallEvidence))).IsFalse();
-        await Assert.That(IsAcceptedOutput(typeof(DependencyProof))).IsFalse();
+        await Assert.That(IsAcceptedOutput(typeof(DependencyProof))).IsTrue();
         await Assert.That(IsAcceptedOutput(typeof(ReconciliationObservationProof))).IsTrue();
     }
 
@@ -113,6 +113,7 @@ public sealed class AcceptedOutputConstructionClosureTests
         || type.Name.EndsWith("Permit", StringComparison.Ordinal)
         || type.Name.EndsWith("Intent", StringComparison.Ordinal)
         || typeof(ReconciliationOutput).IsAssignableFrom(type)
+        || type == typeof(DependencyProof)
         || type == typeof(ReconciliationObservationProof)
         || type == typeof(ReconciliationStep)
         || type == typeof(ReconciliationPlan)

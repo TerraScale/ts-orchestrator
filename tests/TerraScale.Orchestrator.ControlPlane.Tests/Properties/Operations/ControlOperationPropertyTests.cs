@@ -464,7 +464,13 @@ public sealed class ControlOperationPropertyTests
     private static HoldResource Hold(ReconciliationPlan plan, DesiredResource resource) =>
         (HoldResource)plan.Steps.Single(step => step.Desired.Identity == resource.Identity).Output;
     private static string Signature(ReconciliationPlan plan) => string.Join('|', plan.Steps.Select(step =>
-        $"{step.Order}:{step.Desired.Identity.Value}:{step.Output.GetType().Name}:{step.Trace.Single().Reason}"));
+    {
+        var proofs = step.Output is ReconcileResourceIntent intent
+            ? string.Join(',', intent.DependencyProofs.Select(proof =>
+                $"{proof.Identity.Value}:{proof.Kind}:{proof.Generation}:{proof.Digest}:{proof.ObservationId}:{proof.FreshnessSequence}:{proof.Condition}"))
+            : string.Empty;
+        return $"{step.Order}:{step.Desired.Identity.Value}:{step.Output.GetType().Name}:{step.Trace.Single().Reason}:{proofs}";
+    }));
     private static ulong Mix(ulong digest, string value)
     {
         foreach (var character in value) digest = unchecked((digest ^ character) * 1099511628211UL);

@@ -82,8 +82,10 @@ public sealed class ReconciliationPropertyTests
         var executed = 0;
         for (ulong seed = 1; seed <= Cases; seed++)
         {
-            var first = ReconciliationData.Resource($"proof-{seed:D4}-a");
-            var second = ReconciliationData.Resource($"proof-{seed:D4}-b");
+            var first = new DesiredResource(new($"proof-{seed:D4}-a"), "service", 100 + (long)seed,
+                $"digest-proof-{seed}-a", []);
+            var second = new DesiredResource(new($"proof-{seed:D4}-b"), "database", 200 + (long)seed,
+                $"digest-proof-{seed}-b", []);
             var target = new DesiredResource(new($"proof-{seed:D4}-target"),
                 seed % 2 == 0 ? "service" : "database", 100 + (long)seed,
                 $"digest-proof-{seed}", [second.Identity, first.Identity]);
@@ -95,20 +97,32 @@ public sealed class ReconciliationPropertyTests
                     Digest = $"old-proof-{seed}",
                     FreshnessSequence = 50 + (long)(seed % 101),
                 },
-                ReconciliationData.Exact(second),
-                ReconciliationData.Exact(first),
+                ReconciliationData.Exact(second) with
+                {
+                    ObservationId = $"proof-observation-{seed}-b",
+                    FreshnessSequence = 200 + (long)seed,
+                },
+                ReconciliationData.Exact(first) with
+                {
+                    ObservationId = $"proof-observation-{seed}-a",
+                    FreshnessSequence = 100 + (long)seed,
+                },
             };
             var plan = ReconciliationData.Plan([target, second, first], observations);
             var step = plan.Steps.Single(item => item.Desired.Identity == target.Identity);
             var intent = step.Output as ReconcileResourceIntent;
             Require(intent is not null && step.Trace.Single().Reason == ReconciliationReasonCode.DriftEligible,
                 seed, "eligible dependency drift");
-            DependencyProof[] expected =
+            string[] expected =
             [
-                new(first.Identity, first.Generation, first.Digest),
-                new(second.Identity, second.Generation, second.Digest),
+                $"{first.Identity.Value}:{first.Kind}:{first.Generation}:{first.Digest}:proof-observation-{seed}-a:{100 + seed}:Ready",
+                $"{second.Identity.Value}:{second.Kind}:{second.Generation}:{second.Digest}:proof-observation-{seed}-b:{200 + seed}:Ready",
             ];
-            Require(intent!.DependencyProofs.SequenceEqual(expected), seed, "sorted exact dependency proofs");
+            var actual = intent!.DependencyProofs.Select(proof =>
+                $"{proof.Identity.Value}:{proof.Kind}:{proof.Generation}:{proof.Digest}:{proof.ObservationId}:{proof.FreshnessSequence}:{proof.Condition}");
+            Require(actual.SequenceEqual(expected, StringComparer.Ordinal), seed, "sorted exact dependency proofs");
+            Require(intent.DependencyProofs.All(proof => proof.Condition == ObservedCondition.Ready),
+                seed, "only exact ready dependency evidence authorizes mutation");
             Require(intent.Identity == target.Identity && intent.Kind == target.Kind &&
                 intent.Generation == target.Generation && intent.Digest == target.Digest,
                 seed, "proof intent subject");
@@ -520,7 +534,8 @@ internal static class ReconciliationData
             $"{step.Observation.Identity.Value}:{step.Observation.Kind}:{step.Observation.Generation}:{step.Observation.Digest}:{step.Observation.ObservationId}:{step.Observation.FreshnessSequence}:{step.Observation.Condition}";
         var trace = step.Trace.Single();
         var proofs = step.Output is ReconcileResourceIntent reconcile
-            ? string.Join(',', reconcile.DependencyProofs.Select(proof => $"{proof.Identity.Value}:{proof.Generation}:{proof.Digest}"))
+            ? string.Join(',', reconcile.DependencyProofs.Select(proof =>
+                $"{proof.Identity.Value}:{proof.Kind}:{proof.Generation}:{proof.Digest}:{proof.ObservationId}:{proof.FreshnessSequence}:{proof.Condition}"))
             : string.Empty;
         var observationProof = step.Output is ReconcileResourceIntent intent
             ? $"{intent.ObservationProof.Identity.Value}:{intent.ObservationProof.Kind}:{intent.ObservationProof.Generation}:{intent.ObservationProof.Digest}:{intent.ObservationProof.ObservationId}:{intent.ObservationProof.FreshnessSequence}:{intent.ObservationProof.Condition}"
