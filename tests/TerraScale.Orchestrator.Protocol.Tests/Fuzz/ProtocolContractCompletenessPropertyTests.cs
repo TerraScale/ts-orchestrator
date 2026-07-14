@@ -32,6 +32,7 @@ public sealed class ProtocolContractCompletenessPropertyTests
             await Assert.That(baseline.Errors).IsEqualTo(15);
             await Assert.That(baseline.Accepted).IsGreaterThan(50);
             await Assert.That(baseline.Rejected).IsGreaterThan(900);
+            await Assert.That(baseline.DistinctAcceptedOutputs).IsEqualTo(baseline.Accepted);
         }
         finally
         {
@@ -240,6 +241,7 @@ public sealed class ProtocolContractCompletenessPropertyTests
         var rejected = 0;
         var errors = new HashSet<CommandValidationError>();
         var inputs = new HashSet<string>(StringComparer.Ordinal);
+        var acceptedOutputs = new HashSet<string>(StringComparer.Ordinal);
         ulong digest = 1469598103934665603UL;
         for (var index = 0; index < Cases; index++)
         {
@@ -270,14 +272,21 @@ public sealed class ProtocolContractCompletenessPropertyTests
             var result = CommandEnvelopeValidator.Validate(envelope, context, Now);
             var replay = CommandEnvelopeValidator.Validate(envelope, context, Now);
             Require(result == replay && result.Error == expected && result.IsValid == (expected == CommandValidationError.None), index);
+            Require((result.Acceptance is not null) == result.IsValid, index);
             Require(!result.ToString().Contains("secret", StringComparison.OrdinalIgnoreCase), index);
-            if (result.IsValid) accepted++; else rejected++;
+            if (result.IsValid)
+            {
+                accepted++;
+                acceptedOutputs.Add(ResultFingerprint(result));
+            }
+            else rejected++;
             errors.Add(result.Error);
             inputs.Add(Fingerprint(envelope) + ":" + category.ToString(CultureInfo.InvariantCulture));
-            digest = unchecked((digest ^ (ulong)result.Error ^ (uint)index) * 1099511628211UL);
+            foreach (var character in ResultFingerprint(result))
+                digest = unchecked((digest ^ character) * 1099511628211UL);
         }
 
-        return new(Cases, accepted, rejected, errors.Count, inputs.Count, digest);
+        return new(Cases, accepted, rejected, errors.Count, inputs.Count, acceptedOutputs.Count, digest);
     }
 
     private static FixtureData Fixture(
@@ -334,6 +343,19 @@ public sealed class ProtocolContractCompletenessPropertyTests
         envelope.ExpiresAt.UtcTicks.ToString(CultureInfo.InvariantCulture), envelope.Attempt.Value.ToString(CultureInfo.InvariantCulture),
         Convert.ToHexString(envelope.Payload.Bytes));
 
+    private static string ResultFingerprint(CommandValidationResult result)
+    {
+        if (result.Acceptance is not { } acceptance)
+            return result.Error.ToString();
+        return string.Join('|', result.Error.ToString(), acceptance.ProtocolVersion.Value.ToString(CultureInfo.InvariantCulture), acceptance.Cell.Value,
+            acceptance.AggregateId.Value, acceptance.DesiredGeneration.Value.ToString(CultureInfo.InvariantCulture),
+            acceptance.WriterEpoch.Value.ToString(CultureInfo.InvariantCulture), acceptance.OperationId.Value,
+            acceptance.IdempotencyKey.Value, acceptance.IssuedAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
+            acceptance.ExpiresAt.UtcTicks.ToString(CultureInfo.InvariantCulture), acceptance.Attempt.Value.ToString(CultureInfo.InvariantCulture),
+            Convert.ToHexString(acceptance.PayloadDigest.Bytes), Convert.ToHexString(acceptance.Signature.Bytes),
+            acceptance.ValidatedAt.UtcTicks.ToString(CultureInfo.InvariantCulture));
+    }
+
     private static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value);
     private static void Require(bool condition, long seed)
     {
@@ -351,7 +373,8 @@ public sealed class ProtocolContractCompletenessPropertyTests
 
     private sealed record FixtureData(CommandEnvelope Envelope, CellId Cell, AggregateId Aggregate,
         DesiredGeneration Generation, WriterEpoch Epoch);
-    private sealed record AdmissionSummary(int Cases, int Accepted, int Rejected, int Errors, int DistinctInputs, ulong Digest);
+    private sealed record AdmissionSummary(int Cases, int Accepted, int Rejected, int Errors, int DistinctInputs,
+        int DistinctAcceptedOutputs, ulong Digest);
 
     private sealed class CountingDigestVerifier(Action called) : IPayloadDigestVerifier
     {

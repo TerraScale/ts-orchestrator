@@ -400,13 +400,31 @@ public sealed class DeterministicProtocolFuzzTests
             var replay = CommandEnvelopeValidator.Validate(envelope, context, now);
             Require(result == replay && result.Error == expected && result.IsValid == (expected == CommandValidationError.None),
                 "envelope-replay", index);
+            Require((result.Acceptance is not null) == result.IsValid, "envelope-receipt-scope", index);
             Require(!result.ToString().Contains("secret-material", StringComparison.Ordinal) &&
                 (envelope?.ToString() ?? string.Empty).Contains("Payload = <redacted>", StringComparison.Ordinal) == (envelope is not null),
                 "envelope-secret", index);
             errors.Add(result.Error); if (result.IsValid) accepted++; else rejected++;
-            digest = Mix(digest, (long)result.Error);
+            digest = MixReceipt(digest, result);
         }
         return new(CasesPerFamily, accepted, rejected, errors.Count, digest);
+    }
+
+    private static ulong MixReceipt(ulong digest, CommandValidationResult result)
+    {
+        digest = Mix(digest, (long)result.Error);
+        if (result.Acceptance is not { } acceptance) return digest;
+        var fingerprint = string.Join('|', acceptance.ProtocolVersion.Value.ToString(CultureInfo.InvariantCulture),
+            acceptance.Cell.Value, acceptance.AggregateId.Value,
+            acceptance.DesiredGeneration.Value.ToString(CultureInfo.InvariantCulture),
+            acceptance.WriterEpoch.Value.ToString(CultureInfo.InvariantCulture), acceptance.OperationId.Value,
+            acceptance.IdempotencyKey.Value, acceptance.IssuedAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
+            acceptance.ExpiresAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
+            acceptance.Attempt.Value.ToString(CultureInfo.InvariantCulture),
+            Convert.ToHexString(acceptance.PayloadDigest.Bytes), Convert.ToHexString(acceptance.Signature.Bytes),
+            acceptance.ValidatedAt.UtcTicks.ToString(CultureInfo.InvariantCulture));
+        foreach (var character in fingerprint) digest = Mix(digest, character);
+        return digest;
     }
 
     private static DecisionSummary RunDecisions(ulong seed)
