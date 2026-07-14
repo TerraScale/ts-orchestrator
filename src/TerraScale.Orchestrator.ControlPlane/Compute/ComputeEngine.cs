@@ -30,12 +30,14 @@ public static class ComputeEngine
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.State == ScaleOutState.DemandObserved)
         {
-            if (request.PersistedPlan is not null || request.Authorization is not null)
+            if (request.PersistedPlan is not null || request.Authorization is not null ||
+                request.CreateEvidence is not null || request.Progress is not null)
                 return Held(ComputeErrorCode.EvidenceMismatch, operation);
         }
         else if (!ValidPersistedPlan(request.PersistedPlan, request.Plan, request.MaximumIdentityLength))
             return Held(ComputeErrorCode.MissingProof, operation);
-        if (request.State == ScaleOutState.PlanPersisted && request.Authorization is not null)
+        if (request.State == ScaleOutState.PlanPersisted &&
+            (request.Authorization is not null || request.CreateEvidence is not null || request.Progress is not null))
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.State >= ScaleOutState.Authorized)
         {
@@ -45,6 +47,11 @@ public static class ComputeEngine
                 request.Authorization.Resources != request.Plan.Resources)
                 return Held(ComputeErrorCode.EvidenceMismatch, operation);
         }
+        if (request.State == ScaleOutState.Authorized && request.Progress is not null)
+            return Held(ComputeErrorCode.EvidenceMismatch, operation);
+        if (request.State == ScaleOutState.RequestRecorded &&
+            request.CreateEvidence?.Status == ProviderCreateStatus.OutcomeUnknown && request.Progress is not null)
+            return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.State >= ScaleOutState.InstanceCreated)
         {
             if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength) ||
