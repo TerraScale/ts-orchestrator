@@ -139,10 +139,35 @@ public static class RuntimeDecisionEngine
                                             UpdatePhase.SlotCommitted or UpdatePhase.OldSlotRetainedUntilSoak;
         var compatibilityFailed = compatibilityScopeExact &&
                                   (request.Compatibility.NToNMinusOne == CompatibilityStatus.Incompatible || request.Compatibility.Status == CompatibilityStatus.Incompatible);
+        var recoverableFailure = requiresNewHealth && healthExact && requiredHealthFailed || requiresCompatibilityRecovery && compatibilityFailed;
+        var soakPhase = observation.Phase == UpdatePhase.OldSlotRetainedUntilSoak;
+        if (soakPhase && recoverableFailure)
+        {
+            trace.Add(NotApplicable(RuntimeDecisionCode.SoakComplete));
+        }
+        else if (!soakPhase)
+        {
+            trace.Add(request.Soak is null
+                ? NotApplicable(RuntimeDecisionCode.SoakComplete)
+                : Reject(RuntimeDecisionCode.SoakComplete, false, request.Soak.ObservedDuration.Value, 0));
+        }
+        else if (request.Soak is null)
+        {
+            trace.Add(Hold(RuntimeDecisionCode.SoakComplete, false, 0, request.SoakDuration.Value));
+        }
+        else
+        {
+            var soakScopeExact = request.Soak.OperationId == request.OperationId && request.Soak.NodeId == request.NodeId &&
+                                 request.Soak.AllocationId == request.AllocationId && request.Soak.Epoch == request.Epoch &&
+                                 request.Soak.TargetGeneration == request.TargetGeneration && request.Soak.ActiveSlot == observation.ActiveSlot;
+            trace.Add(!soakScopeExact
+                ? Reject(RuntimeDecisionCode.SoakComplete, false, request.Soak.ObservedDuration.Value, request.SoakDuration.Value)
+                : Hold(RuntimeDecisionCode.SoakComplete, request.Soak.ObservedDuration.Value >= request.SoakDuration.Value,
+                    request.Soak.ObservedDuration.Value, request.SoakDuration.Value));
+        }
         var hardRejected = trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected &&
                                           r.Code != RuntimeDecisionCode.ReadinessComplete &&
                                           !(r.Code == RuntimeDecisionCode.CompatibilityExact && requiresCompatibilityRecovery && compatibilityFailed));
-        var recoverableFailure = requiresNewHealth && healthExact && requiredHealthFailed || requiresCompatibilityRecovery && compatibilityFailed;
         if (hardRejected || (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected) && !recoverableFailure)) return Deny(request.OperationId, trace);
         if (!callSafe) return Decision(true, trace, new ObserveUpdateIntent(request));
         if (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Held)) return Deny(request.OperationId, trace);

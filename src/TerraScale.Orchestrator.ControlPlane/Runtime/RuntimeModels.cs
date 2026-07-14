@@ -278,10 +278,33 @@ public sealed record SelfUpdateObservation
     public ExecutorCallStatus CallStatus { get; }
 }
 
+public sealed record UpdateSoakEvidence
+{
+    public UpdateSoakEvidence(RuntimeOperationId operationId, RuntimeNodeId nodeId, RuntimeAllocationId allocationId,
+        RuntimeEpoch epoch, RuntimeGeneration targetGeneration, UpdateSlot activeSlot, RuntimeDurationSeconds observedDuration)
+    {
+        OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
+        NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
+        AllocationId = allocationId ?? throw new ArgumentNullException(nameof(allocationId));
+        Epoch = epoch ?? throw new ArgumentNullException(nameof(epoch));
+        TargetGeneration = targetGeneration ?? throw new ArgumentNullException(nameof(targetGeneration));
+        ActiveSlot = RuntimeEnums.Defined(activeSlot, nameof(activeSlot));
+        ObservedDuration = observedDuration ?? throw new ArgumentNullException(nameof(observedDuration));
+    }
+
+    public RuntimeOperationId OperationId { get; }
+    public RuntimeNodeId NodeId { get; }
+    public RuntimeAllocationId AllocationId { get; }
+    public RuntimeEpoch Epoch { get; }
+    public RuntimeGeneration TargetGeneration { get; }
+    public UpdateSlot ActiveSlot { get; }
+    public RuntimeDurationSeconds ObservedDuration { get; }
+}
+
 public sealed record SelfUpdateRequest
 {
-    public SelfUpdateRequest(RuntimeOperationId operationId, RuntimeNodeId nodeId, RuntimeAllocationId allocationId, RuntimeEpoch epoch, RuntimeEpoch currentEpoch, RuntimeArchitecture architecture, RuntimeGeneration currentGeneration, RuntimeGeneration targetGeneration, RuntimeGeneration currentProtocolGeneration, RuntimeGeneration currentSchemaGeneration, RuntimeDurationSeconds healthTimeout, RuntimeDurationSeconds soakDuration, UpdateCompatibilityWindow compatibilityWindow, UpdateRollbackPolicy rollbackPolicy, UpdateSlot expectedActiveSlot, UpdateSlot expectedInactiveSlot, UpdateArtifactSubject expectedForwardArtifact, UpdateArtifactSubject expectedRollbackArtifact, UpdateArtifactEvidence forwardArtifact, UpdateArtifactEvidence rollbackArtifact, UpdateCompatibilityEvidence compatibility, SelfUpdateObservation observation, IEnumerable<RuntimeHealthEvidence> health)
-    { OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId)); NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId)); AllocationId = allocationId ?? throw new ArgumentNullException(nameof(allocationId)); Epoch = epoch ?? throw new ArgumentNullException(nameof(epoch)); CurrentEpoch = currentEpoch ?? throw new ArgumentNullException(nameof(currentEpoch)); Architecture = RuntimeEnums.Defined(architecture, nameof(architecture)); CurrentGeneration = currentGeneration ?? throw new ArgumentNullException(nameof(currentGeneration)); TargetGeneration = targetGeneration ?? throw new ArgumentNullException(nameof(targetGeneration)); CurrentProtocolGeneration = currentProtocolGeneration ?? throw new ArgumentNullException(nameof(currentProtocolGeneration)); CurrentSchemaGeneration = currentSchemaGeneration ?? throw new ArgumentNullException(nameof(currentSchemaGeneration)); HealthTimeout = healthTimeout ?? throw new ArgumentNullException(nameof(healthTimeout)); SoakDuration = soakDuration ?? throw new ArgumentNullException(nameof(soakDuration)); CompatibilityWindow = RuntimeEnums.Defined(compatibilityWindow, nameof(compatibilityWindow)); RollbackPolicy = RuntimeEnums.Defined(rollbackPolicy, nameof(rollbackPolicy)); ExpectedActiveSlot = RuntimeEnums.Defined(expectedActiveSlot, nameof(expectedActiveSlot)); ExpectedInactiveSlot = RuntimeEnums.Defined(expectedInactiveSlot, nameof(expectedInactiveSlot)); if (ExpectedActiveSlot == ExpectedInactiveSlot) throw new ArgumentException("Expected A/B slots must be distinct."); ExpectedForwardArtifact = expectedForwardArtifact ?? throw new ArgumentNullException(nameof(expectedForwardArtifact)); ExpectedRollbackArtifact = expectedRollbackArtifact ?? throw new ArgumentNullException(nameof(expectedRollbackArtifact)); ForwardArtifact = forwardArtifact ?? throw new ArgumentNullException(nameof(forwardArtifact)); RollbackArtifact = rollbackArtifact ?? throw new ArgumentNullException(nameof(rollbackArtifact)); Compatibility = compatibility ?? throw new ArgumentNullException(nameof(compatibility)); Observation = observation ?? throw new ArgumentNullException(nameof(observation)); Health = RuntimeEnums.Copy(health, nameof(health)); }
+    public SelfUpdateRequest(RuntimeOperationId operationId, RuntimeNodeId nodeId, RuntimeAllocationId allocationId, RuntimeEpoch epoch, RuntimeEpoch currentEpoch, RuntimeArchitecture architecture, RuntimeGeneration currentGeneration, RuntimeGeneration targetGeneration, RuntimeGeneration currentProtocolGeneration, RuntimeGeneration currentSchemaGeneration, RuntimeDurationSeconds healthTimeout, RuntimeDurationSeconds soakDuration, UpdateCompatibilityWindow compatibilityWindow, UpdateRollbackPolicy rollbackPolicy, UpdateSlot expectedActiveSlot, UpdateSlot expectedInactiveSlot, UpdateArtifactSubject expectedForwardArtifact, UpdateArtifactSubject expectedRollbackArtifact, UpdateArtifactEvidence forwardArtifact, UpdateArtifactEvidence rollbackArtifact, UpdateCompatibilityEvidence compatibility, SelfUpdateObservation observation, UpdateSoakEvidence? soak, IEnumerable<RuntimeHealthEvidence> health)
+    { OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId)); NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId)); AllocationId = allocationId ?? throw new ArgumentNullException(nameof(allocationId)); Epoch = epoch ?? throw new ArgumentNullException(nameof(epoch)); CurrentEpoch = currentEpoch ?? throw new ArgumentNullException(nameof(currentEpoch)); Architecture = RuntimeEnums.Defined(architecture, nameof(architecture)); CurrentGeneration = currentGeneration ?? throw new ArgumentNullException(nameof(currentGeneration)); TargetGeneration = targetGeneration ?? throw new ArgumentNullException(nameof(targetGeneration)); CurrentProtocolGeneration = currentProtocolGeneration ?? throw new ArgumentNullException(nameof(currentProtocolGeneration)); CurrentSchemaGeneration = currentSchemaGeneration ?? throw new ArgumentNullException(nameof(currentSchemaGeneration)); HealthTimeout = healthTimeout ?? throw new ArgumentNullException(nameof(healthTimeout)); SoakDuration = soakDuration ?? throw new ArgumentNullException(nameof(soakDuration)); CompatibilityWindow = RuntimeEnums.Defined(compatibilityWindow, nameof(compatibilityWindow)); RollbackPolicy = RuntimeEnums.Defined(rollbackPolicy, nameof(rollbackPolicy)); ExpectedActiveSlot = RuntimeEnums.Defined(expectedActiveSlot, nameof(expectedActiveSlot)); ExpectedInactiveSlot = RuntimeEnums.Defined(expectedInactiveSlot, nameof(expectedInactiveSlot)); if (ExpectedActiveSlot == ExpectedInactiveSlot) throw new ArgumentException("Expected A/B slots must be distinct."); ExpectedForwardArtifact = expectedForwardArtifact ?? throw new ArgumentNullException(nameof(expectedForwardArtifact)); ExpectedRollbackArtifact = expectedRollbackArtifact ?? throw new ArgumentNullException(nameof(expectedRollbackArtifact)); ForwardArtifact = forwardArtifact ?? throw new ArgumentNullException(nameof(forwardArtifact)); RollbackArtifact = rollbackArtifact ?? throw new ArgumentNullException(nameof(rollbackArtifact)); Compatibility = compatibility ?? throw new ArgumentNullException(nameof(compatibility)); Observation = observation ?? throw new ArgumentNullException(nameof(observation)); Soak = soak; Health = RuntimeEnums.Copy(health, nameof(health)); }
     public RuntimeOperationId OperationId { get; }
     public RuntimeNodeId NodeId { get; }
     public RuntimeAllocationId AllocationId { get; }
@@ -304,10 +327,11 @@ public sealed record SelfUpdateRequest
     public UpdateArtifactEvidence RollbackArtifact { get; }
     public UpdateCompatibilityEvidence Compatibility { get; }
     public SelfUpdateObservation Observation { get; }
+    public UpdateSoakEvidence? Soak { get; }
     public IReadOnlyList<RuntimeHealthEvidence> Health { get; }
 }
 
-public enum RuntimeDecisionCode { EvidenceComplete = 1, EvidenceUnique = 2, EvidenceConsistent = 3, OperationExact = 4, EpochCurrent = 5, GenerationCurrent = 6, AdmissionExact = 7, ArchitectureExact = 8, ArtifactExact = 9, PortConflictFree = 10, VolumeConflictFree = 11, HealthExact = 12, ReadinessComplete = 13, CallSafe = 14, SlotDistinct = 15, ForwardAvailable = 16, RollbackAvailable = 17, CompatibilityExact = 18, PhaseResumable = 19, RollbackPossible = 20, ProcessConsistent = 21 }
+public enum RuntimeDecisionCode { EvidenceComplete = 1, EvidenceUnique = 2, EvidenceConsistent = 3, OperationExact = 4, EpochCurrent = 5, GenerationCurrent = 6, AdmissionExact = 7, ArchitectureExact = 8, ArtifactExact = 9, PortConflictFree = 10, VolumeConflictFree = 11, HealthExact = 12, ReadinessComplete = 13, CallSafe = 14, SlotDistinct = 15, ForwardAvailable = 16, RollbackAvailable = 17, CompatibilityExact = 18, PhaseResumable = 19, RollbackPossible = 20, ProcessConsistent = 21, SoakComplete = 22 }
 public enum RuntimeDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record RuntimeDecisionReason { internal RuntimeDecisionReason(RuntimeDecisionCode code, RuntimeDecisionOutcome outcome, ulong observed, ulong required) { Code = code; Outcome = outcome; Observed = observed; Required = required; } public RuntimeDecisionCode Code { get; } public RuntimeDecisionOutcome Outcome { get; } public ulong Observed { get; } public ulong Required { get; } }
 
