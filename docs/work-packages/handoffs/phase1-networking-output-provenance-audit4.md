@@ -7,13 +7,14 @@
 - Legacy subject accessors remain available and derive from the retained scope, preventing two independent representations from drifting.
 - Route evidence equality and hashing are structural and culture-independent. Semantic collection ordering is ignored, but duplicate count, typed identity, binary prefix, route ownership, peer linkage, trust plane, topology shape, proof state, and partition state are all preserved.
 - Every held networking decision remains non-authorizing and has a null subject.
-- Public construction remains closed to the four planner entry points. Decision default/value copy and subject record clone routes cannot add authority or replace retained basis references.
+- Public construction remains closed to the four planner entry points. One allowlisted return-route inventory covers decisions, base and concrete subjects, retained scopes/evidence/trace, record clones, and route-evidence collection projections. Decision default/value copy and subject record clone routes cannot add authority or replace retained basis references.
+- Sensitivity proofs independently vary every route-scope leaf, destination address width and prefix length, and both retained observation ordinals; otherwise-identical emitted decisions remain unequal when either observation ordinal changes.
 
 ## Verification evidence
 
 - Pre-correction counterexample run: 3/3 failed with accepted-output equality collisions.
-- Post-correction focused provenance suite: 11/11 passed.
-- Post-correction ControlPlane suite: 654/654 passed.
+- Post-review focused provenance suite: 12/12 passed.
+- Post-review ControlPlane suite: 655/655 passed.
 - Test-project warnings-as-errors build: 0 warnings and 0 errors.
 - Strict replay corpus: 25 entries, whole-file SHA-256 pinned.
 
