@@ -32,6 +32,7 @@ public sealed class SnapshotValidationContext
         SnapshotSchemaId currentSchema,
         SnapshotEpoch currentAcceptedEpoch,
         SnapshotStreamSequence currentAcceptedStreamSequence,
+        SnapshotGeneration currentAcceptedGeneration,
         SnapshotStateDigest expectedStateDigest,
         ISnapshotSchemaCompatibility schemaCompatibility,
         ISnapshotSignatureVerifier signatureVerifier)
@@ -42,6 +43,7 @@ public sealed class SnapshotValidationContext
         CurrentSchema = currentSchema;
         CurrentAcceptedEpoch = currentAcceptedEpoch;
         CurrentAcceptedStreamSequence = currentAcceptedStreamSequence;
+        CurrentAcceptedGeneration = currentAcceptedGeneration;
         ExpectedStateDigest = expectedStateDigest;
         SchemaCompatibility = schemaCompatibility;
         SignatureVerifier = signatureVerifier;
@@ -53,6 +55,7 @@ public sealed class SnapshotValidationContext
     public SnapshotSchemaId CurrentSchema { get; }
     public SnapshotEpoch CurrentAcceptedEpoch { get; }
     public SnapshotStreamSequence CurrentAcceptedStreamSequence { get; }
+    public SnapshotGeneration CurrentAcceptedGeneration { get; }
     public SnapshotStateDigest ExpectedStateDigest { get; }
     public ISnapshotSchemaCompatibility SchemaCompatibility { get; }
     public ISnapshotSignatureVerifier SignatureVerifier { get; }
@@ -64,6 +67,7 @@ public sealed class SnapshotValidationContext
         && CurrentSchema.IsValid
         && CurrentAcceptedEpoch.IsValid
         && CurrentAcceptedStreamSequence.IsValid
+        && CurrentAcceptedGeneration.IsValid
         && ExpectedStateDigest is { IsValid: true }
         && SchemaCompatibility is not null
         && SignatureVerifier is not null;
@@ -86,6 +90,7 @@ public enum SnapshotValidationError
     StateDigestMismatch,
     InvalidSignature,
     SignatureVerificationFailed,
+    GenerationRollback,
 }
 
 public readonly record struct SnapshotValidationResult
@@ -154,6 +159,10 @@ public static class SignedSnapshotValidator
         if (material.StreamSequence.Value <= context.CurrentAcceptedStreamSequence.Value)
         {
             return SnapshotValidationResult.Rejected(SnapshotValidationError.StreamRollback);
+        }
+        if (material.Generation.Value < context.CurrentAcceptedGeneration.Value)
+        {
+            return SnapshotValidationResult.Rejected(SnapshotValidationError.GenerationRollback);
         }
         if (!material.StateDigest.Equals(context.ExpectedStateDigest))
         {
