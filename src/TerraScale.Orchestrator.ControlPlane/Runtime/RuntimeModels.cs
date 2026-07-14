@@ -320,7 +320,22 @@ public sealed record StartRuntimeIntent : RuntimeIntent { internal StartRuntimeI
 public sealed record CheckRuntimeHealthIntent : RuntimeIntent { internal CheckRuntimeHealthIntent(RuntimeOperationId operationId, RuntimeAllocationId allocationId) : base(operationId) => AllocationId = allocationId; public RuntimeAllocationId AllocationId { get; } }
 public sealed record DrainRuntimeIntent : RuntimeIntent { internal DrainRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record StopRuntimeIntent : RuntimeIntent { internal StopRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
-public sealed record CleanupRuntimeIntent : RuntimeIntent { internal CleanupRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => EphemeralVolumes = r.Spec.Volumes.Where(v => v.Retention == VolumeRetention.Ephemeral).Select(v => v.VolumeId).ToArray(); public IReadOnlyList<RuntimeVolumeId> EphemeralVolumes { get; } }
+public sealed record CleanupRuntimeIntent : RuntimeIntent
+{
+    private readonly ReadOnlyCollection<RuntimeVolumeId> _ephemeralVolumes;
+
+    internal CleanupRuntimeIntent(RuntimeLifecycleRequest request) : base(request.OperationId)
+    {
+        Request = request;
+        _ephemeralVolumes = Array.AsReadOnly(request.Spec.Volumes
+            .Where(volume => volume.Retention == VolumeRetention.Ephemeral)
+            .Select(volume => volume.VolumeId)
+            .ToArray());
+    }
+
+    public RuntimeLifecycleRequest Request { get; }
+    public IReadOnlyList<RuntimeVolumeId> EphemeralVolumes => _ephemeralVolumes;
+}
 public sealed record ObserveExecutorIntent : RuntimeIntent { internal ObserveExecutorIntent(RuntimeOperationId operationId, RuntimeAllocationId allocationId) : base(operationId) => AllocationId = allocationId; public RuntimeAllocationId AllocationId { get; } }
 public sealed record VerifyUpdateArtifactIntent : RuntimeIntent { internal VerifyUpdateArtifactIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }
 public sealed record StageInactiveSlotIntent : RuntimeIntent { internal StageInactiveSlotIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }
