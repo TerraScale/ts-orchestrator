@@ -112,9 +112,10 @@ public static class RuntimeDecisionEngine
         var rollback = ArtifactMatches(request.ExpectedRollbackArtifact, request.RollbackArtifact) && request.ExpectedRollbackArtifact.Generation == request.CurrentGeneration && request.ExpectedRollbackArtifact.Architecture == request.Architecture &&
                        request.RollbackArtifact.Availability == ArtifactAvailability.Available && request.RollbackArtifact.Verification == ArtifactVerificationStatus.Verified;
         trace.Add(rollback ? Pass(RuntimeDecisionCode.RollbackAvailable) : Hold(RuntimeDecisionCode.RollbackAvailable, false, 0, 1));
-        var compatibility = request.Compatibility.OperationId == request.OperationId && request.Compatibility.CurrentGeneration == request.CurrentGeneration &&
-                            request.Compatibility.TargetGeneration == request.TargetGeneration && request.Compatibility.ProtocolGeneration == request.CurrentProtocolGeneration &&
-                            request.Compatibility.SchemaGeneration == request.CurrentSchemaGeneration && request.Compatibility.NToNMinusOne == CompatibilityStatus.Compatible &&
+        var compatibilityScopeExact = request.Compatibility.OperationId == request.OperationId && request.Compatibility.CurrentGeneration == request.CurrentGeneration &&
+                                      request.Compatibility.TargetGeneration == request.TargetGeneration && request.Compatibility.ProtocolGeneration == request.CurrentProtocolGeneration &&
+                                      request.Compatibility.SchemaGeneration == request.CurrentSchemaGeneration;
+        var compatibility = compatibilityScopeExact && request.Compatibility.NToNMinusOne == CompatibilityStatus.Compatible &&
                             request.Compatibility.Status == CompatibilityStatus.Compatible;
         trace.Add(Reject(RuntimeDecisionCode.CompatibilityExact, compatibility, compatibility ? 1UL : 0UL, 1));
         var healthGroups = request.Health.GroupBy(h => h.Dimension).ToArray();
@@ -134,11 +135,19 @@ public static class RuntimeDecisionEngine
         trace.Add(callSafe ? Pass(RuntimeDecisionCode.CallSafe) : Hold(RuntimeDecisionCode.CallSafe, false, 0, 1));
         trace.Add(observation.Phase == UpdatePhase.RollbackFailed ? Reject(RuntimeDecisionCode.RollbackPossible, false, 0, 1) : rollback ? Pass(RuntimeDecisionCode.RollbackPossible) : Hold(RuntimeDecisionCode.RollbackPossible, false, 0, 1));
 
-        var hardRejected = trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected && r.Code != RuntimeDecisionCode.ReadinessComplete);
-        if (hardRejected || (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected) && !(requiresNewHealth && healthExact && requiredHealthFailed))) return Deny(request.OperationId, trace);
+        var requiresCompatibilityRecovery = observation.Phase is UpdatePhase.LocalHealthVerified or UpdatePhase.RegionalCompatibilityVerified or
+                                            UpdatePhase.SlotCommitted or UpdatePhase.OldSlotRetainedUntilSoak;
+        var compatibilityFailed = compatibilityScopeExact &&
+                                  (request.Compatibility.NToNMinusOne == CompatibilityStatus.Incompatible || request.Compatibility.Status == CompatibilityStatus.Incompatible);
+        var hardRejected = trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected &&
+                                          r.Code != RuntimeDecisionCode.ReadinessComplete &&
+                                          !(r.Code == RuntimeDecisionCode.CompatibilityExact && requiresCompatibilityRecovery && compatibilityFailed));
+        var recoverableFailure = requiresNewHealth && healthExact && requiredHealthFailed || requiresCompatibilityRecovery && compatibilityFailed;
+        if (hardRejected || (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected) && !recoverableFailure)) return Deny(request.OperationId, trace);
         if (!callSafe) return Decision(true, trace, new ObserveUpdateIntent(request));
-        if (requiresNewHealth && healthExact && requiredHealthFailed) return Decision(true, trace, new RollbackUpdateIntent(request));
         if (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Held)) return Deny(request.OperationId, trace);
+        if (requiresNewHealth && healthExact && requiredHealthFailed) return Decision(true, trace, new RollbackUpdateIntent(request));
+        if (requiresCompatibilityRecovery && compatibilityFailed) return Decision(true, trace, new RollbackUpdateIntent(request));
 
         var localReady = Ready(request, HealthDimension.Liveness) && Ready(request, HealthDimension.LocalReadiness) && Ready(request, HealthDimension.DependencyReadiness);
         var localFailed = request.Health.Any(h => (h.Dimension is HealthDimension.Liveness or HealthDimension.LocalReadiness or HealthDimension.DependencyReadiness) && h.Status == HealthStatus.Failed);
