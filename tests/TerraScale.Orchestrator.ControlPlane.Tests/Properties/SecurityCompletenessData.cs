@@ -234,7 +234,7 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "b41d2774e085ceff2ed58b5b0061d4ae40db69776db2186d89a09a61cb14e165";
+    private const string Digest = "c074e04206a4f260aaba2eef033e51fde9c9e03f67dc8b3e064beddc4c9833ef";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
     { ["enrollment"] = 18, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };

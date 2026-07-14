@@ -81,6 +81,35 @@ public sealed class SecurityFourthAuditRegressionTests
     }
 
     [Test]
+    public async Task Enrollment_request_has_one_closed_non_optional_construction_surface()
+    {
+        var constructors = typeof(EnrollmentRequest).GetConstructors();
+        await Assert.That(constructors).HasSingleItem();
+        var parameters = constructors.Single().GetParameters();
+        var expected = new[]
+        {
+            typeof(SecurityOperationId),
+            typeof(SecurityPrincipal),
+            typeof(SecurityGeneration),
+            typeof(SecurityKeyId),
+            typeof(SecurityGeneration),
+            typeof(IssuerSigningCapability),
+            typeof(SecurityGeneration),
+            typeof(SecurityGeneration),
+            typeof(IEnumerable<BootstrapEnrollmentEvidence>),
+            typeof(IEnumerable<SecurityAttestationEvidence>),
+        };
+        var signatureMatches = parameters.Select(parameter => parameter.ParameterType).SequenceEqual(expected);
+        await Assert.That(signatureMatches).IsTrue();
+        await Assert.That(parameters.All(parameter => !parameter.IsOptional && !parameter.HasDefaultValue)).IsTrue();
+
+        var factories = typeof(EnrollmentRequest).GetMethods(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(method => method.ReturnType == typeof(EnrollmentRequest));
+        await Assert.That(factories).IsEmpty();
+    }
+
+    [Test]
     public async Task Coherent_replay_trace_is_culture_stable_and_preserves_reason_order()
     {
         string? baseline = null;

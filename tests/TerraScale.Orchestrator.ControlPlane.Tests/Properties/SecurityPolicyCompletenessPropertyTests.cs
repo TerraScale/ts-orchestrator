@@ -295,7 +295,9 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             var mutatedOutput = SecurityCompletenessData.OutputFingerprint(SecurityCompletenessData.Decide(kind, kind == "survival" ? 6 : 4, seed));
             Require(exactInput != mutatedInput && exactOutput != mutatedOutput, (int)seed, kind + " same-seed mutation sensitivity");
         }
-        await Assert.That(entries.Count).IsEqualTo(10);
+        await Assert.That(entries.Count).IsEqualTo(13);
+        await Assert.That(entries.Where(entry => entry.Kind == "enrollment" && entry.Variant is 16 or 17 or 18)
+            .Select(entry => entry.Variant)).IsEquivalentTo(new[] { 16, 17, 18 });
     }
 
     [Test]
