@@ -2,7 +2,7 @@
 
 ## Scope and base
 
-- Base: central `chore/phase0-bootstrap` at `da6ee0d0251acf106456323e2ab9cacfae02caa6` after the required final rebase.
+- Base: central `chore/phase0-bootstrap` at `710689fb2464504981863ff8d3868239bdf596a9` after the required final rebase.
 - Allowed paths: deterministic model simulation contracts/reducer, model tests, and this work package.
 - Pure deterministic L0 model work only; no adapter, NATS server, filesystem, process, network, systemd, container, VM, cloud/provider, credential, or deployment action.
 
@@ -46,4 +46,4 @@ dotnet run --project tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchest
 git diff --check
 ```
 
-Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused audit tests passed 6/6; Model tests passed 44/44; all five executables passed 817/817 (ControlPlane 597, Contract 29, Model 44, Protocol 70, Scheduler 77).
+Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused audit tests passed 6/6; Model tests passed 44/44; all five executables passed 821/821 (ControlPlane 601, Contract 29, Model 44, Protocol 70, Scheduler 77).
