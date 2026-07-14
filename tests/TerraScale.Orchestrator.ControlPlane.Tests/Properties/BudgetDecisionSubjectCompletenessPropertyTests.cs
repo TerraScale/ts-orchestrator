@@ -143,8 +143,18 @@ public sealed class BudgetDecisionSubjectCompletenessPropertyTests
             .Any(property => property.SetMethod?.IsPublic == true)).IsFalse();
         await Assert.That(subjectType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Any(method => method.Name == "Deconstruct")).IsFalse();
-        await Assert.That(subjectType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Any(method => method.ReturnType == subjectType && !method.IsSpecialName)).IsFalse();
+        var externalFactories = subjectType.Assembly.GetExportedTypes()
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => method.ReturnType == subjectType)
+            .Where(method => !(method.IsSpecialName && method.DeclaringType == typeof(BudgetDecision) && method.Name == "get_Subject"))
+            .Select(method => $"{method.DeclaringType!.FullName}.{method.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        await Assert.That(externalFactories).IsEmpty();
+
+        var defaultDecision = default(BudgetDecision);
+        await Assert.That(defaultDecision.Subject).IsNull();
+        await Assert.That(defaultDecision.Trace).IsNull();
     }
 
     private static async Task AssertExactSubject(BudgetDecisionSubject? subject, BudgetProposal proposal)
