@@ -128,9 +128,11 @@ public static class TerraBaseRestorePlanner
         TerraBaseBackupId expectedTerminalBackup,TerraBaseOrdinal expectedTargetGeneration,TerraBaseRestoreEvidence? e)
     {
         if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
+        if(expectedRestore is null||expectedTerminalBackup is null||!expectedTargetGeneration.IsValid)
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
-        if(e is null||e.Scope!=expected||e.Restore!=expectedRestore||e.TargetGeneration!=expectedTargetGeneration
-            ||expectedTerminalBackup is null||!e.SourceGeneration.IsValid||!e.TargetGeneration.IsValid)
+        if(e is null||e.Scope!=expected||e.Restore is null||e.Restore!=expectedRestore||e.TargetGeneration!=expectedTargetGeneration
+            ||!e.SourceGeneration.IsValid||!e.TargetGeneration.IsValid)
             return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(!TerraBaseEnumRules.Defined(e.SideBySide)||!TerraBaseEnumRules.Defined(e.RestoreApplied)
             ||!TerraBaseEnumRules.Defined(e.TopologyVerified)||!TerraBaseEnumRules.Defined(e.QueryVerified)

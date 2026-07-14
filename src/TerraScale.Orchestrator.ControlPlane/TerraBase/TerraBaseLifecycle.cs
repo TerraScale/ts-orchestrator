@@ -148,9 +148,10 @@ public static class TerraBaseUpgradePlanner
         TerraBaseReleaseId expectedTarget,TerraBaseUpgradeEvidence? e)
     {
         if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
+        if(expectedCurrent is null||expectedTarget is null||expectedCurrent==expectedTarget)
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(e is null||e.Scope!=expected||e.Current!=expectedCurrent||e.Target!=expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
-        if(expectedCurrent is null||expectedTarget is null||expectedCurrent==expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(!TerraBaseEnumRules.Defined(e.Compatibility)||!TerraBaseEnumRules.Defined(e.NoTopologyMutation)
             ||!TerraBaseEnumRules.Defined(e.OneFailureDomain)||!TerraBaseEnumRules.Defined(e.RollbackMaterial)
             ||!TerraBaseEnumRules.Defined(e.LeadershipTransferred)||!TerraBaseEnumRules.Defined(e.UpgradeApplied)
