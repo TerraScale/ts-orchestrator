@@ -108,6 +108,12 @@
       },
       "terrascale.orchestrator.contracts": {
         "type": "Project"
+      },
+      "terrascale.orchestrator.controlplane": {
+        "type": "Project",
+        "dependencies": {
+          "TerraScale.Orchestrator.Contracts": "[1.0.0, )"
+        }
       }
     }
   }
