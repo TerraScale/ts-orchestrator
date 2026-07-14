@@ -469,6 +469,7 @@ public enum ProviderDecisionCode
     HandoffScopeMatches = 17, HandoffRetainUnmanage = 18, HandoffJournalReceipt = 19,
     HandoffProviderReady = 20, HandoffTrustReady = 21, HandoffBackupReady = 22,
     HandoffFenceActivated = 23, CallEvidenceMatches = 24,
+    HandoffGenerationNotRollback = 25,
 }
 public enum ProviderDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record ProviderDecisionReason
@@ -640,25 +641,35 @@ public sealed record HandoffEvidence
 }
 public sealed record HandoffRequest
 {
-    public HandoffRequest(FreshBootstrapInventory inventory, HandoffScope expectedScope, HandoffEvidence evidence)
+    public HandoffRequest(
+        FreshBootstrapInventory inventory, HandoffScope expectedScope,
+        ProviderGeneration currentAcceptedBootstrapGeneration, HandoffEvidence evidence)
     {
         Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
         ExpectedScope = expectedScope ?? throw new ArgumentNullException(nameof(expectedScope));
+        CurrentAcceptedBootstrapGeneration = currentAcceptedBootstrapGeneration ??
+            throw new ArgumentNullException(nameof(currentAcceptedBootstrapGeneration));
         Evidence = evidence ?? throw new ArgumentNullException(nameof(evidence));
     }
     public FreshBootstrapInventory Inventory { get; }
     public HandoffScope ExpectedScope { get; }
+    public ProviderGeneration CurrentAcceptedBootstrapGeneration { get; }
     public HandoffEvidence Evidence { get; }
 }
 public sealed record EnableRegionalSelfManagementIntent
 {
-    internal EnableRegionalSelfManagementIntent(FreshBootstrapInventory inventory, HandoffScope scope)
+    internal EnableRegionalSelfManagementIntent(
+        FreshBootstrapInventory inventory, HandoffScope scope,
+        ProviderGeneration currentAcceptedBootstrapGeneration)
     {
         Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
+        CurrentAcceptedBootstrapGeneration = currentAcceptedBootstrapGeneration ??
+            throw new ArgumentNullException(nameof(currentAcceptedBootstrapGeneration));
     }
     public FreshBootstrapInventory Inventory { get; }
     public HandoffScope Scope { get; }
+    public ProviderGeneration CurrentAcceptedBootstrapGeneration { get; }
 }
 public sealed record HandoffDecision
 {

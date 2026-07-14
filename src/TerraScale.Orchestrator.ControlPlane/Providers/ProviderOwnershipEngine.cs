@@ -104,11 +104,15 @@ public static class ProviderOwnershipEngine
         var expected = Projection(inventory.Expected);
         var exact = expected == Projection(inventory.Pulumi) && expected == Projection(inventory.Regional);
         var scopeMatchesInventory = request.ExpectedScope.InventoryFingerprint == HandoffInventoryFingerprint.Compute(inventory.Expected);
+        var generationNotRollback = request.ExpectedScope.BootstrapGeneration.Value >=
+                                    request.CurrentAcceptedBootstrapGeneration.Value;
         var trace = new List<ProviderDecisionReason>
         {
             Hold(ProviderDecisionCode.HandoffInventoryUnique, duplicates == 0, checked((ulong)duplicates), 0),
             Reject(ProviderDecisionCode.HandoffInventoryExact, exact, exact ? 1UL : 0UL, 1),
             Reject(ProviderDecisionCode.HandoffScopeMatches, scopeMatchesInventory, scopeMatchesInventory ? 1UL : 0UL, 1),
+            Reject(ProviderDecisionCode.HandoffGenerationNotRollback, generationNotRollback,
+                request.ExpectedScope.BootstrapGeneration.Value, request.CurrentAcceptedBootstrapGeneration.Value),
             Evidence(ProviderDecisionCode.HandoffRetainUnmanage, evidence.RetainUnmanage, request.ExpectedScope),
             Evidence(ProviderDecisionCode.HandoffJournalReceipt, evidence.RegionalJournalReceipt, request.ExpectedScope),
             Evidence(ProviderDecisionCode.HandoffProviderReady, evidence.ProviderReady, request.ExpectedScope),
@@ -117,7 +121,8 @@ public static class ProviderOwnershipEngine
             Evidence(ProviderDecisionCode.HandoffFenceActivated, evidence.RegionalFenceActivated, request.ExpectedScope),
         };
         var ready = trace.All(x => x.Outcome == ProviderDecisionOutcome.Passed);
-        return new(ready, new ReadOnlyCollection<ProviderDecisionReason>(trace), ready ? new(inventory, request.ExpectedScope) : null);
+        return new(ready, new ReadOnlyCollection<ProviderDecisionReason>(trace),
+            ready ? new(inventory, request.ExpectedScope, request.CurrentAcceptedBootstrapGeneration) : null);
     }
 
     private static ProviderIntent NextIntent(ProviderAuthorizationRequest request)
