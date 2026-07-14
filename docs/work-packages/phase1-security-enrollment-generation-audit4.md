@@ -32,9 +32,10 @@ Every `EnrollmentRequest` supplies a non-null `CurrentPrincipalGeneration`. Enro
 - Coherent lower generation with valid or missing attestation: reject and emit only `HoldSecurityOperationIntent`.
 - Coherent future generation with valid attestation: reject and emit only `HoldSecurityOperationIntent`.
 - Null current generation: construction fails.
+- Public construction surface: exactly one ten-parameter constructor in the declared order, with no optional/default parameters or public static factory.
 - `ulong.MaxValue` exact match: accepted without overflow.
 - Repeated evaluation under `en-US`, `tr-TR`, `ar-SA`, and `ja-JP`: identical ordered trace.
-- Completeness, construction-closure, strict corpus replay, and 1,000-case permutation properties remain green.
+- Completeness, construction-closure, strict corpus replay, and 1,000-case permutation properties remain green. The strict corpus saves coherent stale, coherent future, and stale missing-attestation failure seeds as variants 16, 17, and 18.
 
 ## Boundary
 
