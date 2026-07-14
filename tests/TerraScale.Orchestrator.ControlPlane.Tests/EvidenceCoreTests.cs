@@ -50,6 +50,12 @@ public sealed class EvidenceCoreTests
         await Assert.That(scope.SignatureIdentity).IsEqualTo(EvidenceTestData.SignatureId());
         await Assert.That(scope.Generation).IsEqualTo(EvidenceTestData.G(3));
         await Assert.That(scope.ExpirySequence).IsEqualTo(EvidenceTestData.Q(20));
+        var sourceGeneration=EvidenceTestData.G(17);var sourceExpiry=EvidenceTestData.Q(71);
+        var sourceEnvelope=EvidenceTestData.Envelope(generation:sourceGeneration,expiry:sourceExpiry);
+        var sourceDecision=EvidenceTestData.Gate(envelope:sourceEnvelope,
+            context:EvidenceTestData.Context(generation:sourceGeneration,expectedExpiry:sourceExpiry));
+        await Assert.That(sourceDecision.AuthorizationScope!.Generation).IsEqualTo(sourceEnvelope.Material.Generation);
+        await Assert.That(sourceDecision.AuthorizationScope.ExpirySequence).IsEqualTo(sourceEnvelope.Material.ExpirySequence);
     }
 
     [Test]
@@ -63,6 +69,20 @@ public sealed class EvidenceCoreTests
         await Assert.That(typeof(EvidenceDecision).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceDecisionSubject).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceAuthorizationScope).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
+        await Assert.That(typeof(EvidenceAuthorizationScope).GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.Static)
+            .Where(method=>method.Name=="Deconstruct")).IsEmpty();
+        var publicScopeFactories=typeof(EvidenceAuthorizationScope).Assembly.GetExportedTypes()
+            .SelectMany(type=>type.GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.Static|BindingFlags.DeclaredOnly))
+            .Where(method=>method.ReturnType==typeof(EvidenceAuthorizationScope)).ToArray();
+        await Assert.That(publicScopeFactories.Select(method=>$"{method.DeclaringType!.Name}.{method.Name}").Order())
+            .IsEquivalentTo(new[]{"EvidenceAuthorizationScope.<Clone>$","EvidenceDecision.get_AuthorizationScope"});
+        await Assert.That(publicScopeFactories.Where(method=>method.Name!="<Clone>$"&&!method.IsSpecialName)).IsEmpty();
+        var scopeClone=typeof(EvidenceAuthorizationScope).GetMethods(BindingFlags.Public|BindingFlags.Instance)
+            .SingleOrDefault(method=>method.Name=="<Clone>$");
+        await Assert.That(scopeClone).IsNotNull();
+        await Assert.That(scopeClone!.IsPublic).IsTrue();
+        await Assert.That(scopeClone.ReturnType).IsEqualTo(typeof(EvidenceAuthorizationScope));
+        await Assert.That(scopeClone.GetParameters()).IsEmpty();
         await Assert.That(typeof(EvidencePolicyResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceReuseResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(default(EvidencePolicyResult).Code).IsEqualTo(EvidenceCode.Unknown);
