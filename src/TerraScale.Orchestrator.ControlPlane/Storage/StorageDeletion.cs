@@ -38,6 +38,13 @@ public sealed class StorageDeletionEvidence
         yield return NoDatabaseReference; yield return ApplicationBackupVerified; yield return RetentionSatisfied;
         yield return OwnerFenceVerified; yield return PostDeleteAuditReady;
     }
+
+    internal IEnumerable<StorageProof> AllProofs()
+    {
+        foreach (var proof in CommonPreconditions()) yield return proof;
+        yield return Quarantined; yield return DisposablePolicyVerified; yield return DeletionRequested;
+        yield return ProviderAbsent; yield return PostDeleteAuditPassed;
+    }
 }
 
 public static class StorageDeletionPlanner
@@ -51,6 +58,10 @@ public static class StorageDeletionPlanner
         if (volume.Retention == StorageRetention.Permanent) return StorageDecision.Hold(StorageDecisionCode.PermanentRetention,trace);
         if (evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume.EvidenceScope)
             return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope,trace);
+        if (evidence.AllProofs().Any(static proof => !Enum.IsDefined(proof)))
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
+        if (evidence.AllProofs().Any(static proof => proof == StorageProof.Contradicted))
+            return StorageDecision.Hold(StorageDecisionCode.StepContradicted, trace);
         if (evidence.CommonPreconditions().Any(static proof => proof != StorageProof.Proven))
             return StorageDecision.Hold(StorageDecisionCode.DeletionProofMissing,trace);
         if (volume.Retention == StorageRetention.ElasticQuarantine && evidence.Quarantined != StorageProof.Proven)

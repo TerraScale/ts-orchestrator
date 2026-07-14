@@ -2,6 +2,42 @@ using System.Collections.ObjectModel;
 
 namespace TerraScale.Orchestrator.ControlPlane.Storage;
 
+/// <summary>Technical caller-input snapshot limits; these are not storage topology or writer policy caps.</summary>
+public static class StorageTechnicalInputLimits
+{
+    public const int MaximumWriterObservationCount = 4_096;
+}
+
+internal static class StorageInputSnapshot
+{
+    internal static bool TryCopyWriters(IEnumerable<StorageWriterObservation?>? source, int businessMaximum,
+        out StorageWriterObservation[] snapshot)
+    {
+        snapshot = [];
+        if (source is null) return businessMaximum > 0;
+        if (businessMaximum <= 0) return false;
+        var maximum = Math.Min(businessMaximum, StorageTechnicalInputLimits.MaximumWriterObservationCount);
+        var values = new List<StorageWriterObservation>(Math.Min(maximum, 256));
+        try
+        {
+            using var iterator = source.GetEnumerator();
+            while (iterator.MoveNext())
+            {
+                if (values.Count == maximum) return false;
+                var current = iterator.Current;
+                if (current is null) return false;
+                values.Add(current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            return false;
+        }
+        snapshot = values.ToArray();
+        return true;
+    }
+}
+
 public enum StorageCreateCheckpoint
 {
     Unknown = 0, ClaimAccepted, CapacityAndBudgetChecked, VolumeCreated, AttachmentCreated,
@@ -79,17 +115,10 @@ public sealed class StorageReattachEvidence
         Scope=scope; ProcessStopped=processStopped; LeaseRevoked=leaseRevoked; ProviderDetached=providerDetached;
         HealthVerified=healthVerified; ProposedEpoch=proposedEpoch;
         WriterInventoryComplete=writerInventoryComplete;
-        var collected = new List<StorageWriterObservation>();
-        if (writers is not null)
-        {
-            foreach (var writer in writers)
-            {
-                if (writer is null || collected.Count >= maximumWriterObservations) { IsWellFormed=false; _writers=[]; _view=Array.AsReadOnly(_writers); return; }
-                collected.Add(writer);
-            }
-        }
-        _writers=[.. collected]; _view=Array.AsReadOnly(_writers);
+        var captured = StorageInputSnapshot.TryCopyWriters(writers, maximumWriterObservations, out _writers);
+        _view=Array.AsReadOnly(_writers);
         IsWellFormed=scope is not null && scope.IsWellFormed && maximumWriterObservations > 0 && proposedEpoch.IsValid && writerInventoryComplete == StorageProof.Proven
+            && captured
             && _writers.All(static writer => writer.Node is not null && writer.Attachment is not null && writer.Epoch.IsValid)
             && _writers.Select(static writer => writer.Attachment).Distinct().Count() == _writers.Length;
     }
@@ -102,6 +131,11 @@ public sealed class StorageReattachEvidence
     public StorageProof WriterInventoryComplete { get; }
     public StorageWriterEpoch ProposedEpoch { get; }
     public bool IsWellFormed { get; }
+    internal IEnumerable<StorageProof> Proofs()
+    {
+        yield return ProcessStopped; yield return LeaseRevoked; yield return ProviderDetached;
+        yield return HealthVerified; yield return WriterInventoryComplete;
+    }
 }
 
 public static class StorageAttachmentPlanner
@@ -112,15 +146,21 @@ public static class StorageAttachmentPlanner
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace());
         var trace=volume!.Trace();
-        if (targetNode is null || evidence is null || !evidence.IsWellFormed) return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
+        if (targetNode is null || evidence is null || evidence.Scope is null || !evidence.Scope.IsWellFormed)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
         if (evidence.Scope != volume.EvidenceScope) return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope,trace);
+        if (evidence.Proofs().Any(static proof => !Enum.IsDefined(proof)))
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
+        if (evidence.Proofs().Any(static proof => proof == StorageProof.Contradicted))
+            return StorageDecision.Hold(StorageDecisionCode.StepContradicted, trace);
+        if (!evidence.IsWellFormed) return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
         if (evidence.Writers.Count > 1) return StorageDecision.Hold(StorageDecisionCode.DualWriter, trace);
         if (evidence.Writers.Count == 0)
         {
             if (evidence.ProviderDetached != StorageProof.Proven) return StorageDecision.Emit(StorageAction.Detach,StorageIntentTarget.ProviderAttachment,StorageDecisionCode.NextStep,trace);
             if (evidence.ProposedEpoch.Value <= volume.WriterEpoch.Value) return StorageDecision.Hold(StorageDecisionCode.NewWriterEpochRequired,trace);
             return StorageDecision.Emit(StorageAction.Attach,StorageIntentTarget.ProviderAttachment,StorageDecisionCode.NextStep,
-                volume.Trace(authorizedEpoch:evidence.ProposedEpoch));
+                volume.Trace(authorizedEpoch:evidence.ProposedEpoch,authorizedNode:targetNode));
         }
         var current=evidence.Writers[0];
         if (current.Attachment != volume.Attachment) return StorageDecision.Hold(StorageDecisionCode.WrongOwner, trace);
@@ -136,6 +176,6 @@ public static class StorageAttachmentPlanner
         if (evidence.ProposedEpoch.Value <= current.Epoch.Value || evidence.ProposedEpoch.Value <= volume.WriterEpoch.Value)
             return StorageDecision.Hold(StorageDecisionCode.NewWriterEpochRequired, trace);
         return StorageDecision.Emit(StorageAction.Attach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep,
-            volume.Trace(authorizedEpoch: evidence.ProposedEpoch));
+            volume.Trace(authorizedEpoch: evidence.ProposedEpoch, authorizedNode: targetNode));
     }
 }

@@ -63,8 +63,9 @@ public sealed class StorageVolumeRecord
         && Retention is not StorageRetention.Unknown && Enum.IsDefined(Retention)
         && Backup is not null && Generation.IsValid && WriterFence is not null && WriterEpoch.IsValid && Operation is not null;
 
-    internal StorageNumericTrace Trace(StorageConflictClass conflicts = StorageConflictClass.None, StorageWriterEpoch? authorizedEpoch = null) =>
-        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, Node, Workload, Member, DeviceId, FilesystemId, Operation, WriterFence),
+    internal StorageNumericTrace Trace(StorageConflictClass conflicts = StorageConflictClass.None,
+        StorageWriterEpoch? authorizedEpoch = null, StorageNodeId? authorizedNode = null) =>
+        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member, DeviceId, FilesystemId, Operation, WriterFence),
             ObservedBytes, RequestedBytes, ProviderBytes, BlockBytes, FilesystemBytes, UsedBytes, FreeBytes,
             ForecastExhaustion, Generation, authorizedEpoch ?? WriterEpoch, Performance, conflicts);
 
