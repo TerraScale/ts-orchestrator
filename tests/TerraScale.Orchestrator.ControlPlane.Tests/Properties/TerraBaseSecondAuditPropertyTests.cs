@@ -39,10 +39,11 @@ public sealed class TerraBaseSecondAuditPropertyTests
 
     private static Summary RunScopes()
     {
-        ulong digest = 0;
+        ulong digest = 0; var kinds = new HashSet<int>();
         for (var index = 0; index < Cases; index++)
         {
             var valid = Scope(index); var mode = index % 21;
+            kinds.Add(mode);
             TerraBaseEvidenceScope? expected;
             TerraBaseEvidenceScope actual;
             TerraBaseCode code;
@@ -71,15 +72,16 @@ public sealed class TerraBaseSecondAuditPropertyTests
                 digest = Mix(digest, decision);
             }
         }
-        return new(Cases, 21, digest);
+        return new(Cases, kinds.Count, digest);
     }
 
     private static Summary RunTopology()
     {
-        ulong digest = 0;
+        ulong digest = 0; var kinds = new HashSet<int>();
         for (var index = 0; index < Cases; index++)
         {
             var scope = Scope(index); var mode = index % 20;
+            kinds.Add(mode);
             var completed = TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Topology(scope: scope);
             var addPending = completed with { TopologyApplied = TerraBaseProof.Unknown,
                 Replication = TerraBaseReplication.Unknown, PostChangeReplication = TerraBaseProof.Unknown };
@@ -113,15 +115,16 @@ public sealed class TerraBaseSecondAuditPropertyTests
             Exact(decision, scope, action, target, code, index);
             digest = Mix(digest, decision);
         }
-        return new(Cases, 20, digest);
+        return new(Cases, kinds.Count, digest);
     }
 
     private static Summary RunRecovery()
     {
-        ulong digest = 0;
+        ulong digest = 0; var kinds = new HashSet<int>();
         for (var index = 0; index < Cases; index++)
         {
             var scope = Scope(index); var mode = index % 21;
+            kinds.Add(mode);
             var current = TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"current-{index}");
             var targetRelease = TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"target-{index}");
             TerraBaseDecision decision; TerraBaseAction action; TerraBaseTarget target; TerraBaseCode code;
@@ -186,7 +189,7 @@ public sealed class TerraBaseSecondAuditPropertyTests
             Exact(decision, scope, action, target, code, index);
             digest = Mix(digest, decision);
         }
-        return new(Cases, 21, digest);
+        return new(Cases, kinds.Count, digest);
     }
 
     private static TerraBaseUpgradeEvidence Upgrade(TerraBaseEvidenceScope scope, TerraBaseReleaseId current,
@@ -285,10 +288,15 @@ public sealed class TerraBaseSecondAuditPropertyTests
                     && topology.ReplicationPosition == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(100),
                     "topology-subject", index);
             else if (decision.Subject is TerraBaseUpgradeIntentSubject upgrade)
-                Require(upgrade.Current is not null && upgrade.Target is not null, "upgrade-subject", index);
+                Require(upgrade.Current == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"current-{index}")
+                    && upgrade.Target == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"target-{index}"),
+                    "upgrade-subject", index);
             else if (decision.Subject is TerraBaseRestoreIntentSubject restore)
-                Require(restore.Restore is not null && restore.Chain.TerminalBackup
-                    == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Backup("b2"),
+                Require(restore.Restore == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Restore($"restore-{index}")
+                    && restore.SourceGeneration == scope.DatabaseGeneration
+                    && restore.TargetGeneration == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.O(scope.DatabaseGeneration.Value + 1)
+                    && restore.Chain.Scope == scope && restore.Chain.Segments.Count == 2
+                    && restore.Chain.TerminalBackup == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Backup("b2"),
                     "restore-subject", index);
             else Require(false, "subject-shape", index);
         }
