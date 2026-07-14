@@ -152,6 +152,26 @@ public sealed class RuntimeFourthAuditRegressionTests
     }
 
     [Test]
+    public async Task Executor_observation_fingerprint_independently_retains_native_descriptor()
+    {
+        var baseline = RuntimeObservationAuditData.Request(4, 0);
+        var payload = new NativeRuntimePayload(new("native-artifact"), Digest('a'), new("native-signature"),
+            new("native-profile"), new("native-host"), new("native-runtime"), RuntimeArchitecture.LinuxArm64,
+            NativeUnitDescriptor.TerraBase);
+        var other = new NativeRuntimePayload(payload.ArtifactId, payload.Digest, payload.SignatureId,
+            payload.SigningProfileId, payload.HostImageId, payload.RuntimeVersionId, payload.Architecture,
+            NativeUnitDescriptor.NatsServer);
+        var first = Request(baseline, spec: Spec(baseline.Spec, payload: payload));
+        var second = Request(baseline, spec: Spec(baseline.Spec, payload: other));
+
+        await Assert.That(payload.Driver).IsEqualTo(other.Driver);
+        await Assert.That(payload.ArtifactId).IsEqualTo(other.ArtifactId);
+        await Assert.That(payload.Digest).IsEqualTo(other.Digest);
+        await Assert.That(RuntimeLifecycleObservationFingerprint.Create(first)).IsNotEqualTo(
+            RuntimeLifecycleObservationFingerprint.Create(second));
+    }
+
+    [Test]
     public async Task Held_lifecycle_never_exposes_executor_observation_authority()
     {
         var request = RuntimeObservationAuditData.Request(7, 0);
