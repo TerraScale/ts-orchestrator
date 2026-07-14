@@ -24,16 +24,20 @@ exported position at the artifact-evidence boundary, not its deterministic evalu
 - Grant internal access only to the exact ContractTests assembly so offline fake coverage remains exhaustive.
 - Keep observation DTOs public for compatibility, but expose no public synchronous or alternate factory returning a
   successful publish result.
-- Make `ReproduciblePublisher.RunAsync` the only exported result-producing route; retain its exact asynchronous
-  signature and the exact public `Program.Main` and `Program.TryParse` signatures.
+- Make `ReproduciblePublisher.RunAsync` the only exported originating result factory; retain its exact asynchronous
+  signature and the exact public `Program.Main` and `Program.TryParse` signatures. The sealed record's compiler
+  clone is non-originating: it requires an already constructed result and cannot change any result property.
 - Preserve failure precedence, catalogs, artifact validation, deterministic inputs, CLI behavior, and canonical
   serialization.
 
 ## Evidence
 
-- Enumerate every exported public static method and unwrap `Task<T>` return types.
-- Require exactly one public `ReproduciblePublishResult` route: `ReproduciblePublisher.RunAsync`.
-- Prove there is no public synchronous result factory and no exported observation verifier.
+- Enumerate every declared public static and instance method, including property accessors, on every exported type
+  and unwrap `Task<T>` return types.
+- Require exactly one originating public `ReproduciblePublishResult` route: `ReproduciblePublisher.RunAsync`.
+- Permit only the exact parameterless instance clone declared by the sealed result record as a non-originating
+  return path, and prove that no result property has a public setter or init route.
+- Prove there is no public synchronous or alternate originating result factory and no exported observation verifier.
 - Pin nonpublic result constructors, public observation DTO compatibility, the single exact friend assembly, and the
   unchanged CLI/publisher signatures.
 - Retain the existing offline pure-verifier matrix for paths, RIDs, ELF validation, output shape, process failures,

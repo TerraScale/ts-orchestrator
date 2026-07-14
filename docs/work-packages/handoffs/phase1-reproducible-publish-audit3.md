@@ -10,14 +10,17 @@ reading an artifact.
 `PublishObservationVerifier` and its `Evaluate` method are now internal. Only the exact
 `TerraScale.Orchestrator.ContractTests` assembly receives friend access, preserving deterministic offline verifier
 coverage without exporting an evidence factory. Public request and observation DTOs remain unchanged for
-compatibility. `ReproduciblePublisher.RunAsync` remains the sole exported method whose return type is, or wraps,
-`ReproduciblePublishResult`.
+compatibility. `ReproduciblePublisher.RunAsync` remains the sole exported originating factory whose return type
+wraps `ReproduciblePublishResult`. The sealed record's compiler-generated clone is explicitly non-originating: it
+requires an existing result and no result property exposes a public setter or init route.
 
 ## Deterministic evidence
 
-- Reflection enumerates all exported public static methods and correctly inspects `Task<ReproduciblePublishResult>`.
-- It proves one asynchronous result route, no synchronous or alternate result factory, no exported verifier,
-  nonpublic result constructors, public observation DTOs, and one exact friend assembly.
+- Reflection enumerates every declared public static and instance method, including property accessors, on all
+  exported types and correctly inspects `Task<ReproduciblePublishResult>`.
+- It proves one asynchronous originating result route; permits only the exact non-originating sealed-record clone;
+  and proves no public result setter/init route, synchronous or alternate originating factory, or exported verifier.
+- It also pins nonpublic result constructors, public observation DTOs, and one exact friend assembly.
 - It pins the unchanged public signatures of `ReproduciblePublisher.RunAsync`, `Program.Main`, and
   `Program.TryParse`.
 - Existing tests continue to exercise the internal verifier with synthetic observations across success, output
