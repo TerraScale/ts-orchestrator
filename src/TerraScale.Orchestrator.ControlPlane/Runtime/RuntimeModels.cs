@@ -71,14 +71,14 @@ internal static class RuntimeEnums
     public static T Defined<T>(T value, string name) where T : struct, Enum => Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(name);
     public static IReadOnlyList<T> CopyDistinct<T>(IEnumerable<T> source, string name) where T : struct, Enum
     {
-        ArgumentNullException.ThrowIfNull(source, name); var values = source.ToArray();
+        ArgumentNullException.ThrowIfNull(source, name); var values = RuntimeInputSnapshot.Copy(source, RuntimeTechnicalLimits.MaximumCapturedItems, name);
         if (values.Any(v => !Enum.IsDefined(v))) throw new ArgumentOutOfRangeException(name);
         if (values.Length != values.Distinct().Count()) throw new ArgumentException("Duplicate catalog value.", name);
         return new ReadOnlyCollection<T>(values.Order().ToArray());
     }
     public static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, string name) where T : notnull
     {
-        ArgumentNullException.ThrowIfNull(source, name); var values = source.ToArray();
+        ArgumentNullException.ThrowIfNull(source, name); var values = RuntimeInputSnapshot.Copy(source, RuntimeTechnicalLimits.MaximumCapturedItems, name);
         if (values.Any(v => v is null)) throw new ArgumentException("Null runtime evidence.", name);
         return new ReadOnlyCollection<T>(values);
     }
