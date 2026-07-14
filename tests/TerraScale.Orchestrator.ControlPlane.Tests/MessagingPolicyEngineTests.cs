@@ -18,6 +18,8 @@ public sealed class MessagingPolicyEngineTests
 
             await Assert.That(first.Errors).IsEmpty();
             await Assert.That(second.Errors).IsEmpty();
+            await Assert.That(first.Compatibility).IsNull();
+            await Assert.That(second.Compatibility).IsNull();
             await Assert.That(Signature(first)).IsEqualTo(Signature(second));
             await Assert.That(first.Intents.Count).IsEqualTo(2);
             await Assert.That(((ConfigurePlaneIntent)first.Intents[0]).Policy.Streams).HasSingleItem();
@@ -297,6 +299,10 @@ public sealed class MessagingPolicyEngineTests
         var accepted = MessagingPolicyEngine.DecideCompatibility(features, complete);
         await Assert.That(accepted.Errors).IsEmpty();
         await Assert.That(accepted.Trace.Single().Code).IsEqualTo(MessagingTraceCode.CompatibilityAccepted);
+        await Assert.That(accepted.Compatibility).IsNotNull();
+        await Assert.That(accepted.Compatibility!.CurrentVersion).IsEqualTo(2);
+        await Assert.That(accepted.Compatibility.PreviousVersion).IsEqualTo(1);
+        await Assert.That(accepted.Compatibility.Outcomes).Count().IsEqualTo(12);
 
         var unavailable = new CompatibilityPolicy(2, 1,
             complete.Outcomes.Select((outcome, index) => index == 0 ? outcome with { Available = false } : outcome));
@@ -577,6 +583,7 @@ public sealed class MessagingPolicyEngineTests
     {
         await Assert.That(decision.Errors.Any(error => error.Code == code)).IsTrue();
         await Assert.That(decision.Intents.Single()).IsTypeOf<HoldMessagingIntent>();
+        await Assert.That(decision.Compatibility).IsNull();
     }
 
     private static bool Throws<TException>(Action action) where TException : Exception

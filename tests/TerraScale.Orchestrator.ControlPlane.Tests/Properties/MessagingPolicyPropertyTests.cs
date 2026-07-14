@@ -161,6 +161,7 @@ public sealed class MessagingPolicyPropertyTests
             var first = MessagingPolicyEngine.DecideReplacement(request);
             var reversed = request.Observation is null ? first : MessagingPolicyEngine.DecideReplacement(request with
             { Observation = Reverse(request.Observation) });
+            Require(first.Compatibility is null && reversed.Compatibility is null, "replacement-compatibility", index);
             var actual = Outcome(first); Require(actual == expected && Outcome(reversed) == expected, "replacement", index);
             VerifyReplacementSubject(first, request, mode, index);
             coverage.Add(mode); digest = Mix(digest, actual, operation.AuthorityEpoch);
@@ -175,6 +176,7 @@ public sealed class MessagingPolicyPropertyTests
         {
             var mode = index % 14; var salt = generator.Next(1_000_000); var (request, expected) = PartitionCase(index, mode, salt);
             var decision = MessagingPolicyEngine.DecidePartition(request); var actual = Outcome(decision);
+            Require(decision.Compatibility is null, "partition-compatibility", index);
             Require(actual == expected, "partition", index);
             if (mode == 8) { var intent = (ContinueRegionalIntent)decision.Intents.Single(); Require(intent.Cell == request.Cell && intent.RegionalEpoch == request.CurrentRegionalEpoch && intent.AcceptedGlobalGeneration == request.AcceptedGlobalGeneration, "regional-subject", index); }
             if (mode == 9) { var intent = (ContinueGlobalIntent)decision.Intents.Single(); Require(intent.Cell == request.Cell && intent.GlobalEpoch == request.CurrentGlobalEpoch && intent.AcceptedGlobalGeneration == request.AcceptedGlobalGeneration, "global-subject", index); }
@@ -191,6 +193,7 @@ public sealed class MessagingPolicyPropertyTests
             var mode = index % 10; var salt = generator.Next(1_000_000); var (topology, expected) = IsolationCase(index, mode);
             var decision = MessagingPolicyEngine.DecideTopology(topology);
             var reversed = MessagingPolicyEngine.DecideTopology(Reverse(topology));
+            Require(decision.Compatibility is null && reversed.Compatibility is null, "topology-compatibility", index);
             var actual = Outcome(decision); Require(actual == expected && Outcome(reversed) == expected, "isolation", index);
             if (mode == 0)
             {
