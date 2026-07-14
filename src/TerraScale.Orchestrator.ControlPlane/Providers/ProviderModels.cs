@@ -6,6 +6,39 @@ using System.Text.RegularExpressions;
 
 namespace TerraScale.Orchestrator.ControlPlane.Providers;
 
+/// <summary>Technical caller-input snapshot limits; these are not provider inventory or ownership policy.</summary>
+public static class ProviderTechnicalInputLimits
+{
+    public const int MaximumOperationEvidenceCount = 4_096;
+    public const int MaximumApprovalCount = 64;
+    public const int MaximumCompensationCount = 64;
+    public const int MaximumHandoffInventoryCount = 4_096;
+}
+
+internal static class ProviderInputSnapshot
+{
+    internal static T[] Copy<T>(IEnumerable<T> source, int maximum, string parameterName, string inputName)
+    {
+        ArgumentNullException.ThrowIfNull(source, parameterName);
+        var values = new List<T>(Math.Min(maximum, 256));
+        try
+        {
+            using var enumerator = source.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                if (values.Count == maximum)
+                    throw new ArgumentException($"{inputName} exceeds the technical snapshot bound.", parameterName);
+                values.Add(enumerator.Current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException($"{inputName} could not be captured within the technical snapshot bound.", parameterName);
+        }
+        return values.ToArray();
+    }
+}
+
 internal static partial class ProviderIdentity
 {
     public static string Validate(string value, string name)
@@ -241,10 +274,10 @@ public sealed class ProviderOperationContext
         Target = target ?? throw new ArgumentNullException(nameof(target));
         ExpectedGeneration = expectedGeneration ?? throw new ArgumentNullException(nameof(expectedGeneration));
         ExpectedObservedState = expectedObservedState;
-        Approvals = CopyEnums(approvals, nameof(approvals));
+        Approvals = CopyEnums(approvals, ProviderTechnicalInputLimits.MaximumApprovalCount, nameof(approvals));
         DeadlineEvidence = deadlineEvidence ?? throw new ArgumentNullException(nameof(deadlineEvidence));
         IdempotencyKey = idempotencyKey ?? throw new ArgumentNullException(nameof(idempotencyKey));
-        PermittedCompensations = CopyEnums(permittedCompensations, nameof(permittedCompensations));
+        PermittedCompensations = CopyEnums(permittedCompensations, ProviderTechnicalInputLimits.MaximumCompensationCount, nameof(permittedCompensations));
         ActionParameters = actionParameters ?? throw new ArgumentNullException(nameof(actionParameters));
         var isCreate = action is ProviderAction.CreateNode or ProviderAction.CreateVolume;
         if (isCreate && target is not IdempotentProviderCreate)
@@ -277,10 +310,10 @@ public sealed class ProviderOperationContext
 
     private static string Invariant(ulong value) => value.ToString(CultureInfo.InvariantCulture);
 
-    private static IReadOnlyList<T> CopyEnums<T>(IEnumerable<T> source, string name) where T : struct, Enum
+    private static IReadOnlyList<T> CopyEnums<T>(IEnumerable<T> source, int maximum, string name) where T : struct, Enum
     {
         ArgumentNullException.ThrowIfNull(source, name);
-        var values = source.ToArray();
+        var values = ProviderInputSnapshot.Copy(source, maximum, name, "Provider enum input");
         if (values.Any(value => !Enum.IsDefined(value))) throw new ArgumentOutOfRangeException(name);
         if (values.Length != values.Distinct().Count()) throw new ArgumentException("Duplicate values are invalid.", name);
         return new ReadOnlyCollection<T>(values.Order().ToArray());
@@ -384,7 +417,7 @@ public sealed record DurableProviderAuthorization
     public ProviderOperationId OperationId { get; }
     public ProviderTerminalState Terminal { get; }
     public bool Irreversible { get; }
-    public static DurableProviderAuthorization Capture(ProviderOperationContext context, bool irreversible)
+    internal static DurableProviderAuthorization Capture(ProviderOperationContext context, bool irreversible)
     { ArgumentNullException.ThrowIfNull(context); return new(context.Fingerprint, context.OperationId, context.DesiredTerminalState, irreversible); }
 }
 
@@ -417,9 +450,9 @@ public sealed class ProviderAuthorizationRequest
     public DurableProviderAuthorization? PriorAuthorization { get; }
     public ProviderCallEvidence CallEvidence { get; }
     private static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, string name) where T : notnull
-    { ArgumentNullException.ThrowIfNull(source, name); var copy = source.ToArray(); if (copy.Any(x => x is null)) throw new ArgumentException("Null evidence.", name); return new ReadOnlyCollection<T>(copy); }
+    { var copy = ProviderInputSnapshot.Copy(source, ProviderTechnicalInputLimits.MaximumOperationEvidenceCount, name, "Provider evidence input"); if (copy.Any(x => x is null)) throw new ArgumentException("Null evidence.", name); return new ReadOnlyCollection<T>(copy); }
     private static IReadOnlyList<T> CopyEnums<T>(IEnumerable<T> source, string name) where T : struct, Enum
-    { ArgumentNullException.ThrowIfNull(source, name); var copy = source.ToArray(); if (copy.Any(x => !Enum.IsDefined(x))) throw new ArgumentOutOfRangeException(name); if (copy.Length != copy.Distinct().Count()) throw new ArgumentException("Duplicate approvals.", name); return new ReadOnlyCollection<T>(copy.Order().ToArray()); }
+    { var copy = ProviderInputSnapshot.Copy(source, ProviderTechnicalInputLimits.MaximumApprovalCount, name, "Provider approval input"); if (copy.Any(x => !Enum.IsDefined(x))) throw new ArgumentOutOfRangeException(name); if (copy.Length != copy.Distinct().Count()) throw new ArgumentException("Duplicate approvals.", name); return new ReadOnlyCollection<T>(copy.Order().ToArray()); }
 }
 
 public enum ProviderDecisionCode
@@ -472,15 +505,24 @@ public sealed record DeregisterBackendProviderIntent : ProviderMutationIntent { 
 
 public sealed record ProviderAuthorizationDecision
 {
-    internal ProviderAuthorizationDecision(bool authorized, IReadOnlyList<ProviderDecisionReason> trace, IReadOnlyList<ProviderIntent> intents)
+    private readonly ProviderOperationContext? _durablyAcceptedContext;
+    internal ProviderAuthorizationDecision(bool authorized, IReadOnlyList<ProviderDecisionReason> trace,
+        IReadOnlyList<ProviderIntent> intents, ProviderOperationContext? durablyAcceptedContext)
     {
         Authorized = authorized;
         Trace = trace ?? throw new ArgumentNullException(nameof(trace));
         Intents = intents ?? throw new ArgumentNullException(nameof(intents));
+        _durablyAcceptedContext = durablyAcceptedContext;
     }
     public bool Authorized { get; }
     public IReadOnlyList<ProviderDecisionReason> Trace { get; }
     public IReadOnlyList<ProviderIntent> Intents { get; }
+    public DurableProviderAuthorization CaptureDurableAuthorization()
+    {
+        if (!Authorized || _durablyAcceptedContext is null)
+            throw new InvalidOperationException("Only an exact provider-accepted operation may be captured durably.");
+        return DurableProviderAuthorization.Capture(_durablyAcceptedContext, irreversible: true);
+    }
 }
 
 public sealed record HandoffInventoryItem
@@ -505,7 +547,7 @@ public sealed class FreshBootstrapInventory
     public IReadOnlyList<HandoffInventoryItem> Pulumi { get; }
     public IReadOnlyList<HandoffInventoryItem> Regional { get; }
     private static IReadOnlyList<HandoffInventoryItem> Copy(IEnumerable<HandoffInventoryItem> source)
-    { ArgumentNullException.ThrowIfNull(source); var copy = source.ToArray(); if (copy.Any(x => x is null)) throw new ArgumentException("Null inventory item."); return new ReadOnlyCollection<HandoffInventoryItem>(copy); }
+    { var copy = ProviderInputSnapshot.Copy(source, ProviderTechnicalInputLimits.MaximumHandoffInventoryCount, nameof(source), "Handoff inventory input"); if (copy.Any(x => x is null)) throw new ArgumentException("Null inventory item."); return new ReadOnlyCollection<HandoffInventoryItem>(copy); }
 }
 
 public sealed record HandoffInventoryFingerprint

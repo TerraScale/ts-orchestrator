@@ -2,6 +2,38 @@ using System.Globalization;
 
 namespace TerraScale.Orchestrator.ControlPlane.Budgets;
 
+/// <summary>Technical caller-input snapshot limits; these are not monetary, capacity, or approval policy.</summary>
+public static class BudgetTechnicalInputLimits
+{
+    public const int MaximumEvidenceCount = 4_096;
+    public const int MaximumNodeClassPolicyCount = 4_096;
+}
+
+internal static class BudgetInputSnapshot
+{
+    internal static bool TryCopy<T>(IEnumerable<T>? source, int maximum, out T[] snapshot)
+    {
+        snapshot = [];
+        if (source is null || maximum < 0) return false;
+        var values = new List<T>(Math.Min(maximum, 256));
+        try
+        {
+            using var enumerator = source.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                if (values.Count == maximum) return false;
+                values.Add(enumerator.Current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            return false;
+        }
+        snapshot = values.ToArray();
+        return true;
+    }
+}
+
 internal static class BudgetIdentityRules
 {
     public static bool IsValid(string? value, int maximumLength)

@@ -332,21 +332,28 @@ public static class BudgetAuthorizationEngine
         {
             return new(BudgetDecisionReason.MissingEvidence, null, null, null, null);
         }
+        var technicalMaximum = Math.Min(policy.MaximumEvidenceCount, BudgetTechnicalInputLimits.MaximumEvidenceCount);
+        if (!BudgetInputSnapshot.TryCopy(usageSource, technicalMaximum, out var usageSnapshot)
+            || !BudgetInputSnapshot.TryCopy(nodeSource, technicalMaximum - usageSnapshot.Length, out var nodeSnapshot)
+            || !BudgetInputSnapshot.TryCopy(priceSource, technicalMaximum - usageSnapshot.Length - nodeSnapshot.Length, out var priceSnapshot))
+        {
+            return new(BudgetDecisionReason.EvidenceLimitExceeded, null, null, null, null);
+        }
         var count = 0;
         var usage = new List<BudgetUsageObservation>();
         var nodes = new List<NodeClassUsageObservation>();
         var prices = new List<PriceEvidenceObservation>();
-        foreach (var item in usageSource)
+        foreach (var item in usageSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
             usage.Add(item!);
         }
-        foreach (var item in nodeSource)
+        foreach (var item in nodeSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
             nodes.Add(item!);
         }
-        foreach (var item in priceSource)
+        foreach (var item in priceSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
             prices.Add(item!);

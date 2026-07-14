@@ -168,7 +168,13 @@ public sealed class BudgetPolicy
             error = BudgetPolicyError.MissingNodeClassPolicy;
             return false;
         }
-        foreach (var nodeClass in nodeClasses)
+        if (!BudgetInputSnapshot.TryCopy(nodeClasses,
+                Math.Min(maximumEvidenceCount, BudgetTechnicalInputLimits.MaximumNodeClassPolicyCount), out var nodeClassSnapshot))
+        {
+            error = BudgetPolicyError.InvalidEvidenceLimit;
+            return false;
+        }
+        foreach (var nodeClass in nodeClassSnapshot)
         {
             if (collected.Count >= maximumEvidenceCount)
             {

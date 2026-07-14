@@ -30,7 +30,7 @@ public static class ProviderOwnershipEngine
         {
             foreach (var code in Enum.GetValues<ProviderDecisionCode>().Where(x => x is >= ProviderDecisionCode.ScopeMatches and <= ProviderDecisionCode.TagsNotAuthority))
                 trace.Add(new(code, ProviderDecisionOutcome.Held, 0, 0));
-            return Decision(trace, []);
+            return Decision(trace, [], null);
         }
 
         var authority = request.Authority!;
@@ -83,8 +83,11 @@ public static class ProviderOwnershipEngine
         trace.Add(Reject(ProviderDecisionCode.TagsConsistent, tagsConsistent, tagsConsistent ? 1UL : 0UL, 1));
         trace.Add(new(ProviderDecisionCode.TagsNotAuthority, ProviderDecisionOutcome.NotApplicable, checked((ulong)request.Tags.Count), 0));
 
-        if (trace.Any(x => x.Outcome is ProviderDecisionOutcome.Rejected or ProviderDecisionOutcome.Held)) return Decision(trace, []);
-        return Decision(trace, [NextIntent(request)]);
+        if (trace.Any(x => x.Outcome is ProviderDecisionOutcome.Rejected or ProviderDecisionOutcome.Held)) return Decision(trace, [], null);
+        var durablyAccepted = request.Context.Action != ProviderAction.Observe
+            && request.CallEvidence.Status is ProviderCallStatus.Accepted or ProviderCallStatus.ResponseLost or ProviderCallStatus.Completed
+            ? request.Context : null;
+        return Decision(trace, [NextIntent(request)], durablyAccepted);
     }
 
     public static HandoffDecision EvaluateHandoff(HandoffRequest request)
@@ -201,5 +204,7 @@ public static class ProviderOwnershipEngine
             _ => new(c, ProviderDecisionOutcome.Rejected, 0, 1),
         };
     }
-    private static ProviderAuthorizationDecision Decision(List<ProviderDecisionReason> trace, IReadOnlyList<ProviderIntent> intents) => new(intents.Count > 0, new ReadOnlyCollection<ProviderDecisionReason>(trace), new ReadOnlyCollection<ProviderIntent>(intents.ToArray()));
+    private static ProviderAuthorizationDecision Decision(List<ProviderDecisionReason> trace, IReadOnlyList<ProviderIntent> intents,
+        ProviderOperationContext? durablyAcceptedContext) => new(intents.Count > 0, new ReadOnlyCollection<ProviderDecisionReason>(trace),
+        new ReadOnlyCollection<ProviderIntent>(intents.ToArray()), durablyAcceptedContext);
 }

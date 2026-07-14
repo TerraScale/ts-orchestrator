@@ -54,7 +54,8 @@ public sealed class ProviderOwnershipTests
     public async Task HigherEpochLeaderCanResumeExactDurableIrreversibleOperation()
     {
         var context = Context(epoch: 5);
-        var prior = DurableProviderAuthorization.Capture(context, irreversible: true);
+        var prior = ProviderOwnershipEngine.Authorize(Request(context: context,
+            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(context: context, authority: Authority(6), prior: prior));
         await Assert.That(decision.Authorized).IsTrue();
         await Assert.That(decision.Intents.Single() is TerminateNodeProviderIntent).IsTrue();
@@ -65,7 +66,8 @@ public sealed class ProviderOwnershipTests
     {
         var original = Context(action: ProviderAction.TerminateNode, terminal: ProviderTerminalState.Terminated);
         var conflicting = Context(action: ProviderAction.StopNode, terminal: ProviderTerminalState.Stopped);
-        var prior = DurableProviderAuthorization.Capture(original, irreversible: true);
+        var prior = ProviderOwnershipEngine.Authorize(Request(context: original,
+            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(context: conflicting, prior: prior));
         await Assert.That(decision.Authorized).IsFalse();
         await Assert.That(Reason(decision, ProviderDecisionCode.PriorAuthorizationCompatible).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
@@ -94,7 +96,8 @@ public sealed class ProviderOwnershipTests
     public async Task LateAcceptedCallAfterLeadershipLossCanOnlyResumeExactDurableOperation()
     {
         var context = Context(epoch: 5);
-        var prior = DurableProviderAuthorization.Capture(context, irreversible: true);
+        var prior = ProviderOwnershipEngine.Authorize(Request(context: context,
+            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(
             context: context, authority: Authority(6), prior: prior,
             call: new(ProviderCallStatus.Accepted, null)));
@@ -126,7 +129,8 @@ public sealed class ProviderOwnershipTests
         var changed = VolumeContext(new ExpandVolumeProviderParameters(new(3_000)));
         var intentDecision = ProviderOwnershipEngine.Authorize(Request(
             context: original, observedState: ProviderObservedState.Present));
-        var prior = DurableProviderAuthorization.Capture(original, irreversible: true);
+        var prior = ProviderOwnershipEngine.Authorize(Request(context: original, observedState: ProviderObservedState.Present,
+            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var changedDecision = ProviderOwnershipEngine.Authorize(Request(
             context: changed, observedState: ProviderObservedState.Present, prior: prior));
         var wrongParameters = VolumeContext(new ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance.Iops));

@@ -104,8 +104,11 @@ public static class BudgetAnomalyDetector
         if (!inventoryComplete || source is null)
             return Error(BudgetAnomalyError.MissingEvidence);
 
+        if (!BudgetInputSnapshot.TryCopy(source,
+                Math.Min(maximumEvidenceCount, BudgetTechnicalInputLimits.MaximumEvidenceCount), out var observationSnapshot))
+            return Error(BudgetAnomalyError.InvalidEvidenceLimit);
         var observations = new List<BudgetResourceObservation>();
-        foreach (var item in source)
+        foreach (var item in observationSnapshot)
         {
             if (observations.Count >= maximumEvidenceCount)
                 return Error(BudgetAnomalyError.InvalidEvidenceLimit);
