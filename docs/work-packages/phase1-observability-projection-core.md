@@ -23,10 +23,11 @@ Implement pure telemetry admission/cardinality, regional aggregation health, ale
 - Grafana projection is an exact deterministic function of accepted roles/cells/datasources/dashboards/folders/alerts/contact points/access policy. Drift emits create/update/delete intent only under exact generation/ownership; unmanaged resources are reported and never silently adopted/deleted.
 - Dashboard/query/provisioning executable text is not accepted as arbitrary caller input; projections select reviewed catalog entries plus typed parameters. Operator roles are least privilege and tenant/cell scopes cannot broaden by merge.
 - Emit closed admit/drop/aggregate/project/create/update/delete/report-drift/route-alert/hold intents and stable code/numeric trace; no query/config JSON blob, credential, secret, callback, Grafana/OTel client, network/filesystem/clock, or I/O.
+- Every accepted output preserves the exact immutable request/evidence that authorized it. In particular, alert routing must retain the complete event and dedupe snapshot so firing and resolved transitions cannot collapse to the same adapter-facing intent.
 - Defensive copies; culture/permutation/replay; cardinality explosion; secret label; tenant isolation; signal outage; stale persistence; exact projection drift; unmanaged resource; access escalation; alert dedupe/routing; and secret-safe/reflection tests.
+- Construction-closure evidence inventories every concrete observability intent and recursively proves that none can carry authority, operation, or provider-mutation permits/decisions.
 - No telemetry/Grafana SDK, database/network/filesystem/clock, implementation/retention/cardinality/threshold/default catalog, or mutation.
 
 ## Verification
 
 `dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj`
-

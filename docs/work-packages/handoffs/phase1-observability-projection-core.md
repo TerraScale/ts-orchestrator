@@ -18,11 +18,15 @@ Grafana projection reconciles only reviewed datasource, folder, dashboard, alert
 
 Alert routing requires fresh complete dedupe evidence bound to the exact operation, tenant, cell, signal, rule digest, generation, sequence, contact identity/catalog, severity, and state. Delivery keys use alert identity plus state, so a firing event routes once, its resolved transition remains routable, and the exact same transition cannot be delivered twice.
 
+The completeness audit found that the initial route intent validated all of that material but exposed only alert and contact identifiers. That made firing and resolved outputs indistinguishable to a downstream adapter and discarded the evidence needed to persist the exact authorized route. `RouteAlertIntent` now retains the immutable `AlertRoutingRequest`; its alert/contact convenience properties are exact projections of that request. A 1,000-case property alternates firing/resolved and warning/critical events, verifies every request/evidence field and delivered-event snapshot, and proves opposite transitions have distinct adapter-facing output.
+
 No query/config text, JSON provisioning blob, endpoint, URL, credential, password, secret value, private key, callback, process, filesystem, network, database, clock, client SDK, or I/O surface is accepted or used. Retention, cardinality, persistence, HA replica requirements, spool capacity/overflow policy, alert route, catalog selections, and collection limits have no implementation defaults. Label, catalog/value, observation, desired/observed resource, and delivered-event collections stop and reject at caller-supplied positive bounds before materializing boundary-plus-one data.
 
 ## Adversarial coverage
 
 The focused tests cover label/secret/cardinality attacks, tenant/cell/operation/schema replay, stale/future/out-of-order evidence, missing and duplicate signal observations, independent ingest/query loss, GRU reachability loss, persistence/retention mismatch, spool exhaustion and data loss, closed signal policies, Grafana create/update/delete/report drift, unmanaged collision, incomplete/replayed/future inventory, scope/access escalation, alert route/dedupe replay across every subject dimension, state transitions, defensive copies, culture/permutation stability, authorized-trace consistency, malformed enums/identities/quantities, forbidden public shapes, intent forgery, and secret-safe traces.
+
+An additional 1,000-case construction-closure property inventories all six concrete observability intent families, exercises each of the four authorizing output families, recursively walks their public type graph, and rejects any path to authority, operation, provider-mutation, permit, or authorization-decision types. Hold and drop outputs remain in the exact closed inventory even though they never authorize work.
 
 ## Validation
 
@@ -33,7 +37,7 @@ dotnet test TerraScale.Orchestrator.slnx --no-build --no-restore -- --disable-lo
 git diff --check
 ```
 
-The focused control-plane project passes 247 tests. The locked whole solution passes 355 tests with zero failures or skips and builds with zero warnings or errors.
+The two focused completeness properties pass. The current control-plane project passes 481 tests, and the locked whole solution passes 677 tests with zero failures or skips. The Release build completes with warnings treated as errors and reports zero warnings or errors.
 
 ## Integration boundary
 
