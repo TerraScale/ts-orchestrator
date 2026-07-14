@@ -8,6 +8,14 @@ The strict embedded corpus is bounded to 32 KiB and 64 entries, rejects unknown/
 
 Production hardening replaces unbounded enumerable materialization with named technical snapshots. Delivery dependencies, trust zones, capabilities, rollout cells/completions/availability are capped, and direct runner evidence lists have an explicit count cap. TerraBase writer and backup inputs use the stricter of the caller maximum and a 4,096-item technical ceiling. Max+1 is detected before reading the extra `Current`; nulls and ordinary iterator failures become generic `ArgumentException` values without source exception text, while `OutOfMemoryException`, `StackOverflowException`, and `AccessViolationException` propagate. Tests cover exact bounds, max+1, infinite inputs, extra-`Current`, all iterator phases, dispose-time mutation, defensive copying, nulls, and fatal propagation.
 
+A follow-up audit found that out-of-catalog enum values at legitimate checkpoints were not distinguished from
+defined `Unknown` values. In particular, forged numeric values could reach `Add`, `CatchUp`, `Remove`, `Upgrade`,
+or `Restore` outputs. All 44 enum-valued TerraBase evidence fields now reject undefined values as exact
+`InvalidInput` holds before mutation. Defined `Unknown` and `Contradicted` values retain the pre-existing checkpoint
+precedence. A new bounded shard runs 1,000 independent cases across the complete enum inventory and another 1,000
+across all ten scope dimensions for all six planners plus exact all-field authorizing subjects and traces. The shard
+reuses the already pinned TerraBase replay corpus; it does not invent duplicate saved examples or acceptance evidence.
+
 ## Compatibility impact
 
 - Delivery collections above the new published technical ceilings now throw `ArgumentException` during construction instead of attempting unbounded allocation.

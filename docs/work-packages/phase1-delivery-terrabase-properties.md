@@ -20,6 +20,10 @@ Add deterministic, bounded property and saved-counterexample coverage for the ex
 - Strict, bounded, whole-file-content-addressed embedded replay corpus whose input changes affect replay.
 - Technical collection caps, max/max+1 and hostile iterator coverage, defensive copies, generic secret-safe ordinary failures, and fatal exception propagation.
 - Construction-closed authorizing outputs and closed observed enum catalogs.
+- A follow-up TerraBase completeness shard must set every enum-valued evidence field to an out-of-catalog value,
+  reject it before any mutation, preserve the defined `Unknown`/`Contradicted` checkpoint precedence, bind every
+  evidence-scope dimension in every TerraBase planner, and compare every field of authorizing subjects and traces
+  under English and non-English cultures.
 
 ## Exclusions
 
