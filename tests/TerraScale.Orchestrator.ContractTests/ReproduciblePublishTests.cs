@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using TerraScale.ReproduciblePublish;
 
 namespace TerraScale.Orchestrator.ContractTests;
@@ -139,6 +140,56 @@ public sealed class ReproduciblePublishTests
     }
 
     [Test]
+    public async Task SuccessfulPublishResultHasOnlyTheRealAsynchronousPublicFactory()
+    {
+        var assembly = typeof(ReproduciblePublisher).Assembly;
+        var resultFactories = assembly.GetExportedTypes()
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Select(method => (Type: type, Method: method)))
+            .Where(candidate => ReturnsPublishResult(candidate.Method.ReturnType))
+            .ToArray();
+
+        await Assert.That(resultFactories).HasSingleItem();
+        await Assert.That(resultFactories[0].Type).IsEqualTo(typeof(ReproduciblePublisher));
+        await Assert.That(resultFactories[0].Method.Name).IsEqualTo(nameof(ReproduciblePublisher.RunAsync));
+        await Assert.That(resultFactories[0].Method.ReturnType).IsEqualTo(typeof(Task<ReproduciblePublishResult>));
+        await Assert.That(resultFactories.Any(candidate =>
+            candidate.Method.ReturnType == typeof(ReproduciblePublishResult))).IsFalse();
+        await Assert.That(assembly.GetExportedTypes().Any(type =>
+            type.FullName == "TerraScale.ReproduciblePublish.PublishObservationVerifier")).IsFalse();
+        await Assert.That(typeof(PublishObservationVerifier).IsNotPublic).IsTrue();
+        await Assert.That(typeof(OutputItemObservation).IsPublic).IsTrue();
+
+        var friends = assembly.GetCustomAttributes<InternalsVisibleToAttribute>()
+            .Select(attribute => attribute.AssemblyName)
+            .ToArray();
+        await Assert.That(friends).IsEquivalentTo(["TerraScale.Orchestrator.ContractTests"]);
+    }
+
+    [Test]
+    public async Task CliAndRealPublisherPublicSignaturesRemainExact()
+    {
+        var run = typeof(ReproduciblePublisher).GetMethod(nameof(ReproduciblePublisher.RunAsync),
+            BindingFlags.Public | BindingFlags.Static);
+        await Assert.That(run).IsNotNull();
+        await Assert.That(run!.ReturnType).IsEqualTo(typeof(Task<ReproduciblePublishResult>));
+        await Assert.That(run.GetParameters().Select(parameter => parameter.ParameterType))
+            .IsEquivalentTo([typeof(ReproduciblePublishRequest), typeof(CancellationToken)]);
+
+        var main = typeof(Program).GetMethod(nameof(Program.Main), BindingFlags.Public | BindingFlags.Static);
+        await Assert.That(main).IsNotNull();
+        await Assert.That(main!.ReturnType).IsEqualTo(typeof(Task<int>));
+        await Assert.That(main.GetParameters().Select(parameter => parameter.ParameterType))
+            .IsEquivalentTo([typeof(string[])]);
+
+        var parse = typeof(Program).GetMethod(nameof(Program.TryParse), BindingFlags.Public | BindingFlags.Static);
+        await Assert.That(parse).IsNotNull();
+        await Assert.That(parse!.ReturnType).IsEqualTo(typeof(bool));
+        await Assert.That(parse.GetParameters().Select(parameter => parameter.ParameterType))
+            .IsEquivalentTo([typeof(IReadOnlyList<string>), typeof(ReproduciblePublishRequest).MakeByRefType()]);
+    }
+
+    [Test]
     public async Task InputTreeDigestAndQuantitiesRejectMalformedValues()
     {
         await Assert.That(Throws<ArgumentException>(() => new InputTreeDigest("mutable"))).IsTrue();
@@ -276,6 +327,9 @@ public sealed class ReproduciblePublishTests
 
     private static string Rid(PublishTarget target) => target == PublishTarget.LinuxX64 ? "linux-x64" : "linux-arm64";
     private static ushort Machine(PublishTarget target) => target == PublishTarget.LinuxX64 ? (ushort)62 : (ushort)183;
+    private static bool ReturnsPublishResult(Type type) => type == typeof(ReproduciblePublishResult) ||
+        type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>) &&
+        type.GetGenericArguments().Single() == typeof(ReproduciblePublishResult);
     private const UnixFileMode ExecutableMode = UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
 
     private static string Digest(char value) => new(value, 64);
