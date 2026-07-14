@@ -58,6 +58,7 @@ public sealed class SecurityPolicyCompletenessPropertyTests
         Reject(SecurityDecisionCode.SurvivalReferencesExact), Reject(SecurityDecisionCode.SurvivalReferencesExact),
         Reject(SecurityDecisionCode.SurvivalReferencesExact), Reject(SecurityDecisionCode.SurvivalReferencesExact),
         Reject(SecurityDecisionCode.SurvivalReferencesExact), Reject(SecurityDecisionCode.SurvivalReferencesExact), Reject(SecurityDecisionCode.SurvivalReferencesExact),
+        Reject(SecurityDecisionCode.BundleGenerationNotRollback),
     ];
 
     [Test]
@@ -197,7 +198,7 @@ public sealed class SecurityPolicyCompletenessPropertyTests
     {
         var executed = 0; for (var seed = 1; seed <= Cases; seed++)
         {
-            var variant = seed % 11; var request = SecurityCompletenessData.Survival(variant, (ulong)seed);
+            var variant = seed % 12; var request = SecurityCompletenessData.Survival(variant, (ulong)seed);
             var decision = SecurityDecisionEngine.EvaluateSurvivalSecrets(request);
             RequireNonPass(decision, SurvivalNonPass[variant], seed, "survival complete trace");
             if (variant == 0)
@@ -205,12 +206,17 @@ public sealed class SecurityPolicyCompletenessPropertyTests
                     seed, "survival accept");
             else
             {
-                var code = variant <= 3 ? SecurityDecisionCode.EvidenceUnique : SecurityDecisionCode.SurvivalReferencesExact;
+                var code = variant <= 3 ? SecurityDecisionCode.EvidenceUnique :
+                    variant == 11 ? SecurityDecisionCode.BundleGenerationNotRollback : SecurityDecisionCode.SurvivalReferencesExact;
                 var outcome = variant <= 3 ? SecurityDecisionOutcome.Held : SecurityDecisionOutcome.Rejected;
                 Require(!decision.Authorized && Outcome(decision, code) == outcome, seed, "survival deny");
             }
             Require(decision.Intent.OperationId == request.OperationId && !Canonical(decision).Contains("plaintext", StringComparison.OrdinalIgnoreCase), seed, "survival subject");
             if (variant == 0) Require(decision.Trace.All(x => x.Outcome == SecurityDecisionOutcome.Passed), seed, "survival accepted trace");
+            Require(decision.Trace.Select(x => x.Code).SequenceEqual([
+                SecurityDecisionCode.EvidenceUnique,
+                SecurityDecisionCode.SurvivalReferencesExact,
+                SecurityDecisionCode.BundleGenerationNotRollback]), seed, "survival exact reason order");
             executed++;
         }
         await Assert.That(executed).IsEqualTo(1000);

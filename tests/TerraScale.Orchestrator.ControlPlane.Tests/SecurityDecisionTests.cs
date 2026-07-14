@@ -263,10 +263,10 @@ public sealed class SecurityDecisionTests
         var exact = Survival();
         var accepted = SecurityDecisionEngine.EvaluateSurvivalSecrets(exact);
         var wrongCellReference = new SurvivalSecretReference(SecretId, new(2), new("sfo"), SecurityEnvironment.Production, SecretPurpose.Database, Digest());
-        var crossCell = SecurityDecisionEngine.EvaluateSurvivalSecrets(new(Operation, Cell, Generation, new(2),
+        var crossCell = SecurityDecisionEngine.EvaluateSurvivalSecrets(new(Operation, Cell, Generation, Generation, new(2),
             [wrongCellReference], exact.AvailableVersions, exact.Policies));
         var wrongDigest = new SurvivalSecretReference(SecretId, new(2), Cell, SecurityEnvironment.Production, SecretPurpose.Database, new(new string('b', 64)));
-        var mismatch = SecurityDecisionEngine.EvaluateSurvivalSecrets(new(Operation, Cell, Generation, new(2),
+        var mismatch = SecurityDecisionEngine.EvaluateSurvivalSecrets(new(Operation, Cell, Generation, Generation, new(2),
             [wrongDigest], exact.AvailableVersions, exact.Policies));
         await Assert.That(accepted.Intent is AcceptSurvivalSecretReferencesIntent).IsTrue();
         await Assert.That(crossCell.Authorized).IsFalse();
@@ -277,7 +277,7 @@ public sealed class SecurityDecisionTests
     public async Task InputsAreDefensivelyCopiedAndDecisionsAreCulturePermutationStable()
     {
         var references = new List<SurvivalSecretReference> { Reference() };
-        var request = new SurvivalSecretRequest(Operation, Cell, Generation, new(2), references, [Secret()], [Retention()]);
+        var request = new SurvivalSecretRequest(Operation, Cell, Generation, Generation, new(2), references, [Secret()], [Retention()]);
         references.Clear();
         await Assert.That(request.References.Count).IsEqualTo(1);
         string? baseline = null;
@@ -427,7 +427,7 @@ public sealed class SecurityDecisionTests
     private static SurvivalSecretReference Reference() => new(
         SecretId, new(2), Cell, SecurityEnvironment.Production, SecretPurpose.Database, Digest());
     private static SurvivalSecretRequest Survival() => new(
-        Operation, Cell, Generation, new(2), [Reference()], [Secret()], [Retention()]);
+        Operation, Cell, Generation, Generation, new(2), [Reference()], [Secret()], [Retention()]);
     private static SecurityDecisionReason Reason(SecurityDecision decision, SecurityDecisionCode code) =>
         decision.Trace.Single(reason => reason.Code == code);
     private static string Serialize(SecurityDecision decision) =>

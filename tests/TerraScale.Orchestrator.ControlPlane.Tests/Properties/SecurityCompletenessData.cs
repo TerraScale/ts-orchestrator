@@ -138,7 +138,9 @@ internal static class SecurityCompletenessData
             case 10: metadata.RemoveAt(0); break;
         }
         if (reverse) { references.Reverse(); metadata.Reverse(); policies.Reverse(); }
-        return new(operation, Cell, new(seed + 1), PolicyGeneration, references, metadata, policies);
+        var bundleGeneration = new SecurityGeneration(seed + 1);
+        var currentAcceptedBundleGeneration = new SecurityGeneration(variant == 11 ? seed + 2 : seed + 1);
+        return new(operation, Cell, bundleGeneration, currentAcceptedBundleGeneration, PolicyGeneration, references, metadata, policies);
     }
 
     internal static string InputFingerprint(string kind, int variant, ulong seed) => kind switch
@@ -182,7 +184,7 @@ internal static class SecurityCompletenessData
         $"action={value.Action}|op={value.OperationId.Value}|lease={value.RequestedLeaseId.Value}|principal-evidence={PrincipalFingerprint(value.PrincipalEvidence.Principal)},{value.PrincipalEvidence.RevocationGeneration.Value},{value.PrincipalEvidence.Revocation},{value.PrincipalEvidence.Status}|expected-generation={value.ExpectedPrincipalGeneration.Value}|current-generation={value.CurrentPrincipalGeneration.Value}|secret={MetadataFingerprint(value.Secret)}|policy={PolicyFingerprint(value.Policy)}|current-policy={value.CurrentPolicyGeneration.Value}|grants={string.Join(';', value.Grants.Select(GrantFingerprint))}|requested-generation={value.RequestedLeaseGeneration.Value}|duration={value.RequestedDuration.Value}|current-revocation={value.CurrentRevocationGeneration.Value}|existing={(value.ExistingLease is null ? "none" : LeaseEvidenceFingerprint(value.ExistingLease))}";
 
     private static string SurvivalFingerprint(SurvivalSecretRequest value) =>
-        $"op={value.OperationId.Value}|cell={value.CellId.Value}|bundle={value.BundleGeneration.Value}|current-policy={value.CurrentPolicyGeneration.Value}|references=" +
+        $"op={value.OperationId.Value}|cell={value.CellId.Value}|bundle={value.BundleGeneration.Value}|current-bundle={value.CurrentAcceptedBundleGeneration.Value}|current-policy={value.CurrentPolicyGeneration.Value}|references=" +
         string.Join(';', value.References.Select(x => $"{x.SecretId.Value},{x.Version.Value},{x.CellId.Value},{x.Environment},{x.Purpose},{x.CiphertextDigest.Sha256}")) + "|metadata=" +
         string.Join(';', value.AvailableVersions.Select(MetadataFingerprint)) + "|policies=" + string.Join(';', value.Policies.Select(PolicyFingerprint));
 
@@ -228,10 +230,10 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "397ac5a3bf86b59dbc7146a900a310fc71de0f4f5a49fb6423027c00bcde64d7";
+    private const string Digest = "6cf537ab07c9cd85f7c8cede406dab5be67f27ccb220efc9058e25b2e8c8b8fd";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
-    { ["enrollment"] = 15, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 10 };
+    { ["enrollment"] = 15, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };
 
     internal static IReadOnlyList<SecurityPolicyReplayEntry> Load()
     {
