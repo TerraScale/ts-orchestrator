@@ -155,8 +155,8 @@ public sealed class ModelState
             completedValues.Any(static id => !ModelValidation.Identity(id)) ||
             completedValues.Distinct(StringComparer.Ordinal).Count() != completedValues.Length ||
             actionValues.Length > ModelValidation.MaximumModelEvents || actionValues.Any(static action => action is null ||
-                !Enum.IsDefined(action.Kind) || action.Kind == AcceptedActionKind.Unspecified ||
-                !ModelValidation.Event(action.AcceptedEvent) || !ModelValidation.Identity(action.LeaderAtAcceptance) ||
+                !ModelValidation.Event(action.AcceptedEvent) || !Enum.IsDefined(action.Kind) ||
+                action.Kind == AcceptedActionKind.Unspecified || !ModelValidation.Identity(action.LeaderAtAcceptance) ||
                 action.AuthorityEpoch <= 0 || action.NodeAcceptedEpoch < 0 || !Enum.IsDefined(action.NodeRole) ||
                 action.NodeRole == ModelNodeRole.Unspecified || action.Ordinal <= 0 || action.CriticalNodesAfter is < 0 or > 3) ||
             acceptedMutations < 0 || rejectedMutations < 0 || terminations < 0)
