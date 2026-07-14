@@ -145,9 +145,7 @@ public static class DeliveryEngine
 
         if (request.CurrentStage is null)
         {
-            var stage = new StageReleaseIntent(release.Release, release.Operation, expected, release.Generation,
-                release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture,
-                release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature, release.RollbackArchitecture);
+            var stage = new StageReleaseIntent(release, availability);
             return One(stage, DeliveryTraceCode.StageReady);
         }
         var current = request.CurrentStage;

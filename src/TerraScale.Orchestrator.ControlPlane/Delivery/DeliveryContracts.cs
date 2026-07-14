@@ -428,25 +428,24 @@ public sealed class PromoteArtifactIntent : DeliveryIntent
 }
 public sealed class StageReleaseIntent : DeliveryIntent
 {
-    internal StageReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId cell, long generation,
-        ArtifactId artifact, DigestId digest, SigningIdentityId signingIdentity, SignatureId signature, DeliveryArchitecture architecture,
-        ArtifactId rollbackArtifact, DigestId rollbackDigest, SigningIdentityId rollbackSigningIdentity, SignatureId rollbackSignature,
-        DeliveryArchitecture rollbackArchitecture) : base(DeliveryAction.Stage)
-    { Release = release; Operation = operation; Cell = cell; Generation = generation; Artifact = artifact; Digest = digest; SigningIdentity = signingIdentity; Signature = signature; Architecture = architecture; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSigningIdentity = rollbackSigningIdentity; RollbackSignature = rollbackSignature; RollbackArchitecture = rollbackArchitecture; }
-    public ReleaseId Release { get; }
-    public DeliveryOperationId Operation { get; }
-    public DeliveryCellId Cell { get; }
-    public long Generation { get; }
-    public ArtifactId Artifact { get; }
-    public DigestId Digest { get; }
-    public SigningIdentityId SigningIdentity { get; }
-    public SignatureId Signature { get; }
-    public DeliveryArchitecture Architecture { get; }
-    public ArtifactId RollbackArtifact { get; }
-    public DigestId RollbackDigest { get; }
-    public SigningIdentityId RollbackSigningIdentity { get; }
-    public SignatureId RollbackSignature { get; }
-    public DeliveryArchitecture RollbackArchitecture { get; }
+    internal StageReleaseIntent(ReleaseSpec releaseSpec, CellArtifactAvailability availability) : base(DeliveryAction.Stage)
+    { ReleaseSpec = releaseSpec; Availability = availability; }
+    public ReleaseSpec ReleaseSpec { get; }
+    public CellArtifactAvailability Availability { get; }
+    public ReleaseId Release => ReleaseSpec.Release;
+    public DeliveryOperationId Operation => ReleaseSpec.Operation;
+    public DeliveryCellId Cell => Availability.Cell;
+    public long Generation => ReleaseSpec.Generation;
+    public ArtifactId Artifact => ReleaseSpec.Artifact;
+    public DigestId Digest => ReleaseSpec.Digest;
+    public SigningIdentityId SigningIdentity => ReleaseSpec.SigningIdentity;
+    public SignatureId Signature => ReleaseSpec.Signature;
+    public DeliveryArchitecture Architecture => ReleaseSpec.Architecture;
+    public ArtifactId RollbackArtifact => ReleaseSpec.RollbackArtifact;
+    public DigestId RollbackDigest => ReleaseSpec.RollbackDigest;
+    public SigningIdentityId RollbackSigningIdentity => ReleaseSpec.RollbackSigningIdentity;
+    public SignatureId RollbackSignature => ReleaseSpec.RollbackSignature;
+    public DeliveryArchitecture RollbackArchitecture => ReleaseSpec.RollbackArchitecture;
 }
 public sealed class AdvanceReleaseIntent : DeliveryIntent
 {
