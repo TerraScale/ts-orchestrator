@@ -52,6 +52,11 @@ internal static class TerraBaseValueRules
     }
 }
 
+internal static class TerraBaseEnumRules
+{
+    internal static bool Defined<TEnum>(TEnum value) where TEnum : struct, Enum => Enum.IsDefined(value);
+}
+
 public abstract record TerraBaseIdentity(string Value){public override string ToString()=>Value;}
 public sealed record TerraBaseCellId:TerraBaseIdentity{private TerraBaseCellId(string v):base(v){} public static bool TryCreate(string? v,int m,out TerraBaseCellId? x){x=TerraBaseValueRules.Valid(v,m)?new(v!):null;return x is not null;}}
 public sealed record TerraBaseDatabaseId:TerraBaseIdentity{private TerraBaseDatabaseId(string v):base(v){} public static bool TryCreate(string? v,int m,out TerraBaseDatabaseId? x){x=TerraBaseValueRules.Valid(v,m)?new(v!):null;return x is not null;}}

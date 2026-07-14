@@ -54,6 +54,9 @@ public static class TerraBaseBackupPlanner
             ||(request.IsFull&&(request.ParentSequence is not null||request.ParentBackup is not null||request.ParentChain is not null))
             ||(!request.IsFull&&(request.ParentSequence is null||!request.ParentSequence.Value.IsValid||request.ParentBackup is null||request.ParentChain is null)))
             return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+        if(!TerraBaseEnumRules.Defined(request.ApplicationConsistencyReady)
+            ||!TerraBaseEnumRules.Defined(request.NoConflictingOperation))
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(request.ApplicationConsistencyReady!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.ApplicationConsistencyRequired,trace);
         if(request.NoConflictingOperation!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.ConflictingTopologyMutation,trace);
         if(!request.IsFull)
@@ -85,6 +88,8 @@ public static class TerraBaseBackupPlanner
         if(exactOperation ? evidence.Scope!=expected : evidence.Scope.Cell!=expected.Cell||evidence.Scope.Database!=expected.Database
             ||evidence.Scope.DatabaseGeneration!=expected.DatabaseGeneration||evidence.Scope.TopologyGeneration!=expected.TopologyGeneration)
             return TerraBaseCode.WrongEvidenceScope;
+        if(!TerraBaseEnumRules.Defined(evidence.ApplicationConsistent)||!TerraBaseEnumRules.Defined(evidence.DigestVerified)
+            ||!TerraBaseEnumRules.Defined(evidence.ObjectVerified))return TerraBaseCode.InvalidInput;
         if(evidence.ApplicationConsistent!=TerraBaseProof.Proven)return TerraBaseCode.ApplicationConsistencyRequired;
         if(evidence.DigestVerified!=TerraBaseProof.Proven||evidence.ObjectVerified!=TerraBaseProof.Proven)return TerraBaseCode.DigestProofMissing;
         var subject=new TerraBaseBackupSubject(expected.Cell,expected.Database,expected.DatabaseGeneration,expected.TopologyGeneration);
@@ -124,6 +129,10 @@ public static class TerraBaseRestorePlanner
         if(e is null||e.Scope!=expected||e.Restore!=expectedRestore||e.TargetGeneration!=expectedTargetGeneration
             ||expectedTerminalBackup is null||!e.SourceGeneration.IsValid||!e.TargetGeneration.IsValid)
             return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
+        if(!TerraBaseEnumRules.Defined(e.SideBySide)||!TerraBaseEnumRules.Defined(e.RestoreApplied)
+            ||!TerraBaseEnumRules.Defined(e.TopologyVerified)||!TerraBaseEnumRules.Defined(e.QueryVerified)
+            ||!TerraBaseEnumRules.Defined(e.PromotionAuthorized))
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(e.SideBySide!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.SideBySideRequired,trace);
         if(e.SourceGeneration.Value<expected.DatabaseGeneration.Value||e.TargetGeneration.Value<=expected.DatabaseGeneration.Value)
             return TerraBaseDecision.Hold(TerraBaseCode.AntiRollback,trace);

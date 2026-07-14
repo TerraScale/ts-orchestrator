@@ -15,6 +15,7 @@ public static class TerraBaseTopologyPlanner
     {
         var trace=Trace(expected,evidence);
         if(!Scoped(expected,evidence?.Scope))return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
+        if(!Defined(evidence!))return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence!.MemberKind==TerraBaseMemberKind.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence.MemberKind!=TerraBaseMemberKind.Elastic)return TerraBaseDecision.Hold(TerraBaseCode.PermanentMember,trace);
         if(evidence.LossCount==TerraBaseLossCount.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
@@ -37,6 +38,7 @@ public static class TerraBaseTopologyPlanner
     {
         var trace=Trace(expected,evidence);
         if(!Scoped(expected,evidence?.Scope))return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
+        if(!Defined(evidence!))return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence!.MemberKind is TerraBaseMemberKind.PermanentA or TerraBaseMemberKind.PermanentB or TerraBaseMemberKind.PermanentC)
             return TerraBaseDecision.Hold(TerraBaseCode.PermanentMember,trace);
         if(evidence.MemberKind!=TerraBaseMemberKind.Elastic)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
@@ -58,6 +60,17 @@ public static class TerraBaseTopologyPlanner
 
     private static bool Scoped(TerraBaseEvidenceScope? expected,TerraBaseEvidenceScope? actual)=>expected is not null&&expected.Valid&&actual==expected;
     private static TerraBaseTrace? Trace(TerraBaseEvidenceScope? expected,TerraBaseTopologyEvidence? evidence)=>expected is null?null:new(expected,evidence?.ReplicationPosition??default,expected.TopologyGeneration);
+    private static bool Defined(TerraBaseTopologyEvidence evidence) =>
+        TerraBaseEnumRules.Defined(evidence.MemberKind)&&TerraBaseEnumRules.Defined(evidence.MemberRole)
+        &&TerraBaseEnumRules.Defined(evidence.LossCount)&&TerraBaseEnumRules.Defined(evidence.LeadershipTransferred)
+        &&TerraBaseEnumRules.Defined(evidence.NoTopologyMutation)&&TerraBaseEnumRules.Defined(evidence.QuorumFloor)
+        &&TerraBaseEnumRules.Defined(evidence.ReplicationFloor)&&TerraBaseEnumRules.Defined(evidence.SustainedSignal)
+        &&TerraBaseEnumRules.Defined(evidence.Placement)&&TerraBaseEnumRules.Defined(evidence.Storage)
+        &&TerraBaseEnumRules.Defined(evidence.Budget)&&TerraBaseEnumRules.Defined(evidence.UniqueMember)
+        &&TerraBaseEnumRules.Defined(evidence.TopologyApplied)&&TerraBaseEnumRules.Defined(evidence.NoDatabaseReference)
+        &&TerraBaseEnumRules.Defined(evidence.RecoveryPoint)&&TerraBaseEnumRules.Defined(evidence.Retention)
+        &&TerraBaseEnumRules.Defined(evidence.VolumeDisposition)&&TerraBaseEnumRules.Defined(evidence.PostChangeReplication)
+        &&TerraBaseEnumRules.Defined(evidence.Replication);
 }
 
 public sealed class TerraBaseWriterEvidence
@@ -83,6 +96,9 @@ public static class TerraBaseRetainedVolumePlanner
     {
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(evidence is null||!evidence.IsValid||evidence.Scope!=expected)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
+        if(!TerraBaseEnumRules.Defined(evidence.InventoryComplete)||!TerraBaseEnumRules.Defined(evidence.ExactVolumeIdentity)
+            ||!TerraBaseEnumRules.Defined(evidence.ExactFence)||!TerraBaseEnumRules.Defined(evidence.Detached))
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence.InventoryComplete!=TerraBaseProof.Proven||evidence.Writers.Count!=0)return TerraBaseDecision.Hold(TerraBaseCode.SplitWriter,trace);
         if(evidence.ExactVolumeIdentity!=TerraBaseProof.Proven||evidence.ExactFence!=TerraBaseProof.Proven||evidence.Detached!=TerraBaseProof.Proven)
             return TerraBaseDecision.Hold(TerraBaseCode.ProofMissing,trace);
@@ -104,6 +120,13 @@ public static class TerraBaseUpgradePlanner
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(e is null||e.Scope!=expected||e.Current!=expectedCurrent||e.Target!=expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(expectedCurrent is null||expectedTarget is null||expectedCurrent==expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+        if(!TerraBaseEnumRules.Defined(e.Compatibility)||!TerraBaseEnumRules.Defined(e.NoTopologyMutation)
+            ||!TerraBaseEnumRules.Defined(e.OneFailureDomain)||!TerraBaseEnumRules.Defined(e.RollbackMaterial)
+            ||!TerraBaseEnumRules.Defined(e.LeadershipTransferred)||!TerraBaseEnumRules.Defined(e.UpgradeApplied)
+            ||!TerraBaseEnumRules.Defined(e.ProcessHealthy)||!TerraBaseEnumRules.Defined(e.Ready)
+            ||!TerraBaseEnumRules.Defined(e.CaughtUp)||!TerraBaseEnumRules.Defined(e.RollbackApplied)
+            ||!TerraBaseEnumRules.Defined(e.PostRollbackHealthy))
+            return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(e.NoTopologyMutation!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.ConflictingTopologyMutation,trace);
         if(e.Compatibility!=TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne)return TerraBaseDecision.Hold(TerraBaseCode.CompatibilityRequired,trace);
         if(e.RollbackMaterial!=TerraBaseProof.Proven)return TerraBaseDecision.Hold(TerraBaseCode.RollbackMaterialRequired,trace);
