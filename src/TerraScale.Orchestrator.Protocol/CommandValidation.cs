@@ -41,15 +41,67 @@ public enum CommandValidationError
 
 public readonly record struct CommandValidationResult
 {
-    private CommandValidationResult(CommandValidationError error) => Error = error;
+    private CommandValidationResult(CommandValidationError error, CommandAcceptance? acceptance)
+    {
+        Error = error;
+        Acceptance = acceptance;
+    }
 
     public CommandValidationError Error { get; }
 
+    public CommandAcceptance? Acceptance { get; }
+
     public bool IsValid => Error == CommandValidationError.None;
 
-    internal static CommandValidationResult Accepted() => new(CommandValidationError.None);
+    internal static CommandValidationResult Accepted(CommandEnvelope envelope, DateTimeOffset validatedAt) =>
+        new(CommandValidationError.None, new CommandAcceptance(envelope, validatedAt));
 
-    internal static CommandValidationResult Rejected(CommandValidationError error) => new(error);
+    internal static CommandValidationResult Rejected(CommandValidationError error) => new(error, null);
+}
+
+/// <summary>
+/// Exact secret-safe receipt for the signed command envelope accepted by validation.
+/// It intentionally does not retain the opaque payload, verifier implementations, or
+/// the complete validation-context policy.
+/// </summary>
+public sealed record CommandAcceptance
+{
+    internal CommandAcceptance(CommandEnvelope envelope, DateTimeOffset validatedAt)
+    {
+        ProtocolVersion = envelope.ProtocolVersion;
+        Cell = envelope.Cell;
+        AggregateId = envelope.AggregateId;
+        DesiredGeneration = envelope.DesiredGeneration;
+        WriterEpoch = envelope.WriterEpoch;
+        OperationId = envelope.OperationId;
+        IdempotencyKey = envelope.IdempotencyKey;
+        IssuedAt = envelope.IssuedAt;
+        ExpiresAt = envelope.ExpiresAt;
+        Attempt = envelope.Attempt;
+        PayloadDigest = envelope.PayloadDigest;
+        Signature = envelope.Signature;
+        ValidatedAt = validatedAt;
+    }
+
+    public ProtocolRevision ProtocolVersion { get; }
+    public CellId Cell { get; }
+    public AggregateId AggregateId { get; }
+    public DesiredGeneration DesiredGeneration { get; }
+    public WriterEpoch WriterEpoch { get; }
+    public OperationId OperationId { get; }
+    public IdempotencyKey IdempotencyKey { get; }
+    public DateTimeOffset IssuedAt { get; }
+    public DateTimeOffset ExpiresAt { get; }
+    public DeliveryAttempt Attempt { get; }
+    public PayloadDigest PayloadDigest { get; }
+    public OpaqueSignature Signature { get; }
+    public DateTimeOffset ValidatedAt { get; }
+
+    public override string ToString() =>
+        $"CommandAcceptance {{ ProtocolVersion = {ProtocolVersion}, Cell = {Cell}, AggregateId = {AggregateId}, "
+        + $"DesiredGeneration = {DesiredGeneration}, WriterEpoch = {WriterEpoch}, OperationId = {OperationId}, "
+        + $"IdempotencyKey = {IdempotencyKey}, IssuedAt = {IssuedAt:O}, ExpiresAt = {ExpiresAt:O}, "
+        + $"Attempt = {Attempt}, PayloadDigest = <redacted>, Signature = <redacted>, ValidatedAt = {ValidatedAt:O} }}";
 }
 
 public sealed class CommandValidationContext
@@ -269,7 +321,7 @@ public static class CommandEnvelopeValidator
 
         return signatureOutcome switch
         {
-            VerificationOutcome.Valid => CommandValidationResult.Accepted(),
+            VerificationOutcome.Valid => CommandValidationResult.Accepted(envelope, now),
             VerificationOutcome.Invalid => CommandValidationResult.Rejected(CommandValidationError.InvalidSignature),
             _ => CommandValidationResult.Rejected(CommandValidationError.SignatureVerificationFailed),
         };
