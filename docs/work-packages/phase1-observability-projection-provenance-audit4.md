@@ -3,7 +3,7 @@
 ## Scope and base
 
 - Initial audited base: central `chore/phase0-bootstrap` at `a4c561d502dbf3b18aac4e39c86c9eafc36eed65`.
-- Final rebased integration base: central `chore/phase0-bootstrap` at `a822241b5b5a7cc95b870307af92b9f845a6c62e`.
+- Final rebased integration base: central `chore/phase0-bootstrap` at `e3cf9f0494aeaa4bdd205c2669322cf5d3d2ad07`.
 - Allowed paths: pure observability/Grafana contracts and decision engine, ControlPlane observability tests, and this work package.
 - Pure deterministic L0 projection policy only. No Grafana, telemetry backend, plugin, database, network, filesystem, process, provider, VM, cloud, or deployment side effect was performed.
 
@@ -36,7 +36,7 @@ No decision code, numeric value, trace row, trace order, precedence, authorizati
 
 The audit tests execute release-only and same-kind selection-only counterexamples, exact no-op behavior, and all six selection families: dashboard, datasource, folder, alert, contact point, and access policy. Access provenance independently varies entry, access level, role identity, user identity, and subject. A length-delimited invariant fingerprint covers release identity, concrete selection type, kind, catalog entry, every access field, and every closed access-subject variant/identity. Replay is stable across `en-US`, `tr-TR`, and `ar-SA`; desired and inventory permutations converge to the same canonical output.
 
-Constructor tests prove managed ownership if and only if provenance exists, reject kind/provenance disagreement, and preserve unmanaged/conflicting drift behavior. Assembly-wide public-surface inspection pins the four decision factories to `ObservabilityDecisionEngine`, proves decisions/intents/changes have no public constructors or alternate public factories, and pins the observed-resource provenance constructor surface.
+Constructor tests prove managed ownership if and only if provenance exists, reject kind/provenance disagreement, and preserve unmanaged/conflicting drift behavior. Assembly-wide construction closure enumerates every declared public static and instance method/accessor on every exported type. It permits exactly the four real `ObservabilityDecisionEngine` decision originators plus the sealed decision record's non-originating compiler clone. Every abstract and concrete intent/change record contributes only its exact non-originating compiler clone; the decision's exact getter is the only other public method returning an observability output. Every concrete decision/intent/change record is sealed, has no public constructor or deconstructor, and exposes getter-only public properties, so a clone can copy trusted immutable output but cannot transform it. The observed-resource provenance constructor surface is independently pinned.
 
 The historical replay corpus remains byte-identical with SHA-256 `b725a4b56e7b7afc33a2554d2596713ec84989ca64f70dc9d67f3a507dbdf2e8`. Its v1 projection fingerprint covers the historical change/trace/checkpoint surface and intentionally does not claim managed release/catalog provenance. Audit 4's dedicated complete fingerprint and counterexamples provide that evidence; rewriting the historical fixtures would overstate their original coverage.
 
@@ -55,4 +55,4 @@ dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale
 git diff --check
 ```
 
-Before the final integration rebase, the focused audit passed 7/7 and the ControlPlane executable passed 608/608 with zero failures or skips. Final exact-tree whole-solution counts are recorded in the integration handoff.
+Before the final integration rebase, the focused provenance audit passed 7/7, the focused construction-closure review passed 2/2, and the pre-correction ControlPlane executable passed 619/619 with zero failures or skips. Final exact-tree whole-solution counts are recorded in the integration handoff.
