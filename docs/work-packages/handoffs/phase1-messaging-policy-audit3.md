@@ -2,7 +2,8 @@
 
 ## Scope and baseline
 
-- Audited the pure Messaging/NATS replacement policy from integration baseline `369a3a1`.
+- Audited the pure Messaging/NATS replacement policy on final integration baseline `ec0dc50` after rebasing
+  the initially proven `369a3a1` counterexample onto the steward's current tree.
 - Changed only Messaging replacement contracts and decisions, their dedicated tests, and this handoff.
 - No NATS process, socket, filesystem, VM, cloud API, or other external system was used.
 
@@ -48,6 +49,6 @@ membership and recovery gates remain required.
   clean and no source/test failure was involved.
 - Focused Messaging policy shard: 27 passed, 0 failed.
 - Full Control Plane suite: 554 passed, 0 failed.
-- All five executable suites: Contract 24, Protocol 65, Scheduler 77, Control Plane 554, and Model 38;
-  758 total passed, 0 failed.
+- On the exact `ec0dc50`-based audit tree, all five executable suites passed: Contract 24, Protocol 65,
+  Scheduler 77, Control Plane 554, and Model 38; 758 total passed, 0 failed.
 - `git diff --check` passed.
