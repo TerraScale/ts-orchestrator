@@ -137,7 +137,7 @@ public sealed class SubjectPermissionPolicy
         {
             IEnumerator<SubjectPermissionPattern?> enumerator;
             try { enumerator = source.GetEnumerator(); }
-            catch
+            catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
             {
                 patterns = [];
                 error = SubjectPermissionPolicyError.EnumerationFailed;
@@ -171,9 +171,11 @@ public sealed class SubjectPermissionPolicy
                     collected.Add(pattern);
                 }
             }
-            catch { error = SubjectPermissionPolicyError.EnumerationFailed; }
+            catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
+            { error = SubjectPermissionPolicyError.EnumerationFailed; }
             try { enumerator.Dispose(); }
-            catch { error = SubjectPermissionPolicyError.EnumerationFailed; }
+            catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
+            { error = SubjectPermissionPolicyError.EnumerationFailed; }
             if (error != SubjectPermissionPolicyError.None)
             {
                 patterns = [];

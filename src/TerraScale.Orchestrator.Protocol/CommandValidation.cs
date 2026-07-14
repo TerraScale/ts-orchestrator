@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using TerraScale.Orchestrator.Contracts;
 
 namespace TerraScale.Orchestrator.Protocol;
@@ -69,7 +70,7 @@ public sealed class CommandValidationContext
         ExpectedAggregateId = expectedAggregateId;
         MinimumDesiredGeneration = minimumDesiredGeneration;
         MinimumWriterEpoch = minimumWriterEpoch;
-        _acceptedProtocolVersions = acceptedProtocolVersions?.ToHashSet() ?? [];
+        _acceptedProtocolVersions = CaptureAcceptedProtocolVersions(acceptedProtocolVersions);
         AllowedClockSkew = allowedClockSkew;
         PayloadDigestVerifier = payloadDigestVerifier;
         SignatureVerifier = signatureVerifier;
@@ -101,6 +102,79 @@ public sealed class CommandValidationContext
         && SignatureVerifier is not null;
 
     internal bool Accepts(ProtocolRevision version) => _acceptedProtocolVersions.Contains(version);
+
+    private static HashSet<ProtocolRevision> CaptureAcceptedProtocolVersions(
+        IEnumerable<ProtocolRevision>? source)
+    {
+        if (source is null)
+        {
+            return [];
+        }
+
+        IEnumerator<ProtocolRevision> enumerator;
+        try
+        {
+            enumerator = source.GetEnumerator();
+        }
+        catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
+        {
+            throw CaptureFailure();
+        }
+
+        var captured = new HashSet<ProtocolRevision>();
+        Exception? enumerationFailure = null;
+        var exceeded = false;
+        var observed = 0;
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+                if (observed == ProtocolTechnicalInputLimits.MaximumAcceptedProtocolVersionCount)
+                {
+                    exceeded = true;
+                    break;
+                }
+
+                captured.Add(enumerator.Current);
+                observed++;
+            }
+        }
+        catch (Exception exception)
+        {
+            enumerationFailure = exception;
+        }
+
+        Exception? disposalFailure = null;
+        try
+        {
+            enumerator.Dispose();
+        }
+        catch (Exception exception)
+        {
+            disposalFailure = exception;
+        }
+
+        var fatalFailure = ProtocolExceptionPolicy.IsFatal(enumerationFailure)
+            ? enumerationFailure
+            : ProtocolExceptionPolicy.IsFatal(disposalFailure)
+                ? disposalFailure
+                : null;
+        if (fatalFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(fatalFailure).Throw();
+        }
+
+        if (enumerationFailure is not null || disposalFailure is not null || exceeded)
+        {
+            throw CaptureFailure();
+        }
+
+        return captured;
+    }
+
+    private static ArgumentException CaptureFailure() =>
+        new("Accepted protocol versions could not be captured within the technical input bound.",
+            "acceptedProtocolVersions");
 }
 
 /// <summary>
@@ -168,7 +242,7 @@ public static class CommandEnvelopeValidator
         {
             digestOutcome = context.PayloadDigestVerifier!.Verify(envelope.Payload, envelope.PayloadDigest);
         }
-        catch
+        catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
         {
             return CommandValidationResult.Rejected(CommandValidationError.PayloadDigestVerificationFailed);
         }
@@ -188,7 +262,7 @@ public static class CommandEnvelopeValidator
         {
             signatureOutcome = context.SignatureVerifier!.Verify(envelope.SignedMaterial, envelope.Signature);
         }
-        catch
+        catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
         {
             return CommandValidationResult.Rejected(CommandValidationError.SignatureVerificationFailed);
         }
