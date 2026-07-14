@@ -239,7 +239,7 @@ public sealed class AvailabilityEvaluationRequest
         }
 
         ArgumentNullException.ThrowIfNull(observations);
-        var copy = observations.ToArray();
+        var copy = SchedulerInputSnapshot.Copy(observations,SchedulerTechnicalInputLimits.MaximumAvailabilityObservationCount,nameof(observations),"Availability observation input");
         if (copy.Any(observation => observation is null))
         {
             throw new ArgumentException("Observations cannot contain null.", nameof(observations));

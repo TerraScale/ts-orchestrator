@@ -4,6 +4,39 @@ using System.Numerics;
 
 namespace TerraScale.Orchestrator.Scheduler;
 
+/// <summary>Technical caller-input snapshot limits; these are not placement, replica, or allocation policy caps.</summary>
+public static class SchedulerTechnicalInputLimits
+{
+    public const int MaximumCandidateCount=4_096;
+    public const int MaximumAvailabilityObservationCount=4_096;
+    public const int MaximumPortCount=1_024;
+    public const int MaximumFactCount=1_024;
+    public const int MaximumLabelCount=1_024;
+    public const int ScoreDimensionCount=8;
+}
+
+internal static class SchedulerInputSnapshot
+{
+    internal static T[] Copy<T>(IEnumerable<T> source,int maximum,string parameterName,string inputName)
+    {
+        var snapshot=new List<T>(Math.Min(maximum,256));
+        try
+        {
+            using var enumerator=source.GetEnumerator();
+            while(enumerator.MoveNext())
+            {
+                if(snapshot.Count==maximum)throw new ArgumentException($"{inputName} exceeds the technical snapshot bound.",parameterName);
+                snapshot.Add(enumerator.Current);
+            }
+        }
+        catch(Exception exception)when(exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException($"{inputName} could not be captured within the technical snapshot bound.",parameterName);
+        }
+        return snapshot.ToArray();
+    }
+}
+
 /// <summary>
 /// Non-negative quantities in scheduler-defined base units. Callers are responsible
 /// for using the same unit for available and requested values in each dimension.
@@ -190,7 +223,7 @@ public sealed class LeastWastePolicy
     public LeastWastePolicy(IEnumerable<ScoreDimension> dimensions)
     {
         ArgumentNullException.ThrowIfNull(dimensions);
-        var copy = dimensions.ToArray();
+        var copy = SchedulerInputSnapshot.Copy(dimensions,SchedulerTechnicalInputLimits.ScoreDimensionCount,nameof(dimensions),"Score dimension input");
         if (copy.Any(item => item is null))
         {
             throw new ArgumentException("Score dimensions cannot contain null.", nameof(dimensions));
@@ -275,7 +308,7 @@ public sealed class NodeCandidate
 
     private static FrozenSet<int> CopyPorts(IEnumerable<int>? ports, string parameterName)
     {
-        var values = (ports ?? []).ToArray();
+        var values = SchedulerInputSnapshot.Copy(ports??[],SchedulerTechnicalInputLimits.MaximumPortCount,parameterName,"Port input");
         if (values.Length != values.Distinct().Count())
         {
             throw new ArgumentException("Port collections cannot contain duplicates.", parameterName);
@@ -291,7 +324,7 @@ public sealed class NodeCandidate
 
     private static FrozenSet<string> CopyFacts(IEnumerable<string>? facts)
     {
-        var values = (facts ?? []).ToArray();
+        var values = SchedulerInputSnapshot.Copy(facts??[],SchedulerTechnicalInputLimits.MaximumFactCount,nameof(facts),"Fact input");
         if (values.Any(string.IsNullOrWhiteSpace))
         {
             throw new ArgumentException("Facts and zone names must be nonempty.", nameof(facts));
@@ -309,7 +342,7 @@ public sealed class NodeCandidate
         IReadOnlyDictionary<string, string>? labels,
         string parameterName)
     {
-        var source = labels ?? new Dictionary<string, string>();
+        var source = SchedulerInputSnapshot.Copy(labels??new Dictionary<string,string>(),SchedulerTechnicalInputLimits.MaximumLabelCount,parameterName,"Label input");
         if (source.Any(label => string.IsNullOrWhiteSpace(label.Key) || string.IsNullOrWhiteSpace(label.Value)))
         {
             throw new ArgumentException("Label keys and values must be nonempty.", parameterName);
@@ -380,7 +413,7 @@ public sealed class WorkloadRequest
 
     private static FrozenSet<int> CopyPorts(IEnumerable<int>? ports)
     {
-        var values = (ports ?? []).ToArray();
+        var values = SchedulerInputSnapshot.Copy(ports??[],SchedulerTechnicalInputLimits.MaximumPortCount,nameof(ports),"Port input");
         if (values.Length != values.Distinct().Count())
         {
             throw new ArgumentException("Port collections cannot contain duplicates.", nameof(ports));
@@ -396,7 +429,7 @@ public sealed class WorkloadRequest
 
     private static FrozenSet<string> CopyFacts(IEnumerable<string>? facts)
     {
-        var values = (facts ?? []).ToArray();
+        var values = SchedulerInputSnapshot.Copy(facts??[],SchedulerTechnicalInputLimits.MaximumFactCount,nameof(facts),"Fact input");
         if (values.Any(string.IsNullOrWhiteSpace))
         {
             throw new ArgumentException("Facts and zone names must be nonempty.", nameof(facts));
@@ -412,7 +445,7 @@ public sealed class WorkloadRequest
 
     private static FrozenDictionary<string, string> CopyLabels(IReadOnlyDictionary<string, string>? labels)
     {
-        var source = labels ?? new Dictionary<string, string>();
+        var source = SchedulerInputSnapshot.Copy(labels??new Dictionary<string,string>(),SchedulerTechnicalInputLimits.MaximumLabelCount,nameof(labels),"Label input");
         if (source.Any(label => string.IsNullOrWhiteSpace(label.Key) || string.IsNullOrWhiteSpace(label.Value)))
         {
             throw new ArgumentException("Label keys and values must be nonempty.", nameof(labels));

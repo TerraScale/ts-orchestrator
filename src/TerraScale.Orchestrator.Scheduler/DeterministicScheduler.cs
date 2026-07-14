@@ -18,7 +18,7 @@ public sealed class DeterministicScheduler
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(policy);
 
-        var suppliedCandidates = candidates.ToArray();
+        var suppliedCandidates = SchedulerInputSnapshot.Copy(candidates,SchedulerTechnicalInputLimits.MaximumCandidateCount,nameof(candidates),"Candidate input");
         if (suppliedCandidates.Any(candidate => candidate is null))
         {
             throw new ArgumentException("Candidate collections cannot contain null.", nameof(candidates));

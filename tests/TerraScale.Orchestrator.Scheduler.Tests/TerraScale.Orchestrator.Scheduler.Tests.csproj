@@ -6,5 +6,6 @@
   <ItemGroup>
     <PackageReference Include="TUnit" />
     <ProjectReference Include="../../src/TerraScale.Orchestrator.Scheduler/TerraScale.Orchestrator.Scheduler.csproj" />
+    <EmbeddedResource Include="Properties/ReplayCorpus/*.json" />
   </ItemGroup>
 </Project>
