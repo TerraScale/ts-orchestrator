@@ -99,15 +99,31 @@ internal static class ObservabilityGuards
     {
         ArgumentNullException.ThrowIfNull(source, name);
         ArgumentNullException.ThrowIfNull(limit);
-        var values = new List<T>();
-        foreach (var value in source)
+        var maximum = Math.Min(limit.Value, ObservabilityTechnicalLimits.MaximumCapturedItems);
+        var values = new List<T>((int)Math.Min(maximum, 16));
+        try
         {
-            if ((ulong)values.Count >= limit.Value) throw new ArgumentException("Collection exceeds its explicit bound.", name);
-            if (value is null) throw new ArgumentException("Null evidence is forbidden.", name);
-            values.Add(value);
+            using var iterator = source.GetEnumerator();
+            while (iterator.MoveNext())
+            {
+                if ((ulong)values.Count == maximum) throw new ArgumentException("Collection exceeds its bounded limit.", name);
+                var value = iterator.Current;
+                if (value is null) throw new ArgumentException("Null evidence is forbidden.", name);
+                values.Add(value);
+            }
+        }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException or AccessViolationException))
+        {
+            throw new ArgumentException("Observability input could not be captured safely.", name);
         }
         return new ReadOnlyCollection<T>(values);
     }
+}
+
+/// <summary>Technical denial-of-service safety limits; these are not cardinality, retention, alert, or projection policy.</summary>
+public static class ObservabilityTechnicalLimits
+{
+    public const ulong MaximumCapturedItems = 4096;
 }
 
 public static class ObservabilityArithmetic
