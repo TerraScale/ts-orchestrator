@@ -6,7 +6,16 @@ using System.Text.Json;
 
 namespace TerraScale.Orchestrator.Protocol.Tests.Fuzz;
 
-internal enum CorpusLoadCode { Accepted, MissingResource, TooLarge, InvalidJson, InvalidSchema, InvalidDigest }
+internal enum CorpusLoadCode
+{
+    Accepted,
+    MissingResource,
+    TooLarge,
+    InvalidJson,
+    InvalidSchema,
+    InvalidDigest,
+    ContentAddressMismatch,
+}
 internal sealed record ProtocolCorpusEntry(string Family, long Seed, string Input, string Expected, string Digest);
 internal sealed record CorpusLoadResult(CorpusLoadCode Code, IReadOnlyList<ProtocolCorpusEntry> Entries);
 
@@ -17,29 +26,50 @@ internal static class ProtocolRegressionCorpus
     private const int MaximumBytes = 32_768;
     private const int MaximumEntries = 64;
     private const int MaximumTextLength = 256;
+    private const string ContentSha256 = "4f08f00d68bb88e2a935dcef54f80f0048a93ca455afd8bdd97ceebd6d2f363d";
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal) { "version", "entries" };
     private static readonly HashSet<string> EntryFields = new(StringComparer.Ordinal)
         { "family", "seed", "input", "expected", "digest" };
+    private static readonly IReadOnlyDictionary<string, HashSet<string>> ExpectedByFamily =
+        new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        {
+            ["concrete-subject"] = GrammarErrors(),
+            ["permission-pattern"] = GrammarErrors(),
+            ["command-envelope"] = new(StringComparer.Ordinal)
+            {
+                "InvalidValidationContext", "MalformedEnvelope", "UnsupportedProtocolVersion",
+                "InvalidValidityWindow", "NotYetValid", "Expired", "WrongCell", "WrongAggregateIdentity",
+                "StaleGeneration", "StaleWriterEpoch", "PayloadDigestMismatch",
+                "PayloadDigestVerificationFailed", "InvalidSignature", "SignatureVerificationFailed",
+            },
+        };
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     internal static CorpusLoadResult LoadEmbedded()
     {
         using var stream = typeof(ProtocolRegressionCorpus).Assembly.GetManifestResourceStream(ResourceName);
         if (stream is null) return Result(CorpusLoadCode.MissingResource, []);
-        if (!stream.CanSeek || stream.Length > MaximumBytes) return Result(CorpusLoadCode.TooLarge, []);
-        using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, false);
-        var buffer = new char[MaximumBytes + 1];
-        var count = reader.ReadBlock(buffer, 0, buffer.Length);
-        if (count > MaximumBytes) return Result(CorpusLoadCode.TooLarge, []);
-        return Load(new string(buffer, 0, count));
+        var bytes = ReadBounded(stream);
+        if (bytes is null) return Result(CorpusLoadCode.TooLarge, []);
+        return Load(bytes, requireContentAddress: true);
     }
 
     internal static CorpusLoadResult Load(string source)
     {
-        if (string.IsNullOrEmpty(source) || Encoding.UTF8.GetByteCount(source) > MaximumBytes)
-            return Result(CorpusLoadCode.TooLarge, []);
+        if (string.IsNullOrEmpty(source)) return Result(CorpusLoadCode.TooLarge, []);
+        try { return Load(StrictUtf8.GetBytes(source), requireContentAddress: false); }
+        catch (EncoderFallbackException) { return Result(CorpusLoadCode.InvalidJson, []); }
+    }
+
+    internal static CorpusLoadResult Load(ReadOnlySpan<byte> source, bool requireContentAddress = false)
+    {
+        if (source.IsEmpty || source.Length > MaximumBytes) return Result(CorpusLoadCode.TooLarge, []);
+        if (requireContentAddress && !string.Equals(
+            Convert.ToHexString(SHA256.HashData(source)).ToLowerInvariant(), ContentSha256, StringComparison.Ordinal))
+            return Result(CorpusLoadCode.ContentAddressMismatch, []);
         try
         {
-            using var document = JsonDocument.Parse(source, new()
+            using var document = JsonDocument.Parse(source.ToArray(), new()
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
@@ -62,7 +92,9 @@ internal static class ProtocolRegressionCorpus
                 var input = item.GetProperty("input").GetString();
                 var expected = item.GetProperty("expected").GetString();
                 var digest = item.GetProperty("digest").GetString();
-                if (!CanonicalText(family) || !BoundedText(input) || !CanonicalText(expected) || !DigestText(digest))
+                if (!CanonicalText(family) || !BoundedText(input) || !CanonicalText(expected) || !DigestText(digest)
+                    || !ExpectedByFamily.TryGetValue(family!, out var allowedExpected)
+                    || !allowedExpected.Contains(expected!))
                     return Result(CorpusLoadCode.InvalidSchema, []);
                 var entry = new ProtocolCorpusEntry(family!, seed, input!, expected!, digest!);
                 if (!string.Equals(Digest(entry), digest, StringComparison.Ordinal))
@@ -75,6 +107,20 @@ internal static class ProtocolRegressionCorpus
         }
         catch (JsonException) { return Result(CorpusLoadCode.InvalidJson, []); }
         catch (InvalidOperationException) { return Result(CorpusLoadCode.InvalidJson, []); }
+    }
+
+    internal static byte[]? ReadBounded(Stream stream)
+    {
+        var buffer = new byte[MaximumBytes + 1];
+        var count = 0;
+        while (count < buffer.Length)
+        {
+            var read = stream.Read(buffer, count, buffer.Length - count);
+            if (read == 0) break;
+            count += read;
+        }
+
+        return count > MaximumBytes ? null : buffer.AsSpan(0, count).ToArray();
     }
 
     internal static string Digest(ProtocolCorpusEntry entry) => Convert.ToHexString(SHA256.HashData(
@@ -97,6 +143,12 @@ internal static class ProtocolRegressionCorpus
     private static bool BoundedText(string? value) => value is { Length: > 0 and <= MaximumTextLength };
     private static bool DigestText(string? value) => value is { Length: 64 } && value.All(static character =>
         character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    private static HashSet<string> GrammarErrors() => new(StringComparer.Ordinal)
+    {
+        "InvalidLimits", "Empty", "SubjectTooLong", "TooManyTokens", "EmptyToken", "TokenTooLong",
+        "WhitespaceNotAllowed", "ControlCharacterNotAllowed", "InvalidUnicodeScalarSequence",
+        "WildcardNotAllowed", "InvalidWildcard", "TerminalWildcardMustBeFinal",
+    };
     private static CorpusLoadResult Result(CorpusLoadCode code, IEnumerable<ProtocolCorpusEntry> entries) =>
         new(code, new ReadOnlyCollection<ProtocolCorpusEntry>(entries.ToArray()));
 }
