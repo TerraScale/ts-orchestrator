@@ -56,6 +56,11 @@ public sealed class SchedulerPolicyCompletenessPropertyTests
             var decision = evaluator.Evaluate(request);
             var codes = decision.Trace.Select(reason => reason.Code).ToArray();
 
+            await Assert.That(decision.Admitted).IsEqualTo(decision.AcceptedRequest is not null);
+            if (decision.Admitted)
+            {
+                await Assert.That(decision.AcceptedRequest).IsSameReferenceAs(request);
+            }
             await Assert.That(codes).IsEquivalentTo(AllReasonCodes);
             await Assert.That(codes.SequenceEqual(AllReasonCodes)).IsTrue();
             await Assert.That(codes.Take(28).Select(code => (int)code).SequenceEqual(Enumerable.Range(1, 28))).IsTrue();

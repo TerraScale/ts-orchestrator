@@ -103,6 +103,7 @@ public sealed class AvailabilityGenerationAntiRollbackTests
             await Assert.That(baseline.Trace.Select(reason => (int)reason.Code)
                 .SequenceEqual(Enumerable.Range(1, 30))).IsTrue();
             await Assert.That(baseline.Admitted).IsEqualTo(relation == 1);
+            await Assert.That(baseline.AcceptedRequest is not null).IsEqualTo(relation == 1);
             await AssertGeneration(baseline, AvailabilityReasonCode.ObservationGenerationNotRollback,
                 relation == 0 ? AvailabilityReasonOutcome.Held : AvailabilityReasonOutcome.Passed, observed, current);
             await AssertGeneration(baseline, AvailabilityReasonCode.ObservationGenerationNotFuture,
@@ -110,6 +111,7 @@ public sealed class AvailabilityGenerationAntiRollbackTests
 
             if (relation != 1)
             {
+                await Assert.That(baseline.AcceptedRequest).IsNull();
                 await Assert.That(baseline.Trace.Skip(5).Take(23)
                     .All(reason => reason.Outcome is AvailabilityReasonOutcome.Held or AvailabilityReasonOutcome.NotApplicable)).IsTrue();
             }

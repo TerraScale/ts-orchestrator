@@ -78,6 +78,7 @@ public sealed class AvailabilityPropertyTests
                     request=new(property.Policy,property.Maintenance,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),property.Observations.Append(conflict));break;
             }
             var decision=evaluator.Evaluate(request);await Assert.That(decision.Admitted).IsFalse();
+            await Assert.That(decision.AcceptedRequest).IsNull();
             await Assert.That(decision.Trace.Take(5).Any(reason=>reason.Outcome==AvailabilityReasonOutcome.Held)).IsTrue();
             await Assert.That(decision.Trace.Skip(5).Take(23).All(reason=>reason.Outcome is AvailabilityReasonOutcome.Held or AvailabilityReasonOutcome.NotApplicable)).IsTrue();
             await Assert.That(decision.Trace.Skip(28).All(reason=>reason.Outcome==AvailabilityReasonOutcome.Passed)).IsTrue();
@@ -150,8 +151,11 @@ public sealed class AvailabilityPropertyTests
 
     private AvailabilityDecision Evaluate(ServiceAvailabilityPolicy policy,AvailabilityChange change,IEnumerable<ReplicaObservation> observations)=>
         evaluator.Evaluate(new(policy,change,ObservationCompleteness.Complete,new AvailabilityGeneration(1),new AvailabilityGeneration(1),observations));
-    private static async Task Rejected(AvailabilityDecision decision,AvailabilityReasonCode code)=>
+    private static async Task Rejected(AvailabilityDecision decision,AvailabilityReasonCode code)
+    {
         await Assert.That(decision.Trace.Single(reason=>reason.Code==code).Outcome).IsEqualTo(AvailabilityReasonOutcome.Rejected);
+        await Assert.That(decision.AcceptedRequest).IsNull();
+    }
     private static AvailabilityReasonCode[] ReserveCodes { get; }=
     [
         AvailabilityReasonCode.ReserveCpu,AvailabilityReasonCode.ReserveMemory,AvailabilityReasonCode.ReserveBlockIo,
