@@ -77,7 +77,9 @@ public static class DeliveryEngine
         if (fresh.Length == 0) return Held(DeliveryErrorCode.RunnerStale, job.Job);
         var zoned = fresh.Where(runner => job.AllowedZones.Contains(runner.Zone)).ToArray();
         if (zoned.Length == 0) return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
-        var compatible = zoned.Where(runner => job.RequiredCapabilities.All(runner.Capabilities.Contains))
+        var trusted = zoned.Where(RunnerTrustPolicyAllows).ToArray();
+        if (trusted.Length == 0) return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
+        var compatible = trusted.Where(runner => job.RequiredCapabilities.All(runner.Capabilities.Contains))
             .OrderBy(static runner => runner.Runner.Value, Ordinal).ToArray();
         if (compatible.Length == 0) return Held(DeliveryErrorCode.CapabilityMissing, job.Job);
         var selected = compatible[0];
@@ -209,6 +211,18 @@ public static class DeliveryEngine
             job.RequiredCapabilities.All(static capability => capability is RunnerCapability.Promote or RunnerCapability.ProductionDeploy),
         JobKind.ControlRecovery => job.AllowedZones.All(static zone => zone == TrustZone.ControlRecovery) &&
             job.RequiredCapabilities.All(static capability => capability == RunnerCapability.ControlRecover),
+        _ => false,
+    };
+    private static bool RunnerTrustPolicyAllows(RunnerEvidence runner) => runner.Zone switch
+    {
+        TrustZone.UntrustedProduct => runner.Capabilities.All(static capability =>
+            capability is RunnerCapability.Compile or RunnerCapability.Test),
+        TrustZone.TrustedBuild => runner.Capabilities.All(static capability =>
+            capability is RunnerCapability.Compile or RunnerCapability.Test or RunnerCapability.Sign),
+        TrustZone.ProductionRelease => runner.Capabilities.All(static capability =>
+            capability is RunnerCapability.Promote or RunnerCapability.ProductionDeploy),
+        TrustZone.ControlRecovery => runner.Capabilities.All(static capability =>
+            capability == RunnerCapability.ControlRecover),
         _ => false,
     };
     private static bool ValidSubject(EvidenceSubject subject, int max) => subject is not null && Valid(subject.Tree?.Value, max) &&
