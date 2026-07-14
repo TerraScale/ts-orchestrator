@@ -159,8 +159,13 @@ public sealed class ReconciliationEngineTests
 
         var cycleDesired = new[] { Desired("a", "b"), Desired("b", "a"), Desired("c", "b") };
         var cycle = Plan(cycleDesired, cycleDesired.Select(Exact));
-        await Assert.That(cycle.Errors.Count(static error => error.Code == ReconciliationErrorCode.DependencyCycle)).IsEqualTo(3);
+        await Assert.That(cycle.Errors.Count(static error => error.Code == ReconciliationErrorCode.DependencyCycle)).IsEqualTo(2);
         await Assert.That(cycle.Steps.All(static step => step.Output is HoldResource)).IsTrue();
+        var descendant = (HoldResource)cycle.Steps.Single(static step => step.Desired.Identity.Value == "c").Output;
+        await Assert.That(descendant.Reason).IsEqualTo(ReconciliationReasonCode.CyclicDependency);
+        await Assert.That(descendant.RootResource.Value).IsEqualTo("b");
+        await Assert.That(cycle.Steps.Single(static step => step.Desired.Identity.Value == "c").Trace.Single().RelatedResource!.Value)
+            .IsEqualTo("b");
     }
 
     [Test]

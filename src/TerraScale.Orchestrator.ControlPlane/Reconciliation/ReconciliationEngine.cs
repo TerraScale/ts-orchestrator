@@ -36,7 +36,7 @@ public static class ReconciliationEngine
         var byIdentity = new Dictionary<ResourceIdentity, ReconciliationStep>(ResourceIdentityComparer.Instance);
         var trace = new List<ReconciliationTrace>(desired.Length);
 
-        foreach (var identity in order.Concat(cyclic.OrderBy(static id => id.Value, Sorter)))
+        foreach (var identity in order)
         {
             var resource = resources[identity];
             observations.TryGetValue(identity, out var observation);
@@ -238,10 +238,98 @@ public static class ReconciliationEngine
             }
         }
 
-        var cyclic = new HashSet<ResourceIdentity>(
+        var residual = new HashSet<ResourceIdentity>(
             indegree.Where(static pair => pair.Value != 0).Select(static pair => pair.Key),
             ResourceIdentityComparer.Instance);
+        var cyclic = FindCycleMembers(resources, dependents, residual);
+
+        // A Kahn residual also contains every downstream dependent of a cycle. Only actual strongly connected
+        // members are cycle errors. Treat those members as completed holds, then resume Kahn ordering so their
+        // descendants can propagate the deterministic upstream cycle root instead of claiming a new cycle.
+        foreach (var identity in cyclic.OrderBy(static item => item.Value, Sorter))
+        {
+            ordered.Add(identity);
+            foreach (var dependent in dependents[identity].OrderBy(static item => item.Value, Sorter))
+            {
+                indegree[dependent]--;
+                if (indegree[dependent] == 0 && !cyclic.Contains(dependent)) ready.Enqueue(dependent, dependent.Value);
+            }
+        }
+        while (ready.TryDequeue(out var identity, out _))
+        {
+            ordered.Add(identity);
+            foreach (var dependent in dependents[identity].OrderBy(static item => item.Value, Sorter))
+            {
+                indegree[dependent]--;
+                if (indegree[dependent] == 0 && !cyclic.Contains(dependent)) ready.Enqueue(dependent, dependent.Value);
+            }
+        }
+
+        if (ordered.Count != resources.Count)
+            throw new InvalidOperationException("The reconciliation dependency graph could not be completely ordered.");
         return (ordered, cyclic);
+    }
+
+    private static IReadOnlySet<ResourceIdentity> FindCycleMembers(
+        IReadOnlyDictionary<ResourceIdentity, DesiredResource> resources,
+        IReadOnlyDictionary<ResourceIdentity, List<ResourceIdentity>> dependents,
+        IReadOnlySet<ResourceIdentity> residual)
+    {
+        var adjacency = residual.ToDictionary(
+            static identity => identity,
+            identity => resources[identity].Dependencies
+                .Where(residual.Contains)
+                .Distinct(ResourceIdentityComparer.Instance)
+                .OrderBy(static dependency => dependency.Value, Sorter)
+                .ToArray(),
+            ResourceIdentityComparer.Instance);
+        var reverse = residual.ToDictionary(
+            static identity => identity,
+            identity => dependents[identity]
+                .Where(residual.Contains)
+                .Distinct(ResourceIdentityComparer.Instance)
+                .OrderBy(static dependent => dependent.Value, Sorter)
+                .ToArray(),
+            ResourceIdentityComparer.Instance);
+
+        var visited = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
+        var finish = new List<ResourceIdentity>(residual.Count);
+        foreach (var start in residual.OrderBy(static identity => identity.Value, Sorter))
+        {
+            if (!visited.Add(start)) continue;
+            var stack = new List<(ResourceIdentity Identity, int Next)> { (start, 0) };
+            while (stack.Count != 0)
+            {
+                var frame = stack[^1]; var neighbors = adjacency[frame.Identity];
+                if (frame.Next < neighbors.Length)
+                {
+                    stack[^1] = (frame.Identity, frame.Next + 1);
+                    var neighbor = neighbors[frame.Next];
+                    if (visited.Add(neighbor)) stack.Add((neighbor, 0));
+                    continue;
+                }
+                stack.RemoveAt(stack.Count - 1); finish.Add(frame.Identity);
+            }
+        }
+
+        visited.Clear();
+        var cyclic = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
+        for (var index = finish.Count - 1; index >= 0; index--)
+        {
+            var start = finish[index];
+            if (!visited.Add(start)) continue;
+            var component = new List<ResourceIdentity>(); var stack = new Stack<ResourceIdentity>(); stack.Push(start);
+            while (stack.TryPop(out var identity))
+            {
+                component.Add(identity);
+                foreach (var neighbor in reverse[identity])
+                    if (visited.Add(neighbor)) stack.Push(neighbor);
+            }
+            if (component.Count > 1 || adjacency[start].Any(neighbor =>
+                    ResourceIdentityComparer.Instance.Equals(neighbor, start)))
+                foreach (var identity in component) cyclic.Add(identity);
+        }
+        return cyclic;
     }
 
     private static ReconciliationPlan InvalidPlan(IReadOnlyList<ReconciliationError> errors)

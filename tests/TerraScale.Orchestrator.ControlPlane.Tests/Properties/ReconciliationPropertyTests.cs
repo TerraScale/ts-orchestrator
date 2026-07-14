@@ -188,6 +188,87 @@ public sealed class ReconciliationPropertyTests
     }
 
     [Test]
+    public async Task Only_actual_cycle_members_are_errors_and_descendants_propagate_stable_root_for_1000_permutations()
+    {
+        var executed = 0;
+        for (ulong seed = 1; seed <= Cases; seed++)
+        {
+            var prefix = $"cycle-{seed:D4}";
+            var a = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-b");
+            var b = ReconciliationData.Resource($"{prefix}-b", a.Identity.Value);
+            var c = ReconciliationData.Resource($"{prefix}-c", b.Identity.Value);
+            var d = ReconciliationData.Resource($"{prefix}-d", c.Identity.Value);
+            DesiredResource[] desired = [d, b, c, a];
+            var observed = desired.Select(ReconciliationData.Exact).ToArray();
+            var first = ReconciliationData.Plan(desired, observed);
+            var replay = ReconciliationData.Plan(desired.Reverse(), observed.Reverse());
+            Require(ReconciliationData.Signature(first) == ReconciliationData.Signature(replay), seed, "cycle permutation");
+            Require(first.Errors.Count == 2 &&
+                first.Errors.Select(error => error.Resource!.Value).SequenceEqual([$"{prefix}-a", $"{prefix}-b"]),
+                seed, "actual cycle membership");
+            Require(first.Steps.Select(step => step.Desired.Identity.Value).SequenceEqual(
+                [$"{prefix}-a", $"{prefix}-b", $"{prefix}-c", $"{prefix}-d"]), seed, "cycle descendant order");
+            var cStep = first.Steps.Single(step => step.Desired.Identity == c.Identity);
+            var dStep = first.Steps.Single(step => step.Desired.Identity == d.Identity);
+            Require(cStep.Output is HoldResource cHold && cHold.Reason == ReconciliationReasonCode.CyclicDependency &&
+                cHold.RootResource == b.Identity && cStep.Trace.Single().RelatedResource == b.Identity,
+                seed, "direct cycle root propagation");
+            Require(dStep.Output is HoldResource dHold && dHold.Reason == ReconciliationReasonCode.CyclicDependency &&
+                dHold.RootResource == b.Identity && dStep.Trace.Single().RelatedResource == c.Identity,
+                seed, "transitive cycle root propagation");
+            executed++;
+        }
+
+        await Assert.That(executed).IsEqualTo(Cases);
+    }
+
+    [Test]
+    public async Task Multiple_disconnected_cycles_and_shared_descendant_choose_ordinal_first_root_for_1000_permutations()
+    {
+        var executed = 0;
+        for (ulong seed = 1; seed <= Cases; seed++)
+        {
+            var prefix = $"multi-cycle-{seed:D4}";
+            var a = ReconciliationData.Resource($"{prefix}-a", $"{prefix}-b");
+            var b = ReconciliationData.Resource($"{prefix}-b", a.Identity.Value);
+            var c = ReconciliationData.Resource($"{prefix}-c", $"{prefix}-d");
+            var d = ReconciliationData.Resource($"{prefix}-d", c.Identity.Value);
+            var shared = new DesiredResource(new($"{prefix}-shared"), "service", 100,
+                $"digest-{prefix}-shared", [d.Identity, b.Identity]);
+            var descendant = ReconciliationData.Resource($"{prefix}-tail", shared.Identity.Value);
+            DesiredResource[] desired = [shared, d, descendant, b, c, a];
+            var observed = desired.Select(ReconciliationData.Exact).ToArray();
+            var first = ReconciliationData.Plan(desired, observed);
+            var permutedDesired = desired.Reverse().Select(resource => new DesiredResource(resource.Identity,
+                resource.Kind, resource.Generation, resource.Digest, resource.Dependencies.Reverse())).ToArray();
+            var replay = ReconciliationData.Plan(permutedDesired, observed.Reverse());
+
+            Require(ReconciliationData.Signature(first) == ReconciliationData.Signature(replay), seed, "multi-cycle permutation");
+            var expectedMembers = new[] { a.Identity.Value, b.Identity.Value, c.Identity.Value, d.Identity.Value };
+            Require(first.Errors.Count == 4 && first.Errors.All(error =>
+                    error.Code == ReconciliationErrorCode.DependencyCycle && error.Resource == error.RelatedResource) &&
+                first.Errors.Select(error => error.Resource!.Value).SequenceEqual(expectedMembers),
+                seed, "multi-cycle exact errors");
+            foreach (var member in new[] { a, b, c, d })
+            {
+                var step = first.Steps.Single(item => item.Desired.Identity == member.Identity);
+                Require(step.Output is HoldResource hold && hold.Reason == ReconciliationReasonCode.CyclicDependency &&
+                    hold.RootResource == member.Identity && step.Trace.Single().RelatedResource == member.Identity,
+                    seed, "cycle member self root");
+            }
+            var sharedStep = first.Steps.Single(item => item.Desired.Identity == shared.Identity);
+            var tailStep = first.Steps.Single(item => item.Desired.Identity == descendant.Identity);
+            Require(sharedStep.Output is HoldResource sharedHold && sharedHold.RootResource == b.Identity &&
+                sharedStep.Trace.Single().RelatedResource == b.Identity, seed, "ordinal shared root");
+            Require(tailStep.Output is HoldResource tailHold && tailHold.RootResource == b.Identity &&
+                tailStep.Trace.Single().RelatedResource == shared.Identity, seed, "shared root propagation");
+            executed++;
+        }
+
+        await Assert.That(executed).IsEqualTo(Cases);
+    }
+
+    [Test]
     public async Task Desired_observed_dependency_permutation_and_culture_replay_is_stable_for_1000_cases()
     {
         var cultures = new[] { "tr-TR", "ar-SA", "ja-JP", "en-US" };
