@@ -23,9 +23,10 @@ internal static class SecurityCompletenessData
         var bootstrap = new BootstrapEnrollmentEvidence(new($"bootstrap-{seed}"), variant == 4 ? new("other-operation") : operation,
             variant == 5 ? new("other-principal") : principal.Id, principal.Kind, Cell, principal.Role,
             variant == 8 ? new(4) : Generation, variant == 10 ? EvidenceStatus.Consumed : EvidenceStatus.Valid);
-        var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest("attestation", seed), principal.Id, principal.Kind,
+        var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest("attestation", seed), principal.Id,
+            variant is 14 or 15 ? new("attacker-subject-key") : new($"subject-key-{seed}"), principal.Kind,
             variant == 6 ? new("sfo") : Cell, variant is 7 or 3 ? SecurityRole.TerraBase : principal.Role, Generation, PolicyGeneration,
-            variant == 1 ? EvidenceStatus.Missing : variant == 9 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
+            variant is 1 or 15 ? EvidenceStatus.Missing : variant == 9 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
         IEnumerable<BootstrapEnrollmentEvidence> bootstraps = variant switch
         {
             2 => [bootstrap, bootstrap],
@@ -167,7 +168,7 @@ internal static class SecurityCompletenessData
     private static string EnrollmentFingerprint(EnrollmentRequest value) =>
         $"op={value.OperationId.Value}|principal={PrincipalFingerprint(value.ExpectedPrincipal)}|key={value.SubjectKeyId.Value}|att-policy={value.AttestationPolicyGeneration.Value}|issuer={IssuerFingerprint(value.Issuer)}|current-issuer={value.CurrentIssuerGeneration.Value}|current-revocation={value.CurrentRevocationGeneration.Value}|bootstrap=" +
         string.Join(';', value.BootstrapEvidence.Select(x => $"{x.Id.Value},{x.OperationId.Value},{x.PrincipalId.Value},{x.Audience},{x.CellId.Value},{x.Role},{x.NodeGeneration.Value},{x.Status}")) + "|attestations=" +
-        string.Join(';', value.Attestations.Select(x => $"{x.Id.Value},{x.Measurement.Sha256},{x.PrincipalId.Value},{x.Kind},{x.CellId.Value},{x.Role},{x.Generation.Value},{x.PolicyGeneration.Value},{x.Status}"));
+        string.Join(';', value.Attestations.Select(x => $"{x.Id.Value},{x.Measurement.Sha256},{x.PrincipalId.Value},{x.SubjectKeyId.Value},{x.Kind},{x.CellId.Value},{x.Role},{x.Generation.Value},{x.PolicyGeneration.Value},{x.Status}"));
 
     private static string CertificateFingerprint(CertificateLifecycleRequest value) =>
         $"action={value.Action}|op={value.OperationId.Value}|principal={PrincipalFingerprint(value.Principal)}|current-principal={value.CurrentPrincipalGeneration.Value}|key={value.SubjectKeyId.Value}|usage={value.Usage}|scope={value.RequestedScope}|requested-generation={value.RequestedGeneration.Value}|issuer={IssuerFingerprint(value.Issuer)}|current-issuer={value.CurrentIssuerGeneration.Value}|policy={value.Policy.Generation.Value},{value.Policy.Lifetime.Value},{value.Policy.RenewalWindow.Value},{value.Policy.Overlap.Value},{string.Join(',', value.Policy.Usages)},{value.Policy.Scope}|validity={ValidityFingerprint(value.ValidityEvidence)}|current-revocation={value.CurrentRevocationGeneration.Value}|compromise={value.CompromiseEvidence.CertificateId.Value},{value.CompromiseEvidence.PrincipalId.Value},{value.CompromiseEvidence.CellId.Value},{value.CompromiseEvidence.CertificateGeneration.Value},{value.CompromiseEvidence.RevocationGeneration.Value},{value.CompromiseEvidence.Status}";
@@ -227,10 +228,10 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "52aaaa3c90e4b46874cda6027571db0c8a9ee33ad7c90e68c49fed8c8eb88d40";
+    private const string Digest = "397ac5a3bf86b59dbc7146a900a310fc71de0f4f5a49fb6423027c00bcde64d7";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
-    { ["enrollment"] = 13, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 10 };
+    { ["enrollment"] = 15, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 10 };
 
     internal static IReadOnlyList<SecurityPolicyReplayEntry> Load()
     {

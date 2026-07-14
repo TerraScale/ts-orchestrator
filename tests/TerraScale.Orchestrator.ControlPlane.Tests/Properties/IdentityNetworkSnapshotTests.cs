@@ -100,7 +100,7 @@ public sealed class IdentityNetworkSnapshotTests
         var principal = new SecurityPrincipal(new("principal-1"), SecurityPrincipalKind.Node, SecurityRole.Agent, cell, generation);
         var issuer = new IssuerSigningCapability(new("issuer-gru"), IssuerCapabilityKind.RegionalIntermediate, cell, TrustScope.Cell, new(1), new(3));
         return new(operation, principal, new("subject-key-1"), new(2), issuer, new(1), new(3), bootstrap,
-            [new(new("attestation-1"), new(new string('a', 64)), principal.Id, principal.Kind, cell, principal.Role, generation, new(2), EvidenceStatus.Valid)]);
+            [new(new("attestation-1"), new(new string('a', 64)), principal.Id, new("subject-key-1"), principal.Kind, cell, principal.Role, generation, new(2), EvidenceStatus.Valid)]);
     }
 
     private static BootstrapEnrollmentEvidence ValidBootstrap() => new(new("bootstrap-1"), new("operation-1"), new("principal-1"),

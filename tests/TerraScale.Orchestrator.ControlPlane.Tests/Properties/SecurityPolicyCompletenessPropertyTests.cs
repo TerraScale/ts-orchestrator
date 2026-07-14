@@ -17,6 +17,16 @@ public sealed class SecurityPolicyCompletenessPropertyTests
         Reject(SecurityDecisionCode.OperationMatches), Reject(SecurityDecisionCode.PrincipalMatches), Reject(SecurityDecisionCode.CellMatches),
         Reject(SecurityDecisionCode.RoleMatches), Reject(SecurityDecisionCode.GenerationCurrent), Reject(SecurityDecisionCode.AttestationCurrent),
         Reject(SecurityDecisionCode.BootstrapUnused), Reject(SecurityDecisionCode.IssuerCurrent), Reject(SecurityDecisionCode.RevocationCurrent), Reject(SecurityDecisionCode.IssuerScopeValid),
+        Reject(SecurityDecisionCode.SubjectKeyMatches),
+        [.. Reject(SecurityDecisionCode.SubjectKeyMatches), .. Hold(SecurityDecisionCode.AttestationCurrent)],
+    ];
+    private static readonly SecurityDecisionCode[] EnrollmentReasonOrder =
+    [
+        SecurityDecisionCode.EvidenceComplete, SecurityDecisionCode.EvidenceUnique, SecurityDecisionCode.EvidenceConsistent,
+        SecurityDecisionCode.OperationMatches, SecurityDecisionCode.PrincipalMatches, SecurityDecisionCode.SubjectKeyMatches,
+        SecurityDecisionCode.CellMatches, SecurityDecisionCode.RoleMatches, SecurityDecisionCode.GenerationCurrent,
+        SecurityDecisionCode.AttestationCurrent, SecurityDecisionCode.BootstrapUnused, SecurityDecisionCode.IssuerScopeValid,
+        SecurityDecisionCode.IssuerCurrent, SecurityDecisionCode.RevocationCurrent,
     ];
     private static readonly (SecurityDecisionCode, SecurityDecisionOutcome)[][] CertificateNonPass =
     [
@@ -69,6 +79,8 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.IssuerCurrent, SecurityDecisionOutcome.Rejected),
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.RevocationCurrent, SecurityDecisionOutcome.Rejected),
             (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.IssuerScopeValid, SecurityDecisionOutcome.Rejected),
+            (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.SubjectKeyMatches, SecurityDecisionOutcome.Rejected),
+            (false, typeof(HoldSecurityOperationIntent), SecurityDecisionCode.SubjectKeyMatches, SecurityDecisionOutcome.Rejected),
         };
         var executed = 0; for (var seed = 1; seed <= Cases; seed++)
         {
@@ -76,6 +88,9 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             var decision = SecurityDecisionEngine.EvaluateEnrollment(request); var oracle = expected[variant];
             Require(decision.Authorized == oracle.Authorized && decision.Intent.GetType() == oracle.Intent, seed, "enrollment decision");
             RequireNonPass(decision, EnrollmentNonPass[variant], seed, "enrollment complete trace");
+            Require(decision.Trace.Select(x => x.Code).SequenceEqual(variant is 2 or 3
+                ? EnrollmentReasonOrder[..3]
+                : EnrollmentReasonOrder), seed, "enrollment exact reason order");
             Require(decision.Intent.OperationId == request.OperationId, seed, "enrollment subject");
             if (decision.Intent is IssueIdentityIntent issue) Require(issue.Request == request && issue.Principal == request.ExpectedPrincipal && issue.Issuer == request.Issuer, seed, "identity intent binding");
             if (decision.Intent is AttestIdentityIntent attest) Require(attest.Request == request && attest.AttestationId == request.Attestations.Single().Id, seed, "attestation intent binding");
@@ -83,6 +98,8 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             if (variant == 0) Require(decision.Trace.All(x => x.Outcome == SecurityDecisionOutcome.Passed), seed, "enrollment accepted trace");
             if (variant == 1) Require(decision.Trace.Count(x => x.Outcome == SecurityDecisionOutcome.Held) == 1 &&
                 decision.Trace.All(x => x.Outcome is SecurityDecisionOutcome.Passed or SecurityDecisionOutcome.Held), seed, "attestation trace");
+            if (variant is 14 or 15) Require(decision.Intent is HoldSecurityOperationIntent &&
+                decision.Intent is not IssueIdentityIntent && decision.Intent is not AttestIdentityIntent, seed, "subject-key substitution denied");
             Require(Canonical(decision) == Canonical(SecurityDecisionEngine.EvaluateEnrollment(SecurityCompletenessData.Enrollment(variant, (ulong)seed))), seed, "enrollment replay");
             executed++;
         }

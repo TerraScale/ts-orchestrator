@@ -235,7 +235,7 @@ internal static class SecurityData
         var principal = new SecurityPrincipal(new($"principal-{seed}"), SecurityPrincipalKind.Node, SecurityRole.Agent, Cell, Generation);
         var bootstrap = new BootstrapEnrollmentEvidence(new($"bootstrap-{seed}"), operation, principal.Id, principal.Kind, Cell, principal.Role,
             variant == 3 ? new(4) : Generation, variant == 2 ? EvidenceStatus.Consumed : EvidenceStatus.Valid);
-        var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest(), principal.Id, principal.Kind,
+        var attestation = new SecurityAttestationEvidence(new($"attestation-{seed}"), Digest(), principal.Id, new($"subject-key-{seed}"), principal.Kind,
             variant == 4 ? new("sfo") : Cell, variant == 5 ? SecurityRole.TerraBase : principal.Role, Generation, new(2),
             variant == 1 ? EvidenceStatus.Stale : EvidenceStatus.Valid);
         return new(operation, principal, new($"subject-key-{seed}"), new(2), Issuer(), new(1), Revocation, [bootstrap], [attestation]);

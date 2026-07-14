@@ -344,7 +344,7 @@ public sealed class SecurityDecisionTests
         var principal = Principal();
         return new(Operation, principal, new("subject-key-1"), new(2), Issuer(), currentIssuerGeneration ?? new(1), RevocationGeneration,
             [new(new("bootstrap-1"), Operation, principal.Id, SecurityPrincipalKind.Node, Cell, SecurityRole.Agent, Generation, bootstrapStatus)],
-            [new(new("attestation-1"), Digest(), principal.Id, SecurityPrincipalKind.Node, attestationCell ?? Cell,
+            [new(new("attestation-1"), Digest(), principal.Id, new("subject-key-1"), SecurityPrincipalKind.Node, attestationCell ?? Cell,
                 attestationRole, attestationGeneration ?? Generation, new(2), attestationStatus)]);
     }
 
