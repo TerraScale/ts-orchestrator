@@ -62,6 +62,9 @@ public static class EvidencePolicyEvaluator
             if(!reuse.IsReusable)return EvidencePolicyResult.Reject(reuse.Code);
         }
         if(subject.Suites.GroupBy(x=>x.Domain).Any(x=>x.Count()>1)||subject.ModelCorpora.GroupBy(x=>x.Domain).Any(x=>x.Count()>1))return EvidencePolicyResult.Reject(EvidenceCode.DuplicateDomain);
+        var suiteDomains=subject.Suites.Select(x=>x.Domain).ToHashSet();
+        var corpusDomains=subject.ModelCorpora.Select(x=>x.Domain).ToHashSet();
+        if(!suiteDomains.SetEquals(corpusDomains))return EvidencePolicyResult.Reject(EvidenceCode.MissingDomain);
         if(subject.TestBinaries.Select(x=>x.Identity).Distinct().Count()!=subject.TestBinaries.Count
             ||subject.Fuzz.Select(x=>x.Target).Distinct().Count()!=subject.Fuzz.Count)return EvidencePolicyResult.Reject(EvidenceCode.InvalidInput);
         if(subject.Artifacts.GroupBy(x=>x.Architecture).Any(x=>x.Count()!=1)||subject.Artifacts.Select(x=>x.Identity).Distinct().Count()!=subject.Artifacts.Count)
@@ -70,10 +73,9 @@ public static class EvidencePolicyEvaluator
         if(!policy.RequiredArchitectures.SetEquals(actualArchitectures))return EvidencePolicyResult.Reject(EvidenceCode.InvalidArchitecture);
         if(subject.Suites.Any(x=>x.Result!=EvidenceResult.Passed))return EvidencePolicyResult.Reject(EvidenceCode.ResultFailed);
         if(subject.Suites.Any(x=>x.SurvivingSafetyMutants.Value!=0))return EvidencePolicyResult.Reject(EvidenceCode.SafetyMutantSurvived);
-        foreach(var domain in policy.RequiredDomains)
+        if(policy.RequiredDomains.Any(domain=>!suiteDomains.Contains(domain)))return EvidencePolicyResult.Reject(EvidenceCode.MissingDomain);
+        foreach(var suite in subject.Suites)
         {
-            var suite=subject.Suites.SingleOrDefault(x=>x.Domain==domain);var corpus=subject.ModelCorpora.SingleOrDefault(x=>x.Domain==domain);
-            if(suite is null||corpus is null)return EvidencePolicyResult.Reject(EvidenceCode.MissingDomain);
             if(suite.Tests.Value<policy.MinimumTests.Value||suite.PropertyCases.Value<policy.MinimumPropertyCases.Value
                 ||suite.BranchCoverage.Value<policy.MinimumBranchCoverage.Value||suite.MutationScore.Value<policy.MinimumMutationScore.Value
                 ||suite.ModelSchedules.Value<policy.MinimumModelSchedules.Value||suite.FlakeCleanRuns.Value<policy.MinimumFlakeCleanRuns.Value)
