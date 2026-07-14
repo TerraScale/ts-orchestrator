@@ -309,7 +309,9 @@ internal static class ObservabilityData
     {
         var operation = new ObservabilityOperationId($"operation-{seed}"); var owner = new ObservabilityOwnerId("terrascale"); var tenant = new ObservabilityTenantId($"tenant-{seed}"); var cell = new ObservabilityCellId($"cell-{seed}"); var id = new GrafanaResourceId($"dashboard-{seed}"); var generation = new ObservabilityGeneration(1000 + seed);
         var desired = new DesiredGrafanaResource(id, owner, tenant, cell, generation, new($"release-{seed}"), Digest(), new DashboardSelection(DashboardCatalogEntry.FleetOverview));
-        var observed = new ObservedGrafanaResource(id, owner, tenant, cell, generation, variant == 1 ? Digest('b') : Digest(), TelemetryProjectionKind.Dashboard, variant == 3 ? seed % 2 == 0 ? GrafanaOwnership.Unmanaged : GrafanaOwnership.Conflicting : GrafanaOwnership.ManagedExact);
+        var ownership = variant == 3 ? seed % 2 == 0 ? GrafanaOwnership.Unmanaged : GrafanaOwnership.Conflicting : GrafanaOwnership.ManagedExact;
+        var observed = new ObservedGrafanaResource(id, owner, tenant, cell, generation, variant == 1 ? Digest('b') : Digest(), TelemetryProjectionKind.Dashboard, ownership,
+            ownership == GrafanaOwnership.ManagedExact ? new(new($"release-{seed}"), new DashboardSelection(DashboardCatalogEntry.FleetOverview)) : null);
         IEnumerable<DesiredGrafanaResource> desiredSet = variant == 2 ? [] : [desired]; IEnumerable<ObservedGrafanaResource> observedSet = variant == 0 ? [] : [observed];
         var inventory = new GrafanaInventoryEvidence(operation, owner, tenant, cell, variant == 4 ? new(generation.Value - 1) : generation, new(9), EvidenceCompleteness.Complete, new(2), observedSet);
         return new(operation, owner, tenant, cell, GrafanaAccessBoundary.Tenant, generation, new(9), generation, new(9), new(2), desiredSet, inventory);

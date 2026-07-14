@@ -131,7 +131,7 @@ public sealed class ObservabilityDecisionTests
         var desired = new[] { Desired("create", DashboardCatalogEntry.FleetOverview), Desired("update", DashboardCatalogEntry.CellHealth), Desired("same", DashboardCatalogEntry.Capacity) };
         var observed = new[]
         {
-            Observed("update", digest: OtherDigest()), Observed("same"), Observed("delete"),
+            Observed("update", digest: OtherDigest(), entry: DashboardCatalogEntry.CellHealth), Observed("same", entry: DashboardCatalogEntry.Capacity), Observed("delete"),
             Observed("foreign", ownership: GrafanaOwnership.Unmanaged, owner: new("human")),
         };
         var decision = ObservabilityDecisionEngine.EvaluateGrafanaProjection(Projection(desired, observed));
@@ -394,8 +394,9 @@ public sealed class ObservabilityDecisionTests
 
     private static DesiredGrafanaResource Desired(string id, DashboardCatalogEntry entry) => new(new(id), Owner, Tenant, Cell, new(5), new("release-5"), Digest(), new DashboardSelection(entry));
     private static DesiredGrafanaResource DesiredAccess(string id, OperatorRoleCatalogEntry role, TelemetryAccess access, ObservabilityUserId? user = null, GrafanaAccessSubject? subject = null, ObservabilityRoleId? roleId = null) => new(new(id), Owner, Tenant, Cell, new(5), new("release-5"), Digest(), new AccessSelection(role, access, roleId ?? new("operator-role"), user ?? new("operator-user"), subject ?? new TenantAccessSubject(Tenant)));
-    private static ObservedGrafanaResource Observed(string id, ObservabilityDigest? digest = null, GrafanaOwnership ownership = GrafanaOwnership.ManagedExact, ObservabilityOwnerId? owner = null, ulong generation = 5) =>
-        new(new(id), owner ?? Owner, Tenant, Cell, new(generation), digest ?? Digest(), TelemetryProjectionKind.Dashboard, ownership);
+    private static ObservedGrafanaResource Observed(string id, ObservabilityDigest? digest = null, GrafanaOwnership ownership = GrafanaOwnership.ManagedExact, ObservabilityOwnerId? owner = null, ulong generation = 5, DashboardCatalogEntry entry = DashboardCatalogEntry.FleetOverview) =>
+        new(new(id), owner ?? Owner, Tenant, Cell, new(generation), digest ?? Digest(), TelemetryProjectionKind.Dashboard, ownership,
+            ownership == GrafanaOwnership.ManagedExact ? new(new("release-5"), new DashboardSelection(entry)) : null);
     private static GrafanaProjectionRequest Projection(IEnumerable<DesiredGrafanaResource> desired, IEnumerable<ObservedGrafanaResource> observed,
         EvidenceCompleteness completeness = EvidenceCompleteness.Complete, ObservabilityOperationId? inventoryOperation = null, ulong inventoryGeneration = 5,
         ulong currentSequence = 9, ulong inventorySequence = 9, GrafanaAccessBoundary boundary = GrafanaAccessBoundary.Tenant,
