@@ -124,6 +124,9 @@ public sealed class BudgetProposal
 
     internal bool IsWellFormed => Resource.IsValid && Cell.IsValid && CostCenter.IsValid && NodeClass.IsValid
         && PriceEvidence.IsValid && Direction is BudgetChangeDirection.Increase or BudgetChangeDirection.Decrease
-        && Purpose is not BudgetSafetyPurpose.Unspecified && NodeCount >= 0 && Delta is { IsValid: true }
+        && Purpose is BudgetSafetyPurpose.OrdinaryCapacity
+            or BudgetSafetyPurpose.AvailabilityRepair
+            or BudgetSafetyPurpose.DataLossPreventionStorageExpansion
+        && NodeCount >= 0 && Delta is { IsValid: true }
         && (NodeCount > 0 || !Delta.Equals(BudgetVector.Zero));
 }
