@@ -105,12 +105,22 @@ public sealed class RuntimeDecisionTests
     [Test]
     public async Task ServingReobservesMissingHealthButSafetyActionsRemainAuthorizedOnFailure()
     {
-        var servingWithoutHealth = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
-            phase: LifecyclePhase.Serving, process: ProcessStatus.Running));
+        var servingRequest = Lifecycle(phase: LifecyclePhase.Serving, process: ProcessStatus.Running);
+        var servingWithoutHealth = RuntimeDecisionEngine.EvaluateLifecycle(servingRequest);
         var stopFailed = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
             phase: LifecyclePhase.Started, action: LifecycleAction.Stop, process: ProcessStatus.Running,
             health: Health(dependency: HealthStatus.Failed)));
-        await Assert.That(servingWithoutHealth.Intent is CheckRuntimeHealthIntent).IsTrue();
+        var healthIntent = (CheckRuntimeHealthIntent)servingWithoutHealth.Intent;
+        await Assert.That(healthIntent.OperationId).IsSameReferenceAs(servingRequest.OperationId);
+        await Assert.That(healthIntent.AllocationId).IsSameReferenceAs(servingRequest.Spec.AllocationId);
+        await Assert.That(healthIntent.NodeId).IsSameReferenceAs(servingRequest.Spec.NodeId);
+        await Assert.That(healthIntent.Epoch).IsSameReferenceAs(servingRequest.Epoch);
+        await Assert.That(healthIntent.Generation).IsSameReferenceAs(servingRequest.Spec.Generation);
+        await Assert.That(healthIntent.HealthTimeout).IsSameReferenceAs(servingRequest.HealthTimeout);
+        await Assert.That(HealthIntentFingerprint(healthIntent)).IsEqualTo(
+            $"{servingRequest.OperationId.Value},{servingRequest.Spec.AllocationId.Value},{servingRequest.Spec.NodeId.Value}," +
+            $"{servingRequest.Epoch.Value},{servingRequest.Spec.Generation.Value},{servingRequest.HealthTimeout.Value}," +
+            string.Join(',', servingRequest.Spec.RequiredHealth));
         await Assert.That(servingWithoutHealth.Authorized).IsTrue();
         await Assert.That(Reason(servingWithoutHealth, RuntimeDecisionCode.ReadinessComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.Held);
         await Assert.That(stopFailed.Intent is StopRuntimeIntent).IsTrue();
