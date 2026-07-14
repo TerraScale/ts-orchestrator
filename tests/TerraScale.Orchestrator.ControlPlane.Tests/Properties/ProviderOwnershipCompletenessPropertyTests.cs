@@ -100,6 +100,33 @@ public sealed class ProviderOwnershipCompletenessPropertyTests
     }
 
     [Test]
+    public async Task Create_observation_scope_replay_rejects_for_1000_cases()
+    {
+        for (var seed = 0; seed < Cases; seed++)
+        {
+            var template = ActionContext(ProviderAction.CreateNode, seed);
+            var state = seed % 2 == 0 ? ProviderObservedState.Absent : ProviderObservedState.Present;
+            var original = CopyCreateContext(template, template.CellId, template.CompartmentId, state);
+            var replayCell = seed % 4 < 2 ? new ProviderCellId("sfo") : original.CellId;
+            var replayCompartment = seed % 4 < 2 ? original.CompartmentId : new ProviderCompartmentId("other-compartment");
+            var replay = CopyCreateContext(template, replayCell, replayCompartment, state);
+            var create = (IdempotentProviderCreate)original.Target;
+            var observation = new ProviderCreateObservation(create.Key, original.CellId, original.CompartmentId,
+                original.ExpectedGeneration, state, state == ProviderObservedState.Absent ? null : new($"node:{seed}"));
+
+            var exact = ProviderOwnershipEngine.Authorize(CreateRequest(original, observation));
+            var decision = ProviderOwnershipEngine.Authorize(CreateRequest(replay, observation));
+
+            await Assert.That(exact.Authorized).IsTrue();
+            await Assert.That(decision.Authorized).IsFalse();
+            await Assert.That(decision.Intents).IsEmpty();
+            await Assert.That(Reason(decision, ProviderDecisionCode.GenerationMatches).Outcome)
+                .IsEqualTo(ProviderDecisionOutcome.Rejected);
+            await Assert.That(Capture(() => { _ = decision.CaptureDurableAuthorization(); })).IsTypeOf<InvalidOperationException>();
+        }
+    }
+
+    [Test]
     public async Task Handoff_every_inventory_and_proof_dimension_is_fail_closed_for_1000_cases()
     {
         var traceOrder = new[]
@@ -247,7 +274,8 @@ public sealed class ProviderOwnershipCompletenessPropertyTests
         if (context.Target is IdempotentProviderCreate create)
             return new(context, new(context.CellId, context.CompartmentId, context.ControllerEpoch), [], [],
                 ProviderObservationCompleteness.Complete, [],
-                [new ProviderCreateObservation(create.Key, context.ExpectedGeneration, context.ExpectedObservedState, null)],
+                [new ProviderCreateObservation(create.Key, context.CellId, context.CompartmentId,
+                    context.ExpectedGeneration, context.ExpectedObservedState, null)],
                 context.Approvals, null, call);
         var resource = ((ExistingProviderResource)context.Target).Id;
         return new(context, new(context.CellId, context.CompartmentId, context.ControllerEpoch),
@@ -256,6 +284,19 @@ public sealed class ProviderOwnershipCompletenessPropertyTests
             [new ProviderResourceObservation(resource, context.ExpectedGeneration, context.ExpectedObservedState)], [],
             context.Approvals, null, call);
     }
+
+    private static ProviderOperationContext CopyCreateContext(
+        ProviderOperationContext source, ProviderCellId cell, ProviderCompartmentId compartment,
+        ProviderObservedState observedState) => new(
+        source.OperationId, cell, compartment, source.ControllerEpoch, source.ResourceKind, source.Action,
+        source.Target, source.ExpectedGeneration, observedState, source.DesiredTerminalState, source.Approvals,
+        source.DeadlineEvidence, source.IdempotencyKey, source.PermittedCompensations, source.ActionParameters);
+
+    private static ProviderAuthorizationRequest CreateRequest(
+        ProviderOperationContext context, ProviderCreateObservation observation) => new(
+        context, new(context.CellId, context.CompartmentId, context.ControllerEpoch), [], [],
+        ProviderObservationCompleteness.Complete, [], [observation], context.Approvals, null,
+        new(context, ProviderCallStatus.NotCalled, null));
 
     private static HandoffEvidence HandoffEvidenceFor(HandoffScope scope, HandoffScope wrongScope, int mode)
     {

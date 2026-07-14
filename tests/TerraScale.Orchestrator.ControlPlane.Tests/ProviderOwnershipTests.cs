@@ -175,9 +175,9 @@ public sealed class ProviderOwnershipTests
     public async Task CreateAuthorizationRequiresAbsenceEvidenceForTheExactCreateKey()
     {
         var context = CreateNodeContext();
-        var exact = new ProviderCreateObservation(new("node-create-1"), Generation, ProviderObservedState.Absent, null);
-        var unrelated = new ProviderCreateObservation(new("other-create"), Generation, ProviderObservedState.Absent, null);
-        var resolved = new ProviderCreateObservation(new("node-create-1"), Generation, ProviderObservedState.Present, Resource);
+        var exact = new ProviderCreateObservation(new("node-create-1"), Cell, Compartment, Generation, ProviderObservedState.Absent, null);
+        var unrelated = new ProviderCreateObservation(new("other-create"), Cell, Compartment, Generation, ProviderObservedState.Absent, null);
+        var resolved = new ProviderCreateObservation(new("node-create-1"), Cell, Compartment, Generation, ProviderObservedState.Present, Resource);
         var resolvedContext = CreateNodeContext(ProviderObservedState.Present);
 
         var authorized = ProviderOwnershipEngine.Authorize(Request(context: context, ownership: [], createObservations: [exact]));
@@ -455,7 +455,8 @@ public sealed class ProviderOwnershipTests
             actualContext, includeAuthority ? authority ?? Authority() : null,
             ownership ?? (isCreate ? [] : [Ownership()]), tags ?? [], ProviderObservationCompleteness.Complete,
             isCreate ? [] : [Observation(observationGeneration, observedState)],
-            createObservations ?? (isCreate ? [new ProviderCreateObservation(create!.Key, Generation, ProviderObservedState.Absent, null)] : []),
+            createObservations ?? (isCreate ? [new ProviderCreateObservation(create!.Key, actualContext.CellId,
+                actualContext.CompartmentId, Generation, ProviderObservedState.Absent, null)] : []),
             required ?? [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], prior,
             call ?? new(actualContext, ProviderCallStatus.NotCalled, null));
     }
