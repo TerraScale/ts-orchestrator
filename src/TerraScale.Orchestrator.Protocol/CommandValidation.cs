@@ -64,7 +64,7 @@ public readonly record struct CommandValidationResult
 /// It intentionally does not retain the opaque payload, verifier implementations, or
 /// the complete validation-context policy.
 /// </summary>
-public sealed record CommandAcceptance
+public sealed class CommandAcceptance : IEquatable<CommandAcceptance>
 {
     internal CommandAcceptance(CommandEnvelope envelope, DateTimeOffset validatedAt)
     {
@@ -96,6 +96,43 @@ public sealed record CommandAcceptance
     public PayloadDigest PayloadDigest { get; }
     public OpaqueSignature Signature { get; }
     public DateTimeOffset ValidatedAt { get; }
+
+    public bool Equals(CommandAcceptance? other) =>
+        other is not null
+        && ProtocolVersion == other.ProtocolVersion
+        && Cell == other.Cell
+        && AggregateId == other.AggregateId
+        && DesiredGeneration == other.DesiredGeneration
+        && WriterEpoch == other.WriterEpoch
+        && OperationId == other.OperationId
+        && IdempotencyKey == other.IdempotencyKey
+        && IssuedAt == other.IssuedAt
+        && ExpiresAt == other.ExpiresAt
+        && Attempt == other.Attempt
+        && PayloadDigest.Equals(other.PayloadDigest)
+        && Signature.Equals(other.Signature)
+        && ValidatedAt == other.ValidatedAt;
+
+    public override bool Equals(object? obj) => Equals(obj as CommandAcceptance);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ProtocolVersion);
+        hash.Add(Cell);
+        hash.Add(AggregateId);
+        hash.Add(DesiredGeneration);
+        hash.Add(WriterEpoch);
+        hash.Add(OperationId);
+        hash.Add(IdempotencyKey);
+        hash.Add(IssuedAt);
+        hash.Add(ExpiresAt);
+        hash.Add(Attempt);
+        hash.Add(PayloadDigest);
+        hash.Add(Signature);
+        hash.Add(ValidatedAt);
+        return hash.ToHashCode();
+    }
 
     public override string ToString() =>
         $"CommandAcceptance {{ ProtocolVersion = {ProtocolVersion}, Cell = {Cell}, AggregateId = {AggregateId}, "
