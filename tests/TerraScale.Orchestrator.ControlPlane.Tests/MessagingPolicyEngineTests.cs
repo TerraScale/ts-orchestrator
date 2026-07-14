@@ -153,6 +153,84 @@ public sealed class MessagingPolicyEngineTests
     }
 
     [Test]
+    public async Task ObservationIntentRetainsExactReplacementAndDistinguishesEveryAcceptedField()
+    {
+        var operation = Operation();
+        var intent = Observe(operation);
+
+        await Assert.That(ReferenceEquals(intent.Replacement, operation)).IsTrue();
+        await Assert.That(intent.Replacement.OperationId).IsEqualTo(operation.OperationId);
+        await Assert.That(intent.Replacement.Plane).IsEqualTo(operation.Plane);
+        await Assert.That(intent.Replacement.Cell).IsEqualTo(operation.Cell);
+        await Assert.That(intent.Replacement.Cluster).IsEqualTo(operation.Cluster);
+        await Assert.That(intent.Replacement.OperationGeneration).IsEqualTo(operation.OperationGeneration);
+        await Assert.That(intent.Replacement.AuthorityEpoch).IsEqualTo(operation.AuthorityEpoch);
+        await Assert.That(intent.Replacement.ConfigurationGeneration).IsEqualTo(operation.ConfigurationGeneration);
+        await Assert.That(intent.Replacement.MinimumObservationSequence).IsEqualTo(operation.MinimumObservationSequence);
+        await Assert.That(intent.Replacement.MaximumObservationSequence).IsEqualTo(operation.MaximumObservationSequence);
+        await Assert.That(intent.Replacement.FailedStore).IsEqualTo(operation.FailedStore);
+        await Assert.That(intent.Replacement.CurrentStoreGeneration).IsEqualTo(operation.CurrentStoreGeneration);
+        await Assert.That(intent.Replacement.FailedServer).IsEqualTo(operation.FailedServer);
+        await Assert.That(intent.Replacement.FailedPeer).IsEqualTo(operation.FailedPeer);
+        await Assert.That(intent.Replacement.ReplacementServer).IsEqualTo(operation.ReplacementServer);
+        await Assert.That(intent.Replacement.ReplacementPeer).IsEqualTo(operation.ReplacementPeer);
+        await Assert.That(intent.Replacement.ReplacementPlacement).IsEqualTo(operation.ReplacementPlacement);
+        await Assert.That(intent.Operation).IsEqualTo(operation.OperationId);
+        await Assert.That(intent.Cluster).IsEqualTo(operation.Cluster);
+        await Assert.That(intent.MinimumSequence).IsEqualTo(operation.MinimumObservationSequence);
+        await Assert.That(intent.MaximumSequence).IsEqualTo(operation.MaximumObservationSequence);
+        await Assert.That(Observe(operation)).IsEqualTo(intent);
+
+        var substitutions = new ReplacementOperation[]
+        {
+            operation with { OperationId = new MessagingOperationId("replace-2") },
+            operation with { Plane = MessagingPlane.Product },
+            operation with { Cell = new CellId("sfo") },
+            operation with { Cluster = new ClusterId("other-cluster") },
+            operation with { OperationGeneration = operation.OperationGeneration + 1 },
+            operation with { AuthorityEpoch = operation.AuthorityEpoch + 1 },
+            operation with { ConfigurationGeneration = operation.ConfigurationGeneration + 1 },
+            operation with { MinimumObservationSequence = operation.MinimumObservationSequence + 1 },
+            operation with { MaximumObservationSequence = operation.MaximumObservationSequence + 1 },
+            operation with { FailedStore = new StoreId("other-store") },
+            operation with { CurrentStoreGeneration = operation.CurrentStoreGeneration + 1 },
+            operation with { FailedServer = new ServerId("other-failed-server") },
+            operation with { FailedPeer = new PeerId("other-failed-peer") },
+            operation with { ReplacementServer = new ServerId("other-replacement-server") },
+            operation with { ReplacementPeer = new PeerId("other-replacement-peer") },
+            operation with { ReplacementPlacement = new PlacementId("other-placement") },
+        };
+        foreach (var substitution in substitutions)
+        {
+            var changed = Observe(substitution);
+            await Assert.That(changed).IsNotEqualTo(intent);
+            await Assert.That(ObservationFingerprint(changed)).IsNotEqualTo(ObservationFingerprint(intent));
+        }
+    }
+
+    [Test]
+    public async Task SurvivingAttachmentReobservationRetainsReplacementAcrossObservationPermutation()
+    {
+        var operation = Operation();
+        var observation = SurvivingObservation(operation, operation.FailedServer);
+        var incomplete = new ClusterObservation(observation.ObservationId, observation.Cluster,
+            observation.ConfigurationGeneration, observation.MembershipSequence, observation.Peers,
+            [new("control-stream", 2, 2, 50)], observation.BucketReplicas);
+        var reversed = new ClusterObservation(incomplete.ObservationId, incomplete.Cluster,
+            incomplete.ConfigurationGeneration, incomplete.MembershipSequence, incomplete.Peers.Reverse(),
+            incomplete.StreamReplicas.Reverse(), incomplete.BucketReplicas.Reverse());
+
+        var first = (ObserveClusterIntent)MessagingPolicyEngine.DecideReplacement(new(
+            Control(), operation, operation, incomplete, 64)).Intents.Single();
+        var replay = (ObserveClusterIntent)MessagingPolicyEngine.DecideReplacement(new(
+            Control(), operation, operation, reversed, 64)).Intents.Single();
+
+        await Assert.That(ReferenceEquals(first.Replacement, operation)).IsTrue();
+        await Assert.That(ReferenceEquals(replay.Replacement, operation)).IsTrue();
+        await Assert.That(first).IsEqualTo(replay);
+    }
+
+    [Test]
     public async Task LostAddResponseReplaysFromMembershipAndNeverAddsTwice()
     {
         var operation = Operation();
@@ -571,6 +649,36 @@ public sealed class MessagingPolicyEngineTests
         3, 9, 7, 100, 200, new StoreId("control-store-3"), 4,
         new ServerId("control-server-3"), new PeerId("control-peer-3"),
         new ServerId("control-server-4"), new PeerId("control-peer-4"), new PlacementId("host-4"));
+
+    private static ObserveClusterIntent Observe(ReplacementOperation operation) =>
+        (ObserveClusterIntent)MessagingPolicyEngine.DecideReplacement(new(
+            ReplacementPolicy(operation), operation, null, null, 64)).Intents.Single();
+
+    private static PlanePolicy ReplacementPolicy(ReplacementOperation operation)
+    {
+        var baseline = Control();
+        var baselineOperation = Operation();
+        var servers = baseline.Servers.Select(server =>
+            server.Server == baselineOperation.FailedServer && server.Peer == baselineOperation.FailedPeer
+                ? new ServerPolicy(operation.FailedServer, operation.FailedPeer, server.Placement)
+                : server).ToArray();
+        var routes = servers.SelectMany(from => servers.Where(to => to.Server != from.Server)
+            .Select(to => new RouteLink(from.Server, to.Server))).ToArray();
+        return new(operation.Plane, operation.Cell, operation.Cluster, operation.ConfigurationGeneration,
+            baseline.MembershipFloor, servers, routes, baseline.Gateways, baseline.Accounts,
+            baseline.Streams, baseline.Buckets);
+    }
+
+    private static string ObservationFingerprint(ObserveClusterIntent intent)
+    {
+        var value = intent.Replacement;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{value.OperationId.Value}:{value.Plane}:{value.Cell.Value}:{value.Cluster.Value}:" +
+            $"{value.OperationGeneration}:{value.AuthorityEpoch}:{value.ConfigurationGeneration}:" +
+            $"{value.MinimumObservationSequence}:{value.MaximumObservationSequence}:{value.FailedStore.Value}:" +
+            $"{value.CurrentStoreGeneration}:{value.FailedServer.Value}:{value.FailedPeer.Value}:" +
+            $"{value.ReplacementServer.Value}:{value.ReplacementPeer.Value}:{value.ReplacementPlacement.Value}");
+    }
 
     private static ClusterObservation Observation(
         ReplacementOperation operation,

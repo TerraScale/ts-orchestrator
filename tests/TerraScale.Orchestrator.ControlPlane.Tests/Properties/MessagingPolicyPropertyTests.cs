@@ -22,6 +22,20 @@ public sealed class MessagingPolicyPropertyTests
     }
 
     [Test]
+    public async Task ObservationIntentFingerprintIsInvariantAcrossSemanticCultureReplay()
+    {
+        var operation = Operation(7, 41);
+        var request = new ReplacementRequest(Control(7), operation, null, null, 96);
+        var first = UnderCulture("tr-TR", () => IntentIdentity(
+            MessagingPolicyEngine.DecideReplacement(request).Intents.Single()));
+        var replay = UnderCulture("ar-SA", () => IntentIdentity(
+            MessagingPolicyEngine.DecideReplacement(request).Intents.Single()));
+
+        await Assert.That(first).IsEqualTo(replay);
+        await Assert.That(first).IsEqualTo($"observe:{ReplacementIdentity(operation)}");
+    }
+
+    [Test]
     public async Task SurvivingStoreProofPropertiesBindExactIdentityAndGenerationFor1000Cases()
     {
         var first = UnderCulture("tr-TR", () => RunSurvivingStoreProofs(0xA471_1004));
@@ -347,7 +361,7 @@ public sealed class MessagingPolicyPropertyTests
     }
     private static string IntentIdentity(MessagingIntent intent) => intent switch
     {
-        ObserveClusterIntent x => $"observe:{x.Operation.Value}:{x.Cluster.Value}:{x.MinimumSequence}:{x.MaximumSequence}",
+        ObserveClusterIntent x => $"observe:{ReplacementIdentity(x.Replacement)}",
         ConfigureReplacementIntent x => $"persist:{x.Operation.OperationId.Value}:{x.Operation.AuthorityEpoch}",
         AddPeerIntent x => $"add:{x.Operation.Value}:{x.Server.Value}:{x.Peer.Value}:{x.AuthorityEpoch}",
         WaitCatchupIntent x => $"wait:{x.Operation.Value}:{x.Peer.Value}:{x.RequiredSequence}",
@@ -367,7 +381,7 @@ public sealed class MessagingPolicyPropertyTests
         var operation = request.Proposed;
         switch (mode)
         {
-            case 0: { var x = (ObserveClusterIntent)decision.Intents.Single(); Require(x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.MinimumSequence == operation.MinimumObservationSequence && x.MaximumSequence == operation.MaximumObservationSequence, "observe-subject", index); break; }
+            case 0: { var x = (ObserveClusterIntent)decision.Intents.Single(); Require(ReferenceEquals(x.Replacement, operation) && x.Replacement == operation && x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.MinimumSequence == operation.MinimumObservationSequence && x.MaximumSequence == operation.MaximumObservationSequence, "observe-subject", index); break; }
             case 1: Require(((ConfigureReplacementIntent)decision.Intents.Single()).Operation == operation, "persist-subject", index); break;
             case 2: { var x = (AddPeerIntent)decision.Intents.Single(); Require(x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.Server == operation.ReplacementServer && x.Peer == operation.ReplacementPeer && x.Placement == operation.ReplacementPlacement && x.AuthorityEpoch == operation.AuthorityEpoch, "add-subject", index); break; }
             case 3 or 4: { var x = (WaitCatchupIntent)decision.Intents.Single(); Require(x.Operation == operation.OperationId && x.Cluster == operation.Cluster && x.Peer == operation.ReplacementPeer && x.RequiredSequence == request.Observation!.MembershipSequence, "wait-subject", index); break; }
@@ -385,6 +399,14 @@ public sealed class MessagingPolicyPropertyTests
             }
         }
     }
+
+    private static string ReplacementIdentity(ReplacementOperation value) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"{value.OperationId.Value}:{value.Plane}:{value.Cell.Value}:{value.Cluster.Value}:" +
+            $"{value.OperationGeneration}:{value.AuthorityEpoch}:{value.ConfigurationGeneration}:" +
+            $"{value.MinimumObservationSequence}:{value.MaximumObservationSequence}:{value.FailedStore.Value}:" +
+            $"{value.CurrentStoreGeneration}:{value.FailedServer.Value}:{value.FailedPeer.Value}:" +
+            $"{value.ReplacementServer.Value}:{value.ReplacementPeer.Value}:{value.ReplacementPlacement.Value}");
 
     private static PlanePolicy Control(int index, IEnumerable<ClusterId>? gateways = null) => Plane(MessagingPlane.Control, "control", index, gateways: gateways ?? [new($"fra-control-{index}")]);
     private static PlanePolicy Product(int index, ClusterId? cluster = null, ServerPolicy[]? servers = null,
