@@ -197,17 +197,20 @@ public sealed class AdversarialSimulationTests
         await Assert.That(DeterministicSimulator.InvariantHolds(state, SafetyInvariant.NoUnauthorizedAction)).IsTrue();
         var mutations = new[]
         {
-            exact with { Node = "n2" }, exact with { LeaderAtAcceptance = "n2" },
+            exact with { AcceptedEvent = exact.AcceptedEvent with { Node = "n2" } },
+            exact with { LeaderAtAcceptance = "n2" },
             exact with { NodeAcceptedEpoch = 0 }, exact with { NodeCrashed = true },
             exact with { NodePartitioned = true }, exact with { Authorized = false },
-            exact with { Generation = exact.Generation + 1 }, exact with { IdempotencyKey = "other-key" },
-            exact with { Resource = "other-resource" },
+            exact with { AcceptedEvent = exact.AcceptedEvent with { Generation = exact.Generation + 1 } },
+            exact with { AcceptedEvent = exact.AcceptedEvent with { IdempotencyKey = "other-key" } },
+            exact with { AcceptedEvent = exact.AcceptedEvent with { Resource = "other-resource" } },
         };
         foreach (var mutation in mutations)
             await Assert.That(DeterministicSimulator.InvariantHolds(Clone(state, actions: [mutation]),
                 SafetyInvariant.NoUnauthorizedAction)).IsFalse();
         await Assert.That(DeterministicSimulator.InvariantHolds(Clone(state, actions:
-            [exact with { EventEpoch = exact.EventEpoch + 1 }]), SafetyInvariant.NoStaleSuccessfulMutation)).IsFalse();
+            [exact with { AcceptedEvent = exact.AcceptedEvent with { Epoch = exact.EventEpoch + 1 } }]),
+            SafetyInvariant.NoStaleSuccessfulMutation)).IsFalse();
     }
 
     [Test]
@@ -426,7 +429,14 @@ public sealed class AdversarialSimulationTests
     private static AcceptedActionEvidence Accepted(AcceptedActionKind kind, long eventEpoch = 1,
         long authorityEpoch = 1, bool authorized = true, ModelNodeRole role = ModelNodeRole.Critical, int ordinal = 1,
         int criticalNodesAfter = 3) =>
-        new(kind, "operation-1", "n1", 2, "create-key", "resource-1", eventEpoch, authorityEpoch,
+        new(Event(1, kind switch
+            {
+                AcceptedActionKind.Authorization => ModelEventKind.AuthorizeOperation,
+                AcceptedActionKind.Create => ModelEventKind.RequestCreate,
+                AcceptedActionKind.Mutation => ModelEventKind.MutationSucceeded,
+                AcceptedActionKind.Termination => ModelEventKind.RequestTermination,
+                _ => ModelEventKind.Delivery,
+            }, epoch: eventEpoch), authorityEpoch,
             "n1", authorityEpoch, false, false, authorized, role, ordinal, criticalNodesAfter);
     private static IEnumerable<ModelEvent> ThrowingEvents()
     {
