@@ -427,6 +427,9 @@ public static class AuthorityEngine
                 }
                 else
                 {
+                    if (pending.ExpectedEpoch < state.HighestEpoch ||
+                        pending.ExpectedRevision < state.HighestKvRevision)
+                        return Error(AuthorityErrorCode.InvalidJournal, "INV-004", "Acquisition baseline regresses persisted authority high-water.");
                     var baselineLease = pending.ExpectedObservation.Lease;
                     if (baselineLease is not null &&
                         LeaseError(pending.ExpectedObservation, pending.RequestedAtHealth)?.Code != AuthorityErrorCode.LeaseExpired)
