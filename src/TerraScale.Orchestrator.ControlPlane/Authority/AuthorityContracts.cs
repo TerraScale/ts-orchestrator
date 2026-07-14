@@ -155,15 +155,26 @@ public sealed record CompareAndDeleteLeaseIntent(
 public sealed record ReadAuthorityIntent(string AuthorityId, string RequestId)
     : AuthorityIntent(AuthorityId, RequestId);
 
-public sealed record MutationAuthorityPermit(
-    string AuthorityId,
-    string CandidateId,
-    string LeaseId,
-    long Epoch,
-    long KvRevision,
-    string ObservationId,
-    DateTimeOffset EvaluatedServerTime,
-    TimeSpan EvaluatedMonotonicElapsed);
+public sealed record MutationAuthorityPermit
+{
+    internal MutationAuthorityPermit(string authorityId, string candidateId, string leaseId, long epoch,
+        long kvRevision, string observationId, DateTimeOffset evaluatedServerTime,
+        TimeSpan evaluatedMonotonicElapsed)
+    {
+        AuthorityId = authorityId; CandidateId = candidateId; LeaseId = leaseId; Epoch = epoch;
+        KvRevision = kvRevision; ObservationId = observationId; EvaluatedServerTime = evaluatedServerTime;
+        EvaluatedMonotonicElapsed = evaluatedMonotonicElapsed;
+    }
+
+    public string AuthorityId { get; }
+    public string CandidateId { get; }
+    public string LeaseId { get; }
+    public long Epoch { get; }
+    public long KvRevision { get; }
+    public string ObservationId { get; }
+    public DateTimeOffset EvaluatedServerTime { get; }
+    public TimeSpan EvaluatedMonotonicElapsed { get; }
+}
 
 public sealed record PendingAuthoritySet(
     string RequestId,
@@ -274,14 +285,23 @@ public sealed record AuthorityState(
         0, 0, null, null, null, null, null, null, null, null);
 }
 
-public sealed record AuthorityDecision(
-    AuthorityState State,
-    IReadOnlyList<AuthorityEvent> EventsToAppend,
-    IReadOnlyList<AuthorityIntent> Intents,
-    IReadOnlyList<AuthorityError> Errors,
-    MutationAuthorityPermit? MutationPermit,
-    string DecisionDigest)
+public sealed record AuthorityDecision
 {
+    internal AuthorityDecision(AuthorityState state, IReadOnlyList<AuthorityEvent> eventsToAppend,
+        IReadOnlyList<AuthorityIntent> intents, IReadOnlyList<AuthorityError> errors,
+        MutationAuthorityPermit? mutationPermit, string decisionDigest)
+    {
+        State = state; EventsToAppend = eventsToAppend; Intents = intents; Errors = errors;
+        MutationPermit = mutationPermit; DecisionDigest = decisionDigest;
+    }
+
+    public AuthorityState State { get; }
+    public IReadOnlyList<AuthorityEvent> EventsToAppend { get; }
+    public IReadOnlyList<AuthorityIntent> Intents { get; }
+    public IReadOnlyList<AuthorityError> Errors { get; }
+    public MutationAuthorityPermit? MutationPermit { get; }
+    public string DecisionDigest { get; }
+
     internal static AuthorityDecision Create(
         AuthorityState state,
         IEnumerable<AuthorityEvent>? events = null,
