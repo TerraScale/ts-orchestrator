@@ -166,7 +166,7 @@ public static class SecurityDecisionEngine
         var bounded = PrivilegeBounded(evidence.Principal, request.Capability, request.ResourceScope);
         trace.Add(Reject(SecurityDecisionCode.PrivilegeBounded, bounded, bounded ? 1UL : 0UL, 1));
         if (trace.Any(r => r.Outcome is SecurityDecisionOutcome.Rejected or SecurityDecisionOutcome.Held)) return Deny(request.OperationId, trace);
-        return Decision(true, trace, new AuthorizeCapabilityIntent(request));
+        return Decision(true, trace, new AuthorizeCapabilityIntent(request,evidence,grants[0]));
     }
 
     public static SecurityDecision EvaluateLease(SecretLeaseRequest request)

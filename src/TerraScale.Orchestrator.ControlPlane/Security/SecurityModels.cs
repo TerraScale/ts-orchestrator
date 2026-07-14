@@ -598,7 +598,20 @@ public sealed record IssueCertificateIntent : SecurityIntent { internal IssueCer
 public sealed record RenewCertificateIntent : SecurityIntent { internal RenewCertificateIntent(CertificateLifecycleRequest request) : base(request.OperationId) => Request = request; public CertificateLifecycleRequest Request { get; } }
 public sealed record RotateCertificateIntent : SecurityIntent { internal RotateCertificateIntent(CertificateLifecycleRequest request) : base(request.OperationId) => Request = request; public CertificateLifecycleRequest Request { get; } }
 public sealed record RevokeCertificateIntent : SecurityIntent { internal RevokeCertificateIntent(CertificateLifecycleRequest request) : base(request.OperationId) => Request = request; public CertificateLifecycleRequest Request { get; } }
-public sealed record AuthorizeCapabilityIntent : SecurityIntent { internal AuthorizeCapabilityIntent(AuthorizationRequest request) : base(request.OperationId) { Capability = request.Capability; ResourceScope = request.ResourceScope; PrincipalId = request.PrincipalId; } public AuthorizationCapability Capability { get; } public SecurityResourceScope ResourceScope { get; } public SecurityPrincipalId PrincipalId { get; } }
+public sealed record AuthorizeCapabilityIntent : SecurityIntent
+{
+    internal AuthorizeCapabilityIntent(AuthorizationRequest request,PrincipalAuthorizationEvidence evidence,AuthorizationGrant grant) : base(request.OperationId)
+    {
+        Capability=request.Capability;ResourceScope=request.ResourceScope;PrincipalId=request.PrincipalId;Evidence=evidence;Grant=grant;
+        ExpectedPrincipalGeneration=request.ExpectedPrincipalGeneration;CurrentPrincipalGeneration=request.CurrentPrincipalGeneration;
+        PolicyGeneration=request.PolicyGeneration;CurrentPolicyGeneration=request.CurrentPolicyGeneration;CurrentRevocationGeneration=request.CurrentRevocationGeneration;
+    }
+    public AuthorizationCapability Capability{get;}public SecurityResourceScope ResourceScope{get;}public SecurityPrincipalId PrincipalId{get;}
+    public PrincipalAuthorizationEvidence Evidence{get;}public AuthorizationGrant Grant{get;}
+    public SecurityGeneration ExpectedPrincipalGeneration{get;}public SecurityGeneration CurrentPrincipalGeneration{get;}
+    public SecurityGeneration PolicyGeneration{get;}public SecurityGeneration CurrentPolicyGeneration{get;}public SecurityGeneration CurrentRevocationGeneration{get;}
+    public override string ToString()=>"<authorize-capability-intent>";
+}
 public sealed record GrantSecretLeaseIntent : SecurityIntent { internal GrantSecretLeaseIntent(SecretLeaseRequest request) : base(request.OperationId) => Request = request; public SecretLeaseRequest Request { get; } }
 public sealed record RenewSecretLeaseIntent : SecurityIntent { internal RenewSecretLeaseIntent(SecretLeaseRequest request) : base(request.OperationId) => Request = request; public SecretLeaseRequest Request { get; } }
 public sealed record RevokeSecretLeaseIntent : SecurityIntent { internal RevokeSecretLeaseIntent(SecretLeaseRequest request) : base(request.OperationId) => Request = request; public SecretLeaseRequest Request { get; } }
