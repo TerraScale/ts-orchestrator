@@ -25,6 +25,8 @@ The canonical state projection uses the existing complete, length-delimited `Mod
 
 Tests separately prove exact event reference retention and record-value replay semantics. Every individual event-field mutation changes accepted evidence, canonical state, and digest; equivalent reconstructed events remain value-equal and digest-equal across cultures. Existing authority-evidence mutants now replace the retained event fields, preserving their independent invariant checks.
 
+`ModelState` validates the retained event before accessing any derived projection. A missing event and an otherwise valid event kind that maps to no accepted action both fail deterministically at the state boundary with `ArgumentException`; neither can be accidentally accepted or surface a null dereference.
+
 ## Compatibility and behavior
 
 No event, failure, invariant, provider-outcome, accepted-action, or failure-code enumeration or numeric value changed. No reducer gate, scheduling rule, result/error precedence, queue ordering, exploration bound, invariant rule, corpus schema/version/content address, or saved expectation changed. This correction changes only accepted evidence and the state digest that intentionally commits to it.
@@ -44,4 +46,4 @@ dotnet run --project tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchest
 git diff --check
 ```
 
-Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused audit tests passed 5/5; Model tests passed 43/43; all five executables passed 816/816 (ControlPlane 597, Contract 29, Model 43, Protocol 70, Scheduler 77).
+Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused audit tests passed 6/6; Model tests passed 44/44; all five executables passed 817/817 (ControlPlane 597, Contract 29, Model 44, Protocol 70, Scheduler 77).
