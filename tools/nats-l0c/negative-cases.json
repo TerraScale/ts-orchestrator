@@ -1,0 +1,17 @@
+[
+  {"name":"acceptance-claim","target":"inventory","path":["claimsAcceptanceEvidence"],"operation":"set","value":true,"expected":"must not claim acceptance"},
+  {"name":"unknown-top-level-field","target":"inventory","path":["accepted"],"operation":"add","value":true,"expected":"unknown or missing fields"},
+  {"name":"stale-pin-digest","target":"inventory","path":["pinManifest","sha256"],"operation":"set","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expected":"pin manifest path/digest"},
+  {"name":"control-not-r3","target":"inventory","path":["requiredTopologies","controlR3","servers"],"operation":"set","value":1,"expected":"exactly three servers"},
+  {"name":"product-gateway-enabled","target":"inventory","path":["requiredTopologies","controlGatewayMesh","productGatewaysPermitted"],"operation":"set","value":true,"expected":"no product gateway"},
+  {"name":"sync-default-invented","target":"inventory","path":["configurationContracts","controlStream","syncPolicy"],"operation":"set","value":"always","expected":"explicit unresolved owner value"},
+  {"name":"unknown-assertion","target":"inventory","path":["cases",0,"assertions",0],"operation":"set","value":"pretend-pass","expected":"assertions are invalid"},
+  {"name":"duplicate-case-id","target":"inventory","path":["cases",1,"id"],"operation":"set","value":"L0C-ISO-001","expected":"case IDs must be unique"},
+  {"name":"unknown-requirement","target":"inventory","path":["cases",0,"requirementIds",0],"operation":"set","value":"REQ-FAKE","expected":"requirement IDs are invalid"},
+  {"name":"closed-value-semantic-swap","target":"inventory","path":["cases",0,"fault"],"operation":"set","value":"expired-user-jwt","expected":"content digest differs"},
+  {"name":"false-full-l0c","target":"report","path":["fullL0CComplete"],"operation":"set","value":true,"expected":"exact deterministic stale"},
+  {"name":"false-current-report","target":"report","path":["isCurrentForInventory"],"operation":"set","value":true,"expected":"exact deterministic stale"},
+  {"name":"missing-blocker","target":"report","path":["blockers",0],"operation":"delete","expected":"exact deterministic stale"},
+  {"name":"server-selected","target":"pin","path":["serverCandidates",0,"selected"],"operation":"set","value":true,"expected":"serverCandidates"},
+  {"name":"n-minus-one-selected","target":"pin","path":["nMinusOnePolicy"],"operation":"set","value":"2.14-to-2.12","expected":"must remain unselected"}
+]

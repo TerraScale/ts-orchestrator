@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "classification": "stale-blocked-no-execution",
+  "claimsAcceptanceEvidence": false,
+  "fullL0CComplete": false,
+  "arm64Qualified": false,
+  "productionQualified": false,
+  "isCurrentForInventory": false,
+  "inventorySha256": null,
+  "executedCaseCount": 0,
+  "caseResults": [],
+  "blockers": [
+    "server-candidate-not-selected",
+    "client-candidate-not-selected",
+    "cli-candidate-not-selected",
+    "jwt-nkey-toolchain-not-selected",
+    "n-minus-one-policy-unset",
+    "snapshot-signing-identity-and-key-unselected",
+    "hermetic-smolvm-test-toolchain-unqualified",
+    "internal-mirror-and-verification-receipts-missing",
+    "generated-credential-and-configuration-contracts-missing",
+    "sync-rpo-values-unset"
+  ]
+}
