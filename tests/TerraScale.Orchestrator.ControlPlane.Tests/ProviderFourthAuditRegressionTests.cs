@@ -20,6 +20,11 @@ public sealed class ProviderFourthAuditRegressionTests
         var crossCompartment = ProviderOwnershipEngine.Authorize(Request(wrongCompartment, observation));
 
         await Assert.That(original.Authorized).IsTrue();
+        await Assert.That(ReferenceEquals(observation.CellId, observationCell)).IsTrue();
+        await Assert.That(ReferenceEquals(observation.CompartmentId, observationCompartment)).IsTrue();
+        var intent = (CreateNodeProviderIntent)original.Intents.Single();
+        await Assert.That(intent.Context.CellId.Value).IsEqualTo(observationCell.Value);
+        await Assert.That(intent.Context.CompartmentId.Value).IsEqualTo(observationCompartment.Value);
         foreach (var replayed in new[] { crossCell, crossCompartment })
         {
             await Assert.That(replayed.Authorized).IsFalse();
