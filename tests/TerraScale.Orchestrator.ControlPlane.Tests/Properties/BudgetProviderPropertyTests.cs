@@ -197,6 +197,7 @@ public sealed class BudgetProviderPropertyTests
             var actual = item.Domain switch
             {
                 "budget" => EvaluateBudget(item.Current, item.Delta, item.Mode == "increase").Reason.ToString(),
+                "budget-basis" => EvaluateBudgetBasis(item.Current),
                 "provider" => ProviderOwnershipEngine.Authorize(ProviderRequest(
                     contextEpoch: item.Current > 0 ? (ulong)item.Current : 1,
                     authorityEpoch: item.Delta > 0 ? (ulong)item.Delta : 1)).Authorized.ToString(CultureInfo.InvariantCulture),
@@ -244,6 +245,25 @@ public sealed class BudgetProviderPropertyTests
             proposal: BudgetTestData.Proposal(delta: BudgetTestData.Vector(delta), direction: increase ? BudgetChangeDirection.Increase : BudgetChangeDirection.Decrease, nodeCount: 0),
             usage: [BudgetTestData.CellUsage(BudgetTestData.Vector(current)), BudgetTestData.GlobalUsage(BudgetTestData.Vector(current))],
             nodes: [BudgetTestData.NodeUsage(count: 1)], prices: [BudgetTestData.Price()]);
+    }
+
+    private static string EvaluateBudgetBasis(long seed)
+    {
+        var suffix = seed.ToString(CultureInfo.InvariantCulture);
+        var cell = new BudgetUsageObservation(BudgetUsageScope.Cell, BudgetTestData.Cell(),
+            BudgetTestData.CostCenter(), BudgetTestData.Evidence($"cell-usage-{suffix}"),
+            BudgetEvidenceStatus.Current, BudgetTestData.Q(1), BudgetTestData.Vector(10));
+        var global = new BudgetUsageObservation(BudgetUsageScope.Global, default,
+            BudgetTestData.CostCenter(), BudgetTestData.Evidence($"global-usage-{suffix}"),
+            BudgetEvidenceStatus.Current, BudgetTestData.Q(1), BudgetTestData.Vector(10));
+        var node = new NodeClassUsageObservation(BudgetTestData.Cell(), BudgetTestData.CostCenter(),
+            BudgetTestData.NodeClass(), BudgetTestData.Evidence($"node-usage-{suffix}"),
+            BudgetEvidenceStatus.Current, BudgetTestData.Q(1), 3);
+        var price = BudgetTestData.Price();
+        var basis = BudgetAuthorizationEngine.Evaluate(BudgetTestData.Policy(), BudgetTestData.Proposal(),
+            [cell, global], [node], [price]).Basis!;
+        return string.Join('|', basis.CellUsage.EvidenceId.Value, basis.GlobalUsage.EvidenceId.Value,
+            basis.NodeUsage.EvidenceId.Value, basis.PriceEvidence.EvidenceId.Value);
     }
 
     private static long[] Values(BudgetVector vector) =>
@@ -296,7 +316,7 @@ internal sealed record BudgetProviderReplayItem(string Id, string Domain, string
 internal static class BudgetProviderReplayCorpus
 {
     private const string ResourceName = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.BudgetProviderReplayCorpus.v1.json";
-    private const string Sha256 = "99516fac2dba8d0646560ffd23456b73cd7bcce42dbf47be9a980ee27c937b8c";
+    private const string Sha256 = "616710fb64287b2d947e1aa6f27f52101cf483d3a92948b754c4cec0936d9a98";
     private const int MaximumBytes = 16_384;
     private static readonly HashSet<string> PropertyNames = new(StringComparer.Ordinal)
         { "Id", "Domain", "Mode", "Current", "Delta", "Expected" };
@@ -385,6 +405,8 @@ internal static class BudgetProviderReplayCorpus
     {
         ("budget", "increase", "WithinAutomaticBand" or "ArithmeticOverflow") => true,
         ("budget", "decrease", "WithinAutomaticBand" or "ArithmeticUnderflow") => true,
+        ("budget-basis", "evidence-id", _) => expected.Length is >= 1 and <= 256 &&
+            expected.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '|'),
         ("provider", "epoch", "True" or "False") => true,
         _ => false,
     };

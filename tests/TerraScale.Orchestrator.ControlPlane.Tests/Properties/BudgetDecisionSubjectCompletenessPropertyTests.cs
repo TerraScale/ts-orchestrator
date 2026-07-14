@@ -104,6 +104,7 @@ public sealed class BudgetDecisionSubjectCompletenessPropertyTests
         {
             await Assert.That(decision.Trace).IsNull();
             await Assert.That(decision.Subject).IsNull();
+            await Assert.That(decision.Basis).IsNull();
         }
 
         foreach (var decision in new[]
@@ -116,6 +117,7 @@ public sealed class BudgetDecisionSubjectCompletenessPropertyTests
         {
             await Assert.That(decision.Trace).IsNotNull();
             await Assert.That(decision.Subject).IsNotNull();
+            await Assert.That(decision.Basis).IsNotNull();
         }
     }
 
@@ -155,6 +157,7 @@ public sealed class BudgetDecisionSubjectCompletenessPropertyTests
         var defaultDecision = default(BudgetDecision);
         await Assert.That(defaultDecision.Subject).IsNull();
         await Assert.That(defaultDecision.Trace).IsNull();
+        await Assert.That(defaultDecision.Basis).IsNull();
     }
 
     private static async Task AssertExactSubject(BudgetDecisionSubject? subject, BudgetProposal proposal)

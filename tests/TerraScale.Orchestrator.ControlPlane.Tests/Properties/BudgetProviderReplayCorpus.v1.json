@@ -3,6 +3,8 @@
   {"Id":"budget-decrease","Domain":"budget","Mode":"decrease","Current":10,"Delta":1,"Expected":"WithinAutomaticBand"},
   {"Id":"budget-underflow","Domain":"budget","Mode":"decrease","Current":0,"Delta":1,"Expected":"ArithmeticUnderflow"},
   {"Id":"budget-overflow","Domain":"budget","Mode":"increase","Current":9223372036854775806,"Delta":2,"Expected":"ArithmeticOverflow"},
+  {"Id":"budget-basis-original","Domain":"budget-basis","Mode":"evidence-id","Current":1,"Delta":1,"Expected":"cell-usage-1|global-usage-1|node-usage-1|price-v1"},
+  {"Id":"budget-basis-substituted","Domain":"budget-basis","Mode":"evidence-id","Current":2,"Delta":2,"Expected":"cell-usage-2|global-usage-2|node-usage-2|price-v1"},
   {"Id":"provider-current","Domain":"provider","Mode":"epoch","Current":5,"Delta":5,"Expected":"True"},
   {"Id":"provider-stale","Domain":"provider","Mode":"epoch","Current":4,"Delta":5,"Expected":"False"},
   {"Id":"provider-future","Domain":"provider","Mode":"epoch","Current":6,"Delta":5,"Expected":"False"},
