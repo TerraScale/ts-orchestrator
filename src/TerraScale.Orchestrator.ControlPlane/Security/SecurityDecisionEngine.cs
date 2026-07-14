@@ -79,7 +79,8 @@ public static class SecurityDecisionEngine
         var issuerScope = request.Issuer.Kind switch
         {
             IssuerCapabilityKind.RegionalIntermediate => request.Issuer.Scope == TrustScope.Cell && request.RequestedScope == TrustScope.Cell,
-            IssuerCapabilityKind.GlobalAdministrativeIntermediate => request.Issuer.Scope == TrustScope.GlobalAdministration,
+            IssuerCapabilityKind.GlobalAdministrativeIntermediate => request.Issuer.Scope == TrustScope.GlobalAdministration &&
+                                                                      request.RequestedScope == TrustScope.GlobalAdministration,
             _ => false,
         };
         trace.Add(Reject(SecurityDecisionCode.IssuerScopeValid, issuerScope, issuerScope ? 1UL : 0UL, 1));
