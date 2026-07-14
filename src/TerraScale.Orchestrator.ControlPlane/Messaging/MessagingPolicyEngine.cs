@@ -233,7 +233,11 @@ public static class MessagingPolicyEngine
             return Held([Error(MessagingErrorCode.IncompleteObservation)]);
         if (policy.Outcomes.Any(static outcome => !outcome.Available))
             return Held([Error(MessagingErrorCode.CompatibilityUnavailable)]);
-        return Decision([], [], [new(1, MessagingTraceCode.CompatibilityAccepted, MessagingAction.Configure)]);
+        return Decision(
+            [],
+            [],
+            [new(1, MessagingTraceCode.CompatibilityAccepted, MessagingAction.Configure)],
+            new CompatibilityAcceptance(policy.CurrentVersion, policy.PreviousVersion, policy.Outcomes));
     }
 
     private static List<MessagingError> ValidateTopology(MessagingTopologyPolicy policy)
@@ -561,10 +565,12 @@ public static class MessagingPolicyEngine
     private static MessagingDecision Decision(
         IEnumerable<MessagingIntent> intents,
         IEnumerable<MessagingError> errors,
-        IEnumerable<MessagingTrace> trace) => new(
+        IEnumerable<MessagingTrace> trace,
+        CompatibilityAcceptance? compatibility = null) => new(
         new ReadOnlyCollection<MessagingIntent>(intents.ToArray()),
         new ReadOnlyCollection<MessagingError>(errors.ToArray()),
-        new ReadOnlyCollection<MessagingTrace>(trace.ToArray()));
+        new ReadOnlyCollection<MessagingTrace>(trace.ToArray()),
+        compatibility);
 
     private static IReadOnlyList<MessagingTrace> Trace(IReadOnlyList<MessagingIntent> intents, MessagingTraceCode code) =>
         new ReadOnlyCollection<MessagingTrace>(intents.Select((intent, index) => new MessagingTrace(index + 1, code, intent.Action)).ToArray());

@@ -322,6 +322,30 @@ public sealed class CompatibilityPolicy
     public IReadOnlyList<CompatibilityOutcome> Outcomes { get; }
 }
 
+public sealed class CompatibilityAcceptance
+{
+    private readonly ReadOnlyCollection<CompatibilityOutcome> _outcomes;
+
+    internal CompatibilityAcceptance(
+        long currentVersion,
+        long previousVersion,
+        IEnumerable<CompatibilityOutcome> outcomes)
+    {
+        CurrentVersion = currentVersion;
+        PreviousVersion = previousVersion;
+        _outcomes = new ReadOnlyCollection<CompatibilityOutcome>(outcomes
+            .OrderBy(static outcome => (int)outcome.Feature)
+            .ThenBy(static outcome => (int)outcome.Pair)
+            .ToArray());
+    }
+
+    public long CurrentVersion { get; }
+
+    public long PreviousVersion { get; }
+
+    public IReadOnlyList<CompatibilityOutcome> Outcomes => _outcomes;
+}
+
 public sealed record PartitionRequest(
     CellId Cell,
     int MaximumIdentityLength,
@@ -405,8 +429,13 @@ public sealed record HoldMessagingIntent : MessagingIntent
 public sealed record MessagingTrace(int Sequence, MessagingTraceCode Code, MessagingAction Action);
 public sealed record MessagingDecision
 {
-    internal MessagingDecision(IReadOnlyList<MessagingIntent> intents, IReadOnlyList<MessagingError> errors, IReadOnlyList<MessagingTrace> trace)
-    { Intents = intents; Errors = errors; Trace = trace; }
+    internal MessagingDecision(
+        IReadOnlyList<MessagingIntent> intents,
+        IReadOnlyList<MessagingError> errors,
+        IReadOnlyList<MessagingTrace> trace,
+        CompatibilityAcceptance? compatibility = null)
+    { Intents = intents; Errors = errors; Trace = trace; Compatibility = compatibility; }
     public IReadOnlyList<MessagingIntent> Intents { get; } public IReadOnlyList<MessagingError> Errors { get; }
     public IReadOnlyList<MessagingTrace> Trace { get; }
+    public CompatibilityAcceptance? Compatibility { get; }
 }
