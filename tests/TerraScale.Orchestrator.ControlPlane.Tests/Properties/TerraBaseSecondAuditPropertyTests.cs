@@ -303,7 +303,13 @@ public sealed class TerraBaseSecondAuditPropertyTests
         else if (action == TerraBaseAction.Hold)
             Require(decision.Subject is null, "hold-subject", index);
         else
+        {
             Require(decision.Subject?.Scope == scope, "observation-subject", index);
+            if (decision.Subject is TerraBaseUpgradeIntentSubject upgrade)
+                Require(upgrade.Current == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"current-{index}")
+                    && upgrade.Target == TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Release($"target-{index}"),
+                    "upgrade-observation-subject", index);
+        }
     }
 
     private static Summary UnderCulture(string name, Func<Summary> action)
@@ -313,9 +319,22 @@ public sealed class TerraBaseSecondAuditPropertyTests
         finally { CultureInfo.CurrentCulture = before; CultureInfo.CurrentUICulture = beforeUi; }
     }
 
-    private static ulong Mix(ulong value, TerraBaseDecision decision) => unchecked(
-        (value ^ (uint)decision.Action ^ ((ulong)(uint)decision.Target << 8) ^ ((ulong)(uint)decision.Code << 16))
-        * 1099511628211UL);
+    private static ulong Mix(ulong value, TerraBaseDecision decision)
+    {
+        value=unchecked((value ^ (uint)decision.Action ^ ((ulong)(uint)decision.Target << 8) ^ ((ulong)(uint)decision.Code << 16))
+            * 1099511628211UL);
+        if(decision.Subject is TerraBaseUpgradeIntentSubject upgrade)
+        {
+            value=MixText(value,upgrade.Current.Value);
+            value=MixText(value,upgrade.Target.Value);
+        }
+        return value;
+    }
+    private static ulong MixText(ulong value,string text)
+    {
+        foreach(var character in text)value=unchecked((value^character)*1099511628211UL);
+        return unchecked((value^0xffUL)*1099511628211UL);
+    }
     private static void Require(bool condition, string family, int index)
     { if (!condition) throw new InvalidOperationException($"{family} property failed at {index}."); }
     private sealed record Summary(int Cases, int Kinds, ulong Digest);
