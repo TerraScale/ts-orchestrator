@@ -58,15 +58,12 @@ public static class NetworkRoutePlanner
         if(!e.ApprovedPrefixes.Any(prefix=>prefix.Contains(expected.Destination)))return NetworkDecision.Hold(NetworkCode.RouteLeak,trace);
         if(e.Routes.Select(x=>x.Route).Distinct().Count()!=e.Routes.Count)return NetworkDecision.Hold(NetworkCode.Duplicate,trace);
         if(e.Routes.GroupBy(x=>(x.Destination,x.NextPeer)).Any(group=>group.Count()>1))return NetworkDecision.Hold(NetworkCode.Duplicate,trace);
-        foreach(var route in e.Routes)
-        {
-            if(route.Owner!=expected.Cell)return NetworkDecision.Hold(NetworkCode.WrongEvidenceScope,trace);
-            if(route.TrustPlane!=expected.TrustPlane)return NetworkDecision.Hold(NetworkCode.TrustPlaneCrossover,trace);
-            if(!e.ApprovedPrefixes.Any(prefix=>prefix.Contains(route.Destination)))return NetworkDecision.Hold(NetworkCode.RouteLeak,trace);
-            if(route.LearnedFromPeer==expected.Peer&&route.NextPeer==expected.Peer)return NetworkDecision.Hold(NetworkCode.Reflection,trace);
-            if(route.Destination.Equals(expected.Destination)&&route.NextPeer!=expected.Peer)return NetworkDecision.Hold(NetworkCode.AmbiguousOwnership,trace);
-            if(route.Destination.Overlaps(expected.Destination)&&route.NextPeer!=expected.Peer)return NetworkDecision.Hold(NetworkCode.Overlap,trace);
-        }
+        if(e.Routes.Any(route=>route.Owner!=expected.Cell))return NetworkDecision.Hold(NetworkCode.WrongEvidenceScope,trace);
+        if(e.Routes.Any(route=>route.TrustPlane!=expected.TrustPlane))return NetworkDecision.Hold(NetworkCode.TrustPlaneCrossover,trace);
+        if(e.Routes.Any(route=>!e.ApprovedPrefixes.Any(prefix=>prefix.Contains(route.Destination))))return NetworkDecision.Hold(NetworkCode.RouteLeak,trace);
+        if(e.Routes.Any(route=>route.LearnedFromPeer==expected.Peer&&route.NextPeer==expected.Peer))return NetworkDecision.Hold(NetworkCode.Reflection,trace);
+        if(e.Routes.Any(route=>route.Destination.Equals(expected.Destination)&&route.NextPeer!=expected.Peer))return NetworkDecision.Hold(NetworkCode.AmbiguousOwnership,trace);
+        if(e.Routes.Any(route=>route.Destination.Overlaps(expected.Destination)&&route.NextPeer!=expected.Peer))return NetworkDecision.Hold(NetworkCode.Overlap,trace);
         var subject=new NetworkRouteIntentSubject(expected.Cell,expected.PeerCell,expected.Network,expected.Subnet,expected.Route,expected.Peer,expected.Tunnel,
             expected.TrustPlane,expected.RouteKind,expected.Destination,expected.Generation,expected.Epoch,expected.Operation);
         if(e.Partitioned)

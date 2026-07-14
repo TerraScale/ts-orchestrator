@@ -25,6 +25,8 @@ public static class NetworkEndpointPlanner
         var scope=expected!;var validTrace=trace!;
         if(scope.ServiceKind is NetworkServiceKind.Administration or NetworkServiceKind.Monitoring&&scope.Exposure!=NetworkExposure.Private)
             return NetworkDecision.Hold(NetworkCode.ForbiddenExposure,trace);
+        if(scope.Exposure==NetworkExposure.Public&&scope.Protocol==NetworkProtocol.Http)
+            return NetworkDecision.Hold(NetworkCode.ForbiddenExposure,trace);
         if(e!.RegistryAdmitted!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.DefaultDeny,trace);
         if(e.ProcessLive!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.ReadinessRequired,trace);
         if(e.Ready!=NetworkProof.Proven)return NetworkDecision.Hold(NetworkCode.ReadinessRequired,trace);
