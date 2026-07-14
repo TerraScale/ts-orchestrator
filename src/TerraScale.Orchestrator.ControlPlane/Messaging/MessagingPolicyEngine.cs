@@ -30,7 +30,7 @@ public static class MessagingPolicyEngine
         if (request.Observation is null)
         {
             var observe = new ObserveClusterIntent(operation);
-            return Decision([observe], [], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
+            return ReplacementDecision(request, [observe], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
         }
 
         var observationError = ValidateObservation(request.Policy, operation, request.Observation, request.MaximumIdentityLength);
@@ -46,7 +46,7 @@ public static class MessagingPolicyEngine
                 !completedReplacement.CaughtUp || !completedReplacement.OwnershipProven || !ReplicasVerified(request.Policy, observation) ||
                 observation.Peers.Count(static peer => peer.Health == PeerHealth.Current && peer.OwnershipProven) < request.Policy.MembershipFloor)
                 return Held([Error(MessagingErrorCode.IncompleteObservation, operation)]);
-            return Decision([], [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
+            return ReplacementDecision(request, [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
         }
         if (failed.Store == StoreClassification.Ambiguous)
             return Held([Error(MessagingErrorCode.StoreAmbiguous, operation)]);
@@ -65,7 +65,7 @@ public static class MessagingPolicyEngine
         if (request.Persisted is null)
         {
             var persist = new ConfigureReplacementIntent(operation);
-            return Decision([persist], [], [new(1, MessagingTraceCode.ReplacementMustPersist, persist.Action)]);
+            return ReplacementDecision(request, [persist], [new(1, MessagingTraceCode.ReplacementMustPersist, persist.Action)]);
         }
         if (request.Persisted != operation)
             return Held([Error(MessagingErrorCode.ReplacementConflict, operation)]);
@@ -73,7 +73,7 @@ public static class MessagingPolicyEngine
         if (currentPeers < request.Policy.MembershipFloor - 1)
             return Held([Error(MessagingErrorCode.MembershipFloorViolation, operation)]);
         if (failed.Store == StoreClassification.Surviving)
-            return DecideSurvivingStore(request.Policy, operation, observation, failed, request.MaximumIdentityLength);
+            return DecideSurvivingStore(request, failed);
         if (failed.Store != StoreClassification.Lost)
             return Held([Error(MessagingErrorCode.ReplacementConflict, operation)]);
 
@@ -83,7 +83,7 @@ public static class MessagingPolicyEngine
         {
             var add = new AddPeerIntent(operation.OperationId, operation.Cluster, operation.ReplacementServer,
                 operation.ReplacementPeer, operation.ReplacementPlacement, operation.AuthorityEpoch);
-            return Decision([add], [], [new(1, MessagingTraceCode.ReplacementAddRequired, add.Action)]);
+            return ReplacementDecision(request, [add], [new(1, MessagingTraceCode.ReplacementAddRequired, add.Action)]);
         }
         if (replacements.Length != 1 || replacements[0].Server != operation.ReplacementServer ||
             replacements[0].Peer != operation.ReplacementPeer || replacements[0].Health != PeerHealth.Current)
@@ -94,14 +94,14 @@ public static class MessagingPolicyEngine
         {
             var wait = new WaitCatchupIntent(operation.OperationId, operation.Cluster,
                 operation.ReplacementPeer, observation.MembershipSequence);
-            return Decision([wait], [], [new(1, MessagingTraceCode.ReplacementCatchupRequired, wait.Action)]);
+            return ReplacementDecision(request, [wait], [new(1, MessagingTraceCode.ReplacementCatchupRequired, wait.Action)]);
         }
 
         if (!ReplicasVerified(request.Policy, observation))
         {
             var wait = new WaitCatchupIntent(operation.OperationId, operation.Cluster,
                 operation.ReplacementPeer, observation.MembershipSequence);
-            return Decision([wait], [], [new(1, MessagingTraceCode.ReplicaVerificationRequired, wait.Action)]);
+            return ReplacementDecision(request, [wait], [new(1, MessagingTraceCode.ReplicaVerificationRequired, wait.Action)]);
         }
         if (currentPeers < request.Policy.MembershipFloor)
             return Held([Error(MessagingErrorCode.RemovalUnsafe, operation)]);
@@ -111,20 +111,20 @@ public static class MessagingPolicyEngine
             var remove = new RemovePeerIntent(operation.OperationId, operation.Cluster,
                 operation.FailedServer, operation.FailedPeer, operation.ReplacementPeer,
                 observation.MembershipSequence, operation.AuthorityEpoch);
-            return Decision([remove], [], [new(1, MessagingTraceCode.FailedPeerRemovalAllowed, remove.Action)]);
+            return ReplacementDecision(request, [remove], [new(1, MessagingTraceCode.FailedPeerRemovalAllowed, remove.Action)]);
         }
 
-        return Decision([], [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
+        return ReplacementDecision(request, [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
     }
 
     private static MessagingDecision DecideSurvivingStore(
-        PlanePolicy policy,
-        ReplacementOperation operation,
-        ClusterObservation observation,
-        PeerObservation failed,
-        int maximumIdentityLength)
+        ReplacementRequest request,
+        PeerObservation failed)
     {
-        var proofError = ValidateSurvivingStoreProof(operation, observation, failed, maximumIdentityLength);
+        var policy = request.Policy;
+        var operation = request.Proposed;
+        var observation = request.Observation!;
+        var proofError = ValidateSurvivingStoreProof(operation, observation, failed, request.MaximumIdentityLength);
         if (proofError is not null) return Held([proofError]);
         var proof = failed.SurvivingStoreProof!;
         if (observation.Peers.Any(peer => peer.Server == operation.ReplacementServer || peer.Peer == operation.ReplacementPeer))
@@ -135,16 +135,16 @@ public static class MessagingPolicyEngine
         {
             if (failed.Health == PeerHealth.Current && failed.CaughtUp && failed.OwnershipProven &&
                 ReplicasVerified(policy, observation))
-                return Decision([], [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
+                return ReplacementDecision(request, [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
             var observe = new ObserveClusterIntent(operation);
-            return Decision([observe], [], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
+            return ReplacementDecision(request, [observe], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
         }
 
         var intent = new ReattachSurvivingStoreIntent(
             operation.OperationId, operation.Plane, operation.Cell, operation.Cluster,
             operation.FailedServer, operation.FailedPeer, operation.ReplacementPlacement,
             proof.Store, proof.StoreGeneration, proof.ObservedMembershipSequence, proof.OwnershipEpoch);
-        return Decision([intent], [], [new(1, MessagingTraceCode.SurvivingStoreReattachRequired, intent.Action)]);
+        return ReplacementDecision(request, [intent], [new(1, MessagingTraceCode.SurvivingStoreReattachRequired, intent.Action)]);
     }
 
     private static MessagingError? ValidateSurvivingStoreProof(
@@ -572,11 +572,18 @@ public static class MessagingPolicyEngine
         IEnumerable<MessagingIntent> intents,
         IEnumerable<MessagingError> errors,
         IEnumerable<MessagingTrace> trace,
-        CompatibilityAcceptance? compatibility = null) => new(
+        CompatibilityAcceptance? compatibility = null,
+        ReplacementRequest? acceptedReplacementRequest = null) => new(
         new ReadOnlyCollection<MessagingIntent>(intents.ToArray()),
         new ReadOnlyCollection<MessagingError>(errors.ToArray()),
         new ReadOnlyCollection<MessagingTrace>(trace.ToArray()),
-        compatibility);
+        compatibility,
+        acceptedReplacementRequest);
+
+    private static MessagingDecision ReplacementDecision(
+        ReplacementRequest request,
+        IEnumerable<MessagingIntent> intents,
+        IEnumerable<MessagingTrace> trace) => Decision(intents, [], trace, acceptedReplacementRequest: request);
 
     private static IReadOnlyList<MessagingTrace> Trace(IReadOnlyList<MessagingIntent> intents, MessagingTraceCode code) =>
         new ReadOnlyCollection<MessagingTrace>(intents.Select((intent, index) => new MessagingTrace(index + 1, code, intent.Action)).ToArray());

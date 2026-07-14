@@ -440,9 +440,11 @@ public sealed record MessagingDecision
         IReadOnlyList<MessagingIntent> intents,
         IReadOnlyList<MessagingError> errors,
         IReadOnlyList<MessagingTrace> trace,
-        CompatibilityAcceptance? compatibility = null)
-    { Intents = intents; Errors = errors; Trace = trace; Compatibility = compatibility; }
+        CompatibilityAcceptance? compatibility,
+        ReplacementRequest? acceptedReplacementRequest)
+    { Intents = intents; Errors = errors; Trace = trace; Compatibility = compatibility; AcceptedReplacementRequest = acceptedReplacementRequest; }
     public IReadOnlyList<MessagingIntent> Intents { get; } public IReadOnlyList<MessagingError> Errors { get; }
     public IReadOnlyList<MessagingTrace> Trace { get; }
     public CompatibilityAcceptance? Compatibility { get; }
+    public ReplacementRequest? AcceptedReplacementRequest { get; }
 }
