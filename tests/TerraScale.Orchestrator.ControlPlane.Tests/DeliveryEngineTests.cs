@@ -28,11 +28,12 @@ public sealed class DeliveryEngineTests
         var verify = DeliveryEngine.DecideSource(new(source, null, Evidence(SourceState.Fetched), 64));
         await Assert.That(verify.Intents.Single()).IsTypeOf<VerifySourceIntent>();
 
-        var plan = DeliveryEngine.DecideSource(new(source, null, Evidence(), 64));
+        var evidence = Evidence();
+        var plan = DeliveryEngine.DecideSource(new(source, null, evidence, 64));
         var intent = (PlanApplyIntent)plan.Intents.Single();
         await Assert.That(intent.Commit).IsEqualTo(source.Commit);
         await Assert.That(intent.Tree).IsEqualTo(source.Tree);
-        await Assert.That(intent.SignatureAttestation).IsEqualTo(new AttestationId("signature-attestation"));
+        await Assert.That(ReferenceEquals(intent.SignatureAttestation, evidence.SignatureAttestation)).IsTrue();
         await Assert.That(intent.Dependencies.Select(static value => value.Manifest.Value)
             .SequenceEqual(new[] { "dep-a", "dep-b" }, StringComparer.Ordinal)).IsTrue();
     }
