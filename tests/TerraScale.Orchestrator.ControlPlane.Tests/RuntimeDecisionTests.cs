@@ -156,12 +156,17 @@ public sealed class RuntimeDecisionTests
     [Test]
     public async Task LostExecutorResponseReobservesAndNeverRepeatsStartOrStop()
     {
-        var lostStart = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
-            phase: LifecyclePhase.Mounted, call: ExecutorCallStatus.ResponseLost));
-        var lostStop = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
-            phase: LifecyclePhase.Serving, action: LifecycleAction.Stop, process: ProcessStatus.Running, call: ExecutorCallStatus.Accepted));
+        var lostStartRequest = Lifecycle(phase: LifecyclePhase.Mounted, call: ExecutorCallStatus.ResponseLost);
+        var lostStopRequest = Lifecycle(phase: LifecyclePhase.Serving, action: LifecycleAction.Stop,
+            process: ProcessStatus.Running, call: ExecutorCallStatus.Accepted);
+        var lostStart = RuntimeDecisionEngine.EvaluateLifecycle(lostStartRequest);
+        var lostStop = RuntimeDecisionEngine.EvaluateLifecycle(lostStopRequest);
         await Assert.That(lostStart.Intent is ObserveExecutorIntent).IsTrue();
         await Assert.That(lostStop.Intent is ObserveExecutorIntent).IsTrue();
+        await Assert.That(ReferenceEquals(((ObserveExecutorIntent)lostStart.Intent).Request, lostStartRequest)).IsTrue();
+        await Assert.That(ReferenceEquals(((ObserveExecutorIntent)lostStop.Intent).Request, lostStopRequest)).IsTrue();
+        await Assert.That(RuntimeLifecycleObservationFingerprint.Create(((ObserveExecutorIntent)lostStart.Intent).Request))
+            .IsNotEqualTo(RuntimeLifecycleObservationFingerprint.Create(((ObserveExecutorIntent)lostStop.Intent).Request));
     }
 
     [Test]
@@ -209,7 +214,7 @@ public sealed class RuntimeDecisionTests
 
         var readOnlyIntentTypes = new[]
         {
-            typeof(CheckRuntimeHealthIntent), typeof(ObserveExecutorIntent), typeof(HoldRuntimeIntent),
+            typeof(CheckRuntimeHealthIntent), typeof(HoldRuntimeIntent),
         };
         foreach (var type in readOnlyIntentTypes)
             await Assert.That(type.GetProperty(nameof(FetchRuntimeArtifactIntent.Request))).IsNull();
@@ -649,7 +654,12 @@ public sealed class RuntimeDecisionTests
     };
     private static RuntimeDecisionReason Reason(RuntimeDecision decision, RuntimeDecisionCode code) => decision.Trace.Single(r => r.Code == code);
     private static string Serialize(RuntimeDecision decision) => $"{decision.Authorized}|{decision.Intent.GetType().Name}|{IntentFingerprint(decision.Intent)}|{string.Join(';', decision.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"))}";
-    private static string IntentFingerprint(RuntimeIntent intent) => intent is CheckRuntimeHealthIntent health ? HealthIntentFingerprint(health) : "-";
+    private static string IntentFingerprint(RuntimeIntent intent) => intent switch
+    {
+        CheckRuntimeHealthIntent health => HealthIntentFingerprint(health),
+        ObserveExecutorIntent observe => RuntimeLifecycleObservationFingerprint.Create(observe.Request),
+        _ => "-",
+    };
     private static string HealthIntentFingerprint(CheckRuntimeHealthIntent intent) =>
         $"{intent.OperationId.Value},{intent.AllocationId.Value},{intent.NodeId.Value},{intent.Epoch.Value},{intent.Generation.Value},{intent.HealthTimeout.Value},{string.Join(',', intent.RequiredHealth)}";
     private static bool Throws<T>(Action action) where T : Exception { try { action(); return false; } catch (T) { return true; } }
