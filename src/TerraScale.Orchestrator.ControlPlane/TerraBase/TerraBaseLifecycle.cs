@@ -67,8 +67,10 @@ public sealed class TerraBaseWriterEvidence
         TerraBaseProof exactVolumeIdentity,TerraBaseProof exactFence,TerraBaseProof detached,TerraBaseOrdinal newAuthorityEpoch,int maximum)
     {
         Scope=scope;InventoryComplete=inventoryComplete;ExactVolumeIdentity=exactVolumeIdentity;ExactFence=exactFence;Detached=detached;NewAuthorityEpoch=newAuthorityEpoch;
-        var list=writers?.ToArray()??[]; IsValid=scope is not null&&scope.Valid&&maximum>0&&list.Length<=maximum&&list.All(x=>x is not null)&&list.Distinct().Count()==list.Length;
-        _writers=list.Where(x=>x is not null).Cast<TerraBaseMemberId>().ToArray();
+        var limit=Math.Min(maximum,TerraBaseTechnicalInputLimits.MaximumWriterEvidenceCount);
+        var list=maximum>0?TerraBaseInputSnapshot.Copy(writers??[],limit,nameof(writers),"Writer evidence input"):[];
+        IsValid=scope is not null&&scope.Valid&&maximum>0&&list.Distinct().Count()==list.Count;
+        _writers=list.Cast<TerraBaseMemberId>().ToArray();
     }
     public TerraBaseEvidenceScope Scope{get;} public TerraBaseProof InventoryComplete{get;} public TerraBaseProof ExactVolumeIdentity{get;}
     public TerraBaseProof ExactFence{get;} public TerraBaseProof Detached{get;} public TerraBaseOrdinal NewAuthorityEpoch{get;} public bool IsValid{get;}

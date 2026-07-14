@@ -1,6 +1,41 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 
 namespace TerraScale.Orchestrator.ControlPlane.TerraBase;
+
+/// <summary>Technical caller-input snapshot limits; these are not database membership or backup policy caps.</summary>
+public static class TerraBaseTechnicalInputLimits
+{
+    public const int MaximumWriterEvidenceCount = 4_096;
+    public const int MaximumBackupSegmentCount = 4_096;
+}
+
+internal static class TerraBaseInputSnapshot
+{
+    internal static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, int maximum, string parameterName, string inputName)
+    {
+        ArgumentNullException.ThrowIfNull(source, parameterName);
+        var snapshot = new List<T>(Math.Min(maximum, 256));
+        try
+        {
+            using var enumerator = source.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                if (snapshot.Count == maximum)
+                    throw new ArgumentException($"{inputName} exceeds the technical or caller snapshot bound.", parameterName);
+                var current = enumerator.Current;
+                if (current is null)
+                    throw new ArgumentException($"{inputName} contains a null item.", parameterName);
+                snapshot.Add(current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException($"{inputName} could not be captured within the technical snapshot bound.", parameterName);
+        }
+        return new ReadOnlyCollection<T>(snapshot.ToArray());
+    }
+}
 
 internal static class TerraBaseValueRules
 {

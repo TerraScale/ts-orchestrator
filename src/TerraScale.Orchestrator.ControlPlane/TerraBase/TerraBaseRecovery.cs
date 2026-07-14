@@ -13,8 +13,10 @@ public sealed class TerraBaseBackupEvidence
         TerraBaseProof applicationConsistent,TerraBaseProof digestVerified,TerraBaseProof objectVerified,int maximum)
     {
         Scope=scope;ApplicationConsistent=applicationConsistent;DigestVerified=digestVerified;ObjectVerified=objectVerified;
-        var values=segments?.ToArray()??[];IsValid=scope is not null&&scope.Valid&&maximum>0&&values.Length>0&&values.Length<=maximum&&values.All(x=>x is not null);
-        _segments=values.Where(x=>x is not null).Cast<TerraBaseBackupSegment>().ToArray();
+        var limit=Math.Min(maximum,TerraBaseTechnicalInputLimits.MaximumBackupSegmentCount);
+        var values=maximum>0?TerraBaseInputSnapshot.Copy(segments??[],limit,nameof(segments),"Backup segment input"):[];
+        IsValid=scope is not null&&scope.Valid&&maximum>0&&values.Count>0;
+        _segments=values.Cast<TerraBaseBackupSegment>().ToArray();
     }
     public TerraBaseEvidenceScope Scope{get;} public TerraBaseProof ApplicationConsistent{get;} public TerraBaseProof DigestVerified{get;}
     public TerraBaseProof ObjectVerified{get;} public bool IsValid{get;}

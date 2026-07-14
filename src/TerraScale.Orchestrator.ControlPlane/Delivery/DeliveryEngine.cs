@@ -49,14 +49,26 @@ public static class DeliveryEngine
     public static DeliveryDecision DecideJob(JobRequest job, IReadOnlyList<RunnerEvidence> runners, int maximumIdentityLength)
     {
         ArgumentNullException.ThrowIfNull(job); ArgumentNullException.ThrowIfNull(runners);
-        if (!ValidJob(job, maximumIdentityLength) || runners.Any(static value => value is null)) return Held(DeliveryErrorCode.InvalidInput, job.Job);
+        IReadOnlyList<RunnerEvidence> runnerSnapshot;
+        try
+        {
+            if (runners.Count > DeliveryTechnicalInputLimits.MaximumRunnerEvidenceCount)
+                return Held(DeliveryErrorCode.InvalidInput, job.Job);
+            runnerSnapshot = DeliveryInputSnapshot.Copy(runners, DeliveryTechnicalInputLimits.MaximumRunnerEvidenceCount,
+                nameof(runners), "Runner evidence input");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            return Held(DeliveryErrorCode.InvalidInput, job.Job);
+        }
+        if (!ValidJob(job, maximumIdentityLength)) return Held(DeliveryErrorCode.InvalidInput, job.Job);
         if (job.Attempt > 1 && !job.RetryAuthorized) return Held(DeliveryErrorCode.RetryDenied, job.Job);
         if (job.Attempt > job.MaximumAttempts) return Held(DeliveryErrorCode.AttemptsExhausted, job.Job);
         if (!TrustPolicyAllows(job))
             return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
 
-        var validRunners = runners.Where(runner => ValidRunner(runner, maximumIdentityLength)).ToArray();
-        if (validRunners.Length != runners.Count) return Held(DeliveryErrorCode.InvalidInput, job.Job);
+        var validRunners = runnerSnapshot.Where(runner => ValidRunner(runner, maximumIdentityLength)).ToArray();
+        if (validRunners.Length != runnerSnapshot.Count) return Held(DeliveryErrorCode.InvalidInput, job.Job);
         if (validRunners.Select(static runner => runner.Runner).Distinct().Count() != validRunners.Length)
             return Held(DeliveryErrorCode.DuplicateEvidence, job.Job);
         var fresh = validRunners.Where(runner => runner.Sequence >= job.MinimumRunnerSequence &&

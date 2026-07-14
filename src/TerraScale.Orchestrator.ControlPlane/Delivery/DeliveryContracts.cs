@@ -2,6 +2,43 @@ using System.Collections.ObjectModel;
 
 namespace TerraScale.Orchestrator.ControlPlane.Delivery;
 
+/// <summary>Technical caller-input snapshot limits; these are not release, rollout, or CI policy caps.</summary>
+public static class DeliveryTechnicalInputLimits
+{
+    public const int MaximumDependencyCount = 4_096;
+    public const int MaximumTrustZoneCount = 64;
+    public const int MaximumRunnerCapabilityCount = 64;
+    public const int MaximumRolloutCellCount = 4_096;
+    public const int MaximumRunnerEvidenceCount = 4_096;
+}
+
+internal static class DeliveryInputSnapshot
+{
+    internal static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, int maximum, string parameterName, string inputName)
+    {
+        ArgumentNullException.ThrowIfNull(source, parameterName);
+        var snapshot = new List<T>(Math.Min(maximum, 256));
+        try
+        {
+            using var enumerator = source.GetEnumerator();
+            while (enumerator.MoveNext())
+            {
+                if (snapshot.Count == maximum)
+                    throw new ArgumentException($"{inputName} exceeds the technical snapshot bound.", parameterName);
+                var current = enumerator.Current;
+                if (current is null)
+                    throw new ArgumentException($"{inputName} contains a null item.", parameterName);
+                snapshot.Add(current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException($"{inputName} could not be captured within the technical snapshot bound.", parameterName);
+        }
+        return new ReadOnlyCollection<T>(snapshot.ToArray());
+    }
+}
+
 public sealed record SourceId { public SourceId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
 public sealed record RefId { public RefId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
 public sealed record CommitId { public CommitId(string value) => Value = Required(value); public string Value { get; } private static string Required(string value) => value ?? throw new ArgumentNullException(nameof(value)); }
@@ -91,7 +128,8 @@ public sealed class SourceRevision
         Generation = generation;
         DesiredDigest = desiredDigest ?? throw new ArgumentNullException(nameof(desiredDigest));
         Signature = signature ?? throw new ArgumentNullException(nameof(signature));
-        Dependencies = Copy(dependencies);
+        Dependencies = DeliveryInputSnapshot.Copy(dependencies, DeliveryTechnicalInputLimits.MaximumDependencyCount,
+            nameof(dependencies), "Source dependency input");
     }
     public SourceId Source { get; }
     public RefId Reference { get; }
@@ -102,12 +140,6 @@ public sealed class SourceRevision
     public DigestId DesiredDigest { get; }
     public SignatureId Signature { get; }
     public IReadOnlyList<DependencyProof> Dependencies { get; }
-    private static IReadOnlyList<DependencyProof> Copy(IEnumerable<DependencyProof> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Null dependency.", nameof(values));
-        return new ReadOnlyCollection<DependencyProof>(copy);
-    }
 }
 
 public sealed class SourceEvidence
@@ -122,9 +154,8 @@ public sealed class SourceEvidence
         Commit = commit; Tree = tree; Manifest = manifest;
         DesiredDigest = desiredDigest; Signature = signature; SchemaAttestation = schemaAttestation;
         DependencyAttestation = dependencyAttestation;
-        var copy = (dependencies ?? throw new ArgumentNullException(nameof(dependencies))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Null dependency.", nameof(dependencies));
-        Dependencies = new ReadOnlyCollection<DependencyProof>(copy);
+        Dependencies = DeliveryInputSnapshot.Copy(dependencies, DeliveryTechnicalInputLimits.MaximumDependencyCount,
+            nameof(dependencies), "Source evidence dependency input");
         SchemaValid = schemaValid; DependenciesValid = dependenciesValid;
     }
     public ObservationId Observation { get; }
@@ -155,7 +186,11 @@ public sealed class JobRequest
     {
         Pipeline = pipeline; Job = job; Kind = kind; Tree = tree; Generation = generation; Attempt = attempt;
         MaximumAttempts = maximumAttempts; Idempotency = idempotency;
-        AllowedZones = Copy(allowedZones); RequiredCapabilities = Copy(requiredCapabilities);
+        AllowedZones = DeliveryInputSnapshot.Copy(allowedZones, DeliveryTechnicalInputLimits.MaximumTrustZoneCount,
+            nameof(allowedZones), "Allowed trust-zone input");
+        RequiredCapabilities = DeliveryInputSnapshot.Copy(requiredCapabilities,
+            DeliveryTechnicalInputLimits.MaximumRunnerCapabilityCount, nameof(requiredCapabilities),
+            "Required runner-capability input");
         MinimumRunnerSequence = minimumRunnerSequence; MaximumRunnerSequence = maximumRunnerSequence;
         RetryAuthorized = retryAuthorized;
     }
@@ -172,13 +207,14 @@ public sealed class JobRequest
     public long MinimumRunnerSequence { get; }
     public long MaximumRunnerSequence { get; }
     public bool RetryAuthorized { get; }
-    private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values) => new ReadOnlyCollection<T>((values ?? throw new ArgumentNullException(nameof(values))).ToArray());
 }
 
 public sealed class RunnerEvidence
 {
     public RunnerEvidence(RunnerId runner, TrustZone zone, long sequence, bool available, IEnumerable<RunnerCapability> capabilities)
-    { Runner = runner; Zone = zone; Sequence = sequence; Available = available; Capabilities = new ReadOnlyCollection<RunnerCapability>((capabilities ?? throw new ArgumentNullException(nameof(capabilities))).ToArray()); }
+    { Runner = runner; Zone = zone; Sequence = sequence; Available = available;
+        Capabilities = DeliveryInputSnapshot.Copy(capabilities, DeliveryTechnicalInputLimits.MaximumRunnerCapabilityCount,
+            nameof(capabilities), "Runner capability input"); }
     public RunnerId Runner { get; }
     public TrustZone Zone { get; }
     public long Sequence { get; }
@@ -232,7 +268,8 @@ public sealed class ReleaseSpec
         Release = release; Operation = operation; Generation = generation; Artifact = artifact; Digest = digest;
         Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature;
         Strategy = strategy; RollbackPolicy = rollbackPolicy;
-        OrderedCells = new ReadOnlyCollection<DeliveryCellId>((orderedCells ?? throw new ArgumentNullException(nameof(orderedCells))).ToArray());
+        OrderedCells = DeliveryInputSnapshot.Copy(orderedCells, DeliveryTechnicalInputLimits.MaximumRolloutCellCount,
+            nameof(orderedCells), "Ordered rollout-cell input");
     }
     public ReleaseId Release { get; }
     public DeliveryOperationId Operation { get; }
@@ -277,8 +314,10 @@ public sealed class RolloutRequest
         IEnumerable<CellArtifactAvailability> availability, StageEvidence? currentStage, int maximumIdentityLength)
     {
         Release = release;
-        CompletedCells = Copy(completedCells);
-        Availability = Copy(availability);
+        CompletedCells = DeliveryInputSnapshot.Copy(completedCells, DeliveryTechnicalInputLimits.MaximumRolloutCellCount,
+            nameof(completedCells), "Completed rollout-cell input");
+        Availability = DeliveryInputSnapshot.Copy(availability, DeliveryTechnicalInputLimits.MaximumRolloutCellCount,
+            nameof(availability), "Rollout availability input");
         CurrentStage = currentStage;
         MaximumIdentityLength = maximumIdentityLength;
     }
@@ -287,12 +326,6 @@ public sealed class RolloutRequest
     public IReadOnlyList<CellArtifactAvailability> Availability { get; }
     public StageEvidence? CurrentStage { get; }
     public int MaximumIdentityLength { get; }
-    private static IReadOnlyList<T> Copy<T>(IEnumerable<T> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Null item.", nameof(values));
-        return new ReadOnlyCollection<T>(copy);
-    }
 }
 
 public abstract class DeliveryIntent

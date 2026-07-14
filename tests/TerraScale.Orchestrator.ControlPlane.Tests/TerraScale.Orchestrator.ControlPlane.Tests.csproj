@@ -14,5 +14,7 @@
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.StorageComputeReplayCorpus.v1.json" />
     <EmbeddedResource Include="Properties/IdentityNetworkReplayCorpus.v1.json"
                       LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.IdentityNetworkReplayCorpus.v1.json" />
+    <EmbeddedResource Include="Properties/DeliveryTerraBaseReplayCorpus.v1.json"
+                      LogicalName="TerraScale.Orchestrator.ControlPlane.Tests.Properties.DeliveryTerraBaseReplayCorpus.v1.json" />
   </ItemGroup>
 </Project>
