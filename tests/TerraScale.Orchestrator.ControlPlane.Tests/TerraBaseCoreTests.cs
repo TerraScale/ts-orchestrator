@@ -19,9 +19,11 @@ public sealed class TerraBaseCoreTests
     public async Task Add_and_remove_resume_after_topology_mutation_without_duplicate_mutation()
     {
         var s=TerraBaseTestData.Scope();
-        var add=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(topologyApplied:TerraBaseProof.Unknown));
+        var add=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(topologyApplied:TerraBaseProof.Unknown,
+            replication:TerraBaseReplication.Unknown) with{PostChangeReplication=TerraBaseProof.Unknown});
         var addReplay=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology());
-        var remove=TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology(topologyApplied:TerraBaseProof.Unknown));
+        var remove=TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology(topologyApplied:TerraBaseProof.Unknown) with
+            {NoDatabaseReference=TerraBaseProof.Unknown,PostChangeReplication=TerraBaseProof.Unknown});
         var removeReplay=TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology());
         await Assert.That(add.Action).IsEqualTo(TerraBaseAction.Add);
         await Assert.That(addReplay.Action).IsNotEqualTo(TerraBaseAction.Add);
@@ -30,13 +32,15 @@ public sealed class TerraBaseCoreTests
         await Assert.That(TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology() with{QuorumFloor=TerraBaseProof.Unknown}).IsMutationAuthorized).IsFalse();
         await Assert.That(TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(replication:TerraBaseReplication.Conflicting)).Code).IsEqualTo(TerraBaseCode.ReplicationUnsafe);
         var transfer=TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology(topologyApplied:TerraBaseProof.Unknown,
-            role:TerraBaseRole.Leader,leadership:TerraBaseProof.Unknown));
+            role:TerraBaseRole.Leader,leadership:TerraBaseProof.Unknown) with
+            {NoDatabaseReference=TerraBaseProof.Unknown,PostChangeReplication=TerraBaseProof.Unknown});
         await Assert.That(transfer.Action).IsEqualTo(TerraBaseAction.Transfer);
         await Assert.That(TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology(loss:TerraBaseLossCount.One)).Code).IsEqualTo(TerraBaseCode.Completed);
         await Assert.That(TerraBaseTopologyPlanner.PlanRemove(s,TerraBaseTestData.Topology(loss:TerraBaseLossCount.TwoOrMore)).Code).IsEqualTo(TerraBaseCode.ReplicationUnsafe);
         var missingFloor=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(loss:TerraBaseLossCount.One) with{QuorumFloor=TerraBaseProof.Unknown});
         await Assert.That(missingFloor.Code).IsEqualTo(TerraBaseCode.ReplicationUnsafe);
-        var catchUp=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(replication:TerraBaseReplication.Lagging));
+        var catchUp=TerraBaseTopologyPlanner.PlanAdd(s,TerraBaseTestData.Topology(replication:TerraBaseReplication.Lagging) with
+            {PostChangeReplication=TerraBaseProof.Unknown});
         await Assert.That(catchUp.Action).IsEqualTo(TerraBaseAction.CatchUp);
         await Assert.That(catchUp.IsMutationAuthorized).IsTrue();
         await Assert.That(((TerraBaseTopologyIntentSubject)catchUp.Subject!).ReplicationPosition).IsEqualTo(TerraBaseTestData.O(100));
@@ -83,7 +87,8 @@ public sealed class TerraBaseCoreTests
         await Assert.That(TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.Incompatible,TerraBaseProof.Proven,TerraBaseProof.Proven)).Code).IsEqualTo(TerraBaseCode.CompatibilityRequired);
         await Assert.That(TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Unknown,TerraBaseProof.Proven)).Code).IsEqualTo(TerraBaseCode.RollbackMaterialRequired);
         await Assert.That(TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Unknown)).Code).IsNotEqualTo(TerraBaseCode.Completed);
-        var first=TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Proven) with{UpgradeApplied=TerraBaseProof.Unknown});
+        var first=TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Proven) with
+            {UpgradeApplied=TerraBaseProof.Unknown,ProcessHealthy=TerraBaseProof.Unknown,Ready=TerraBaseProof.Unknown,CaughtUp=TerraBaseProof.Unknown});
         var replay=TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Proven));
         await Assert.That(first.Action).IsEqualTo(TerraBaseAction.Upgrade);
         await Assert.That(replay.Action).IsNotEqualTo(TerraBaseAction.Upgrade);
@@ -156,7 +161,9 @@ public sealed class TerraBaseCoreTests
         await Assert.That(Plan(E(4,5,TerraBaseProof.Proven,TerraBaseProof.Unknown)).Code).IsEqualTo(TerraBaseCode.PromotionProofMissing);
         var completed=Plan(E(4,5,TerraBaseProof.Proven));
         await Assert.That(completed.Code).IsEqualTo(TerraBaseCode.Completed);
-        var first=Plan(E(4,5,TerraBaseProof.Proven) with{RestoreApplied=TerraBaseProof.Unknown});
+        var first=Plan(E(4,5,TerraBaseProof.Proven) with
+            {RestoreApplied=TerraBaseProof.Unknown,TopologyVerified=TerraBaseProof.Unknown,
+                QueryVerified=TerraBaseProof.Unknown,PromotionAuthorized=TerraBaseProof.Unknown});
         var replay=Plan(E(4,5,TerraBaseProof.Proven));
         await Assert.That(first.Action).IsEqualTo(TerraBaseAction.Restore);
         await Assert.That(replay.Action).IsNotEqualTo(TerraBaseAction.Restore);

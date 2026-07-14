@@ -44,9 +44,11 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
 
         var scope = Scope(2_000, 9);
         await Assert.That(TerraBaseTopologyPlanner.PlanAdd(scope,
-            Topology(scope) with { TopologyApplied = TerraBaseProof.Unknown }).Action).IsEqualTo(TerraBaseAction.Add);
+            Topology(scope) with { TopologyApplied = TerraBaseProof.Unknown, Replication = TerraBaseReplication.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown }).Action).IsEqualTo(TerraBaseAction.Add);
         await Assert.That(TerraBaseTopologyPlanner.PlanAdd(scope,
-            Topology(scope) with { TopologyApplied = TerraBaseProof.Contradicted }).Action).IsEqualTo(TerraBaseAction.Add);
+            Topology(scope) with { TopologyApplied = TerraBaseProof.Contradicted, Replication = TerraBaseReplication.Unknown,
+                PostChangeReplication = TerraBaseProof.Unknown }).Action).IsEqualTo(TerraBaseAction.Add);
         await Assert.That(Upgrade(scope, upgradeApplied: TerraBaseProof.Unknown).Action).IsEqualTo(TerraBaseAction.Upgrade);
         await Assert.That(Upgrade(scope, upgradeApplied: TerraBaseProof.Contradicted).Action).IsEqualTo(TerraBaseAction.Upgrade);
     }
@@ -92,7 +94,9 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
             }
             else if (mode == 60)
             {
-                decision = TerraBaseTopologyPlanner.PlanAdd(scope, Topology(scope) with { TopologyApplied = TerraBaseProof.Unknown });
+                decision = TerraBaseTopologyPlanner.PlanAdd(scope, Topology(scope) with
+                    { TopologyApplied = TerraBaseProof.Unknown, Replication = TerraBaseReplication.Unknown,
+                        PostChangeReplication = TerraBaseProof.Unknown });
                 expected = $"Add|Topology|NextStep|{Trace(scope, O(100), scope.TopologyGeneration)}|topology:{ScopeText(scope)}:Elastic:100";
             }
             else if (mode == 61)
@@ -240,6 +244,10 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
     {
         current ??= Release("current"); target ??= Release("target");
         var evidence = UpgradeEvidence(scope, current, target) with { UpgradeApplied = upgradeApplied };
+        if (upgradeApplied != TerraBaseProof.Proven)
+            evidence = evidence with { ProcessHealthy = TerraBaseProof.Unknown, Ready = TerraBaseProof.Unknown,
+                CaughtUp = TerraBaseProof.Unknown, RollbackApplied = TerraBaseProof.Unknown,
+                PostRollbackHealthy = TerraBaseProof.Unknown };
         return TerraBaseUpgradePlanner.Plan(scope, current, target, evidence);
     }
 
@@ -260,7 +268,10 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
     {
         var restore = RestoreId("restore"); var target = O(scope.DatabaseGeneration.Value + 1);
         var evidence = new TerraBaseRestoreEvidence(scope, restore, scope.DatabaseGeneration, target, Chain(scope),
-            TerraBaseProof.Proven, restoreApplied, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven);
+            TerraBaseProof.Proven, restoreApplied,
+            restoreApplied == TerraBaseProof.Proven ? TerraBaseProof.Proven : TerraBaseProof.Unknown,
+            restoreApplied == TerraBaseProof.Proven ? TerraBaseProof.Proven : TerraBaseProof.Unknown,
+            restoreApplied == TerraBaseProof.Proven ? TerraBaseProof.Proven : TerraBaseProof.Unknown);
         return TerraBaseRestorePlanner.Plan(scope, restore, BackupId("b-2"), target, evidence);
     }
 

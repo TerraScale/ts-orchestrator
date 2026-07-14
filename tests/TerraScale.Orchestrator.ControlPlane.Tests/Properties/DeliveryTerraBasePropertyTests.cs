@@ -291,9 +291,9 @@ public sealed class DeliveryTerraBasePropertyTests
                 case 1: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { MemberKind = TerraBaseMemberKind.PermanentB }); expected = "PermanentMember"; break;
                 case 2: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { LossCount = TerraBaseLossCount.TwoOrMore }); expected = "ReplicationUnsafe"; break;
                 case 3: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { QuorumFloor = TerraBaseProof.Unknown }); expected = "ProofMissing"; break;
-                case 4: decision = TerraBaseTopologyPlanner.PlanAdd(scope, topology with { Replication = TerraBaseReplication.Lagging }); expected = "CatchUp"; break;
-                case 5: decision = TerraBaseTopologyPlanner.PlanAdd(scope, topology with { TopologyApplied = TerraBaseProof.Unknown }); expected = "Add"; break;
-                case 6: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { MemberRole = TerraBaseRole.Leader, LeadershipTransferred = TerraBaseProof.Unknown }); expected = "Transfer"; break;
+                case 4: decision = TerraBaseTopologyPlanner.PlanAdd(scope, topology with { Replication = TerraBaseReplication.Lagging, PostChangeReplication = TerraBaseProof.Unknown }); expected = "CatchUp"; break;
+                case 5: decision = TerraBaseTopologyPlanner.PlanAdd(scope, topology with { TopologyApplied = TerraBaseProof.Unknown, Replication = TerraBaseReplication.Unknown, PostChangeReplication = TerraBaseProof.Unknown }); expected = "Add"; break;
+                case 6: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { MemberRole = TerraBaseRole.Leader, LeadershipTransferred = TerraBaseProof.Unknown, TopologyApplied = TerraBaseProof.Unknown, NoDatabaseReference = TerraBaseProof.Unknown, PostChangeReplication = TerraBaseProof.Unknown }); expected = "Transfer"; break;
                 case 7: decision = TerraBaseTopologyPlanner.PlanRemove(scope, topology with { Scope = scope with { Operation = TerraBaseTestData.Op($"wrong-{index}") } }); expected = "WrongEvidenceScope"; break;
                 case 8: decision = TerraBaseRetainedVolumePlanner.Plan(scope, new(scope, [], TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseTestData.O(scope.AuthorityEpoch.Value + 1), 8)); expected = "StartWithRetainedVolume"; break;
                 default: decision = TerraBaseRetainedVolumePlanner.Plan(scope, new(scope, [scope.Member], TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseTestData.O(scope.AuthorityEpoch.Value + 1), 8)); expected = "SplitWriter"; break;
@@ -324,10 +324,12 @@ public sealed class DeliveryTerraBasePropertyTests
             else
             {
                 var chain = new TerraBaseBackupEvidence(scope, segments, TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven, 8);
+                var restoreApplied = mode == 6 ? TerraBaseProof.Unknown : TerraBaseProof.Proven;
                 var restore = new TerraBaseRestoreEvidence(scope, TerraBaseTestData.Restore($"r-{index}"), scope.DatabaseGeneration,
                     TerraBaseTestData.O(scope.DatabaseGeneration.Value + 1), chain, TerraBaseProof.Proven,
-                    mode == 6 ? TerraBaseProof.Unknown : TerraBaseProof.Proven, TerraBaseProof.Proven, TerraBaseProof.Proven,
-                    mode == 9 ? TerraBaseProof.Unknown : TerraBaseProof.Proven);
+                    restoreApplied, restoreApplied == TerraBaseProof.Proven ? TerraBaseProof.Proven : TerraBaseProof.Unknown,
+                    restoreApplied == TerraBaseProof.Proven ? TerraBaseProof.Proven : TerraBaseProof.Unknown,
+                    mode == 9 || restoreApplied != TerraBaseProof.Proven ? TerraBaseProof.Unknown : TerraBaseProof.Proven);
                 if (mode == 8) restore = restore with { TargetGeneration = scope.DatabaseGeneration };
                 decision = TerraBaseRestorePlanner.Plan(scope, restore.Restore, segments[^1].Backup,
                     TerraBaseTestData.O(scope.DatabaseGeneration.Value + 1), restore);
