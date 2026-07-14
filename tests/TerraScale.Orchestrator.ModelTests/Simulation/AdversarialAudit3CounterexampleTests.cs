@@ -104,6 +104,20 @@ public sealed class AdversarialAudit3CounterexampleTests
         }
     }
 
+    [Test]
+    public async Task Missing_or_unsupported_accepted_event_is_rejected_at_the_state_boundary()
+    {
+        var state = ModelState.Create([]);
+        var missing = new AcceptedActionEvidence(null!, 1, "n1", 1, false, false, true,
+            ModelNodeRole.Critical, 1, 3);
+        var unsupported = new AcceptedActionEvidence(Event(kind: ModelEventKind.Delivery), 1, "n1", 1,
+            false, false, true, ModelNodeRole.Critical, 1, 3);
+
+        await Assert.That(unsupported.Kind).IsEqualTo(AcceptedActionKind.Unspecified);
+        await Assert.That(Capture(() => WithAcceptedAction(state, missing))).IsTypeOf<ArgumentException>();
+        await Assert.That(Capture(() => WithAcceptedAction(state, unsupported))).IsTypeOf<ArgumentException>();
+    }
+
     private static ModelState WithAcceptedAction(ModelState state, AcceptedActionEvidence evidence) => new(
         state.Clock, state.Identities, state.CurrentEpoch, state.Leader, state.Nodes, state.Operations,
         state.Queue, state.DeliveredEventIds, state.AcceptedMutations, state.RejectedMutations,
@@ -112,4 +126,17 @@ public sealed class AdversarialAudit3CounterexampleTests
     private static ModelEvent Event(long sequence = 1, ModelEventKind kind = ModelEventKind.AuthorizeOperation) => new(
         sequence, sequence, $"event-{sequence.ToString(CultureInfo.InvariantCulture)}", kind, "n1",
         "operation-1", 2, 1, "create-key", "resource-1", sequence);
+
+    private static Exception? Capture(Action action)
+    {
+        try
+        {
+            action();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
 }
