@@ -255,7 +255,7 @@ public sealed class ProviderOwnershipTests
         var items = Inventory();
         var inventory = new FreshBootstrapInventory(items, items.Reverse(), items);
         var scope = Scope(inventory);
-        var decision = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, scope, Evidence(scope)));
+        var decision = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, scope, scope.BootstrapGeneration, Evidence(scope)));
         await Assert.That(decision.Ready).IsTrue();
         await Assert.That(decision.Intent).IsNotNull();
         await Assert.That(decision.Intent!.Scope).IsEqualTo(scope);
@@ -269,9 +269,11 @@ public sealed class ProviderOwnershipTests
         var exactScope = Scope(exactInventory);
         var mismatchInventory = new FreshBootstrapInventory(items, items.Take(1), items);
         var duplicateInventory = new FreshBootstrapInventory(items.Append(items[0]), items, items);
-        var missing = ProviderOwnershipEngine.EvaluateHandoff(new(exactInventory, exactScope, Evidence(exactScope, backup: HandoffEvidenceStatus.Missing)));
-        var mismatch = ProviderOwnershipEngine.EvaluateHandoff(new(mismatchInventory, Scope(mismatchInventory), Evidence(Scope(mismatchInventory))));
-        var duplicate = ProviderOwnershipEngine.EvaluateHandoff(new(duplicateInventory, Scope(duplicateInventory), Evidence(Scope(duplicateInventory))));
+        var missing = ProviderOwnershipEngine.EvaluateHandoff(new(exactInventory, exactScope, exactScope.BootstrapGeneration, Evidence(exactScope, backup: HandoffEvidenceStatus.Missing)));
+        var mismatchScope = Scope(mismatchInventory);
+        var duplicateScope = Scope(duplicateInventory);
+        var mismatch = ProviderOwnershipEngine.EvaluateHandoff(new(mismatchInventory, mismatchScope, mismatchScope.BootstrapGeneration, Evidence(mismatchScope)));
+        var duplicate = ProviderOwnershipEngine.EvaluateHandoff(new(duplicateInventory, duplicateScope, duplicateScope.BootstrapGeneration, Evidence(duplicateScope)));
         await Assert.That(missing.Ready).IsFalse();
         await Assert.That(mismatch.Ready).IsFalse();
         await Assert.That(duplicate.Ready).IsFalse();
@@ -289,9 +291,9 @@ public sealed class ProviderOwnershipTests
         var alteredItems = items.Append(new HandoffInventoryItem(new("extra-node"), ProviderResourceKind.Node, new(1))).ToArray();
         var alteredInventory = new FreshBootstrapInventory(alteredItems, alteredItems, alteredItems);
 
-        var crossCell = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, Evidence(otherCell)));
-        var stale = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, Evidence(staleGeneration)));
-        var mismatchedInventory = ProviderOwnershipEngine.EvaluateHandoff(new(alteredInventory, expected, Evidence(expected)));
+        var crossCell = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, expected.BootstrapGeneration, Evidence(otherCell)));
+        var stale = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, expected, expected.BootstrapGeneration, Evidence(staleGeneration)));
+        var mismatchedInventory = ProviderOwnershipEngine.EvaluateHandoff(new(alteredInventory, expected, expected.BootstrapGeneration, Evidence(expected)));
 
         await Assert.That(crossCell.Ready).IsFalse();
         await Assert.That(stale.Ready).IsFalse();
@@ -299,6 +301,43 @@ public sealed class ProviderOwnershipTests
         await Assert.That(Reason(crossCell, ProviderDecisionCode.HandoffRetainUnmanage).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
         await Assert.That(Reason(stale, ProviderDecisionCode.HandoffJournalReceipt).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
         await Assert.That(Reason(mismatchedInventory, ProviderDecisionCode.HandoffScopeMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+    }
+
+    [Test]
+    public async Task HandoffRejectsAcceptedBootstrapGenerationRollbackAndRetainsExactHighWater()
+    {
+        var items = Inventory();
+        var inventory = new FreshBootstrapInventory(items, items, items);
+        var generation2 = Scope(inventory, generation: new(2));
+        var generation3 = Scope(inventory, generation: new(3));
+        var generation4 = Scope(inventory, generation: new(4));
+        var currentGeneration3 = new ProviderGeneration(3);
+
+        var stale = ProviderOwnershipEngine.EvaluateHandoff(
+            new(inventory, generation2, new(3), Evidence(generation2)));
+        var equal = ProviderOwnershipEngine.EvaluateHandoff(
+            new(inventory, generation3, currentGeneration3, Evidence(generation3)));
+        var forward = ProviderOwnershipEngine.EvaluateHandoff(
+            new(inventory, generation4, new(3), Evidence(generation4)));
+
+        await Assert.That(stale.Ready).IsFalse();
+        await Assert.That(stale.Intent).IsNull();
+        await Assert.That(Reason(stale, ProviderDecisionCode.HandoffGenerationNotRollback).Outcome)
+            .IsEqualTo(ProviderDecisionOutcome.Rejected);
+        await Assert.That(Reason(stale, ProviderDecisionCode.HandoffGenerationNotRollback).Observed).IsEqualTo(2UL);
+        await Assert.That(Reason(stale, ProviderDecisionCode.HandoffGenerationNotRollback).Required).IsEqualTo(3UL);
+        await Assert.That(equal.Ready).IsTrue();
+        await Assert.That(ReferenceEquals(
+            equal.Intent!.CurrentAcceptedBootstrapGeneration, currentGeneration3)).IsTrue();
+        await Assert.That(forward.Ready).IsTrue();
+        await Assert.That(forward.Intent!.Scope).IsEqualTo(generation4);
+        await Assert.That(forward.Intent.CurrentAcceptedBootstrapGeneration).IsEqualTo(new ProviderGeneration(3));
+
+        var forwardFromGeneration1 = ProviderOwnershipEngine.EvaluateHandoff(
+            new(inventory, generation4, new(1), Evidence(generation4)));
+        await Assert.That(forwardFromGeneration1.Intent!.Scope).IsEqualTo(forward.Intent.Scope);
+        await Assert.That(forwardFromGeneration1.Intent.CurrentAcceptedBootstrapGeneration)
+            .IsNotEqualTo(forward.Intent.CurrentAcceptedBootstrapGeneration);
     }
 
     [Test]
@@ -325,6 +364,8 @@ public sealed class ProviderOwnershipTests
     [Test]
     public async Task UnknownDefaultAndDuplicateInputsFailClosed()
     {
+        await Assert.That(Enum.GetValues<ProviderDecisionCode>().Select(code => (int)code).Order())
+            .IsEquivalentTo(Enumerable.Range(1, 25));
         await Assert.That(Throws<ArgumentException>(() => new ProviderOperationId("bad/secret"))).IsTrue();
         await Assert.That(new ProviderResourceId("arn:aws:ec2:us-east-1:123456789012:instance/i-123").Value).StartsWith("arn:");
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new ProviderGeneration(0))).IsTrue();

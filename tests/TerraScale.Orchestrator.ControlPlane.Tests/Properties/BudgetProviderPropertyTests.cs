@@ -150,7 +150,8 @@ public sealed class BudgetProviderPropertyTests
                 ? HandoffScope.ForFreshBootstrap(Cell, Compartment, new(8), new("handoff"), inventory)
                 : scope;
             var status = seed % 3 == 2 ? HandoffEvidenceStatus.Missing : HandoffEvidenceStatus.Verified;
-            var decision = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, scope, Evidence(proofScope, status)));
+            var decision = ProviderOwnershipEngine.EvaluateHandoff(
+                new(inventory, scope, scope.BootstrapGeneration, Evidence(proofScope, status)));
             await Assert.That(decision.Ready).IsEqualTo(seed % 3 == 0);
             await Assert.That(decision.Intent is not null).IsEqualTo(seed % 3 == 0);
         }

@@ -107,6 +107,7 @@ public sealed class ProviderOwnershipCompletenessPropertyTests
             ProviderDecisionCode.HandoffInventoryUnique,
             ProviderDecisionCode.HandoffInventoryExact,
             ProviderDecisionCode.HandoffScopeMatches,
+            ProviderDecisionCode.HandoffGenerationNotRollback,
             ProviderDecisionCode.HandoffRetainUnmanage,
             ProviderDecisionCode.HandoffJournalReceipt,
             ProviderDecisionCode.HandoffProviderReady,
@@ -132,16 +133,52 @@ public sealed class ProviderOwnershipCompletenessPropertyTests
                 ? HandoffScope.ForFreshBootstrap(new("sfo"), new("compartment"), new(7), new("handoff"), inventory)
                 : HandoffScope.ForFreshBootstrap(new("gru"), new("compartment"), new(8), new("other-handoff"), inventory);
             var evidence = HandoffEvidenceFor(scope, wrongScope, mode);
-            var decision = ProviderOwnershipEngine.EvaluateHandoff(new(inventory, scope, evidence));
+            var decision = ProviderOwnershipEngine.EvaluateHandoff(
+                new(inventory, scope, scope.BootstrapGeneration, evidence));
 
             await Assert.That(decision.Ready).IsEqualTo(mode == 0);
             await Assert.That(decision.Intent is not null).IsEqualTo(mode == 0);
-            await Assert.That(string.Join(',', decision.Trace.Select(reason => reason.Code)))
-                .IsEqualTo(string.Join(',', traceOrder));
+            await Assert.That(decision.Trace.Select(reason => reason.Code).SequenceEqual(traceOrder)).IsTrue();
             if (mode is >= 1 and <= 6)
-                await Assert.That(decision.Trace[mode + 2].Outcome).IsEqualTo(ProviderDecisionOutcome.Held);
+                await Assert.That(decision.Trace[mode + 3].Outcome).IsEqualTo(ProviderDecisionOutcome.Held);
             if (mode is >= 7 and <= 12)
-                await Assert.That(decision.Trace[mode - 4].Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+                await Assert.That(decision.Trace[mode - 3].Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
+        }
+    }
+
+    [Test]
+    public async Task Handoff_generation_high_water_is_anti_rollback_and_output_closed_for_1000_cases()
+    {
+        for (var seed = 0; seed < Cases; seed++)
+        {
+            var candidateValue = checked((ulong)seed + 3UL);
+            var relation = seed % 3;
+            var currentValue = relation switch
+            {
+                0 => candidateValue + 1UL,
+                1 => candidateValue,
+                _ => candidateValue - 1UL,
+            };
+            var item = new HandoffInventoryItem(new($"node-{seed}"), ProviderResourceKind.Node, new(candidateValue));
+            var inventory = new FreshBootstrapInventory([item], [item], [item]);
+            var scope = HandoffScope.ForFreshBootstrap(
+                new("gru"), new("compartment"), new(candidateValue), new($"handoff-{seed}"), inventory);
+            var evidence = HandoffEvidenceFor(scope, scope, 0);
+            var decision = ProviderOwnershipEngine.EvaluateHandoff(
+                new(inventory, scope, new(currentValue), evidence));
+            var generationReason = decision.Trace[3];
+
+            await Assert.That(decision.Trace.Count).IsEqualTo(10);
+            await Assert.That(generationReason.Code).IsEqualTo(ProviderDecisionCode.HandoffGenerationNotRollback);
+            await Assert.That(generationReason.Observed).IsEqualTo(candidateValue);
+            await Assert.That(generationReason.Required).IsEqualTo(currentValue);
+            await Assert.That(decision.Ready).IsEqualTo(relation != 0);
+            await Assert.That(decision.Intent is not null).IsEqualTo(relation != 0);
+            if (decision.Intent is not null)
+            {
+                await Assert.That(decision.Intent.Scope).IsSameReferenceAs(scope);
+                await Assert.That(decision.Intent.CurrentAcceptedBootstrapGeneration.Value).IsEqualTo(currentValue);
+            }
         }
     }
 
