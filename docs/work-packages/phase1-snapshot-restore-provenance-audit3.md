@@ -2,7 +2,7 @@
 
 ## Scope and base
 
-- Base: central `chore/phase0-bootstrap` at `9a5f2e2fe73dfbb613144e03ebc96971fa9e4919` after the required final rebase.
+- Base: central `chore/phase0-bootstrap` at `619a60e8a6635971cac4eafcd8174fb1a80ab44f` after the required final rebase.
 - Allowed paths: snapshot restore contracts, snapshot decision tests, and this work package.
 - Pure deterministic decision work only; no snapshot serializer, persistence store, journal, NATS, filesystem, network, process, signing service, cloud/provider, VM, container, or deployment action.
 
@@ -43,4 +43,4 @@ dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale
 git diff --check
 ```
 
-Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused snapshot tests passed 46/46; all five executables passed 803/803 (ControlPlane 594, Contract 24, Model 38, Protocol 70, Scheduler 77).
+Recorded after the final rebase: Release solution build passed with zero warnings and errors; focused snapshot tests passed 46/46; all five executables passed 806/806 (ControlPlane 597, Contract 24, Model 38, Protocol 70, Scheduler 77).
