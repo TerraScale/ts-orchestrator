@@ -20,7 +20,7 @@ public sealed class StoragePlannerPropertyTests
             {
                 var requested = 10_000L + seed;
                 var volume = StorageTestData.Volume(requested: requested, performance: Performance(requested), forecast: requested + 7);
-                var evidence = StorageTestData.Format(scope: StorageTestData.Scope(requested: requested));
+                var evidence = StorageTestData.Format(scope: volume.EvidenceScope);
                 var checkpoint = (StorageCreateCheckpoint)(1 + seed % 10);
                 var expected = CreateExpected(checkpoint);
                 SetCultures("en-US");
@@ -35,11 +35,11 @@ public sealed class StoragePlannerPropertyTests
                 var formatCase = seed % 6;
                 var formatEvidence = formatCase switch
                 {
-                    0 => StorageTestData.Format(provider: StorageProof.Unknown, scope: StorageTestData.Scope(requested: requested)),
-                    1 => StorageTestData.Format(classification: StorageDeviceClassification.Recognized, scope: StorageTestData.Scope(requested: requested)),
-                    2 => StorageTestData.Format(classification: StorageDeviceClassification.Recognized, filesystem: StorageProof.Unknown, scope: StorageTestData.Scope(requested: requested)),
-                    3 => StorageTestData.Format(classification: StorageDeviceClassification.Unknown, scope: StorageTestData.Scope(requested: requested)),
-                    4 => StorageTestData.Format(blank: StorageProof.Unknown, scope: StorageTestData.Scope(requested: requested)),
+                    0 => StorageTestData.Format(provider: StorageProof.Unknown, scope: volume.EvidenceScope),
+                    1 => StorageTestData.Format(classification: StorageDeviceClassification.Recognized, scope: volume.EvidenceScope),
+                    2 => StorageTestData.Format(classification: StorageDeviceClassification.Recognized, filesystem: StorageProof.Unknown, scope: volume.EvidenceScope),
+                    3 => StorageTestData.Format(classification: StorageDeviceClassification.Unknown, scope: volume.EvidenceScope),
+                    4 => StorageTestData.Format(blank: StorageProof.Unknown, scope: volume.EvidenceScope),
                     _ => evidence,
                 };
                 var formatExpected = formatCase switch
@@ -84,7 +84,7 @@ public sealed class StoragePlannerPropertyTests
             var writers = variant == 0
                 ? (seed % 2 == 0 ? new[] { current, second } : new[] { second, current })
                 : variant >= 4 ? new[] { current } : [];
-            var evidence = new StorageReattachEvidence(StorageTestData.Scope(requested: requested), writers,
+            var evidence = new StorageReattachEvidence(volume.EvidenceScope, writers,
                 variant >= 7 ? StorageProof.Proven : StorageProof.Unknown,
                 variant >= 7 ? StorageProof.Proven : StorageProof.Unknown,
                 variant is 2 or 3 or 8 or 9 ? StorageProof.Proven : StorageProof.Unknown,
@@ -110,7 +110,7 @@ public sealed class StoragePlannerPropertyTests
                 failures.Add($"attach-epoch:{seed}");
             if (variant == 0)
             {
-                var reverse = new StorageReattachEvidence(StorageTestData.Scope(requested: requested), writers.Reverse(),
+                var reverse = new StorageReattachEvidence(volume.EvidenceScope, writers.Reverse(),
                     StorageProof.Unknown, StorageProof.Unknown, StorageProof.Unknown, StorageProof.Unknown,
                     StorageProof.Proven, StorageTestData.Epoch(), 4);
                 if (StorageAttachmentPlanner.Plan(volume, StorageTestData.Context(), target, reverse) != decision)
@@ -152,7 +152,7 @@ public sealed class StoragePlannerPropertyTests
             var requested = 25_000L + seed;
             var volume = StorageTestData.Volume(requested: requested, performance: Performance(requested), forecast: requested + 7);
             var target = StorageTestData.Node($"target-{seed}");
-            var evidence = new StorageReattachEvidence(StorageTestData.Scope(requested: requested), [], StorageProof.Proven,
+            var evidence = new StorageReattachEvidence(volume.EvidenceScope, [], StorageProof.Proven,
                 StorageProof.Proven, StorageProof.Proven, StorageProof.Unknown, StorageProof.Proven, StorageTestData.Epoch(8), 4);
             var decision = StorageAttachmentPlanner.Plan(volume, StorageTestData.Context(), target, evidence);
             Require(decision, E(StorageAction.Attach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep),
@@ -176,8 +176,8 @@ public sealed class StoragePlannerPropertyTests
                 performance: Performance(requested), forecast: requested + 7);
             var context = variant == 9 ? StorageTestData.Context(generation: StorageTestData.Generation(99)) : StorageTestData.Context();
             var scope = variant == 8
-                ? StorageTestData.Scope(requested: requested, operation: StorageTestData.Operation($"other-{seed}"), retention: retention)
-                : StorageTestData.Scope(requested: requested, retention: retention);
+                ? volume.EvidenceScope with { Operation=StorageTestData.Operation($"other-{seed}") }
+                : volume.EvidenceScope;
             var evidence = StorageTestData.Deletion(
                 leadership: variant == 1 ? StorageProof.Unknown : StorageProof.Proven,
                 quarantine: variant == 2 ? StorageProof.Unknown : StorageProof.Proven,
@@ -238,8 +238,8 @@ public sealed class StoragePlannerPropertyTests
             };
             var volume = StorageTestData.Volume(requested: requested, performance: Performance(requested), forecast: requested + 7);
             var scope = dimension == 8
-                ? StorageTestData.Scope(requested: requested, operation: StorageTestData.Operation($"op-{seed}"))
-                : StorageTestData.Scope(requested: requested);
+                ? volume.EvidenceScope with { Operation=StorageTestData.Operation($"op-{seed}") }
+                : volume.EvidenceScope;
             StorageDecision decision = (seed % 5) switch
             {
                 0 => StorageCreatePlanner.Plan(volume, context, StorageCreateCheckpoint.CapacityAndBudgetChecked, StorageTestData.Format(scope: scope)),
@@ -264,8 +264,8 @@ public sealed class StoragePlannerPropertyTests
         {
             var requested = 55_000L + seed;
             var volume = StorageTestData.Volume(requested: requested, performance: Performance(requested), forecast: requested + 7);
-            var scope = StorageTestData.Scope(requested: requested);
-            scope = (seed % 18) switch
+            var scope = volume.EvidenceScope;
+            scope = (seed % 26) switch
             {
                 0 => scope with { Claim = StorageTestData.Claim($"c-{seed}") },
                 1 => scope with { ProviderVolume = StorageTestData.Provider($"p-{seed}") },
@@ -279,11 +279,19 @@ public sealed class StoragePlannerPropertyTests
                 9 => scope with { FilesystemType = StorageFilesystemType.Ext4 },
                 10 => scope with { Layout = StorageLayout.WholeDevice },
                 11 => scope with { RequestedBytes = StorageTestData.B(requested + 1) },
-                12 => scope with { Retention = StorageRetention.Permanent },
-                13 => scope with { Backup = StorageTestData.Backup($"b-{seed}") },
-                14 => scope with { Operation = StorageTestData.Operation($"op-{seed}") },
-                15 => scope with { Fence = StorageTestData.Fence($"f-{seed}") },
-                16 => scope with { Generation = StorageTestData.Generation((ulong)(100 + seed)) },
+                12 => scope with { ObservedBytes = StorageTestData.B(scope.ObservedBytes.Value + 1) },
+                13 => scope with { ProviderBytes = StorageTestData.B(scope.ProviderBytes.Value + 1) },
+                14 => scope with { BlockBytes = StorageTestData.B(scope.BlockBytes.Value + 1) },
+                15 => scope with { FilesystemBytes = StorageTestData.B(scope.FilesystemBytes.Value + 1) },
+                16 => scope with { UsedBytes = StorageTestData.B(scope.UsedBytes.Value + 1) },
+                17 => scope with { FreeBytes = StorageTestData.B(scope.FreeBytes.Value + 1) },
+                18 => scope with { Performance = Performance(requested + 1) },
+                19 => scope with { ForecastExhaustion = StorageTestData.B(scope.ForecastExhaustion.Value + 1) },
+                20 => scope with { Retention = StorageRetention.Permanent },
+                21 => scope with { Backup = StorageTestData.Backup($"b-{seed}") },
+                22 => scope with { Operation = StorageTestData.Operation($"op-{seed}") },
+                23 => scope with { Fence = StorageTestData.Fence($"f-{seed}") },
+                24 => scope with { Generation = StorageTestData.Generation((ulong)(100 + seed)) },
                 _ => scope with { WriterEpoch = StorageTestData.Epoch((ulong)(100 + seed)) },
             };
             var decision = (seed % 5) switch
@@ -317,12 +325,12 @@ public sealed class StoragePlannerPropertyTests
             if (seed % 3 == 0)
             {
                 decision = StorageDeletionPlanner.Plan(volume, StorageTestData.Context(),
-                    DeletionWithProof(seed % 13, proof, StorageTestData.Scope(requested: requested)));
+                    DeletionWithProof(seed % 13, proof, volume.EvidenceScope));
             }
             else
             {
                 decision = StorageAttachmentPlanner.Plan(volume, StorageTestData.Context(), StorageTestData.Node($"proof-target-{seed}"),
-                    ReattachWithProof(seed % 5, proof, StorageTestData.Scope(requested: requested)));
+                    ReattachWithProof(seed % 5, proof, volume.EvidenceScope));
             }
             Require(decision, E(StorageAction.Hold, StorageIntentTarget.None, expectedCode), volume, StorageTestData.Epoch(),
                 StorageConflictClass.None, seed, "proof-catalog", failures);
@@ -419,22 +427,25 @@ public sealed class StoragePlannerPropertyTests
         var grown = StorageTestData.Volume(requested: requested, provider: requested, block: requested,
             filesystem: requested, used: requested / 2, free: requested - requested / 2,
             performance: performance, forecast: requested + 7);
-        var scope = StorageTestData.Scope(requested: requested);
+        var providerGrown = StorageTestData.Volume(requested: requested, provider: requested,
+            performance: performance, forecast: requested + 7);
+        var deviceGrown = StorageTestData.Volume(requested: requested, provider: requested, block: requested,
+            performance: performance, forecast: requested + 7);
         return stage switch
         {
-            0 => (baseVolume, StorageTestData.Expansion(scope: scope), E(StorageAction.Observe, StorageIntentTarget.None, StorageDecisionCode.NextStep)),
-            1 => (baseVolume, StorageTestData.Expansion(intent: StorageProof.Proven, scope: scope), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep)),
-            2 => (baseVolume, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Extend, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep)),
-            3 => (baseVolume, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Observe, StorageIntentTarget.ProviderVolume, StorageDecisionCode.ProviderConvergencePending)),
-            4 => (StorageTestData.Volume(requested: requested, provider: requested, performance: performance, forecast: requested + 7), StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Rescan, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.NextStep)),
-            5 => (StorageTestData.Volume(requested: requested, provider: requested, block: requested, performance: performance, forecast: requested + 7), StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Extend, StorageIntentTarget.StorageLayout, StorageDecisionCode.NextStep)),
-            6 => (StorageTestData.Volume(requested: requested, provider: requested, block: requested, performance: performance, forecast: requested + 7), StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Grow, StorageIntentTarget.Filesystem, StorageDecisionCode.NextStep)),
-            7 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Verify, StorageIntentTarget.Filesystem, StorageDecisionCode.SizeDisagreement)),
-            8 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep)),
-            9 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Observe, StorageIntentTarget.MetricsAndCost, StorageDecisionCode.NextStep)),
-            10 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.Completed)),
-            11 => (baseVolume, StorageTestData.Expansion(conflicts: StorageConflictClass.BackupRestore, scope: scope), E(StorageAction.Hold, StorageIntentTarget.None, StorageDecisionCode.ConflictingOperation)),
-            _ => (StorageTestData.Volume(requested: requested, provider: requested, performance: performance, forecast: requested + 7), StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, scope: scope), E(StorageAction.Verify, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep)),
+            0 => (baseVolume, StorageTestData.Expansion(volume: baseVolume), E(StorageAction.Observe, StorageIntentTarget.None, StorageDecisionCode.NextStep)),
+            1 => (baseVolume, StorageTestData.Expansion(intent: StorageProof.Proven, volume: baseVolume), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep)),
+            2 => (baseVolume, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: baseVolume), E(StorageAction.Extend, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep)),
+            3 => (baseVolume, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: baseVolume), E(StorageAction.Observe, StorageIntentTarget.ProviderVolume, StorageDecisionCode.ProviderConvergencePending)),
+            4 => (providerGrown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: providerGrown), E(StorageAction.Rescan, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.NextStep)),
+            5 => (deviceGrown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: deviceGrown), E(StorageAction.Extend, StorageIntentTarget.StorageLayout, StorageDecisionCode.NextStep)),
+            6 => (deviceGrown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: deviceGrown), E(StorageAction.Grow, StorageIntentTarget.Filesystem, StorageDecisionCode.NextStep)),
+            7 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: grown), E(StorageAction.Verify, StorageIntentTarget.Filesystem, StorageDecisionCode.SizeDisagreement)),
+            8 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: grown), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep)),
+            9 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: grown), E(StorageAction.Observe, StorageIntentTarget.MetricsAndCost, StorageDecisionCode.NextStep)),
+            10 => (grown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: grown), E(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.Completed)),
+            11 => (baseVolume, StorageTestData.Expansion(conflicts: StorageConflictClass.BackupRestore, volume: baseVolume), E(StorageAction.Hold, StorageIntentTarget.None, StorageDecisionCode.ConflictingOperation)),
+            _ => (providerGrown, StorageTestData.Expansion(StorageProof.Proven, StorageProof.Proven, StorageProof.Proven, volume: providerGrown), E(StorageAction.Verify, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep)),
         };
     }
 
@@ -478,7 +489,8 @@ public sealed class StoragePlannerPropertyTests
             scope is null || scope.Claim != volume.Claim || scope.ProviderVolume != volume.ProviderVolume ||
             scope.Attachment != volume.Attachment || scope.Cell != volume.Cell || scope.Node != (expectedNode ?? volume.Node) ||
             scope.Workload != volume.Workload || scope.Member != volume.Member || scope.DeviceId != volume.DeviceId ||
-            scope.FilesystemId != volume.FilesystemId || scope.Operation != volume.Operation || scope.Fence != volume.WriterFence)
+            scope.FilesystemId != volume.FilesystemId || scope.FilesystemType != volume.FilesystemType ||
+            scope.Layout != volume.Layout || scope.Operation != volume.Operation || scope.Fence != volume.WriterFence)
             failures.Add($"{family}:{seed}:{expected}:{actual}");
     }
 

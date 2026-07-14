@@ -51,7 +51,7 @@ public sealed class StoragePropertyTests
                 ? StorageDecisionCode.ShrinkForbidden
                 : seed % 5 == 0 ? StorageDecisionCode.ArithmeticOverflow : StorageDecisionCode.NextStep;
             var volume = StorageTestData.Volume(requested: requested, filesystem: filesystem, used: used, free: free);
-            var evidence = StorageTestData.Expansion(scope: StorageTestData.Scope(requested: requested));
+            var evidence = StorageTestData.Expansion(volume: volume);
             var first = StorageExpansionPlanner.Plan(volume, StorageTestData.Context(), evidence);
             var replay = StorageExpansionPlanner.Plan(volume, StorageTestData.Context(), evidence);
             if (first.Code != expected || first != replay || (expected != StorageDecisionCode.NextStep && first.IsMutationAuthorized))
@@ -114,5 +114,24 @@ public sealed class StoragePropertyTests
         foreach (var type in new[] { typeof(StorageAction), typeof(StorageDecisionCode), typeof(StorageProof),
                      typeof(StorageRetention), typeof(StorageFilesystemType), typeof(StorageLayout) })
             await Assert.That(Enum.GetValues(type).Cast<object>().All(value => Enum.IsDefined(type, value))).IsTrue();
+    }
+
+    [Test]
+    public async Task Storage_action_numeric_contract_is_exact_and_append_only()
+    {
+        var actions=Enum.GetValues<StorageAction>();
+        var expected=new[]
+        {
+            StorageAction.Uninitialized,StorageAction.Observe,StorageAction.Create,StorageAction.Attach,
+            StorageAction.Classify,StorageAction.Format,StorageAction.Mount,StorageAction.Rescan,
+            StorageAction.Extend,StorageAction.Grow,StorageAction.Verify,StorageAction.Detach,
+            StorageAction.Delete,StorageAction.Hold,
+        };
+        await Assert.That(actions.Length).IsEqualTo(14);
+        for(var index=0;index<expected.Length;index++)
+        {
+            await Assert.That(actions[index]).IsEqualTo(expected[index]);
+            await Assert.That((int)actions[index]).IsEqualTo(index);
+        }
     }
 }
