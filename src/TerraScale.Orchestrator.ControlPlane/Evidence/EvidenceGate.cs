@@ -40,14 +40,27 @@ public sealed record EvidenceNumericTrace(EvidenceGeneration Generation,Evidence
 public sealed record EvidenceDecisionSubject
 {internal EvidenceDecisionSubject(EvidenceSha256 digest)=>PayloadDigest=digest;public EvidenceSha256 PayloadDigest{get;}public override string ToString()=>"<evidence-decision-subject>";}
 
+public sealed record EvidenceAuthorizationScope
+{
+    internal EvidenceAuthorizationScope(EvidenceManifestId manifest,EvidenceLane lane,EvidenceGateTarget target,
+        EvidenceSigningProfileId signingProfile,EvidenceSigningIdentityId signingIdentity,EvidenceSignatureId signatureIdentity,
+        EvidenceGeneration generation,EvidenceSequence expirySequence)
+    {Manifest=manifest;Lane=lane;Target=target;SigningProfile=signingProfile;SigningIdentity=signingIdentity;SignatureIdentity=signatureIdentity;Generation=generation;ExpirySequence=expirySequence;}
+    public EvidenceManifestId Manifest{get;}public EvidenceLane Lane{get;}public EvidenceGateTarget Target{get;}
+    public EvidenceSigningProfileId SigningProfile{get;}public EvidenceSigningIdentityId SigningIdentity{get;}public EvidenceSignatureId SignatureIdentity{get;}
+    public EvidenceGeneration Generation{get;}public EvidenceSequence ExpirySequence{get;}
+    public override string ToString()=>"<evidence-authorization-scope>";
+}
+
 public sealed record EvidenceDecision
 {
-    private EvidenceDecision(EvidenceAction action,EvidenceCode code,EvidenceDecisionSubject? subject,EvidenceNumericTrace? trace)
-    {Action=action;Code=code;Subject=subject;Trace=trace;}
+    private EvidenceDecision(EvidenceAction action,EvidenceCode code,EvidenceDecisionSubject? subject,EvidenceAuthorizationScope? authorizationScope,EvidenceNumericTrace? trace)
+    {Action=action;Code=code;Subject=subject;AuthorizationScope=authorizationScope;Trace=trace;}
     public EvidenceAction Action{get;}public EvidenceCode Code{get;}public EvidenceDecisionSubject? Subject{get;}public EvidenceNumericTrace? Trace{get;}
+    public EvidenceAuthorizationScope? AuthorizationScope{get;}
     public bool IsAuthorized=>Action is EvidenceAction.AllowDependencyConformance or EvidenceAction.AllowL1SCredentialRelease;
-    internal static EvidenceDecision Hold(EvidenceCode code,EvidenceNumericTrace? trace=null)=>new(EvidenceAction.Hold,code,null,trace);
-    internal static EvidenceDecision Allow(EvidenceAction action,EvidenceSha256 digest,EvidenceNumericTrace trace)=>new(action,EvidenceCode.Allowed,new(digest),trace);
+    internal static EvidenceDecision Hold(EvidenceCode code,EvidenceNumericTrace? trace=null)=>new(EvidenceAction.Hold,code,null,null,trace);
+    internal static EvidenceDecision Allow(EvidenceAction action,EvidenceSha256 digest,EvidenceAuthorizationScope authorizationScope,EvidenceNumericTrace trace)=>new(action,EvidenceCode.Allowed,new(digest),authorizationScope,trace);
     public override string ToString()=>"<evidence-decision>";
 }
 
@@ -78,6 +91,8 @@ public static class PreDeploymentEvidenceGate
         if(context.Target==EvidenceGateTarget.L1SCredentialRelease&&manifest.Lane!=EvidenceLane.Full)
             return EvidenceDecision.Hold(EvidenceCode.FeatureLaneCannotRelease,trace);
         var action=context.Target==EvidenceGateTarget.DependencyConformance?EvidenceAction.AllowDependencyConformance:EvidenceAction.AllowL1SCredentialRelease;
-        return EvidenceDecision.Allow(action,manifest.CanonicalPayloadDigest,trace);
+        var authorizationScope=new EvidenceAuthorizationScope(manifest.Identity,manifest.Lane,context.Target,envelope.Material.SigningProfile,
+            envelope.Material.SigningIdentity,envelope.Material.SignatureIdentity,envelope.Material.Generation,envelope.Material.ExpirySequence);
+        return EvidenceDecision.Allow(action,manifest.CanonicalPayloadDigest,authorizationScope,trace);
     }
 }
