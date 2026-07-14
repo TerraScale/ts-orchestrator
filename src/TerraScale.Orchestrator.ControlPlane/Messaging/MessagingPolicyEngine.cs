@@ -161,11 +161,17 @@ public static class MessagingPolicyEngine
             proof.RecordedOwner != operation.FailedServer || proof.Cell != operation.Cell || proof.Cluster != operation.Cluster ||
             !proof.Compatible)
             return Error(MessagingErrorCode.ConflictingEvidence, operation);
+        if (proof.Store != operation.FailedStore)
+            return Error(MessagingErrorCode.ConflictingEvidence, operation);
         if (proof.Plane != operation.Plane)
             return Error(MessagingErrorCode.IsolationViolation, operation);
-        if (proof.ObservedMembershipSequence < observation.MembershipSequence || proof.OwnershipEpoch < operation.AuthorityEpoch)
+        if (proof.ObservedMembershipSequence < observation.MembershipSequence ||
+            proof.OwnershipEpoch < operation.AuthorityEpoch ||
+            proof.StoreGeneration < operation.CurrentStoreGeneration)
             return Error(MessagingErrorCode.StaleEvidence, operation);
-        if (proof.ObservedMembershipSequence > observation.MembershipSequence || proof.OwnershipEpoch > operation.AuthorityEpoch)
+        if (proof.ObservedMembershipSequence > observation.MembershipSequence ||
+            proof.OwnershipEpoch > operation.AuthorityEpoch ||
+            proof.StoreGeneration > operation.CurrentStoreGeneration)
             return Error(MessagingErrorCode.FutureEvidence, operation);
         return null;
     }
@@ -356,16 +362,18 @@ public static class MessagingPolicyEngine
     {
         var operation = request.Proposed;
         if (request.Policy is null || operation is null || operation.OperationId is null || operation.Cell is null ||
-            operation.Cluster is null || operation.FailedServer is null || operation.FailedPeer is null ||
+            operation.Cluster is null || operation.FailedStore is null || operation.FailedServer is null || operation.FailedPeer is null ||
             operation.ReplacementServer is null || operation.ReplacementPeer is null || operation.ReplacementPlacement is null ||
             !Defined(operation.Plane) ||
             operation.Plane != request.Policy.Plane || operation.Cell != request.Policy.Cell || operation.Cluster != request.Policy.Cluster ||
             operation.ConfigurationGeneration != request.Policy.Generation ||
             operation.OperationGeneration <= 0 || operation.AuthorityEpoch <= 0 || operation.ConfigurationGeneration <= 0 ||
+            operation.CurrentStoreGeneration <= 0 ||
             operation.MinimumObservationSequence <= 0 || operation.MaximumObservationSequence < operation.MinimumObservationSequence ||
             operation.FailedServer == operation.ReplacementServer || operation.FailedPeer == operation.ReplacementPeer ||
             request.MaximumIdentityLength <= 0 || !Valid(operation.OperationId.Value, request.MaximumIdentityLength) ||
             !Valid(operation.Cell.Value, request.MaximumIdentityLength) || !Valid(operation.Cluster.Value, request.MaximumIdentityLength) ||
+            !Valid(operation.FailedStore.Value, request.MaximumIdentityLength) ||
             !Valid(operation.FailedServer.Value, request.MaximumIdentityLength) || !Valid(operation.FailedPeer.Value, request.MaximumIdentityLength) ||
             !Valid(operation.ReplacementServer.Value, request.MaximumIdentityLength) || !Valid(operation.ReplacementPeer.Value, request.MaximumIdentityLength) ||
             !Valid(operation.ReplacementPlacement.Value, request.MaximumIdentityLength))

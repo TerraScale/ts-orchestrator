@@ -291,6 +291,8 @@ public sealed record ReplacementOperation(
     long ConfigurationGeneration,
     long MinimumObservationSequence,
     long MaximumObservationSequence,
+    StoreId FailedStore,
+    long CurrentStoreGeneration,
     ServerId FailedServer,
     PeerId FailedPeer,
     ServerId ReplacementServer,
