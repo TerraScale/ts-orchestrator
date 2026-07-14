@@ -404,6 +404,17 @@ public sealed class StoragePlannerPropertyTests
             await Assert.That(type.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(method => method.ReturnType == type)).IsEmpty();
         }
+
+        await Assert.That(typeof(StorageIntentScope).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Select(static property => property.Name).ToArray()).IsEquivalentTo(new[]
+            {
+                nameof(StorageIntentScope.Claim), nameof(StorageIntentScope.ProviderVolume),
+                nameof(StorageIntentScope.Attachment), nameof(StorageIntentScope.Cell), nameof(StorageIntentScope.Node),
+                nameof(StorageIntentScope.Workload), nameof(StorageIntentScope.Member), nameof(StorageIntentScope.DeviceId),
+                nameof(StorageIntentScope.FilesystemId), nameof(StorageIntentScope.FilesystemType), nameof(StorageIntentScope.Layout),
+                nameof(StorageIntentScope.Retention), nameof(StorageIntentScope.Backup),
+                nameof(StorageIntentScope.Operation), nameof(StorageIntentScope.Fence),
+            });
     }
 
     private static (StorageAction Action, StorageIntentTarget Target, StorageDecisionCode Code) CreateExpected(StorageCreateCheckpoint checkpoint) => checkpoint switch
@@ -490,7 +501,8 @@ public sealed class StoragePlannerPropertyTests
             scope.Attachment != volume.Attachment || scope.Cell != volume.Cell || scope.Node != (expectedNode ?? volume.Node) ||
             scope.Workload != volume.Workload || scope.Member != volume.Member || scope.DeviceId != volume.DeviceId ||
             scope.FilesystemId != volume.FilesystemId || scope.FilesystemType != volume.FilesystemType ||
-            scope.Layout != volume.Layout || scope.Operation != volume.Operation || scope.Fence != volume.WriterFence)
+            scope.Layout != volume.Layout || scope.Retention != volume.Retention ||
+            !ReferenceEquals(scope.Backup, volume.Backup) || scope.Operation != volume.Operation || scope.Fence != volume.WriterFence)
             failures.Add($"{family}:{seed}:{expected}:{actual}");
     }
 

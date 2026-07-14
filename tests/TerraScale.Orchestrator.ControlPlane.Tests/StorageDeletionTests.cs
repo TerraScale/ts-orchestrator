@@ -5,6 +5,38 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 public sealed class StorageDeletionTests
 {
     [Test]
+    public async Task Delete_intent_distinguishes_retention_policy_and_verified_backup()
+    {
+        var elasticVolume=StorageTestData.Volume(retention:StorageRetention.ElasticQuarantine);
+        var disposableVolume=StorageTestData.Volume(retention:StorageRetention.ExplicitDisposable);
+        var elastic=StorageDeletionPlanner.Plan(elasticVolume,StorageTestData.Context(),
+            StorageTestData.Deletion(scope:elasticVolume.EvidenceScope));
+        var disposable=StorageDeletionPlanner.Plan(disposableVolume,StorageTestData.Context(),
+            StorageTestData.Deletion(scope:disposableVolume.EvidenceScope));
+
+        await Assert.That(elastic.Action).IsEqualTo(StorageAction.Delete);
+        await Assert.That(disposable.Action).IsEqualTo(StorageAction.Delete);
+        await Assert.That(elastic).IsNotEqualTo(disposable);
+        await Assert.That(elastic.Scope!.Retention).IsEqualTo(StorageRetention.ElasticQuarantine);
+        await Assert.That(disposable.Scope!.Retention).IsEqualTo(StorageRetention.ExplicitDisposable);
+
+        var backupA=StorageTestData.Backup("verified-backup-a");
+        var backupB=StorageTestData.Backup("verified-backup-b");
+        var volumeA=StorageTestData.Volume(backup:backupA);
+        var volumeB=StorageTestData.Volume(backup:backupB);
+        var decisionA=StorageDeletionPlanner.Plan(volumeA,StorageTestData.Context(),
+            StorageTestData.Deletion(scope:volumeA.EvidenceScope));
+        var decisionB=StorageDeletionPlanner.Plan(volumeB,StorageTestData.Context(),
+            StorageTestData.Deletion(scope:volumeB.EvidenceScope));
+
+        await Assert.That(decisionA).IsNotEqualTo(decisionB);
+        await Assert.That(ReferenceEquals(decisionA.Scope!.Backup,backupA)).IsTrue();
+        await Assert.That(ReferenceEquals(decisionB.Scope!.Backup,backupB)).IsTrue();
+        await Assert.That(decisionA.ToString()).DoesNotContain(backupA.Value);
+        await Assert.That(decisionB.ToString()).DoesNotContain(backupB.Value);
+    }
+
+    [Test]
     public async Task Permanent_volume_deletion_is_never_representable()
     {
         var decision=StorageDeletionPlanner.Plan(StorageTestData.Volume(retention:StorageRetention.Permanent),

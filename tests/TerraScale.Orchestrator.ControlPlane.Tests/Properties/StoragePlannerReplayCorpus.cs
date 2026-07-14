@@ -218,6 +218,8 @@ public sealed class StoragePlannerReplayCorpusTests
             await Assert.That((decision.Action, decision.Target, decision.Code))
                 .IsEqualTo((entry.Action, entry.Target, entry.Code));
             await Assert.That(decision.Trace?.Requested.Value).IsEqualTo(60_000L + entry.Seed);
+            await Assert.That(TraceFingerprint(decision)).IsEqualTo(
+                $"{entry.Action}|{entry.Target}|{entry.Code}|ElasticQuarantine|backup-a|operation-a|fence-a");
             await Assert.That(StoragePlannerReplayCorpus.Expected(entry.Family, entry.Seed + 1))
                 .IsNotEqualTo(StoragePlannerReplayCorpus.Expected(entry.Family, entry.Seed));
         }
@@ -306,6 +308,9 @@ public sealed class StoragePlannerReplayCorpusTests
             _ => throw new InvalidDataException("Replay family is closed."),
         };
     }
+
+    private static string TraceFingerprint(StorageDecision decision) =>
+        $"{decision.Action}|{decision.Target}|{decision.Code}|{decision.Scope?.Retention}|{decision.Scope?.Backup.Value}|{decision.Scope?.Operation.Value}|{decision.Scope?.Fence.Value}";
 
     private static StorageDecision ReplayFormat(int seed, StorageVolumeRecord volume, StorageEvidenceScope scope)
     {

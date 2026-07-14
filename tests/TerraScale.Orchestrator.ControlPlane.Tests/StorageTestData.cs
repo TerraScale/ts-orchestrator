@@ -29,12 +29,13 @@ internal static class StorageTestData
     public static StorageEvidenceScope Scope(ProviderVolumeId? provider=null,StorageOperationId? operation=null,
         StorageFenceId? fence=null,StorageGeneration? generation=null,StorageWriterEpoch? epoch=null,long requested=200,
         StorageRetention retention=StorageRetention.ElasticQuarantine,
+        StorageBackupId? backup=null,
         StorageFilesystemType filesystemType=StorageFilesystemType.Xfs, StorageLayout layout=StorageLayout.Lvm,
         long observed=100,long providerBytes=100,long block=100,long filesystem=100,long used=60,long free=40,
         StoragePerformance? performance=null,long forecast=3600) =>
         new(Claim(),provider??Provider(),Attachment(),Cell(),Node(),Workload(),Member(),Device(),Filesystem(),
             filesystemType,layout,B(requested),B(observed),B(providerBytes),B(block),B(filesystem),B(used),B(free),
-            performance??new StoragePerformance(StoragePerformanceTier.Balanced,B(10),B(1000),B(200),B(5),B(900),B(180),B(10)),B(forecast),retention,Backup(),
+            performance??new StoragePerformance(StoragePerformanceTier.Balanced,B(10),B(1000),B(200),B(5),B(900),B(180),B(10)),B(forecast),retention,backup??Backup(),
             operation??Operation(),fence??Fence(),generation??Generation(),epoch??Epoch());
 
     public static StorageVolumeRecord Volume(
@@ -44,12 +45,12 @@ internal static class StorageTestData
         StorageMemberId? member=null, StorageFenceId? fence=null, StorageGeneration? generation=null,
         StorageWriterEpoch? epoch=null, StoragePerformance? performance=null, long forecast=3600,
         StorageFilesystemType filesystemType=StorageFilesystemType.Xfs, StorageLayout layout=StorageLayout.Lvm,
-        long? observed=null) =>
+        long? observed=null, StorageBackupId? backup=null) =>
         new(claim??Claim(),providerId??Provider(),Attachment(),cell??Cell(),Node(),workload??Workload(),member??Member(),
             StorageDomain.TerraBase,Key(),Placement(),Device(),Filesystem(),filesystemType,layout,
             StorageMountPurpose.DatabaseData,B(observed??filesystem),B(requested),B(provider),B(block),B(filesystem),B(used),B(free),
             performance??new StoragePerformance(StoragePerformanceTier.Balanced,B(10),B(1000),B(200),B(5),B(900),B(180),B(10)),
-            B(forecast),retention,Backup(),generation??Generation(),fence??Fence(),epoch??Epoch(),Operation());
+            B(forecast),retention,backup??Backup(),generation??Generation(),fence??Fence(),epoch??Epoch(),Operation());
 
     public static StorageAuthorityContext Context(
         ProviderVolumeId? provider=null, VolumeClaimId? claim=null, StorageCellId? cell=null,
