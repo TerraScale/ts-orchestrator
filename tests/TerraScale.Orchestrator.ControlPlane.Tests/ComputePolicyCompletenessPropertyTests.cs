@@ -198,7 +198,8 @@ public sealed class ComputePolicyCompletenessPropertyTests
             var disconnected = true;
             var target = (mask & 16) != 0 ? null : Target(bundle, seed);
             var evaluation = (mask & 4) != 0 ? bundle.ExpiresAfterPosition + 1 : 100;
-            var decision = ComputeEngine.DecideSurvival(new(bundle, evidence, authority, evaluation, disconnected, target, 128));
+            var decision = ComputeEngine.DecideSurvival(new(bundle, evidence, authority, bundle.Generation,
+                evaluation, disconnected, target, 128));
             var expected = mismatched ? ComputeErrorCode.EvidenceMismatch : incomplete ? ComputeErrorCode.BundleIncomplete :
                 (mask & 4) != 0 ? ComputeErrorCode.BundleExpired : (mask & 8) != 0 ? ComputeErrorCode.AuthorityDenied :
                 (mask & 16) != 0 ? ComputeErrorCode.MissingProof : ComputeErrorCode.Unspecified;
@@ -211,6 +212,48 @@ public sealed class ComputePolicyCompletenessPropertyTests
             }
             else if (!ExactHeld(decision, expected, target?.Operation)) failures.Add(seed);
         }
+        await Assert.That(failures).IsEmpty();
+    }
+
+    [Test]
+    public async Task Generated_survival_generation_high_water_is_exact_culture_and_replay_stable()
+    {
+        var failures = new List<int>();
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            for (var seed = 1; seed <= Cases; seed++)
+            {
+                var bundle = Bundle(seed);
+                var relation = seed % 3;
+                var current = relation switch
+                {
+                    0 => bundle.Generation + 1,
+                    1 => bundle.Generation,
+                    _ => bundle.Generation - 1,
+                };
+                var request = new SurvivalRequest(bundle, Evidence(bundle), Authority(bundle), current, 100, true,
+                    Target(bundle, seed), 128);
+                CultureInfo.CurrentCulture = new("tr-TR");
+                var first = ComputeEngine.DecideSurvival(request);
+                CultureInfo.CurrentCulture = new("ar-SA");
+                var replay = ComputeEngine.DecideSurvival(request);
+                var expected = relation switch
+                {
+                    0 => ComputeErrorCode.EvidenceStale,
+                    1 => ComputeErrorCode.Unspecified,
+                    _ => ComputeErrorCode.EvidenceMismatch,
+                };
+                var exact = expected == ComputeErrorCode.Unspecified
+                    ? first.Errors.Count == 0 && first.Intents.Count == 1 &&
+                      first.Intents[0] is AuthorizeSurvivalIntent authorized && authorized.Bundle == bundle &&
+                      authorized.Target == request.ReplacementTarget
+                    : ExactHeld(first, expected, request.ReplacementTarget!.Operation) &&
+                      first.Intents.All(static intent => intent is not AuthorizeSurvivalIntent and not ReadySurvivalIntent);
+                if (!exact || !StringComparer.Ordinal.Equals(Signature(first), Signature(replay))) failures.Add(seed);
+            }
+        }
+        finally { CultureInfo.CurrentCulture = original; }
         await Assert.That(failures).IsEmpty();
     }
 

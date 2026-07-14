@@ -228,7 +228,8 @@ public sealed class ComputePropertyTests
         new("dns"), new("backup"), 7, 90, 80, 150, 200);
     private static SurvivalRequest Survival(RegionalSurvivalBundle required, RegionalSurvivalBundle observed) => new(required,
         new(observed, new("signature"), new("encryption"), true, true, true, true, true, true, true, true, true),
-        new(required.Cell, required.AuthorityEpoch, required.JournalPosition, new("authority"), true), 100, false, null, 64);
+        new(required.Cell, required.AuthorityEpoch, required.JournalPosition, new("authority"), true),
+        required.Generation, 100, false, null, 64);
     private static SurvivalNodeTemplate Template(int index) => new(new($"class-{index}"), new($"template-{index}"),
         new("shape"), new($"domain-{index}"));
     private static IEnumerable<SecretVersionId> InfiniteSecrets()

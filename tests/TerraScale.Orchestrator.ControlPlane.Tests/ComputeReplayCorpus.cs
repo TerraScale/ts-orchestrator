@@ -237,7 +237,7 @@ public sealed class ComputeReplayCorpusTests
         var evidence = new SurvivalBundleEvidence(bundle, new("signature"), new("encryption"), false, true, true, true,
             true, true, true, true, true);
         return ComputeEngine.DecideSurvival(new(bundle, evidence, new(bundle.Cell, 7, 90, new("authority"), true),
-            100, false, null, 64));
+            bundle.Generation, 100, false, null, 64));
     }
     private static ComputeBinding Binding(int seed) => new(new($"cell-{seed}"), new("class"), new("template"), new("shape"),
         new("domain"), new("artifact"), new("digest"), new("demand"), new("operation"), new("provider"), 7, 3);

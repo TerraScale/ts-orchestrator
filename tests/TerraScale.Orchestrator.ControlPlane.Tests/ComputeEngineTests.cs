@@ -378,6 +378,10 @@ public sealed class ComputeEngineTests
         { Evidence = request.Evidence with { ArtifactsLocal = false } }), ComputeErrorCode.BundleIncomplete);
         await AssertHeld(ComputeEngine.DecideSurvival(request with
         { Authority = request.Authority with { AuthorityEpoch = 8 } }), ComputeErrorCode.AuthorityDenied);
+        await AssertHeld(ComputeEngine.DecideSurvival(request with { CurrentAcceptedGeneration = 0 }),
+            ComputeErrorCode.InvalidInput);
+        await AssertHeld(ComputeEngine.DecideSurvival(request with { CurrentAcceptedGeneration = -1 }),
+            ComputeErrorCode.InvalidInput);
         foreach (var inverted in new[]
         {
             Bundle(snapshotPosition: 91, journalPosition: 90),
@@ -431,6 +435,42 @@ public sealed class ComputeEngineTests
         })
             await AssertHeld(ComputeEngine.DecideSurvival(request with { ReplacementTarget = target }),
                 ComputeErrorCode.InvalidInput);
+    }
+
+    [Test]
+    public async Task OlderSurvivalGenerationCannotAuthorizeReplacementAfterNewerGenerationIsAccepted()
+    {
+        var accepted = Survival(Bundle(generation: 3));
+        await Assert.That(ComputeEngine.DecideSurvival(accepted).Intents.Single()).IsTypeOf<ReadySurvivalIntent>();
+
+        var older = Bundle(generation: 2);
+        var replay = Survival(older) with
+        {
+            CurrentAcceptedGeneration = 3,
+            DisconnectedReplacementRequested = true,
+            ReplacementTarget = Target(older),
+        };
+        await AssertHeld(ComputeEngine.DecideSurvival(replay), ComputeErrorCode.EvidenceStale);
+    }
+
+    [Test]
+    public async Task SurvivalGenerationHighWaterRequiresEqualityWithExactPrecedence()
+    {
+        var request = Survival();
+        await Assert.That(ComputeEngine.DecideSurvival(request).Intents.Single()).IsTypeOf<ReadySurvivalIntent>();
+        await AssertHeld(ComputeEngine.DecideSurvival(request with { CurrentAcceptedGeneration = 1 }),
+            ComputeErrorCode.EvidenceMismatch);
+
+        var stale = request with { CurrentAcceptedGeneration = 3 };
+        await AssertHeld(ComputeEngine.DecideSurvival(stale with
+        { Evidence = stale.Evidence with { MetadataEncrypted = false } }), ComputeErrorCode.EvidenceStale);
+        await AssertHeld(ComputeEngine.DecideSurvival(stale with { EvaluationPosition = 201 }),
+            ComputeErrorCode.EvidenceStale);
+        await AssertHeld(ComputeEngine.DecideSurvival(stale with
+        { Authority = stale.Authority with { QuorumAuthoritative = false } }), ComputeErrorCode.EvidenceStale);
+
+        var rebound = stale with { Evidence = stale.Evidence with { Observed = Bundle(generation: 3) } };
+        await AssertHeld(ComputeEngine.DecideSurvival(rebound), ComputeErrorCode.EvidenceMismatch);
     }
 
     [Test]
@@ -507,6 +547,13 @@ public sealed class ComputeEngineTests
             await Assert.That(properties.All(static property => property.SetMethod?.IsPublic != true)).IsTrue();
             await Assert.That(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
         }
+        await Assert.That(typeof(SurvivalRequest).GetProperties(BindingFlags.Public | BindingFlags.Instance |
+            BindingFlags.DeclaredOnly).Select(static property => property.Name).Order(StringComparer.Ordinal))
+            .IsEquivalentTo(new[]
+            {
+                "Authority", "CurrentAcceptedGeneration", "DisconnectedReplacementRequested", "EvaluationPosition",
+                "Evidence", "MaximumIdentityLength", "ReplacementTarget", "Required",
+            });
     }
 
     [Test]
@@ -627,7 +674,7 @@ public sealed class ComputeEngineTests
         var evidence = new SurvivalBundleEvidence(observed ?? exact, new("bundle-signature"), new("encryption-proof"),
             true, true, true, true, true, true, true, true, true);
         return new(exact, evidence, new(exact.Cell, exact.AuthorityEpoch, exact.JournalPosition,
-            new("authority-proof"), true), 100, false, null, 64);
+            new("authority-proof"), true), exact.Generation, 100, false, null, 64);
     }
     private static SurvivalReplacementTarget Target(RegionalSurvivalBundle exact) => new(exact.Cell, new("control"),
             new("template-1"), new("a1-flex"),
