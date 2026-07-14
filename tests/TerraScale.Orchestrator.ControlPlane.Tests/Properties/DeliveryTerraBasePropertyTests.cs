@@ -222,7 +222,7 @@ public sealed class DeliveryTerraBasePropertyTests
         var random = new Generator(seed); var kinds = new HashSet<string>(); ulong digest = 0;
         for (var index = 0; index < Cases; index++)
         {
-            var generation = random.Next(900_000) + 1L; var mode = index % 8;
+            var generation = random.Next(900_000) + 1L; var mode = index % 9;
             var dependencies = new[] { new DependencyProof(new($"z-{index}"), generation, new($"d-z-{index}")),
                 new DependencyProof(new($"a-{index}"), generation, new($"d-a-{index}")) };
             var proposed = Source(index, generation, dependencies); SourceDecisionRequest request; string expected;
@@ -235,6 +235,7 @@ public sealed class DeliveryTerraBasePropertyTests
                 case 4: request = new(proposed, null, Evidence(proposed, SourceState.Verified, dependencies.Reverse()), 96); expected = "Plan"; break;
                 case 5: request = new(proposed, null, Evidence(proposed, SourceState.Verified, dependencies, digest: $"wrong-{index}"), 96); expected = "EvidenceInvalidated"; break;
                 case 6: request = new(proposed, null, Evidence(proposed, SourceState.Fetched, dependencies), 96); expected = "Verify"; break;
+                case 7: request = new(proposed, null, Evidence(proposed, SourceState.Verified, dependencies, signatureValid: false), 96); expected = "Verify"; break;
                 default: request = new(proposed, null, null, 96); expected = "Fetch"; break;
             }
             var actual = DeliveryOutcome(DeliveryEngine.DecideSource(request));
@@ -357,9 +358,11 @@ public sealed class DeliveryTerraBasePropertyTests
     private static SourceRevision Source(int index = 0, long generation = 1, IEnumerable<DependencyProof>? dependencies = null, string? signature = null) =>
         new(new($"source-{index}"), new($"ref-{index}"), new($"commit-{index}"), new($"tree-{index}"), new($"manifest-{index}"),
             generation, new($"desired-{index}"), new(signature ?? $"signature-{index}"), dependencies ?? []);
-    private static SourceEvidence Evidence(SourceRevision source, SourceState state, IEnumerable<DependencyProof> dependencies, string? digest = null) =>
+    private static SourceEvidence Evidence(SourceRevision source, SourceState state, IEnumerable<DependencyProof> dependencies,
+        string? digest = null, bool signatureValid = true) =>
         new(new($"obs-{source.Generation}"), state, source.Source, source.Reference, source.Generation, source.Commit, source.Tree,
-            source.Manifest, new(digest ?? source.DesiredDigest.Value), source.Signature, new("schema"), new("dependencies"), dependencies, true, true);
+            source.Manifest, new(digest ?? source.DesiredDigest.Value), source.Signature, new("schema"), new("dependencies"),
+            new($"signature-verification-{source.Generation}"), dependencies, signatureValid, true, true);
     private static JobRequest Job() => new(new("pipeline"), new("job"), JobKind.TrustedBuild, new("tree"), 1, 1, 3,
         new("key"), [TrustZone.TrustedBuild], [RunnerCapability.Compile], 1, 10, false);
     private static EvidenceSubject Subject(int index) => new(new($"tree-{index}"), new($"lock-{index}"), new($"schema-{index}"), new($"artifact-{index}"), new($"digest-{index}"), DeliveryArchitecture.LinuxArm64);

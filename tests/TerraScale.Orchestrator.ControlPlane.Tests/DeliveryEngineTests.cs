@@ -32,8 +32,61 @@ public sealed class DeliveryEngineTests
         var intent = (PlanApplyIntent)plan.Intents.Single();
         await Assert.That(intent.Commit).IsEqualTo(source.Commit);
         await Assert.That(intent.Tree).IsEqualTo(source.Tree);
+        await Assert.That(intent.SignatureAttestation).IsEqualTo(new AttestationId("signature-attestation"));
         await Assert.That(intent.Dependencies.Select(static value => value.Manifest.Value)
             .SequenceEqual(new[] { "dep-a", "dep-b" }, StringComparer.Ordinal)).IsTrue();
+    }
+
+    [Test]
+    public async Task InvalidOrUnattestedSourceSignatureNeverAuthorizesPlanApply()
+    {
+        var source = Source(signature: "forged-signature");
+        var forged = Evidence(signature: "forged-signature", signatureValid: false,
+            signatureAttestation: "forged-signature-check");
+
+        var verify = DeliveryEngine.DecideSource(new(source, null, forged, 64));
+        await Assert.That(verify.Errors).IsEmpty();
+        await Assert.That(verify.Intents.Single()).IsTypeOf<VerifySourceIntent>();
+        await Assert.That(verify.Trace.Single().Code).IsEqualTo(DeliveryTraceCode.VerificationRequired);
+
+        foreach (var invalid in new[]
+        {
+            Evidence(signatureAttestation: null),
+            Evidence(signatureAttestation: string.Empty),
+            Evidence(signatureAttestation: new string('a', 65)),
+        })
+            await AssertHeld(DeliveryEngine.DecideSource(new(Source(), null, invalid, 64)),
+                DeliveryErrorCode.EvidenceInvalidated);
+    }
+
+    [Test]
+    public async Task EverySourceVerificationResultMustPassBeforePlanApply()
+    {
+        foreach (var evidence in new[]
+        {
+            Evidence(signatureValid: false),
+            Evidence(schemaValid: false),
+            Evidence(dependenciesValid: false),
+        })
+        {
+            var decision = DeliveryEngine.DecideSource(new(Source(), null, evidence, 64));
+            await Assert.That(decision.Intents.Single()).IsTypeOf<VerifySourceIntent>();
+            await Assert.That(decision.Trace.Single().Code).IsEqualTo(DeliveryTraceCode.VerificationRequired);
+        }
+    }
+
+    [Test]
+    public async Task PlanApplyPublicShapeRetainsAllVerificationAttestations()
+    {
+        var properties = typeof(PlanApplyIntent).GetProperties().Select(static property => property.Name)
+            .OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+        await Assert.That(properties).IsEquivalentTo(new[]
+        {
+            nameof(DeliveryIntent.Action), nameof(PlanApplyIntent.Commit), nameof(PlanApplyIntent.Dependencies),
+            nameof(PlanApplyIntent.DependencyAttestation), nameof(PlanApplyIntent.Digest), nameof(PlanApplyIntent.Generation),
+            nameof(PlanApplyIntent.Manifest), nameof(PlanApplyIntent.SchemaAttestation), nameof(PlanApplyIntent.Signature),
+            nameof(PlanApplyIntent.SignatureAttestation), nameof(PlanApplyIntent.Source), nameof(PlanApplyIntent.Tree),
+        });
     }
 
     [Test]
@@ -290,11 +343,16 @@ public sealed class DeliveryEngineTests
         new("desired-digest"), new(signature), dependencies ??
         [new(new("dep-b"), 2, new("digest-b")), new(new("dep-a"), 1, new("digest-a"))]);
     private static SourceEvidence Evidence(SourceState state = SourceState.Verified, string source = "source",
-        string reference = "develop", long generation = 3, DependencyProof[]? dependencies = null) => new(
+        string reference = "develop", long generation = 3, DependencyProof[]? dependencies = null,
+        string signature = "source-signature",
+        string? signatureAttestation = "signature-attestation", bool signatureValid = true,
+        bool schemaValid = true, bool dependenciesValid = true) => new(
         new("source-observation"), state, new(source), new(reference), generation,
-        new("commit-1"), new("tree-1"), new("manifest"), new("desired-digest"), new("source-signature"),
-        new("schema-attestation"), new("dependency-attestation"), dependencies ??
-        [new(new("dep-b"), 2, new("digest-b")), new(new("dep-a"), 1, new("digest-a"))], true, true);
+        new("commit-1"), new("tree-1"), new("manifest"), new("desired-digest"), new(signature),
+        new("schema-attestation"), new("dependency-attestation"),
+        signatureAttestation is null ? null! : new(signatureAttestation), dependencies ??
+        [new(new("dep-b"), 2, new("digest-b")), new(new("dep-a"), 1, new("digest-a"))],
+        signatureValid, schemaValid, dependenciesValid);
     private static JobRequest Job(JobKind kind = JobKind.TrustedBuild, TrustZone zone = TrustZone.TrustedBuild,
         int attempt = 1, int maximumAttempts = 3, bool retry = false,
         RunnerCapability[]? capabilities = null) => new(new("pipeline"), new("job"), kind, new("tree-1"),

@@ -77,7 +77,10 @@ public sealed class DeliveryPolicyCompletenessPropertyTests
                     expected = PlanSignature(source);
                     break;
                 case 1:
-                    decision = DeliveryEngine.DecideSource(new(source, null, Evidence(source, SourceState.Fetched), 96));
+                    var evidence = index % 12 == 1
+                        ? Evidence(source, SourceState.Fetched)
+                        : Evidence(source, signatureValid: false);
+                    decision = DeliveryEngine.DecideSource(new(source, null, evidence, 96));
                     expected = $"Verify|{source.Source.Value}|{source.Commit.Value}|{source.Tree.Value}|{source.Manifest.Value}|{source.DesiredDigest.Value}|{source.Signature.Value}";
                     break;
                 case 2:
@@ -183,7 +186,7 @@ public sealed class DeliveryPolicyCompletenessPropertyTests
         Require(onlyTrace.Code == expectedTrace, "trace-code", 0, expectedTrace.ToString(), onlyTrace.Code.ToString());
         return intent switch
         {
-            PlanApplyIntent value => $"Plan|{value.Source.Value}|{value.Commit.Value}|{value.Tree.Value}|{value.Manifest.Value}|{value.Generation.ToString(CultureInfo.InvariantCulture)}|{value.Digest.Value}|{value.Signature.Value}|{value.SchemaAttestation.Value}|{value.DependencyAttestation.Value}|{string.Join(',', value.Dependencies.Select(dependency => $"{dependency.Manifest.Value}:{dependency.Generation.ToString(CultureInfo.InvariantCulture)}:{dependency.Digest.Value}"))}",
+            PlanApplyIntent value => $"Plan|{value.Source.Value}|{value.Commit.Value}|{value.Tree.Value}|{value.Manifest.Value}|{value.Generation.ToString(CultureInfo.InvariantCulture)}|{value.Digest.Value}|{value.Signature.Value}|{value.SchemaAttestation.Value}|{value.DependencyAttestation.Value}|{value.SignatureAttestation.Value}|{string.Join(',', value.Dependencies.Select(dependency => $"{dependency.Manifest.Value}:{dependency.Generation.ToString(CultureInfo.InvariantCulture)}:{dependency.Digest.Value}"))}",
             VerifySourceIntent value => $"Verify|{value.Source.Value}|{value.Commit.Value}|{value.Tree.Value}|{value.Manifest.Value}|{value.Digest.Value}|{value.Signature.Value}",
             PromoteArtifactIntent value => $"Promote|{value.Release.Value}|{value.Generation.ToString(CultureInfo.InvariantCulture)}|{SubjectSignature(value.Subject)}|{value.Tests.Value}|{value.SigningIdentity.Value}|{value.Signature.Value}|{value.Approval.Value}|{value.Evidence.Value}|{CompatibilitySignature(value.Compatibility)}",
             StageReleaseIntent value => $"Stage|{value.Release.Value}|{value.Operation.Value}|{value.Cell.Value}|{value.Generation.ToString(CultureInfo.InvariantCulture)}|{value.Artifact.Value}|{value.Digest.Value}|{value.SigningIdentity.Value}|{value.Signature.Value}|{value.Architecture}|{value.RollbackArtifact.Value}|{value.RollbackDigest.Value}|{value.RollbackSigningIdentity.Value}|{value.RollbackSignature.Value}|{value.RollbackArchitecture}",
@@ -194,7 +197,7 @@ public sealed class DeliveryPolicyCompletenessPropertyTests
     }
 
     private static string PlanSignature(SourceRevision source) =>
-        $"Plan|{source.Source.Value}|{source.Commit.Value}|{source.Tree.Value}|{source.Manifest.Value}|{source.Generation.ToString(CultureInfo.InvariantCulture)}|{source.DesiredDigest.Value}|{source.Signature.Value}|schema-attestation|dependency-attestation|{string.Join(',', source.Dependencies.OrderBy(value => value.Manifest.Value, StringComparer.Ordinal).Select(value => $"{value.Manifest.Value}:{value.Generation.ToString(CultureInfo.InvariantCulture)}:{value.Digest.Value}"))}";
+        $"Plan|{source.Source.Value}|{source.Commit.Value}|{source.Tree.Value}|{source.Manifest.Value}|{source.Generation.ToString(CultureInfo.InvariantCulture)}|{source.DesiredDigest.Value}|{source.Signature.Value}|schema-attestation|dependency-attestation|signature-attestation-{source.Generation.ToString(CultureInfo.InvariantCulture)}|{string.Join(',', source.Dependencies.OrderBy(value => value.Manifest.Value, StringComparer.Ordinal).Select(value => $"{value.Manifest.Value}:{value.Generation.ToString(CultureInfo.InvariantCulture)}:{value.Digest.Value}"))}";
     private static string PromotionSignature(int index, long generation, EvidenceSubject subject, QualificationEvidence evidence) =>
         $"Promote|release-{index}|{generation.ToString(CultureInfo.InvariantCulture)}|{SubjectSignature(subject)}|{evidence.Tests.Value}|{evidence.SigningIdentity.Value}|{evidence.Signature.Value}|{evidence.Approval.Value}|{evidence.Evidence.Value}|{CompatibilitySignature(evidence.Compatibility)}";
     private static string StageSignature(ReleaseSpec release, DeliveryCellId cell) =>
@@ -209,9 +212,11 @@ public sealed class DeliveryPolicyCompletenessPropertyTests
     private static SourceRevision Source(int index, long generation) => new(new($"source-{index}"), new($"ref-{index}"),
         new($"commit-{index}"), new($"tree-{index}"), new($"manifest-{index}"), generation, new($"digest-{index}"),
         new($"source-signature-{index}"), [new(new($"dep-z-{index}"), generation, new($"dep-digest-z-{index}")), new(new($"dep-a-{index}"), generation, new($"dep-digest-a-{index}"))]);
-    private static SourceEvidence Evidence(SourceRevision source, SourceState state = SourceState.Verified) => new(new($"observation-{source.Generation}"), state,
+    private static SourceEvidence Evidence(SourceRevision source, SourceState state = SourceState.Verified,
+        bool signatureValid = true) => new(new($"observation-{source.Generation}"), state,
         source.Source, source.Reference, source.Generation, source.Commit, source.Tree, source.Manifest, source.DesiredDigest,
-        source.Signature, new("schema-attestation"), new("dependency-attestation"), source.Dependencies, true, true);
+        source.Signature, new("schema-attestation"), new("dependency-attestation"),
+        new($"signature-attestation-{source.Generation}"), source.Dependencies, signatureValid, true, true);
     private static JobRequest Job(JobKind kind = JobKind.TrustedBuild, RunnerCapability capability = RunnerCapability.Compile) =>
         new(new("pipeline"), new("job"), kind, new("tree"), 1, 1, 3, new("key"), [TrustZone.TrustedBuild], [capability], 1, 10, false);
     private static RunnerEvidence Runner(TrustZone zone = TrustZone.TrustedBuild) => new(new("runner"), zone, 5, true, [RunnerCapability.Compile]);
