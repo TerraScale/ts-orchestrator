@@ -160,6 +160,12 @@ public sealed class AuthorityPolicyCompletenessPropertyTests
             var readIntent = (ReadAuthorityIntent)read.Intents.Single();
             await Assert.That(readIntent.AuthorityId).IsEqualTo(AuthorityId);
             await Assert.That(readIntent.RequestId).IsEqualTo($"read-{index}");
+            await Assert.That(readIntent.CandidateId).IsEqualTo(Candidate(index));
+            await Assert.That(readIntent.ResumeStatus).IsEqualTo(AuthorityStatus.Leader);
+            await Assert.That(readIntent.ExpectedHighestEpoch).IsEqualTo(confirmed.Epoch);
+            await Assert.That(readIntent.ExpectedHighestKvRevision).IsEqualTo(confirmed.KvRevision);
+            await Assert.That(readIntent.ExpectedConfirmedObservation).IsEqualTo(confirmed);
+            await Assert.That(ReferenceEquals(readIntent.ExpectedConfirmedObservation, confirmed)).IsTrue();
             var readEvent = (AuthorityReadRequested)read.EventsToAppend.Single();
             await Assert.That(readEvent.AuthorityId).IsEqualTo(AuthorityId);
             await Assert.That(readEvent.CandidateId).IsEqualTo(Candidate(index));
