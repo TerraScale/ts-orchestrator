@@ -303,26 +303,28 @@ public sealed class DeliveryEngineTests
     private static RunnerEvidence Runner(string id = "runner", TrustZone zone = TrustZone.TrustedBuild,
         long sequence = 15, params RunnerCapability[] capabilities) => new(new(id), zone, sequence, true,
         capabilities.Length == 0 ? [RunnerCapability.Compile, RunnerCapability.Test] : capabilities);
-    private static EvidenceSubject Subject() => new(new("tree-1"), new("lock-1"), new("schema-1"), new("artifact-1"), new("digest-1"));
+    private static EvidenceSubject Subject() => new(new("tree-1"), new("lock-1"), new("schema-1"), new("artifact-1"), new("digest-1"), DeliveryArchitecture.LinuxArm64);
     private static QualificationEvidence Qualification(EvidenceSubject subject) => new(new("release"), 1, subject, new("tests"), new("evidence"),
         new("signer"), new("signature"), new("approval"),
         new(new("compatibility-n-n"), new("compatibility-n-prev"), new("compatibility-prev-n"), true, true, true),
         true, true, true, true);
     private static ReleaseSpec Release(RollbackPolicy policy = RollbackPolicy.AutomaticOnFailedHealth) => new(new("release"), new("operation"),
-        4, new("artifact-n"), new("digest-n"), new("signature-n"), new("artifact-n-1"), new("digest-n-1"), new("signature-n-1"),
+        4, new("artifact-n"), new("digest-n"), new("signer-n"), new("signature-n"), DeliveryArchitecture.LinuxArm64,
+        new("artifact-n-1"), new("digest-n-1"), new("signer-n-1"), new("signature-n-1"), DeliveryArchitecture.LinuxArm64,
         RolloutStrategy.Canary, policy, [new("sfo"), new("fra"), new("gru")]);
     private static StageEvidence Stage(string cell, StageHealth health) => new(new("stage-observation"), new("operation"),
-        new(cell), new("release"), 4, new("artifact-n"), new("digest-n"), new("signature-n"),
+        new(cell), new("release"), 4, new("artifact-n"), new("digest-n"), new("signer-n"), new("signature-n"), DeliveryArchitecture.LinuxArm64,
         health, new("health-proof"), true, true);
     private static CellCompletionEvidence Completion(string cell) => new(new("operation"), new(cell), new("release"),
-        4, new("artifact-n"), new("digest-n"), new("signature-n"), new("health-proof"), StageHealth.Healthy);
+        4, new("artifact-n"), new("digest-n"), new("signer-n"), new("signature-n"), DeliveryArchitecture.LinuxArm64, new("health-proof"), StageHealth.Healthy);
     private static RolloutRequest Rollout(ReleaseSpec release, IReadOnlyList<CellCompletionEvidence>? completed = null,
         StageEvidence? stage = null, bool rollbackAvailable = true) => new(release, completed ?? [],
         Availability(release, rollbackAvailable), stage, 64);
     private static CellArtifactAvailability[] Availability(ReleaseSpec release, bool rollbackAvailable = true) =>
         release.OrderedCells.Select(cell => new CellArtifactAvailability(release.Release, release.Operation, release.Generation,
-            cell, release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
-            release.RollbackSignature, true, rollbackAvailable)).ToArray();
+            cell, release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture,
+            release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature, release.RollbackArchitecture,
+            true, rollbackAvailable)).ToArray();
     private static async Task AssertHeld(DeliveryDecision decision, DeliveryErrorCode code)
     {
         await Assert.That(decision.Errors.Any(error => error.Code == code)).IsTrue();

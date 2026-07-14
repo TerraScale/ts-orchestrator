@@ -360,21 +360,23 @@ public sealed class DeliveryTerraBasePropertyTests
             source.Manifest, new(digest ?? source.DesiredDigest.Value), source.Signature, new("schema"), new("dependencies"), dependencies, true, true);
     private static JobRequest Job() => new(new("pipeline"), new("job"), JobKind.TrustedBuild, new("tree"), 1, 1, 3,
         new("key"), [TrustZone.TrustedBuild], [RunnerCapability.Compile], 1, 10, false);
-    private static EvidenceSubject Subject(int index) => new(new($"tree-{index}"), new($"lock-{index}"), new($"schema-{index}"), new($"artifact-{index}"), new($"digest-{index}"));
+    private static EvidenceSubject Subject(int index) => new(new($"tree-{index}"), new($"lock-{index}"), new($"schema-{index}"), new($"artifact-{index}"), new($"digest-{index}"), DeliveryArchitecture.LinuxArm64);
     private static QualificationEvidence Qualification(int index, long generation, EvidenceSubject subject) => new(new($"release-{index}"), generation, subject,
         new("tests"), new("evidence"), new("signer"), new("signature"), new("approval"), new(new("nn"), new("np"), new("pn"), true, true, true), true, true, true, true);
     private static ReleaseSpec Release(int index, long generation) => new(new($"release-{index}"), new($"operation-{index}"), generation,
-        new($"artifact-{index}"), new($"digest-{index}"), new($"signature-{index}"), new($"rollback-{index}"),
-        new($"rollback-digest-{index}"), new($"rollback-signature-{index}"), RolloutStrategy.Rolling,
+        new($"artifact-{index}"), new($"digest-{index}"), new($"signer-{index}"), new($"signature-{index}"), DeliveryArchitecture.LinuxArm64,
+        new($"rollback-{index}"), new($"rollback-digest-{index}"), new($"rollback-signer-{index}"), new($"rollback-signature-{index}"),
+        DeliveryArchitecture.LinuxArm64, RolloutStrategy.Rolling,
         RollbackPolicy.AutomaticOnFailedHealth, [new("gru"), new("sfo"), new("fra")]);
     private static CellArtifactAvailability[] Availability(ReleaseSpec release) => release.OrderedCells.Select(cell => new CellArtifactAvailability(
-        release.Release, release.Operation, release.Generation, cell, release.Artifact, release.Digest, release.Signature,
-        release.RollbackArtifact, release.RollbackDigest, release.RollbackSignature, true, true)).ToArray();
+        release.Release, release.Operation, release.Generation, cell, release.Artifact, release.Digest, release.SigningIdentity, release.Signature,
+        release.Architecture, release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature,
+        release.RollbackArchitecture, true, true)).ToArray();
     private static StageEvidence Stage(ReleaseSpec release, StageHealth health) => new(new("observation"), release.Operation,
-        release.OrderedCells[0], release.Release, release.Generation, release.Artifact, release.Digest, release.Signature,
+        release.OrderedCells[0], release.Release, release.Generation, release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture,
         health, new("health"), true, true);
     private static CellCompletionEvidence Completion(ReleaseSpec release, DeliveryCellId cell) => new(release.Operation, cell,
-        release.Release, release.Generation, release.Artifact, release.Digest, release.Signature, new("health"), StageHealth.Healthy);
+        release.Release, release.Generation, release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture, new("health"), StageHealth.Healthy);
     private static RolloutRequest Rollout(ReleaseSpec release, StageEvidence? stage = null,
         IEnumerable<CellCompletionEvidence>? completed = null, IEnumerable<CellArtifactAvailability>? availability = null) =>
         new(release, completed ?? [], availability ?? Availability(release), stage, 96);

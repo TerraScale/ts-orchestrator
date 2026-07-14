@@ -42,6 +42,7 @@ public static class DeliveryEngine
         }
         var plan = new PlanApplyIntent(request.Proposed.Source, request.Proposed.Commit, request.Proposed.Tree,
             request.Proposed.Manifest, request.Proposed.Generation, request.Proposed.DesiredDigest,
+            request.Proposed.Signature, request.Evidence.SchemaAttestation, request.Evidence.DependencyAttestation,
             new ReadOnlyCollection<DependencyProof>(request.Proposed.Dependencies.OrderBy(static value => value.Manifest.Value, Ordinal).ToArray()));
         return One(plan, DeliveryTraceCode.PlanReady);
     }
@@ -111,7 +112,7 @@ public static class DeliveryEngine
             !evidence.Compatibility.PreviousToCurrentCompatible)
             return Held(DeliveryErrorCode.CompatibilityDenied, release: request.Release);
         var intent = new PromoteArtifactIntent(request.Release!, request.Generation, request.Current,
-            evidence.SigningIdentity!, evidence.Signature!, evidence.Approval!, evidence.Evidence!, evidence.Compatibility!);
+            evidence.Tests!, evidence.SigningIdentity!, evidence.Signature!, evidence.Approval!, evidence.Evidence!, evidence.Compatibility!);
         return One(intent, DeliveryTraceCode.PromotionReady);
     }
 
@@ -142,14 +143,16 @@ public static class DeliveryEngine
         if (request.CurrentStage is null)
         {
             var stage = new StageReleaseIntent(release.Release, release.Operation, expected, release.Generation,
-                release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
-                release.RollbackSignature);
+                release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture,
+                release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature, release.RollbackArchitecture);
             return One(stage, DeliveryTraceCode.StageReady);
         }
         var current = request.CurrentStage;
         if (!ValidStage(current, request.MaximumIdentityLength) || current.Operation != release.Operation ||
             current.Cell != expected || current.Release != release.Release ||
-            current.Generation != release.Generation || current.Artifact != release.Artifact || current.Digest != release.Digest)
+            current.Generation != release.Generation || current.Artifact != release.Artifact || current.Digest != release.Digest ||
+            current.SigningIdentity != release.SigningIdentity ||
+            current.Architecture != release.Architecture)
             return Held(DeliveryErrorCode.ArtifactMismatch, release: release.Release, cell: expected);
         if (current.Signature != release.Signature)
             return Held(DeliveryErrorCode.ArtifactMismatch, release: release.Release, cell: expected);
@@ -160,8 +163,9 @@ public static class DeliveryEngine
             if (release.RollbackPolicy != RollbackPolicy.AutomaticOnFailedHealth)
                 return Held(DeliveryErrorCode.HealthDenied, release: release.Release, cell: expected);
             var rollback = new RollbackReleaseIntent(release.Release, release.Operation, expected, release.Generation,
-                release.Artifact, release.Digest, release.Signature, release.RollbackArtifact, release.RollbackDigest,
-                release.RollbackSignature, current.HealthProof);
+                release.Artifact, release.Digest, release.Signature, release.SigningIdentity, release.Architecture,
+                release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature,
+                release.RollbackArchitecture, current.HealthProof);
             return One(rollback, DeliveryTraceCode.RollbackRequired);
         }
         if (current.Health != StageHealth.Healthy)
@@ -169,7 +173,7 @@ public static class DeliveryEngine
         var next = request.CompletedCells.Count + 1 < release.OrderedCells.Count
             ? release.OrderedCells[request.CompletedCells.Count + 1] : null;
         var advance = new AdvanceReleaseIntent(release.Release, release.Operation, expected, next, release.Generation,
-            release.Artifact, release.Digest, release.Signature, current.HealthProof);
+            release.Artifact, release.Digest, release.Signature, release.SigningIdentity, release.Architecture, current.HealthProof);
         return One(advance, DeliveryTraceCode.AdvanceReady);
     }
 
@@ -208,19 +212,20 @@ public static class DeliveryEngine
         _ => false,
     };
     private static bool ValidSubject(EvidenceSubject subject, int max) => subject is not null && Valid(subject.Tree?.Value, max) &&
-        Valid(subject.DependencyLock?.Value, max) && Valid(subject.GeneratedSchemas?.Value, max) && Valid(subject.Artifact?.Value, max) && Valid(subject.ArtifactDigest?.Value, max);
+        Valid(subject.DependencyLock?.Value, max) && Valid(subject.GeneratedSchemas?.Value, max) && Valid(subject.Artifact?.Value, max) &&
+        Valid(subject.ArtifactDigest?.Value, max) && Defined(subject.Architecture);
     private static bool ValidRelease(ReleaseSpec release, int max) => release is not null && max > 0 &&
         Valid(release.Release?.Value, max) && Valid(release.Operation?.Value, max) && release.Generation > 0 &&
-        Valid(release.Artifact?.Value, max) && Valid(release.Digest?.Value, max) && Valid(release.Signature?.Value, max) &&
+        Valid(release.Artifact?.Value, max) && Valid(release.Digest?.Value, max) && Valid(release.SigningIdentity?.Value, max) && Valid(release.Signature?.Value, max) && Defined(release.Architecture) &&
         Valid(release.RollbackArtifact?.Value, max) && Valid(release.RollbackDigest?.Value, max) &&
-        Valid(release.RollbackSignature?.Value, max) && Defined(release.Strategy) &&
+        Valid(release.RollbackSigningIdentity?.Value, max) && Valid(release.RollbackSignature?.Value, max) && Defined(release.RollbackArchitecture) && Defined(release.Strategy) &&
         Defined(release.RollbackPolicy) && release.OrderedCells.Count > 0 && release.OrderedCells.All(value => Valid(value?.Value, max)) &&
         release.OrderedCells.Distinct().Count() == release.OrderedCells.Count && release.Artifact != release.RollbackArtifact &&
-        release.Digest != release.RollbackDigest;
+        release.Digest != release.RollbackDigest && release.Architecture == release.RollbackArchitecture;
     private static bool ValidStage(StageEvidence stage, int max) => stage is not null && Valid(stage.Observation?.Value, max) &&
         Valid(stage.Operation?.Value, max) &&
         Valid(stage.Cell?.Value, max) && Valid(stage.Release?.Value, max) && stage.Generation > 0 &&
-        Valid(stage.Artifact?.Value, max) && Valid(stage.Digest?.Value, max) && Valid(stage.Signature?.Value, max) &&
+        Valid(stage.Artifact?.Value, max) && Valid(stage.Digest?.Value, max) && Valid(stage.SigningIdentity?.Value, max) && Valid(stage.Signature?.Value, max) && Defined(stage.Architecture) &&
         Defined(stage.Health) && Valid(stage.HealthProof?.Value, max);
 
     private static bool EquivalentSource(SourceRevision left, SourceRevision right) =>
@@ -233,20 +238,21 @@ public static class DeliveryEngine
     private static bool ValidCompletion(CellCompletionEvidence value, ReleaseSpec release, int max) =>
         value is not null && Valid(value.Operation?.Value, max) && Valid(value.Cell?.Value, max) &&
         Valid(value.Release?.Value, max) && value.Generation > 0 && Valid(value.Artifact?.Value, max) &&
-        Valid(value.Digest?.Value, max) && Valid(value.Signature?.Value, max) && Valid(value.HealthProof?.Value, max) &&
+        Valid(value.Digest?.Value, max) && Valid(value.SigningIdentity?.Value, max) && Valid(value.Signature?.Value, max) && Defined(value.Architecture) && Valid(value.HealthProof?.Value, max) &&
         value.Operation == release.Operation && value.Release == release.Release && value.Generation == release.Generation &&
-        value.Artifact == release.Artifact && value.Digest == release.Digest && value.Signature == release.Signature &&
+        value.Artifact == release.Artifact && value.Digest == release.Digest && value.SigningIdentity == release.SigningIdentity && value.Signature == release.Signature && value.Architecture == release.Architecture &&
         value.Health == StageHealth.Healthy;
     private static bool ValidAvailability(CellArtifactAvailability value, ReleaseSpec release, int max) =>
         value is not null && Valid(value.Release?.Value, max) && Valid(value.Operation?.Value, max) &&
         value.Generation > 0 && Valid(value.Cell?.Value, max) && Valid(value.ForwardArtifact?.Value, max) &&
-        Valid(value.ForwardDigest?.Value, max) && Valid(value.ForwardSignature?.Value, max) &&
+        Valid(value.ForwardDigest?.Value, max) && Valid(value.ForwardSigningIdentity?.Value, max) && Valid(value.ForwardSignature?.Value, max) && Defined(value.ForwardArchitecture) &&
         Valid(value.RollbackArtifact?.Value, max) && Valid(value.RollbackDigest?.Value, max) &&
-        Valid(value.RollbackSignature?.Value, max) &&
+        Valid(value.RollbackSigningIdentity?.Value, max) && Valid(value.RollbackSignature?.Value, max) && Defined(value.RollbackArchitecture) &&
         value.Release == release.Release && value.Operation == release.Operation && value.Generation == release.Generation &&
         value.ForwardArtifact == release.Artifact && value.ForwardDigest == release.Digest &&
-        value.ForwardSignature == release.Signature && value.RollbackArtifact == release.RollbackArtifact &&
-        value.RollbackDigest == release.RollbackDigest && value.RollbackSignature == release.RollbackSignature;
+        value.ForwardSigningIdentity == release.SigningIdentity && value.ForwardSignature == release.Signature && value.ForwardArchitecture == release.Architecture &&
+        value.RollbackArtifact == release.RollbackArtifact && value.RollbackDigest == release.RollbackDigest &&
+        value.RollbackSigningIdentity == release.RollbackSigningIdentity && value.RollbackSignature == release.RollbackSignature && value.RollbackArchitecture == release.RollbackArchitecture;
 
     private static bool Valid(string? value, int maximumLength)
     {

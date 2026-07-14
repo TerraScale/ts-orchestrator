@@ -64,6 +64,7 @@ public enum JobKind { Unspecified, ProductValidation, TrustedBuild, Promotion, C
 public enum TrustZone { Unspecified, UntrustedProduct, TrustedBuild, ProductionRelease, ControlRecovery }
 public enum RunnerCapability { Unspecified, Compile, Test, Sign, Promote, ProductionDeploy, ControlRecover }
 public enum PromotionState { Unspecified, Candidate, Qualified, Promoted }
+public enum DeliveryArchitecture { Unspecified, LinuxArm64, LinuxX64 }
 public enum RolloutStrategy { Unspecified, Rolling, Canary, BlueGreen, OrderedStateful }
 public enum RollbackPolicy { Unspecified, AutomaticOnFailedHealth, HoldForApproval }
 public enum StageHealth { Unspecified, Pending, Healthy, Failed }
@@ -222,7 +223,8 @@ public sealed class RunnerEvidence
     public IReadOnlyList<RunnerCapability> Capabilities { get; }
 }
 
-public sealed record EvidenceSubject(TreeId Tree, DigestId DependencyLock, DigestId GeneratedSchemas, ArtifactId Artifact, DigestId ArtifactDigest);
+public sealed record EvidenceSubject(TreeId Tree, DigestId DependencyLock, DigestId GeneratedSchemas,
+    ArtifactId Artifact, DigestId ArtifactDigest, DeliveryArchitecture Architecture);
 public sealed record CompatibilityProof(
     AttestationId CurrentToCurrent,
     AttestationId CurrentToPrevious,
@@ -253,20 +255,28 @@ public sealed record CellArtifactAvailability(
     DeliveryCellId Cell,
     ArtifactId ForwardArtifact,
     DigestId ForwardDigest,
+    SigningIdentityId ForwardSigningIdentity,
     SignatureId ForwardSignature,
+    DeliveryArchitecture ForwardArchitecture,
     ArtifactId RollbackArtifact,
     DigestId RollbackDigest,
+    SigningIdentityId RollbackSigningIdentity,
     SignatureId RollbackSignature,
+    DeliveryArchitecture RollbackArchitecture,
     bool ForwardAvailable,
     bool RollbackAvailable);
 public sealed class ReleaseSpec
 {
     public ReleaseSpec(ReleaseId release, DeliveryOperationId operation, long generation, ArtifactId artifact,
-        DigestId digest, SignatureId signature, ArtifactId rollbackArtifact, DigestId rollbackDigest, SignatureId rollbackSignature,
+        DigestId digest, SigningIdentityId signingIdentity, SignatureId signature, DeliveryArchitecture architecture,
+        ArtifactId rollbackArtifact, DigestId rollbackDigest, SigningIdentityId rollbackSigningIdentity, SignatureId rollbackSignature,
+        DeliveryArchitecture rollbackArchitecture,
         RolloutStrategy strategy, RollbackPolicy rollbackPolicy, IEnumerable<DeliveryCellId> orderedCells)
     {
         Release = release; Operation = operation; Generation = generation; Artifact = artifact; Digest = digest;
-        Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature;
+        SigningIdentity = signingIdentity; Signature = signature; Architecture = architecture; RollbackArtifact = rollbackArtifact;
+        RollbackDigest = rollbackDigest; RollbackSigningIdentity = rollbackSigningIdentity; RollbackSignature = rollbackSignature;
+        RollbackArchitecture = rollbackArchitecture;
         Strategy = strategy; RollbackPolicy = rollbackPolicy;
         OrderedCells = DeliveryInputSnapshot.Copy(orderedCells, DeliveryTechnicalInputLimits.MaximumRolloutCellCount,
             nameof(orderedCells), "Ordered rollout-cell input");
@@ -276,10 +286,14 @@ public sealed class ReleaseSpec
     public long Generation { get; }
     public ArtifactId Artifact { get; }
     public DigestId Digest { get; }
+    public SigningIdentityId SigningIdentity { get; }
     public SignatureId Signature { get; }
+    public DeliveryArchitecture Architecture { get; }
     public ArtifactId RollbackArtifact { get; }
     public DigestId RollbackDigest { get; }
+    public SigningIdentityId RollbackSigningIdentity { get; }
     public SignatureId RollbackSignature { get; }
+    public DeliveryArchitecture RollbackArchitecture { get; }
     public RolloutStrategy Strategy { get; }
     public RollbackPolicy RollbackPolicy { get; }
     public IReadOnlyList<DeliveryCellId> OrderedCells { get; }
@@ -293,7 +307,9 @@ public sealed record StageEvidence(
     long Generation,
     ArtifactId Artifact,
     DigestId Digest,
+    SigningIdentityId SigningIdentity,
     SignatureId Signature,
+    DeliveryArchitecture Architecture,
     StageHealth Health,
     AttestationId HealthProof,
     bool DisruptionAuthorized,
@@ -305,7 +321,9 @@ public sealed record CellCompletionEvidence(
     long Generation,
     ArtifactId Artifact,
     DigestId Digest,
+    SigningIdentityId SigningIdentity,
     SignatureId Signature,
+    DeliveryArchitecture Architecture,
     AttestationId HealthProof,
     StageHealth Health);
 public sealed class RolloutRequest
@@ -355,14 +373,18 @@ public sealed class VerifySourceIntent : DeliveryIntent
 public sealed class PlanApplyIntent : DeliveryIntent
 {
     internal PlanApplyIntent(SourceId source, CommitId commit, TreeId tree, ManifestId manifest, long generation,
-        DigestId digest, IReadOnlyList<DependencyProof> dependencies) : base(DeliveryAction.Plan)
-    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Generation = generation; Digest = digest; Dependencies = dependencies; }
+        DigestId digest, SignatureId signature, AttestationId schemaAttestation, AttestationId dependencyAttestation,
+        IReadOnlyList<DependencyProof> dependencies) : base(DeliveryAction.Plan)
+    { Source = source; Commit = commit; Tree = tree; Manifest = manifest; Generation = generation; Digest = digest; Signature = signature; SchemaAttestation = schemaAttestation; DependencyAttestation = dependencyAttestation; Dependencies = dependencies; }
     public SourceId Source { get; }
     public CommitId Commit { get; }
     public TreeId Tree { get; }
     public ManifestId Manifest { get; }
     public long Generation { get; }
     public DigestId Digest { get; }
+    public SignatureId Signature { get; }
+    public AttestationId SchemaAttestation { get; }
+    public AttestationId DependencyAttestation { get; }
     public IReadOnlyList<DependencyProof> Dependencies { get; }
 }
 public sealed class DispatchJobIntent : DeliveryIntent
@@ -381,12 +403,13 @@ public sealed class DispatchJobIntent : DeliveryIntent
 public sealed class PromoteArtifactIntent : DeliveryIntent
 {
     internal PromoteArtifactIntent(ReleaseId release, long generation, EvidenceSubject subject,
-        SigningIdentityId signingIdentity, SignatureId signature, ApprovalId approval, AttestationId evidence,
+        AttestationId tests, SigningIdentityId signingIdentity, SignatureId signature, ApprovalId approval, AttestationId evidence,
         CompatibilityProof compatibility) : base(DeliveryAction.Promote)
-    { Release = release; Generation = generation; Subject = subject; SigningIdentity = signingIdentity; Signature = signature; Approval = approval; Evidence = evidence; Compatibility = compatibility; }
+    { Release = release; Generation = generation; Subject = subject; Tests = tests; SigningIdentity = signingIdentity; Signature = signature; Approval = approval; Evidence = evidence; Compatibility = compatibility; }
     public ReleaseId Release { get; }
     public long Generation { get; }
     public EvidenceSubject Subject { get; }
+    public AttestationId Tests { get; }
     public SigningIdentityId SigningIdentity { get; }
     public SignatureId Signature { get; }
     public ApprovalId Approval { get; }
@@ -396,26 +419,31 @@ public sealed class PromoteArtifactIntent : DeliveryIntent
 public sealed class StageReleaseIntent : DeliveryIntent
 {
     internal StageReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId cell, long generation,
-        ArtifactId artifact, DigestId digest, SignatureId signature, ArtifactId rollbackArtifact,
-        DigestId rollbackDigest, SignatureId rollbackSignature) : base(DeliveryAction.Stage)
-    { Release = release; Operation = operation; Cell = cell; Generation = generation; Artifact = artifact; Digest = digest; Signature = signature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature; }
+        ArtifactId artifact, DigestId digest, SigningIdentityId signingIdentity, SignatureId signature, DeliveryArchitecture architecture,
+        ArtifactId rollbackArtifact, DigestId rollbackDigest, SigningIdentityId rollbackSigningIdentity, SignatureId rollbackSignature,
+        DeliveryArchitecture rollbackArchitecture) : base(DeliveryAction.Stage)
+    { Release = release; Operation = operation; Cell = cell; Generation = generation; Artifact = artifact; Digest = digest; SigningIdentity = signingIdentity; Signature = signature; Architecture = architecture; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSigningIdentity = rollbackSigningIdentity; RollbackSignature = rollbackSignature; RollbackArchitecture = rollbackArchitecture; }
     public ReleaseId Release { get; }
     public DeliveryOperationId Operation { get; }
     public DeliveryCellId Cell { get; }
     public long Generation { get; }
     public ArtifactId Artifact { get; }
     public DigestId Digest { get; }
+    public SigningIdentityId SigningIdentity { get; }
     public SignatureId Signature { get; }
+    public DeliveryArchitecture Architecture { get; }
     public ArtifactId RollbackArtifact { get; }
     public DigestId RollbackDigest { get; }
+    public SigningIdentityId RollbackSigningIdentity { get; }
     public SignatureId RollbackSignature { get; }
+    public DeliveryArchitecture RollbackArchitecture { get; }
 }
 public sealed class AdvanceReleaseIntent : DeliveryIntent
 {
     internal AdvanceReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId completedCell,
         DeliveryCellId? nextCell, long generation, ArtifactId artifact, DigestId digest, SignatureId signature,
-        AttestationId healthProof) : base(DeliveryAction.Advance)
-    { Release = release; Operation = operation; CompletedCell = completedCell; NextCell = nextCell; Generation = generation; Artifact = artifact; Digest = digest; Signature = signature; HealthProof = healthProof; }
+        SigningIdentityId signingIdentity, DeliveryArchitecture architecture, AttestationId healthProof) : base(DeliveryAction.Advance)
+    { Release = release; Operation = operation; CompletedCell = completedCell; NextCell = nextCell; Generation = generation; Artifact = artifact; Digest = digest; SigningIdentity = signingIdentity; Signature = signature; Architecture = architecture; HealthProof = healthProof; }
     public ReleaseId Release { get; }
     public DeliveryOperationId Operation { get; }
     public DeliveryCellId CompletedCell { get; }
@@ -423,26 +451,33 @@ public sealed class AdvanceReleaseIntent : DeliveryIntent
     public long Generation { get; }
     public ArtifactId Artifact { get; }
     public DigestId Digest { get; }
+    public SigningIdentityId SigningIdentity { get; }
     public SignatureId Signature { get; }
+    public DeliveryArchitecture Architecture { get; }
     public AttestationId HealthProof { get; }
 }
 public sealed class RollbackReleaseIntent : DeliveryIntent
 {
     internal RollbackReleaseIntent(ReleaseId release, DeliveryOperationId operation, DeliveryCellId cell,
         long generation, ArtifactId failedArtifact, DigestId failedDigest, SignatureId failedSignature,
-        ArtifactId rollbackArtifact, DigestId rollbackDigest, SignatureId rollbackSignature,
-        AttestationId healthProof) : base(DeliveryAction.Rollback)
-    { Release = release; Operation = operation; Cell = cell; Generation = generation; FailedArtifact = failedArtifact; FailedDigest = failedDigest; FailedSignature = failedSignature; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSignature = rollbackSignature; HealthProof = healthProof; }
+        SigningIdentityId failedSigningIdentity, DeliveryArchitecture failedArchitecture,
+        ArtifactId rollbackArtifact, DigestId rollbackDigest, SigningIdentityId rollbackSigningIdentity, SignatureId rollbackSignature,
+        DeliveryArchitecture rollbackArchitecture, AttestationId healthProof) : base(DeliveryAction.Rollback)
+    { Release = release; Operation = operation; Cell = cell; Generation = generation; FailedArtifact = failedArtifact; FailedDigest = failedDigest; FailedSigningIdentity = failedSigningIdentity; FailedSignature = failedSignature; FailedArchitecture = failedArchitecture; RollbackArtifact = rollbackArtifact; RollbackDigest = rollbackDigest; RollbackSigningIdentity = rollbackSigningIdentity; RollbackSignature = rollbackSignature; RollbackArchitecture = rollbackArchitecture; HealthProof = healthProof; }
     public ReleaseId Release { get; }
     public DeliveryOperationId Operation { get; }
     public DeliveryCellId Cell { get; }
     public long Generation { get; }
     public ArtifactId FailedArtifact { get; }
     public DigestId FailedDigest { get; }
+    public SigningIdentityId FailedSigningIdentity { get; }
     public SignatureId FailedSignature { get; }
+    public DeliveryArchitecture FailedArchitecture { get; }
     public ArtifactId RollbackArtifact { get; }
     public DigestId RollbackDigest { get; }
+    public SigningIdentityId RollbackSigningIdentity { get; }
     public SignatureId RollbackSignature { get; }
+    public DeliveryArchitecture RollbackArchitecture { get; }
     public AttestationId HealthProof { get; }
 }
 public sealed class HoldDeliveryIntent : DeliveryIntent
