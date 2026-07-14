@@ -199,23 +199,18 @@ public enum SnapshotRestorePlanError
 public sealed class SnapshotRestorePlan
 {
     internal SnapshotRestorePlan(
-        SnapshotId snapshotId,
-        SnapshotGeneration generation,
-        SnapshotEpoch expectedRestoredEpoch,
-        SnapshotStreamSequence replayStartSequence,
-        SnapshotStateDigest expectedRestoredDigest)
+        SignedSnapshot acceptedSnapshot,
+        SnapshotStreamSequence replayStartSequence)
     {
-        SnapshotId = snapshotId;
-        Generation = generation;
-        ExpectedRestoredEpoch = expectedRestoredEpoch;
+        AcceptedSnapshot = acceptedSnapshot;
         ReplayStartSequence = replayStartSequence;
-        ExpectedRestoredDigest = expectedRestoredDigest;
     }
-    public SnapshotId SnapshotId { get; }
-    public SnapshotGeneration Generation { get; }
-    public SnapshotEpoch ExpectedRestoredEpoch { get; }
+    public SignedSnapshot AcceptedSnapshot { get; }
+    public SnapshotId SnapshotId => AcceptedSnapshot.SignedMaterial.SnapshotId;
+    public SnapshotGeneration Generation => AcceptedSnapshot.SignedMaterial.Generation;
+    public SnapshotEpoch ExpectedRestoredEpoch => AcceptedSnapshot.SignedMaterial.Epoch;
     public SnapshotStreamSequence ReplayStartSequence { get; }
-    public SnapshotStateDigest ExpectedRestoredDigest { get; }
+    public SnapshotStateDigest ExpectedRestoredDigest => AcceptedSnapshot.SignedMaterial.StateDigest;
     public override string ToString() => "<snapshot-restore-plan>";
 }
 
@@ -256,11 +251,6 @@ public static class SnapshotRestorePlanner
         }
 
         SnapshotStreamSequence.TryCreate(material.StreamSequence.Value + 1, out var replayStart);
-        return SnapshotRestorePlanResult.Planned(new SnapshotRestorePlan(
-            material.SnapshotId,
-            material.Generation,
-            material.Epoch,
-            replayStart,
-            material.StateDigest));
+        return SnapshotRestorePlanResult.Planned(new SnapshotRestorePlan(snapshot, replayStart));
     }
 }
