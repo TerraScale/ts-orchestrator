@@ -172,7 +172,8 @@ public sealed class BudgetProviderPropertyTests
             .Any(method => method.ReturnType == typeof(DurableProviderAuthorization))).IsFalse();
         var planned = ProviderOwnershipEngine.Authorize(ProviderRequest());
         var held = ProviderOwnershipEngine.Authorize(ProviderRequest(contextEpoch: 4));
-        var accepted = ProviderOwnershipEngine.Authorize(ProviderRequest(call: new(ProviderCallStatus.Accepted, null)));
+        var acceptedContext = ProviderContext();
+        var accepted = ProviderOwnershipEngine.Authorize(ProviderRequest(context: acceptedContext, call: new(acceptedContext, ProviderCallStatus.Accepted, null)));
         var acceptedObserve = ProviderOwnershipEngine.Authorize(ProviderObserveRequest());
         var acceptedAuthorization = accepted.CaptureDurableAuthorization();
         await Assert.That(Capture(() => planned.CaptureDurableAuthorization())).IsTypeOf<InvalidOperationException>();
@@ -255,17 +256,20 @@ public sealed class BudgetProviderPropertyTests
     private static ProviderResourceId Resource { get; } = new("node-1");
     private static ProviderGeneration Generation { get; } = new(7);
     private static ProviderOwnershipRecord Ownership(ProviderCellId? cell = null) => new(Resource, cell ?? Cell, Compartment, Generation);
+    private static ProviderOperationContext ProviderContext(ulong contextEpoch = 5) => new(
+        new("operation"), Cell, Compartment, new(contextEpoch), ProviderResourceKind.Node,
+        ProviderAction.TerminateNode, new ExistingProviderResource(Resource), Generation, ProviderObservedState.Running,
+        ProviderTerminalState.Terminated, [ProviderApproval.RegionalAuthority], new(DeadlineEvidenceStatus.Valid, new(1)),
+        new("idempotency"), [ProviderCompensation.ObserveOnly], new TerminateNodeProviderParameters());
+
     private static ProviderAuthorizationRequest ProviderRequest(ulong contextEpoch = 5, ulong authorityEpoch = 5,
         ulong observationGeneration = 7, ProviderCellId? ownershipCell = null, IEnumerable<ProviderOwnershipRecord>? ownership = null,
-        ProviderCallEvidence? call = null)
+        ProviderCallEvidence? call = null, ProviderOperationContext? context = null)
     {
-        var context = new ProviderOperationContext(new("operation"), Cell, Compartment, new(contextEpoch), ProviderResourceKind.Node,
-            ProviderAction.TerminateNode, new ExistingProviderResource(Resource), Generation, ProviderObservedState.Running,
-            ProviderTerminalState.Terminated, [ProviderApproval.RegionalAuthority], new(DeadlineEvidenceStatus.Valid, new(1)),
-            new("idempotency"), [ProviderCompensation.ObserveOnly], new TerminateNodeProviderParameters());
-        return new(context, new(Cell, Compartment, new(authorityEpoch)), ownership ?? [Ownership(ownershipCell)], [],
+        var actualContext = context ?? ProviderContext(contextEpoch);
+        return new(actualContext, new(Cell, Compartment, new(authorityEpoch)), ownership ?? [Ownership(ownershipCell)], [],
             ProviderObservationCompleteness.Complete, [new(Resource, new(observationGeneration), ProviderObservedState.Running)], [],
-            [ProviderApproval.RegionalAuthority], null, call ?? new(ProviderCallStatus.NotCalled, null));
+            [ProviderApproval.RegionalAuthority], null, call ?? new(actualContext, ProviderCallStatus.NotCalled, null));
     }
     private static HandoffEvidence Evidence(HandoffScope scope, HandoffEvidenceStatus backup) => new(
         new RetainUnmanageHandoffProof(scope, HandoffEvidenceStatus.Verified), new RegionalJournalHandoffProof(scope, HandoffEvidenceStatus.Verified),
@@ -279,7 +283,7 @@ public sealed class BudgetProviderPropertyTests
             new("observe-idempotency"), [ProviderCompensation.ObserveOnly], new ObserveProviderParameters());
         return new(context, new(Cell, Compartment, new(5)), [Ownership()], [], ProviderObservationCompleteness.Complete,
             [new(Resource, Generation, ProviderObservedState.Running)], [], [ProviderApproval.RegionalAuthority], null,
-            new(ProviderCallStatus.Accepted, null));
+            new(context, ProviderCallStatus.Accepted, null));
     }
     private static ProviderDecisionReason Reason(ProviderAuthorizationDecision decision, ProviderDecisionCode code) => decision.Trace.Single(x => x.Code == code);
     private static string Serialize(ProviderAuthorizationDecision decision) => $"{decision.Authorized}|{string.Join(';', decision.Trace.Select(x => $"{x.Code}:{x.Outcome}:{x.Observed}:{x.Required}"))}|{string.Join(',', decision.Intents.Select(x => x.GetType().Name))}";

@@ -28,7 +28,7 @@ public static class ProviderOwnershipEngine
         var ambiguous = trace.Any(x => x.Outcome == ProviderDecisionOutcome.Held);
         if (ambiguous)
         {
-            foreach (var code in Enum.GetValues<ProviderDecisionCode>().Where(x => x is >= ProviderDecisionCode.ScopeMatches and <= ProviderDecisionCode.TagsNotAuthority))
+            foreach (var code in OperationDecisionCodes)
                 trace.Add(new(code, ProviderDecisionOutcome.Held, 0, 0));
             return Decision(trace, [], null);
         }
@@ -74,6 +74,9 @@ public static class ProviderOwnershipEngine
         var approvals = request.RequiredApprovals.All(context.Approvals.Contains);
         trace.Add(Reject(ProviderDecisionCode.ApprovalsComplete, approvals,
             checked((ulong)request.RequiredApprovals.Count(x => context.Approvals.Contains(x))), checked((ulong)request.RequiredApprovals.Count)));
+
+        var callEvidenceMatches = request.CallEvidence.Context.Fingerprint == context.Fingerprint;
+        trace.Add(Reject(ProviderDecisionCode.CallEvidenceMatches, callEvidenceMatches, callEvidenceMatches ? 1UL : 0UL, 1));
 
         var priorCompatible = request.PriorAuthorization is null || priorExact;
         trace.Add(Reject(ProviderDecisionCode.PriorAuthorizationCompatible, priorCompatible, priorCompatible ? 1UL : 0UL, 1));
@@ -166,6 +169,20 @@ public static class ProviderOwnershipEngine
     };
 
     private static int CheckedDuplicates(IEnumerable<int> counts) => counts.Aggregate(0, (sum, count) => checked(sum + Math.Max(0, count - 1)));
+    private static readonly ProviderDecisionCode[] OperationDecisionCodes =
+    [
+        ProviderDecisionCode.ScopeMatches,
+        ProviderDecisionCode.EpochCurrentOrDurablyResumable,
+        ProviderDecisionCode.OwnershipMatches,
+        ProviderDecisionCode.GenerationMatches,
+        ProviderDecisionCode.DeadlineValid,
+        ProviderDecisionCode.ApprovalsComplete,
+        ProviderDecisionCode.CallEvidenceMatches,
+        ProviderDecisionCode.PriorAuthorizationCompatible,
+        ProviderDecisionCode.ActionResourceCompatible,
+        ProviderDecisionCode.TagsConsistent,
+        ProviderDecisionCode.TagsNotAuthority,
+    ];
     private static bool HasOwnershipConflict(IGrouping<string, ProviderOwnershipRecord> g) => g
         .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, Invariant(x.Generation.Value)))
         .Distinct(StringComparer.Ordinal).Skip(1).Any();

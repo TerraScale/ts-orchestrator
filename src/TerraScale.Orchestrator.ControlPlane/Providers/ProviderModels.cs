@@ -397,14 +397,18 @@ public sealed record ProviderCreateObservation
 public enum ProviderCallStatus { NotCalled = 1, Accepted = 2, ResponseLost = 3, Completed = 4 }
 public sealed record ProviderCallEvidence
 {
-    public ProviderCallEvidence(ProviderCallStatus status, ProviderWorkRequestId? workRequestId)
+    public ProviderCallEvidence(
+        ProviderOperationContext context, ProviderCallStatus status, ProviderWorkRequestId? workRequestId)
     {
+        ArgumentNullException.ThrowIfNull(context);
         if (!Enum.IsDefined(status)) throw new ArgumentOutOfRangeException(nameof(status));
         if (status == ProviderCallStatus.NotCalled && workRequestId is not null)
             throw new ArgumentException("A call that was not made cannot have a work request ID.", nameof(workRequestId));
+        Context = context;
         Status = status;
         WorkRequestId = workRequestId;
     }
+    public ProviderOperationContext Context { get; }
     public ProviderCallStatus Status { get; }
     public ProviderWorkRequestId? WorkRequestId { get; }
 }
@@ -464,7 +468,7 @@ public enum ProviderDecisionCode
     TagsNotAuthority = 14, HandoffInventoryUnique = 15, HandoffInventoryExact = 16,
     HandoffScopeMatches = 17, HandoffRetainUnmanage = 18, HandoffJournalReceipt = 19,
     HandoffProviderReady = 20, HandoffTrustReady = 21, HandoffBackupReady = 22,
-    HandoffFenceActivated = 23,
+    HandoffFenceActivated = 23, CallEvidenceMatches = 24,
 }
 public enum ProviderDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record ProviderDecisionReason

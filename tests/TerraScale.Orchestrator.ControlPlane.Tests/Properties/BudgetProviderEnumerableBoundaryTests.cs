@@ -105,7 +105,7 @@ public sealed class BudgetProviderEnumerableBoundaryTests
             ProviderAction.TerminateNode, new ExistingProviderResource(Resource), new(7), ProviderObservedState.Running, ProviderTerminalState.Terminated,
             [ProviderApproval.RegionalAuthority], new(DeadlineEvidenceStatus.Valid, new(1)), new("idempotency"), [ProviderCompensation.ObserveOnly], new TerminateNodeProviderParameters());
         return new(context, new(Cell, Compartment, new(5)), ownership, [], ProviderObservationCompleteness.Complete,
-            [new(Resource, new(7), ProviderObservedState.Running)], [], [ProviderApproval.RegionalAuthority], null, new(ProviderCallStatus.NotCalled, null));
+            [new(Resource, new(7), ProviderObservedState.Running)], [], [ProviderApproval.RegionalAuthority], null, new(context, ProviderCallStatus.NotCalled, null));
     }
     private static Exception? Capture(Action action) { try { action(); return null; } catch (Exception exception) { return exception; } }
 }

@@ -42,7 +42,7 @@ public static class CoreSafetyProbe
             ProviderObservationCompleteness.Complete,
             [new ProviderResourceObservation(resource, generation, ProviderObservedState.Running)], [],
             [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], null,
-            new(ProviderCallStatus.NotCalled, null));
+            new(context, ProviderCallStatus.NotCalled, null));
         var decision = ProviderOwnershipEngine.Authorize(request);
         return !decision.Authorized && decision.Intents.Count == 0;
     }

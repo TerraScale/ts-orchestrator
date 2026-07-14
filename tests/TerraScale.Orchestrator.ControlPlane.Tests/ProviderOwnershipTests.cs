@@ -55,7 +55,7 @@ public sealed class ProviderOwnershipTests
     {
         var context = Context(epoch: 5);
         var prior = ProviderOwnershipEngine.Authorize(Request(context: context,
-            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
+            call: new(context, ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(context: context, authority: Authority(6), prior: prior));
         await Assert.That(decision.Authorized).IsTrue();
         await Assert.That(decision.Intents.Single() is TerminateNodeProviderIntent).IsTrue();
@@ -67,7 +67,7 @@ public sealed class ProviderOwnershipTests
         var original = Context(action: ProviderAction.TerminateNode, terminal: ProviderTerminalState.Terminated);
         var conflicting = Context(action: ProviderAction.StopNode, terminal: ProviderTerminalState.Stopped);
         var prior = ProviderOwnershipEngine.Authorize(Request(context: original,
-            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
+            call: new(original, ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(context: conflicting, prior: prior));
         await Assert.That(decision.Authorized).IsFalse();
         await Assert.That(Reason(decision, ProviderDecisionCode.PriorAuthorizationCompatible).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
@@ -77,8 +77,9 @@ public sealed class ProviderOwnershipTests
     public async Task LostResponseUsesSameIdempotencyAndReadsWorkRequestOrObserves()
     {
         var work = new ProviderWorkRequestId("work-1");
-        var read = ProviderOwnershipEngine.Authorize(Request(call: new(ProviderCallStatus.ResponseLost, work)));
-        var observe = ProviderOwnershipEngine.Authorize(Request(call: new(ProviderCallStatus.ResponseLost, null)));
+        var context = Context();
+        var read = ProviderOwnershipEngine.Authorize(Request(context: context, call: new(context, ProviderCallStatus.ResponseLost, work)));
+        var observe = ProviderOwnershipEngine.Authorize(Request(context: context, call: new(context, ProviderCallStatus.ResponseLost, null)));
         await Assert.That(((ReadProviderWorkRequestIntent)read.Intents.Single()).WorkRequestId).IsEqualTo(work);
         await Assert.That(read.Intents.Single().Context.IdempotencyKey).IsEqualTo(Context().IdempotencyKey);
         await Assert.That(observe.Intents.Single() is ObserveProviderResourceIntent).IsTrue();
@@ -87,7 +88,8 @@ public sealed class ProviderOwnershipTests
     [Test]
     public async Task AcceptedCallWithoutWorkRequestIsObservedAndNeverRepeated()
     {
-        var decision = ProviderOwnershipEngine.Authorize(Request(call: new(ProviderCallStatus.Accepted, null)));
+        var context = Context();
+        var decision = ProviderOwnershipEngine.Authorize(Request(context: context, call: new(context, ProviderCallStatus.Accepted, null)));
         await Assert.That(decision.Authorized).IsTrue();
         await Assert.That(decision.Intents.Single() is ObserveProviderResourceIntent).IsTrue();
     }
@@ -97,10 +99,10 @@ public sealed class ProviderOwnershipTests
     {
         var context = Context(epoch: 5);
         var prior = ProviderOwnershipEngine.Authorize(Request(context: context,
-            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
+            call: new(context, ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var decision = ProviderOwnershipEngine.Authorize(Request(
             context: context, authority: Authority(6), prior: prior,
-            call: new(ProviderCallStatus.Accepted, null)));
+            call: new(context, ProviderCallStatus.Accepted, null)));
         await Assert.That(decision.Authorized).IsTrue();
         await Assert.That(decision.Intents.Single() is ObserveProviderResourceIntent).IsTrue();
         await Assert.That(decision.Intents.Single().Context).IsSameReferenceAs(context);
@@ -130,7 +132,7 @@ public sealed class ProviderOwnershipTests
         var intentDecision = ProviderOwnershipEngine.Authorize(Request(
             context: original, observedState: ProviderObservedState.Present));
         var prior = ProviderOwnershipEngine.Authorize(Request(context: original, observedState: ProviderObservedState.Present,
-            call: new(ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
+            call: new(original, ProviderCallStatus.Accepted, null))).CaptureDurableAuthorization();
         var changedDecision = ProviderOwnershipEngine.Authorize(Request(
             context: changed, observedState: ProviderObservedState.Present, prior: prior));
         var wrongParameters = VolumeContext(new ChangeVolumePerformanceProviderParameters(ProviderVolumePerformance.Iops));
@@ -204,7 +206,7 @@ public sealed class ProviderOwnershipTests
         var incomplete = ProviderOwnershipEngine.Authorize(new(
             Context(), Authority(), [Ownership()], [], ProviderObservationCompleteness.Incomplete,
             [Observation()], [], [ProviderApproval.RegionalAuthority], null,
-            new(ProviderCallStatus.NotCalled, null)));
+            new(Context(), ProviderCallStatus.NotCalled, null)));
         await Assert.That(Reason(wrongGeneration, ProviderDecisionCode.GenerationMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
         await Assert.That(Reason(wrongScope, ProviderDecisionCode.ScopeMatches).Outcome).IsEqualTo(ProviderDecisionOutcome.Rejected);
         await Assert.That(Reason(unknownDeadline, ProviderDecisionCode.DeadlineValid).Outcome).IsEqualTo(ProviderDecisionOutcome.Held);
@@ -332,7 +334,7 @@ public sealed class ProviderOwnershipTests
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new HandoffInventoryItem(Resource, (ProviderResourceKind)0, Generation))).IsTrue();
         var inventory = new FreshBootstrapInventory(Inventory(), Inventory(), Inventory());
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => Evidence(Scope(inventory), (HandoffEvidenceStatus)0))).IsTrue();
-        await Assert.That(Throws<ArgumentException>(() => new ProviderCallEvidence(ProviderCallStatus.NotCalled, new("impossible-work")))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new ProviderCallEvidence(Context(), ProviderCallStatus.NotCalled, new("impossible-work")))).IsTrue();
     }
 
     private static ProviderCellId Cell { get; } = new("gru");
@@ -414,7 +416,7 @@ public sealed class ProviderOwnershipTests
             isCreate ? [] : [Observation(observationGeneration, observedState)],
             createObservations ?? (isCreate ? [new ProviderCreateObservation(create!.Key, Generation, ProviderObservedState.Absent, null)] : []),
             required ?? [ProviderApproval.RegionalAuthority, ProviderApproval.DestructiveMutation], prior,
-            call ?? new(ProviderCallStatus.NotCalled, null));
+            call ?? new(actualContext, ProviderCallStatus.NotCalled, null));
     }
 
     private static HandoffInventoryItem[] Inventory() =>
