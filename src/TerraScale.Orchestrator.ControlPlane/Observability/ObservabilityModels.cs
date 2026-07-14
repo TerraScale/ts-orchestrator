@@ -328,8 +328,8 @@ public sealed record GrafanaInventoryEvidence
 
 public sealed record GrafanaProjectionRequest
 {
-    public GrafanaProjectionRequest(ObservabilityOperationId operationId, ObservabilityOwnerId ownerId, ObservabilityTenantId tenantId, ObservabilityCellId cellId, GrafanaAccessBoundary accessBoundary, ObservabilityGeneration generation, ObservabilitySequence currentSequence, EnumerationLimit desiredLimit, IEnumerable<DesiredGrafanaResource> desired, GrafanaInventoryEvidence inventory)
-    { OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId)); OwnerId = ownerId ?? throw new ArgumentNullException(nameof(ownerId)); TenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId)); CellId = cellId ?? throw new ArgumentNullException(nameof(cellId)); AccessBoundary = ObservabilityGuards.Defined(accessBoundary, nameof(accessBoundary)); Generation = generation ?? throw new ArgumentNullException(nameof(generation)); CurrentSequence = currentSequence ?? throw new ArgumentNullException(nameof(currentSequence)); DesiredLimit = desiredLimit ?? throw new ArgumentNullException(nameof(desiredLimit)); Desired = ObservabilityGuards.CopyBounded(desired, DesiredLimit, nameof(desired)).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToArray(); if (Desired.Select(r => r.Id).Distinct().Count() != Desired.Count) throw new ArgumentException("Duplicate desired Grafana resource identity."); Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory)); }
+    public GrafanaProjectionRequest(ObservabilityOperationId operationId, ObservabilityOwnerId ownerId, ObservabilityTenantId tenantId, ObservabilityCellId cellId, GrafanaAccessBoundary accessBoundary, ObservabilityGeneration generation, ObservabilitySequence currentSequence, ObservabilityGeneration currentAcceptedGeneration, ObservabilitySequence currentAcceptedSequence, EnumerationLimit desiredLimit, IEnumerable<DesiredGrafanaResource> desired, GrafanaInventoryEvidence inventory)
+    { OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId)); OwnerId = ownerId ?? throw new ArgumentNullException(nameof(ownerId)); TenantId = tenantId ?? throw new ArgumentNullException(nameof(tenantId)); CellId = cellId ?? throw new ArgumentNullException(nameof(cellId)); AccessBoundary = ObservabilityGuards.Defined(accessBoundary, nameof(accessBoundary)); Generation = generation ?? throw new ArgumentNullException(nameof(generation)); CurrentSequence = currentSequence ?? throw new ArgumentNullException(nameof(currentSequence)); CurrentAcceptedGeneration = currentAcceptedGeneration ?? throw new ArgumentNullException(nameof(currentAcceptedGeneration)); CurrentAcceptedSequence = currentAcceptedSequence ?? throw new ArgumentNullException(nameof(currentAcceptedSequence)); DesiredLimit = desiredLimit ?? throw new ArgumentNullException(nameof(desiredLimit)); Desired = ObservabilityGuards.CopyBounded(desired, DesiredLimit, nameof(desired)).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToArray(); if (Desired.Select(r => r.Id).Distinct().Count() != Desired.Count) throw new ArgumentException("Duplicate desired Grafana resource identity."); Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory)); }
     public ObservabilityOperationId OperationId { get; }
     public ObservabilityOwnerId OwnerId { get; }
     public ObservabilityTenantId TenantId { get; }
@@ -337,6 +337,8 @@ public sealed record GrafanaProjectionRequest
     public GrafanaAccessBoundary AccessBoundary { get; }
     public ObservabilityGeneration Generation { get; }
     public ObservabilitySequence CurrentSequence { get; }
+    public ObservabilityGeneration CurrentAcceptedGeneration { get; }
+    public ObservabilitySequence CurrentAcceptedSequence { get; }
     public EnumerationLimit DesiredLimit { get; }
     public IReadOnlyList<DesiredGrafanaResource> Desired { get; }
     public GrafanaInventoryEvidence Inventory { get; }
@@ -403,7 +405,7 @@ public sealed record AlertDeliveryKey
     public AlertState State { get; }
 }
 
-public enum ObservabilityDecisionCode { EvidenceComplete = 1, ScopeExact = 2, OperationExact = 3, GenerationCurrent = 4, SchemaExact = 5, LabelsBounded = 6, SecretFree = 7, CardinalityWithinBudget = 8, PersistenceExact = 9, RetentionExact = 10, IngestHaSatisfied = 11, QueryHaSatisfied = 12, SpoolWithinPolicy = 13, OwnershipExact = 14, AccessExact = 15, ProjectionExact = 16, DedupeUnique = 17 }
+public enum ObservabilityDecisionCode { EvidenceComplete = 1, ScopeExact = 2, OperationExact = 3, GenerationCurrent = 4, SchemaExact = 5, LabelsBounded = 6, SecretFree = 7, CardinalityWithinBudget = 8, PersistenceExact = 9, RetentionExact = 10, IngestHaSatisfied = 11, QueryHaSatisfied = 12, SpoolWithinPolicy = 13, OwnershipExact = 14, AccessExact = 15, ProjectionExact = 16, DedupeUnique = 17, ProjectionGenerationNotRollback = 18, ProjectionSequenceNotRollback = 19 }
 public enum ObservabilityDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record ObservabilityDecisionReason { internal ObservabilityDecisionReason(ObservabilityDecisionCode code, ObservabilityDecisionOutcome outcome, ulong observed, ulong required) { Code = code; Outcome = outcome; Observed = observed; Required = required; } public ObservabilityDecisionCode Code { get; } public ObservabilityDecisionOutcome Outcome { get; } public ulong Observed { get; } public ulong Required { get; } }
 

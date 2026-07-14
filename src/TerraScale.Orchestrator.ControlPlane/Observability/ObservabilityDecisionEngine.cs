@@ -121,6 +121,12 @@ public static class ObservabilityDecisionEngine
             : request.Inventory.Sequence.Value > request.CurrentSequence.Value ? Held(ObservabilityDecisionCode.EvidenceComplete, request.Inventory.Sequence.Value, request.CurrentSequence.Value)
             : request.Inventory.Sequence != request.CurrentSequence ? Reject(ObservabilityDecisionCode.EvidenceComplete, false, request.Inventory.Sequence.Value, request.CurrentSequence.Value)
             : Hold(ObservabilityDecisionCode.EvidenceComplete, request.Inventory.Completeness == EvidenceCompleteness.Complete));
+        trace.Add(Reject(ObservabilityDecisionCode.ProjectionGenerationNotRollback,
+            request.Generation.Value >= request.CurrentAcceptedGeneration.Value,
+            request.Generation.Value, request.CurrentAcceptedGeneration.Value));
+        trace.Add(Reject(ObservabilityDecisionCode.ProjectionSequenceNotRollback,
+            request.CurrentSequence.Value >= request.CurrentAcceptedSequence.Value,
+            request.CurrentSequence.Value, request.CurrentAcceptedSequence.Value));
         var desiredScope = request.Desired.All(r => r.OwnerId == request.OwnerId && r.TenantId == request.TenantId && r.CellId == request.CellId && r.Generation == request.Generation);
         trace.Add(Reject(ObservabilityDecisionCode.ScopeExact, desiredScope));
         var accesses = request.Desired.Select(r => r.Selection).OfType<AccessSelection>().ToArray();
