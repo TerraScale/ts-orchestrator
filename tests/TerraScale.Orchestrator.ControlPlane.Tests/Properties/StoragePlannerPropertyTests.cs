@@ -410,8 +410,10 @@ public sealed class StoragePlannerPropertyTests
             {
                 nameof(StorageIntentScope.Claim), nameof(StorageIntentScope.ProviderVolume),
                 nameof(StorageIntentScope.Attachment), nameof(StorageIntentScope.Cell), nameof(StorageIntentScope.Node),
-                nameof(StorageIntentScope.Workload), nameof(StorageIntentScope.Member), nameof(StorageIntentScope.DeviceId),
+                nameof(StorageIntentScope.Workload), nameof(StorageIntentScope.Member), nameof(StorageIntentScope.Domain),
+                nameof(StorageIntentScope.EncryptionKey), nameof(StorageIntentScope.Placement), nameof(StorageIntentScope.DeviceId),
                 nameof(StorageIntentScope.FilesystemId), nameof(StorageIntentScope.FilesystemType), nameof(StorageIntentScope.Layout),
+                nameof(StorageIntentScope.MountPurpose),
                 nameof(StorageIntentScope.Retention), nameof(StorageIntentScope.Backup),
                 nameof(StorageIntentScope.Operation), nameof(StorageIntentScope.Fence),
             });
@@ -500,6 +502,8 @@ public sealed class StoragePlannerPropertyTests
             scope is null || scope.Claim != volume.Claim || scope.ProviderVolume != volume.ProviderVolume ||
             scope.Attachment != volume.Attachment || scope.Cell != volume.Cell || scope.Node != (expectedNode ?? volume.Node) ||
             scope.Workload != volume.Workload || scope.Member != volume.Member || scope.DeviceId != volume.DeviceId ||
+            scope.Domain != volume.Domain || !ReferenceEquals(scope.EncryptionKey, volume.EncryptionKey) ||
+            !ReferenceEquals(scope.Placement, volume.Placement) || scope.MountPurpose != volume.MountPurpose ||
             scope.FilesystemId != volume.FilesystemId || scope.FilesystemType != volume.FilesystemType ||
             scope.Layout != volume.Layout || scope.Retention != volume.Retention ||
             !ReferenceEquals(scope.Backup, volume.Backup) || scope.Operation != volume.Operation || scope.Fence != volume.WriterFence)
