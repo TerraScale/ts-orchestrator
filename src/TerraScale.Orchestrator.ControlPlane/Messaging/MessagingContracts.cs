@@ -371,9 +371,14 @@ public sealed record ConfigurePlaneIntent : MessagingIntent { internal Configure
 public sealed record ConfigureReplacementIntent : MessagingIntent { internal ConfigureReplacementIntent(ReplacementOperation operation) : base(MessagingAction.Configure) => Operation = operation; public ReplacementOperation Operation { get; } }
 public sealed record ObserveClusterIntent : MessagingIntent
 {
-    internal ObserveClusterIntent(MessagingOperationId operation, ClusterId cluster, long minimumSequence, long maximumSequence) : base(MessagingAction.Observe)
-    { Operation = operation; Cluster = cluster; MinimumSequence = minimumSequence; MaximumSequence = maximumSequence; }
-    public MessagingOperationId Operation { get; } public ClusterId Cluster { get; } public long MinimumSequence { get; } public long MaximumSequence { get; }
+    internal ObserveClusterIntent(ReplacementOperation replacement) : base(MessagingAction.Observe) =>
+        Replacement = replacement ?? throw new ArgumentNullException(nameof(replacement));
+
+    public ReplacementOperation Replacement { get; }
+    public MessagingOperationId Operation => Replacement.OperationId;
+    public ClusterId Cluster => Replacement.Cluster;
+    public long MinimumSequence => Replacement.MinimumObservationSequence;
+    public long MaximumSequence => Replacement.MaximumObservationSequence;
 }
 public sealed record AddPeerIntent : MessagingIntent
 {

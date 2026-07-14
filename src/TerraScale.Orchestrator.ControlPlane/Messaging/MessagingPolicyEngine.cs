@@ -29,8 +29,7 @@ public static class MessagingPolicyEngine
         var operation = request.Proposed;
         if (request.Observation is null)
         {
-            var observe = new ObserveClusterIntent(operation.OperationId, operation.Cluster,
-                operation.MinimumObservationSequence, operation.MaximumObservationSequence);
+            var observe = new ObserveClusterIntent(operation);
             return Decision([observe], [], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
         }
 
@@ -137,8 +136,7 @@ public static class MessagingPolicyEngine
             if (failed.Health == PeerHealth.Current && failed.CaughtUp && failed.OwnershipProven &&
                 ReplicasVerified(policy, observation))
                 return Decision([], [], [new(1, MessagingTraceCode.ReplacementComplete, MessagingAction.Observe)]);
-            var observe = new ObserveClusterIntent(operation.OperationId, operation.Cluster,
-                operation.MinimumObservationSequence, operation.MaximumObservationSequence);
+            var observe = new ObserveClusterIntent(operation);
             return Decision([observe], [], [new(1, MessagingTraceCode.ObservationRequired, observe.Action)]);
         }
 
