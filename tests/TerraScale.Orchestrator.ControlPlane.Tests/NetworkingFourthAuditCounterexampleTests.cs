@@ -202,6 +202,55 @@ public sealed class NetworkingFourthAuditCounterexampleTests
     }
 
     [Test]
+    public async Task Route_evidence_scope_and_subject_observations_are_independently_sensitive()
+    {
+        var scope = NetworkingTestData.RouteScope();
+        var evidence = NetworkingTestData.RouteEvidence(scope);
+        NetworkAddress.TryCreate(new byte[16], out var ipv6Address);
+        NetworkPrefix.TryCreate(ipv6Address, 8, out var ipv6Prefix);
+        var scopeMutations = new[]
+        {
+            scope with { Cell = NetworkingTestData.Cell("cell-b") },
+            scope with { PeerCell = NetworkingTestData.Cell("peer-cell-b") },
+            scope with { Network = NetworkingTestData.Net("network-b") },
+            scope with { Subnet = NetworkingTestData.Subnet("subnet-b") },
+            scope with { Route = NetworkingTestData.Route("route-b") },
+            scope with { Peer = NetworkingTestData.Peer("peer-b") },
+            scope with { Tunnel = NetworkingTestData.Tunnel("tunnel-b") },
+            scope with { TrustPlane = NetworkTrustPlane.Control },
+            scope with { RouteKind = NetworkRouteKind.ExplicitReplication },
+            scope with { Destination = NetworkingTestData.Prefix(11) },
+            scope with { Destination = ipv6Prefix! },
+            scope with { Destination = NetworkingTestData.Prefix(10, bits: 16) },
+            scope with { Generation = NetworkingTestData.O(8) },
+            scope with { Epoch = NetworkingTestData.O(4) },
+            scope with { Operation = NetworkingTestData.Op("operation-b") },
+        };
+        foreach (var mutation in scopeMutations)
+        {
+            await Assert.That(NetworkingTestData.RouteEvidence(mutation)).IsNotEqualTo(evidence);
+        }
+        await Assert.That(scopeMutations.Length).IsEqualTo(15);
+
+        var generation = NetworkingTestData.O(8);
+        var epoch = NetworkingTestData.O(4);
+        var baselineSubject = ConstructRouteSubject(scope, scope.Generation, scope.Epoch, evidence);
+        var generationSubject = ConstructRouteSubject(scope, generation, scope.Epoch, evidence);
+        var epochSubject = ConstructRouteSubject(scope, scope.Generation, epoch, evidence);
+        foreach (var subject in new[] { baselineSubject, generationSubject, epochSubject })
+        {
+            await Assert.That(ReferenceEquals(subject.Scope, scope)).IsTrue();
+            await Assert.That(ReferenceEquals(subject.Evidence, evidence)).IsTrue();
+        }
+        await Assert.That(generationSubject.ObservedGeneration).IsEqualTo(generation);
+        await Assert.That(generationSubject.ObservedEpoch).IsEqualTo(scope.Epoch);
+        await Assert.That(epochSubject.ObservedGeneration).IsEqualTo(scope.Generation);
+        await Assert.That(epochSubject.ObservedEpoch).IsEqualTo(epoch);
+        await Assert.That(Emit(baselineSubject)).IsNotEqualTo(Emit(generationSubject));
+        await Assert.That(Emit(baselineSubject)).IsNotEqualTo(Emit(epochSubject));
+    }
+
+    [Test]
     public async Task Endpoint_scope_and_evidence_records_are_independently_field_sensitive()
     {
         var scope = NetworkingTestData.EndpointScope();
@@ -269,14 +318,34 @@ public sealed class NetworkingFourthAuditCounterexampleTests
     public async Task Network_output_factory_accessor_default_copy_and_clone_routes_are_closed()
     {
         var assembly = typeof(NetworkDecision).Assembly;
-        var factories = assembly.GetExportedTypes().SelectMany(static type => type.GetMethods(
-                BindingFlags.Public|BindingFlags.Static|BindingFlags.DeclaredOnly))
-            .Where(static method => method.ReturnType == typeof(NetworkDecision))
-            .Select(static method => $"{method.DeclaringType!.Name}.{method.Name}").ToArray();
-        await Assert.That(factories).IsEquivalentTo(new[]
+        var retainedReturnTypes = new HashSet<Type>
         {
-            "NetworkRoutePlanner.Plan", "NetworkEndpointPlanner.PlanRegister",
-            "NetworkEndpointPlanner.PlanRemoval", "NetworkEndpointPlanner.PlanEmergencyWithdrawal",
+            typeof(NetworkDecision), typeof(NetworkIntentSubject), typeof(NetworkRouteIntentSubject),
+            typeof(NetworkEndpointIntentSubject), typeof(NetworkRouteScope), typeof(NetworkEndpointScope),
+            typeof(NetworkRouteEvidence), typeof(NetworkEndpointEvidence), typeof(NetworkNumericTrace),
+            typeof(IReadOnlyList<NetworkRouteObservation>), typeof(IReadOnlyList<NetworkPrefix>),
+            typeof(IReadOnlyList<NetworkPeerLink>), typeof(IReadOnlyList<NetworkCellId>),
+        };
+        var routes = assembly.GetExportedTypes()
+            .SelectMany(static type => type.GetMethods(BindingFlags.Public | BindingFlags.Static |
+                BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => retainedReturnTypes.Contains(method.ReturnType))
+            .Select(static method => $"{method.DeclaringType!.Name}.{method.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        await Assert.That(routes).IsEquivalentTo(new[]
+        {
+            "NetworkDecision.get_Subject", "NetworkDecision.get_Trace",
+            "NetworkEndpointEvidence.<Clone>$", "NetworkEndpointEvidence.get_Scope",
+            "NetworkEndpointIntentSubject.<Clone>$", "NetworkEndpointIntentSubject.get_Evidence",
+            "NetworkEndpointIntentSubject.get_Scope", "NetworkEndpointPlanner.PlanEmergencyWithdrawal",
+            "NetworkEndpointPlanner.PlanRegister", "NetworkEndpointPlanner.PlanRemoval",
+            "NetworkEndpointScope.<Clone>$", "NetworkIntentSubject.<Clone>$",
+            "NetworkNumericTrace.<Clone>$", "NetworkRouteEvidence.get_ApprovedPrefixes",
+            "NetworkRouteEvidence.get_Cells", "NetworkRouteEvidence.get_Links",
+            "NetworkRouteEvidence.get_Routes", "NetworkRouteEvidence.get_Scope",
+            "NetworkRouteIntentSubject.<Clone>$", "NetworkRouteIntentSubject.get_Evidence",
+            "NetworkRouteIntentSubject.get_Scope", "NetworkRoutePlanner.Plan", "NetworkRouteScope.<Clone>$",
         });
         await Assert.That(typeof(NetworkDecision).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(NetworkDecision).GetProperties(BindingFlags.Public|BindingFlags.Instance)
@@ -324,11 +393,6 @@ public sealed class NetworkingFourthAuditCounterexampleTests
         await Assert.That(ReferenceEquals(endpointClone.Scope, endpointScope)).IsTrue();
         await Assert.That(ReferenceEquals(endpointClone.Evidence, endpointEvidence)).IsTrue();
         await Assert.That(typeof(NetworkNumericTrace).GetConstructors(BindingFlags.Public|BindingFlags.Instance).Length).IsEqualTo(1);
-        await Assert.That(assembly.GetExportedTypes().SelectMany(static type => type.GetMethods(
-                BindingFlags.Public|BindingFlags.Static|BindingFlags.Instance|BindingFlags.DeclaredOnly))
-            .Where(static method => method.ReturnType == typeof(NetworkIntentSubject))
-            .Select(static method => $"{method.DeclaringType!.Name}.{method.Name}"))
-            .IsEquivalentTo(["NetworkDecision.get_Subject", "NetworkIntentSubject.<Clone>$"]);
     }
 
     private static async Task AssertEndpointBranches(NetworkEndpointScope scope,
@@ -381,6 +445,21 @@ public sealed class NetworkingFourthAuditCounterexampleTests
         await Assert.That(decision.Action).IsEqualTo(NetworkAction.Hold);
         await Assert.That(decision.Subject).IsNull();
         await Assert.That(decision.IsMutationAuthorized).IsFalse();
+    }
+
+    private static NetworkRouteIntentSubject ConstructRouteSubject(NetworkRouteScope scope,
+        NetworkOrdinal observedGeneration, NetworkOrdinal observedEpoch, NetworkRouteEvidence evidence) =>
+        (NetworkRouteIntentSubject)typeof(NetworkRouteIntentSubject)
+            .GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
+            .Single(static constructor => constructor.GetParameters().Length == 4)
+            .Invoke([scope, observedGeneration, observedEpoch, evidence]);
+
+    private static NetworkDecision Emit(NetworkRouteIntentSubject subject)
+    {
+        var trace = new NetworkNumericTrace(subject.Generation, subject.Epoch, 0, 0);
+        return (NetworkDecision)typeof(NetworkDecision)
+            .GetMethod("Emit", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [NetworkAction.Verify, NetworkTarget.Route, NetworkCode.Completed, subject, trace])!;
     }
 
     private static IReadOnlyList<string> ReplayCases()
