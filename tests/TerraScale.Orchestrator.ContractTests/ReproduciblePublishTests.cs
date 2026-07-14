@@ -140,21 +140,29 @@ public sealed class ReproduciblePublishTests
     }
 
     [Test]
-    public async Task SuccessfulPublishResultHasOnlyTheRealAsynchronousPublicFactory()
+    public async Task SuccessfulPublishResultHasOnlyTheRealAsynchronousOriginatingPublicFactory()
     {
         var assembly = typeof(ReproduciblePublisher).Assembly;
-        var resultFactories = assembly.GetExportedTypes()
-            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+        var resultReturningMembers = assembly.GetExportedTypes()
+            .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Select(method => (Type: type, Method: method)))
             .Where(candidate => ReturnsPublishResult(candidate.Method.ReturnType))
             .ToArray();
+        var nonOriginatingClones = resultReturningMembers
+            .Where(candidate => IsNonOriginatingResultClone(candidate.Type, candidate.Method))
+            .ToArray();
+        var originatingFactories = resultReturningMembers.Except(nonOriginatingClones).ToArray();
 
-        await Assert.That(resultFactories).HasSingleItem();
-        await Assert.That(resultFactories[0].Type).IsEqualTo(typeof(ReproduciblePublisher));
-        await Assert.That(resultFactories[0].Method.Name).IsEqualTo(nameof(ReproduciblePublisher.RunAsync));
-        await Assert.That(resultFactories[0].Method.ReturnType).IsEqualTo(typeof(Task<ReproduciblePublishResult>));
-        await Assert.That(resultFactories.Any(candidate =>
+        await Assert.That(nonOriginatingClones).HasSingleItem();
+        await Assert.That(originatingFactories).HasSingleItem();
+        await Assert.That(originatingFactories[0].Type).IsEqualTo(typeof(ReproduciblePublisher));
+        await Assert.That(originatingFactories[0].Method.Name).IsEqualTo(nameof(ReproduciblePublisher.RunAsync));
+        await Assert.That(originatingFactories[0].Method.IsStatic).IsTrue();
+        await Assert.That(originatingFactories[0].Method.ReturnType).IsEqualTo(typeof(Task<ReproduciblePublishResult>));
+        await Assert.That(originatingFactories.Any(candidate =>
             candidate.Method.ReturnType == typeof(ReproduciblePublishResult))).IsFalse();
+        await Assert.That(typeof(ReproduciblePublishResult).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Any(property => property.SetMethod is { IsPublic: true })).IsFalse();
         await Assert.That(assembly.GetExportedTypes().Any(type =>
             type.FullName == "TerraScale.ReproduciblePublish.PublishObservationVerifier")).IsFalse();
         await Assert.That(typeof(PublishObservationVerifier).IsNotPublic).IsTrue();
@@ -330,6 +338,9 @@ public sealed class ReproduciblePublishTests
     private static bool ReturnsPublishResult(Type type) => type == typeof(ReproduciblePublishResult) ||
         type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>) &&
         type.GetGenericArguments().Single() == typeof(ReproduciblePublishResult);
+    private static bool IsNonOriginatingResultClone(Type type, MethodInfo method) =>
+        type == typeof(ReproduciblePublishResult) && type.IsSealed && !method.IsStatic &&
+        method.Name == "<Clone>$" && method.ReturnType == type && method.GetParameters().Length == 0;
     private const UnixFileMode ExecutableMode = UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
 
     private static string Digest(char value) => new(value, 64);
