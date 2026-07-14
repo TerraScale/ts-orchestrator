@@ -194,7 +194,7 @@ internal static class SecurityCompletenessData
         IssueIdentityIntent x => $"{x.OperationId.Value},{x.Principal.Id.Value},{x.Issuer.IssuerId.Value}",
         IssueCertificateIntent x => CertificateSubject(x.Request), RenewCertificateIntent x => CertificateSubject(x.Request),
         RotateCertificateIntent x => CertificateSubject(x.Request), RevokeCertificateIntent x => CertificateSubject(x.Request),
-        AuthorizeCapabilityIntent x => $"{x.OperationId.Value},{x.PrincipalId.Value},{x.Capability},{ScopeFingerprint(x.ResourceScope)}",
+        AuthorizeCapabilityIntent x => $"{x.OperationId.Value},{x.PrincipalId.Value},{x.Capability},{ScopeFingerprint(x.ResourceScope)},expected={x.ExpectedPrincipalGeneration.Value},current={x.CurrentPrincipalGeneration.Value},policy={x.PolicyGeneration.Value},current-policy={x.CurrentPolicyGeneration.Value},current-revocation={x.CurrentRevocationGeneration.Value},evidence={PrincipalFingerprint(x.Evidence.Principal)},{x.Evidence.RevocationGeneration.Value},{x.Evidence.Revocation},{x.Evidence.Status},grant={GrantFingerprint(x.Grant)}",
         GrantSecretLeaseIntent x => LeaseSubject(x.Request), RenewSecretLeaseIntent x => LeaseSubject(x.Request), RevokeSecretLeaseIntent x => LeaseSubject(x.Request),
         AcceptSurvivalSecretReferencesIntent x => $"{x.OperationId.Value},{x.Request.CellId.Value},{x.Request.BundleGeneration.Value},{string.Join(',', x.Request.References.Select(r => $"{r.SecretId.Value}:{r.Version.Value}"))}",
         HoldSecurityOperationIntent x => x.OperationId.Value,
@@ -230,7 +230,7 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "6cf537ab07c9cd85f7c8cede406dab5be67f27ccb220efc9058e25b2e8c8b8fd";
+    private const string Digest = "8c3110ab332c3b3e5bd61671ef16cdac8a9d0c1fea05b0b75fea67bc00b7bf7b";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
     { ["enrollment"] = 15, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };

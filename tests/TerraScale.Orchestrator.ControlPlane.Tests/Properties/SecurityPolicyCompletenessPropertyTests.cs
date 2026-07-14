@@ -146,8 +146,15 @@ public sealed class SecurityPolicyCompletenessPropertyTests
             RequireNonPass(decision, AuthorizationNonPass[variant], seed, "authorization complete trace");
             if (variant == 0)
             {
-                Require(decision.Authorized && decision.Intent is AuthorizeCapabilityIntent intent && intent.PrincipalId == request.PrincipalId &&
-                    intent.Capability == request.Capability && intent.ResourceScope == request.ResourceScope, seed, "authorization subject");
+                Require(decision.Authorized && decision.Intent is AuthorizeCapabilityIntent,seed,"authorization intent");
+                var intent=(AuthorizeCapabilityIntent)decision.Intent;
+                Require(intent.PrincipalId == request.PrincipalId && intent.Capability == request.Capability &&
+                    intent.ResourceScope == request.ResourceScope, seed, "authorization subject");
+                Require(intent.Evidence == request.PrincipalEvidence[0] && intent.Grant == request.Grants[0] &&
+                    intent.ExpectedPrincipalGeneration == request.ExpectedPrincipalGeneration &&
+                    intent.CurrentPrincipalGeneration == request.CurrentPrincipalGeneration &&
+                    intent.PolicyGeneration == request.PolicyGeneration && intent.CurrentPolicyGeneration == request.CurrentPolicyGeneration &&
+                    intent.CurrentRevocationGeneration == request.CurrentRevocationGeneration,seed,"authorization provenance");
                 Require(decision.Trace.All(x => x.Outcome == SecurityDecisionOutcome.Passed), seed, "authorization accepted trace");
             }
             else
