@@ -181,6 +181,7 @@ public sealed class MessagingPolicyEngineTests
         await Assert.That(intent.ReplacementPlacement).IsEqualTo(operation.ReplacementPlacement);
         await Assert.That(intent.Store).IsEqualTo(new StoreId("control-store-3"));
         await Assert.That(intent.StoreGeneration).IsEqualTo(4);
+        await Assert.That(intent.ObservedMembershipSequence).IsEqualTo(initial.MembershipSequence);
         await Assert.That(intent.OwnershipEpoch).IsEqualTo(operation.AuthorityEpoch);
 
         var replay = MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation,
@@ -213,6 +214,77 @@ public sealed class MessagingPolicyEngineTests
 
         await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy, operation, operation,
             SurvivingObservation(operation, null, compatible: false), 64)), MessagingErrorCode.ConflictingEvidence);
+    }
+
+    [Test]
+    public async Task SurvivingStoreRejectsDifferentStoreIdentityAndGenerationRollbackOrAdvance()
+    {
+        var operation = Operation();
+        var observation = SurvivingObservation(operation, activeAttachment: null);
+        var replayedProof = observation.Peers.Select(peer =>
+            peer.Server == operation.FailedServer
+                ? peer with
+                {
+                    SurvivingStoreProof = peer.SurvivingStoreProof! with
+                    {
+                        Store = new StoreId("unrelated-store"),
+                        StoreGeneration = 1,
+                    },
+                }
+                : peer);
+        var replayed = new ClusterObservation(
+            observation.ObservationId,
+            observation.Cluster,
+            observation.ConfigurationGeneration,
+            observation.MembershipSequence,
+            replayedProof,
+            observation.StreamReplicas,
+            observation.BucketReplicas);
+
+        var decision = MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation, replayed, 64));
+
+        await AssertHeld(decision, MessagingErrorCode.ConflictingEvidence);
+
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation,
+            SurvivingObservation(operation, null, storeGeneration: operation.CurrentStoreGeneration - 1), 64)),
+            MessagingErrorCode.StaleEvidence);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation,
+            SurvivingObservation(operation, null, storeGeneration: operation.CurrentStoreGeneration + 1), 64)),
+            MessagingErrorCode.FutureEvidence);
+
+        var mixed = SurvivingObservation(operation, null,
+            ownershipEpoch: operation.AuthorityEpoch + 1,
+            storeGeneration: operation.CurrentStoreGeneration - 1);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(Control(), operation, operation, mixed, 64)),
+            MessagingErrorCode.StaleEvidence);
+    }
+
+    [Test]
+    public async Task ReplacementOperationRequiresExactStoreIdentityAndGeneration()
+    {
+        var operation = Operation();
+        var policy = Control();
+
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy,
+            operation with { FailedStore = null! }, null, null, 64)), MessagingErrorCode.InvalidInput);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy,
+            operation with { FailedStore = new StoreId("") }, null, null, 64)), MessagingErrorCode.InvalidInput);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy,
+            operation with { CurrentStoreGeneration = 0 }, null, null, 64)), MessagingErrorCode.InvalidInput);
+
+        var observation = Observation(operation, false, false, 3);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy, operation,
+            operation with { FailedStore = new StoreId("other-store") }, observation, 64)),
+            MessagingErrorCode.ReplacementConflict);
+        await AssertHeld(MessagingPolicyEngine.DecideReplacement(new(policy, operation,
+            operation with { CurrentStoreGeneration = operation.CurrentStoreGeneration - 1 }, observation, 64)),
+            MessagingErrorCode.ReplacementConflict);
+
+        var persist = MessagingPolicyEngine.DecideReplacement(new(policy, operation, null, observation, 64));
+        var configured = (ConfigureReplacementIntent)persist.Intents.Single();
+        await Assert.That(configured.Operation).IsEqualTo(operation);
+        await Assert.That(configured.Operation.FailedStore).IsEqualTo(operation.FailedStore);
+        await Assert.That(configured.Operation.CurrentStoreGeneration).IsEqualTo(operation.CurrentStoreGeneration);
     }
 
     [Test]
@@ -496,7 +568,8 @@ public sealed class MessagingPolicyEngineTests
 
     private static ReplacementOperation Operation() => new(
         new MessagingOperationId("replace-1"), MessagingPlane.Control, new CellId("gru"), new ClusterId("control-cluster"),
-        3, 9, 7, 100, 200, new ServerId("control-server-3"), new PeerId("control-peer-3"),
+        3, 9, 7, 100, 200, new StoreId("control-store-3"), 4,
+        new ServerId("control-server-3"), new PeerId("control-peer-3"),
         new ServerId("control-server-4"), new PeerId("control-peer-4"), new PlacementId("host-4"));
 
     private static ClusterObservation Observation(
@@ -537,9 +610,10 @@ public sealed class MessagingPolicyEngineTests
         MessagingPlane plane = MessagingPlane.Control,
         long proofSequence = 150,
         long ownershipEpoch = 9,
+        long storeGeneration = 4,
         bool compatible = true)
     {
-        var proof = new SurvivingStoreProof(new StoreId("control-store-3"), 4, proofSequence,
+        var proof = new SurvivingStoreProof(new StoreId("control-store-3"), storeGeneration, proofSequence,
             plane, operation.Cell, operation.Cluster, operation.FailedServer, activeAttachment, ownershipEpoch, compatible);
         var peers = new List<PeerObservation>
         {

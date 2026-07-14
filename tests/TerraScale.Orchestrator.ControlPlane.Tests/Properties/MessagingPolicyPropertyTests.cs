@@ -22,6 +22,16 @@ public sealed class MessagingPolicyPropertyTests
     }
 
     [Test]
+    public async Task SurvivingStoreProofPropertiesBindExactIdentityAndGenerationFor1000Cases()
+    {
+        var first = UnderCulture("tr-TR", () => RunSurvivingStoreProofs(0xA471_1004));
+        var replay = UnderCulture("ja-JP", () => RunSurvivingStoreProofs(0xA471_1004));
+        await Assert.That(first).IsEqualTo(replay);
+        await Assert.That(first.Cases).IsEqualTo(Cases);
+        await Assert.That(first.Coverage).IsEqualTo(5);
+    }
+
+    [Test]
     public async Task PartitionPropertiesFollowExactIndependentAuthorityAndGenerationPrecedenceFor1000Cases()
     {
         var first = UnderCulture("tr-TR", () => RunPartition(0xA471_1002));
@@ -185,6 +195,49 @@ public sealed class MessagingPolicyPropertyTests
         return new(Cases, coverage.Count, digest);
     }
 
+    private static Summary RunSurvivingStoreProofs(ulong seed)
+    {
+        var generator = new Generator(seed); var coverage = new HashSet<int>(); ulong digest = 0;
+        for (var index = 0; index < Cases; index++)
+        {
+            var mode = index % 5; var salt = generator.Next(1_000_000); var operation = Operation(index, salt);
+            var original = SurvivingObservation(index, operation);
+            var proof = original.Peers.Single(peer => peer.Server == operation.FailedServer).SurvivingStoreProof!;
+            proof = mode switch
+            {
+                1 => proof with { Store = new StoreId($"unrelated-store-{index}") },
+                2 => proof with { StoreGeneration = operation.CurrentStoreGeneration - 1 },
+                3 => proof with { StoreGeneration = operation.CurrentStoreGeneration + 1 },
+                4 => proof with
+                {
+                    StoreGeneration = operation.CurrentStoreGeneration - 1,
+                    OwnershipEpoch = operation.AuthorityEpoch + 1,
+                },
+                _ => proof,
+            };
+            var peers = original.Peers.Select(peer => peer.Server == operation.FailedServer
+                ? peer with { SurvivingStoreProof = proof }
+                : peer);
+            var observation = new ClusterObservation(original.ObservationId, original.Cluster,
+                original.ConfigurationGeneration, original.MembershipSequence, peers,
+                original.StreamReplicas, original.BucketReplicas);
+            var decision = MessagingPolicyEngine.DecideReplacement(new(Control(index), operation, operation, observation, 96));
+            var reversed = MessagingPolicyEngine.DecideReplacement(new(Control(index), operation, operation, Reverse(observation), 96));
+            var expected = mode switch
+            {
+                0 => "ReattachStore",
+                1 => nameof(MessagingErrorCode.ConflictingEvidence),
+                3 => nameof(MessagingErrorCode.FutureEvidence),
+                _ => nameof(MessagingErrorCode.StaleEvidence),
+            };
+            Require(Outcome(decision) == expected && Outcome(reversed) == expected, "store-proof", index);
+            if (mode == 0) VerifyReplacementSubject(decision,
+                new(Control(index), operation, operation, observation, 96), 7, index);
+            coverage.Add(mode); digest = Mix(digest, expected, proof.StoreGeneration);
+        }
+        return new(Cases, coverage.Count, digest);
+    }
+
     private static Summary RunIsolation(ulong seed)
     {
         var generator = new Generator(seed); var coverage = new HashSet<int>(); ulong digest = 0;
@@ -299,7 +352,9 @@ public sealed class MessagingPolicyPropertyTests
         AddPeerIntent x => $"add:{x.Operation.Value}:{x.Server.Value}:{x.Peer.Value}:{x.AuthorityEpoch}",
         WaitCatchupIntent x => $"wait:{x.Operation.Value}:{x.Peer.Value}:{x.RequiredSequence}",
         RemovePeerIntent x => $"remove:{x.Operation.Value}:{x.FailedServer.Value}:{x.FailedPeer.Value}:{x.ReplacementPeer.Value}:{x.AuthorityEpoch}",
-        ReattachSurvivingStoreIntent x => $"reattach:{x.Operation.Value}:{x.Store.Value}:{x.RecordedServer.Value}:{x.OwnershipEpoch}",
+        ReattachSurvivingStoreIntent x =>
+            $"reattach:{x.Operation.Value}:{x.Plane}:{x.Cell.Value}:{x.Cluster.Value}:{x.RecordedServer.Value}:{x.RecordedPeer.Value}:" +
+            $"{x.ReplacementPlacement.Value}:{x.Store.Value}:{x.StoreGeneration}:{x.ObservedMembershipSequence}:{x.OwnershipEpoch}",
         ContinueRegionalIntent x => $"regional:{x.Cell.Value}:{x.RegionalEpoch}:{x.AcceptedGlobalGeneration}",
         ContinueGlobalIntent x => $"global:{x.Cell.Value}:{x.GlobalEpoch}:{x.AcceptedGlobalGeneration}",
         ConfigurePlaneIntent x => $"plane:{x.Policy.Plane}:{x.Policy.Cell.Value}:{x.Policy.Cluster.Value}:{x.Policy.Generation}",
@@ -361,6 +416,7 @@ public sealed class MessagingPolicyPropertyTests
         MessagingDiskSyncClass.AcknowledgedWriteStrict);
     private static ReplacementOperation Operation(int index, int salt) => new(new($"replace-{index}-{salt}"), MessagingPlane.Control,
         new($"cell-{index}"), new($"control-cluster-{index}"), index + 1L, index + 11L, 7, 100, 200,
+        new($"store-{index}"), 4,
         new($"control-server-{index}-3"), new($"control-peer-{index}-3"), new($"replacement-server-{index}"),
         new($"replacement-peer-{index}"), new($"replacement-host-{index}"));
     private static ClusterObservation Observation(int index, ReplacementOperation operation, bool replacement = false,

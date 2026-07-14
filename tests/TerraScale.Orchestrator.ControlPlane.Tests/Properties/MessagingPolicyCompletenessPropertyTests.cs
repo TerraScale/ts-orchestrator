@@ -170,7 +170,8 @@ public sealed class MessagingPolicyCompletenessPropertyTests
             [new AccountPolicy(account, [$"ts.control{suffix}.>"])], [stream], [bucket]);
         var operation = new ReplacementOperation(new MessagingOperationId($"replace-{suffix}"),
             MessagingPlane.Control, policy.Cell, policy.Cluster, index + 1L, index + 11L, policy.Generation,
-            100, 200, servers[2].Server, servers[2].Peer, new ServerId($"replacement-server-{suffix}"),
+            100, 200, new StoreId($"control-store-{suffix}"), 4,
+            servers[2].Server, servers[2].Peer, new ServerId($"replacement-server-{suffix}"),
             new PeerId($"replacement-peer-{suffix}"), new PlacementId($"replacement-host-{suffix}"));
         var peers = new PeerObservation[]
         {
