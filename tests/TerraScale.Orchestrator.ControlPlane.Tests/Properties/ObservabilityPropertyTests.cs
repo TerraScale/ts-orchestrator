@@ -69,6 +69,95 @@ public sealed class ObservabilityPropertyTests
     }
 
     [Test]
+    public async Task Regional_health_scope_persistence_retention_ha_spool_and_evidence_follow_exact_oracle_for_1000_cases()
+    {
+        var identities = new HashSet<string>(StringComparer.Ordinal); var executed = 0;
+        for (var seed = 1UL; seed <= Cases; seed++)
+        {
+            var variant = (int)(seed % 13); var request = ObservabilityData.Regional(seed, variant); identities.Add(request.OperationId.Value);
+            var decision = ObservabilityDecisionEngine.EvaluateRegionalHealth(request);
+            Require(decision.Intent is AggregateRegionalTelemetryIntent && decision.Authorized == (variant == 0), seed, "regional action");
+            var intent = (AggregateRegionalTelemetryIntent)decision.Intent;
+            Require(ReferenceEquals(intent.Request, request) && intent.OperationId == request.OperationId && intent.Findings.Count == 3, seed, "regional subject");
+
+            var targetCode = variant switch
+            {
+                4 => ObservabilityDecisionCode.PersistenceExact,
+                5 => ObservabilityDecisionCode.RetentionExact,
+                6 => ObservabilityDecisionCode.IngestHaSatisfied,
+                7 => ObservabilityDecisionCode.QueryHaSatisfied,
+                8 => ObservabilityDecisionCode.SpoolWithinPolicy,
+                9 or 10 => ObservabilityDecisionCode.EvidenceComplete,
+                _ => ObservabilityDecisionCode.ScopeExact,
+            };
+            var outcome = variant switch
+            {
+                0 => ObservabilityDecisionOutcome.Passed,
+                1 or 2 or 3 or 4 or 5 => ObservabilityDecisionOutcome.Rejected,
+                _ => ObservabilityDecisionOutcome.Held,
+            };
+            Require(decision.Trace.Single(r => r.Code == targetCode).Outcome == outcome, seed, "regional code");
+
+            var expectedTrace = variant switch
+            {
+                0 => new[] { ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed },
+                1 or 2 or 3 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held],
+                4 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held],
+                5 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Rejected, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held],
+                6 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed],
+                7 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Passed],
+                8 => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Held],
+                9 or 10 => [ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held],
+                _ => [ObservabilityDecisionOutcome.Passed, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held, ObservabilityDecisionOutcome.Held],
+            };
+            ObservabilityDecisionCode[] expectedCodes = [ObservabilityDecisionCode.EvidenceComplete, ObservabilityDecisionCode.ScopeExact,
+                ObservabilityDecisionCode.PersistenceExact, ObservabilityDecisionCode.RetentionExact, ObservabilityDecisionCode.IngestHaSatisfied,
+                ObservabilityDecisionCode.QueryHaSatisfied, ObservabilityDecisionCode.SpoolWithinPolicy];
+            Require(decision.Trace.Select(r => r.Code).SequenceEqual(expectedCodes) && decision.Trace.Select(r => r.Outcome).SequenceEqual(expectedTrace), seed, "regional trace precedence");
+
+            Require(intent.Findings.Select(f => f.Signal).SequenceEqual(Enum.GetValues<TelemetrySignalKind>()), seed, "regional finding order");
+            var expectedMetric = variant switch
+            {
+                1 or 2 or 3 or 4 or 5 or 9 or 10 or 11 or 12 => (TelemetryAvailability.Unknown, TelemetryAvailability.Unknown, SpoolStatus.Unknown, false),
+                6 => (TelemetryAvailability.Unavailable, TelemetryAvailability.Available, SpoolStatus.Healthy, false),
+                7 => (TelemetryAvailability.Available, TelemetryAvailability.Unavailable, SpoolStatus.Healthy, false),
+                _ => (TelemetryAvailability.Available, TelemetryAvailability.Available, SpoolStatus.Healthy, false),
+            };
+            var metric = intent.Findings.Single(f => f.Signal == TelemetrySignalKind.Metric);
+            Require((metric.Ingest, metric.Query, metric.Spool, metric.DataLoss) == expectedMetric, seed, "regional metric finding");
+            foreach (var signal in new[] { TelemetrySignalKind.Log, TelemetrySignalKind.Trace })
+            {
+                var finding = intent.Findings.Single(f => f.Signal == signal);
+                Require((finding.Ingest, finding.Query, finding.Spool, finding.DataLoss) ==
+                    (TelemetryAvailability.Available, TelemetryAvailability.Available, SpoolStatus.Healthy, false), seed, $"regional {signal} finding");
+            }
+            executed++;
+        }
+        await Assert.That(executed).IsEqualTo(1000); await Assert.That(identities.Count).IsEqualTo(1000);
+    }
+
+    [Test]
+    public async Task Regional_health_permutation_and_culture_replay_is_stable_for_1000_cases()
+    {
+        var cultures = new[] { "tr-TR", "ar-SA", "ja-JP" }; var executed = 0;
+        for (var seed = 1UL; seed <= Cases; seed++)
+        {
+            var previous = CultureInfo.CurrentCulture; var previousUi = CultureInfo.CurrentUICulture;
+            try
+            {
+                var variant = (int)(seed % 13);
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US"); CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+                var a = ObservabilityDecisionEngine.EvaluateRegionalHealth(ObservabilityData.Regional(seed, variant, false));
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(cultures[seed % 3]); CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(cultures[seed % 3]);
+                var b = ObservabilityDecisionEngine.EvaluateRegionalHealth(ObservabilityData.Regional(seed, variant, true));
+                Require(SerializeRegional(a) == SerializeRegional(b), seed, "regional permutation and culture"); executed++;
+            }
+            finally { CultureInfo.CurrentCulture = previous; CultureInfo.CurrentUICulture = previousUi; }
+        }
+        await Assert.That(executed).IsEqualTo(1000);
+    }
+
+    [Test]
     public async Task Duplicate_and_conflicting_evidence_fail_closed_for_1000_cases()
     {
         var executed = 0; for (var seed = 1UL; seed <= Cases; seed++)
@@ -127,10 +216,11 @@ public sealed class ObservabilityPropertyTests
             Require(EvaluateEntry(entry with { Seed = entry.Seed + 1 }).Item2 != fingerprint, entry.Seed, "mutated seed sensitivity");
         }
         var corpus = ObservabilityCorpus.Load();
-        await Assert.That(corpus.Count).IsEqualTo(17);
+        await Assert.That(corpus.Count).IsEqualTo(30);
         await Assert.That(corpus.Where(x => x.Kind == "admission").Select(x => x.Variant).Order().SequenceEqual(Enumerable.Range(0, 6))).IsTrue();
         await Assert.That(corpus.Where(x => x.Kind == "projection").Select(x => x.Variant).Order().SequenceEqual(Enumerable.Range(0, 5))).IsTrue();
         await Assert.That(corpus.Where(x => x.Kind == "alert").Select(x => x.Variant).Order().SequenceEqual(Enumerable.Range(0, 6))).IsTrue();
+        await Assert.That(corpus.Where(x => x.Kind == "regional").Select(x => x.Variant).Order().SequenceEqual(Enumerable.Range(0, 13))).IsTrue();
     }
 
     [Test]
@@ -169,10 +259,17 @@ public sealed class ObservabilityPropertyTests
     private static (string, string) AdmissionResult(ObservabilityEntry e) { var r = ObservabilityData.Admission(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateTelemetryAdmission(r); return (d.Intent.GetType().Name, $"{r.Spec.OperationId.Value}|{r.Spec.MetricId.Value}|{r.Spec.SchemaGeneration.Value}"); }
     private static (string, string) ProjectionResult(ObservabilityEntry e) { var r = ObservabilityData.Projection(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateGrafanaProjection(r); var name = d.Intent is ProjectGrafanaIntent p ? p.Changes.Single().GetType().Name : d.Intent.GetType().Name; return (name, $"{r.OperationId.Value}|{r.Generation.Value}"); }
     private static (string, string) AlertResult(ObservabilityEntry e) { var r = ObservabilityData.Alert(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateAlertRouting(r); return (d.Intent.GetType().Name, $"{r.Alert.OperationId.Value}|{r.Alert.AlertId.Value}|{r.Alert.Generation.Value}"); }
-    private static (string, string) EvaluateEntry(ObservabilityEntry e) => e.Kind switch { "admission" => AdmissionResult(e), "projection" => ProjectionResult(e), "alert" => AlertResult(e), _ => throw new InvalidDataException() };
-    private static string ExpectedFingerprint(ObservabilityEntry e) => e.Kind switch { "admission" => $"operation-{e.Seed}|metric-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "projection" => $"operation-{e.Seed}|{1000 + e.Seed}", "alert" => $"{(e.Variant == 4 ? "wrong" : "operation")}-{e.Seed}|alert-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", _ => throw new InvalidDataException() };
+    private static (string, string) RegionalResult(ObservabilityEntry e)
+    {
+        var r = ObservabilityData.Regional(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateRegionalHealth(r); var code = ObservabilityData.RegionalCode(e.Variant);
+        var observations = string.Join(',', r.Observations.Where(o => o.Signal == TelemetrySignalKind.Metric).Select(o => $"{o.OperationId.Value}:{o.CellId.Value}:{o.Generation.Value}:{o.Sequence.Value}:{o.SchemaDigest.Sha256[0]}:{o.Persistence}:{o.Retention.Value}:{o.HealthyIngestReplicas}:{o.HealthyQueryReplicas}:{o.LocalSpoolBytes}"));
+        return ($"{d.Intent.GetType().Name}|{d.Authorized}|{code}:{d.Trace.Single(x => x.Code == code).Outcome}", $"{r.OperationId.Value}|{r.CellId.Value}|{r.Generation.Value}|{r.CurrentSequence.Value}|{r.Observations.Count}|{observations}");
+    }
+    private static (string, string) EvaluateEntry(ObservabilityEntry e) => e.Kind switch { "admission" => AdmissionResult(e), "projection" => ProjectionResult(e), "alert" => AlertResult(e), "regional" => RegionalResult(e), _ => throw new InvalidDataException() };
+    private static string ExpectedFingerprint(ObservabilityEntry e) => e.Kind switch { "admission" => $"operation-{e.Seed}|metric-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "projection" => $"operation-{e.Seed}|{1000 + e.Seed}", "alert" => $"{(e.Variant == 4 ? "wrong" : "operation")}-{e.Seed}|alert-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "regional" => ObservabilityData.ExpectedRegionalFingerprint(e.Seed, e.Variant), _ => throw new InvalidDataException() };
     private static string Entry(string id, string seed, string kind, int variant, string expected) => $"{{\"schema\":\"terrascale.observability-replay.v1\",\"entries\":[{{\"id\":\"{id}\",\"seed\":{seed},\"kind\":\"{kind}\",\"variant\":{variant},\"expected\":\"{expected}\"}}]}}";
     private static string Serialize(ObservabilityDecision d) => $"{d.Authorized}|{d.Intent.GetType().Name}|" + string.Join(';', d.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"));
+    private static string SerializeRegional(ObservabilityDecision d) => Serialize(d) + "|" + string.Join(';', ((AggregateRegionalTelemetryIntent)d.Intent).Findings.Select(f => $"{f.Signal}:{f.Ingest}:{f.Query}:{f.Spool}:{f.DataLoss}"));
     private static void Require(bool condition, ulong seed, string property) { if (!condition) throw new InvalidOperationException($"{property} failed at seed {seed}."); }
     private static bool Fails(Action action) { try { action(); return false; } catch (Exception) { return true; } }
     private static bool Throws<T>(Action action) where T : Exception { try { action(); return false; } catch (T) { return true; } }
@@ -212,16 +309,75 @@ internal static class ObservabilityData
         var dedupe = new AlertDedupeEvidence(operation, tenant, cell, variant == 5 ? new($"other-{seed}") : signal, new(generation), Digest(), new(9), new("oncall"), ContactCatalogEntry.GlobalOnCall, alert.Severity, alert.State, EvidenceCompleteness.Complete, new(2), delivered);
         return new(alert, operation, tenant, cell, signal, new(generation), Digest(), new(9), new("oncall"), ContactCatalogEntry.GlobalOnCall, dedupe);
     }
+
+    internal static RegionalHealthRequest Regional(ulong seed, int variant, bool reverse = false)
+    {
+        var operation = new ObservabilityOperationId($"regional-operation-{seed}"); var cell = new ObservabilityCellId($"regional-cell-{seed}");
+        var generation = 2000 + seed; var sequence = 3000 + seed; var retention = 24 + seed % 24; var replicas = 2 + seed % 3; var spoolLimit = 4000 + seed;
+        var policies = Enum.GetValues<TelemetrySignalKind>().Select(signal => new RegionalSignalPolicy(signal, TelemetryPersistence.LocalEncryptedSpool,
+            new(retention), new(replicas), new(replicas), new(spoolLimit), SpoolOverflowPolicy.DropOldestAndAlert)).ToArray();
+        RegionalSignalObservation Observation(TelemetrySignalKind signal) => new(
+            signal == TelemetrySignalKind.Metric && variant == 1 ? new($"wrong-operation-{seed}") : operation,
+            signal == TelemetrySignalKind.Metric && variant == 2 ? new($"wrong-cell-{seed}") : cell,
+            signal,
+            new(signal == TelemetrySignalKind.Metric && variant == 11 ? generation + 1 : generation),
+            new(signal == TelemetrySignalKind.Metric && variant == 12 ? sequence + 1 : sequence),
+            signal == TelemetrySignalKind.Metric && variant == 3 ? Digest('b') : Digest(),
+            signal == TelemetrySignalKind.Metric && variant == 4 ? TelemetryPersistence.Memory : TelemetryPersistence.LocalEncryptedSpool,
+            new(signal == TelemetrySignalKind.Metric && variant == 5 ? retention - 1 : retention),
+            signal == TelemetrySignalKind.Metric && variant == 6 ? replicas - 1 : replicas,
+            signal == TelemetrySignalKind.Metric && variant == 7 ? replicas - 1 : replicas,
+            signal == TelemetrySignalKind.Metric && variant == 8 ? spoolLimit + 1 : spoolLimit,
+            true, SpoolStatus.Healthy);
+        var observations = Enum.GetValues<TelemetrySignalKind>().Select(Observation).ToList();
+        if (variant == 9) observations.Add(Observation(TelemetrySignalKind.Metric));
+        if (variant == 10) observations.Add(new(operationId: new($"conflict-operation-{seed}"), cellId: cell, signal: TelemetrySignalKind.Metric,
+            generation: new(generation), sequence: new(sequence), schemaDigest: Digest(), persistence: TelemetryPersistence.Memory,
+            retention: new(retention), healthyIngestReplicas: replicas, healthyQueryReplicas: replicas, localSpoolBytes: spoolLimit,
+            centralReachable: true, spoolStatus: SpoolStatus.Healthy));
+        if (reverse) { Array.Reverse(policies); observations.Reverse(); }
+        return new(operation, cell, new(generation), new(sequence), Digest(), new(8), policies, observations);
+    }
+
+    internal static ObservabilityDecisionCode RegionalCode(int variant) => variant switch
+    {
+        4 => ObservabilityDecisionCode.PersistenceExact,
+        5 => ObservabilityDecisionCode.RetentionExact,
+        6 => ObservabilityDecisionCode.IngestHaSatisfied,
+        7 => ObservabilityDecisionCode.QueryHaSatisfied,
+        8 => ObservabilityDecisionCode.SpoolWithinPolicy,
+        9 or 10 => ObservabilityDecisionCode.EvidenceComplete,
+        _ => ObservabilityDecisionCode.ScopeExact,
+    };
+
+    internal static string ExpectedRegionalFingerprint(ulong seed, int variant)
+    {
+        var generation = 2000 + seed; var sequence = 3000 + seed; var retention = 24 + seed % 24; var replicas = 2 + seed % 3; var spool = 4000 + seed;
+        var operation = variant == 1 ? $"wrong-operation-{seed}" : $"regional-operation-{seed}"; var cell = variant == 2 ? $"wrong-cell-{seed}" : $"regional-cell-{seed}";
+        var metric = $"{operation}:{cell}:{(variant == 11 ? generation + 1 : generation)}:{(variant == 12 ? sequence + 1 : sequence)}:{(variant == 3 ? 'b' : 'a')}:{(variant == 4 ? TelemetryPersistence.Memory : TelemetryPersistence.LocalEncryptedSpool)}:{(variant == 5 ? retention - 1 : retention)}:{(variant == 6 ? replicas - 1 : replicas)}:{(variant == 7 ? replicas - 1 : replicas)}:{(variant == 8 ? spool + 1 : spool)}";
+        if (variant == 9) metric += $",regional-operation-{seed}:regional-cell-{seed}:{generation}:{sequence}:a:{TelemetryPersistence.LocalEncryptedSpool}:{retention}:{replicas}:{replicas}:{spool}";
+        if (variant == 10) metric += $",conflict-operation-{seed}:regional-cell-{seed}:{generation}:{sequence}:a:{TelemetryPersistence.Memory}:{retention}:{replicas}:{replicas}:{spool}";
+        return $"regional-operation-{seed}|regional-cell-{seed}|{generation}|{sequence}|{(variant is 9 or 10 ? 4 : 3)}|{metric}";
+    }
 }
 
 internal sealed record ObservabilityEntry(string Id, ulong Seed, string Kind, int Variant, string Expected);
 internal static class ObservabilityCorpus
 {
-    private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.ObservabilityReplayCorpus.v1.json"; private const string Digest = "0fd10baee8c38d2a133e1be28f26b169aa25bb6542fc10badeaa00d761965795";
+    private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.ObservabilityReplayCorpus.v1.json"; private const string Digest = "b725a4b56e7b7afc33a2554d2596713ec84989ca64f70dc9d67f3a507dbdf2e8";
     internal static IReadOnlyList<ObservabilityEntry> Load() { using var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(Resource) ?? throw new InvalidDataException(); return Parse(ReadBounded(s), true); }
     internal static byte[] ReadBounded(Stream s) { using var m = new MemoryStream(); var b = new byte[1024]; var total = 0; while (true) { var n = s.Read(b); if (n == 0) break; total += n; if (total > 8192) throw new InvalidDataException(); m.Write(b, 0, n); } return m.ToArray(); }
     internal static IReadOnlyList<ObservabilityEntry> Parse(byte[] bytes, bool enforceDigest) { if (bytes.Length > 8192 || enforceDigest && Convert.ToHexStringLower(SHA256.HashData(bytes)) != Digest) throw new InvalidDataException(); using var d = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 4, AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow }); var root = d.RootElement; Exact(root, "schema", "entries"); if (root.GetProperty("schema").GetString() != "terrascale.observability-replay.v1") throw new InvalidDataException(); var result = new List<ObservabilityEntry>(); foreach (var x in root.GetProperty("entries").EnumerateArray()) { if (result.Count == 64) throw new InvalidDataException(); Exact(x, "id", "seed", "kind", "variant", "expected"); result.Add(new(x.GetProperty("id").GetString()!, x.GetProperty("seed").GetUInt64(), x.GetProperty("kind").GetString()!, x.GetProperty("variant").GetInt32(), x.GetProperty("expected").GetString()!)); } if (result.Count == 0 || result.Select(x => x.Id).Distinct().Count() != result.Count || result.Select(x => x.Seed).Distinct().Count() != result.Count || result.Any(x => x.Seed is 0 or > 1_000_000 || !ValidId(x.Id) || !Vocabulary(x))) throw new InvalidDataException(); return result; }
-    private static bool Vocabulary(ObservabilityEntry x) => (x.Kind, x.Variant, x.Expected) switch { ("admission", 0, "AdmitTelemetryIntent") or ("admission", 1 or 2 or 4 or 5, "DropTelemetryIntent") or ("admission", 3, "HoldObservabilityIntent") => true, ("projection", 0, "CreateGrafanaResource") or ("projection", 1, "UpdateGrafanaResource") or ("projection", 2, "DeleteGrafanaResource") or ("projection", 3, "ReportGrafanaDrift") or ("projection", 4, "HoldObservabilityIntent") => true, ("alert", 0, "RouteAlertIntent") or ("alert", 1 or 2 or 3 or 4 or 5, "HoldObservabilityIntent") => true, _ => false };
+    private static bool Vocabulary(ObservabilityEntry x) => (x.Kind, x.Variant, x.Expected) switch { ("admission", 0, "AdmitTelemetryIntent") or ("admission", 1 or 2 or 4 or 5, "DropTelemetryIntent") or ("admission", 3, "HoldObservabilityIntent") => true, ("projection", 0, "CreateGrafanaResource") or ("projection", 1, "UpdateGrafanaResource") or ("projection", 2, "DeleteGrafanaResource") or ("projection", 3, "ReportGrafanaDrift") or ("projection", 4, "HoldObservabilityIntent") => true, ("alert", 0, "RouteAlertIntent") or ("alert", 1 or 2 or 3 or 4 or 5, "HoldObservabilityIntent") => true,
+        ("regional", 0, "AggregateRegionalTelemetryIntent|True|ScopeExact:Passed") or
+        ("regional", 1 or 2 or 3, "AggregateRegionalTelemetryIntent|False|ScopeExact:Rejected") or
+        ("regional", 4, "AggregateRegionalTelemetryIntent|False|PersistenceExact:Rejected") or
+        ("regional", 5, "AggregateRegionalTelemetryIntent|False|RetentionExact:Rejected") or
+        ("regional", 6, "AggregateRegionalTelemetryIntent|False|IngestHaSatisfied:Held") or
+        ("regional", 7, "AggregateRegionalTelemetryIntent|False|QueryHaSatisfied:Held") or
+        ("regional", 8, "AggregateRegionalTelemetryIntent|False|SpoolWithinPolicy:Held") or
+        ("regional", 9 or 10, "AggregateRegionalTelemetryIntent|False|EvidenceComplete:Held") or
+        ("regional", 11 or 12, "AggregateRegionalTelemetryIntent|False|ScopeExact:Held") => true, _ => false };
     private static bool ValidId(string? x) { if (x is null || x.Length is < 1 or > 64 || x[0] == '-' || x[^1] == '-') return false; var h = false; foreach (var c in x) { var n = c == '-'; if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9') && !n || n && h) return false; h = n; } return true; }
     private static void Exact(JsonElement e, params string[] names) { if (!e.EnumerateObject().Select(p => p.Name).Order().SequenceEqual(names.Order())) throw new InvalidDataException(); }
 }
