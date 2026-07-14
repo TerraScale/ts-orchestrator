@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "reportKind": "draft-lexical-traceability",
   "claimsAcceptanceEvidence": false,
-  "inputSha256": "896960e0024fe9bb41b22c002f8f472e03bec4b6c0f5926ee00dca1942d99f58",
+  "inputSha256": "96203dd62e54e24d6b0dc5d9fd96a19808411c639bf9957935144368af25514c",
   "counts": {
     "registered": 43,
     "linked": 6,
@@ -909,7 +909,7 @@
         },
         {
           "path": "src/TerraScale.Orchestrator.Protocol/CommandValidation.cs",
-          "line": 107
+          "line": 181
         }
       ],
       "testReferences": [
