@@ -149,11 +149,13 @@ public sealed class IdentityNetworkPropertyTests
                 "ingress" => Ingress(entry.Variant, entry.Seed).Action.ToString(),
                 "public-http" => NetworkingPolicyCompletenessPropertyTests.ReplayPublicHttp(entry.Seed),
                 "route-permutation" => NetworkingPolicyCompletenessPropertyTests.ReplayRoutePermutation(entry.Seed),
+                "route-provenance" => NetworkingPolicyCompletenessPropertyTests.ReplayRouteProvenance(entry.Seed),
+                "endpoint-plan-provenance" => NetworkingPolicyCompletenessPropertyTests.ReplayEndpointPlanProvenance(entry.Seed),
                 _ => throw new InvalidDataException("Unknown replay kind."),
             };
             Require(actual == entry.Expected, checked((int)entry.Seed), entry.Id);
         }
-        await Assert.That(entries.Count).IsEqualTo(23);
+        await Assert.That(entries.Count).IsEqualTo(25);
     }
 
     [Test]
@@ -294,7 +296,7 @@ internal sealed record IdentityNetworkReplayEntry(string Id, ulong Seed, string 
 internal static class IdentityNetworkReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.IdentityNetworkReplayCorpus.v1.json";
-    private const string Digest = "435c686afc9495cfcd03796fbdbafbe2d70bd9653363b647a1d59dead5e7213c";
+    private const string Digest = "82c63295cd856ab39e6281c790b8aee23fff078f0908c47e9cc88bb0638f6d20";
     private const int MaximumBytes = 8192;
 
     internal static IReadOnlyList<IdentityNetworkReplayEntry> Load()
@@ -342,6 +344,7 @@ internal static class IdentityNetworkReplayCorpus
         ("route", 0, "ConfigureTunnel") or ("route", 1, "Observe") or ("route", 2, "ConfigureRoute") or ("route", 3, "Verify") or ("route", 4, "Hold") => true,
         ("ingress", 0, "Register") or ("ingress", 1, "Promote") or ("ingress", 2, "DnsUpdate") or ("ingress", 3, "Observe") or ("ingress", 4, "Verify") or ("ingress", 5, "Hold") => true,
         ("public-http", 0, "ForbiddenExposure") or ("route-permutation", 0, "WrongEvidenceScope") => true,
+        ("route-provenance", 0, "Distinct") or ("endpoint-plan-provenance", 0, "Distinct") => true,
         _ => false,
     };
 

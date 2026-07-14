@@ -27,6 +27,31 @@ public sealed class NetworkingPolicyCompletenessPropertyTests
         return forward == reverse ? forward.Code.ToString() : "OrderDependent";
     }
 
+    internal static string ReplayRouteProvenance(ulong seed)
+    {
+        var scope = NetworkingTestData.RouteScope() with
+        {
+            Operation = NetworkingTestData.Op($"route-provenance-{seed}"),
+        };
+        var first = NetworkingTestData.RouteEvidence(scope, configured: NetworkProof.Unknown,
+            traffic: NetworkProof.Unknown, healthy: NetworkProof.Unknown, routeConfigured: NetworkProof.Unknown);
+        var second = NetworkingTestData.RouteEvidence(scope, configured: NetworkProof.Unknown,
+            traffic: NetworkProof.Proven, healthy: NetworkProof.Proven, routeConfigured: NetworkProof.Proven);
+        return NetworkRoutePlanner.Plan(scope, scope.Generation, scope.Epoch, first) ==
+            NetworkRoutePlanner.Plan(scope, scope.Generation, scope.Epoch, second) ? "Collision" : "Distinct";
+    }
+
+    internal static string ReplayEndpointPlanProvenance(ulong seed)
+    {
+        var scope = NetworkingTestData.EndpointScope() with
+        {
+            Operation = NetworkingTestData.Op($"endpoint-provenance-{seed}"),
+        };
+        var evidence = NetworkingTestData.EndpointEvidence(scope);
+        return NetworkEndpointPlanner.PlanRegister(scope, evidence).Subject ==
+            NetworkEndpointPlanner.PlanRemoval(scope, evidence).Subject ? "Collision" : "Distinct";
+    }
+
     [Test]
     public async Task Route_lifecycle_matches_an_independent_exact_oracle_for_1000_cases()
     {
