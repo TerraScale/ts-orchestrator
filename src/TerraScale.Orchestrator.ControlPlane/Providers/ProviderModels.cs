@@ -377,10 +377,12 @@ public sealed record ProviderResourceObservation
 public sealed record ProviderCreateObservation
 {
     public ProviderCreateObservation(
-        ProviderCreateKey createKey, ProviderGeneration generation, ProviderObservedState state,
-        ProviderResourceId? resolvedResourceId)
+        ProviderCreateKey createKey, ProviderCellId cellId, ProviderCompartmentId compartmentId,
+        ProviderGeneration generation, ProviderObservedState state, ProviderResourceId? resolvedResourceId)
     {
         CreateKey = createKey ?? throw new ArgumentNullException(nameof(createKey));
+        CellId = cellId ?? throw new ArgumentNullException(nameof(cellId));
+        CompartmentId = compartmentId ?? throw new ArgumentNullException(nameof(compartmentId));
         Generation = generation ?? throw new ArgumentNullException(nameof(generation));
         if (!Enum.IsDefined(state)) throw new ArgumentOutOfRangeException(nameof(state));
         if ((state == ProviderObservedState.Absent) != (resolvedResourceId is null))
@@ -389,6 +391,8 @@ public sealed record ProviderCreateObservation
         ResolvedResourceId = resolvedResourceId;
     }
     public ProviderCreateKey CreateKey { get; }
+    public ProviderCellId CellId { get; }
+    public ProviderCompartmentId CompartmentId { get; }
     public ProviderGeneration Generation { get; }
     public ProviderObservedState State { get; }
     public ProviderResourceId? ResolvedResourceId { get; }
@@ -489,9 +493,13 @@ public sealed record ObserveResolvedProviderCreateIntent : ProviderIntent
     internal ObserveResolvedProviderCreateIntent(ProviderOperationContext context, ProviderCreateObservation observation) : base(context)
     {
         CreateKey = observation.CreateKey;
+        CellId = observation.CellId;
+        CompartmentId = observation.CompartmentId;
         ResolvedResourceId = observation.ResolvedResourceId ?? throw new ArgumentException("Resolved create observation requires a resource ID.", nameof(observation));
     }
     public ProviderCreateKey CreateKey { get; }
+    public ProviderCellId CellId { get; }
+    public ProviderCompartmentId CompartmentId { get; }
     public ProviderResourceId ResolvedResourceId { get; }
 }
 public sealed record ReadProviderWorkRequestIntent : ProviderIntent { internal ReadProviderWorkRequestIntent(ProviderOperationContext c, ProviderWorkRequestId id) : base(c) => WorkRequestId = id; public ProviderWorkRequestId WorkRequestId { get; } }

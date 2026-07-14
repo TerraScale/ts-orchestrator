@@ -59,6 +59,8 @@ public static class ProviderOwnershipEngine
             var observations = request.CreateObservations.Where(x => x.CreateKey == create.Key).ToArray();
             ownershipMatches = request.OwnershipRecords.Count == 0;
             generationMatches = observations is [var observation] &&
+                                observation.CellId == context.CellId &&
+                                observation.CompartmentId == context.CompartmentId &&
                                 observation.Generation == context.ExpectedGeneration &&
                                 observation.State == context.ExpectedObservedState;
         }
@@ -195,7 +197,8 @@ public static class ProviderOwnershipEngine
         .Select(x => string.Join('|', Invariant(x.Generation.Value), x.State))
         .Distinct(StringComparer.Ordinal).Skip(1).Any();
     private static bool HasCreateObservationConflict(IGrouping<string, ProviderCreateObservation> g) => g
-        .Select(x => string.Join('|', Invariant(x.Generation.Value), x.State, x.ResolvedResourceId?.Value ?? "-"))
+        .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, Invariant(x.Generation.Value),
+            x.State, x.ResolvedResourceId?.Value ?? "-"))
         .Distinct(StringComparer.Ordinal).Skip(1).Any();
     private static bool HasTagConflict(IGrouping<string, ProviderInventoryTagEvidence> g) => g
         .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, x.OperationId.Value, Invariant(x.Generation.Value)))
