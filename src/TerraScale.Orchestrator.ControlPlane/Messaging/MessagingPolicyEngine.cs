@@ -344,8 +344,7 @@ public static class MessagingPolicyEngine
     private static void ValidateDurability(MessagingDurability durability, int replicas,
         MessagingAcknowledgement acknowledgement, MessagingDiskSyncClass sync, PlanePolicy plane, List<MessagingError> errors)
     {
-        if (durability == MessagingDurability.Critical && (replicas < plane.MembershipFloor || replicas <= 1 ||
-            acknowledgement != MessagingAcknowledgement.Replicated || sync != MessagingDiskSyncClass.AcknowledgedWriteStrict))
+        if (CriticalDurabilityViolated(durability, replicas, acknowledgement, sync, plane))
             errors.Add(Error(MessagingErrorCode.DurabilityViolation));
     }
 
@@ -379,8 +378,41 @@ public static class MessagingPolicyEngine
             request.Policy.Servers.All(server => server.Server != operation.FailedServer || server.Peer != operation.FailedPeer) ||
             request.Policy.Servers.Any(server => server.Server == operation.ReplacementServer || server.Peer == operation.ReplacementPeer))
             return Error(MessagingErrorCode.ReplacementConflict, operation);
+        var replacementPolicyError = ValidateReplacementResourcePolicy(request.Policy, operation);
+        if (replacementPolicyError is not null) return replacementPolicyError;
         return null;
     }
+
+    private static MessagingError? ValidateReplacementResourcePolicy(
+        PlanePolicy policy,
+        ReplacementOperation operation)
+    {
+        if (policy.Streams.Any(stream => !Defined(stream.Durability) ||
+                !Defined(stream.Acknowledgement) || !Defined(stream.DiskSyncClass) ||
+                stream.Replicas > policy.Servers.Count) ||
+            policy.Buckets.Any(bucket => !Defined(bucket.Durability) ||
+                !Defined(bucket.Acknowledgement) || !Defined(bucket.DiskSyncClass) ||
+                bucket.Replicas > policy.Servers.Count))
+            return Error(MessagingErrorCode.InvalidInput, operation);
+
+        if (policy.Streams.Any(stream => CriticalDurabilityViolated(
+                stream.Durability, stream.Replicas, stream.Acknowledgement, stream.DiskSyncClass, policy)) ||
+            policy.Buckets.Any(bucket => CriticalDurabilityViolated(
+                bucket.Durability, bucket.Replicas, bucket.Acknowledgement, bucket.DiskSyncClass, policy)))
+            return Error(MessagingErrorCode.DurabilityViolation, operation);
+
+        return null;
+    }
+
+    private static bool CriticalDurabilityViolated(
+        MessagingDurability durability,
+        int replicas,
+        MessagingAcknowledgement acknowledgement,
+        MessagingDiskSyncClass sync,
+        PlanePolicy policy) =>
+        durability == MessagingDurability.Critical &&
+        (replicas < policy.MembershipFloor || acknowledgement != MessagingAcknowledgement.Replicated ||
+         sync != MessagingDiskSyncClass.AcknowledgedWriteStrict);
 
     private static MessagingError? ValidateObservation(
         PlanePolicy policy,
