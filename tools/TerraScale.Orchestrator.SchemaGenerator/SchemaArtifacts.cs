@@ -52,21 +52,35 @@ public static class SchemaArtifacts
 
     private static JsonObject AdmittedRoleSchema()
     {
-        var implementationKinds = new[] { nameof(RoleKind.MetricsStore), nameof(RoleKind.RegionalTelemetryAgent), nameof(RoleKind.VpnCoordinationRelay) };
         var root = Root(
             "https://schemas.terrascale.tech/orchestrator/v1/admitted-role.schema.json",
             "Closed TerraScale Orchestrator admitted role",
-            Object(["apiVersion", "kind"], new()
-            {
-                ["apiVersion"] = Const(ApiVersion.V1.Value),
-                ["kind"] = EnumSchema<RoleKind>(),
-                ["implementation"] = Object(["domain", "catalogEntryId"], new()
-                {
-                    ["domain"] = EnumSchema<ImplementationDomain>(), ["catalogEntryId"] = ResourceIdSchema()
-                }),
-            }));
+            AdmittedRoleShape(includeApiVersion: true));
+        var conditions = root["allOf"];
+        root.Remove("allOf");
         root["$comment"] = "Draft internal contract. A manifest cannot synthesize RoleDescriptor; it may later reference only a reviewed built-in catalog entry.";
-        root["allOf"] = new JsonArray(
+        root["allOf"] = conditions;
+        return root;
+    }
+
+    private static JsonObject AdmittedRoleShape(bool includeApiVersion)
+    {
+        var implementationKinds = new[] { nameof(RoleKind.MetricsStore), nameof(RoleKind.RegionalTelemetryAgent), nameof(RoleKind.VpnCoordinationRelay) };
+        var properties = new JsonObject
+        {
+            ["kind"] = EnumSchema<RoleKind>(),
+            ["implementation"] = Object(["domain", "catalogEntryId"], new()
+            {
+                ["domain"] = EnumSchema<ImplementationDomain>(), ["catalogEntryId"] = ResourceIdSchema()
+            }),
+        };
+        if (includeApiVersion)
+        {
+            properties.Insert(0, "apiVersion", Const(ApiVersion.V1.Value));
+        }
+
+        var shape = Object(includeApiVersion ? ["apiVersion", "kind"] : ["kind"], properties);
+        shape["allOf"] = new JsonArray(
             new JsonObject
             {
                 ["if"] = new JsonObject { ["properties"] = new JsonObject { ["kind"] = StringEnum(implementationKinds) } },
@@ -76,7 +90,7 @@ public static class SchemaArtifacts
             DomainCondition(RoleKind.MetricsStore, ImplementationDomain.MetricsStore),
             DomainCondition(RoleKind.RegionalTelemetryAgent, ImplementationDomain.RegionalTelemetry),
             DomainCondition(RoleKind.VpnCoordinationRelay, ImplementationDomain.Vpn));
-        return root;
+        return shape;
     }
 
     private static JsonObject RoleDescriptorSchema()
@@ -89,7 +103,7 @@ public static class SchemaArtifacts
                 new()
                 {
                     ["apiVersion"] = Const(ApiVersion.V1.Value),
-                    ["role"] = EnumSchema<RoleKind>(),
+                    ["role"] = AdmittedRoleShape(includeApiVersion: false),
                     ["allowedRuntimes"] = UniqueArray(EnumSchema<RuntimeDriver>(), 1),
                     ["ports"] = UniqueArray(Object(["protocol", "port"], new()
                     {
