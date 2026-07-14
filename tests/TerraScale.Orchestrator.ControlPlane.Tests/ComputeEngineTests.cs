@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using TerraScale.Orchestrator.ControlPlane.Compute;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
@@ -22,6 +23,10 @@ public sealed class ComputeEngineTests
         var create = (RequestCreateIntent)ComputeEngine.DecideScaleOut(Out(ScaleOutState.Authorized)).Intents.Single();
         await Assert.That(create.Binding).IsEqualTo(binding);
         await Assert.That(create.CreateKey.Value).IsEqualTo("create-key");
+        await Assert.That(create.PersistedPlan).IsEqualTo(Persisted());
+        await Assert.That(create.Authorization).IsEqualTo(Authorization());
+        await Assert.That(create.CreateEvidence).IsEqualTo(Create(ProviderCreateStatus.ProvenAbsent));
+        await Assert.That(create.CreateKey).IsEqualTo(create.CreateEvidence.CreateKey);
 
         var enroll = (EnrollNodeIntent)ComputeEngine.DecideScaleOut(Out(ScaleOutState.InstanceCreated)).Intents.Single();
         await Assert.That(enroll.Resource.Value).IsEqualTo("instance-1");
@@ -30,6 +35,46 @@ public sealed class ComputeEngineTests
         await Assert.That(ready.Binding).IsEqualTo(binding);
         await Assert.That(ready.PlacementProof.Value).IsEqualTo("placement-proof");
         await Assert.That(ComputeEngine.DecideScaleOut(Out(ScaleOutState.Ready)).Intents).IsEmpty();
+    }
+
+    [Test]
+    public async Task CreateIntentRetainsTheExactValidatedPlanAuthorizationAndAbsenceEvidence()
+    {
+        var firstPlan = Plan();
+        var firstPersisted = Persisted(firstPlan);
+        var firstAuthorization = Authorization();
+        var firstEvidence = Create(ProviderCreateStatus.ProvenAbsent);
+        var first = (RequestCreateIntent)ComputeEngine.DecideScaleOut(Out(ScaleOutState.Authorized,
+            plan: firstPlan, persisted: firstPersisted, authorization: firstAuthorization,
+            create: firstEvidence)).Intents.Single();
+
+        var secondResources = new ResourceEnvelope(8, 32_768, 200, 240_000);
+        var secondPlan = firstPlan with { Resources = secondResources, PlanIdentity = new("other-plan") };
+        var secondPersisted = new PersistedScaleOutPlan(secondPlan, new("other-persistence"));
+        var secondAuthorization = firstAuthorization with
+        {
+            Resources = secondResources,
+            BudgetProof = new("other-budget"),
+            QuotaProof = new("other-quota"),
+            CapacityProof = new("other-capacity"),
+            CostProof = new("other-cost"),
+            PlacementProof = new("other-placement"),
+        };
+        var secondEvidence = firstEvidence with { ObservationProof = new("other-absence-observation") };
+        var second = (RequestCreateIntent)ComputeEngine.DecideScaleOut(Out(ScaleOutState.Authorized,
+            plan: secondPlan, persisted: secondPersisted, authorization: secondAuthorization,
+            create: secondEvidence)).Intents.Single();
+
+        await Assert.That(ReferenceEquals(first.PersistedPlan, firstPersisted)).IsTrue();
+        await Assert.That(ReferenceEquals(first.Authorization, firstAuthorization)).IsTrue();
+        await Assert.That(ReferenceEquals(first.CreateEvidence, firstEvidence)).IsTrue();
+        await Assert.That(ReferenceEquals(second.PersistedPlan, secondPersisted)).IsTrue();
+        await Assert.That(ReferenceEquals(second.Authorization, secondAuthorization)).IsTrue();
+        await Assert.That(ReferenceEquals(second.CreateEvidence, secondEvidence)).IsTrue();
+        await Assert.That(first.CreateKey).IsEqualTo(first.CreateEvidence.CreateKey);
+        await Assert.That(second.CreateKey).IsEqualTo(second.CreateEvidence.CreateKey);
+        await Assert.That(first.Authorization).IsNotEqualTo(second.Authorization);
+        await Assert.That(first.CreateEvidence).IsNotEqualTo(second.CreateEvidence);
     }
 
     [Test]
@@ -176,6 +221,41 @@ public sealed class ComputeEngineTests
         };
         foreach (var request in skipped)
             await AssertHeld(ComputeEngine.DecideScaleIn(request), ComputeErrorCode.MissingProof);
+    }
+
+    [Test]
+    public async Task TerminationIntentRetainsExactValidatedAuthorizationAndRevokedPrefix()
+    {
+        var binding = InBinding(ComputeNodeRole.ElasticStateful);
+        var firstAuthorization = InAuthorization(binding) with
+        { StatefulDisposition = StatefulDisposition.Approved, StatefulApproved = true };
+        var firstProgress = InProgress(ScaleInState.Revoked, binding, VolumeDisposition.RetainedStateful);
+        var first = (TerminateNodeIntent)ComputeEngine.DecideScaleIn(In(ScaleInState.Revoked, binding,
+            firstAuthorization, firstProgress)).Intents.Single();
+
+        var secondAuthorization = firstAuthorization with
+        {
+            LowUseProof = new("other-low-use"),
+            AvailabilityProof = new("other-availability"),
+            StatefulProof = new("other-stateful-approval"),
+        };
+        var secondProgress = firstProgress with
+        {
+            VolumeProof = new("other-volume-proof"),
+            RevocationProof = new("other-revocation-proof"),
+            StatefulOwner = new("other-stateful-controller"),
+        };
+        var second = (TerminateNodeIntent)ComputeEngine.DecideScaleIn(In(ScaleInState.Revoked, binding,
+            secondAuthorization, secondProgress)).Intents.Single();
+
+        await Assert.That(ReferenceEquals(first.Authorization, firstAuthorization)).IsTrue();
+        await Assert.That(ReferenceEquals(first.Progress, firstProgress)).IsTrue();
+        await Assert.That(ReferenceEquals(second.Authorization, secondAuthorization)).IsTrue();
+        await Assert.That(ReferenceEquals(second.Progress, secondProgress)).IsTrue();
+        await Assert.That(first.RevocationProof).IsEqualTo(first.Progress.RevocationProof);
+        await Assert.That(second.RevocationProof).IsEqualTo(second.Progress.RevocationProof);
+        await Assert.That(first.Authorization).IsNotEqualTo(second.Authorization);
+        await Assert.That(first.Progress).IsNotEqualTo(second.Progress);
     }
 
     [Test]
@@ -391,6 +471,42 @@ public sealed class ComputeEngineTests
             StringComparison.OrdinalIgnoreCase)))).IsFalse();
         await Assert.That(outputs.Any(static type => type.Name.Contains("Adopt", StringComparison.Ordinal))).IsFalse();
         await Assert.That(outputs.Any(static type => type.Name.Contains("Delete", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
+    public async Task EveryComputeIntentKeepsItsReviewedExactPublicShape()
+    {
+        var expected = new Dictionary<Type, string[]>
+        {
+            [typeof(ObserveCreateIntent)] = ["Binding", "CreateKey"],
+            [typeof(PersistScalePlanIntent)] = ["Binding", "DesiredNodes", "PlanIdentity", "Resources"],
+            [typeof(AuthorizeCapacityIntent)] = ["Binding", "PersistedPlan"],
+            [typeof(RequestCreateIntent)] = ["Authorization", "Binding", "CreateEvidence", "CreateKey", "PersistedPlan"],
+            [typeof(EnrollNodeIntent)] = ["Binding", "IdentityProof", "Node", "Resource"],
+            [typeof(ReadyNodeIntent)] = ["Binding", "BootstrapProof", "DiskProof", "Node", "PlacementProof", "Resource"],
+            [typeof(CordonNodeIntent)] = ["Binding"],
+            [typeof(DrainNodeIntent)] = ["Binding", "CordonProof"],
+            [typeof(DeregisterNodeIntent)] = ["Binding", "StatefulProof"],
+            [typeof(DetachVolumeIntent)] = ["Binding", "Disposition", "StatefulOwner"],
+            [typeof(RevokeNodeIntent)] = ["Binding", "VolumeProof"],
+            [typeof(TerminateNodeIntent)] = ["Authorization", "Binding", "Progress", "RevocationProof"],
+            [typeof(AuditOrphansIntent)] = ["Binding", "BootAbsenceProof", "TerminationProof"],
+            [typeof(AuthorizeSurvivalIntent)] = ["Authority", "Bundle", "Target"],
+            [typeof(ReadySurvivalIntent)] = ["Bundle"],
+            [typeof(HoldComputeIntent)] = ["Operation", "Reason"],
+        };
+        var concrete = typeof(ComputeIntent).Assembly.GetTypes()
+            .Where(type => !type.IsAbstract && typeof(ComputeIntent).IsAssignableFrom(type))
+            .ToArray();
+        await Assert.That(concrete.Length).IsEqualTo(expected.Count);
+        foreach (var (type, names) in expected)
+        {
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            await Assert.That(properties.Select(static property => property.Name).Order(StringComparer.Ordinal))
+                .IsEquivalentTo(names);
+            await Assert.That(properties.All(static property => property.SetMethod?.IsPublic != true)).IsTrue();
+            await Assert.That(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
+        }
     }
 
     [Test]

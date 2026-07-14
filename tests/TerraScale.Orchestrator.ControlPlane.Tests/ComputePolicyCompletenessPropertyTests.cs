@@ -231,7 +231,9 @@ public sealed class ComputePolicyCompletenessPropertyTests
         ScaleOutState.Authorized => ExactTrace(decision, ComputeTraceCode.CreateReady, ComputeAction.RequestCreate) &&
             decision.Intents.Count == 1 && decision.Intents[0] is RequestCreateIntent value &&
             value.Action == ComputeAction.RequestCreate &&
-            value.Binding == request.Binding && value.CreateKey == request.CreateEvidence!.CreateKey,
+            value.Binding == request.Binding && value.CreateKey == request.CreateEvidence!.CreateKey &&
+            value.PersistedPlan == request.PersistedPlan && value.Authorization == request.Authorization &&
+            value.CreateEvidence == request.CreateEvidence && value.CreateKey == value.CreateEvidence.CreateKey,
         ScaleOutState.RequestRecorded when request.CreateEvidence!.Status == ProviderCreateStatus.OutcomeUnknown =>
             ExactTrace(decision, ComputeTraceCode.ObservationRequired, ComputeAction.Observe) &&
             decision.Intents.Count == 1 && decision.Intents[0] is ObserveCreateIntent value &&
@@ -288,7 +290,8 @@ public sealed class ComputePolicyCompletenessPropertyTests
             ScaleInState.StorageHandled => intent is RevokeNodeIntent value && value.Action == ComputeAction.Revoke &&
                 value.VolumeProof == request.Progress.VolumeProof,
             ScaleInState.Revoked => intent is TerminateNodeIntent value && value.Action == ComputeAction.Terminate &&
-                value.RevocationProof == request.Progress.RevocationProof,
+                value.RevocationProof == request.Progress.RevocationProof && value.Authorization == request.Authorization &&
+                value.Progress == request.Progress && value.RevocationProof == value.Progress.RevocationProof,
             ScaleInState.Terminated => intent is AuditOrphansIntent value && value.Action == ComputeAction.Audit &&
                 value.TerminationProof == request.Progress.TerminationProof &&
                 value.BootAbsenceProof == request.Progress.BootAbsenceProof,
