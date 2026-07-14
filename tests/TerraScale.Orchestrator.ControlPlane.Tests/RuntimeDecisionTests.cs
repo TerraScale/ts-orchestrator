@@ -159,11 +159,50 @@ public sealed class RuntimeDecisionTests
     {
         var drain = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(phase: LifecyclePhase.Serving, action: LifecycleAction.Drain, process: ProcessStatus.Running));
         var stop = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(phase: LifecyclePhase.Draining, action: LifecycleAction.Stop, process: ProcessStatus.Running));
-        var cleanup = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(phase: LifecyclePhase.Stopped, action: LifecycleAction.Cleanup));
+        var cleanupRequest = Lifecycle(phase: LifecyclePhase.Stopped, action: LifecycleAction.Cleanup);
+        var cleanup = RuntimeDecisionEngine.EvaluateLifecycle(cleanupRequest);
         await Assert.That(drain.Intent is DrainRuntimeIntent).IsTrue();
         await Assert.That(stop.Intent is StopRuntimeIntent).IsTrue();
         var cleanupIntent = (CleanupRuntimeIntent)cleanup.Intent;
+        await Assert.That(ReferenceEquals(cleanupIntent.Request, cleanupRequest)).IsTrue();
         await Assert.That(cleanupIntent.EphemeralVolumes).IsEquivalentTo([new RuntimeVolumeId("scratch-1")]);
+        await Assert.That(cleanupIntent.EphemeralVolumes).IsEquivalentTo(
+            cleanupRequest.Spec.Volumes.Where(volume => volume.Retention == VolumeRetention.Ephemeral).Select(volume => volume.VolumeId));
+        await Assert.That(cleanupIntent.EphemeralVolumes is RuntimeVolumeId[]).IsFalse();
+        await Assert.That(Throws<NotSupportedException>(() =>
+            ((IList<RuntimeVolumeId>)cleanupIntent.EphemeralVolumes)[0] = new RuntimeVolumeId("volume-1"))).IsTrue();
+        await Assert.That(cleanupIntent.EphemeralVolumes).IsEquivalentTo([new RuntimeVolumeId("scratch-1")]);
+    }
+
+    [Test]
+    public async Task EveryMutatingLifecycleIntentRetainsItsExactValidatedRequest()
+    {
+        var cases = new RuntimeLifecycleRequest[]
+        {
+            Lifecycle(phase: LifecyclePhase.None),
+            Lifecycle(phase: LifecyclePhase.ArtifactFetched),
+            Lifecycle(phase: LifecyclePhase.ArtifactVerified),
+            Lifecycle(phase: LifecyclePhase.Staged),
+            Lifecycle(phase: LifecyclePhase.Mounted),
+            Lifecycle(phase: LifecyclePhase.Serving, action: LifecycleAction.Drain, process: ProcessStatus.Running),
+            Lifecycle(phase: LifecyclePhase.Draining, action: LifecycleAction.Stop, process: ProcessStatus.Running),
+            Lifecycle(phase: LifecyclePhase.Stopped, action: LifecycleAction.Cleanup),
+        };
+
+        foreach (var request in cases)
+        {
+            var intent = RuntimeDecisionEngine.EvaluateLifecycle(request).Intent;
+            var requestProperty = intent.GetType().GetProperty(nameof(FetchRuntimeArtifactIntent.Request));
+            await Assert.That(requestProperty).IsNotNull();
+            await Assert.That(ReferenceEquals(requestProperty!.GetValue(intent), request)).IsTrue();
+        }
+
+        var readOnlyIntentTypes = new[]
+        {
+            typeof(CheckRuntimeHealthIntent), typeof(ObserveExecutorIntent), typeof(HoldRuntimeIntent),
+        };
+        foreach (var type in readOnlyIntentTypes)
+            await Assert.That(type.GetProperty(nameof(FetchRuntimeArtifactIntent.Request))).IsNull();
     }
 
     [Test]
