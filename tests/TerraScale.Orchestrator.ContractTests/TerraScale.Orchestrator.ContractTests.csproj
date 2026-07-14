@@ -7,5 +7,6 @@
     <PackageReference Include="TUnit" />
     <PackageReference Include="YamlDotNet" />
     <ProjectReference Include="../../tools/TerraScale.Orchestrator.SchemaGenerator/TerraScale.Orchestrator.SchemaGenerator.csproj" />
+    <ProjectReference Include="../../tools/reproducible-publish/TerraScale.ReproduciblePublish.csproj" />
   </ItemGroup>
 </Project>

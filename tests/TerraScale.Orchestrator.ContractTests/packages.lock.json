@@ -112,6 +112,9 @@
           "TUnit.Core": "1.56.18"
         }
       },
+      "terrascale-reproducible-publish": {
+        "type": "Project"
+      },
       "terrascale.orchestrator.contracts": {
         "type": "Project"
       },
