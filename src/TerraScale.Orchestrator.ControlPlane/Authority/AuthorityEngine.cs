@@ -62,6 +62,8 @@ public static class AuthorityEngine
     {
         if (state.Status is not (AuthorityStatus.Follower or AuthorityStatus.ReadOnlyHeld))
             return Reject(state, Error(AuthorityErrorCode.InvalidTransition, "INV-004", "Acquisition requires follower or held state."));
+        var completed = CompletedRequestReuse(state, command.RequestId);
+        if (completed is not null) return Reject(state, completed);
         var input = ValidateObservation(command.Baseline) ?? ValidateHealth(command.Health);
         if (input is not null || string.IsNullOrWhiteSpace(command.LeaseId) || command.LeaseDuration <= TimeSpan.Zero)
             return Reject(state, input ?? Error(AuthorityErrorCode.InvalidInput, "INV-005", "Lease ID and positive duration are required."));
@@ -104,6 +106,8 @@ public static class AuthorityEngine
     {
         if (state.Status != AuthorityStatus.Leader || state.Confirmed is null)
             return Reject(state, Error(AuthorityErrorCode.InvalidTransition, "INV-004", "Renewal requires confirmed leader state."));
+        var completed = CompletedRequestReuse(state, command.RequestId);
+        if (completed is not null) return Reject(state, completed);
         var input = ValidateObservation(command.Current) ?? ValidateHealth(command.Health);
         if (input is not null || command.LeaseDuration <= TimeSpan.Zero)
             return Reject(state, input ?? Error(AuthorityErrorCode.InvalidInput, "INV-005", "Positive renewal duration is required."));
@@ -130,6 +134,8 @@ public static class AuthorityEngine
     {
         if (state.Status != AuthorityStatus.Leader || state.Confirmed?.Lease is null)
             return Reject(state, Error(AuthorityErrorCode.InvalidTransition, "INV-004", "Release requires confirmed leader state."));
+        var completed = CompletedRequestReuse(state, command.RequestId);
+        if (completed is not null) return Reject(state, completed);
         var input = ValidateObservation(command.Current) ?? ValidateHealth(command.Health);
         if (input is not null) return Reject(state, input);
         if (command.Current.AuthorityId != command.AuthorityId)
@@ -150,6 +156,8 @@ public static class AuthorityEngine
     {
         if (state.Status is AuthorityStatus.AcquisitionPending or AuthorityStatus.RenewalPending or AuthorityStatus.ReleasePending)
             return Reject(state, Error(AuthorityErrorCode.InvalidTransition, "INV-004", "A CAS result must resolve before a read request."));
+        var completed = CompletedRequestReuse(state, command.RequestId);
+        if (completed is not null) return Reject(state, completed);
         var resume = state.Status == AuthorityStatus.ReadOnlyHeld && state.ReadResumeStatus == AuthorityStatus.Leader
             ? AuthorityStatus.Leader : state.Status;
         if (resume == AuthorityStatus.Leader && state.Confirmed?.Lease?.CandidateId != command.CandidateId)
@@ -647,6 +655,11 @@ public static class AuthorityEngine
     }
 
     private static AuthorityDecision Reject(AuthorityState state, AuthorityError error) => AuthorityDecision.Create(state, errors: [error]);
+
+    private static AuthorityError? CompletedRequestReuse(AuthorityState state, string requestId) =>
+        state.LastCompletedRequestId == requestId
+            ? Error(AuthorityErrorCode.StaleObservation, "INV-005", "A completed request identity cannot initiate another authority action.")
+            : null;
 
     private static AuthorityError Error(AuthorityErrorCode code, string requirement, string message) => new(code, requirement, message);
 
