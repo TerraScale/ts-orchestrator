@@ -8,6 +8,8 @@ Two fully valid response-lost lifecycle requests for the same operation and allo
 
 Tests cover `Accepted` and `ResponseLost` across start, stop, drain, and cleanup paths; exact request and compatibility-reference retention; every top-level request property; a complete length-delimited nested request fingerprint; 1,000 culture-stable and evidence-permutation replays; rejected Hold-only behavior; defensive input capture; opaque output; and assembly-wide public construction, accessor, immutable-clone, and real `EvaluateLifecycle` route closure.
 
+Review hardened that evidence with single-field and single-element mutants for every nested specification, native/OCI payload, admission, observation, health, inventory, conflict, port, and volume getter. Permutation replay now reverses two distinct allocation entries and each nested collection. Construction closure includes all exported public declared methods and accessors whose output can be the exact intent, the `RuntimeIntent` union, or `RuntimeDecision`, with only the two real engine origins, the decision projection, and immutable record copies allowlisted.
+
 The strict checked-in Runtime replay corpus models self-update decisions. Its observation case is `ObserveUpdateIntent`, which already retains an exact `SelfUpdateRequest`; it does not encode lifecycle `ObserveExecutorIntent`. No corpus bytes, checksum, or self-update fingerprint changed.
 
 ## Honest boundary
