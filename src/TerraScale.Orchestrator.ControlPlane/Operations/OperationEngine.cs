@@ -276,6 +276,10 @@ public static class OperationEngine
             if (state.Observation.ObservationId == command.ObservationId)
                 return Reject(state, Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
                     "An observation identity cannot be rebound to different provider truth."));
+            if (!WorkRequestContinuityMatches(state.Observation.ProviderWorkRequestId,
+                    command.ProviderWorkRequestId))
+                return Reject(state, Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
+                    "An established provider work-request identity cannot be rebound or removed."));
             if (state.Observation.Outcome is not (ProviderOutcome.Unknown or ProviderOutcome.InProgress))
                 return Reject(state, Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
                     "A contradictory final provider observation cannot replace the persisted observation."));
@@ -477,6 +481,12 @@ public static class OperationEngine
                     return Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
                         "An observation identity cannot be rebound to different provider truth.");
                 if (state.Observation is not null &&
+                    !ObservationMatches(state.Observation, observation) &&
+                    !WorkRequestContinuityMatches(state.Observation.ProviderWorkRequestId,
+                        observation.ProviderWorkRequestId))
+                    return Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
+                        "An established provider work-request identity cannot be rebound or removed.");
+                if (state.Observation is not null &&
                     state.Observation.Outcome is not (ProviderOutcome.Unknown or ProviderOutcome.InProgress))
                     return Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006", "A final provider observation cannot be replaced.");
                 break;
@@ -614,6 +624,9 @@ public static class OperationEngine
         existing.ObservationId == candidate.ObservationId && existing.TargetIdentity == candidate.TargetIdentity &&
         existing.Generation == candidate.Generation && existing.TerminalState == candidate.TerminalState &&
         existing.Outcome == candidate.Outcome && existing.ProviderWorkRequestId == candidate.ProviderWorkRequestId;
+
+    private static bool WorkRequestContinuityMatches(string? established, string? candidate) =>
+        established is null || StringComparer.Ordinal.Equals(established, candidate);
 
     private static bool IsCompleteObservation(ObservedResource observation) =>
         !string.IsNullOrWhiteSpace(observation.AggregateId) && observation.Generation > 0 &&
