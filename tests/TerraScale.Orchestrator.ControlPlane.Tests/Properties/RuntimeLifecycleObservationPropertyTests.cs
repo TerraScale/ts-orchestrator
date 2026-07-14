@@ -82,11 +82,24 @@ internal static class RuntimeLifecycleObservationFingerprint
         var inventory = request.Inventory;
         Add(value, inventory.OperationId.Value); Add(value, inventory.NodeId.Value); Add(value, inventory.Generation.Value);
         Add(value, (int)inventory.Completeness);
-        AddMany(value, inventory.Allocations.OrderBy(item => item.AllocationId.Value, StringComparer.Ordinal), item =>
-            $"{item.AllocationId.Value}:{item.NodeId.Value}:" +
-            string.Join(',', item.Ports.OrderBy(port => port.Value).Select(port => port.Value.ToString(CultureInfo.InvariantCulture))) + ":" +
-            string.Join(',', item.Volumes.OrderBy(volume => volume.Value, StringComparer.Ordinal).Select(volume => volume.Value)));
+        var allocations = inventory.Allocations.OrderBy(item => item.AllocationId.Value, StringComparer.Ordinal).ToArray();
+        Add(value, allocations.Length);
+        foreach (var allocation in allocations) AddConflict(value, allocation);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
+
+    internal static string Create(RuntimeConflictEvidence evidence)
+    {
+        var value = new StringBuilder(); AddConflict(value, evidence);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
+
+    private static void AddConflict(StringBuilder value, RuntimeConflictEvidence evidence)
+    {
+        Add(value, evidence.AllocationId.Value); Add(value, evidence.NodeId.Value);
+        AddMany(value, evidence.Ports.OrderBy(port => port.Value),
+            port => port.Value.ToString(CultureInfo.InvariantCulture));
+        AddMany(value, evidence.Volumes.OrderBy(volume => volume.Value, StringComparer.Ordinal), volume => volume.Value);
     }
 
     private static void Add(StringBuilder target, int value) => Add(target, value.ToString(CultureInfo.InvariantCulture));
@@ -139,10 +152,15 @@ internal static class RuntimeObservationAuditData
         ];
         var ports = new[] { new RuntimePort((ushort)(50_001 + seed % 10_000)), new RuntimePort((ushort)(40_001 + seed % 10_000)) };
         var volumes = new[] { new RuntimeVolumeId($"other-volume-b-{seed}"), new RuntimeVolumeId($"other-volume-a-{seed}") };
-        var other = new RuntimeConflictEvidence(new($"other-{seed}"), node,
+        var firstConflict = new RuntimeConflictEvidence(new($"other-a-{seed}"), node,
             reverseEvidence ? ports.Reverse() : ports, reverseEvidence ? volumes.Reverse() : volumes);
+        var secondConflict = new RuntimeConflictEvidence(new($"other-b-{seed}"), node,
+            reverseEvidence ? ports : ports.Reverse(), reverseEvidence ? volumes : volumes.Reverse());
+        var conflicts = reverseEvidence
+            ? new[] { secondConflict, firstConflict }
+            : new[] { firstConflict, secondConflict };
         var inventory = new RuntimeInventoryEvidence(operation, node, generation, EvidenceCompleteness.Complete,
-            reverseEvidence ? [other] : [other]);
+            conflicts);
         return new(operation, epoch, epoch, generation, policy, new((ulong)(30 + seed % 30)), spec, admission, action,
             observation, reverseEvidence ? health.Reverse() : health, inventory);
     }
