@@ -33,7 +33,22 @@ public sealed class AvailabilityPolicyEvaluator
             Reason(AvailabilityReasonCode.ServiceIdentityConsistent, wrongServiceCount == 0, checked((ulong)wrongServiceCount), 0),
         };
 
-        var held = trace.Any(reason => reason.Outcome is AvailabilityReasonOutcome.Held);
+        var generationTrace = new[]
+        {
+            Reason(
+                AvailabilityReasonCode.ObservationGenerationNotRollback,
+                request.ObservationGeneration.Value >= request.CurrentAcceptedObservationGeneration.Value,
+                request.ObservationGeneration.Value,
+                request.CurrentAcceptedObservationGeneration.Value),
+            Reason(
+                AvailabilityReasonCode.ObservationGenerationNotFuture,
+                request.ObservationGeneration.Value <= request.CurrentAcceptedObservationGeneration.Value,
+                request.ObservationGeneration.Value,
+                request.CurrentAcceptedObservationGeneration.Value),
+        };
+
+        var held = trace.Concat(generationTrace)
+            .Any(reason => reason.Outcome is AvailabilityReasonOutcome.Held);
         var unique = groups.Select(group => group.First()).ToArray();
         var target = EvaluateTarget(request.Change, unique, held);
         trace.Add(target.Reason);
@@ -41,7 +56,7 @@ public sealed class AvailabilityPolicyEvaluator
         if (held || target.Reason.Outcome != AvailabilityReasonOutcome.Passed)
         {
             AddUnavailablePolicyTrace(trace, held ? AvailabilityReasonOutcome.Held : AvailabilityReasonOutcome.NotApplicable);
-            return Decision(trace);
+            return Decision(trace, generationTrace);
         }
 
         var available = unique.Where(observation => observation.State == ReplicaAvailabilityState.Available).ToArray();
@@ -120,7 +135,7 @@ public sealed class AvailabilityPolicyEvaluator
             checked((ulong)distinctDomains), request.Policy.RequiredDistinctFailureDomains.Value));
 
         AddResourceTrace(trace, request.Change, request.Policy);
-        return Decision(trace);
+        return Decision(trace, generationTrace);
     }
 
     private static TargetResult EvaluateTarget(AvailabilityChange change, ReplicaObservation[] observations, bool held)
@@ -215,8 +230,11 @@ public sealed class AvailabilityPolicyEvaluator
         }
     }
 
-    private static AvailabilityDecision Decision(List<AvailabilityReason> trace)
+    private static AvailabilityDecision Decision(
+        List<AvailabilityReason> trace,
+        IReadOnlyCollection<AvailabilityReason> generationTrace)
     {
+        trace.AddRange(generationTrace);
         var admitted = trace.All(reason => reason.Outcome is AvailabilityReasonOutcome.Passed or AvailabilityReasonOutcome.NotApplicable);
         return new(admitted, new ReadOnlyCollection<AvailabilityReason>(trace));
     }

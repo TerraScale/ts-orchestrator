@@ -69,6 +69,26 @@ public sealed record AvailabilityCount
     internal static AvailabilityCount FromInt32(int value) => new(checked((ulong)value));
 }
 
+/// <summary>
+/// Positive generation of a caller-accepted availability observation snapshot.
+/// Zero is deliberately not a sentinel because generation equality authorizes a
+/// change against already accepted evidence.
+/// </summary>
+public sealed record AvailabilityGeneration
+{
+    public AvailabilityGeneration(ulong value)
+    {
+        if (value == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value, "Availability generations must be positive.");
+        }
+
+        Value = value;
+    }
+
+    public ulong Value { get; }
+}
+
 public enum ServiceCriticality
 {
     Ordinary = 1,
@@ -229,6 +249,8 @@ public sealed class AvailabilityEvaluationRequest
         ServiceAvailabilityPolicy policy,
         AvailabilityChange change,
         ObservationCompleteness observationCompleteness,
+        AvailabilityGeneration observationGeneration,
+        AvailabilityGeneration currentAcceptedObservationGeneration,
         IEnumerable<ReplicaObservation> observations)
     {
         Policy = policy ?? throw new ArgumentNullException(nameof(policy));
@@ -238,6 +260,9 @@ public sealed class AvailabilityEvaluationRequest
             throw new ArgumentOutOfRangeException(nameof(observationCompleteness));
         }
 
+        ObservationGeneration = observationGeneration ?? throw new ArgumentNullException(nameof(observationGeneration));
+        CurrentAcceptedObservationGeneration = currentAcceptedObservationGeneration ??
+            throw new ArgumentNullException(nameof(currentAcceptedObservationGeneration));
         ArgumentNullException.ThrowIfNull(observations);
         var copy = SchedulerInputSnapshot.Copy(observations,SchedulerTechnicalInputLimits.MaximumAvailabilityObservationCount,nameof(observations),"Availability observation input");
         if (copy.Any(observation => observation is null))
@@ -252,6 +277,8 @@ public sealed class AvailabilityEvaluationRequest
     public ServiceAvailabilityPolicy Policy { get; }
     public AvailabilityChange Change { get; }
     public ObservationCompleteness ObservationCompleteness { get; }
+    public AvailabilityGeneration ObservationGeneration { get; }
+    public AvailabilityGeneration CurrentAcceptedObservationGeneration { get; }
     public IReadOnlyList<ReplicaObservation> Observations { get; }
 }
 
@@ -285,6 +312,8 @@ public enum AvailabilityReasonCode
     CapacityPids,
     CapacityFileDescriptors,
     CapacityHugePages,
+    ObservationGenerationNotRollback = 29,
+    ObservationGenerationNotFuture = 30,
 }
 
 public enum AvailabilityReasonOutcome
