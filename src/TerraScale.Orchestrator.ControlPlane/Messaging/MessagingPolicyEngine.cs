@@ -205,14 +205,25 @@ public static class MessagingPolicyEngine
     {
         ArgumentNullException.ThrowIfNull(knownFeatures);
         ArgumentNullException.ThrowIfNull(policy);
+        IReadOnlyList<CompatibilityFeature> features;
+        try
+        {
+            if (knownFeatures.Count > MessagingTechnicalInputLimits.MaximumCapturedItems)
+                return Held([Error(MessagingErrorCode.InvalidCatalog)]);
+            features = MessagingInputSnapshot.Copy(knownFeatures, nameof(knownFeatures));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            return Held([Error(MessagingErrorCode.InvalidCatalog)]);
+        }
         if (policy.CurrentVersion <= 0 || policy.PreviousVersion <= 0 || policy.CurrentVersion - 1 != policy.PreviousVersion ||
-            knownFeatures.Count == 0 || knownFeatures.Any(static feature => !Defined(feature)) ||
-            knownFeatures.Distinct().Count() != knownFeatures.Count ||
-            !knownFeatures.ToHashSet().SetEquals(DefinedValues<CompatibilityFeature>()) ||
+            features.Count == 0 || features.Any(static feature => !Defined(feature)) ||
+            features.Distinct().Count() != features.Count ||
+            !features.ToHashSet().SetEquals(DefinedValues<CompatibilityFeature>()) ||
             policy.Outcomes.Any(static outcome => !Defined(outcome.Feature) || !Defined(outcome.Pair)))
             return Held([Error(MessagingErrorCode.InvalidCatalog)]);
 
-        var expected = knownFeatures
+        var expected = features
             .SelectMany(static feature => DefinedValues<CompatibilityPair>().Select(pair => (feature, pair)))
             .ToHashSet();
         var actual = policy.Outcomes.Select(static outcome => (outcome.Feature, outcome.Pair)).ToArray();

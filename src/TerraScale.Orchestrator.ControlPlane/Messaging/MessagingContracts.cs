@@ -2,6 +2,38 @@ using System.Collections.ObjectModel;
 
 namespace TerraScale.Orchestrator.ControlPlane.Messaging;
 
+/// <summary>Technical caller-input snapshot limits; these are not membership, replica, or resource policy caps.</summary>
+public static class MessagingTechnicalInputLimits
+{
+    public const int MaximumCapturedItems = 4_096;
+}
+
+internal static class MessagingInputSnapshot
+{
+    internal static IReadOnlyList<T> Copy<T>(IEnumerable<T> source, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(source, parameterName);
+        var values = new List<T>(256);
+        try
+        {
+            using var iterator = source.GetEnumerator();
+            while (iterator.MoveNext())
+            {
+                if (values.Count == MessagingTechnicalInputLimits.MaximumCapturedItems)
+                    throw new ArgumentException("Messaging input exceeds the technical snapshot bound.", parameterName);
+                var current = iterator.Current;
+                if (current is null) throw new ArgumentException("Messaging input contains a null item.", parameterName);
+                values.Add(current);
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new ArgumentException("Messaging input could not be captured safely.", parameterName);
+        }
+        return new ReadOnlyCollection<T>(values.ToArray());
+    }
+}
+
 public sealed record CellId { public CellId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
 public sealed record ClusterId { public ClusterId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
 public sealed record ServerId { public ServerId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value)); public string Value { get; } }
@@ -87,12 +119,8 @@ public sealed class AccountPolicy
     public IReadOnlyList<string> SubjectRoots { get; }
     private static IReadOnlyList<string> Copy(IEnumerable<string> values) =>
         CopyValues(values);
-    private static IReadOnlyList<string> CopyValues(IEnumerable<string> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
-        return new ReadOnlyCollection<string>(copy);
-    }
+    private static IReadOnlyList<string> CopyValues(IEnumerable<string> values) =>
+        MessagingInputSnapshot.Copy(values, nameof(values));
 }
 
 public sealed record ServerPolicy(ServerId Server, PeerId Peer, PlacementId Placement);
@@ -164,12 +192,8 @@ public sealed class PlanePolicy
     public IReadOnlyList<BucketPolicy> Buckets { get; }
     private static IReadOnlyList<T> ReadOnly<T>(IEnumerable<T> values) =>
         ReadOnlyChecked(values);
-    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
-        return new ReadOnlyCollection<T>(copy);
-    }
+    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values) =>
+        MessagingInputSnapshot.Copy(values, nameof(values));
 }
 
 public sealed class MessagingTopologyPolicy
@@ -187,8 +211,7 @@ public sealed class MessagingTopologyPolicy
         MaximumIdentityLength = maximumIdentityLength;
         MaximumSubjectLength = maximumSubjectLength;
         MaximumResources = maximumResources;
-        KnownFeatures = new ReadOnlyCollection<CompatibilityFeature>(
-            (knownFeatures ?? throw new ArgumentNullException(nameof(knownFeatures))).ToArray());
+        KnownFeatures = MessagingInputSnapshot.Copy(knownFeatures, nameof(knownFeatures));
     }
     public PlanePolicy Control { get; }
     public PlanePolicy Product { get; }
@@ -254,12 +277,8 @@ public sealed class ClusterObservation
     public IReadOnlyList<ReplicaObservation> BucketReplicas { get; }
     private static IReadOnlyList<T> ReadOnly<T>(IEnumerable<T> values) =>
         ReadOnlyChecked(values);
-    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values)
-    {
-        var copy = (values ?? throw new ArgumentNullException(nameof(values))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(values));
-        return new ReadOnlyCollection<T>(copy);
-    }
+    private static IReadOnlyList<T> ReadOnlyChecked<T>(IEnumerable<T> values) =>
+        MessagingInputSnapshot.Copy(values, nameof(values));
 }
 
 public sealed record ReplacementOperation(
@@ -296,9 +315,7 @@ public sealed class CompatibilityPolicy
     {
         CurrentVersion = currentVersion;
         PreviousVersion = previousVersion;
-        var copy = (outcomes ?? throw new ArgumentNullException(nameof(outcomes))).ToArray();
-        if (copy.Any(static value => value is null)) throw new ArgumentException("Collection contains null.", nameof(outcomes));
-        Outcomes = new ReadOnlyCollection<CompatibilityOutcome>(copy);
+        Outcomes = MessagingInputSnapshot.Copy(outcomes, nameof(outcomes));
     }
     public long CurrentVersion { get; }
     public long PreviousVersion { get; }
@@ -319,29 +336,77 @@ public sealed record PartitionRequest(
     bool CallerAuthorizesLocalOperation,
     bool HoldsCurrentGlobalAuthority);
 
-public abstract record MessagingIntent(MessagingAction Action);
-public sealed record ConfigurePlaneIntent(PlanePolicy Policy) : MessagingIntent(MessagingAction.Configure);
-public sealed record ConfigureReplacementIntent(ReplacementOperation Operation) : MessagingIntent(MessagingAction.Configure);
-public sealed record ObserveClusterIntent(MessagingOperationId Operation, ClusterId Cluster, long MinimumSequence, long MaximumSequence) : MessagingIntent(MessagingAction.Observe);
-public sealed record AddPeerIntent(MessagingOperationId Operation, ClusterId Cluster, ServerId Server, PeerId Peer, PlacementId Placement, long AuthorityEpoch) : MessagingIntent(MessagingAction.AddPeer);
-public sealed record ReattachSurvivingStoreIntent(
-    MessagingOperationId Operation,
-    MessagingPlane Plane,
-    CellId Cell,
-    ClusterId Cluster,
-    ServerId RecordedServer,
-    PeerId RecordedPeer,
-    PlacementId ReplacementPlacement,
-    StoreId Store,
-    long StoreGeneration,
-    long ObservedMembershipSequence,
-    long OwnershipEpoch)
-    : MessagingIntent(MessagingAction.ReattachStore);
-public sealed record WaitCatchupIntent(MessagingOperationId Operation, ClusterId Cluster, PeerId Peer, long RequiredSequence) : MessagingIntent(MessagingAction.WaitCatchup);
-public sealed record RemovePeerIntent(MessagingOperationId Operation, ClusterId Cluster, ServerId FailedServer, PeerId FailedPeer, PeerId ReplacementPeer, long VerifiedMembershipSequence, long AuthorityEpoch) : MessagingIntent(MessagingAction.RemovePeer);
-public sealed record ContinueRegionalIntent(CellId Cell, long RegionalEpoch, long AcceptedGlobalGeneration) : MessagingIntent(MessagingAction.Configure);
-public sealed record ContinueGlobalIntent(CellId Cell, long GlobalEpoch, long AcceptedGlobalGeneration) : MessagingIntent(MessagingAction.Configure);
-public sealed record HoldMessagingIntent(MessagingErrorCode Reason, MessagingOperationId? Operation, ServerId? Server, PeerId? Peer) : MessagingIntent(MessagingAction.Hold);
-
+public abstract record MessagingIntent
+{
+    internal MessagingIntent(MessagingAction action) => Action = action;
+    public MessagingAction Action { get; }
+}
+public sealed record ConfigurePlaneIntent : MessagingIntent { internal ConfigurePlaneIntent(PlanePolicy policy) : base(MessagingAction.Configure) => Policy = policy; public PlanePolicy Policy { get; } }
+public sealed record ConfigureReplacementIntent : MessagingIntent { internal ConfigureReplacementIntent(ReplacementOperation operation) : base(MessagingAction.Configure) => Operation = operation; public ReplacementOperation Operation { get; } }
+public sealed record ObserveClusterIntent : MessagingIntent
+{
+    internal ObserveClusterIntent(MessagingOperationId operation, ClusterId cluster, long minimumSequence, long maximumSequence) : base(MessagingAction.Observe)
+    { Operation = operation; Cluster = cluster; MinimumSequence = minimumSequence; MaximumSequence = maximumSequence; }
+    public MessagingOperationId Operation { get; } public ClusterId Cluster { get; } public long MinimumSequence { get; } public long MaximumSequence { get; }
+}
+public sealed record AddPeerIntent : MessagingIntent
+{
+    internal AddPeerIntent(MessagingOperationId operation, ClusterId cluster, ServerId server, PeerId peer, PlacementId placement, long authorityEpoch) : base(MessagingAction.AddPeer)
+    { Operation = operation; Cluster = cluster; Server = server; Peer = peer; Placement = placement; AuthorityEpoch = authorityEpoch; }
+    public MessagingOperationId Operation { get; } public ClusterId Cluster { get; } public ServerId Server { get; } public PeerId Peer { get; } public PlacementId Placement { get; } public long AuthorityEpoch { get; }
+}
+public sealed record ReattachSurvivingStoreIntent : MessagingIntent
+{
+    internal ReattachSurvivingStoreIntent(MessagingOperationId operation, MessagingPlane plane, CellId cell, ClusterId cluster,
+        ServerId recordedServer, PeerId recordedPeer, PlacementId replacementPlacement, StoreId store,
+        long storeGeneration, long observedMembershipSequence, long ownershipEpoch) : base(MessagingAction.ReattachStore)
+    { Operation = operation; Plane = plane; Cell = cell; Cluster = cluster; RecordedServer = recordedServer; RecordedPeer = recordedPeer;
+      ReplacementPlacement = replacementPlacement; Store = store; StoreGeneration = storeGeneration;
+      ObservedMembershipSequence = observedMembershipSequence; OwnershipEpoch = ownershipEpoch; }
+    public MessagingOperationId Operation { get; } public MessagingPlane Plane { get; } public CellId Cell { get; }
+    public ClusterId Cluster { get; } public ServerId RecordedServer { get; } public PeerId RecordedPeer { get; }
+    public PlacementId ReplacementPlacement { get; } public StoreId Store { get; } public long StoreGeneration { get; }
+    public long ObservedMembershipSequence { get; } public long OwnershipEpoch { get; }
+}
+public sealed record WaitCatchupIntent : MessagingIntent
+{
+    internal WaitCatchupIntent(MessagingOperationId operation, ClusterId cluster, PeerId peer, long requiredSequence) : base(MessagingAction.WaitCatchup)
+    { Operation = operation; Cluster = cluster; Peer = peer; RequiredSequence = requiredSequence; }
+    public MessagingOperationId Operation { get; } public ClusterId Cluster { get; } public PeerId Peer { get; } public long RequiredSequence { get; }
+}
+public sealed record RemovePeerIntent : MessagingIntent
+{
+    internal RemovePeerIntent(MessagingOperationId operation, ClusterId cluster, ServerId failedServer, PeerId failedPeer,
+        PeerId replacementPeer, long verifiedMembershipSequence, long authorityEpoch) : base(MessagingAction.RemovePeer)
+    { Operation = operation; Cluster = cluster; FailedServer = failedServer; FailedPeer = failedPeer; ReplacementPeer = replacementPeer;
+      VerifiedMembershipSequence = verifiedMembershipSequence; AuthorityEpoch = authorityEpoch; }
+    public MessagingOperationId Operation { get; } public ClusterId Cluster { get; } public ServerId FailedServer { get; }
+    public PeerId FailedPeer { get; } public PeerId ReplacementPeer { get; } public long VerifiedMembershipSequence { get; }
+    public long AuthorityEpoch { get; }
+}
+public sealed record ContinueRegionalIntent : MessagingIntent
+{
+    internal ContinueRegionalIntent(CellId cell, long regionalEpoch, long acceptedGlobalGeneration) : base(MessagingAction.Configure)
+    { Cell = cell; RegionalEpoch = regionalEpoch; AcceptedGlobalGeneration = acceptedGlobalGeneration; }
+    public CellId Cell { get; } public long RegionalEpoch { get; } public long AcceptedGlobalGeneration { get; }
+}
+public sealed record ContinueGlobalIntent : MessagingIntent
+{
+    internal ContinueGlobalIntent(CellId cell, long globalEpoch, long acceptedGlobalGeneration) : base(MessagingAction.Configure)
+    { Cell = cell; GlobalEpoch = globalEpoch; AcceptedGlobalGeneration = acceptedGlobalGeneration; }
+    public CellId Cell { get; } public long GlobalEpoch { get; } public long AcceptedGlobalGeneration { get; }
+}
+public sealed record HoldMessagingIntent : MessagingIntent
+{
+    internal HoldMessagingIntent(MessagingErrorCode reason, MessagingOperationId? operation, ServerId? server, PeerId? peer) : base(MessagingAction.Hold)
+    { Reason = reason; Operation = operation; Server = server; Peer = peer; }
+    public MessagingErrorCode Reason { get; } public MessagingOperationId? Operation { get; } public ServerId? Server { get; } public PeerId? Peer { get; }
+}
 public sealed record MessagingTrace(int Sequence, MessagingTraceCode Code, MessagingAction Action);
-public sealed record MessagingDecision(IReadOnlyList<MessagingIntent> Intents, IReadOnlyList<MessagingError> Errors, IReadOnlyList<MessagingTrace> Trace);
+public sealed record MessagingDecision
+{
+    internal MessagingDecision(IReadOnlyList<MessagingIntent> intents, IReadOnlyList<MessagingError> errors, IReadOnlyList<MessagingTrace> trace)
+    { Intents = intents; Errors = errors; Trace = trace; }
+    public IReadOnlyList<MessagingIntent> Intents { get; } public IReadOnlyList<MessagingError> Errors { get; }
+    public IReadOnlyList<MessagingTrace> Trace { get; }
+}
