@@ -61,11 +61,11 @@ expanded only after adversarial steward review.
 
 ## Validation
 
-- Focused completeness shard: 2 passed, 0 failed.
-- Full Control Plane suite: 487 passed, 0 failed.
+- Focused completeness shard: 3 passed, 0 failed.
+- Full Control Plane suite: 488 passed, 0 failed.
 - Locked restore succeeded and the warnings-as-errors solution build completed with 0 warnings and 0 errors.
-- All five executable test suites passed: Contract 24, Protocol 65, Scheduler 72, Control Plane 487, and
-  Model 38; 686 total passed, 0 failed.
+- All five executable test suites passed: Contract 24, Protocol 65, Scheduler 72, Control Plane 488, and
+  Model 38; 687 total passed, 0 failed.
 - `git diff --check` passed on the exact committed audit head.
 
 ## Deliberate boundaries
