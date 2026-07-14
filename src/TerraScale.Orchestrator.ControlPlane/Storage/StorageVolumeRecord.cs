@@ -65,8 +65,9 @@ public sealed class StorageVolumeRecord
 
     internal StorageNumericTrace Trace(StorageConflictClass conflicts = StorageConflictClass.None,
         StorageWriterEpoch? authorizedEpoch = null, StorageNodeId? authorizedNode = null) =>
-        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member, DeviceId,
-                FilesystemId, FilesystemType, Layout, Retention, Backup, Operation, WriterFence),
+        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member,
+                Domain, EncryptionKey, Placement, DeviceId, FilesystemId, FilesystemType, Layout, MountPurpose,
+                Retention, Backup, Operation, WriterFence),
             ObservedBytes, RequestedBytes, ProviderBytes, BlockBytes, FilesystemBytes, UsedBytes, FreeBytes,
             ForecastExhaustion, Generation, authorizedEpoch ?? WriterEpoch, Performance, conflicts);
 
@@ -102,11 +103,13 @@ public sealed record StorageIntentScope
 {
     internal StorageIntentScope(VolumeClaimId claim, ProviderVolumeId providerVolume,
         StorageAttachmentId attachment, StorageCellId cell, StorageNodeId node, StorageWorkloadId workload,
-        StorageMemberId member, StorageDeviceId deviceId, FilesystemId filesystemId,
-        StorageFilesystemType filesystemType, StorageLayout layout, StorageRetention retention, StorageBackupId backup,
-        StorageOperationId operation, StorageFenceId fence)
+        StorageMemberId member, StorageDomain domain, EncryptionKeyReference encryptionKey,
+        StoragePlacementId placement, StorageDeviceId deviceId, FilesystemId filesystemId,
+        StorageFilesystemType filesystemType, StorageLayout layout, StorageMountPurpose mountPurpose,
+        StorageRetention retention, StorageBackupId backup, StorageOperationId operation, StorageFenceId fence)
     { Claim=claim; ProviderVolume=providerVolume; Attachment=attachment; Cell=cell; Node=node; Workload=workload;
-      Member=member; DeviceId=deviceId; FilesystemId=filesystemId; FilesystemType=filesystemType; Layout=layout;
+      Member=member; Domain=domain; EncryptionKey=encryptionKey; Placement=placement; DeviceId=deviceId;
+      FilesystemId=filesystemId; FilesystemType=filesystemType; Layout=layout; MountPurpose=mountPurpose;
       Retention=retention; Backup=backup;
       Operation=operation; Fence=fence; }
     public VolumeClaimId Claim { get; }
@@ -116,10 +119,14 @@ public sealed record StorageIntentScope
     public StorageNodeId Node { get; }
     public StorageWorkloadId Workload { get; }
     public StorageMemberId Member { get; }
+    public StorageDomain Domain { get; }
+    public EncryptionKeyReference EncryptionKey { get; }
+    public StoragePlacementId Placement { get; }
     public StorageDeviceId DeviceId { get; }
     public FilesystemId FilesystemId { get; }
     public StorageFilesystemType FilesystemType { get; }
     public StorageLayout Layout { get; }
+    public StorageMountPurpose MountPurpose { get; }
     public StorageRetention Retention { get; }
     public StorageBackupId Backup { get; }
     public StorageOperationId Operation { get; }
