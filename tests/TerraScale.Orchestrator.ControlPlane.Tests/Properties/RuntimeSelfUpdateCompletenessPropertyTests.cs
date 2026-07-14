@@ -33,7 +33,7 @@ public sealed class RuntimeSelfUpdateCompletenessPropertyTests
             Require(!decision.Authorized && decision.Intent is HoldRuntimeIntent, seed, "artifact mutation denied");
             Require(decision.Trace.Single(r => r.Code == expectedCode).Outcome == expectedOutcome, seed, $"artifact code {expectedCode}");
             Require(decision.Intent.OperationId == request.OperationId, seed, "denial operation identity");
-            Require(decision.Trace.Count == 13, seed, "closed trace cardinality");
+            Require(decision.Trace.Count == 14, seed, "closed trace cardinality");
             operations.Add(request.OperationId.Value);
         }
 
@@ -197,6 +197,7 @@ public sealed class RuntimeSelfUpdateCompletenessPropertyTests
             (RuntimeDecisionCode.ReadinessComplete, RuntimeDecisionOutcome.Passed, 3, 3),
             (RuntimeDecisionCode.CallSafe, callSafe, callSafe == RuntimeDecisionOutcome.Passed ? 1UL : 0UL, 1),
             (RuntimeDecisionCode.RollbackPossible, RuntimeDecisionOutcome.Passed, 1, 1),
+            (RuntimeDecisionCode.SoakComplete, RuntimeDecisionOutcome.NotApplicable, 0, 0),
         };
         Require(decision.Trace.Select(r => (r.Code, r.Outcome, r.Observed, r.Required)).SequenceEqual(expected), seed, "exact recovery trace");
     }
@@ -225,7 +226,7 @@ public sealed class RuntimeSelfUpdateCompletenessPropertyTests
         request.HealthTimeout, request.SoakDuration, request.CompatibilityWindow, request.RollbackPolicy,
         request.ExpectedActiveSlot, request.ExpectedInactiveSlot, request.ExpectedForwardArtifact, request.ExpectedRollbackArtifact,
         forward ?? request.ForwardArtifact, rollback ?? request.RollbackArtifact, compatibility ?? request.Compatibility,
-        observation ?? request.Observation, health ?? request.Health);
+        observation ?? request.Observation, request.Soak, health ?? request.Health);
 
     private static RuntimeHealthEvidence[] FailedHealth(SelfUpdateRequest request) =>
     [

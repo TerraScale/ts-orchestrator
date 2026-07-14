@@ -297,6 +297,82 @@ public sealed class RuntimeDecisionTests
     }
 
     [Test]
+    public async Task HealthySelfUpdateCompletesOnlyAfterExactConfiguredSoak()
+    {
+        var missing = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak, omitSoak: true));
+        var before = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak, soak: Soak(599)));
+        var exact = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak, soak: Soak(600)));
+        var after = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak, soak: Soak(601)));
+
+        await Assert.That(missing.Authorized).IsFalse();
+        await Assert.That(Reason(missing, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.Held);
+        await Assert.That(before.Authorized).IsFalse();
+        await Assert.That(Reason(before, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.Held);
+        await Assert.That(exact.Intent is CompleteSelfUpdateIntent).IsTrue();
+        await Assert.That(after.Intent is CompleteSelfUpdateIntent).IsTrue();
+        await Assert.That(Reason(exact, RuntimeDecisionCode.SoakComplete).Observed).IsEqualTo(600UL);
+        await Assert.That(Reason(after, RuntimeDecisionCode.SoakComplete).Observed).IsEqualTo(601UL);
+        await Assert.That(exact.Trace.Count).IsEqualTo(14);
+        await Assert.That(exact.Trace[^1].Code).IsEqualTo(RuntimeDecisionCode.SoakComplete);
+        await Assert.That(Enum.GetValues<RuntimeDecisionCode>().Select(value => (int)value)
+            .SequenceEqual(Enumerable.Range(1, 22))).IsTrue();
+    }
+
+    [Test]
+    public async Task SoakEvidenceIsExactScopedAndRejectedOutsideSoakPhase()
+    {
+        var replayed = new[]
+        {
+            Soak(operation: new("other-operation")),
+            Soak(node: new("other-node")),
+            Soak(allocation: new("other-allocation")),
+            Soak(epoch: 4),
+            Soak(target: 7),
+            Soak(slot: UpdateSlot.A),
+        };
+        foreach (var evidence in replayed)
+        {
+            var decision = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+                phase: UpdatePhase.OldSlotRetainedUntilSoak, soak: evidence));
+            await Assert.That(decision.Authorized).IsFalse();
+            await Assert.That(Reason(decision, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.Rejected);
+        }
+
+        foreach (var phase in Enum.GetValues<UpdatePhase>().Where(value => value != UpdatePhase.OldSlotRetainedUntilSoak))
+        {
+            var activeSlot = phase is UpdatePhase.UpgradePlanned or UpdatePhase.ArtifactVerified or
+                UpdatePhase.InactiveSlotStaged or UpdatePhase.RollbackTimerArmed or UpdatePhase.RolledBack
+                ? UpdateSlot.A
+                : UpdateSlot.B;
+            var future = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+                phase: phase, soak: Soak(slot: activeSlot)));
+            await Assert.That(future.Authorized).IsFalse();
+            await Assert.That(Reason(future, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.Rejected);
+        }
+    }
+
+    [Test]
+    public async Task SoakNeverDelaysExactHealthOrCompatibilityRollback()
+    {
+        var compatibilityFailure = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak,
+            compatibility: Compatibility(status: CompatibilityStatus.Incompatible), omitSoak: true));
+        var healthFailure = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
+            phase: UpdatePhase.OldSlotRetainedUntilSoak,
+            health: Health(dependency: HealthStatus.Failed, generation: 6),
+            soak: Soak(operation: new("other-operation"))));
+
+        await Assert.That(compatibilityFailure.Intent is RollbackUpdateIntent).IsTrue();
+        await Assert.That(healthFailure.Intent is RollbackUpdateIntent).IsTrue();
+        await Assert.That(Reason(compatibilityFailure, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.NotApplicable);
+        await Assert.That(Reason(healthFailure, RuntimeDecisionCode.SoakComplete).Outcome).IsEqualTo(RuntimeDecisionOutcome.NotApplicable);
+    }
+
+    [Test]
     public async Task RollbackIsObservedThenCompletesOnlyAfterOldGenerationHealth()
     {
         var applying = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(phase: UpdatePhase.RollingBack));
@@ -374,6 +450,10 @@ public sealed class RuntimeDecisionTests
         await Assert.That(Throws<ArgumentException>(() => new RuntimeWorkloadId("bad/path"))).IsTrue();
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new RuntimeAdmission(RuntimeRole.Api, (RuntimeDriver)0, RuntimeArchitecture.LinuxArm64, new(1)))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => Spec(NativePayload(), RuntimeRole.TerraBase, ports: [new(8080), new(8080)]))).IsTrue();
+        await Assert.That(Throws<ArgumentNullException>(() => new UpdateSoakEvidence(
+            null!, Node, Allocation, new(5), new(6), UpdateSlot.B, new(600)))).IsTrue();
+        await Assert.That(Throws<ArgumentOutOfRangeException>(() => new UpdateSoakEvidence(
+            Operation, Node, Allocation, new(5), new(6), (UpdateSlot)0, new(600)))).IsTrue();
     }
 
     private static RuntimeOperationId Operation { get; } = new("operation-1");
@@ -432,22 +512,30 @@ public sealed class RuntimeDecisionTests
         UpdateSlot active = UpdateSlot.A, UpdateSlot inactive = UpdateSlot.B,
         RuntimeNodeId? node = null, RuntimeOperationId? operation = null, ulong target = 6) => new(
         operation ?? Operation, node ?? Node, new(5), new(target), phase, active, inactive, call);
+    private static UpdateSoakEvidence Soak(
+        ulong duration = 600, RuntimeOperationId? operation = null, RuntimeNodeId? node = null,
+        RuntimeAllocationId? allocation = null, ulong epoch = 5, ulong target = 6,
+        UpdateSlot slot = UpdateSlot.B) => new(
+        operation ?? Operation, node ?? Node, allocation ?? Allocation, new(epoch), new(target), slot, new(duration));
     private static SelfUpdateRequest Update(
         UpdatePhase phase = UpdatePhase.UpgradePlanned, ExecutorCallStatus call = ExecutorCallStatus.NotCalled,
         UpdateArtifactEvidence? forward = null, UpdateArtifactEvidence? rollback = null,
         UpdateArtifactSubject? expectedForward = null, UpdateArtifactSubject? expectedRollback = null,
         UpdateCompatibilityEvidence? compatibility = null, IEnumerable<RuntimeHealthEvidence>? health = null,
-        SelfUpdateObservation? observation = null)
+        SelfUpdateObservation? observation = null, UpdateSoakEvidence? soak = null, bool omitSoak = false)
     {
         var forwardEvidence = forward ?? Artifact(6);
         var rollbackEvidence = rollback ?? Artifact(5);
         var expectedActive = phase is UpdatePhase.UpgradePlanned or UpdatePhase.ArtifactVerified or UpdatePhase.InactiveSlotStaged or UpdatePhase.RollbackTimerArmed or UpdatePhase.RolledBack ? UpdateSlot.A : UpdateSlot.B;
         var expectedInactive = expectedActive == UpdateSlot.A ? UpdateSlot.B : UpdateSlot.A;
         var observed = observation ?? Observation(phase, call, expectedActive, expectedInactive);
+        var soakEvidence = omitSoak ? null : soak ?? (phase == UpdatePhase.OldSlotRetainedUntilSoak
+            ? new UpdateSoakEvidence(Operation, Node, Allocation, new(5), new(6), expectedActive, new(600))
+            : null);
         return new(Operation, Node, Allocation, new(5), new(5), RuntimeArchitecture.LinuxArm64, new(5), new(6), new(1), new(1), new(30), new(600), UpdateCompatibilityWindow.NAndNMinusOne, UpdateRollbackPolicy.LocalKnownGoodOnHealthOrCompatibilityFailure, expectedActive, expectedInactive,
             expectedForward ?? Subject(Artifact(6)), expectedRollback ?? Subject(Artifact(5)),
             forwardEvidence, rollbackEvidence, compatibility ?? Compatibility(),
-            observed, health ?? DefaultUpdateHealth(phase));
+            observed, soakEvidence, health ?? DefaultUpdateHealth(phase));
     }
     private static RuntimeHealthEvidence[] DefaultUpdateHealth(UpdatePhase phase) => phase switch
     {

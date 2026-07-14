@@ -163,11 +163,14 @@ internal static class RuntimeUpgradeData
             variant == 16 ? ExecutorCallStatus.ResponseLost : ExecutorCallStatus.NotCalled);
         var health = suppliedHealth ?? Health(operation, allocation, phase == UpdatePhase.RolledBack ? current : target, variant == 17 ? HealthStatus.Failed : HealthStatus.Ready,
             phase is UpdatePhase.LocalHealthVerified or UpdatePhase.RegionalCompatibilityVerified or UpdatePhase.SlotCommitted or UpdatePhase.OldSlotRetainedUntilSoak or UpdatePhase.RolledBack);
+        var soak = phase == UpdatePhase.OldSlotRetainedUntilSoak
+            ? new UpdateSoakEvidence(operation, node, allocation, new(5), target, active, new(600))
+            : null;
         IEnumerable<RuntimeHealthEvidence> finalHealth = health;
         if (reverseHealth) { var healthArray = health.ToArray(); Array.Reverse(healthArray); finalHealth = healthArray; }
         return new(operation, node, allocation, new(5), new(5), RuntimeArchitecture.LinuxArm64, current, target, new(1), new(1), new(30), new(600),
             UpdateCompatibilityWindow.NAndNMinusOne, UpdateRollbackPolicy.LocalKnownGoodOnHealthOrCompatibilityFailure, active, inactive,
-            expectedForward, expectedRollback, forward, rollback, compatibility, observation, finalHealth);
+            expectedForward, expectedRollback, forward, rollback, compatibility, observation, soak, finalHealth);
     }
 
     private static UpdateArtifactEvidence Artifact(ulong seed, RuntimeGeneration generation, char digest, ArtifactVerificationStatus verification = ArtifactVerificationStatus.Verified,
