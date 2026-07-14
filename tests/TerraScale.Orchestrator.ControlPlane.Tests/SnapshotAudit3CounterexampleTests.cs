@@ -141,6 +141,20 @@ public sealed class SnapshotAudit3CounterexampleTests
         await Assert.That(type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
             .Where(static method => method.Name is "Deconstruct" or "Clone" || method.ReturnType == typeof(SnapshotRestorePlan)))
             .IsEmpty();
+
+        var planReturningMethods = type.Assembly.ExportedTypes
+            .SelectMany(static exportedType => exportedType.GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+            .Where(method => method.ReturnType == type)
+            .ToArray();
+        await Assert.That(planReturningMethods).HasSingleItem();
+        await Assert.That(planReturningMethods[0].DeclaringType).IsEqualTo(typeof(SnapshotRestorePlanResult));
+        await Assert.That(planReturningMethods[0].Name).IsEqualTo("get_Plan");
+        await Assert.That(planReturningMethods[0].IsSpecialName).IsTrue();
+
+        var uninitialized = default(SnapshotRestorePlanResult);
+        await Assert.That(uninitialized.Plan).IsNull();
+        await Assert.That(uninitialized.IsPlanned).IsFalse();
     }
 
     [Test]
