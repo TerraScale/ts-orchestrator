@@ -91,6 +91,7 @@ public enum TerraBaseProof{Unknown=0,Proven,Contradicted}
 public enum TerraBaseReplication{Unknown=0,CaughtUp,Lagging,Conflicting,Future}
 public enum TerraBaseUpgradeCompatibility{Unknown=0,CompatibleNAndNMinusOne,Incompatible}
 public enum TerraBaseLossCount{Unknown=0,None,One,TwoOrMore}
+public enum TerraBaseTopologyPlanKind{Unknown=0,Add,Remove}
 public enum TerraBaseAction{Uninitialized=0,Observe,Add,CatchUp,Transfer,Remove,StartWithRetainedVolume,Backup,Restore,Upgrade,Rollback,Hold,Verify}
 public enum TerraBaseTarget{None=0,Member,Topology,Volume,BackupChain,RestoreCandidate,Release,Application}
 public enum TerraBaseCode{Uninitialized=0,NextStep,Completed,InvalidInput,WrongEvidenceScope,PermanentMember,ConflictingTopologyMutation,SplitWriter,ProofMissing,ReplicationUnsafe,CompatibilityRequired,RollbackMaterialRequired,ChainGap,DigestProofMissing,ApplicationConsistencyRequired,AntiRollback,SideBySideRequired,PromotionProofMissing,RolledBack}
@@ -116,8 +117,16 @@ public abstract record TerraBaseIntentSubject
 public sealed record TerraBaseScopedIntentSubject:TerraBaseIntentSubject
 { internal TerraBaseScopedIntentSubject(TerraBaseEvidenceScope scope)=>Scope=scope; public override TerraBaseEvidenceScope Scope{get;} public override string ToString()=>"<terrabase-scoped-intent>"; }
 public sealed record TerraBaseTopologyIntentSubject:TerraBaseIntentSubject
-{ internal TerraBaseTopologyIntentSubject(TerraBaseEvidenceScope scope,TerraBaseMemberKind kind,TerraBaseOrdinal position){Scope=scope;MemberKind=kind;ReplicationPosition=position;}
-  public override TerraBaseEvidenceScope Scope{get;} public TerraBaseMemberKind MemberKind{get;} public TerraBaseOrdinal ReplicationPosition{get;} public override string ToString()=>"<terrabase-topology-intent>"; }
+{
+  internal TerraBaseTopologyIntentSubject(TerraBaseTopologyPlanKind planKind,TerraBaseTopologyEvidence evidence)
+  {
+      if(!Enum.IsDefined(planKind)||planKind==TerraBaseTopologyPlanKind.Unknown)throw new ArgumentOutOfRangeException(nameof(planKind));
+      ArgumentNullException.ThrowIfNull(evidence);PlanKind=planKind;Evidence=evidence;
+  }
+  public TerraBaseTopologyPlanKind PlanKind{get;} public TerraBaseTopologyEvidence Evidence{get;}
+  public override TerraBaseEvidenceScope Scope=>Evidence.Scope; public TerraBaseMemberKind MemberKind=>Evidence.MemberKind;
+  public TerraBaseOrdinal ReplicationPosition=>Evidence.ReplicationPosition; public override string ToString()=>"<terrabase-topology-intent>";
+}
 public sealed record TerraBaseRetainedVolumeIntentSubject:TerraBaseIntentSubject
 { internal TerraBaseRetainedVolumeIntentSubject(TerraBaseEvidenceScope scope,TerraBaseOrdinal epoch){Scope=scope;NewAuthorityEpoch=epoch;}
   public override TerraBaseEvidenceScope Scope{get;} public TerraBaseOrdinal NewAuthorityEpoch{get;} public override string ToString()=>"<terrabase-volume-intent>"; }

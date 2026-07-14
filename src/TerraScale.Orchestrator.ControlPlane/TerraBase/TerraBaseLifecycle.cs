@@ -27,27 +27,28 @@ public static class TerraBaseTopologyPlanner
         if(evidence.SustainedSignal!=TerraBaseProof.Proven||evidence.Placement!=TerraBaseProof.Proven||evidence.Storage!=TerraBaseProof.Proven||evidence.Budget!=TerraBaseProof.Proven||evidence.UniqueMember!=TerraBaseProof.Proven)
             return TerraBaseDecision.Hold(TerraBaseCode.ProofMissing,trace);
         if(!evidence.ReplicationPosition.IsValid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
+        var subject=new TerraBaseTopologyIntentSubject(TerraBaseTopologyPlanKind.Add,evidence);
         if(evidence.TopologyApplied!=TerraBaseProof.Proven)
         {
             if(evidence.Replication!=TerraBaseReplication.Unknown||evidence.PostChangeReplication!=TerraBaseProof.Unknown)
                 return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
             return TerraBaseDecision.Emit(TerraBaseAction.Add,TerraBaseTarget.Topology,TerraBaseCode.NextStep,trace!,
-                new TerraBaseTopologyIntentSubject(expected!,evidence.MemberKind,evidence.ReplicationPosition));
+                subject);
         }
         if(evidence.Replication==TerraBaseReplication.Conflicting||evidence.Replication==TerraBaseReplication.Future)return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe,trace);
         if(evidence.Replication==TerraBaseReplication.Unknown)
         {
             if(evidence.PostChangeReplication!=TerraBaseProof.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!,subject);
         }
         if(evidence.Replication==TerraBaseReplication.Lagging)
         {
             if(evidence.PostChangeReplication!=TerraBaseProof.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
             return TerraBaseDecision.Emit(TerraBaseAction.CatchUp,TerraBaseTarget.Member,TerraBaseCode.NextStep,trace!,
-                new TerraBaseTopologyIntentSubject(expected!,evidence.MemberKind,evidence.ReplicationPosition));
+                subject);
         }
-        if(evidence.PostChangeReplication!=TerraBaseProof.Proven)return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!);
-        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Member,TerraBaseCode.Completed,trace!);
+        if(evidence.PostChangeReplication!=TerraBaseProof.Proven)return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!,subject);
+        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Member,TerraBaseCode.Completed,trace!,subject);
     }
 
     public static TerraBaseDecision PlanRemove(TerraBaseEvidenceScope? expected,TerraBaseTopologyEvidence? evidence)
@@ -67,24 +68,25 @@ public static class TerraBaseTopologyPlanner
         if(evidence.MemberRole==TerraBaseRole.Unknown)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(!evidence.ReplicationPosition.IsValid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence.Replication!=TerraBaseReplication.CaughtUp)return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe,trace);
+        var subject=new TerraBaseTopologyIntentSubject(TerraBaseTopologyPlanKind.Remove,evidence);
         if(evidence.TopologyApplied!=TerraBaseProof.Proven)
         {
             if(evidence.NoDatabaseReference!=TerraBaseProof.Unknown||evidence.PostChangeReplication!=TerraBaseProof.Unknown)
                 return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
             if(evidence.MemberRole==TerraBaseRole.Leader&&evidence.LeadershipTransferred!=TerraBaseProof.Proven)
                 return TerraBaseDecision.Emit(TerraBaseAction.Transfer,TerraBaseTarget.Topology,TerraBaseCode.NextStep,trace!,
-                    new TerraBaseTopologyIntentSubject(expected!,evidence.MemberKind,evidence.ReplicationPosition));
+                    subject);
             return TerraBaseDecision.Emit(TerraBaseAction.Remove,TerraBaseTarget.Topology,TerraBaseCode.NextStep,trace!,
-                new TerraBaseTopologyIntentSubject(expected!,evidence.MemberKind,evidence.ReplicationPosition));
+                subject);
         }
         if(evidence.MemberRole==TerraBaseRole.Leader&&evidence.LeadershipTransferred!=TerraBaseProof.Proven)
             return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
         if(evidence.NoDatabaseReference!=TerraBaseProof.Proven)
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!,subject);
         if(evidence.PostChangeReplication==TerraBaseProof.Contradicted)return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe,trace);
         if(evidence.PostChangeReplication!=TerraBaseProof.Proven)
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!);
-        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Topology,TerraBaseCode.Completed,trace!);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe,TerraBaseTarget.Application,TerraBaseCode.NextStep,trace!,subject);
+        return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Topology,TerraBaseCode.Completed,trace!,subject);
     }
 
     private static bool Scoped(TerraBaseEvidenceScope expected,TerraBaseEvidenceScope? actual)=>actual==expected;
