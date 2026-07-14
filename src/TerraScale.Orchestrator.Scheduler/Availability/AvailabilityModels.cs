@@ -277,6 +277,14 @@ public enum AvailabilityReasonCode
     ReservePids,
     ReserveFileDescriptors,
     ReserveHugePages,
+    CapacityCpu,
+    CapacityMemory,
+    CapacityBlockIo,
+    CapacityEphemeralDisk,
+    CapacityBandwidth,
+    CapacityPids,
+    CapacityFileDescriptors,
+    CapacityHugePages,
 }
 
 public enum AvailabilityReasonOutcome

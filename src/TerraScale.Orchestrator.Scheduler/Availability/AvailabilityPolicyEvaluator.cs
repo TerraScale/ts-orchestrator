@@ -22,7 +22,7 @@ public sealed class AvailabilityPolicyEvaluator
             .Distinct(StringComparer.Ordinal).Skip(1).Any());
         var missingIdentityCount = observations.Count(observation => observation.NodeId is null || observation.FailureDomainId is null);
         var wrongServiceCount = observations.Count(observation => observation.ServiceId != request.Policy.ServiceId);
-        var trace = new List<AvailabilityReason>(20)
+        var trace = new List<AvailabilityReason>(28)
         {
             Reason(AvailabilityReasonCode.ObservationSetComplete,
                 request.ObservationCompleteness == ObservationCompleteness.Complete,
@@ -119,7 +119,7 @@ public sealed class AvailabilityPolicyEvaluator
             checked((ulong)distinctDomains) >= request.Policy.RequiredDistinctFailureDomains.Value,
             checked((ulong)distinctDomains), request.Policy.RequiredDistinctFailureDomains.Value));
 
-        AddReserveTrace(trace, request.Change, request.Policy);
+        AddResourceTrace(trace, request.Change, request.Policy);
         return Decision(trace);
     }
 
@@ -153,14 +153,19 @@ public sealed class AvailabilityPolicyEvaluator
             valid, valid ? 1UL : 0UL, 1));
     }
 
-    private static void AddReserveTrace(
+    private static void AddResourceTrace(
         ICollection<AvailabilityReason> trace,
         AvailabilityChange change,
         ServiceAvailabilityPolicy policy)
     {
-        if (change is not PlaceReplicaChange placement || policy.ReserveDisposition == ReserveDisposition.MayConsume)
+        if (change is not PlaceReplicaChange placement)
         {
             foreach (var code in ReserveCodes)
+            {
+                trace.Add(NotApplicable(code));
+            }
+
+            foreach (var code in CapacityCodes)
             {
                 trace.Add(NotApplicable(code));
             }
@@ -171,13 +176,32 @@ public sealed class AvailabilityPolicyEvaluator
         var available = placement.AvailableResources.OrderedValues().ToArray();
         var requested = placement.RequestedResources.OrderedValues().ToArray();
         var reserve = policy.Reserve.OrderedValues().ToArray();
+
+        if (policy.ReserveDisposition == ReserveDisposition.MayConsume)
+        {
+            foreach (var code in ReserveCodes)
+            {
+                trace.Add(NotApplicable(code));
+            }
+        }
+        else
+        {
+            for (var index = 0; index < available.Length; index++)
+            {
+                var canSubtract = available[index].Value >= requested[index].Value;
+                var remaining = canSubtract ? checked(available[index].Value - requested[index].Value) : 0;
+                var passes = canSubtract && remaining >= reserve[index].Value;
+                trace.Add(RejectReason(ReserveCodes[index], passes,
+                    checked((ulong)remaining), checked((ulong)reserve[index].Value)));
+            }
+        }
+
         for (var index = 0; index < available.Length; index++)
         {
-            var canSubtract = available[index].Value >= requested[index].Value;
-            var remaining = canSubtract ? checked(available[index].Value - requested[index].Value) : 0;
-            var passes = canSubtract && remaining >= reserve[index].Value;
-            trace.Add(RejectReason(ReserveCodes[index], passes,
-                checked((ulong)remaining), checked((ulong)reserve[index].Value)));
+            trace.Add(RejectReason(CapacityCodes[index],
+                available[index].Value >= requested[index].Value,
+                checked((ulong)available[index].Value),
+                checked((ulong)requested[index].Value)));
         }
     }
 
@@ -185,7 +209,7 @@ public sealed class AvailabilityPolicyEvaluator
         ICollection<AvailabilityReason> trace,
         AvailabilityReasonOutcome outcome)
     {
-        foreach (var code in Enum.GetValues<AvailabilityReasonCode>().Skip(6))
+        foreach (var code in PolicyReasonCodes)
         {
             trace.Add(new(code, outcome, 0, 0));
         }
@@ -216,6 +240,30 @@ public sealed class AvailabilityPolicyEvaluator
         AvailabilityReasonCode.ReservePids,
         AvailabilityReasonCode.ReserveFileDescriptors,
         AvailabilityReasonCode.ReserveHugePages,
+    ];
+
+    private static AvailabilityReasonCode[] CapacityCodes { get; } =
+    [
+        AvailabilityReasonCode.CapacityCpu,
+        AvailabilityReasonCode.CapacityMemory,
+        AvailabilityReasonCode.CapacityBlockIo,
+        AvailabilityReasonCode.CapacityEphemeralDisk,
+        AvailabilityReasonCode.CapacityBandwidth,
+        AvailabilityReasonCode.CapacityPids,
+        AvailabilityReasonCode.CapacityFileDescriptors,
+        AvailabilityReasonCode.CapacityHugePages,
+    ];
+
+    private static AvailabilityReasonCode[] PolicyReasonCodes { get; } =
+    [
+        AvailabilityReasonCode.DesiredCount,
+        AvailabilityReasonCode.MinimumAvailable,
+        AvailabilityReasonCode.Quorum,
+        AvailabilityReasonCode.DisruptionBudget,
+        AvailabilityReasonCode.OnePerHost,
+        AvailabilityReasonCode.FailureDomainSpread,
+        .. ReserveCodes,
+        .. CapacityCodes,
     ];
 
     private sealed record TargetResult(AvailabilityReason Reason);
