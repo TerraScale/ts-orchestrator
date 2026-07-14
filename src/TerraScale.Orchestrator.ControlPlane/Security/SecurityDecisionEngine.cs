@@ -264,6 +264,10 @@ public static class SecurityDecisionEngine
         {
             Hold(SecurityDecisionCode.EvidenceUnique, duplicates == 0, checked((ulong)duplicates), 0),
             Reject(SecurityDecisionCode.SurvivalReferencesExact, exact, exact ? checked((ulong)request.References.Count) : 0UL, checked((ulong)request.References.Count)),
+            Reject(SecurityDecisionCode.BundleGenerationNotRollback,
+                request.BundleGeneration.Value >= request.CurrentAcceptedBundleGeneration.Value,
+                request.BundleGeneration.Value,
+                request.CurrentAcceptedBundleGeneration.Value),
         };
         return trace.All(r => r.Outcome == SecurityDecisionOutcome.Passed)
             ? Decision(true, trace, new AcceptSurvivalSecretReferencesIntent(request))

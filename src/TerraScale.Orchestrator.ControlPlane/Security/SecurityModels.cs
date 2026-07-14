@@ -545,11 +545,12 @@ public sealed record SurvivalSecretReference
 
 public sealed record SurvivalSecretRequest
 {
-    public SurvivalSecretRequest(SecurityOperationId operationId, SecurityCellId cellId, SecurityGeneration bundleGeneration, SecurityGeneration currentPolicyGeneration, IEnumerable<SurvivalSecretReference> references, IEnumerable<EncryptedSecretMetadata> availableVersions, IEnumerable<SecretRetentionPolicy> policies)
+    public SurvivalSecretRequest(SecurityOperationId operationId, SecurityCellId cellId, SecurityGeneration bundleGeneration, SecurityGeneration currentAcceptedBundleGeneration, SecurityGeneration currentPolicyGeneration, IEnumerable<SurvivalSecretReference> references, IEnumerable<EncryptedSecretMetadata> availableVersions, IEnumerable<SecretRetentionPolicy> policies)
     {
         OperationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
         CellId = cellId ?? throw new ArgumentNullException(nameof(cellId));
         BundleGeneration = bundleGeneration ?? throw new ArgumentNullException(nameof(bundleGeneration));
+        CurrentAcceptedBundleGeneration = currentAcceptedBundleGeneration ?? throw new ArgumentNullException(nameof(currentAcceptedBundleGeneration));
         CurrentPolicyGeneration = currentPolicyGeneration ?? throw new ArgumentNullException(nameof(currentPolicyGeneration));
         References = new ReadOnlyCollection<SurvivalSecretReference>(EnrollmentRequest.Copy(references, nameof(references))
             .OrderBy(item => item.SecretId.Value, StringComparer.Ordinal).ThenBy(item => item.Version.Value).ToArray());
@@ -561,6 +562,7 @@ public sealed record SurvivalSecretRequest
     public SecurityOperationId OperationId { get; }
     public SecurityCellId CellId { get; }
     public SecurityGeneration BundleGeneration { get; }
+    public SecurityGeneration CurrentAcceptedBundleGeneration { get; }
     public SecurityGeneration CurrentPolicyGeneration { get; }
     public IReadOnlyList<SurvivalSecretReference> References { get; }
     public IReadOnlyList<EncryptedSecretMetadata> AvailableVersions { get; }
@@ -576,7 +578,7 @@ public enum SecurityDecisionCode
     CompromiseProven = 17, ExactGrantPresent = 18, PrivilegeBounded = 19,
     SecretMetadataExact = 20, SecretVersionRetained = 21, SecretAvailable = 22,
     LeaseExact = 23, LeaseValidityAllowsAction = 24, SurvivalReferencesExact = 25,
-    ValidityEvidenceExact = 26, SubjectKeyMatches = 27,
+    ValidityEvidenceExact = 26, SubjectKeyMatches = 27, BundleGenerationNotRollback = 28,
 }
 public enum SecurityDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record SecurityDecisionReason
