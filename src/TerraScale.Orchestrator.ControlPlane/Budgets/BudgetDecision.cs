@@ -93,6 +93,30 @@ public sealed class BudgetDecisionSubject
     public override string ToString() => "<budget-decision-subject>";
 }
 
+public sealed class BudgetDecisionBasis
+{
+    internal BudgetDecisionBasis(
+        BudgetPolicy policy,
+        BudgetUsageObservation cellUsage,
+        BudgetUsageObservation globalUsage,
+        NodeClassUsageObservation nodeUsage,
+        PriceEvidenceObservation priceEvidence)
+    {
+        Policy = policy ?? throw new ArgumentNullException(nameof(policy));
+        CellUsage = cellUsage ?? throw new ArgumentNullException(nameof(cellUsage));
+        GlobalUsage = globalUsage ?? throw new ArgumentNullException(nameof(globalUsage));
+        NodeUsage = nodeUsage ?? throw new ArgumentNullException(nameof(nodeUsage));
+        PriceEvidence = priceEvidence ?? throw new ArgumentNullException(nameof(priceEvidence));
+    }
+
+    public BudgetPolicy Policy { get; }
+    public BudgetUsageObservation CellUsage { get; }
+    public BudgetUsageObservation GlobalUsage { get; }
+    public NodeClassUsageObservation NodeUsage { get; }
+    public PriceEvidenceObservation PriceEvidence { get; }
+    public override string ToString() => "<budget-decision-basis>";
+}
+
 public sealed class BudgetDecisionTrace
 {
     internal BudgetDecisionTrace(
@@ -183,24 +207,26 @@ public sealed class BudgetDecisionTrace
 public readonly record struct BudgetDecision
 {
     private BudgetDecision(BudgetDecisionKind kind, BudgetDecisionReason reason, BudgetDecisionTrace? trace,
-        BudgetDecisionSubject? subject, BudgetApprovalScope? approvalScope)
+        BudgetDecisionSubject? subject, BudgetDecisionBasis? basis, BudgetApprovalScope? approvalScope)
     {
         Kind = kind;
         Reason = reason;
         Trace = trace;
         Subject = subject;
+        Basis = basis;
         ApprovalScope = approvalScope;
     }
     public BudgetDecisionKind Kind { get; }
     public BudgetDecisionReason Reason { get; }
     public BudgetDecisionTrace? Trace { get; }
     public BudgetDecisionSubject? Subject { get; }
+    public BudgetDecisionBasis? Basis { get; }
     public BudgetApprovalScope? ApprovalScope { get; }
     public bool IsAuthorized => Kind == BudgetDecisionKind.Automatic;
-    internal static BudgetDecision Held(BudgetDecisionReason reason) => new(BudgetDecisionKind.Held, reason, null, null, null);
+    internal static BudgetDecision Held(BudgetDecisionReason reason) => new(BudgetDecisionKind.Held, reason, null, null, null, null);
     internal static BudgetDecision Create(BudgetDecisionKind kind, BudgetDecisionReason reason, BudgetDecisionTrace trace,
-        BudgetProposal proposal, BudgetApprovalScope? approvalScope = null) =>
-        new(kind, reason, trace, new BudgetDecisionSubject(proposal), approvalScope);
+        BudgetProposal proposal, BudgetDecisionBasis basis, BudgetApprovalScope? approvalScope = null) =>
+        new(kind, reason, trace, new BudgetDecisionSubject(proposal), basis, approvalScope);
     public override string ToString() => Trace is null
         ? $"kind={Kind};reason={Reason}"
         : $"kind={Kind};reason={Reason};trace=[{Trace}]";
@@ -278,38 +304,47 @@ public static class BudgetAuthorizationEngine
             nodePolicy.Minimum, nodePolicy.Warm, nodePolicy.Maximum, policy.MaximumEvidenceAge,
             evidence.CellUsage.Age, evidence.GlobalUsage.Age, evidence.NodeUsage.Age, evidence.PriceUsage!.Age,
             providerExceeded);
+        var basis = new BudgetDecisionBasis(policy, evidence.CellUsage, evidence.GlobalUsage,
+            evidence.NodeUsage, evidence.PriceUsage);
         if (providerExceeded != BudgetDimension.None)
         {
-            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.ProviderAccountLimitExceeded, trace, proposal);
+            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.ProviderAccountLimitExceeded,
+                trace, proposal, basis);
         }
 
         if (policy.EmergencyPosture == BudgetEmergencyPosture.Emergency)
         {
             if (!add)
             {
-                return BudgetDecision.Create(BudgetDecisionKind.Held, BudgetDecisionReason.EmergencyDecreaseHeld, trace, proposal);
+                return BudgetDecision.Create(BudgetDecisionKind.Held, BudgetDecisionReason.EmergencyDecreaseHeld,
+                    trace, proposal, basis);
             }
             if (proposal.Purpose == BudgetSafetyPurpose.DataLossPreventionStorageExpansion)
             {
                 if (proposal.NodeCount != 0 || !proposal.Delta.IsStorageSafetyDomainIncrease)
                 {
-                    return BudgetDecision.Create(BudgetDecisionKind.Held, BudgetDecisionReason.InvalidEmergencySafetyClaim, trace, proposal);
+                    return BudgetDecision.Create(BudgetDecisionKind.Held, BudgetDecisionReason.InvalidEmergencySafetyClaim,
+                        trace, proposal, basis);
                 }
-                return BudgetDecision.Create(BudgetDecisionKind.Automatic, BudgetDecisionReason.EmergencyDataLossPrevention, trace, proposal);
+                return BudgetDecision.Create(BudgetDecisionKind.Automatic, BudgetDecisionReason.EmergencyDataLossPrevention,
+                    trace, proposal, basis);
             }
             if (proposal.Purpose != BudgetSafetyPurpose.AvailabilityRepair)
             {
-                return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.EmergencyNonSafetyGrowth, trace, proposal);
+                return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.EmergencyNonSafetyGrowth,
+                    trace, proposal, basis);
             }
         }
 
         if (projectedNodes < nodePolicy.Minimum)
         {
-            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.NodeClassMinimumViolated, trace, proposal);
+            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.NodeClassMinimumViolated,
+                trace, proposal, basis);
         }
         if (projectedNodes > nodePolicy.Maximum)
         {
-            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.NodeClassMaximumExceeded, trace, proposal);
+            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.NodeClassMaximumExceeded,
+                trace, proposal, basis);
         }
 
         var budgetExceeded = projectedCell.ExceededBy(policy.CellCeiling)
@@ -317,7 +352,8 @@ public static class BudgetAuthorizationEngine
         if (budgetExceeded != BudgetDimension.None)
         {
             trace = ReplaceBinding(trace, budgetExceeded);
-            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.BudgetCeilingExceeded, trace, proposal);
+            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.BudgetCeilingExceeded,
+                trace, proposal, basis);
         }
 
         var approvalExceeded = projectedCell.ExceededBy(policy.Bands.ApprovalCellMaximum)
@@ -325,7 +361,8 @@ public static class BudgetAuthorizationEngine
         if (approvalExceeded != BudgetDimension.None)
         {
             trace = ReplaceBinding(trace, approvalExceeded);
-            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.ForbiddenBand, trace, proposal);
+            return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.ForbiddenBand,
+                trace, proposal, basis);
         }
 
         var automaticExceeded = projectedCell.ExceededBy(policy.Bands.AutomaticCellMaximum)
@@ -338,10 +375,11 @@ public static class BudgetAuthorizationEngine
                 proposal.NodeClass, proposal.Resource, proposal.Purpose);
             return BudgetDecision.Create(BudgetDecisionKind.ApprovalRequired,
                 warmProtected ? BudgetDecisionReason.WarmCapacityProtection : BudgetDecisionReason.ApprovalBand,
-                trace, proposal, scope);
+                trace, proposal, basis, scope);
         }
 
-        return BudgetDecision.Create(BudgetDecisionKind.Automatic, BudgetDecisionReason.WithinAutomaticBand, trace, proposal);
+        return BudgetDecision.Create(BudgetDecisionKind.Automatic, BudgetDecisionReason.WithinAutomaticBand,
+            trace, proposal, basis);
     }
 
     private static BudgetDecisionTrace ReplaceBinding(BudgetDecisionTrace trace, BudgetDimension binding) =>
