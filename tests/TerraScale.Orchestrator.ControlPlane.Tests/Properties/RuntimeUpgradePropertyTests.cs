@@ -83,6 +83,40 @@ public sealed class RuntimeUpgradePropertyTests
     }
 
     [Test]
+    public async Task Health_check_outputs_bind_exact_execution_scope_for_1000_successive_updates()
+    {
+        var executed = 0;
+        for (var seed = 1UL; seed <= Cases; seed++)
+        {
+            var request = RuntimeUpgradeData.Update(seed, 4);
+            var decision = RuntimeDecisionEngine.EvaluateSelfUpdate(request);
+            if (decision.Intent is not CheckRuntimeHealthIntent intent) throw new InvalidOperationException($"health intent failed at seed {seed}.");
+            Require(decision.Authorized, seed, "health intent");
+            Require(ReferenceEquals(intent.OperationId, request.OperationId) &&
+                    ReferenceEquals(intent.AllocationId, request.AllocationId) &&
+                    ReferenceEquals(intent.NodeId, request.NodeId) &&
+                    ReferenceEquals(intent.Epoch, request.Epoch) &&
+                    ReferenceEquals(intent.Generation, request.TargetGeneration) &&
+                    ReferenceEquals(intent.HealthTimeout, request.HealthTimeout), seed, "exact scope instances");
+            Require(intent.RequiredHealth.SequenceEqual(new[]
+            {
+                HealthDimension.Liveness,
+                HealthDimension.LocalReadiness,
+                HealthDimension.DependencyReadiness,
+            }), seed, "canonical health dimensions");
+            var replay = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateSelfUpdate(RuntimeUpgradeData.Update(seed, 4)).Intent;
+            Require(intent == replay && intent.GetHashCode() == replay.GetHashCode(), seed, "equal replay");
+            if (seed < Cases)
+            {
+                var next = RuntimeDecisionEngine.EvaluateSelfUpdate(RuntimeUpgradeData.Update(seed + 1, 4));
+                Require(Serialize(decision) != Serialize(next), seed, "successive scope distinction");
+            }
+            executed++;
+        }
+        await Assert.That(executed).IsEqualTo(Cases);
+    }
+
+    [Test]
     public async Task Activation_is_construction_closed_and_strict_pinned_corpus_reconstructs_seeded_inputs()
     {
         await Assert.That(typeof(RuntimeDecision).GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length).IsEqualTo(0);
@@ -131,7 +165,10 @@ public sealed class RuntimeUpgradePropertyTests
     }
 
     private static string Entry(string id, string seed, int variant, string expected) => $"{{\"schema\":\"terrascale.runtime-upgrade-replay.v1\",\"entries\":[{{\"id\":\"{id}\",\"seed\":{seed},\"variant\":{variant},\"expected\":\"{expected}\"}}]}}";
-    private static string Serialize(RuntimeDecision d) => $"{d.Authorized}|{d.Intent.GetType().Name}|" + string.Join(';', d.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"));
+    private static string Serialize(RuntimeDecision d) => $"{d.Authorized}|{d.Intent.GetType().Name}|{IntentFingerprint(d.Intent)}|" + string.Join(';', d.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"));
+    private static string IntentFingerprint(RuntimeIntent intent) => intent is CheckRuntimeHealthIntent health
+        ? $"{health.OperationId.Value},{health.AllocationId.Value},{health.NodeId.Value},{health.Epoch.Value},{health.Generation.Value},{health.HealthTimeout.Value},{string.Join(',', health.RequiredHealth)}"
+        : "-";
     private static string Fingerprint(SelfUpdateRequest r) => $"{r.OperationId.Value}|{r.NodeId.Value}|{r.AllocationId.Value}|{r.CurrentGeneration.Value}|{r.TargetGeneration.Value}|{r.ForwardArtifact.ReleaseId.Value}|{r.ForwardArtifact.ArtifactId.Value}|{r.ForwardArtifact.SignatureId.Value}";
     private static string ExpectedFingerprint(ulong seed) => $"operation-{seed}|node-{seed}|allocation-{seed}|{1000 + seed}|{1001 + seed}|release-{seed}-{1001 + seed}|artifact-{seed}-{1001 + seed}|signature-{seed}-{1001 + seed}";
     private static void Require(bool condition, ulong seed, string property) { if (!condition) throw new InvalidOperationException($"{property} failed at seed {seed}."); }

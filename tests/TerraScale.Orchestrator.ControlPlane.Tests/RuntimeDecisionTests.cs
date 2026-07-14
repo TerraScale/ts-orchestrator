@@ -265,6 +265,79 @@ public sealed class RuntimeDecisionTests
     }
 
     [Test]
+    public async Task HealthCheckIntentsBindExactLifecycleAndSelfUpdateExecutionScope()
+    {
+        var lifecycleRequest = Lifecycle(phase: LifecyclePhase.Started, process: ProcessStatus.Running);
+        var lifecycleDecision = RuntimeDecisionEngine.EvaluateLifecycle(lifecycleRequest);
+        var lifecycle = (CheckRuntimeHealthIntent)lifecycleDecision.Intent;
+        await Assert.That(lifecycle.OperationId).IsSameReferenceAs(lifecycleRequest.OperationId);
+        await Assert.That(lifecycle.AllocationId).IsSameReferenceAs(lifecycleRequest.Spec.AllocationId);
+        await Assert.That(lifecycle.NodeId).IsSameReferenceAs(lifecycleRequest.Spec.NodeId);
+        await Assert.That(lifecycle.Epoch).IsSameReferenceAs(lifecycleRequest.Epoch);
+        await Assert.That(lifecycle.Generation).IsSameReferenceAs(lifecycleRequest.Spec.Generation);
+        await Assert.That(lifecycle.HealthTimeout).IsSameReferenceAs(lifecycleRequest.HealthTimeout);
+        await Assert.That(lifecycle.RequiredHealth).IsEquivalentTo(lifecycleRequest.Spec.RequiredHealth);
+
+        var updateRequest = Update(phase: UpdatePhase.ProcessRestarted);
+        var updateDecision = RuntimeDecisionEngine.EvaluateSelfUpdate(updateRequest);
+        var update = (CheckRuntimeHealthIntent)updateDecision.Intent;
+        await Assert.That(update.OperationId).IsSameReferenceAs(updateRequest.OperationId);
+        await Assert.That(update.AllocationId).IsSameReferenceAs(updateRequest.AllocationId);
+        await Assert.That(update.NodeId).IsSameReferenceAs(updateRequest.NodeId);
+        await Assert.That(update.Epoch).IsSameReferenceAs(updateRequest.Epoch);
+        await Assert.That(update.Generation).IsSameReferenceAs(updateRequest.TargetGeneration);
+        await Assert.That(update.HealthTimeout).IsSameReferenceAs(updateRequest.HealthTimeout);
+        await Assert.That(update.RequiredHealth).IsEquivalentTo(new[]
+        {
+            HealthDimension.Liveness,
+            HealthDimension.LocalReadiness,
+            HealthDimension.DependencyReadiness,
+        });
+    }
+
+    [Test]
+    public async Task HealthCheckIntentDistinguishesGenerationsButEqualReplayRemainsEqual()
+    {
+        var firstRequest = Update(phase: UpdatePhase.ProcessRestarted);
+        var first = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateSelfUpdate(firstRequest).Intent;
+        var replay = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateSelfUpdate(Update(phase: UpdatePhase.ProcessRestarted)).Intent;
+        var next = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateSelfUpdate(NextUpdate()).Intent;
+
+        await Assert.That(first).IsEqualTo(replay);
+        await Assert.That(first.GetHashCode()).IsEqualTo(replay.GetHashCode());
+        await Assert.That(first).IsNotEqualTo(next);
+        await Assert.That(HealthIntentFingerprint(first)).IsNotEqualTo(HealthIntentFingerprint(next));
+    }
+
+    [Test]
+    public async Task HealthCheckIntentDefensivelyRetainsRequiredDimensionsAndIsConstructionClosed()
+    {
+        var source = new List<HealthDimension>
+        {
+            HealthDimension.DependencyReadiness,
+            HealthDimension.Liveness,
+            HealthDimension.LocalReadiness,
+            HealthDimension.RolloutVerification,
+        };
+        var request = Lifecycle(phase: LifecyclePhase.Started, process: ProcessStatus.Running, requiredHealth: source);
+        var intent = (CheckRuntimeHealthIntent)RuntimeDecisionEngine.EvaluateLifecycle(request).Intent;
+        source.Clear();
+
+        await Assert.That(intent.RequiredHealth).IsEquivalentTo(new[]
+        {
+            HealthDimension.Liveness,
+            HealthDimension.LocalReadiness,
+            HealthDimension.DependencyReadiness,
+            HealthDimension.RolloutVerification,
+        });
+        await Assert.That(Throws<NotSupportedException>(() =>
+            ((IList<HealthDimension>)intent.RequiredHealth).Add(HealthDimension.Startup))).IsTrue();
+        await Assert.That(typeof(CheckRuntimeHealthIntent).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
+        await Assert.That(typeof(CheckRuntimeHealthIntent).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Any(method => method.Name == "Deconstruct")).IsFalse();
+    }
+
+    [Test]
     public async Task SwitchIsNotRepeatedAfterLostResponse()
     {
         var decision = RuntimeDecisionEngine.EvaluateSelfUpdate(Update(
@@ -462,10 +535,11 @@ public sealed class RuntimeDecisionTests
     private static RuntimeDigest Digest() => new(new string('a', 64));
     private static NativeRuntimePayload NativePayload() => new(new("terrabase-artifact"), Digest(), new("signature-1"), new("sigstore-v1"), new("ol9-aarch64-1"), new("systemd-261"), RuntimeArchitecture.LinuxArm64, NativeUnitDescriptor.TerraBase);
     private static OciRuntimePayload OciPayload() => new(new("terrabase-image"), Digest(), new(new string('b', 64)), new("signature-1"), new("sigstore-v1"), new("ol9-aarch64-1"), new("containerd-2.2"), RuntimeArchitecture.LinuxArm64, OciRuntimeDescriptor.TerraBase);
-    private static WorkloadRuntimeSpec Spec(RuntimePayload? payload = null, RuntimeRole role = RuntimeRole.TerraBase, IEnumerable<RuntimePort>? ports = null) => new(
+    private static WorkloadRuntimeSpec Spec(RuntimePayload? payload = null, RuntimeRole role = RuntimeRole.TerraBase,
+        IEnumerable<RuntimePort>? ports = null, IEnumerable<HealthDimension>? requiredHealth = null) => new(
         new("terrabase"), Allocation, Node, role, new(5), new("config-5"), payload ?? NativePayload(),
         [new("database-secret-v5")], [new(new("volume-1"), VolumeRetention.Retained), new(new("scratch-1"), VolumeRetention.Ephemeral)],
-        ports ?? [new RuntimePort(8080)], [HealthDimension.Liveness, HealthDimension.LocalReadiness, HealthDimension.DependencyReadiness]);
+        ports ?? [new RuntimePort(8080)], requiredHealth ?? [HealthDimension.Liveness, HealthDimension.LocalReadiness, HealthDimension.DependencyReadiness]);
     private static RuntimeHealthEvidence[] Health(
         HealthStatus liveness = HealthStatus.Ready, HealthStatus local = HealthStatus.Ready,
         HealthStatus dependency = HealthStatus.Ready, ulong generation = 5) =>
@@ -481,9 +555,9 @@ public sealed class RuntimeDecisionTests
         ExecutorCallStatus call = ExecutorCallStatus.NotCalled, ulong epoch = 5, ulong observedGeneration = 5,
         RuntimeDigest? observedDigest = null, RuntimeOperationId? observedOperation = null,
         IEnumerable<RuntimeHealthEvidence>? health = null, IEnumerable<RuntimeConflictEvidence>? conflicts = null,
-        RuntimeInventoryEvidence? inventory = null)
+        RuntimeInventoryEvidence? inventory = null, IEnumerable<HealthDimension>? requiredHealth = null)
     {
-        var spec = Spec(payload, role);
+        var spec = Spec(payload, role, requiredHealth: requiredHealth);
         return new(Operation, new(epoch), new(5), new(5), new(2), new(30), spec,
             admission ?? new(role, spec.Payload.Driver, spec.Payload.Architecture, new(2)), action,
             new(observedOperation ?? Operation, Allocation, new(epoch), new(observedGeneration), phase,
@@ -537,6 +611,20 @@ public sealed class RuntimeDecisionTests
             forwardEvidence, rollbackEvidence, compatibility ?? Compatibility(),
             observed, soakEvidence, health ?? DefaultUpdateHealth(phase));
     }
+    private static SelfUpdateRequest NextUpdate()
+    {
+        var forward = Artifact(7);
+        var rollback = Artifact(6);
+        return new(Operation, Node, Allocation, new(5), new(5), RuntimeArchitecture.LinuxArm64,
+            new(6), new(7), new(1), new(1), new(30), new(600),
+            UpdateCompatibilityWindow.NAndNMinusOne, UpdateRollbackPolicy.LocalKnownGoodOnHealthOrCompatibilityFailure,
+            UpdateSlot.B, UpdateSlot.A, Subject(forward), Subject(rollback), forward, rollback,
+            new UpdateCompatibilityEvidence(Operation, new(6), new(7), new(1), new(1),
+                CompatibilityStatus.Compatible, CompatibilityStatus.Compatible),
+            new SelfUpdateObservation(Operation, Node, new(5), new(7), UpdatePhase.ProcessRestarted,
+                UpdateSlot.B, UpdateSlot.A, ExecutorCallStatus.NotCalled),
+            null, []);
+    }
     private static RuntimeHealthEvidence[] DefaultUpdateHealth(UpdatePhase phase) => phase switch
     {
         UpdatePhase.LocalHealthVerified or UpdatePhase.RegionalCompatibilityVerified or UpdatePhase.SlotCommitted or UpdatePhase.OldSlotRetainedUntilSoak => Health(generation: 6),
@@ -544,6 +632,9 @@ public sealed class RuntimeDecisionTests
         _ => [],
     };
     private static RuntimeDecisionReason Reason(RuntimeDecision decision, RuntimeDecisionCode code) => decision.Trace.Single(r => r.Code == code);
-    private static string Serialize(RuntimeDecision decision) => $"{decision.Authorized}|{decision.Intent.GetType().Name}|{string.Join(';', decision.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"))}";
+    private static string Serialize(RuntimeDecision decision) => $"{decision.Authorized}|{decision.Intent.GetType().Name}|{IntentFingerprint(decision.Intent)}|{string.Join(';', decision.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"))}";
+    private static string IntentFingerprint(RuntimeIntent intent) => intent is CheckRuntimeHealthIntent health ? HealthIntentFingerprint(health) : "-";
+    private static string HealthIntentFingerprint(CheckRuntimeHealthIntent intent) =>
+        $"{intent.OperationId.Value},{intent.AllocationId.Value},{intent.NodeId.Value},{intent.Epoch.Value},{intent.Generation.Value},{intent.HealthTimeout.Value},{string.Join(',', intent.RequiredHealth)}";
     private static bool Throws<T>(Action action) where T : Exception { try { action(); return false; } catch (T) { return true; } }
 }
