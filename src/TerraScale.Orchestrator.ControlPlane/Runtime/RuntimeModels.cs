@@ -335,7 +335,16 @@ public enum RuntimeDecisionCode { EvidenceComplete = 1, EvidenceUnique = 2, Evid
 public enum RuntimeDecisionOutcome { Passed = 1, Rejected = 2, Held = 3, NotApplicable = 4 }
 public sealed record RuntimeDecisionReason { internal RuntimeDecisionReason(RuntimeDecisionCode code, RuntimeDecisionOutcome outcome, ulong observed, ulong required) { Code = code; Outcome = outcome; Observed = observed; Required = required; } public RuntimeDecisionCode Code { get; } public RuntimeDecisionOutcome Outcome { get; } public ulong Observed { get; } public ulong Required { get; } }
 
-public abstract record RuntimeIntent { internal RuntimeIntent(RuntimeOperationId operationId) => OperationId = operationId; public RuntimeOperationId OperationId { get; } }
+public abstract record RuntimeIntent
+{
+    private readonly RuntimeOperationId? _operationId;
+    private protected RuntimeIntent(RuntimeOperationId operationId) =>
+        _operationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
+    private protected RuntimeIntent(RuntimeLifecycleRequest request) =>
+        LifecycleRequest = request ?? throw new ArgumentNullException(nameof(request));
+    private protected RuntimeLifecycleRequest? LifecycleRequest { get; }
+    public RuntimeOperationId OperationId => LifecycleRequest?.OperationId ?? _operationId!;
+}
 public sealed record FetchRuntimeArtifactIntent : RuntimeIntent { internal FetchRuntimeArtifactIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record VerifyRuntimeArtifactIntent : RuntimeIntent { internal VerifyRuntimeArtifactIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record StageRuntimeIntent : RuntimeIntent { internal StageRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
@@ -421,7 +430,12 @@ public sealed record CleanupRuntimeIntent : RuntimeIntent
     public RuntimeLifecycleRequest Request { get; }
     public IReadOnlyList<RuntimeVolumeId> EphemeralVolumes => _ephemeralVolumes;
 }
-public sealed record ObserveExecutorIntent : RuntimeIntent { internal ObserveExecutorIntent(RuntimeOperationId operationId, RuntimeAllocationId allocationId) : base(operationId) => AllocationId = allocationId; public RuntimeAllocationId AllocationId { get; } }
+public sealed record ObserveExecutorIntent : RuntimeIntent
+{
+    internal ObserveExecutorIntent(RuntimeLifecycleRequest request) : base(request) { }
+    public RuntimeLifecycleRequest Request => LifecycleRequest!;
+    public RuntimeAllocationId AllocationId => Request.Spec.AllocationId;
+}
 public sealed record VerifyUpdateArtifactIntent : RuntimeIntent { internal VerifyUpdateArtifactIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }
 public sealed record StageInactiveSlotIntent : RuntimeIntent { internal StageInactiveSlotIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }
 public sealed record ArmRollbackIntent : RuntimeIntent { internal ArmRollbackIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }

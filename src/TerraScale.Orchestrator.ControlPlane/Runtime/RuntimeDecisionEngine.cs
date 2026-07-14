@@ -49,7 +49,7 @@ public static class RuntimeDecisionEngine
         trace.Add(callSafe ? Pass(RuntimeDecisionCode.CallSafe) : Hold(RuntimeDecisionCode.CallSafe, false, 0, 1));
 
         if (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Rejected)) return Deny(request.OperationId, trace);
-        if (!callSafe) return Decision(true, trace, new ObserveExecutorIntent(request.OperationId, request.Spec.AllocationId));
+        if (!callSafe) return Decision(true, trace, new ObserveExecutorIntent(request));
         if (trace.Any(r => r.Outcome == RuntimeDecisionOutcome.Held))
         {
             var held = trace.Where(r => r.Outcome == RuntimeDecisionOutcome.Held).ToArray();
