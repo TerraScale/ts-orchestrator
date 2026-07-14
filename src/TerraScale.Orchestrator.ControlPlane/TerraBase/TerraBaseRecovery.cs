@@ -46,8 +46,9 @@ public sealed record TerraBaseBackupChainIntentSubject:TerraBaseIntentSubject
 
 public static class TerraBaseBackupPlanner
 {
-    public static TerraBaseDecision Authorize(TerraBaseEvidenceScope expected,TerraBaseBackupRequestEvidence? request)
+    public static TerraBaseDecision Authorize(TerraBaseEvidenceScope? expected,TerraBaseBackupRequestEvidence? request)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(request is null||request.Scope!=expected)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(request.Backup is null||!request.Sequence.IsValid||request.Destination is null||request.EncryptionKey is null
@@ -71,8 +72,9 @@ public static class TerraBaseBackupPlanner
             new TerraBaseBackupRequestIntentSubject(expected,request.Backup,request.Sequence,request.ParentSequence,request.ParentBackup,request.Destination,request.EncryptionKey));
     }
 
-    public static TerraBaseDecision Accept(TerraBaseEvidenceScope expected,TerraBaseBackupEvidence? evidence)
+    public static TerraBaseDecision Accept(TerraBaseEvidenceScope? expected,TerraBaseBackupEvidence? evidence)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         var code=Validate(expected,evidence,true,out var ordered);
         if(code!=TerraBaseCode.Completed)return TerraBaseDecision.Hold(code,trace);
@@ -122,9 +124,10 @@ public sealed record TerraBaseRestoreIntentSubject:TerraBaseIntentSubject
 
 public static class TerraBaseRestorePlanner
 {
-    public static TerraBaseDecision Plan(TerraBaseEvidenceScope expected,TerraBaseRestoreId expectedRestore,
+    public static TerraBaseDecision Plan(TerraBaseEvidenceScope? expected,TerraBaseRestoreId expectedRestore,
         TerraBaseBackupId expectedTerminalBackup,TerraBaseOrdinal expectedTargetGeneration,TerraBaseRestoreEvidence? e)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(e is null||e.Scope!=expected||e.Restore!=expectedRestore||e.TargetGeneration!=expectedTargetGeneration
             ||expectedTerminalBackup is null||!e.SourceGeneration.IsValid||!e.TargetGeneration.IsValid)

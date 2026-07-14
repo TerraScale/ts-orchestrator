@@ -13,6 +13,7 @@ public static class TerraBaseTopologyPlanner
 {
     public static TerraBaseDecision PlanAdd(TerraBaseEvidenceScope? expected,TerraBaseTopologyEvidence? evidence)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=Trace(expected,evidence);
         if(!Scoped(expected,evidence?.Scope))return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(!Defined(evidence!))return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
@@ -36,6 +37,7 @@ public static class TerraBaseTopologyPlanner
 
     public static TerraBaseDecision PlanRemove(TerraBaseEvidenceScope? expected,TerraBaseTopologyEvidence? evidence)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=Trace(expected,evidence);
         if(!Scoped(expected,evidence?.Scope))return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(!Defined(evidence!))return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
@@ -58,7 +60,7 @@ public static class TerraBaseTopologyPlanner
         return TerraBaseDecision.Emit(TerraBaseAction.Verify,TerraBaseTarget.Topology,TerraBaseCode.Completed,trace!);
     }
 
-    private static bool Scoped(TerraBaseEvidenceScope? expected,TerraBaseEvidenceScope? actual)=>expected is not null&&expected.Valid&&actual==expected;
+    private static bool Scoped(TerraBaseEvidenceScope expected,TerraBaseEvidenceScope? actual)=>actual==expected;
     private static TerraBaseTrace? Trace(TerraBaseEvidenceScope? expected,TerraBaseTopologyEvidence? evidence)=>expected is null?null:new(expected,evidence?.ReplicationPosition??default,expected.TopologyGeneration);
     private static bool Defined(TerraBaseTopologyEvidence evidence) =>
         TerraBaseEnumRules.Defined(evidence.MemberKind)&&TerraBaseEnumRules.Defined(evidence.MemberRole)
@@ -92,8 +94,9 @@ public sealed class TerraBaseWriterEvidence
 
 public static class TerraBaseRetainedVolumePlanner
 {
-    public static TerraBaseDecision Plan(TerraBaseEvidenceScope expected,TerraBaseWriterEvidence? evidence)
+    public static TerraBaseDecision Plan(TerraBaseEvidenceScope? expected,TerraBaseWriterEvidence? evidence)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(evidence is null||!evidence.IsValid||evidence.Scope!=expected)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(!TerraBaseEnumRules.Defined(evidence.InventoryComplete)||!TerraBaseEnumRules.Defined(evidence.ExactVolumeIdentity)
@@ -114,9 +117,10 @@ public sealed record TerraBaseUpgradeEvidence(TerraBaseEvidenceScope Scope,Terra
     TerraBaseProof Ready,TerraBaseProof CaughtUp,TerraBaseProof RollbackApplied,TerraBaseProof PostRollbackHealthy);
 public static class TerraBaseUpgradePlanner
 {
-    public static TerraBaseDecision Plan(TerraBaseEvidenceScope expected,TerraBaseReleaseId expectedCurrent,
+    public static TerraBaseDecision Plan(TerraBaseEvidenceScope? expected,TerraBaseReleaseId expectedCurrent,
         TerraBaseReleaseId expectedTarget,TerraBaseUpgradeEvidence? e)
     {
+        if(expected is null||!expected.Valid)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace=new TerraBaseTrace(expected,default,expected.TopologyGeneration);
         if(e is null||e.Scope!=expected||e.Current!=expectedCurrent||e.Target!=expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope,trace);
         if(expectedCurrent is null||expectedTarget is null||expectedCurrent==expectedTarget)return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput,trace);
