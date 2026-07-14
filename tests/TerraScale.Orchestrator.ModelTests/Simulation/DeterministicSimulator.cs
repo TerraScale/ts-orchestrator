@@ -201,7 +201,7 @@ public static class DeterministicSimulator
                 {
                     operations.Add(new(item.Operation, item.Generation, item.Epoch, item.IdempotencyKey,
                         item.Resource, true, 0, ProviderOutcome.Absent));
-                    acceptedActions.Add(Evidence(AcceptedActionKind.Authorization, item, state, true,
+                    acceptedActions.Add(Evidence(item, state, true,
                         state.Nodes.Single(node => node.Id == item.Node).Role, 1));
                 }
                 else rejected++;
@@ -211,7 +211,7 @@ public static class DeterministicSimulator
                     operations[existing].CreateCount == 0 && CurrentAuthority(state, item))
                 {
                     operations[existing] = operations[existing] with { CreateCount = 1 };
-                    acceptedActions.Add(Evidence(AcceptedActionKind.Create, item, state, operations[existing].Authorized,
+                    acceptedActions.Add(Evidence(item, state, operations[existing].Authorized,
                         state.Nodes.Single(node => node.Id == item.Node).Role, operations[existing].CreateCount));
                 }
                 else rejected++;
@@ -232,14 +232,14 @@ public static class DeterministicSimulator
                     node.Id == state.Leader && node.AcceptedWriterEpoch == state.CurrentEpoch && item.Epoch == state.CurrentEpoch &&
                     !node.Crashed && !node.Partitioned && !completedOperations.Contains(item.Operation, StringComparer.Ordinal))
                 { accepted++; completedOperations.Add(item.Operation);
-                    acceptedActions.Add(Evidence(AcceptedActionKind.Mutation, item, state,
+                    acceptedActions.Add(Evidence(item, state,
                         operations[existing].Authorized, node.Role, 1)); }
                 else rejected++;
                 break;
             case ModelEventKind.RequestTermination:
                 var target = state.Nodes.SingleOrDefault(value => value.Id == item.Node);
                 if (target?.Role == ModelNodeRole.Elastic)
-                { terminations++; acceptedActions.Add(Evidence(AcceptedActionKind.Termination, item, state, true, target.Role, 1)); }
+                { terminations++; acceptedActions.Add(Evidence(item, state, true, target.Role, 1)); }
                 else rejected++;
                 break;
             case ModelEventKind.Delivery:
@@ -305,19 +305,14 @@ public static class DeterministicSimulator
         return node is not null && node.Id == state.Leader && node.AcceptedWriterEpoch == state.CurrentEpoch &&
             item.Epoch == state.CurrentEpoch && !node.Crashed && !node.Partitioned;
     }
-    private static AcceptedActionEvidence Evidence(AcceptedActionKind kind, ModelEvent item, ModelState state,
+    private static AcceptedActionEvidence Evidence(ModelEvent item, ModelState state,
         bool authorized, ModelNodeRole role, int ordinal)
     {
         var node = state.Nodes.Single(value => value.Id == item.Node);
-        return new(kind, item.Operation, item.Node, item.Generation, item.IdempotencyKey, item.Resource, item.Epoch,
-            state.CurrentEpoch, state.Leader, node.AcceptedWriterEpoch, node.Crashed, node.Partitioned,
+        return new(item, state.CurrentEpoch, state.Leader, node.AcceptedWriterEpoch, node.Crashed, node.Partitioned,
             authorized, role, ordinal, state.Nodes.Count(static value => value.Role == ModelNodeRole.Critical));
     }
-    private static bool Valid(ModelEvent item) => item.Sequence > 0 && item.DueTick >= 0 && item.ObservationSequence > 0 &&
-        item.Generation > 0 && item.Epoch > 0 && ModelValidation.Identity(item.EventId) && ModelValidation.Identity(item.Node) &&
-        item.Node is "n1" or "n2" or "n3" &&
-        ModelValidation.Identity(item.Operation) && ModelValidation.Identity(item.IdempotencyKey) &&
-        ModelValidation.Identity(item.Resource) && Enum.IsDefined(item.Kind) && item.Kind != ModelEventKind.Unspecified;
+    private static bool Valid(ModelEvent item) => ModelValidation.Event(item);
     private static bool UpdateNode(ModelNode[] nodes, string id, bool? crashed = null, bool? partitioned = null,
         long? acceptedEpoch = null)
     {

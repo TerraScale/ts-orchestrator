@@ -50,10 +50,25 @@ public sealed record ModelOperation(string Operation, long Generation, long Epoc
 public sealed record ModelEvent(long Sequence, long DueTick, string EventId, ModelEventKind Kind, string Node,
     string Operation, long Generation, long Epoch, string IdempotencyKey, string Resource, long ObservationSequence);
 public sealed record FailureDirective(FailureKind Kind, string Node, long DelayTicks);
-public sealed record AcceptedActionEvidence(AcceptedActionKind Kind, string Operation, string Node,
-    long Generation, string IdempotencyKey, string Resource, long EventEpoch, long AuthorityEpoch,
+public sealed record AcceptedActionEvidence(ModelEvent AcceptedEvent, long AuthorityEpoch,
     string LeaderAtAcceptance, long NodeAcceptedEpoch, bool NodeCrashed, bool NodePartitioned,
-    bool Authorized, ModelNodeRole NodeRole, int Ordinal, int CriticalNodesAfter);
+    bool Authorized, ModelNodeRole NodeRole, int Ordinal, int CriticalNodesAfter)
+{
+    public AcceptedActionKind Kind => AcceptedEvent.Kind switch
+    {
+        ModelEventKind.AuthorizeOperation => AcceptedActionKind.Authorization,
+        ModelEventKind.RequestCreate => AcceptedActionKind.Create,
+        ModelEventKind.MutationSucceeded => AcceptedActionKind.Mutation,
+        ModelEventKind.RequestTermination => AcceptedActionKind.Termination,
+        _ => AcceptedActionKind.Unspecified,
+    };
+    public string Operation => AcceptedEvent.Operation;
+    public string Node => AcceptedEvent.Node;
+    public long Generation => AcceptedEvent.Generation;
+    public string IdempotencyKey => AcceptedEvent.IdempotencyKey;
+    public string Resource => AcceptedEvent.Resource;
+    public long EventEpoch => AcceptedEvent.Epoch;
+}
 
 public sealed record FakeProviderObservation(string Operation, long Generation, long Epoch, string IdempotencyKey,
     string Resource, long ObservationSequence, ProviderOutcome Outcome);
@@ -141,9 +156,7 @@ public sealed class ModelState
             completedValues.Distinct(StringComparer.Ordinal).Count() != completedValues.Length ||
             actionValues.Length > ModelValidation.MaximumModelEvents || actionValues.Any(static action => action is null ||
                 !Enum.IsDefined(action.Kind) || action.Kind == AcceptedActionKind.Unspecified ||
-                !ModelValidation.Identity(action.Operation) || !ModelValidation.Identity(action.Node) || action.Generation <= 0 ||
-                !ModelValidation.Identity(action.IdempotencyKey) || !ModelValidation.Identity(action.Resource) ||
-                !ModelValidation.Identity(action.LeaderAtAcceptance) || action.EventEpoch <= 0 ||
+                !ModelValidation.Event(action.AcceptedEvent) || !ModelValidation.Identity(action.LeaderAtAcceptance) ||
                 action.AuthorityEpoch <= 0 || action.NodeAcceptedEpoch < 0 || !Enum.IsDefined(action.NodeRole) ||
                 action.NodeRole == ModelNodeRole.Unspecified || action.Ordinal <= 0 || action.CriticalNodesAfter is < 0 or > 3) ||
             acceptedMutations < 0 || rejectedMutations < 0 || terminations < 0)
@@ -208,12 +221,10 @@ public sealed class ModelState
             .Append(EventCanonical(item.Event)).Append('}'); }
         foreach (var id in DeliveredEventIds) AppendString(builder, "delivered", id);
         foreach (var id in CompletedMutationOperations) AppendString(builder, "completed-operation", id);
-        foreach (var action in AcceptedActions) { builder.Append("|action=").Append((int)action.Kind); AppendString(builder, "operation", action.Operation);
-            AppendString(builder, "node", action.Node); AppendString(builder, "key", action.IdempotencyKey);
-            AppendString(builder, "resource", action.Resource); AppendString(builder, "accepted-leader", action.LeaderAtAcceptance);
-            builder.Append("|generation=").Append(action.Generation.ToString(CultureInfo.InvariantCulture))
-                .Append("|event-epoch=").Append(action.EventEpoch.ToString(CultureInfo.InvariantCulture))
-                .Append("|authority-epoch=").Append(action.AuthorityEpoch.ToString(CultureInfo.InvariantCulture))
+        foreach (var action in AcceptedActions) { builder.Append("|action=").Append((int)action.Kind);
+            AppendString(builder, "accepted-event", EventCanonical(action.AcceptedEvent));
+            AppendString(builder, "accepted-leader", action.LeaderAtAcceptance);
+            builder.Append("|authority-epoch=").Append(action.AuthorityEpoch.ToString(CultureInfo.InvariantCulture))
                 .Append("|node-epoch=").Append(action.NodeAcceptedEpoch.ToString(CultureInfo.InvariantCulture))
                 .Append("|node-crashed=").Append(action.NodeCrashed ? 1 : 0)
                 .Append("|node-partitioned=").Append(action.NodePartitioned ? 1 : 0)
@@ -264,14 +275,14 @@ internal static class ModelValidation
     internal const int MaximumModelOperations = 2048;
     internal static bool Identity(string? value) => value is { Length: > 0 and <= 80 } &&
         value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '.' or '_' or '-');
+    internal static bool Event(ModelEvent? item) => item is not null && item.Sequence > 0 && item.DueTick >= 0 &&
+        item.ObservationSequence > 0 && item.Generation > 0 && item.Epoch > 0 && Identity(item.EventId) &&
+        Identity(item.Node) && item.Node is "n1" or "n2" or "n3" && Identity(item.Operation) &&
+        Identity(item.IdempotencyKey) && Identity(item.Resource) && Enum.IsDefined(item.Kind) &&
+        item.Kind != ModelEventKind.Unspecified;
     internal static void Events(IReadOnlyList<ModelEvent> events, bool requireUniqueIds)
     {
-        if (events.Any(static item => item is null || item.Sequence <= 0 || item.DueTick < 0 ||
-                item.ObservationSequence <= 0 || item.Generation <= 0 || item.Epoch <= 0 ||
-                !Identity(item.EventId) || !Identity(item.Node) || !Identity(item.Operation) ||
-                item.Node is not ("n1" or "n2" or "n3") ||
-                !Identity(item.IdempotencyKey) || !Identity(item.Resource) || !Enum.IsDefined(item.Kind) ||
-                item.Kind == ModelEventKind.Unspecified) || (requireUniqueIds &&
+        if (events.Any(static item => !Event(item)) || (requireUniqueIds &&
             events.Select(static item => item.EventId).Distinct(StringComparer.Ordinal).Count() != events.Count))
             throw new ArgumentException("Invalid events.", nameof(events));
     }
