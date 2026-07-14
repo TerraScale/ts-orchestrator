@@ -15,7 +15,7 @@ public sealed class MessagingPolicyCompletenessPropertyTests
 
         await Assert.That(first).IsEqualTo(replay);
         await Assert.That(first.Cases).IsEqualTo(Cases);
-        await Assert.That(first.Coverage).IsEqualTo(14);
+        await Assert.That(first.Coverage).IsEqualTo(16);
     }
 
     [Test]
@@ -39,25 +39,27 @@ public sealed class MessagingPolicyCompletenessPropertyTests
             ulong digest = 0;
             for (var index = 0; index < Cases; index++)
             {
-                var mode = index % 14;
+                var mode = index % 16;
                 var request = mode switch
                 {
                     0 => Scenario(index, stream => stream with { Replicas = 2 }),
                     1 => Scenario(index, mutateBucket: bucket => bucket with { Replicas = 2 }),
                     2 => Scenario(index, stream => stream with { Acknowledgement = MessagingAcknowledgement.Leader }),
                     3 => Scenario(index, mutateBucket: bucket => bucket with { Acknowledgement = MessagingAcknowledgement.Leader }),
-                    4 => Scenario(index, stream => stream with { DiskSyncClass = MessagingDiskSyncClass.BoundedLoss }),
-                    5 => Scenario(index, mutateBucket: bucket => bucket with { DiskSyncClass = MessagingDiskSyncClass.BoundedLoss }),
-                    6 => Scenario(index, stream => stream with { Durability = MessagingDurability.Unspecified }),
-                    7 => Scenario(index, mutateBucket: bucket => bucket with { Durability = (MessagingDurability)999 }),
-                    8 => Scenario(index, stream => stream with { Acknowledgement = MessagingAcknowledgement.Unspecified }),
-                    9 => Scenario(index, mutateBucket: bucket => bucket with { Acknowledgement = (MessagingAcknowledgement)999 }),
-                    10 => Scenario(index, stream => stream with { DiskSyncClass = MessagingDiskSyncClass.Unspecified }),
-                    11 => Scenario(index, mutateBucket: bucket => bucket with { DiskSyncClass = (MessagingDiskSyncClass)999 }),
-                    12 => Scenario(index, stream => stream with { Replicas = 4 }),
+                    4 => Scenario(index, stream => stream with { Acknowledgement = MessagingAcknowledgement.NoAck }),
+                    5 => Scenario(index, mutateBucket: bucket => bucket with { Acknowledgement = MessagingAcknowledgement.NoAck }),
+                    6 => Scenario(index, stream => stream with { DiskSyncClass = MessagingDiskSyncClass.BoundedLoss }),
+                    7 => Scenario(index, mutateBucket: bucket => bucket with { DiskSyncClass = MessagingDiskSyncClass.BoundedLoss }),
+                    8 => Scenario(index, stream => stream with { Durability = MessagingDurability.Unspecified }),
+                    9 => Scenario(index, mutateBucket: bucket => bucket with { Durability = (MessagingDurability)999 }),
+                    10 => Scenario(index, stream => stream with { Acknowledgement = MessagingAcknowledgement.Unspecified }),
+                    11 => Scenario(index, mutateBucket: bucket => bucket with { Acknowledgement = (MessagingAcknowledgement)999 }),
+                    12 => Scenario(index, stream => stream with { DiskSyncClass = MessagingDiskSyncClass.Unspecified }),
+                    13 => Scenario(index, mutateBucket: bucket => bucket with { DiskSyncClass = (MessagingDiskSyncClass)999 }),
+                    14 => Scenario(index, stream => stream with { Replicas = 4 }),
                     _ => Scenario(index, mutateBucket: bucket => bucket with { Replicas = 4 }),
                 };
-                var expected = mode < 6 ? MessagingErrorCode.DurabilityViolation : MessagingErrorCode.InvalidInput;
+                var expected = mode < 8 ? MessagingErrorCode.DurabilityViolation : MessagingErrorCode.InvalidInput;
                 VerifyHeld(MessagingPolicyEngine.DecideReplacement(request), request, expected, index);
                 VerifyHeld(MessagingPolicyEngine.DecideReplacement(Reverse(request)), request, expected, index);
                 coverage.Add(mode);
