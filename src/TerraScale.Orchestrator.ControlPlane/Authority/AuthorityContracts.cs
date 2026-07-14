@@ -163,7 +163,21 @@ public sealed record CompareAndDeleteLeaseIntent : AuthorityIntent
 
 public sealed record ReadAuthorityIntent : AuthorityIntent
 {
-    internal ReadAuthorityIntent(string authorityId, string requestId) : base(authorityId, requestId) { }
+    internal ReadAuthorityIntent(RequestAuthorityRead request, AuthorityState state, AuthorityStatus resumeStatus)
+        : base(request.AuthorityId, request.RequestId)
+    {
+        CandidateId = request.CandidateId;
+        ResumeStatus = resumeStatus;
+        ExpectedHighestEpoch = state.HighestEpoch;
+        ExpectedHighestKvRevision = state.HighestKvRevision;
+        ExpectedConfirmedObservation = state.Confirmed;
+    }
+
+    public string CandidateId { get; }
+    public AuthorityStatus ResumeStatus { get; }
+    public long ExpectedHighestEpoch { get; }
+    public long ExpectedHighestKvRevision { get; }
+    public AuthorityObservation? ExpectedConfirmedObservation { get; }
 }
 
 public sealed record MutationAuthorityPermit

@@ -86,7 +86,9 @@ public static class AuthorityDigest
                 Append(builder, Encode("cas-delete-v1", intent.AuthorityId, intent.RequestId,
                     intent.ExpectedRevision, intent.ExpectedEpoch, intent.ExpectedLease)); return;
             case ReadAuthorityIntent intent:
-                Append(builder, Encode("read-v1", intent.AuthorityId, intent.RequestId)); return;
+                Append(builder, Encode("read-v1", intent.AuthorityId, intent.RequestId, intent.CandidateId,
+                    intent.ResumeStatus, intent.ExpectedHighestEpoch, intent.ExpectedHighestKvRevision,
+                    intent.ExpectedConfirmedObservation)); return;
             case MutationAuthorityPermit permit:
                 Append(builder, Encode("mutation-permit-v1", permit.AuthorityId, permit.CandidateId,
                     permit.LeaseId, permit.Epoch, permit.KvRevision, permit.ObservationId,

@@ -164,7 +164,7 @@ public static class AuthorityEngine
             return Reject(state, Error(AuthorityErrorCode.IdentityMismatch, "INV-004", "Only the confirmed lease candidate may re-read leader authority."));
         var @event = Stamp(state, (sequence, previous, digest) => new AuthorityReadRequested(
             sequence, previous, digest, command.AuthorityId, command.CandidateId, command.RequestId, resume));
-        return Commit(state, @event, [new ReadAuthorityIntent(command.AuthorityId, command.RequestId)]);
+        return Commit(state, @event, [new ReadAuthorityIntent(command, state, resume)]);
     }
 
     private static AuthorityDecision ObserveSet(AuthorityState state, ObserveAuthorityCas command)
