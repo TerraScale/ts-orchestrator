@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Messaging;
+using TerraScale.Orchestrator.ControlPlane.Tests;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests.Properties;
 
@@ -123,10 +124,11 @@ public sealed class MessagingPolicyPropertyTests
         {
             await Assert.That(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
             await Assert.That(type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Any(property => property.SetMethod is { IsPublic: true })).IsFalse();
+                .All(property => property.GetMethod is not null && property.SetMethod is null)).IsTrue();
             await Assert.That(type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Any(method => method.Name == "Deconstruct")).IsFalse();
         }
+        await Assert.That(outputTypes.Where(type => !type.IsAbstract).All(type => type.IsSealed)).IsTrue();
         var returningOutputs = assembly.GetExportedTypes().SelectMany(type => type.GetMethods(
             BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
             .Select(method => (Type: type, Method: method))).Where(candidate =>
@@ -183,9 +185,11 @@ public sealed class MessagingPolicyPropertyTests
             var mode = index % 8; var salt = generator.Next(1_000_000); var operation = Operation(index, salt); var policy = Control(index);
             var (request, expected) = ReplacementCase(index, mode, salt);
             var first = MessagingPolicyEngine.DecideReplacement(request);
-            var reversed = request.Observation is null ? first : MessagingPolicyEngine.DecideReplacement(request with
-            { Observation = Reverse(request.Observation) });
+            var reversedRequest = request.Observation is null ? request : request with { Observation = Reverse(request.Observation) };
+            var reversed = request.Observation is null ? first : MessagingPolicyEngine.DecideReplacement(reversedRequest);
             Require(first.Compatibility is null && reversed.Compatibility is null, "replacement-compatibility", index);
+            Require(ReferenceEquals(first.AcceptedReplacementRequest, request) &&
+                ReferenceEquals(reversed.AcceptedReplacementRequest, reversedRequest), "replacement-request", index);
             var actual = Outcome(first); Require(actual == expected && Outcome(reversed) == expected, "replacement", index);
             VerifyReplacementSubject(first, request, mode, index);
             coverage.Add(mode); digest = Mix(digest, actual, operation.AuthorityEpoch);
@@ -200,7 +204,7 @@ public sealed class MessagingPolicyPropertyTests
         {
             var mode = index % 14; var salt = generator.Next(1_000_000); var (request, expected) = PartitionCase(index, mode, salt);
             var decision = MessagingPolicyEngine.DecidePartition(request); var actual = Outcome(decision);
-            Require(decision.Compatibility is null, "partition-compatibility", index);
+            Require(decision.Compatibility is null && decision.AcceptedReplacementRequest is null, "partition-compatibility", index);
             Require(actual == expected, "partition", index);
             if (mode == 8) { var intent = (ContinueRegionalIntent)decision.Intents.Single(); Require(intent.Cell == request.Cell && intent.RegionalEpoch == request.CurrentRegionalEpoch && intent.AcceptedGlobalGeneration == request.AcceptedGlobalGeneration, "regional-subject", index); }
             if (mode == 9) { var intent = (ContinueGlobalIntent)decision.Intents.Single(); Require(intent.Cell == request.Cell && intent.GlobalEpoch == request.CurrentGlobalEpoch && intent.AcceptedGlobalGeneration == request.AcceptedGlobalGeneration, "global-subject", index); }
@@ -235,8 +239,10 @@ public sealed class MessagingPolicyPropertyTests
             var observation = new ClusterObservation(original.ObservationId, original.Cluster,
                 original.ConfigurationGeneration, original.MembershipSequence, peers,
                 original.StreamReplicas, original.BucketReplicas);
-            var decision = MessagingPolicyEngine.DecideReplacement(new(Control(index), operation, operation, observation, 96));
-            var reversed = MessagingPolicyEngine.DecideReplacement(new(Control(index), operation, operation, Reverse(observation), 96));
+            var request = new ReplacementRequest(Control(index), operation, operation, observation, 96);
+            var reversedRequest = new ReplacementRequest(Control(index), operation, operation, Reverse(observation), 96);
+            var decision = MessagingPolicyEngine.DecideReplacement(request);
+            var reversed = MessagingPolicyEngine.DecideReplacement(reversedRequest);
             var expected = mode switch
             {
                 0 => "ReattachStore",
@@ -246,7 +252,10 @@ public sealed class MessagingPolicyPropertyTests
             };
             Require(Outcome(decision) == expected && Outcome(reversed) == expected, "store-proof", index);
             if (mode == 0) VerifyReplacementSubject(decision,
-                new(Control(index), operation, operation, observation, 96), 7, index);
+                request, 7, index);
+            Require(mode == 0
+                ? ReferenceEquals(decision.AcceptedReplacementRequest, request) && ReferenceEquals(reversed.AcceptedReplacementRequest, reversedRequest)
+                : decision.AcceptedReplacementRequest is null && reversed.AcceptedReplacementRequest is null, "store-proof-request", index);
             coverage.Add(mode); digest = Mix(digest, expected, proof.StoreGeneration);
         }
         return new(Cases, coverage.Count, digest);
@@ -260,7 +269,8 @@ public sealed class MessagingPolicyPropertyTests
             var mode = index % 10; var salt = generator.Next(1_000_000); var (topology, expected) = IsolationCase(index, mode);
             var decision = MessagingPolicyEngine.DecideTopology(topology);
             var reversed = MessagingPolicyEngine.DecideTopology(Reverse(topology));
-            Require(decision.Compatibility is null && reversed.Compatibility is null, "topology-compatibility", index);
+            Require(decision.Compatibility is null && reversed.Compatibility is null &&
+                decision.AcceptedReplacementRequest is null && reversed.AcceptedReplacementRequest is null, "topology-compatibility", index);
             var actual = Outcome(decision); Require(actual == expected && Outcome(reversed) == expected, "isolation", index);
             if (mode == 0)
             {
@@ -357,6 +367,8 @@ public sealed class MessagingPolicyPropertyTests
         };
         var identity = $"{entry.Family}|{entry.Seed}|{entry.Mode}|" + string.Join('|', decision.Errors.Select(x => x.Code.ToString()).Concat(decision.Intents.Select(IntentIdentity))
             .Concat(decision.Trace.Select(x => $"{x.Sequence}:{x.Code}:{x.Action}")));
+        if (decision.AcceptedReplacementRequest is not null)
+            identity += $"|accepted:{MessagingAcceptedReplacementFingerprint.Hash(decision.AcceptedReplacementRequest)}";
         return new(Outcome(decision), Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity))));
     }
     private static string IntentIdentity(MessagingIntent intent) => intent switch

@@ -128,8 +128,9 @@ public sealed class MessagingPolicyCompletenessPropertyTests
                     }),
                     _ => Scenario(index),
                 };
+                var reversed = Reverse(request);
                 VerifyRemove(MessagingPolicyEngine.DecideReplacement(request), request, index);
-                VerifyRemove(MessagingPolicyEngine.DecideReplacement(Reverse(request)), request, index);
+                VerifyRemove(MessagingPolicyEngine.DecideReplacement(reversed), reversed, index);
                 coverage.Add(mode);
                 digest = Mix(digest, MessagingErrorCode.Unspecified, request.Proposed.AuthorityEpoch);
             }
@@ -242,6 +243,7 @@ public sealed class MessagingPolicyCompletenessPropertyTests
             hold.Server == request.Proposed.FailedServer && hold.Peer == request.Proposed.FailedPeer,
             "hold-subject", index);
         Require(decision.Intents.All(static intent => intent is not RemovePeerIntent), "no-remove", index);
+        Require(decision.AcceptedReplacementRequest is null, "held-request", index);
         Require(decision.Trace.Count == 1 && decision.Trace[0] ==
             new MessagingTrace(1, MessagingTraceCode.Held, MessagingAction.Hold), "hold-trace", index);
     }
@@ -252,6 +254,7 @@ public sealed class MessagingPolicyCompletenessPropertyTests
             decision.Intents[0] is RemovePeerIntent, "remove-count", index);
         var remove = (RemovePeerIntent)decision.Intents[0];
         var operation = request.Proposed;
+        Require(ReferenceEquals(decision.AcceptedReplacementRequest, request), "remove-request", index);
         Require(remove.Operation == operation.OperationId && remove.Cluster == operation.Cluster &&
             remove.FailedServer == operation.FailedServer && remove.FailedPeer == operation.FailedPeer &&
             remove.ReplacementPeer == operation.ReplacementPeer &&
