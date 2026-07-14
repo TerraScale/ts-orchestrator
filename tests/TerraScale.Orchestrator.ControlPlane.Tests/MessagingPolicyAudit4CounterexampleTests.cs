@@ -168,6 +168,8 @@ public sealed class MessagingPolicyAudit4CounterexampleTests
         yield return complete with { Observation = SurvivingObservation(complete, operation.FailedServer, PeerHealth.Current, true, true) };
     }
 
+    internal static ReplacementRequest FingerprintBaseline() => AcceptedCases().Last();
+
     private static ClusterObservation LostObservation(ReplacementRequest request, bool replacement, bool caughtUp, int replicas, bool includeFailed)
     {
         var operation = request.Proposed;
