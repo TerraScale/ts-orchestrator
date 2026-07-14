@@ -134,7 +134,7 @@ public sealed class IdentityNetworkPropertyTests
         await Assert.That(typeof(NetworkDecision).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Count(method => method.ReturnType == typeof(NetworkDecision) && !method.IsSpecialName)).IsEqualTo(0);
         await Assert.That(typeof(NetworkIntentSubject).Assembly.GetTypes().Where(t => typeof(NetworkIntentSubject).IsAssignableFrom(t))
-            .SelectMany(t => t.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).Count()).IsEqualTo(2);
+            .SelectMany(t => t.GetConstructors(BindingFlags.Public | BindingFlags.Instance)).Count()).IsEqualTo(0);
 
         var entries = IdentityNetworkReplayCorpus.Load();
         foreach (var entry in entries)

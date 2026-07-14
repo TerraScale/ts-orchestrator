@@ -133,27 +133,38 @@ public sealed record EvaluateMutationAuthority(
     AuthorityHealth Health)
     : AuthorityCommand(AuthorityId, CandidateId, RequestId);
 
-public abstract record AuthorityIntent(string AuthorityId, string RequestId);
+public abstract record AuthorityIntent
+{
+    internal AuthorityIntent(string authorityId, string requestId) { AuthorityId = authorityId; RequestId = requestId; }
+    public string AuthorityId { get; }
+    public string RequestId { get; }
+}
 
-public sealed record CompareAndSetLeaseIntent(
-    string AuthorityId,
-    string RequestId,
-    long ExpectedRevision,
-    long ExpectedEpoch,
-    long ProposedEpoch,
-    AuthorityLease ProposedLease)
-    : AuthorityIntent(AuthorityId, RequestId);
+public sealed record CompareAndSetLeaseIntent : AuthorityIntent
+{
+    internal CompareAndSetLeaseIntent(string authorityId, string requestId, long expectedRevision, long expectedEpoch,
+        long proposedEpoch, AuthorityLease proposedLease) : base(authorityId, requestId)
+    { ExpectedRevision = expectedRevision; ExpectedEpoch = expectedEpoch; ProposedEpoch = proposedEpoch; ProposedLease = proposedLease; }
+    public long ExpectedRevision { get; }
+    public long ExpectedEpoch { get; }
+    public long ProposedEpoch { get; }
+    public AuthorityLease ProposedLease { get; }
+}
 
-public sealed record CompareAndDeleteLeaseIntent(
-    string AuthorityId,
-    string RequestId,
-    long ExpectedRevision,
-    long ExpectedEpoch,
-    AuthorityLease ExpectedLease)
-    : AuthorityIntent(AuthorityId, RequestId);
+public sealed record CompareAndDeleteLeaseIntent : AuthorityIntent
+{
+    internal CompareAndDeleteLeaseIntent(string authorityId, string requestId, long expectedRevision, long expectedEpoch,
+        AuthorityLease expectedLease) : base(authorityId, requestId)
+    { ExpectedRevision = expectedRevision; ExpectedEpoch = expectedEpoch; ExpectedLease = expectedLease; }
+    public long ExpectedRevision { get; }
+    public long ExpectedEpoch { get; }
+    public AuthorityLease ExpectedLease { get; }
+}
 
-public sealed record ReadAuthorityIntent(string AuthorityId, string RequestId)
-    : AuthorityIntent(AuthorityId, RequestId);
+public sealed record ReadAuthorityIntent : AuthorityIntent
+{
+    internal ReadAuthorityIntent(string authorityId, string requestId) : base(authorityId, requestId) { }
+}
 
 public sealed record MutationAuthorityPermit
 {

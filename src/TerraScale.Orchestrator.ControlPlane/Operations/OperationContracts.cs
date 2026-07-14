@@ -116,33 +116,66 @@ public sealed record RecordTerminal(
     string TerminalState)
     : OperationCommand(OperationId, WriterEpoch, Now);
 
-public abstract record OperationIntent(string OperationId);
+public abstract record OperationIntent
+{
+    internal OperationIntent(string operationId) => OperationId = operationId;
+    public string OperationId { get; }
+}
 
-public sealed record DispatchProviderIntent(
-    string OperationId,
-    string OperationKind,
-    string TargetIdentity,
-    string DesiredTerminalState,
-    string PayloadDigest,
-    string IdempotencyKey,
-    long AuthorizationSequence,
-    string AuthorizationDigest,
-    long AuthorizingEpoch,
-    long ExecutorEpoch,
-    string ExecutorId,
-    long DispatchAttempt,
-    DateTimeOffset Deadline)
-    : OperationIntent(OperationId);
+public sealed record DispatchProviderIntent : OperationIntent
+{
+    internal DispatchProviderIntent(string operationId, string operationKind, string targetIdentity, string desiredTerminalState,
+        string payloadDigest, string idempotencyKey, long authorizationSequence, string authorizationDigest,
+        long authorizingEpoch, long executorEpoch, string executorId, long dispatchAttempt, DateTimeOffset deadline) : base(operationId)
+    {
+        OperationKind = operationKind;
+        TargetIdentity = targetIdentity;
+        DesiredTerminalState = desiredTerminalState;
+        PayloadDigest = payloadDigest;
+        IdempotencyKey = idempotencyKey;
+        AuthorizationSequence = authorizationSequence;
+        AuthorizationDigest = authorizationDigest;
+        AuthorizingEpoch = authorizingEpoch;
+        ExecutorEpoch = executorEpoch;
+        ExecutorId = executorId;
+        DispatchAttempt = dispatchAttempt;
+        Deadline = deadline;
+    }
 
-public sealed record ReconcileProviderIntent(
-    string OperationId,
-    string TargetIdentity,
-    long DesiredGeneration,
-    string IdempotencyKey,
-    string? ProviderWorkRequestId,
-    long AuthorizationSequence,
-    string AuthorizationDigest)
-    : OperationIntent(OperationId);
+    public string OperationKind { get; }
+    public string TargetIdentity { get; }
+    public string DesiredTerminalState { get; }
+    public string PayloadDigest { get; }
+    public string IdempotencyKey { get; }
+    public long AuthorizationSequence { get; }
+    public string AuthorizationDigest { get; }
+    public long AuthorizingEpoch { get; }
+    public long ExecutorEpoch { get; }
+    public string ExecutorId { get; }
+    public long DispatchAttempt { get; }
+    public DateTimeOffset Deadline { get; }
+}
+
+public sealed record ReconcileProviderIntent : OperationIntent
+{
+    internal ReconcileProviderIntent(string operationId, string targetIdentity, long desiredGeneration, string idempotencyKey,
+        string? providerWorkRequestId, long authorizationSequence, string authorizationDigest) : base(operationId)
+    {
+        TargetIdentity = targetIdentity;
+        DesiredGeneration = desiredGeneration;
+        IdempotencyKey = idempotencyKey;
+        ProviderWorkRequestId = providerWorkRequestId;
+        AuthorizationSequence = authorizationSequence;
+        AuthorizationDigest = authorizationDigest;
+    }
+
+    public string TargetIdentity { get; }
+    public long DesiredGeneration { get; }
+    public string IdempotencyKey { get; }
+    public string? ProviderWorkRequestId { get; }
+    public long AuthorizationSequence { get; }
+    public string AuthorizationDigest { get; }
+}
 
 public abstract record OperationEvent(
     long Sequence,
@@ -258,13 +291,23 @@ public sealed record OperationState(
         null, null, Array.Empty<string>(), null, null, null, null, null, null);
 }
 
-public sealed record OperationDecision(
-    OperationState State,
-    IReadOnlyList<OperationEvent> EventsToAppend,
-    IReadOnlyList<OperationIntent> Intents,
-    IReadOnlyList<OperationError> Errors,
-    string DecisionDigest)
+public sealed record OperationDecision
 {
+    internal OperationDecision(OperationState state, IReadOnlyList<OperationEvent> eventsToAppend,
+        IReadOnlyList<OperationIntent> intents, IReadOnlyList<OperationError> errors, string decisionDigest)
+    {
+        State = state;
+        EventsToAppend = eventsToAppend;
+        Intents = intents;
+        Errors = errors;
+        DecisionDigest = decisionDigest;
+    }
+
+    public OperationState State { get; }
+    public IReadOnlyList<OperationEvent> EventsToAppend { get; }
+    public IReadOnlyList<OperationIntent> Intents { get; }
+    public IReadOnlyList<OperationError> Errors { get; }
+    public string DecisionDigest { get; }
     internal static OperationDecision Create(
         OperationState state,
         IEnumerable<OperationEvent>? events = null,

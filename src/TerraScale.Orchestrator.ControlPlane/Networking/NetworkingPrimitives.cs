@@ -74,13 +74,24 @@ public sealed record NetworkNumericTrace(NetworkOrdinal Generation,NetworkOrdina
 {public override string ToString()=>string.Create(CultureInfo.InvariantCulture,$"generation={Generation.Value};epoch={Epoch.Value};routes={RouteCount};peers={PeerCount}");}
 
 public abstract record NetworkIntentSubject{private protected NetworkIntentSubject(){}public override string ToString()=>"<network-intent-subject>";}
-public sealed record NetworkRouteIntentSubject(NetworkCellId Cell,NetworkCellId PeerCell,NetworkId Network,NetworkSubnetId Subnet,NetworkRouteId Route,
-    NetworkPeerId Peer,NetworkTunnelId Tunnel,NetworkTrustPlane TrustPlane,NetworkRouteKind RouteKind,NetworkPrefix Destination,
-    NetworkOrdinal Generation,NetworkOrdinal Epoch,NetworkOperationId Operation):NetworkIntentSubject{public override string ToString()=>"<network-route-intent>";}
-public sealed record NetworkEndpointIntentSubject(NetworkCellId Cell,NetworkWorkloadId Workload,NetworkServiceId Service,
-    NetworkEndpointId Endpoint,NetworkNodeId Node,NetworkLoadBalancerId LoadBalancer,NetworkBackendId Backend,NetworkDnsId Dns,
-    NetworkCertificateRef Certificate,NetworkServiceKind ServiceKind,NetworkExposure Exposure,NetworkProtocol Protocol,NetworkPort Port,
-    NetworkOrdinal ServiceGeneration,NetworkOrdinal Epoch,NetworkOperationId Operation):NetworkIntentSubject{public override string ToString()=>"<network-endpoint-intent>";}
+public sealed record NetworkRouteIntentSubject:NetworkIntentSubject
+{
+    internal NetworkRouteIntentSubject(NetworkCellId cell,NetworkCellId peerCell,NetworkId network,NetworkSubnetId subnet,NetworkRouteId route,
+        NetworkPeerId peer,NetworkTunnelId tunnel,NetworkTrustPlane trustPlane,NetworkRouteKind routeKind,NetworkPrefix destination,
+        NetworkOrdinal generation,NetworkOrdinal epoch,NetworkOperationId operation)
+    {Cell=cell;PeerCell=peerCell;Network=network;Subnet=subnet;Route=route;Peer=peer;Tunnel=tunnel;TrustPlane=trustPlane;RouteKind=routeKind;Destination=destination;Generation=generation;Epoch=epoch;Operation=operation;}
+    public NetworkCellId Cell{get;}public NetworkCellId PeerCell{get;}public NetworkId Network{get;}public NetworkSubnetId Subnet{get;}public NetworkRouteId Route{get;}public NetworkPeerId Peer{get;}public NetworkTunnelId Tunnel{get;}public NetworkTrustPlane TrustPlane{get;}public NetworkRouteKind RouteKind{get;}public NetworkPrefix Destination{get;}public NetworkOrdinal Generation{get;}public NetworkOrdinal Epoch{get;}public NetworkOperationId Operation{get;}
+    public override string ToString()=>"<network-route-intent>";
+}
+public sealed record NetworkEndpointIntentSubject:NetworkIntentSubject
+{
+    internal NetworkEndpointIntentSubject(NetworkCellId cell,NetworkWorkloadId workload,NetworkServiceId service,NetworkEndpointId endpoint,NetworkNodeId node,
+        NetworkLoadBalancerId loadBalancer,NetworkBackendId backend,NetworkDnsId dns,NetworkCertificateRef certificate,NetworkServiceKind serviceKind,
+        NetworkExposure exposure,NetworkProtocol protocol,NetworkPort port,NetworkOrdinal serviceGeneration,NetworkOrdinal epoch,NetworkOperationId operation)
+    {Cell=cell;Workload=workload;Service=service;Endpoint=endpoint;Node=node;LoadBalancer=loadBalancer;Backend=backend;Dns=dns;Certificate=certificate;ServiceKind=serviceKind;Exposure=exposure;Protocol=protocol;Port=port;ServiceGeneration=serviceGeneration;Epoch=epoch;Operation=operation;}
+    public NetworkCellId Cell{get;}public NetworkWorkloadId Workload{get;}public NetworkServiceId Service{get;}public NetworkEndpointId Endpoint{get;}public NetworkNodeId Node{get;}public NetworkLoadBalancerId LoadBalancer{get;}public NetworkBackendId Backend{get;}public NetworkDnsId Dns{get;}public NetworkCertificateRef Certificate{get;}public NetworkServiceKind ServiceKind{get;}public NetworkExposure Exposure{get;}public NetworkProtocol Protocol{get;}public NetworkPort Port{get;}public NetworkOrdinal ServiceGeneration{get;}public NetworkOrdinal Epoch{get;}public NetworkOperationId Operation{get;}
+    public override string ToString()=>"<network-endpoint-intent>";
+}
 public readonly record struct NetworkDecision
 {
     private NetworkDecision(NetworkAction a,NetworkTarget t,NetworkCode c,NetworkIntentSubject? s,NetworkNumericTrace? x){Action=a;Target=t;Code=c;Subject=s;Trace=x;}
