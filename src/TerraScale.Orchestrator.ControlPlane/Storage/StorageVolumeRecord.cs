@@ -65,12 +65,14 @@ public sealed class StorageVolumeRecord
 
     internal StorageNumericTrace Trace(StorageConflictClass conflicts = StorageConflictClass.None,
         StorageWriterEpoch? authorizedEpoch = null, StorageNodeId? authorizedNode = null) =>
-        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member, DeviceId, FilesystemId, Operation, WriterFence),
+        new(new StorageIntentScope(Claim, ProviderVolume, Attachment, Cell, authorizedNode ?? Node, Workload, Member, DeviceId,
+                FilesystemId, FilesystemType, Layout, Operation, WriterFence),
             ObservedBytes, RequestedBytes, ProviderBytes, BlockBytes, FilesystemBytes, UsedBytes, FreeBytes,
             ForecastExhaustion, Generation, authorizedEpoch ?? WriterEpoch, Performance, conflicts);
 
     public StorageEvidenceScope EvidenceScope => new(Claim,ProviderVolume,Attachment,Cell,Node,Workload,Member,DeviceId,
-        FilesystemId,FilesystemType,Layout,RequestedBytes,Retention,Backup,Operation,WriterFence,Generation,WriterEpoch);
+        FilesystemId,FilesystemType,Layout,RequestedBytes,ObservedBytes,ProviderBytes,BlockBytes,FilesystemBytes,
+        UsedBytes,FreeBytes,Performance,ForecastExhaustion,Retention,Backup,Operation,WriterFence,Generation,WriterEpoch);
 
     public override string ToString() => "<storage-volume-record>";
 }
@@ -79,13 +81,18 @@ public sealed record StorageEvidenceScope(
     VolumeClaimId Claim, ProviderVolumeId ProviderVolume, StorageAttachmentId Attachment, StorageCellId Cell,
     StorageNodeId Node, StorageWorkloadId Workload, StorageMemberId Member, StorageDeviceId DeviceId,
     FilesystemId FilesystemId, StorageFilesystemType FilesystemType, StorageLayout Layout, StorageBytes RequestedBytes,
+    StorageBytes ObservedBytes, StorageBytes ProviderBytes, StorageBytes BlockBytes, StorageBytes FilesystemBytes,
+    StorageBytes UsedBytes, StorageBytes FreeBytes, StoragePerformance Performance, StorageBytes ForecastExhaustion,
     StorageRetention Retention, StorageBackupId Backup, StorageOperationId Operation,
     StorageFenceId Fence, StorageGeneration Generation, StorageWriterEpoch WriterEpoch)
 {
     internal bool IsWellFormed => Claim is not null && ProviderVolume is not null && Attachment is not null
         && Cell is not null && Node is not null && Workload is not null && Member is not null
-        && DeviceId is not null && FilesystemId is not null && FilesystemType != StorageFilesystemType.Unknown
-        && Layout != StorageLayout.Unknown && Retention != StorageRetention.Unknown && Backup is not null
+        && DeviceId is not null && FilesystemId is not null
+        && FilesystemType != StorageFilesystemType.Unknown && Enum.IsDefined(FilesystemType)
+        && Layout != StorageLayout.Unknown && Enum.IsDefined(Layout)
+        && Performance.Tier != StoragePerformanceTier.Unknown && Enum.IsDefined(Performance.Tier)
+        && Retention != StorageRetention.Unknown && Enum.IsDefined(Retention) && Backup is not null
         && Operation is not null && Fence is not null
         && Generation.IsValid && WriterEpoch.IsValid;
     public override string ToString() => "<storage-evidence-scope>";
@@ -96,9 +103,11 @@ public sealed record StorageIntentScope
     internal StorageIntentScope(VolumeClaimId claim, ProviderVolumeId providerVolume,
         StorageAttachmentId attachment, StorageCellId cell, StorageNodeId node, StorageWorkloadId workload,
         StorageMemberId member, StorageDeviceId deviceId, FilesystemId filesystemId,
+        StorageFilesystemType filesystemType, StorageLayout layout,
         StorageOperationId operation, StorageFenceId fence)
     { Claim=claim; ProviderVolume=providerVolume; Attachment=attachment; Cell=cell; Node=node; Workload=workload;
-      Member=member; DeviceId=deviceId; FilesystemId=filesystemId; Operation=operation; Fence=fence; }
+      Member=member; DeviceId=deviceId; FilesystemId=filesystemId; FilesystemType=filesystemType; Layout=layout;
+      Operation=operation; Fence=fence; }
     public VolumeClaimId Claim { get; }
     public ProviderVolumeId ProviderVolume { get; }
     public StorageAttachmentId Attachment { get; }
@@ -108,6 +117,8 @@ public sealed record StorageIntentScope
     public StorageMemberId Member { get; }
     public StorageDeviceId DeviceId { get; }
     public FilesystemId FilesystemId { get; }
+    public StorageFilesystemType FilesystemType { get; }
+    public StorageLayout Layout { get; }
     public StorageOperationId Operation { get; }
     public StorageFenceId Fence { get; }
     public override string ToString() => "<storage-intent-scope>";
