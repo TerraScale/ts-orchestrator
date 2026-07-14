@@ -145,6 +145,7 @@ public sealed class SnapshotEvidencePropertyTests
                 _ => EvidenceCode.Allowed,
             };
             await Assert.That(decision.Code).IsEqualTo(expected);
+            await Assert.That(decision.AuthorizationScope is null).IsEqualTo(mode != 0);
         }
         await Assert.That(fingerprints.Count).IsEqualTo(Cases);
     }
@@ -175,6 +176,7 @@ public sealed class SnapshotEvidencePropertyTests
             await Assert.That(forward.Action).IsEqualTo(EvidenceAction.AllowL1SCredentialRelease);
             await Assert.That(forward.Subject).IsNotNull();
             await Assert.That(forward.Subject!.PayloadDigest).IsEqualTo(EvidenceTestData.D(20));
+            await Assert.That(forward.AuthorizationScope).IsNotNull();
             var original = CultureInfo.CurrentCulture;
             try
             {
@@ -182,6 +184,7 @@ public sealed class SnapshotEvidencePropertyTests
                 var reverse = EvidenceTestData.Gate(manifest: EvidenceTestData.Manifest(EvidenceTestData.Subject(tree: tree, suites: suites.Reverse(), models: models.Reverse())), policy: policy, context: EvidenceTestData.Context(subject: expected));
                 await Assert.That(reverse.Code).IsEqualTo(forward.Code);
                 await Assert.That(reverse.Action).IsEqualTo(forward.Action);
+                await Assert.That(reverse.AuthorizationScope).IsEqualTo(forward.AuthorizationScope);
             }
             finally { CultureInfo.CurrentCulture = original; }
         }
@@ -196,6 +199,7 @@ public sealed class SnapshotEvidencePropertyTests
         await Assert.That(typeof(SnapshotRestorePlanResult).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceDecision).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceDecisionSubject).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
+        await Assert.That(typeof(EvidenceAuthorizationScope).GetConstructors(BindingFlags.Public | BindingFlags.Instance)).IsEmpty();
     }
 
     [Test]

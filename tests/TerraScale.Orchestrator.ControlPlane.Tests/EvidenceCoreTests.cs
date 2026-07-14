@@ -7,6 +7,52 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 public sealed class EvidenceCoreTests
 {
     [Test]
+    public async Task Accepted_decision_binds_every_manifest_and_signing_scope_field()
+    {
+        var subject=EvidenceTestData.Subject();var payload=EvidenceTestData.D(20);
+        EvidenceDecision Gate(EvidenceManifestId? manifestId=null,EvidenceLane lane=EvidenceLane.Full,EvidenceGateTarget target=EvidenceGateTarget.DependencyConformance,
+            EvidenceSigningProfileId? profile=null,EvidenceSigningIdentityId? signer=null,EvidenceSignatureId? signature=null,
+            EvidenceGeneration? generation=null,EvidenceSequence? expiry=null)
+        {
+            manifestId??=EvidenceTestData.ManifestId();profile??=EvidenceTestData.Profile();signer??=EvidenceTestData.Signer();signature??=EvidenceTestData.SignatureId();
+            generation??=EvidenceTestData.G(3);expiry??=EvidenceTestData.Q(20);
+            return EvidenceTestData.Gate(manifest:new(manifestId,lane,subject,payload),policy:EvidenceTestData.Policy(lane:lane),
+                envelope:EvidenceTestData.Envelope(profile:profile,signer:signer,signatureId:signature,generation:generation,expiry:expiry),
+                context:EvidenceTestData.Context(manifest:manifestId,subject:subject,profile:profile,signer:signer,signatureId:signature,
+                    generation:generation,expectedExpiry:expiry,target:target));
+        }
+        var exactManifest=EvidenceTestData.ManifestId();var exactProfile=EvidenceTestData.Profile();var exactSigner=EvidenceTestData.Signer();var exactSignature=EvidenceTestData.SignatureId();
+        var exact=Gate(manifestId:exactManifest,profile:exactProfile,signer:exactSigner,signature:exactSignature);
+        var replay=Gate(manifestId:exactManifest,profile:exactProfile,signer:exactSigner,signature:exactSignature);
+        var variants=new[]{
+            Gate(manifestId:EvidenceTestData.ManifestId("manifest-b")),
+            Gate(lane:EvidenceLane.Feature),
+            Gate(target:EvidenceGateTarget.L1SCredentialRelease),
+            Gate(profile:EvidenceTestData.Profile("profile-b")),
+            Gate(signer:EvidenceTestData.Signer("signer-b")),
+            Gate(signature:EvidenceTestData.SignatureId("signature-b")),
+            Gate(generation:EvidenceTestData.G(4)),
+            Gate(expiry:EvidenceTestData.Q(21)),
+        };
+        await Assert.That(exact.IsAuthorized&&variants.All(x=>x.IsAuthorized)).IsTrue();
+        await Assert.That(exact).IsEqualTo(replay);
+        foreach(var variant in variants)await Assert.That(variant).IsNotEqualTo(exact);
+        var scope=exact.AuthorizationScope!;
+        await Assert.That(ReferenceEquals(scope.Manifest,exactManifest)).IsTrue();
+        await Assert.That(ReferenceEquals(scope.SigningProfile,exactProfile)).IsTrue();
+        await Assert.That(ReferenceEquals(scope.SigningIdentity,exactSigner)).IsTrue();
+        await Assert.That(ReferenceEquals(scope.SignatureIdentity,exactSignature)).IsTrue();
+        await Assert.That(scope.Manifest).IsEqualTo(EvidenceTestData.ManifestId());
+        await Assert.That(scope.Lane).IsEqualTo(EvidenceLane.Full);
+        await Assert.That(scope.Target).IsEqualTo(EvidenceGateTarget.DependencyConformance);
+        await Assert.That(scope.SigningProfile).IsEqualTo(EvidenceTestData.Profile());
+        await Assert.That(scope.SigningIdentity).IsEqualTo(EvidenceTestData.Signer());
+        await Assert.That(scope.SignatureIdentity).IsEqualTo(EvidenceTestData.SignatureId());
+        await Assert.That(scope.Generation).IsEqualTo(EvidenceTestData.G(3));
+        await Assert.That(scope.ExpirySequence).IsEqualTo(EvidenceTestData.Q(20));
+    }
+
+    [Test]
     public async Task Primitives_are_bounded_defensive_canonical_and_construction_closed()
     {
         var bytes=Enumerable.Repeat((byte)7,32).ToArray();EvidenceSha256.TryCreate(bytes,out var digest);bytes[0]=9;
@@ -16,6 +62,7 @@ public sealed class EvidenceCoreTests
         await Assert.That(EvidenceTreeId.TryCreate("two words",32,out _)).IsFalse();
         await Assert.That(typeof(EvidenceDecision).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceDecisionSubject).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
+        await Assert.That(typeof(EvidenceAuthorizationScope).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidencePolicyResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceReuseResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(default(EvidencePolicyResult).Code).IsEqualTo(EvidenceCode.Unknown);
@@ -24,12 +71,14 @@ public sealed class EvidenceCoreTests
         await Assert.That(default(EvidenceReuseResult).IsReusable).IsFalse();
         var closed=EvidenceTestData.Gate();await Assert.That(Enum.IsDefined(closed.Action)).IsTrue();await Assert.That(Enum.IsDefined(closed.Code)).IsTrue();
         await Assert.That(typeof(EvidenceDecision).GetProperties().All(property=>property.SetMethod is null)).IsTrue();
+        await Assert.That(typeof(EvidenceAuthorizationScope).GetProperties().All(property=>property.SetMethod is null)).IsTrue();
         await Assert.That(typeof(EvidenceIdentity).GetProperty(nameof(EvidenceIdentity.Value))!.SetMethod is null).IsTrue();
         var binaries=new[]{new EvidenceTestBinary(EvidenceTestData.Binary(),EvidenceTestData.D(4))};var subject=EvidenceTestData.Subject(binaries:binaries);binaries[0]=new(EvidenceTestData.Binary("forged"),EvidenceTestData.D(31));
         await Assert.That(subject.TestBinaries[0].Identity).IsEqualTo(EvidenceTestData.Binary());
         var signatureBytes=new byte[]{1,2,3};var signature=new EvidenceOpaqueSignature(signatureBytes,8);signatureBytes[0]=9;await Assert.That(signature.CopyBytes()[0]).IsEqualTo((byte)1);
         var original=CultureInfo.CurrentCulture;try{CultureInfo.CurrentCulture=new CultureInfo("ar-SA");await Assert.That(EvidenceTestData.C(123).ToString()).IsEqualTo("123");}finally{CultureInfo.CurrentCulture=original;}
         await Assert.That(EvidenceTestData.Gate().ToString()).DoesNotContain("signer");
+        await Assert.That(EvidenceTestData.Gate().AuthorizationScope!.ToString()).IsEqualTo("<evidence-authorization-scope>");
         await Assert.That(EvidenceTestData.Envelope().ToString()).DoesNotContain("signature");
     }
 
@@ -155,6 +204,7 @@ public sealed class EvidenceCoreTests
         await Assert.That(EvidenceTestData.Gate(manifest:featureManifest,policy:EvidenceTestData.Policy(lane:EvidenceLane.Feature),
             context:EvidenceTestData.Context(target:EvidenceGateTarget.DependencyConformance)).Action).IsEqualTo(EvidenceAction.AllowDependencyConformance);
         var replay=EvidenceTestData.Gate();await Assert.That(replay).IsEqualTo(l1);
+        await Assert.That(replay.AuthorizationScope).IsEqualTo(l1.AuthorizationScope);
         var permuted=EvidenceTestData.Subject(binaries:[new(EvidenceTestData.Binary("z"),EvidenceTestData.D(12)),new(EvidenceTestData.Binary("a"),EvidenceTestData.D(13))]);
         var permutedAgain=EvidenceTestData.Subject(binaries:permuted.TestBinaries.Reverse());
         await Assert.That(EvidenceTestData.Gate(manifest:EvidenceTestData.Manifest(permutedAgain),context:EvidenceTestData.Context(subject:permuted)).IsAuthorized).IsTrue();
@@ -237,7 +287,38 @@ public sealed class EvidenceCoreTests
         var failure=EvidenceTestData.Gate(context:EvidenceTestData.Context(verifier:new TestEvidenceVerifier(throws:true)));
         await Assert.That(failure.Code).IsEqualTo(EvidenceCode.SignatureVerificationFailed);
         await Assert.That(failure.ToString()).DoesNotContain("secret verifier detail");
-        await Assert.That(PreDeploymentEvidenceGate.Verify(null,null,null,null).IsAuthorized).IsFalse();
+        await Assert.That(failure.AuthorizationScope).IsNull();
+        var invalid=PreDeploymentEvidenceGate.Verify(null,null,null,null);
+        await Assert.That(invalid.IsAuthorized).IsFalse();await Assert.That(invalid.AuthorizationScope).IsNull();
+    }
+
+    [Test]
+    public async Task Every_gate_hold_path_discards_authorization_scope()
+    {
+        var feature=EvidenceTestData.Manifest(lane:EvidenceLane.Feature);
+        var denials=new[]{
+            PreDeploymentEvidenceGate.Verify(null,null,null,null),
+            EvidenceTestData.Gate(manifest:EvidenceTestData.Manifest(payload:EvidenceTestData.D(31))),
+            EvidenceTestData.Gate(policy:EvidenceTestData.Policy(tests:EvidenceTestData.C(101))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(profile:EvidenceTestData.Profile("other"))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(signer:EvidenceTestData.Signer("other"))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(signatureId:EvidenceTestData.SignatureId("other"))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(generation:EvidenceTestData.G(2))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(generation:EvidenceTestData.G(4))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(expiry:EvidenceTestData.Q(19))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(expiry:EvidenceTestData.Q(21))),
+            EvidenceTestData.Gate(envelope:EvidenceTestData.Envelope(expiry:EvidenceTestData.Q(9)),context:EvidenceTestData.Context(expectedExpiry:EvidenceTestData.Q(9),current:EvidenceTestData.Q(10))),
+            EvidenceTestData.Gate(context:EvidenceTestData.Context(verifier:new TestEvidenceVerifier(EvidenceSignatureVerificationOutcome.Invalid))),
+            EvidenceTestData.Gate(context:EvidenceTestData.Context(verifier:new TestEvidenceVerifier(EvidenceSignatureVerificationOutcome.Unknown))),
+            EvidenceTestData.Gate(context:EvidenceTestData.Context(verifier:new TestEvidenceVerifier(throws:true))),
+            EvidenceTestData.Gate(manifest:feature,policy:EvidenceTestData.Policy(lane:EvidenceLane.Feature)),
+        };
+        foreach(var denial in denials)
+        {
+            await Assert.That(denial.IsAuthorized).IsFalse();
+            await Assert.That(denial.Subject).IsNull();
+            await Assert.That(denial.AuthorizationScope).IsNull();
+        }
     }
 
     [Test]

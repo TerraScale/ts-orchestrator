@@ -111,12 +111,22 @@ public sealed class EvidencePolicyCompletenessPropertyTests
             await Assert.That(decision.Code).IsEqualTo(expected);
             await Assert.That(decision.Action).IsEqualTo(mode == 0 ? EvidenceAction.AllowL1SCredentialRelease : EvidenceAction.Hold);
             await Assert.That(decision.Subject is null).IsEqualTo(mode != 0);
+            await Assert.That(decision.AuthorizationScope is null).IsEqualTo(mode != 0);
             await Assert.That(decision.IsAuthorized).IsEqualTo(mode == 0);
             if (mode == 0)
             {
                 await Assert.That(decision.Subject).IsTypeOf<EvidenceDecisionSubject>();
                 await Assert.That(decision.Subject!.PayloadDigest).IsEqualTo(envelope.Material.PayloadDigest);
                 await Assert.That(decision.Subject.PayloadDigest).IsEqualTo(EvidenceTestData.D(20));
+                var scope = decision.AuthorizationScope!;
+                await Assert.That(scope.Manifest).IsEqualTo(EvidenceTestData.ManifestId());
+                await Assert.That(scope.Lane).IsEqualTo(EvidenceLane.Full);
+                await Assert.That(scope.Target).IsEqualTo(EvidenceGateTarget.L1SCredentialRelease);
+                await Assert.That(scope.SigningProfile).IsEqualTo(envelope.Material.SigningProfile);
+                await Assert.That(scope.SigningIdentity).IsEqualTo(envelope.Material.SigningIdentity);
+                await Assert.That(scope.SignatureIdentity).IsEqualTo(envelope.Material.SignatureIdentity);
+                await Assert.That(scope.Generation).IsEqualTo(envelope.Material.Generation);
+                await Assert.That(scope.ExpirySequence).IsEqualTo(envelope.Material.ExpirySequence);
             }
             await Assert.That(decision.Trace).IsNotNull();
             await Assert.That(decision.Trace!.Generation.Value).IsEqualTo(envelope.Material.Generation.Value);
