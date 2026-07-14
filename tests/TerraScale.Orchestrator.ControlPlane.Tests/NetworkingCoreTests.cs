@@ -50,7 +50,7 @@ public sealed class NetworkingCoreTests
         var s=NetworkingTestData.RouteScope();
         var mesh=NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(shape:NetworkTopologyShape.InitialThreeFullMesh,cells:20));
         var partitionHold=NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,NetworkingTestData.RouteEvidence(partitioned:true,local:NetworkProof.Unknown));
-        var localScope=NetworkingTestData.RouteScope(kind:NetworkRouteKind.Local);
+        var localScope=NetworkingTestData.RouteScope(kind:NetworkRouteKind.Local,peerCell:NetworkingTestData.Cell());
         var local=NetworkRoutePlanner.Plan(localScope,localScope.Generation,localScope.Epoch,NetworkingTestData.RouteEvidence(scope:localScope,partitioned:true));
         await Assert.That(mesh.Code).IsEqualTo(NetworkCode.QuadraticMesh);
         await Assert.That(partitionHold.Code).IsEqualTo(NetworkCode.LocalPolicyRequired);
@@ -77,6 +77,79 @@ public sealed class NetworkingCoreTests
             NetworkingTestData.RouteEvidence(scope:absentScope,cellInventory:cells,cells:4,partitioned:true)).IsMutationAuthorized).IsFalse();
         await Assert.That(NetworkRoutePlanner.Plan(s,s.Generation,s.Epoch,
             NetworkingTestData.RouteEvidence(cellInventory:cells,cells:4,maximumCells:3)).IsMutationAuthorized).IsFalse();
+    }
+
+    [Test]
+    public async Task Locality_is_structural_in_connected_and_partitioned_route_authority()
+    {
+        var remotePeerRelabeledLocal = NetworkingTestData.RouteScope(
+            kind: NetworkRouteKind.Local,
+            peerCell: NetworkingTestData.Cell("sfo"));
+        var connected = NetworkRoutePlanner.Plan(
+            remotePeerRelabeledLocal,
+            remotePeerRelabeledLocal.Generation,
+            remotePeerRelabeledLocal.Epoch,
+            NetworkingTestData.RouteEvidence(
+                scope: remotePeerRelabeledLocal,
+                configured: NetworkProof.Unknown));
+        var missingLocalPolicy = NetworkRoutePlanner.Plan(
+            remotePeerRelabeledLocal,
+            remotePeerRelabeledLocal.Generation,
+            remotePeerRelabeledLocal.Epoch,
+            NetworkingTestData.RouteEvidence(
+                scope: remotePeerRelabeledLocal,
+                partitioned: true,
+                local: NetworkProof.Unknown,
+                configured: NetworkProof.Unknown));
+        var partitioned = NetworkRoutePlanner.Plan(
+            remotePeerRelabeledLocal,
+            remotePeerRelabeledLocal.Generation,
+            remotePeerRelabeledLocal.Epoch,
+            NetworkingTestData.RouteEvidence(
+                scope: remotePeerRelabeledLocal,
+                partitioned: true,
+                local: NetworkProof.Proven,
+                configured: NetworkProof.Unknown));
+        var selfLocal = remotePeerRelabeledLocal with { PeerCell = remotePeerRelabeledLocal.Cell };
+        var connectedSelf = NetworkRoutePlanner.Plan(
+            selfLocal,
+            selfLocal.Generation,
+            selfLocal.Epoch,
+            NetworkingTestData.RouteEvidence(scope: selfLocal));
+        var partitionedSelf = NetworkRoutePlanner.Plan(
+            selfLocal,
+            selfLocal.Generation,
+            selfLocal.Epoch,
+            NetworkingTestData.RouteEvidence(scope: selfLocal, partitioned: true));
+        var peer = NetworkingTestData.RouteScope();
+        var linkedPeer = NetworkRoutePlanner.Plan(
+            peer,
+            peer.Generation,
+            peer.Epoch,
+            NetworkingTestData.RouteEvidence(scope: peer));
+        var selfPeer = peer with { PeerCell = peer.Cell };
+        var unlinkedSelfPeer = NetworkRoutePlanner.Plan(
+            selfPeer,
+            selfPeer.Generation,
+            selfPeer.Epoch,
+            NetworkingTestData.RouteEvidence(scope: selfPeer));
+
+        await Assert.That(connected.Action).IsEqualTo(NetworkAction.Hold);
+        await Assert.That(connected.Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
+        await Assert.That(missingLocalPolicy.Code).IsEqualTo(NetworkCode.LocalPolicyRequired);
+        await Assert.That(partitioned.Action).IsEqualTo(NetworkAction.Hold);
+        await Assert.That(partitioned.Code).IsEqualTo(NetworkCode.PartitionAuthorityDenied);
+        await Assert.That(partitioned.IsMutationAuthorized).IsFalse();
+        await Assert.That(partitioned.Subject).IsNull();
+        await Assert.That(partitioned.Trace).IsEqualTo(new NetworkNumericTrace(
+            remotePeerRelabeledLocal.Generation,
+            remotePeerRelabeledLocal.Epoch,
+            0,
+            0));
+        await Assert.That(connectedSelf.Code).IsEqualTo(NetworkCode.Completed);
+        await Assert.That(partitionedSelf.Code).IsEqualTo(NetworkCode.Completed);
+        await Assert.That(linkedPeer.Code).IsEqualTo(NetworkCode.Completed);
+        await Assert.That(unlinkedSelfPeer.Code).IsEqualTo(NetworkCode.WrongEvidenceScope);
     }
 
     [Test]
