@@ -4,4 +4,7 @@
     <AssemblyName>terrascale-reproducible-publish</AssemblyName>
     <RootNamespace>TerraScale.ReproduciblePublish</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TerraScale.Orchestrator.ContractTests" />
+  </ItemGroup>
 </Project>

@@ -75,11 +75,11 @@ public static class CopiedInputVerifier
     private static bool IsDigest(string? value) => value is { Length: 64 } && value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
 }
 
-public static class PublishObservationVerifier
+internal static class PublishObservationVerifier
 {
     private const string ExecutableName = "terrascale-orchestrator";
 
-    public static ReproduciblePublishResult Evaluate(
+    internal static ReproduciblePublishResult Evaluate(
         ReproduciblePublishRequest request,
         IEnumerable<PublishRunObservation> firstRuns,
         IEnumerable<PublishRunObservation> repeatRuns)
