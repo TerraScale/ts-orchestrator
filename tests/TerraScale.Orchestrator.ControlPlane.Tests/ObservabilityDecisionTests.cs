@@ -350,7 +350,7 @@ public sealed class ObservabilityDecisionTests
         await Assert.That(Throws<ArgumentException>(() => new RegionalHealthRequest(Operation, Cell, new(5), new(9), Digest(), new(3), [Policy(TelemetrySignalKind.Metric), Policy(TelemetrySignalKind.Log), Policy(TelemetrySignalKind.Trace)], Observations().Append(Observation(TelemetrySignalKind.Metric))))).IsTrue();
 
         var inventory = new GrafanaInventoryEvidence(Operation, Owner, Tenant, Cell, new(5), new(9), EvidenceCompleteness.Complete, new(1), []);
-        await Assert.That(Throws<ArgumentException>(() => new GrafanaProjectionRequest(Operation, Owner, Tenant, Cell, GrafanaAccessBoundary.Tenant, new(5), new(9), new(1), [Desired("a", DashboardCatalogEntry.FleetOverview), Desired("b", DashboardCatalogEntry.CellHealth)], inventory))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new GrafanaProjectionRequest(Operation, Owner, Tenant, Cell, GrafanaAccessBoundary.Tenant, new(5), new(9), new(5), new(9), new(1), [Desired("a", DashboardCatalogEntry.FleetOverview), Desired("b", DashboardCatalogEntry.CellHealth)], inventory))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new GrafanaInventoryEvidence(Operation, Owner, Tenant, Cell, new(5), new(9), EvidenceCompleteness.Complete, new(1), [Observed("a"), Observed("b")]))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new AlertDedupeEvidence(Operation, Tenant, Cell, new("signal-1"), new(5), Digest(), new(9), new("global-oncall"), ContactCatalogEntry.GlobalOnCall, AlertSeverity.Critical, AlertState.Firing, EvidenceCompleteness.Complete, new(1), [new AlertDeliveryKey(new("a"), AlertState.Firing), new AlertDeliveryKey(new("b"), AlertState.Firing)]))).IsTrue();
         await Assert.That(ObservabilityArithmetic.CheckedAdd(ulong.MaxValue - 1, 1)).IsEqualTo(ulong.MaxValue);
@@ -398,8 +398,9 @@ public sealed class ObservabilityDecisionTests
         new(new(id), owner ?? Owner, Tenant, Cell, new(generation), digest ?? Digest(), TelemetryProjectionKind.Dashboard, ownership);
     private static GrafanaProjectionRequest Projection(IEnumerable<DesiredGrafanaResource> desired, IEnumerable<ObservedGrafanaResource> observed,
         EvidenceCompleteness completeness = EvidenceCompleteness.Complete, ObservabilityOperationId? inventoryOperation = null, ulong inventoryGeneration = 5,
-        ulong currentSequence = 9, ulong inventorySequence = 9, GrafanaAccessBoundary boundary = GrafanaAccessBoundary.Tenant) =>
-        new(Operation, Owner, Tenant, Cell, boundary, new(5), new(currentSequence), new(20), desired, new GrafanaInventoryEvidence(inventoryOperation ?? Operation, Owner, Tenant, Cell, new(inventoryGeneration), new(inventorySequence), completeness, new(20), observed));
+        ulong currentSequence = 9, ulong inventorySequence = 9, GrafanaAccessBoundary boundary = GrafanaAccessBoundary.Tenant,
+        ulong currentAcceptedGeneration = 5, ulong currentAcceptedSequence = 9) =>
+        new(Operation, Owner, Tenant, Cell, boundary, new(5), new(currentSequence), new(currentAcceptedGeneration), new(currentAcceptedSequence), new(20), desired, new GrafanaInventoryEvidence(inventoryOperation ?? Operation, Owner, Tenant, Cell, new(inventoryGeneration), new(inventorySequence), completeness, new(20), observed));
 
     private static AlertRoutingRequest AlertRoute(
         EvidenceCompleteness completeness = EvidenceCompleteness.Complete, IEnumerable<AlertDeliveryKey>? routed = null,

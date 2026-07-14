@@ -257,7 +257,7 @@ public sealed class ObservabilityPropertyTests
     }
 
     private static (string, string) AdmissionResult(ObservabilityEntry e) { var r = ObservabilityData.Admission(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateTelemetryAdmission(r); return (d.Intent.GetType().Name, $"{r.Spec.OperationId.Value}|{r.Spec.MetricId.Value}|{r.Spec.SchemaGeneration.Value}"); }
-    private static (string, string) ProjectionResult(ObservabilityEntry e) { var r = ObservabilityData.Projection(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateGrafanaProjection(r); var name = d.Intent is ProjectGrafanaIntent p ? p.Changes.Single().GetType().Name : d.Intent.GetType().Name; return (name, $"{r.OperationId.Value}|{r.Generation.Value}"); }
+    private static (string, string) ProjectionResult(ObservabilityEntry e) { var r = ObservabilityData.Projection(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateGrafanaProjection(r); var name = d.Intent is ProjectGrafanaIntent p ? p.Changes.Single().GetType().Name : d.Intent.GetType().Name; return (name, $"{r.OperationId.Value}|{r.Generation.Value}|{r.CurrentSequence.Value}|{r.CurrentAcceptedGeneration.Value}|{r.CurrentAcceptedSequence.Value}|{string.Join(',', d.Trace.Select(x => $"{x.Code}:{x.Outcome}:{x.Observed}:{x.Required}"))}"); }
     private static (string, string) AlertResult(ObservabilityEntry e) { var r = ObservabilityData.Alert(e.Seed, e.Variant); var d = ObservabilityDecisionEngine.EvaluateAlertRouting(r); return (d.Intent.GetType().Name, $"{r.Alert.OperationId.Value}|{r.Alert.AlertId.Value}|{r.Alert.Generation.Value}"); }
     private static (string, string) RegionalResult(ObservabilityEntry e)
     {
@@ -266,7 +266,21 @@ public sealed class ObservabilityPropertyTests
         return ($"{d.Intent.GetType().Name}|{d.Authorized}|{code}:{d.Trace.Single(x => x.Code == code).Outcome}", $"{r.OperationId.Value}|{r.CellId.Value}|{r.Generation.Value}|{r.CurrentSequence.Value}|{r.Observations.Count}|{observations}");
     }
     private static (string, string) EvaluateEntry(ObservabilityEntry e) => e.Kind switch { "admission" => AdmissionResult(e), "projection" => ProjectionResult(e), "alert" => AlertResult(e), "regional" => RegionalResult(e), _ => throw new InvalidDataException() };
-    private static string ExpectedFingerprint(ObservabilityEntry e) => e.Kind switch { "admission" => $"operation-{e.Seed}|metric-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "projection" => $"operation-{e.Seed}|{1000 + e.Seed}", "alert" => $"{(e.Variant == 4 ? "wrong" : "operation")}-{e.Seed}|alert-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "regional" => ObservabilityData.ExpectedRegionalFingerprint(e.Seed, e.Variant), _ => throw new InvalidDataException() };
+    private static string ExpectedFingerprint(ObservabilityEntry e) => e.Kind switch { "admission" => $"operation-{e.Seed}|metric-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "projection" => ExpectedProjectionFingerprint(e), "alert" => $"{(e.Variant == 4 ? "wrong" : "operation")}-{e.Seed}|alert-{e.Seed}|{(e.Variant == 2 ? 999 + e.Seed : e.Variant == 3 ? 1001 + e.Seed : 1000 + e.Seed)}", "regional" => ObservabilityData.ExpectedRegionalFingerprint(e.Seed, e.Variant), _ => throw new InvalidDataException() };
+    private static string ExpectedProjectionFingerprint(ObservabilityEntry e)
+    {
+        var generation = 1000 + e.Seed;
+        var evidence = e.Variant == 4
+            ? $"EvidenceComplete:Rejected:{generation - 1}:{generation}"
+            : "EvidenceComplete:Passed:1:1";
+        var trace = $"{evidence},ProjectionGenerationNotRollback:Passed:{generation}:{generation},ProjectionSequenceNotRollback:Passed:9:9,ScopeExact:Passed:1:1,AccessExact:Passed:1:1,GenerationCurrent:Passed:1:1,OwnershipExact:Passed:1:1";
+        if (e.Variant != 4)
+        {
+            var count = e.Variant is 1 or 3 ? 2UL : 1UL;
+            trace += $",ProjectionExact:Passed:{count}:{count}";
+        }
+        return $"operation-{e.Seed}|{generation}|9|{generation}|9|{trace}";
+    }
     private static string Entry(string id, string seed, string kind, int variant, string expected) => $"{{\"schema\":\"terrascale.observability-replay.v1\",\"entries\":[{{\"id\":\"{id}\",\"seed\":{seed},\"kind\":\"{kind}\",\"variant\":{variant},\"expected\":\"{expected}\"}}]}}";
     private static string Serialize(ObservabilityDecision d) => $"{d.Authorized}|{d.Intent.GetType().Name}|" + string.Join(';', d.Trace.Select(r => $"{r.Code}:{r.Outcome}:{r.Observed}:{r.Required}"));
     private static string SerializeRegional(ObservabilityDecision d) => Serialize(d) + "|" + string.Join(';', ((AggregateRegionalTelemetryIntent)d.Intent).Findings.Select(f => $"{f.Signal}:{f.Ingest}:{f.Query}:{f.Spool}:{f.DataLoss}"));
@@ -298,7 +312,7 @@ internal static class ObservabilityData
         var observed = new ObservedGrafanaResource(id, owner, tenant, cell, generation, variant == 1 ? Digest('b') : Digest(), TelemetryProjectionKind.Dashboard, variant == 3 ? seed % 2 == 0 ? GrafanaOwnership.Unmanaged : GrafanaOwnership.Conflicting : GrafanaOwnership.ManagedExact);
         IEnumerable<DesiredGrafanaResource> desiredSet = variant == 2 ? [] : [desired]; IEnumerable<ObservedGrafanaResource> observedSet = variant == 0 ? [] : [observed];
         var inventory = new GrafanaInventoryEvidence(operation, owner, tenant, cell, variant == 4 ? new(generation.Value - 1) : generation, new(9), EvidenceCompleteness.Complete, new(2), observedSet);
-        return new(operation, owner, tenant, cell, GrafanaAccessBoundary.Tenant, generation, new(9), new(2), desiredSet, inventory);
+        return new(operation, owner, tenant, cell, GrafanaAccessBoundary.Tenant, generation, new(9), generation, new(9), new(2), desiredSet, inventory);
     }
 
     internal static AlertRoutingRequest Alert(ulong seed, int variant)
