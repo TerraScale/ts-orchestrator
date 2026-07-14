@@ -105,9 +105,16 @@ public static class ReconciliationEngine
 
         var proofs = resource.Dependencies
             .OrderBy(static item => item.Value, Sorter)
-            .Select(dependency => completed[dependency].Desired)
-            .Select(static dependency => new DependencyProof(
-                dependency.Identity, dependency.Generation, dependency.Digest))
+            .Select(dependency => completed[dependency].Observation ??
+                throw new InvalidOperationException("A converged dependency requires exact observation evidence."))
+            .Select(static observation => new DependencyProof(
+                observation.Identity,
+                observation.Kind,
+                observation.Generation,
+                observation.Digest,
+                observation.ObservationId,
+                observation.FreshnessSequence,
+                observation.Condition))
             .ToArray();
         return new(new ReconcileResourceIntent(
                 resource.Identity, resource.Kind, resource.Generation, resource.Digest,

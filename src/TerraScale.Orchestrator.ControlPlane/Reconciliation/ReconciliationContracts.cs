@@ -184,7 +184,34 @@ public sealed class ReconciliationRequest
         resource.Identity, resource.Kind, resource.Generation, resource.Digest, resource.Dependencies);
 }
 
-public sealed record DependencyProof(ResourceIdentity Identity, long Generation, string Digest);
+public sealed record DependencyProof
+{
+    internal DependencyProof(
+        ResourceIdentity identity,
+        string kind,
+        long generation,
+        string digest,
+        string observationId,
+        long freshnessSequence,
+        ObservedCondition condition)
+    {
+        Identity = identity;
+        Kind = kind;
+        Generation = generation;
+        Digest = digest;
+        ObservationId = observationId;
+        FreshnessSequence = freshnessSequence;
+        Condition = condition;
+    }
+
+    public ResourceIdentity Identity { get; }
+    public string Kind { get; }
+    public long Generation { get; }
+    public string Digest { get; }
+    public string ObservationId { get; }
+    public long FreshnessSequence { get; }
+    public ObservedCondition Condition { get; }
+}
 
 public sealed record ReconciliationObservationProof
 {
