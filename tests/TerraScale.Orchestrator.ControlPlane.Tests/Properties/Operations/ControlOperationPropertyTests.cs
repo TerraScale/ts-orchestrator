@@ -243,7 +243,8 @@ public sealed class ControlOperationPropertyTests
             var unknownHistory = dispatchedHistory.Concat(unknown.EventsToAppend).ToList();
             var duplicateUnknown = OperationEngine.Decide(unknownHistory, unknownCommand);
             Require(duplicateUnknown.Errors.Count == 0 && duplicateUnknown.EventsToAppend.Count == 0 &&
-                duplicateUnknown.Intents.Count == 0, "operation-observation-idempotent", index);
+                duplicateUnknown.Intents.Single() is ReconcileProviderIntent,
+                "operation-observation-idempotent", index);
             var blindRetry = OperationEngine.Decide(unknownHistory, dispatchCommand with { Now = Start.AddMinutes(4) });
             Require(blindRetry.Intents.Count == 0 && blindRetry.Errors.Single().Code == OperationErrorCode.IdempotencyConflict,
                 "operation-no-blind-retry", index); codes.Add(blindRetry.Errors.Single().Code);
