@@ -341,7 +341,68 @@ public sealed record VerifyRuntimeArtifactIntent : RuntimeIntent { internal Veri
 public sealed record StageRuntimeIntent : RuntimeIntent { internal StageRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record MountRuntimeIntent : RuntimeIntent { internal MountRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record StartRuntimeIntent : RuntimeIntent { internal StartRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
-public sealed record CheckRuntimeHealthIntent : RuntimeIntent { internal CheckRuntimeHealthIntent(RuntimeOperationId operationId, RuntimeAllocationId allocationId) : base(operationId) => AllocationId = allocationId; public RuntimeAllocationId AllocationId { get; } }
+public sealed record CheckRuntimeHealthIntent : RuntimeIntent
+{
+    private static readonly HealthDimension[] SelfUpdateHealth =
+    [
+        HealthDimension.Liveness,
+        HealthDimension.LocalReadiness,
+        HealthDimension.DependencyReadiness,
+    ];
+    private readonly ReadOnlyCollection<HealthDimension> _requiredHealth;
+
+    internal CheckRuntimeHealthIntent(RuntimeLifecycleRequest request) : base(request.OperationId)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        AllocationId = request.Spec.AllocationId;
+        NodeId = request.Spec.NodeId;
+        Epoch = request.Epoch;
+        Generation = request.Spec.Generation;
+        HealthTimeout = request.HealthTimeout;
+        _requiredHealth = Array.AsReadOnly(request.Spec.RequiredHealth.ToArray());
+    }
+
+    internal CheckRuntimeHealthIntent(SelfUpdateRequest request) : base(request.OperationId)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        AllocationId = request.AllocationId;
+        NodeId = request.NodeId;
+        Epoch = request.Epoch;
+        Generation = request.TargetGeneration;
+        HealthTimeout = request.HealthTimeout;
+        _requiredHealth = Array.AsReadOnly(SelfUpdateHealth.ToArray());
+    }
+
+    public RuntimeAllocationId AllocationId { get; }
+    public RuntimeNodeId NodeId { get; }
+    public RuntimeEpoch Epoch { get; }
+    public RuntimeGeneration Generation { get; }
+    public RuntimeDurationSeconds HealthTimeout { get; }
+    public IReadOnlyList<HealthDimension> RequiredHealth => _requiredHealth;
+
+    public bool Equals(CheckRuntimeHealthIntent? other) =>
+        other is not null &&
+        OperationId == other.OperationId &&
+        AllocationId == other.AllocationId &&
+        NodeId == other.NodeId &&
+        Epoch == other.Epoch &&
+        Generation == other.Generation &&
+        HealthTimeout == other.HealthTimeout &&
+        RequiredHealth.SequenceEqual(other.RequiredHealth);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(OperationId);
+        hash.Add(AllocationId);
+        hash.Add(NodeId);
+        hash.Add(Epoch);
+        hash.Add(Generation);
+        hash.Add(HealthTimeout);
+        foreach (var dimension in RequiredHealth) hash.Add(dimension);
+        return hash.ToHashCode();
+    }
+}
 public sealed record DrainRuntimeIntent : RuntimeIntent { internal DrainRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record StopRuntimeIntent : RuntimeIntent { internal StopRuntimeIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record CleanupRuntimeIntent : RuntimeIntent

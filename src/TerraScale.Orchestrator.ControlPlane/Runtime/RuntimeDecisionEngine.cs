@@ -55,7 +55,7 @@ public static class RuntimeDecisionEngine
             var held = trace.Where(r => r.Outcome == RuntimeDecisionOutcome.Held).ToArray();
             if (request.Action == LifecycleAction.Converge && observation.Phase is LifecyclePhase.Started or LifecyclePhase.Serving &&
                 held.Length == 1 && held[0].Code == RuntimeDecisionCode.ReadinessComplete)
-                return Decision(true, trace, new CheckRuntimeHealthIntent(request.OperationId, request.Spec.AllocationId));
+                return Decision(true, trace, new CheckRuntimeHealthIntent(request));
             return Deny(request.OperationId, trace);
         }
 
@@ -68,8 +68,8 @@ public static class RuntimeDecisionEngine
                 LifecyclePhase.ArtifactVerified => new StageRuntimeIntent(request),
                 LifecyclePhase.Staged => new MountRuntimeIntent(request),
                 LifecyclePhase.Mounted => new StartRuntimeIntent(request),
-                LifecyclePhase.Started => new CheckRuntimeHealthIntent(request.OperationId, request.Spec.AllocationId),
-                LifecyclePhase.Serving => new CheckRuntimeHealthIntent(request.OperationId, request.Spec.AllocationId),
+                LifecyclePhase.Started => new CheckRuntimeHealthIntent(request),
+                LifecyclePhase.Serving => new CheckRuntimeHealthIntent(request),
                 _ => new HoldRuntimeIntent(request.OperationId),
             },
             LifecycleAction.Drain when observation.Phase == LifecyclePhase.Serving => new DrainRuntimeIntent(request),
@@ -183,8 +183,8 @@ public static class RuntimeDecisionEngine
             UpdatePhase.InactiveSlotStaged => new ArmRollbackIntent(request),
             UpdatePhase.RollbackTimerArmed => new SwitchUpdateSlotIntent(request),
             UpdatePhase.ProcessRestarted when localFailed => new RollbackUpdateIntent(request),
-            UpdatePhase.ProcessRestarted when localReady => new CheckRuntimeHealthIntent(request.OperationId, request.AllocationId),
-            UpdatePhase.ProcessRestarted => new CheckRuntimeHealthIntent(request.OperationId, request.AllocationId),
+            UpdatePhase.ProcessRestarted when localReady => new CheckRuntimeHealthIntent(request),
+            UpdatePhase.ProcessRestarted => new CheckRuntimeHealthIntent(request),
             UpdatePhase.LocalHealthVerified => new VerifyRegionalCompatibilityIntent(request),
             UpdatePhase.RegionalCompatibilityVerified => new CommitUpdateSlotIntent(request),
             UpdatePhase.SlotCommitted => new RetainOldUpdateSlotIntent(request),
