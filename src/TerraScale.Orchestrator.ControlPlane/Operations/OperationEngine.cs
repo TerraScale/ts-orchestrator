@@ -129,6 +129,11 @@ public static class OperationEngine
 
     private static OperationDecision Authorize(OperationState state, AuthorizeOperation command)
     {
+        if (state.Hold?.Error?.Code == OperationErrorCode.DeadlineExpired)
+        {
+            return Reject(state, state.Hold.Error);
+        }
+
         if (state.ResumableCheckpoint != OperationCheckpoint.Prepared || state.Desired is null || state.ExpectedObservation is null)
         {
             return Reject(state, Error(OperationErrorCode.InvalidTransition, "INV-004",
@@ -171,6 +176,11 @@ public static class OperationEngine
 
     private static OperationDecision Dispatch(OperationState state, RecordDispatch command)
     {
+        if (state.Hold?.Error?.Code == OperationErrorCode.DeadlineExpired && state.Dispatch is null)
+        {
+            return Reject(state, state.Hold.Error);
+        }
+
         if (state.Authorization is null || state.Desired is null)
         {
             return Reject(state, Error(OperationErrorCode.InvalidTransition, "INV-004",
@@ -197,8 +207,7 @@ public static class OperationEngine
                 state.Dispatch.WriterEpoch == command.WriterEpoch && state.Recovery is null)
             {
                 if (command.Now >= state.Desired.Deadline)
-                    return Reject(state, Error(OperationErrorCode.DeadlineExpired, "INV-005",
-                        "Expired committed dispatch may only be reconciled read-only."));
+                    return OperationDecision.Create(state, intents: [CreateReconcileIntent(state, null)]);
                 return OperationDecision.Create(state, intents: [CreateIntent(state, state.Dispatch)]);
             }
 
@@ -257,7 +266,16 @@ public static class OperationEngine
 
         if (state.Observation is not null)
         {
-            if (ObservationMatches(state.Observation, command)) return OperationDecision.Create(state);
+            if (ObservationMatches(state.Observation, command))
+            {
+                return state.Observation.Outcome is ProviderOutcome.Unknown or ProviderOutcome.InProgress
+                    ? OperationDecision.Create(state,
+                        intents: [CreateReconcileIntent(state, state.Observation.ProviderWorkRequestId)])
+                    : OperationDecision.Create(state);
+            }
+            if (state.Observation.ObservationId == command.ObservationId)
+                return Reject(state, Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
+                    "An observation identity cannot be rebound to different provider truth."));
             if (state.Observation.Outcome is not (ProviderOutcome.Unknown or ProviderOutcome.InProgress))
                 return Reject(state, Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
                     "A contradictory final provider observation cannot replace the persisted observation."));
@@ -360,6 +378,10 @@ public static class OperationEngine
             return Error(OperationErrorCode.OperationConflict, "INV-004", "Journal contains multiple operation owners.");
         if (@event.WriterEpoch < state.HighestWriterEpoch)
             return Error(OperationErrorCode.StaleWriterEpoch, "INV-006", "Journal contains a stale writer event.");
+        if (state.Hold?.Error?.Code == OperationErrorCode.DeadlineExpired &&
+            @event is OperationAuthorized or OperationDispatchRecorded)
+            return Error(OperationErrorCode.InvalidJournal, "INV-005",
+                "A persisted deadline hold cannot be superseded without an explicit recovery policy.");
         var semanticError = ValidateEventSemantics(state, @event);
         if (semanticError is not null) return semanticError;
         if (@event is OperationAuthorized authorized && state.Desired is not null)
@@ -408,6 +430,8 @@ public static class OperationEngine
                 break;
 
             case OperationAuthorized authorized when state.Desired is not null && state.ExpectedObservation is not null:
+                if (authorized.Evidence is null || authorized.Evidence.Observation is null)
+                    return Error(OperationErrorCode.InvalidJournal, "INV-004", "Authorization evidence is missing.");
                 var observed = authorized.Evidence.Observation;
                 if (authorized.RecordedAt >= state.Desired.Deadline ||
                     observed.AggregateId != state.Desired.AggregateId ||
@@ -448,6 +472,11 @@ public static class OperationEngine
                 if ((!identityMatches || !successfulTerminalMatches) && observation.Outcome != ProviderOutcome.Inconsistent)
                     return Error(OperationErrorCode.InvalidJournal, "INV-006", "Mismatched provider truth must be quarantined as inconsistent.");
                 if (state.Observation is not null &&
+                    state.Observation.ObservationId == observation.ObservationId &&
+                    !ObservationMatches(state.Observation, observation))
+                    return Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006",
+                        "An observation identity cannot be rebound to different provider truth.");
+                if (state.Observation is not null &&
                     state.Observation.Outcome is not (ProviderOutcome.Unknown or ProviderOutcome.InProgress))
                     return Error(OperationErrorCode.ConflictingTerminalObservation, "INV-006", "A final provider observation cannot be replaced.");
                 break;
@@ -462,7 +491,7 @@ public static class OperationEngine
                 break;
 
             case OperationHeld held:
-                if (!Enum.IsDefined(held.HeldAfter) || !Enum.IsDefined(held.Error.Code) ||
+                if (held.Error is null || !Enum.IsDefined(held.HeldAfter) || !Enum.IsDefined(held.Error.Code) ||
                     held.HeldAfter != state.ResumableCheckpoint || string.IsNullOrWhiteSpace(held.Error.Requirement))
                     return Error(OperationErrorCode.InvalidJournal, "INV-005", "Hold does not preserve its resumable safety checkpoint.");
                 break;
@@ -547,9 +576,12 @@ public static class OperationEngine
     {
         var desired = state.Desired ?? throw new InvalidOperationException("Dispatch requires desired state.");
         var authorization = state.Authorization ?? throw new InvalidOperationException("Dispatch requires authorization.");
+        var authorizedObservation = authorization.Evidence.Observation;
         return new DispatchProviderIntent(
-            dispatch.OperationId, desired.OperationKind, desired.TargetIdentity,
-            desired.DesiredTerminalState, desired.PayloadDigest, desired.IdempotencyKey,
+            dispatch.OperationId, desired.OperationKind, desired.AggregateId, desired.Generation,
+            desired.ResourceVersion, desired.TargetIdentity, desired.DesiredTerminalState,
+            desired.PayloadDigest, desired.IdempotencyKey, authorizedObservation.ObservationId,
+            authorizedObservation.ResourceVersion, state.PermittedCompensations,
             authorization.Sequence, authorization.AuthorizationDigest, authorization.WriterEpoch,
             dispatch.WriterEpoch, dispatch.ExecutorId, dispatch.Attempt, desired.Deadline);
     }
@@ -577,6 +609,11 @@ public static class OperationEngine
         existing.ObservationId == command.ObservationId && existing.TargetIdentity == command.TargetIdentity &&
         existing.Generation == command.Generation && existing.TerminalState == command.TerminalState &&
         existing.Outcome == command.Outcome && existing.ProviderWorkRequestId == command.ProviderWorkRequestId;
+
+    private static bool ObservationMatches(OperationObservationRecorded existing, OperationObservationRecorded candidate) =>
+        existing.ObservationId == candidate.ObservationId && existing.TargetIdentity == candidate.TargetIdentity &&
+        existing.Generation == candidate.Generation && existing.TerminalState == candidate.TerminalState &&
+        existing.Outcome == candidate.Outcome && existing.ProviderWorkRequestId == candidate.ProviderWorkRequestId;
 
     private static bool IsCompleteObservation(ObservedResource observation) =>
         !string.IsNullOrWhiteSpace(observation.AggregateId) && observation.Generation > 0 &&

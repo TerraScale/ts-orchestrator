@@ -124,15 +124,24 @@ public abstract record OperationIntent
 
 public sealed record DispatchProviderIntent : OperationIntent
 {
-    internal DispatchProviderIntent(string operationId, string operationKind, string targetIdentity, string desiredTerminalState,
-        string payloadDigest, string idempotencyKey, long authorizationSequence, string authorizationDigest,
-        long authorizingEpoch, long executorEpoch, string executorId, long dispatchAttempt, DateTimeOffset deadline) : base(operationId)
+    internal DispatchProviderIntent(string operationId, string operationKind, string aggregateId,
+        long desiredGeneration, string desiredResourceVersion, string targetIdentity, string desiredTerminalState,
+        string payloadDigest, string idempotencyKey, string authorizedObservationId,
+        string authorizedResourceVersion, IReadOnlyList<string> permittedCompensations,
+        long authorizationSequence, string authorizationDigest, long authorizingEpoch, long executorEpoch,
+        string executorId, long dispatchAttempt, DateTimeOffset deadline) : base(operationId)
     {
         OperationKind = operationKind;
+        AggregateId = aggregateId;
+        DesiredGeneration = desiredGeneration;
+        DesiredResourceVersion = desiredResourceVersion;
         TargetIdentity = targetIdentity;
         DesiredTerminalState = desiredTerminalState;
         PayloadDigest = payloadDigest;
         IdempotencyKey = idempotencyKey;
+        AuthorizedObservationId = authorizedObservationId;
+        AuthorizedResourceVersion = authorizedResourceVersion;
+        PermittedCompensations = Array.AsReadOnly(permittedCompensations.ToArray());
         AuthorizationSequence = authorizationSequence;
         AuthorizationDigest = authorizationDigest;
         AuthorizingEpoch = authorizingEpoch;
@@ -143,10 +152,16 @@ public sealed record DispatchProviderIntent : OperationIntent
     }
 
     public string OperationKind { get; }
+    public string AggregateId { get; }
+    public long DesiredGeneration { get; }
+    public string DesiredResourceVersion { get; }
     public string TargetIdentity { get; }
     public string DesiredTerminalState { get; }
     public string PayloadDigest { get; }
     public string IdempotencyKey { get; }
+    public string AuthorizedObservationId { get; }
+    public string AuthorizedResourceVersion { get; }
+    public IReadOnlyList<string> PermittedCompensations { get; }
     public long AuthorizationSequence { get; }
     public string AuthorizationDigest { get; }
     public long AuthorizingEpoch { get; }

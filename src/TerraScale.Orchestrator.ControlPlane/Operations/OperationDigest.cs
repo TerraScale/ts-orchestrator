@@ -117,9 +117,11 @@ public static class OperationDigest
                 Append(builder, EncodeEvent(@event, includeEventDigest: true));
                 return;
             case DispatchProviderIntent intent:
-                Append(builder, Encode("dispatch-intent-v1", intent.OperationId,
-                    intent.OperationKind, intent.TargetIdentity, intent.DesiredTerminalState,
-                    intent.PayloadDigest, intent.IdempotencyKey, intent.AuthorizationSequence,
+                Append(builder, Encode("dispatch-intent-v2", intent.OperationId,
+                    intent.OperationKind, intent.AggregateId, intent.DesiredGeneration,
+                    intent.DesiredResourceVersion, intent.TargetIdentity, intent.DesiredTerminalState,
+                    intent.PayloadDigest, intent.IdempotencyKey, intent.AuthorizedObservationId,
+                    intent.AuthorizedResourceVersion, intent.PermittedCompensations, intent.AuthorizationSequence,
                     intent.AuthorizationDigest, intent.AuthorizingEpoch, intent.ExecutorEpoch,
                     intent.ExecutorId, intent.DispatchAttempt, intent.Deadline));
                 return;
