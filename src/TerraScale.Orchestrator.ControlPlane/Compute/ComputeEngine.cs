@@ -11,6 +11,14 @@ public static class ComputeEngine
     public static ComputeDecision DecideScaleOut(ScaleOutRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var decision = DecideScaleOutCore(request);
+        return decision.Errors.Count == 0
+            ? Decision(decision.Intents, decision.Errors, decision.Trace, request)
+            : decision;
+    }
+
+    private static ComputeDecision DecideScaleOutCore(ScaleOutRequest request)
+    {
         var operation = request.Binding?.Operation;
         if (!ValidBinding(request.Binding, request.MaximumIdentityLength) || !Defined(request.State) ||
             request.EvaluationSequence <= 0 || !ValidDemand(request.Demand, request.Binding!, request.MaximumIdentityLength) ||
@@ -425,6 +433,8 @@ public static class ComputeEngine
         return Decision([hold], [error], [new(1, ComputeTraceCode.Held, hold.Action)]);
     }
     private static ComputeDecision Decision(IEnumerable<ComputeIntent> intents, IEnumerable<ComputeError> errors,
-        IEnumerable<ComputeTrace> trace) => new(new ReadOnlyCollection<ComputeIntent>(intents.ToArray()),
-        new ReadOnlyCollection<ComputeError>(errors.ToArray()), new ReadOnlyCollection<ComputeTrace>(trace.ToArray()));
+        IEnumerable<ComputeTrace> trace, ScaleOutRequest? acceptedScaleOutRequest = null) => new(
+        new ReadOnlyCollection<ComputeIntent>(intents.ToArray()),
+        new ReadOnlyCollection<ComputeError>(errors.ToArray()), new ReadOnlyCollection<ComputeTrace>(trace.ToArray()),
+        acceptedScaleOutRequest);
 }

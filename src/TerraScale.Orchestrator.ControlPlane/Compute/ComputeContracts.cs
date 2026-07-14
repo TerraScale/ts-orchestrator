@@ -388,9 +388,16 @@ public sealed class HoldComputeIntent : ComputeIntent { internal HoldComputeInte
 
 public sealed class ComputeDecision
 {
-    internal ComputeDecision(IReadOnlyList<ComputeIntent> intents, IReadOnlyList<ComputeError> errors, IReadOnlyList<ComputeTrace> trace)
-    { Intents = intents; Errors = errors; Trace = trace; }
+    internal ComputeDecision(IReadOnlyList<ComputeIntent> intents, IReadOnlyList<ComputeError> errors,
+        IReadOnlyList<ComputeTrace> trace, ScaleOutRequest? acceptedScaleOutRequest)
+    {
+        Intents = intents;
+        Errors = errors;
+        Trace = trace;
+        AcceptedScaleOutRequest = acceptedScaleOutRequest;
+    }
     public IReadOnlyList<ComputeIntent> Intents { get; }
     public IReadOnlyList<ComputeError> Errors { get; }
     public IReadOnlyList<ComputeTrace> Trace { get; }
+    public ScaleOutRequest? AcceptedScaleOutRequest { get; }
 }
