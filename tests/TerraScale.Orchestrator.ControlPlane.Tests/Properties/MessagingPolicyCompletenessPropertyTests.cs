@@ -29,6 +29,32 @@ public sealed class MessagingPolicyCompletenessPropertyTests
         await Assert.That(first.Coverage).IsEqualTo(3);
     }
 
+    [Test]
+    public async Task ReplacementHardeningPreservesTopologySingletonErrorSets()
+    {
+        var product = TopologyPlane(MessagingPlane.Product, "product", membershipFloor: 3, serverCount: 3,
+            resourceReplicas: 3);
+        var malformedFloor = MessagingPolicyEngine.DecideTopology(new(
+            TopologyPlane(MessagingPlane.Control, "control", membershipFloor: 1, serverCount: 1,
+                resourceReplicas: 1),
+            product, 96, 160, 100, Features()));
+        var validTwoServerFloor = MessagingPolicyEngine.DecideTopology(new(
+            TopologyPlane(MessagingPlane.Control, "control", membershipFloor: 2, serverCount: 2,
+                resourceReplicas: 1),
+            product, 96, 160, 100, Features()));
+
+        await Assert.That(malformedFloor.Errors.Select(static error => error.Code))
+            .IsEquivalentTo([MessagingErrorCode.InvalidInput]);
+        await Assert.That(validTwoServerFloor.Errors.Select(static error => error.Code))
+            .IsEquivalentTo([MessagingErrorCode.DurabilityViolation]);
+        await Assert.That(malformedFloor.Intents.Single()).IsTypeOf<HoldMessagingIntent>();
+        await Assert.That(validTwoServerFloor.Intents.Single()).IsTypeOf<HoldMessagingIntent>();
+        await Assert.That(malformedFloor.Trace.Single())
+            .IsEqualTo(new MessagingTrace(1, MessagingTraceCode.Held, MessagingAction.Hold));
+        await Assert.That(validTwoServerFloor.Trace.Single())
+            .IsEqualTo(new MessagingTrace(1, MessagingTraceCode.Held, MessagingAction.Hold));
+    }
+
     private static Summary RunSafetyMatrix(string culture)
     {
         var previous = CultureInfo.CurrentCulture;
@@ -176,6 +202,32 @@ public sealed class MessagingPolicyCompletenessPropertyTests
             observation.StreamReplicas.Reverse(), observation.BucketReplicas.Reverse());
         return request with { Policy = reversedPolicy, Observation = reversedObservation };
     }
+
+    private static PlanePolicy TopologyPlane(MessagingPlane plane, string prefix,
+        int membershipFloor, int serverCount, int resourceReplicas)
+    {
+        var servers = Enumerable.Range(1, serverCount).Select(index => new ServerPolicy(
+            new ServerId($"{prefix}-topology-server-{index}"),
+            new PeerId($"{prefix}-topology-peer-{index}"),
+            new PlacementId($"{prefix}-topology-host-{index}"))).ToArray();
+        var account = new AccountId($"{prefix}-topology-account");
+        return new PlanePolicy(plane, new CellId("topology-cell"), new ClusterId($"{prefix}-topology-cluster"),
+            generation: 1, membershipFloor, servers,
+            servers.SelectMany(from => servers.Where(to => to.Server != from.Server)
+                .Select(to => new RouteLink(from.Server, to.Server))),
+            plane == MessagingPlane.Control ? [new ClusterId("remote-control-cluster")] : [],
+            [new AccountPolicy(account, [$"ts.{prefix}.>"])],
+            [new StreamPolicy(new StreamId($"{prefix}-topology-stream"), account, $"ts.{prefix}.stream.>",
+                resourceReplicas, MessagingDurability.Critical, MessagingRetention.Limits, 100, 1_000,
+                MessagingDiscard.Old, new PlacementId("regional"), 10, MessagingAcknowledgement.Replicated,
+                MessagingDiskSyncClass.AcknowledgedWriteStrict)],
+            [new BucketPolicy(new BucketId($"{prefix}-topology-bucket"), account, $"ts.{prefix}.kv.>",
+                resourceReplicas, MessagingDurability.Critical, 100, 1_000, new PlacementId("regional"),
+                MessagingAcknowledgement.Replicated, MessagingDiskSyncClass.AcknowledgedWriteStrict)]);
+    }
+
+    private static CompatibilityFeature[] Features() => Enum.GetValues<CompatibilityFeature>()
+        .Where(static feature => feature != CompatibilityFeature.Unspecified).ToArray();
 
     private static void VerifyHeld(MessagingDecision decision, ReplacementRequest request,
         MessagingErrorCode expected, int index)

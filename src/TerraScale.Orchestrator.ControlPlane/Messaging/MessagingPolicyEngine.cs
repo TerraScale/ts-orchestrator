@@ -411,7 +411,8 @@ public static class MessagingPolicyEngine
         MessagingDiskSyncClass sync,
         PlanePolicy policy) =>
         durability == MessagingDurability.Critical &&
-        (replicas < policy.MembershipFloor || acknowledgement != MessagingAcknowledgement.Replicated ||
+        (replicas < policy.MembershipFloor || replicas <= 1 ||
+         acknowledgement != MessagingAcknowledgement.Replicated ||
          sync != MessagingDiskSyncClass.AcknowledgedWriteStrict);
 
     private static MessagingError? ValidateObservation(
