@@ -445,14 +445,15 @@ public sealed class ComputeEngineTests
         ScaleOutProgress? progress = null)
     {
         var proposal = plan ?? Plan();
+        var createEvidence = create ?? (state == ScaleOutState.Authorized ? Create(ProviderCreateStatus.ProvenAbsent) :
+            state >= ScaleOutState.RequestRecorded ? Create(ProviderCreateStatus.Created) : null);
         return new(Binding(), state, demand ?? Demand(), proposal,
             state == ScaleOutState.DemandObserved ? null : persisted ?? Persisted(proposal),
             state < ScaleOutState.Authorized ? null : authorization ?? Authorization(),
-            create ?? (state == ScaleOutState.Authorized ? Create(ProviderCreateStatus.ProvenAbsent) :
-                state >= ScaleOutState.RequestRecorded ? Create(ProviderCreateStatus.Created) : null),
-            progress ?? (state is ScaleOutState.RequestRecorded or ScaleOutState.InstanceCreated or ScaleOutState.Enrolled or
-                ScaleOutState.Ready or ScaleOutState.Completed ? OutProgress(state == ScaleOutState.RequestRecorded
-                    ? ScaleOutState.InstanceCreated : state) : null), 50, 64);
+            createEvidence,
+            progress ?? (state == ScaleOutState.RequestRecorded && createEvidence?.Status == ProviderCreateStatus.Created
+                ? OutProgress(ScaleOutState.InstanceCreated) : state is ScaleOutState.InstanceCreated or ScaleOutState.Enrolled or
+                ScaleOutState.Ready or ScaleOutState.Completed ? OutProgress(state) : null), 50, 64);
     }
 
     private static ScaleInBinding InBinding(ComputeNodeRole role = ComputeNodeRole.ElasticStateless) =>
