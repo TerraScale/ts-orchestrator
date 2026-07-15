@@ -31,7 +31,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         try
         {
             await client.ConnectAsync();
-            await ReconcileStateAsync(client, topology, cancellationToken);
+            var startupConsumer = await ReconcileStateAsync(client, topology, cancellationToken);
+            await VerifyDurableMessagingAsync(client, startupConsumer, topology, cancellationToken);
 
             var services = client.CreateServicesContext();
             var service = await services.AddServiceAsync(
@@ -72,7 +73,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         await client.DisposeAsync();
     }
 
-    private static async Task ReconcileStateAsync(
+    private static async Task<INatsJSConsumer> ReconcileStateAsync(
         NatsClient client,
         NatsTopology topology,
         CancellationToken cancellationToken)
@@ -95,5 +96,59 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
         }
+
+        return await jetStream.CreateOrUpdateConsumerAsync(
+            "CELL_EVENTS",
+            topology.StartupConsumer,
+            cancellationToken);
     }
+
+    private static async Task VerifyDurableMessagingAsync(
+        NatsClient client,
+        INatsJSConsumer consumer,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        var eventId = Guid.NewGuid().ToString("N");
+        var headers = new NatsHeaders
+        {
+            ["TS-Protocol-Version"] = "1",
+            ["TS-Cell"] = topology.Cell,
+            ["TS-Correlation-Id"] = eventId
+        };
+        var jetStream = client.CreateJetStreamContext();
+        var acknowledgement = await jetStream.PublishAsync(
+            topology.StartupSubject,
+            eventId,
+            opts: new NatsJSPubOpts
+            {
+                MsgId = eventId,
+                ExpectedStream = "CELL_EVENTS",
+                RetryAttempts = 3,
+                RetryWaitBetweenAttempts = TimeSpan.FromMilliseconds(250)
+            },
+            headers: headers,
+            cancellationToken: cancellationToken);
+        acknowledgement.EnsureSuccess();
+
+        var message = await consumer.NextAsync<string>(
+            opts: new NatsJSNextOpts { Expires = TimeSpan.FromSeconds(5) },
+            cancellationToken: cancellationToken)
+            ?? throw new InvalidOperationException("Durable NATS startup event was not delivered.");
+
+        if (string.IsNullOrWhiteSpace(message.Data) ||
+            !HeaderEquals(message.Headers, "TS-Protocol-Version", "1") ||
+            !HeaderEquals(message.Headers, "TS-Cell", topology.Cell) ||
+            !HeaderEquals(message.Headers, "TS-Correlation-Id", message.Data))
+        {
+            throw new InvalidOperationException("Durable NATS startup event metadata was invalid.");
+        }
+
+        await message.AckAsync(cancellationToken: cancellationToken);
+    }
+
+    private static bool HeaderEquals(NatsHeaders? headers, string name, string expected) =>
+        headers is not null &&
+        headers.TryGetLastValue(name, out var value) &&
+        string.Equals(value, expected, StringComparison.Ordinal);
 }

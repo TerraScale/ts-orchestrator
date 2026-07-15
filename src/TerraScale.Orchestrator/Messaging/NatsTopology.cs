@@ -10,6 +10,8 @@ public sealed record NatsTopology(string Cell, int Replicas)
 
     public string HealthSubject => $"{Root}.query.health";
 
+    public string StartupSubject => $"{Root}.event.runtime.started";
+
     public IReadOnlyList<StreamConfig> Streams =>
     [
         Stream("CELL_SPEC", $"{Root}.desired.>", 256 * 1024 * 1024),
@@ -32,12 +34,33 @@ public sealed record NatsTopology(string Cell, int Replicas)
         NumberOfReplicas = Replicas
     };
 
+    public ConsumerConfig StartupConsumer => new("runtime_startup")
+    {
+        Description = $"Acknowledged runtime startup events for {Cell}",
+        FilterSubject = StartupSubject,
+        AckWait = TimeSpan.FromSeconds(15),
+        MaxDeliver = 5,
+        MaxAckPending = 32,
+        MaxWaiting = 16,
+        Backoff =
+        [
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(30)
+        ],
+        NumReplicas = Replicas
+    };
+
     private StreamConfig Stream(string name, string subject, long maxBytes) => new(name, [subject])
     {
         Description = $"TerraScale Orchestrator {name} for {Cell}",
         MaxBytes = maxBytes,
         MaxAge = TimeSpan.FromDays(30),
         DuplicateWindow = TimeSpan.FromMinutes(2),
-        NumReplicas = Replicas
+        NumReplicas = Replicas,
+        Retention = StreamConfigRetention.Limits,
+        Storage = StreamConfigStorage.File,
+        Discard = StreamConfigDiscard.Old
     };
 }

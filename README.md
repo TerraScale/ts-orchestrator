@@ -27,4 +27,4 @@ dotnet run --project src/TerraScale.Orchestrator -- check
 dotnet run --project src/TerraScale.Orchestrator -- run
 ```
 
-Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` JetStream streams, the `ORCH_LEADERS` KV bucket, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service.
+Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` KV bucket, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. Before reporting readiness it publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.

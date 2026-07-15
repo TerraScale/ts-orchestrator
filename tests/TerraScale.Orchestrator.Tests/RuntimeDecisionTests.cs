@@ -19,9 +19,15 @@ public sealed class RuntimeDecisionTests
 
         await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Check);
         await Assert.That(topology.HealthSubject).IsEqualTo("ts.orch.v1.gru.query.health");
+        await Assert.That(topology.StartupSubject).IsEqualTo("ts.orch.v1.gru.event.runtime.started");
         await Assert.That(topology.Streams).Count().IsEqualTo(3);
         await Assert.That(topology.Streams.Select(static stream => stream.NumReplicas).Distinct())
             .IsEquivalentTo([3]);
+        await Assert.That(topology.Streams.Select(static stream => stream.Storage).Distinct())
+            .IsEquivalentTo([NATS.Client.JetStream.Models.StreamConfigStorage.File]);
+        await Assert.That(topology.StartupConsumer.FilterSubject).IsEqualTo(topology.StartupSubject);
+        await Assert.That(topology.StartupConsumer.MaxAckPending).IsEqualTo(32);
+        await Assert.That(topology.StartupConsumer.Backoff).Count().IsEqualTo(4);
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Bundles.NumberOfReplicas).IsEqualTo(3);
     }
