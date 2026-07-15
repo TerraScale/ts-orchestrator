@@ -20,6 +20,7 @@ public sealed class RuntimeDecisionTests
         await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Check);
         await Assert.That(topology.HealthSubject).IsEqualTo("ts.orch.v1.gru.query.health");
         await Assert.That(topology.StartupSubject).IsEqualTo("ts.orch.v1.gru.event.runtime.started");
+        await Assert.That(topology.ProtocolObject).IsEqualTo("orchestrator-protocol-v1");
         await Assert.That(topology.Streams).Count().IsEqualTo(3);
         await Assert.That(topology.Streams.Select(static stream => stream.NumReplicas).Distinct())
             .IsEquivalentTo([3]);

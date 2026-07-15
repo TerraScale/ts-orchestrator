@@ -12,6 +12,8 @@ public sealed record NatsTopology(string Cell, int Replicas)
 
     public string StartupSubject => $"{Root}.event.runtime.started";
 
+    public string ProtocolObject => "orchestrator-protocol-v1";
+
     public IReadOnlyList<StreamConfig> Streams =>
     [
         Stream("CELL_SPEC", $"{Root}.desired.>", 256 * 1024 * 1024),

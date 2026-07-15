@@ -9,6 +9,10 @@ namespace TerraScale.Orchestrator.Messaging;
 
 public sealed class NatsRuntime : IAsyncDisposable
 {
+    private static readonly byte[] ProtocolPackage = """
+        {"name":"terrascale-orchestrator","protocol":1}
+        """u8.ToArray();
+
     private readonly NatsClient client;
     private readonly RuntimeRegistration registration;
     private readonly INatsSvcServer service;
@@ -36,6 +40,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             await client.ConnectAsync();
             var state = await ReconcileStateAsync(client, topology, cancellationToken);
+            await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
 
@@ -112,20 +117,34 @@ public sealed class NatsRuntime : IAsyncDisposable
         var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
 
         var objects = jetStream.CreateObjectStoreContext();
+        INatsObjStore bundles;
         try
         {
-            await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+            bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
         }
         catch (NatsJSApiException exception) when (exception.Error.Code == 404)
         {
-            await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
+            bundles = await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
         }
 
         var startupConsumer = await jetStream.CreateOrUpdateConsumerAsync(
             "CELL_EVENTS",
             topology.StartupConsumer,
             cancellationToken);
-        return new(startupConsumer, runtime);
+        return new(startupConsumer, runtime, bundles);
+    }
+
+    private static async Task VerifyProtocolPackageAsync(
+        INatsObjStore bundles,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        await bundles.PutAsync(topology.ProtocolObject, ProtocolPackage, cancellationToken);
+        var stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+        if (!stored.AsSpan().SequenceEqual(ProtocolPackage))
+        {
+            throw new InvalidOperationException("NATS protocol package failed its integrity check.");
+        }
     }
 
     private static async Task VerifyDurableMessagingAsync(
@@ -177,7 +196,10 @@ public sealed class NatsRuntime : IAsyncDisposable
         headers.TryGetLastValue(name, out var value) &&
         string.Equals(value, expected, StringComparison.Ordinal);
 
-    private sealed record RuntimeState(INatsJSConsumer StartupConsumer, INatsKVStore Runtime);
+    private sealed record RuntimeState(
+        INatsJSConsumer StartupConsumer,
+        INatsKVStore Runtime,
+        INatsObjStore Bundles);
 
     private sealed class RuntimeRegistration : IAsyncDisposable
     {
