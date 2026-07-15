@@ -13,7 +13,4 @@
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj" />
-  </Folder>
 </Solution>

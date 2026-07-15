@@ -9,10 +9,9 @@ Phase 1 contract freeze is intentionally blocked until the ten owner questions a
 ```bash
 dotnet restore TerraScale.Orchestrator.slnx --locked-mode
 dotnet build TerraScale.Orchestrator.slnx --no-restore
-dotnet test TerraScale.Orchestrator.slnx --no-build
 ```
 
-The architecture is one operational binary built from one production project. The code is organized by capability inside `src/TerraScale.Orchestrator`; pure decisions stay separate from infrastructure adapters through namespaces and directory boundaries rather than project ceremony.
+The repository contains one project and produces one operational binary. The source is limited to the command-line entry point, validated options, and the NATS runtime it actually executes. The `check` command is the functional test: it exercises the same production startup path as `run` against a real JetStream-enabled NATS server, then exits cleanly.
 
 ## Run
 
