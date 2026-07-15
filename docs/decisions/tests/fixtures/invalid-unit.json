@@ -1,0 +1,1 @@
+{"name":"invalid unit","operation":"set","path":["inputs",2,"unit"],"value":"USD/month","expected":"input maximum-three-region-pre-user-cost: unit must be BRL/day"}

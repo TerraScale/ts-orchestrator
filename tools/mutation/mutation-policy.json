@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "policyId": "terrascale-orchestrator-mutation-v1",
+  "scope": "full-correctness-critical-solution",
+  "minimumMutationScorePercent": 85,
+  "maximumSafetyInvariantSurvivors": 0,
+  "projects": [
+    {
+      "path": "src/TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj",
+      "classification": "correctness-critical-contracts",
+      "mutationRequired": true,
+      "exclusionProof": null,
+      "exclusionProofSha256": null
+    },
+    {
+      "path": "src/TerraScale.Orchestrator.ControlPlane/TerraScale.Orchestrator.ControlPlane.csproj",
+      "classification": "correctness-critical-control-plane",
+      "mutationRequired": true,
+      "exclusionProof": null,
+      "exclusionProofSha256": null
+    },
+    {
+      "path": "src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj",
+      "classification": "correctness-critical-protocol",
+      "mutationRequired": true,
+      "exclusionProof": null,
+      "exclusionProofSha256": null
+    },
+    {
+      "path": "src/TerraScale.Orchestrator.Scheduler/TerraScale.Orchestrator.Scheduler.csproj",
+      "classification": "correctness-critical-scheduler",
+      "mutationRequired": true,
+      "exclusionProof": null,
+      "exclusionProofSha256": null
+    },
+    {
+      "path": "src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj",
+      "classification": "composition-root-trivial-wiring",
+      "mutationRequired": false,
+      "exclusionProof": "docs/audits/mutation/composition-root-exclusion-proof.md",
+      "exclusionProofSha256": "e6e0958047836e43213ad504a6b622d9ad0362567f0ad65f6aa2b738de511742"
+    }
+  ],
+  "allowedExclusionCategories": [
+    "composition-root-trivial-wiring",
+    "generated-code",
+    "immutable-dto-property-accessor"
+  ],
+  "forbiddenExclusionCategories": [
+    "adapter-result-classification",
+    "authority",
+    "compensation",
+    "deletion",
+    "fencing",
+    "retry",
+    "state-transition",
+    "validator"
+  ],
+  "exclusions": [
+    {
+      "project": "src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj",
+      "category": "composition-root-trivial-wiring",
+      "paths": [
+        "src/TerraScale.Orchestrator/Program.cs"
+      ],
+      "pathDigests": [
+        {
+          "path": "src/TerraScale.Orchestrator/Program.cs",
+          "sha256": "134f25bd62a832c70aa2f407cc60f34c91a92c817d10894012c8d51d3ec72127"
+        }
+      ],
+      "proof": "docs/audits/mutation/composition-root-exclusion-proof.md",
+      "proofSha256": "e6e0958047836e43213ad504a6b622d9ad0362567f0ad65f6aa2b738de511742"
+    }
+  ]
+}

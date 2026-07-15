@@ -1,0 +1,23 @@
+[
+  {"name":"signing-selection","operation":"set","path":["artifactSigningSelection"],"value":"cosign","error":"selection must remain null"},
+  {"name":"floating-version","operation":"set","path":["entries",0,"candidateVersion"],"value":"latest","error":"floating or ranged versions are prohibited"},
+  {"name":"latest-source","operation":"set","path":["entries",4,"versionSource"],"value":"https://github.com/moby/buildkit/releases/latest","error":"source URL must be version-specific"},
+  {"name":"wrong-version-source","operation":"set","path":["entries",4,"versionSource"],"value":"https://github.com/moby/buildkit/releases/tag/v0.29.0","error":"URL must contain candidateVersion"},
+  {"name":"non-primary-source","operation":"set","path":["entries",4,"versionSource"],"value":"https://example.com/buildkit/v0.30.0","error":"allowed primary-source host"},
+  {"name":"qualified-candidate","operation":"set","path":["entries",4,"productionQualified"],"value":true,"error":"must be false"},
+  {"name":"mirror-claim","operation":"set","path":["entries",4,"mirrorStatus"],"value":"ready","error":"must remain missing"},
+  {"name":"missing-arm64","operation":"delete-list-value","path":["entries",4,"platforms"],"value":"linux-arm64","error":"binary candidate lacks linux-arm64"},
+  {"name":"empty-gaps","operation":"set","path":["gaps"],"value":[],"error":"expected non-empty list"},
+  {"name":"duplicate-id","operation":"copy","path":["entries",1,"id"],"from":["entries",0,"id"],"error":"duplicate stable IDs"},
+  {"name":"secret-field","operation":"add-key","path":["entries",0],"key":"apiToken","value":"synthetic-not-a-secret","error":"secret-bearing fields are prohibited"},
+  {"name":"selected-status","operation":"set","path":["entries",7,"status"],"value":"selected","error":"must remain unselected"},
+  {"name":"unknown-category","operation":"set","path":["entries",0,"category"],"value":"chaos","error":"unknown category"},
+  {"name":"remove-signing-alternative","operation":"delete-list-index","path":["entries"],"value":8,"error":"at least two unselected candidates"},
+  {"name":"sdk-version-drift","operation":"set","path":["existingBaselinePins","sdk","version"],"value":"10.0.302","error":"version: drift from checked-in global.json"},
+  {"name":"sdk-roll-forward-drift","operation":"set","path":["existingBaselinePins","sdk","rollForward"],"value":"disable","error":"rollForward: drift from checked-in global.json"},
+  {"name":"sdk-false-closure-claim","operation":"set","path":["existingBaselinePins","sdk","exactClosure"],"value":true,"error":"must be false for latestFeature"},
+  {"name":"tunit-declaration-drift","operation":"set","path":["existingBaselinePins","packages",0,"declaredVersion"],"value":"1.56.17","error":"TUnit.declaredVersion: drift"},
+  {"name":"testing-platform-lock-drift","operation":"set","path":["existingBaselinePins","packages",1,"resolvedVersion"],"value":"2.2.2","error":"Microsoft.Testing.Platform.resolvedVersion: drift"},
+  {"name":"lock-provenance-digest-drift","operation":"set","path":["existingBaselinePins","lockProvenance",0,"sha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000","error":"SHA-256 drift"},
+  {"name":"lock-provenance-path-drift","operation":"delete-list-index","path":["existingBaselinePins","lockProvenance"],"value":0,"error":"path set drift"}
+]

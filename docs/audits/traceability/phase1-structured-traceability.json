@@ -1,0 +1,660 @@
+{
+  "schemaVersion": 1,
+  "reportKind": "structured-traceability-foundation",
+  "claimsAcceptanceEvidence": false,
+  "inputSha256": "b34b56f169db742cc5840cbaa344fd7a37eec5e452181fae7743d5c1dba3755c",
+  "counts": {
+    "registered": 43,
+    "gap": 43,
+    "linked": 0,
+    "acceptanceSatisfied": 0
+  },
+  "entries": [
+    {
+      "id": "REQ-O001",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O002",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O003",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O004",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O005",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O006",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O007",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O008",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O009",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O010",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O011",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O012",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O013",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O014",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O015",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O016",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O017",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L0C"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O018",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L1S",
+        "L2S",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O019",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O020",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O021",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O022",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "REQ-O023",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-001",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-002",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-003",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-004",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-005",
+      "owner": "Core",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-006",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-007",
+      "owner": "TerraBase",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-008",
+      "owner": "TerraBase",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-009",
+      "owner": "Storage",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-010",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-011",
+      "owner": "Delivery",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-012",
+      "owner": "Operations",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-013",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-014",
+      "owner": "Cloud",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-015",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "review",
+        "L0"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-016",
+      "owner": "Verification",
+      "acceptanceLayers": [
+        "L0",
+        "L3S",
+        "L4",
+        "L5"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-017",
+      "owner": "Runtime",
+      "acceptanceLayers": [
+        "L0",
+        "L1R",
+        "L3S"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "INV-018",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "ERR-PHASE0-NOTREADY",
+      "owner": "Integration/contract steward",
+      "acceptanceLayers": [
+        "L0"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    },
+    {
+      "id": "SEC-NO-SECRET-OUTPUT",
+      "owner": "Messaging/security",
+      "acceptanceLayers": [
+        "L0",
+        "L0C",
+        "L3S",
+        "L4"
+      ],
+      "status": "gap",
+      "gapReason": "complete typed production, test, and evidence links are not yet established",
+      "productionLinks": [],
+      "testLinks": [],
+      "evidenceLinks": [],
+      "acceptanceSatisfied": false
+    }
+  ]
+}

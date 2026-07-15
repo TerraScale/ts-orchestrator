@@ -1,0 +1,1 @@
+{"name":"non-official capability source","target":"pin","operation":"set","path":["capabilities",0,"primarySource"],"value":"https://example.com/pubsub","expected":"official primary source missing"}

@@ -1,0 +1,146 @@
+[
+  {
+    "name": "tool-selection-claim",
+    "document": "report",
+    "operation": "set",
+    "path": ["toolSelection", "selected"],
+    "value": true,
+    "error": "candidate audit does not select"
+  },
+  {
+    "name": "execution-claim",
+    "document": "report",
+    "operation": "set",
+    "path": ["execution", "status"],
+    "value": "complete",
+    "error": "cannot be claimed before tool selection"
+  },
+  {
+    "name": "fabricated-mutation-score",
+    "document": "report",
+    "operation": "set",
+    "path": ["execution", "mutationScorePercent"],
+    "value": 85,
+    "error": "zero-claim report requires null"
+  },
+  {
+    "name": "threshold-claim",
+    "document": "report",
+    "operation": "set",
+    "path": ["claims", "thresholdMet"],
+    "value": true,
+    "error": "zero-claim report requires false"
+  },
+  {
+    "name": "full-l0c-claim",
+    "document": "report",
+    "operation": "set",
+    "path": ["claims", "fullL0C"],
+    "value": true,
+    "error": "zero-claim report requires false"
+  },
+  {
+    "name": "ci-evidence-claim",
+    "document": "report",
+    "operation": "set",
+    "path": ["claims", "ciEvidence"],
+    "value": true,
+    "error": "zero-claim report requires false"
+  },
+  {
+    "name": "stale-policy-digest",
+    "document": "report",
+    "operation": "set",
+    "path": ["policySha256"],
+    "value": "0000000000000000000000000000000000000000000000000000000000000000",
+    "error": "policy digest is missing or stale"
+  },
+  {
+    "name": "candidate-version-drift",
+    "document": "report",
+    "operation": "set",
+    "path": ["toolSelection", "candidateVersion"],
+    "value": "4.16.1",
+    "error": "drift from supply-chain candidate audit"
+  },
+  {
+    "name": "weaken-mutation-threshold",
+    "document": "policy",
+    "operation": "set",
+    "path": ["minimumMutationScorePercent"],
+    "value": 84,
+    "error": "ORCHESTRATOR requires 85"
+  },
+  {
+    "name": "allow-safety-survivor",
+    "document": "policy",
+    "operation": "set",
+    "path": ["maximumSafetyInvariantSurvivors"],
+    "value": 1,
+    "error": "must be zero"
+  },
+  {
+    "name": "erase-authority-protection",
+    "document": "policy",
+    "operation": "delete-list-value",
+    "path": ["forbiddenExclusionCategories"],
+    "value": "authority",
+    "error": "forbidden safety set drift"
+  },
+  {
+    "name": "exclude-control-plane",
+    "document": "policy",
+    "operation": "set",
+    "path": ["projects", 1, "mutationRequired"],
+    "value": false,
+    "error": "all non-composition production projects are mandatory"
+  },
+  {
+    "name": "forbidden-exclusion-category",
+    "document": "policy",
+    "operation": "set",
+    "path": ["exclusions", 0, "category"],
+    "value": "deletion",
+    "error": "category is not permitted"
+  },
+  {
+    "name": "broaden-composition-exclusion",
+    "document": "policy",
+    "operation": "append",
+    "path": ["exclusions", 0, "paths"],
+    "value": "src/TerraScale.Orchestrator.ControlPlane/Authority/AuthorityEngine.cs",
+    "error": "broader than the exact trivial source set"
+  },
+  {
+    "name": "stale-excluded-source-digest",
+    "document": "policy",
+    "operation": "set",
+    "path": ["exclusions", 0, "pathDigests", 0, "sha256"],
+    "value": "0000000000000000000000000000000000000000000000000000000000000000",
+    "error": "excluded source digest is missing or stale"
+  },
+  {
+    "name": "proof-mismatch",
+    "document": "policy",
+    "operation": "set",
+    "path": ["exclusions", 0, "proof"],
+    "value": "docs/audits/mutation/phase1-mutation-readiness.md",
+    "error": "exclusion proof must exactly match the project proof"
+  },
+  {
+    "name": "stale-proof-digest",
+    "document": "policy",
+    "operation": "set",
+    "path": ["exclusions", 0, "proofSha256"],
+    "value": "0000000000000000000000000000000000000000000000000000000000000000",
+    "error": "exclusion proof must exactly match the project proof"
+  },
+  {
+    "name": "noncanonical-double-slash",
+    "document": "policy",
+    "operation": "set",
+    "path": ["projects", 0, "path"],
+    "value": "src//TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj",
+    "error": "unsafe repository-relative path"
+  }
+]

@@ -1,0 +1,1 @@
+{"name":"missing ARM64 artifact","target":"pin","operation":"delete","path":["serverCandidates",0,"artifacts",1],"expected":"linux amd64 and arm64 artifacts are mandatory"}

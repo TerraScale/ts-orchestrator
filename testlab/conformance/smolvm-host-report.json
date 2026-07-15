@@ -1,0 +1,300 @@
+{
+  "checks": [
+    {
+      "expected": true,
+      "name": "runtime-on-path",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": "1.5.0",
+      "name": "runtime-version",
+      "observed": "1.5.0",
+      "passed": true
+    },
+    {
+      "expected": "acb57a7135b2d7d6e665f67f056e21353023b93835f54def1ae523bf76f1bfb3",
+      "name": "artifact-sha256:installed-version-metadata",
+      "observed": "acb57a7135b2d7d6e665f67f056e21353023b93835f54def1ae523bf76f1bfb3",
+      "passed": true
+    },
+    {
+      "expected": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2",
+      "name": "artifact-sha256:launcher",
+      "observed": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2",
+      "passed": true
+    },
+    {
+      "expected": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a",
+      "name": "artifact-sha256:runtime",
+      "observed": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a",
+      "passed": true
+    },
+    {
+      "expected": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e",
+      "name": "artifact-sha256:hypervisor-library",
+      "observed": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e",
+      "passed": true
+    },
+    {
+      "expected": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5",
+      "name": "artifact-sha256:firmware-library",
+      "observed": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5",
+      "passed": true
+    },
+    {
+      "expected": "linux",
+      "name": "host-operating-system",
+      "observed": "linux",
+      "passed": true
+    },
+    {
+      "expected": "x86_64",
+      "name": "host-architecture",
+      "observed": "x86_64",
+      "passed": true
+    },
+    {
+      "expected": true,
+      "name": "kvm-character-device",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": true,
+      "name": "kvm-user-access",
+      "observed": true,
+      "passed": true
+    },
+    {
+      "expected": 12,
+      "name": "kvm-api-version",
+      "observed": 12,
+      "passed": true
+    },
+    {
+      "expected": {
+        "returnCode": 0
+      },
+      "name": "api-discovery-command",
+      "observed": {
+        "returnCode": 0
+      },
+      "passed": true
+    },
+    {
+      "expected": "3.1.0",
+      "name": "api-openapi-version",
+      "observed": "3.1.0",
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "POST",
+        "operationId": "create_machine",
+        "path": "/api/v1/machines"
+      },
+      "name": "api-operation:create",
+      "observed": {
+        "method": "POST",
+        "operationId": "create_machine",
+        "path": "/api/v1/machines"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "POST",
+        "operationId": "start_machine",
+        "path": "/api/v1/machines/{name}/start"
+      },
+      "name": "api-operation:start",
+      "observed": {
+        "method": "POST",
+        "operationId": "start_machine",
+        "path": "/api/v1/machines/{name}/start"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "GET",
+        "operationId": "get_machine",
+        "path": "/api/v1/machines/{name}"
+      },
+      "name": "api-operation:status",
+      "observed": {
+        "method": "GET",
+        "operationId": "get_machine",
+        "path": "/api/v1/machines/{name}"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "POST",
+        "operationId": "exec_machine",
+        "path": "/api/v1/machines/{name}/exec"
+      },
+      "name": "api-operation:exec",
+      "observed": {
+        "method": "POST",
+        "operationId": "exec_machine",
+        "path": "/api/v1/machines/{name}/exec"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "POST",
+        "operationId": "exec_stream",
+        "path": "/api/v1/machines/{id}/exec/stream"
+      },
+      "name": "api-operation:stream",
+      "observed": {
+        "method": "POST",
+        "operationId": "exec_stream",
+        "path": "/api/v1/machines/{id}/exec/stream"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "GET",
+        "operationId": "stream_logs",
+        "path": "/api/v1/machines/{id}/logs"
+      },
+      "name": "api-operation:log",
+      "observed": {
+        "method": "GET",
+        "operationId": "stream_logs",
+        "path": "/api/v1/machines/{id}/logs"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "GET",
+        "operationId": "download_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      "name": "api-operation:copy-from-guest",
+      "observed": {
+        "method": "GET",
+        "operationId": "download_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "PUT",
+        "operationId": "upload_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      "name": "api-operation:copy-to-guest",
+      "observed": {
+        "method": "PUT",
+        "operationId": "upload_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "POST",
+        "operationId": "stop_machine",
+        "path": "/api/v1/machines/{name}/stop"
+      },
+      "name": "api-operation:stop",
+      "observed": {
+        "method": "POST",
+        "operationId": "stop_machine",
+        "path": "/api/v1/machines/{name}/stop"
+      },
+      "passed": true
+    },
+    {
+      "expected": {
+        "method": "DELETE",
+        "operationId": "delete_machine",
+        "path": "/api/v1/machines/{name}"
+      },
+      "name": "api-operation:delete",
+      "observed": {
+        "method": "DELETE",
+        "operationId": "delete_machine",
+        "path": "/api/v1/machines/{name}"
+      },
+      "passed": true
+    },
+    {
+      "expected": "not-established",
+      "name": "api-adapter-gap-status:update",
+      "observed": "not-established",
+      "passed": true
+    },
+    {
+      "expected": "not-established",
+      "name": "supply-chain-gap-status:internalMirrorStatus",
+      "observed": "not-established",
+      "passed": true
+    },
+    {
+      "expected": "not-established",
+      "name": "supply-chain-gap-status:internalSignatureStatus",
+      "observed": "not-established",
+      "passed": true
+    }
+  ],
+  "gatedAdapterGaps": [
+    {
+      "apiEvidence": "POST /api/v1/machines/{name}/resize only changes machine resources; no general update operation is exported",
+      "capability": "update",
+      "requiredBoundary": "one reviewed host adapter with a contract test and explicit privilege boundary",
+      "status": "not-established"
+    }
+  ],
+  "passed": true,
+  "pin": "testlab/pins/smolvm-v1.5.0.json",
+  "provenance": {
+    "source": {
+      "commit": "6b178e16a7b95af0ed57ca69a1bbc0202e04157d",
+      "project": "smol-machines/smolvm",
+      "repository": "https://github.com/smol-machines/smolvm",
+      "tag": "v1.5.0",
+      "tagType": "lightweight"
+    },
+    "terrascaleSupplyChain": {
+      "internalMirrorStatus": "not-established",
+      "internalSignatureStatus": "not-established"
+    },
+    "upstreamRelease": {
+      "archive": {
+        "name": "smolvm-1.5.0-linux-x86_64.tar.gz",
+        "sha256": "986bc230befea542af18d85a849fca056a18d728c9c7b75cfca382adb0fe1a64",
+        "url": "https://github.com/smol-machines/smolvm/releases/download/v1.5.0/smolvm-1.5.0-linux-x86_64.tar.gz"
+      },
+      "checksumManifest": {
+        "sha256": "bf58cd6fc6673f128cad961bfbf547db1a594bffc669c6716601130db83e720c",
+        "url": "https://github.com/smol-machines/smolvm/releases/download/v1.5.0/checksums.sha256"
+      },
+      "publishedAt": "2026-07-11T09:32:37Z",
+      "releaseSignatureStatus": "not-provided",
+      "sourceProvenanceAttestationStatus": "not-provided",
+      "url": "https://github.com/smol-machines/smolvm/releases/tag/v1.5.0"
+    }
+  },
+  "runtime": "smolvm",
+  "schemaVersion": 1,
+  "untestedGates": [
+    "No VM or system under test was created, started, stopped, or queried.",
+    "The HTTP API schema was exported, but no API server was started and no live request was sent.",
+    "Guest boot, networking, persistence, fault injection, and nine-VM GRU/FRA/SFO topology remain gated.",
+    "Real systemd-as-PID-1 behavior remains gated.",
+    "linux-arm64 and real OCI A1/IAM/block-volume/storage-performance boundaries remain gated.",
+    "The SmolVM update capability remains gated pending one reviewed host adapter and contract test.",
+    "The TerraScale internal mirror and internal artifact signature are not yet established."
+  ],
+  "version": "1.5.0"
+}

@@ -1,0 +1,9 @@
+{
+  "data": [{
+    "id": "identifier-placeholder",
+    "display-name": "resource-name-placeholder",
+    "ip-address": "address-placeholder",
+    "secret": "secret-placeholder",
+    "nested": {"user": "user-identifier-placeholder", "count": 1}
+  }]
+}

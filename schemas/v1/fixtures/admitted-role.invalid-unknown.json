@@ -1,0 +1,4 @@
+{
+  "apiVersion": "terrascale.io/orchestrator/v1",
+  "kind": "ArbitraryWorkload"
+}

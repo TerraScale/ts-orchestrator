@@ -7,12 +7,25 @@
     <File Path="global.json" />
     <File Path="ORCHESTRATOR.md" />
     <File Path="README.md" />
+    <File Path="docs/audits/phase0-build-baseline.md" />
     <File Path="requirements/registry.yaml" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.ControlPlane/TerraScale.Orchestrator.ControlPlane.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Scheduler/TerraScale.Orchestrator.Scheduler.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchestrator.ModelTests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Protocol.Tests/TerraScale.Orchestrator.Protocol.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Scheduler.Tests/TerraScale.Orchestrator.Scheduler.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/reproducible-publish/TerraScale.ReproduciblePublish.csproj" />
+    <Project Path="tools/TerraScale.Orchestrator.SchemaGenerator/TerraScale.Orchestrator.SchemaGenerator.csproj" />
   </Folder>
 </Solution>

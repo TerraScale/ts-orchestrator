@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-07-13",
+  "status": "blank-contract-only",
+  "productionQualified": false,
+  "requiredProviders": ["oci", "aws", "gcp", "azure"],
+  "minimumOciEligibleRegions": 20,
+  "maximumEvidenceAgeDays": 90,
+  "costComponentFields": [
+    "compute", "bootVolumes", "dataVolumes", "natsVolumes", "observabilityVolumes",
+    "provisionedIops", "provisionedThroughput", "snapshots", "backups",
+    "interRegionEgress", "internetEgress", "publicIpv4", "natGateways",
+    "loadBalancers", "objectRequests", "objectStorage", "kms", "secrets",
+    "logs", "metrics", "artifactStorage", "support", "taxes", "fxSensitivity",
+    "discountsCommitments", "idleFloor", "burstCost", "engineerOperationalCost"
+  ],
+  "costValueFields": [
+    "amount", "currency", "unit", "quantity", "sourceRef", "effectiveAt",
+    "taxIncluded", "discountIncluded"
+  ],
+  "benchmarkFields": [
+    "workloadArtifactDigest", "scriptArtifactDigest", "rawResultArtifactDigest",
+    "readLatencyMs", "writeLatencyMs", "fsyncLatencyMs", "iops",
+    "throughputMiBps", "noisyNeighbor", "onlineExpansion", "attachTimeSeconds",
+    "detachTimeSeconds", "replacementTimeSeconds", "regionalCapacityFailure",
+    "compactLoadRecovery", "assumptions"
+  ],
+  "latencyPercentileFields": ["p50", "p95", "p99"],
+  "ociRegionFields": [
+    "regionKey", "publicRegion", "realm", "subscriptionEnabled", "homeGeography",
+    "pairedGeography", "availabilityDomains", "faultDomains", "a1Availability",
+    "approvedArmFallback", "capacityProbe", "images", "blockVolume",
+    "objectStorageAvailable", "kmsAvailable", "vaultAvailable",
+    "loadBalancerAvailable", "iamAvailable", "dnsAvailable", "billingApiAvailable",
+    "serviceLimits", "quotaRequest", "interRegionPaths", "interRegionLatencyMs",
+    "interRegionEgressPrice", "dataResidencyConstraints", "normalizedBrlFloorPerDay",
+    "qualificationTimestamp", "evidenceRefs", "qualificationStatus",
+    "disqualificationReasons"
+  ],
+  "ociBlockVolumeFields": [
+    "sizeGiB", "vpuPerGiB", "iops", "throughputMiBps", "onlineResizeSupported",
+    "benchmarkStatus"
+  ],
+  "sourceCatalogRequiredTopics": [
+    "regions", "armCompute", "blockStorage", "serviceAvailability", "pricing", "billingExport"
+  ]
+}

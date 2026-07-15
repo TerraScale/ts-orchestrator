@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.terrascale.tech/orchestrator/v1/admitted-role.schema.json",
+  "title": "Closed TerraScale Orchestrator admitted role",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "terrascale.io/orchestrator/v1"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "Api",
+        "Authentication",
+        "CustomerDashboard",
+        "TerraBaseMember",
+        "Orchestrator",
+        "ControlNatsServer",
+        "ProductNatsServer",
+        "Grafana",
+        "MetricsStore",
+        "Loki",
+        "Tempo",
+        "Alertmanager",
+        "OtlpIngest",
+        "SyntheticCheck",
+        "RegionalTelemetryAgent",
+        "VpnCoordinationRelay",
+        "RoutePolicyController",
+        "CiRunner"
+      ]
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "catalogEntryId"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "enum": [
+            "MetricsStore",
+            "RegionalTelemetry",
+            "Vpn"
+          ]
+        },
+        "catalogEntryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]\u002B)*$"
+        }
+      }
+    }
+  },
+  "$comment": "Draft internal contract. A manifest cannot synthesize RoleDescriptor; it may later reference only a reviewed built-in catalog entry.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "MetricsStore",
+              "RegionalTelemetryAgent",
+              "VpnCoordinationRelay"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "implementation"
+        ]
+      },
+      "else": {
+        "properties": {
+          "implementation": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "MetricsStore"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation": {
+            "properties": {
+              "domain": {
+                "const": "MetricsStore"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "RegionalTelemetryAgent"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation": {
+            "properties": {
+              "domain": {
+                "const": "RegionalTelemetry"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "VpnCoordinationRelay"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation": {
+            "properties": {
+              "domain": {
+                "const": "Vpn"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

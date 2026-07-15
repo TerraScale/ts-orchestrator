@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "runtime": "smolvm",
+  "version": "1.5.0",
+  "hostPlatform": {
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "hypervisor": "kvm",
+    "kvmApiVersion": 12
+  },
+  "distributionArtifacts": [
+    {
+      "path": ".version",
+      "role": "installed-version-metadata",
+      "sha256": "acb57a7135b2d7d6e665f67f056e21353023b93835f54def1ae523bf76f1bfb3"
+    },
+    {
+      "path": "smolvm",
+      "role": "launcher",
+      "sha256": "30dced20e6ac5ac65d7713e0ff8986287901a63980d6037878eca07d652366a2"
+    },
+    {
+      "path": "smolvm-bin",
+      "role": "runtime",
+      "sha256": "87bbf7dd7d46576808af4d2aea738fbdfdcd71e1232a2344099666436685036a"
+    },
+    {
+      "path": "lib/libkrun.so",
+      "role": "hypervisor-library",
+      "sha256": "a904022fc416fe91cf0e947f99e83110117c2b5f1bed20189bd0055f150d236e"
+    },
+    {
+      "path": "lib/libkrunfw.so.5.5.0",
+      "role": "firmware-library",
+      "sha256": "7a50055fa114459642ae45e4492f81a5ced2e4cbc5226eb715cb34c637c6b8e5"
+    }
+  ],
+  "api": {
+    "discoveryCommand": [
+      "serve",
+      "openapi"
+    ],
+    "openapiVersion": "3.1.0",
+    "requiredOperations": [
+      {
+        "capability": "create",
+        "method": "POST",
+        "operationId": "create_machine",
+        "path": "/api/v1/machines"
+      },
+      {
+        "capability": "start",
+        "method": "POST",
+        "operationId": "start_machine",
+        "path": "/api/v1/machines/{name}/start"
+      },
+      {
+        "capability": "status",
+        "method": "GET",
+        "operationId": "get_machine",
+        "path": "/api/v1/machines/{name}"
+      },
+      {
+        "capability": "exec",
+        "method": "POST",
+        "operationId": "exec_machine",
+        "path": "/api/v1/machines/{name}/exec"
+      },
+      {
+        "capability": "stream",
+        "method": "POST",
+        "operationId": "exec_stream",
+        "path": "/api/v1/machines/{id}/exec/stream"
+      },
+      {
+        "capability": "log",
+        "method": "GET",
+        "operationId": "stream_logs",
+        "path": "/api/v1/machines/{id}/logs"
+      },
+      {
+        "capability": "copy-from-guest",
+        "method": "GET",
+        "operationId": "download_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      {
+        "capability": "copy-to-guest",
+        "method": "PUT",
+        "operationId": "upload_file",
+        "path": "/api/v1/machines/{id}/files/{path}"
+      },
+      {
+        "capability": "stop",
+        "method": "POST",
+        "operationId": "stop_machine",
+        "path": "/api/v1/machines/{name}/stop"
+      },
+      {
+        "capability": "delete",
+        "method": "DELETE",
+        "operationId": "delete_machine",
+        "path": "/api/v1/machines/{name}"
+      }
+    ],
+    "gatedAdapterGaps": [
+      {
+        "apiEvidence": "POST /api/v1/machines/{name}/resize only changes machine resources; no general update operation is exported",
+        "capability": "update",
+        "requiredBoundary": "one reviewed host adapter with a contract test and explicit privilege boundary",
+        "status": "not-established"
+      }
+    ]
+  },
+  "provenance": {
+    "source": {
+      "commit": "6b178e16a7b95af0ed57ca69a1bbc0202e04157d",
+      "project": "smol-machines/smolvm",
+      "repository": "https://github.com/smol-machines/smolvm",
+      "tag": "v1.5.0",
+      "tagType": "lightweight"
+    },
+    "upstreamRelease": {
+      "archive": {
+        "name": "smolvm-1.5.0-linux-x86_64.tar.gz",
+        "sha256": "986bc230befea542af18d85a849fca056a18d728c9c7b75cfca382adb0fe1a64",
+        "url": "https://github.com/smol-machines/smolvm/releases/download/v1.5.0/smolvm-1.5.0-linux-x86_64.tar.gz"
+      },
+      "checksumManifest": {
+        "sha256": "bf58cd6fc6673f128cad961bfbf547db1a594bffc669c6716601130db83e720c",
+        "url": "https://github.com/smol-machines/smolvm/releases/download/v1.5.0/checksums.sha256"
+      },
+      "publishedAt": "2026-07-11T09:32:37Z",
+      "releaseSignatureStatus": "not-provided",
+      "sourceProvenanceAttestationStatus": "not-provided",
+      "url": "https://github.com/smol-machines/smolvm/releases/tag/v1.5.0"
+    },
+    "terrascaleSupplyChain": {
+      "internalMirrorStatus": "not-established",
+      "internalSignatureStatus": "not-established"
+    }
+  }
+}

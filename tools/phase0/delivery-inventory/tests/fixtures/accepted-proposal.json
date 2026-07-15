@@ -1,0 +1,1 @@
+{"name":"proposal promoted to policy","operation":"set","path":["proposedPolicy","status"],"value":"accepted","expected":"proposed reconciliation must not be represented as accepted policy"}

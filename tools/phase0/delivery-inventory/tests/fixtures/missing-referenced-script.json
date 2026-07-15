@@ -1,0 +1,1 @@
+{"name":"missing referenced build script","operation":"delete","path":["repositories",0,"referencedLocalScripts",0],"expected":"referenced local build-script inventory differs"}

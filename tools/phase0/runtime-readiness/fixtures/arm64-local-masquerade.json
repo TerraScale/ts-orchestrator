@@ -1,0 +1,7 @@
+{
+  "localObservation": {
+    "status": "qualified",
+    "architecture": "aarch64",
+    "qualificationLayers": ["L4"]
+  }
+}
