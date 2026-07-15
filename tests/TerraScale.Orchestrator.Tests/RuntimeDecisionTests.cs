@@ -29,6 +29,9 @@ public sealed class RuntimeDecisionTests
         await Assert.That(topology.StartupConsumer.MaxAckPending).IsEqualTo(32);
         await Assert.That(topology.StartupConsumer.Backoff).Count().IsEqualTo(4);
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(topology.Runtime.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(topology.Runtime.History).IsEqualTo(2);
+        await Assert.That(topology.Runtime.MaxAge).IsEqualTo(TimeSpan.FromMinutes(5));
         await Assert.That(topology.Bundles.NumberOfReplicas).IsEqualTo(3);
     }
 

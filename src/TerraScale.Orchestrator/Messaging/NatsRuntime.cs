@@ -1,5 +1,6 @@
 using NATS.Client.Core;
 using NATS.Client.JetStream;
+using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
@@ -9,12 +10,14 @@ namespace TerraScale.Orchestrator.Messaging;
 public sealed class NatsRuntime : IAsyncDisposable
 {
     private readonly NatsClient client;
+    private readonly RuntimeRegistration registration;
     private readonly INatsSvcServer service;
 
-    private NatsRuntime(NatsClient client, INatsSvcServer service)
+    private NatsRuntime(NatsClient client, INatsSvcServer service, RuntimeRegistration registration)
     {
         this.client = client;
         this.service = service;
+        this.registration = registration;
     }
 
     public static async Task<NatsRuntime> StartAsync(
@@ -28,11 +31,13 @@ public sealed class NatsRuntime : IAsyncDisposable
             RetryOnInitialConnect = false
         });
 
+        RuntimeRegistration? registration = null;
         try
         {
             await client.ConnectAsync();
-            var startupConsumer = await ReconcileStateAsync(client, topology, cancellationToken);
-            await VerifyDurableMessagingAsync(client, startupConsumer, topology, cancellationToken);
+            var state = await ReconcileStateAsync(client, topology, cancellationToken);
+            registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
+            await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
 
             var services = client.CreateServicesContext();
             var service = await services.AddServiceAsync(
@@ -58,10 +63,15 @@ public sealed class NatsRuntime : IAsyncDisposable
                 throw new InvalidOperationException("NATS health service returned an invalid response.");
             }
 
-            return new(client, service);
+            return new(client, service, registration);
         }
         catch
         {
+            if (registration is not null)
+            {
+                await registration.DisposeAsync();
+            }
+
             await client.DisposeAsync();
             throw;
         }
@@ -69,11 +79,24 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await service.DisposeAsync();
-        await client.DisposeAsync();
+        try
+        {
+            await service.DisposeAsync();
+        }
+        finally
+        {
+            try
+            {
+                await registration.DisposeAsync();
+            }
+            finally
+            {
+                await client.DisposeAsync();
+            }
+        }
     }
 
-    private static async Task<INatsJSConsumer> ReconcileStateAsync(
+    private static async Task<RuntimeState> ReconcileStateAsync(
         NatsClient client,
         NatsTopology topology,
         CancellationToken cancellationToken)
@@ -86,6 +109,7 @@ public sealed class NatsRuntime : IAsyncDisposable
 
         var keyValue = jetStream.CreateKeyValueStoreContext();
         await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
+        var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
 
         var objects = jetStream.CreateObjectStoreContext();
         try
@@ -97,10 +121,11 @@ public sealed class NatsRuntime : IAsyncDisposable
             await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
         }
 
-        return await jetStream.CreateOrUpdateConsumerAsync(
+        var startupConsumer = await jetStream.CreateOrUpdateConsumerAsync(
             "CELL_EVENTS",
             topology.StartupConsumer,
             cancellationToken);
+        return new(startupConsumer, runtime);
     }
 
     private static async Task VerifyDurableMessagingAsync(
@@ -151,4 +176,69 @@ public sealed class NatsRuntime : IAsyncDisposable
         headers is not null &&
         headers.TryGetLastValue(name, out var value) &&
         string.Equals(value, expected, StringComparison.Ordinal);
+
+    private sealed record RuntimeState(INatsJSConsumer StartupConsumer, INatsKVStore Runtime);
+
+    private sealed class RuntimeRegistration : IAsyncDisposable
+    {
+        private readonly string key;
+        private readonly INatsKVStore store;
+        private ulong revision;
+
+        private RuntimeRegistration(INatsKVStore store, string key, ulong revision)
+        {
+            this.store = store;
+            this.key = key;
+            this.revision = revision;
+        }
+
+        public static async Task<RuntimeRegistration> CreateAsync(
+            INatsKVStore store,
+            CancellationToken cancellationToken)
+        {
+            var key = $"instance.{Guid.NewGuid():N}";
+            var revision = await store.CreateAsync(key, "starting", cancellationToken: cancellationToken);
+            var registration = new RuntimeRegistration(store, key, revision);
+
+            try
+            {
+                await using var watcher = store.WatchAsync<string>(key, cancellationToken: cancellationToken)
+                    .GetAsyncEnumerator(cancellationToken);
+                await registration.ExpectAsync(watcher, "starting", revision);
+
+                revision = await store.UpdateAsync(key, "ready", revision, cancellationToken: cancellationToken);
+                registration.revision = revision;
+                await registration.ExpectAsync(watcher, "ready", revision);
+                return registration;
+            }
+            catch
+            {
+                await registration.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await store.DeleteAsync(key, new NatsKVDeleteOpts { Revision = revision });
+        }
+
+        private async Task ExpectAsync(
+            IAsyncEnumerator<NatsKVEntry<string>> watcher,
+            string expectedValue,
+            ulong expectedRevision)
+        {
+            if (!await watcher.MoveNextAsync())
+            {
+                throw new InvalidOperationException("NATS runtime registration watcher ended unexpectedly.");
+            }
+
+            var entry = watcher.Current;
+            entry.EnsureSuccess();
+            if (entry.Key != key || entry.Value != expectedValue || entry.Revision != expectedRevision)
+            {
+                throw new InvalidOperationException("NATS runtime registration watcher returned invalid state.");
+            }
+        }
+    }
 }

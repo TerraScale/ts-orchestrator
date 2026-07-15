@@ -27,6 +27,15 @@ public sealed record NatsTopology(string Cell, int Replicas)
         NumberOfReplicas = Replicas
     };
 
+    public NatsKVConfig Runtime => new("ORCH_RUNTIME")
+    {
+        Description = $"Live orchestrator registrations for {Cell}",
+        History = 2,
+        MaxAge = TimeSpan.FromMinutes(5),
+        MaxBytes = 8 * 1024 * 1024,
+        NumberOfReplicas = Replicas
+    };
+
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
         Description = $"Signed control bundles for {Cell}",
