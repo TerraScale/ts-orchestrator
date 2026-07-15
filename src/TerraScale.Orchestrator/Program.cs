@@ -1,7 +1,5 @@
-using TerraScale.Orchestrator.Contracts;
-using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator;
 
-Console.WriteLine($"TerraScale Orchestrator {ContractVersion.Draft} (protocol v{ProtocolVersion.Current})");
+Console.WriteLine(BuildVersion.Current.DisplayName);
 Console.WriteLine("Phase 0 baseline only: server and mutation commands are not enabled.");
 return 2;
-

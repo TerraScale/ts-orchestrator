@@ -12,5 +12,4 @@ dotnet build TerraScale.Orchestrator.slnx --no-restore
 dotnet test TerraScale.Orchestrator.slnx --no-build
 ```
 
-The architecture is one operational binary assembled from strict projects. Contracts and pure decision projects stay infrastructure-free; infrastructure integrations are adapters around persisted intents and typed observations.
-
+The architecture is one operational binary built from one production project. The code is organized by capability inside `src/TerraScale.Orchestrator`; pure decisions stay separate from infrastructure adapters through namespaces and directory boundaries rather than project ceremony.

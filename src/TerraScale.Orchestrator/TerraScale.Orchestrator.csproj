@@ -7,9 +7,4 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifiers>linux-arm64;linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
-    <ProjectReference Include="../TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj" />
-  </ItemGroup>
 </Project>
-

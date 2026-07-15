@@ -1300,29 +1300,19 @@ TerraScale.Orchestrator/
   Directory.Packages.props
   global.json
   src/
-    TerraScale.Orchestrator/                  # single executable composition root
-    TerraScale.Orchestrator.Contracts/        # versioned desired/observed models
-    TerraScale.Orchestrator.Protocol/         # NATS envelopes, subjects, signatures
-    TerraScale.Orchestrator.ControlPlane/     # global and regional state machines
-    TerraScale.Orchestrator.Scheduler/
-    TerraScale.Orchestrator.Agent/
-    TerraScale.Orchestrator.Executor.Abstractions/
-    TerraScale.Orchestrator.Executor.Systemd/
-    TerraScale.Orchestrator.Executor.Containerd/
-    TerraScale.Orchestrator.Nats/
-    TerraScale.Orchestrator.Storage/
-    TerraScale.Orchestrator.TerraBase/
-    TerraScale.Orchestrator.Identity/
-    TerraScale.Orchestrator.Vault/
-    TerraScale.Orchestrator.GitOps/
-    TerraScale.Orchestrator.Ci/
-    TerraScale.Orchestrator.OperatorApi/
-    TerraScale.Orchestrator.GrafanaProvisioning/
-    TerraScale.Orchestrator.Telemetry/
-    TerraScale.Orchestrator.Networking/
-    TerraScale.Orchestrator.Lab.SmolVm/        # lab driver/link fabric, not production composition
-    TerraScale.Orchestrator.Providers.Abstractions/
-    TerraScale.Orchestrator.Providers.Oci/
+    TerraScale.Orchestrator/                  # the only production project
+      Contracts/                             # versioned desired/observed models
+      Protocol/                              # NATS envelopes, subjects, signatures
+      ControlPlane/                          # global and regional state machines
+      Scheduling/
+      Runtime/
+      Messaging/
+      Storage/
+      TerraBase/
+      Security/
+      Delivery/
+      Operations/
+      Providers/
   tests/
     TerraScale.Orchestrator.UnitTests/
     TerraScale.Orchestrator.BusinessRulesTests/
@@ -1358,7 +1348,7 @@ TerraScale.Orchestrator/
   .forgejo/workflows/bootstrap.yml
 ```
 
-Project boundaries enforce dependencies, but all runtime projects are linked/published into the one executable. Tests may use internal visibility; production modules communicate through typed contracts and explicit state-machine interfaces, not a network of needless microservices.
+One production project builds the one executable. Directory and namespace boundaries keep capabilities organized without project-reference ceremony. Architecture tests enforce dependency direction from compiled symbols; production modules communicate through typed contracts and explicit state-machine interfaces, not a network of needless microservices.
 
 The permitted dependency direction is:
 
@@ -1370,7 +1360,7 @@ Contracts <- pure domain/state machines <- application coordinators <- adapters
 single executable composition root -> wires every implementation; contains no policy
 ```
 
-Contracts and pure domains have no infrastructure package references. Application coordinators may persist/dispatch typed intents through abstractions but cannot call concrete adapters. OCI/NATS/systemd/containerd/Git/filesystem/crypto-provider/Grafana adapters translate intent and observation only. A build-time architecture test rejects a reverse edge or business-rule branch in an adapter.
+Contracts and pure domains do not use infrastructure namespaces or types. Application coordinators may persist/dispatch typed intents through abstractions but cannot call concrete adapters. OCI/NATS/systemd/containerd/Git/filesystem/crypto-provider/Grafana adapters translate intent and observation only. A build-time architecture test rejects a reverse edge or business-rule branch in an adapter.
 
 ## Parallel multi-agent implementation model
 
@@ -1425,7 +1415,7 @@ P6–P8 GitOps/CI                  Grafana/OTel/VPN/operator API
 
 | Lane | Exclusive production paths/responsibility | Required independent evidence |
 |---|---|---|
-| Integration/contract steward | `Contracts`, `Protocol`, requirement registry, schemas/generators, solution/package/build files, composition root, shared test primitives | compatibility fixtures, architecture graph, aggregate evidence/merge result |
+| Integration/contract steward | `src/TerraScale.Orchestrator/Contracts`, `src/TerraScale.Orchestrator/Protocol`, requirement registry, schemas/generators, solution/package/build files, composition root, shared test primitives | compatibility fixtures, architecture graph, aggregate evidence/merge result |
 | Core | control plane, operation engine, scheduler, budgets/cost decisions | unit/property/model/concurrency tests and placement/operation traces |
 | Messaging/security | NATS, identity, Vault, PKI/mTLS, regional trust/survival material | permission/conformance fixtures, revocation, peer recovery, security/fuzz tests |
 | Runtime | agent, closed role admission, systemd/containerd adapters, bootstrap/self-upgrade | fake executor plus lifecycle, A/B rollback, L1S/L1R contract tests |

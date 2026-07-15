@@ -11,11 +11,8 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
-    <Project Path="src/TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
-    <Project Path="src/TerraScale.Orchestrator.Protocol/TerraScale.Orchestrator.Protocol.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj" />
   </Folder>
 </Solution>
-
