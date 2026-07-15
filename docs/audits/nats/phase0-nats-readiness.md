@@ -30,9 +30,9 @@ Primary documentation establishes that features exist and describes intended sem
 
 ## Executed local evidence
 
-The installed host binary reported `nats-server: v2.14.3` and SHA-256 `4eb890bba37997898c81ef16c736f2c34cb594f4279b194c0404c7508dad5149`. It is a local Nix-provided x86_64 binary and its digest intentionally differs from the upstream amd64 archive digest. Presence and smoke success do not approve that host path as the production artifact.
+The smoke binary reported `nats-server: v2.14.3` and SHA-256 `588b858328bc507ddff3b6078cda7db762f28e6da8c3fa368099a204f0f37a37`. It is the official static Linux amd64 release binary used as bounded local test infrastructure. Presence and smoke success do not approve that host path as the production artifact.
 
-`testlab/nats/run_local_l0c_smoke.py` starts one process with JetStream and monitoring on dynamically allocated loopback ports, uses a unique temporary file store, and has a `finally` cleanup boundary that terminates or kills and waits for the process. It proves:
+`testlab/nats/run_local_l0c_smoke.cs` starts one process with JetStream and monitoring on dynamically allocated loopback ports, uses a unique temporary file store, and has a `finally` cleanup boundary that terminates or kills and waits for the process. It proves:
 
 - Core pub/sub.
 - Core request/reply.
@@ -51,13 +51,13 @@ ARM64 asset availability is metadata evidence only. No ARM64 archive was downloa
 ## Reproduction
 
 ```text
-python3 testlab/nats/validate_nats_readiness.py
-python3 -m unittest discover -s testlab/nats/tests -v
-python3 testlab/nats/run_local_l0c_smoke.py > /tmp/nats-smoke.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-smoke > /tmp/nats-smoke.json
 cmp /tmp/nats-smoke.json testlab/nats/local-x64-l0c-report.json
 rm -f /tmp/nats-smoke.json
-python3 -m json.tool testlab/pins/nats-candidates.json
-python3 -m json.tool testlab/nats/local-x64-l0c-report.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/nats-candidates.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/nats/local-x64-l0c-report.json
 git diff --check
 ```
 

@@ -13,8 +13,8 @@ Created a fail-closed candidate evidence set for build, runtime, property, cover
 
 - `docs/audits/supply-chain/phase0-candidate-pins.md`
 - `testlab/pins/supply-chain-candidates.json`
-- `tools/phase0/supply-chain/validate_supply_chain_pins.py`
-- `tools/phase0/supply-chain/test_validate_supply_chain_pins.py`
+- `tools/TerraScale.Orchestrator.Tooling/TranslatedCommands.cs`
+- `tools/TerraScale.Orchestrator.Tooling/ToolingTests.cs`
 - `tools/phase0/supply-chain/fixtures/negative-cases.json`
 - `tools/phase0/supply-chain/README.md`
 
@@ -29,9 +29,9 @@ Current technical/version claims use only owning-project GitHub release pages or
 Commands:
 
 ```text
-python3 -m json.tool testlab/pins/supply-chain-candidates.json
-python3 tools/phase0/supply-chain/validate_supply_chain_pins.py
-python3 -m unittest discover -s tools/phase0/supply-chain -p 'test_*.py' -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/supply-chain-candidates.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- supply-chain
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 git diff --check
 ```
 

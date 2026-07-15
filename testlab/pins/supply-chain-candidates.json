@@ -30,7 +30,8 @@
       }
     ],
     "lockProvenance": [
-      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "64ec075fc02ab7e4da4abd5cc7be38c54035880e12ca518d6bd6bc549d2b15eb"}
+      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "64ec075fc02ab7e4da4abd5cc7be38c54035880e12ca518d6bd6bc549d2b15eb"},
+      {"path": "tools/TerraScale.Orchestrator.Tooling/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"}
     ],
     "lockProvenanceStatus": "checked-in-lock-files-bound-by-sha256-but-not-yet-qualified-against-an-internal-mirror"
   },

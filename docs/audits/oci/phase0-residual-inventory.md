@@ -8,7 +8,7 @@ resource-category query could safely run.
 The bounded live command was:
 
 ```bash
-python3 tools/phase0/oci-inventory/oci_inventory.py --live \
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- oci-inventory --live \
   --end-utc 2026-07-13T12:00:00Z \
   --output docs/audits/oci/phase0-residual-inventory.json
 ```
@@ -43,7 +43,7 @@ The executable plan and complete category templates are embedded in the
 sanitized JSON report and can also be reviewed without API calls using:
 
 ```bash
-python3 tools/phase0/oci-inventory/oci_inventory.py --plan
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- oci-inventory --plan
 ```
 
 The tool has no create, update, delete, start, stop, secret-bundle retrieval,

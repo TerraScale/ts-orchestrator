@@ -9,8 +9,8 @@
   },
   "classification": "bounded-local-x64-l0c-smoke-not-production-qualification",
   "credentials": "none",
-  "harnessPath": "testlab/nats/run_local_l0c_smoke.py",
-  "harnessSha256": "be4746ba7a252cea4019d133c145d6ea255ec60277129fe75b096e4b84e03658",
+  "harnessPath": "testlab/nats/run_local_l0c_smoke.cs",
+  "harnessSha256": "fdc7ebbc71132f5db334295785985c3cc0b9825a079512497f671bc0d3f604d2",
   "hostArchitecture": "x86_64",
   "network": "loopback-only-dynamic-ports",
   "notTested": [
@@ -25,7 +25,7 @@
   ],
   "schemaVersion": 1,
   "server": {
-    "binarySha256": "4eb890bba37997898c81ef16c736f2c34cb594f4279b194c0404c7508dad5149",
+    "binarySha256": "588b858328bc507ddff3b6078cda7db762f28e6da8c3fa368099a204f0f37a37",
     "version": "2.14.3"
   }
 }

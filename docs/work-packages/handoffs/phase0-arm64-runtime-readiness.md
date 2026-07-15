@@ -31,14 +31,14 @@ represented as runnable.
 ## Validation
 
 ```text
-python3 tools/phase0/runtime-readiness/validate_runtime_readiness.py
-python3 -m unittest discover -s tools/phase0/runtime-readiness -p 'test_*.py' -v
-python3 -m json.tool testlab/pins/arm64-runtime-candidates.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- runtime-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/arm64-runtime-candidates.json
 dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
 dotnet build TerraScale.Orchestrator.slnx --no-restore --nologo
 dotnet test TerraScale.Orchestrator.slnx --no-build --no-restore -- --disable-logo --no-progress
-python3 docs/adr/validate_readiness.py
-python3 -m unittest discover -s docs/adr/tests -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 git diff --check
 ```
 

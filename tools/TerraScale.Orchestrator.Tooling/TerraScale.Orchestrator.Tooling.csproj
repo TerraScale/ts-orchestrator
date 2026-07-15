@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>terrascale-orchestrator-tooling</AssemblyName>
+    <RootNamespace>TerraScale.Orchestrator.Tooling</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../docs/**/*.cs" Exclude="../../docs/**/bin/**;../../docs/**/obj/**" />
+    <Compile Include="../../testlab/**/*.cs" Exclude="../../testlab/**/bin/**;../../testlab/**/obj/**" />
+    <Compile Include="../mutation/**/*.cs" />
+    <Compile Include="../nats-l0c/**/*.cs" />
+    <Compile Include="../phase0/**/*.cs" />
+    <Compile Include="../traceability/**/*.cs" />
+  </ItemGroup>
+</Project>

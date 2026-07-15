@@ -28,9 +28,9 @@ It emits a deterministic canonical report and input digest. The lexical report r
 ## Verification
 
 ```text
-python3 tools/traceability/validate_traceability.py --check
-python3 tools/traceability/generate_traceability.py --check
-python3 -m unittest tools/traceability/test_generate_traceability.py tools/traceability/test_validate_traceability.py
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-validate --check
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-generate --check
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 Run relevant registry/audit tests discovered in the repository. Pre-commit review is required.

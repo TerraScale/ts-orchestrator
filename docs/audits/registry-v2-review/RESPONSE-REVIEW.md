@@ -38,7 +38,7 @@ must not be described as semantic or evidence-identity validation.
 
 Executed in a detached worktree at exactly `7893b82`:
 
-- `python3 docs/audits/registry/check_registry_audit.py --negative-fixtures docs/audits/registry/fixtures/negative-cases.json` — PASS, 43 registry entries, 86 findings, 15 fixtures.
+- `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- registry-audit --negative-fixtures docs/audits/registry/fixtures/negative-cases.json` — PASS, 43 registry entries, 86 findings, 15 fixtures.
 - `dotnet restore TerraScale.Orchestrator.slnx --locked-mode` — PASS.
 - `dotnet build TerraScale.Orchestrator.slnx --no-restore` — PASS, zero warnings/errors.
 - `dotnet test TerraScale.Orchestrator.slnx --no-build` — PASS, 4/4 tests.

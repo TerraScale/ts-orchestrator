@@ -218,7 +218,7 @@ landing the mechanics.
 
 ## Verification record
 
-- `python3 docs/audits/registry/check_registry_audit.py --negative-fixtures docs/audits/registry/fixtures/negative-cases.json` — PASS (43 registry entries, 86 findings, 10 fixtures).
+- `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- registry-audit --negative-fixtures docs/audits/registry/fixtures/negative-cases.json` — PASS (43 registry entries, 86 findings, 10 fixtures).
 - `dotnet restore TerraScale.Orchestrator.slnx --locked-mode` — PASS.
 - `dotnet build TerraScale.Orchestrator.slnx --no-restore` — PASS, zero warnings.
 - `dotnet test TerraScale.Orchestrator.slnx --no-build` — PASS, 4/4 tests.

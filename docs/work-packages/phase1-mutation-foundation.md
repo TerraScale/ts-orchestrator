@@ -35,9 +35,9 @@ not choose, install, restore, or run a candidate tool and do not claim a score.
 ## Verification
 
 ```text
-python3 tools/mutation/validate_mutation_evidence.py --as-of 2026-07-13
-python3 -m unittest discover -s tools/mutation -p 'test_*.py' -v
-python3 -m json.tool tools/mutation/mutation-policy.json
-python3 -m json.tool tools/mutation/mutation-evidence.json
-python3 -m json.tool tools/mutation/fixtures/negative-cases.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- mutation-evidence --as-of 2026-07-13
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/mutation/mutation-policy.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/mutation/mutation-evidence.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/mutation/fixtures/negative-cases.json
 ```

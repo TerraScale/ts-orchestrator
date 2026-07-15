@@ -16,13 +16,13 @@ The 27 capability rows contain 3 local x64 smoke passes, 1 partial loopback moni
 ## Validation
 
 ```text
-python3 testlab/nats/validate_nats_readiness.py
-python3 -m unittest discover -s testlab/nats/tests -v
-python3 testlab/nats/run_local_l0c_smoke.py > /tmp/nats-smoke.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-smoke > /tmp/nats-smoke.json
 cmp /tmp/nats-smoke.json testlab/nats/local-x64-l0c-report.json
 rm -f /tmp/nats-smoke.json
-python3 -m json.tool testlab/pins/nats-candidates.json
-python3 -m json.tool testlab/nats/local-x64-l0c-report.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/nats-candidates.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/nats/local-x64-l0c-report.json
 dotnet run --project tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj --no-restore -- --no-progress --output Detailed
 git diff --check
 ```

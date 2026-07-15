@@ -27,10 +27,10 @@ Absent locally: NATS CLI, containerd, runc, BuildKit, XFS tools, growpart, parte
 ## Validation commands
 
 ```text
-python3 docs/adr/validate_readiness.py
-python3 -m unittest discover -s docs/adr/tests -v
-python3 -m json.tool docs/adr/readiness-index.yaml
-python3 testlab/conformance/check_smolvm_host.py > /tmp/orch-adr-smolvm-host-report.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/adr/readiness-index.yaml
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- smolvm-host > /tmp/orch-adr-smolvm-host-report.json
 cmp /tmp/orch-adr-smolvm-host-report.json testlab/conformance/smolvm-host-report.json
 git diff --check
 ```

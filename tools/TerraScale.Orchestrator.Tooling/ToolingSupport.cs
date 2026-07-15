@@ -1,0 +1,123 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace TerraScale.Orchestrator.Tooling;
+
+internal sealed class ToolValidationException(IEnumerable<string> errors) : Exception
+{
+    public IReadOnlyList<string> Errors { get; } = errors.Distinct(StringComparer.Ordinal).ToArray();
+}
+
+internal static class ToolingSupport
+{
+    public static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true,
+    };
+
+    public static string Root => FindRoot();
+
+    public static JsonNode ReadJson(string relativePath) =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(Root, relativePath), Encoding.UTF8),
+            documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 })
+        ?? throw new InvalidDataException($"{relativePath}: empty JSON document");
+
+    public static JsonObject ReadObject(string relativePath) =>
+        ReadJson(relativePath) as JsonObject
+        ?? throw new InvalidDataException($"{relativePath}: top-level JSON must be an object");
+
+    public static string Serialize(JsonNode node) => node.ToJsonString(JsonOptions) + Environment.NewLine;
+
+    public static string Sha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
+    public static string Sha256Text(string value) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    public static void RequireNoErrors(IEnumerable<string> errors)
+    {
+        var materialized = errors.Distinct(StringComparer.Ordinal).ToArray();
+        if (materialized.Length != 0)
+        {
+            throw new ToolValidationException(materialized);
+        }
+    }
+
+    public static ProcessResult RunProcess(string fileName, IEnumerable<string> arguments, string? workingDirectory = null, int timeoutMilliseconds = 30_000)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                WorkingDirectory = workingDirectory ?? Root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            }
+        };
+        foreach (var argument in arguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
+
+        process.Start();
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(timeoutMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException($"{fileName} exceeded {timeoutMilliseconds} ms");
+        }
+
+        Task.WaitAll(stdout, stderr);
+        return new(process.ExitCode, stdout.Result, stderr.Result);
+    }
+
+    public static string Git(string repository, params string[] arguments)
+    {
+        var result = RunProcess("git", ["-C", repository, .. arguments]);
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(result.StandardError.Trim());
+        }
+
+        return result.StandardOutput;
+    }
+
+    private static string FindRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "TerraScale.Orchestrator.slnx")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        current = new DirectoryInfo(Environment.CurrentDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "TerraScale.Orchestrator.slnx")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("TerraScale.Orchestrator repository root was not found.");
+    }
+}
+
+internal sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);

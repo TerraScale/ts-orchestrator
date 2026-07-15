@@ -8,13 +8,13 @@ exact seven-day UTC window, and redacted command templates.
 Inspect the no-call plan:
 
 ```bash
-python3 tools/phase0/oci-inventory/oci_inventory.py --plan
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- oci-inventory --plan
 ```
 
 Run with the local default profile without changing OCI configuration:
 
 ```bash
-python3 tools/phase0/oci-inventory/oci_inventory.py --live \
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- oci-inventory --live \
   --output docs/audits/oci/phase0-residual-inventory.json
 ```
 
@@ -27,5 +27,5 @@ succeed in every accessible compartment in every subscribed region.
 Run deterministic fixture tests with:
 
 ```bash
-python3 -m unittest tools/phase0/oci-inventory/test_oci_inventory.py
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```

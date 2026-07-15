@@ -26,9 +26,9 @@ Gate mapping covers contract freeze, the Phase 0 exit, and the applicable L0, L0
 ## Validation and adversarial review
 
 ```text
-python3 docs/decisions/validate_owner_decision_packet.py
-python3 -m unittest discover -s docs/decisions/tests -v
-python3 -m json.tool docs/decisions/owner-decision-packet.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/decisions/owner-decision-packet.json
 git diff --check
 ```
 

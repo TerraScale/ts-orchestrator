@@ -9,7 +9,22 @@ Phase 1 contract freeze is intentionally blocked until the ten owner questions a
 ```bash
 dotnet restore TerraScale.Orchestrator.slnx --locked-mode
 dotnet build TerraScale.Orchestrator.slnx --no-restore
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
+
+All repository validators, generators, audit utilities, conformance checks, and
+their tests are implemented in C#. The dependency-free tooling executable
+replaces the former Python scripts and exposes named commands for each domain:
+
+```bash
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- supply-chain
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-validate
+```
+
+Run the executable without arguments to list every command. The translated
+test suite also fails if a Python source file is reintroduced.
 
 The repository contains one project and produces one operational binary. The source is limited to the command-line entry point, validated options, and the NATS runtime it actually executes. The `check` command is the functional test: it exercises the same production startup path as `run` against a real JetStream-enabled NATS server, then exits cleanly.
 

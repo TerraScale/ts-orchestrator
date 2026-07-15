@@ -16,12 +16,12 @@ Authentication is explicitly represented as a production role with no build targ
 ## Commands
 
 ```text
-python3 tools/phase0/delivery-inventory/generate_inventory.py > /tmp/descriptor-inventory.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- delivery-inventory-generate > /tmp/descriptor-inventory.json
 cmp /tmp/descriptor-inventory.json docs/audits/delivery/descriptor-inventory.json
 rm -f /tmp/descriptor-inventory.json
-python3 tools/phase0/delivery-inventory/validate_inventory.py
-python3 -m unittest discover -s tools/phase0/delivery-inventory/tests -v
-python3 -m json.tool docs/audits/delivery/descriptor-inventory.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- delivery-inventory-validate
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/audits/delivery/descriptor-inventory.json
 dotnet run --project tests/TerraScale.Orchestrator.ContractTests/TerraScale.Orchestrator.ContractTests.csproj --no-restore -- --no-progress --output Detailed
 git diff --check
 ```

@@ -30,11 +30,11 @@ The existing candidate record is not that decision.
 
 ## Verification
 
-- `python3 tools/mutation/validate_mutation_evidence.py --as-of 2026-07-13` —
+- `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- mutation-evidence --as-of 2026-07-13` —
   passed with the explicit unresolved/zero-claim result.
-- `python3 -m unittest discover -s tools/mutation -p 'test_*.py' -v` — passed
+- `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test` — passed
   (11/11 tests; 18 named negative fixtures).
-- All three JSON documents passed `python3 -m json.tool`.
+- All three JSON documents passed the C# `json-format` command.
 
 ## Non-claims
 

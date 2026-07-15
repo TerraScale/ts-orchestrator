@@ -25,9 +25,9 @@ Both drafts preserve unknown details instead of accepting them. They trace the c
 
 ```text
 git diff --check
-python3 docs/adr/validate_readiness.py
-python3 -m unittest discover -s docs/adr/tests -v
-python3 <inline local Markdown anchor resolver>
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
 ```
 
 Observed results:

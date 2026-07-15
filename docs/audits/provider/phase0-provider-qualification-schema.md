@@ -38,7 +38,7 @@ The official OCI compute-shape documentation itself warns that a new region can 
 
 ## Fail-closed validator
 
-[`validate_provider_qualification.py`](../../../tools/phase0/provider-qualification/validate_provider_qualification.py) uses only the Python standard library and performs no network or cloud operation. Structural validation checks exact field-contract sets, the four-provider and source-topic sets, official HTTPS hosts, deterministic evidence freshness against the checked-in `asOf` date, complete cost/benchmark/region shapes, explicit currency/unit/evidence metadata, qualified-row recounting, the `>=20` threshold, and winner/selection gating on four complete normalized results. A separate checked-in policy requires the committed dataset to remain blank and unqualified. It also rejects secret-bearing fields.
+The [`provider-qualification` C# command](../../../tools/TerraScale.Orchestrator.Tooling/TranslatedCommands.cs) performs no network or cloud operation. Structural validation checks the checked-in schema, blank evidence, source catalog, qualification state, and absence of any production claim.
 
 The unit suite generates—but never writes—a clearly marked `synthetic-fixture-only` dataset with all four provider cost/benchmark/normalized result sets and 20 fully populated unique OCI rows. That positive fixture proves the structural contract can represent complete results and exercise winner/count rules. Its invented digests, amounts, regions, and outcomes are test data, are accepted only when the test explicitly disables the checked-in-blank policy, and cannot pass the CLI's normal committed-dataset validation.
 
@@ -47,11 +47,11 @@ The [adversarial fixtures](../../../tools/phase0/provider-qualification/fixtures
 Run:
 
 ```text
-python3 -m json.tool testlab/pins/provider-qualification-schema.json
-python3 -m json.tool testlab/pins/provider-qualification-blank.json
-python3 -m json.tool testlab/pins/provider-source-catalog.json
-python3 tools/phase0/provider-qualification/validate_provider_qualification.py
-python3 -m unittest discover -s tools/phase0/provider-qualification -p 'test_*.py' -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-qualification-schema.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-qualification-blank.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-source-catalog.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- provider-qualification
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 Green validation proves only that the blank contract remains honest and structurally complete. It is not a provider comparison, region qualification, storage benchmark, cost approval, or permission to call cloud APIs.

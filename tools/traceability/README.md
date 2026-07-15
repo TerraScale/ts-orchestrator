@@ -1,6 +1,6 @@
 # Structured traceability foundation
 
-`validate_traceability.py` validates `requirements/trace-links.yaml`, a strict
+The `traceability-validate` C# command validates `requirements/trace-links.yaml`, a strict
 JSON-compatible YAML manifest. Every canonical registry ID must occur exactly
 once with the registry owner and ordered acceptance layers copied exactly. An
 entry is either an explicit `gap` with no links, or `linked` with bounded,
@@ -18,19 +18,19 @@ Report generation/checking is confined to one regular JSON file directly below
 Generate and verify the structured report:
 
 ```text
-python3 tools/traceability/validate_traceability.py
-python3 tools/traceability/validate_traceability.py --check
-python3 -m unittest tools/traceability/test_validate_traceability.py
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-validate
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-validate --check
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
-`generate_traceability.py` remains available solely as a lexical gap-discovery
+The `traceability-generate` C# command remains available solely as a lexical gap-discovery
 aid. Its `linked`, `test-only`, and similar labels describe text occurrence and
 must never promote a structured entry or acceptance state:
 
 ```text
-python3 tools/traceability/generate_traceability.py
-python3 tools/traceability/generate_traceability.py --check
-python3 -m unittest tools/traceability/test_generate_traceability.py
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-generate
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-generate --check
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 The checked manifest intentionally begins with all 43 entries as first-class

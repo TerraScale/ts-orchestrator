@@ -15,13 +15,13 @@ The 26-entry source catalog uses only official Oracle, AWS, Google Cloud, and Mi
 ## Validation
 
 ```text
-python3 -m json.tool testlab/pins/provider-qualification-schema.json
-python3 -m json.tool testlab/pins/provider-qualification-blank.json
-python3 -m json.tool testlab/pins/provider-source-catalog.json
-python3 -m json.tool tools/phase0/provider-qualification/fixtures/negative-cases.json
-python3 tools/phase0/provider-qualification/validate_provider_qualification.py
-python3 -m unittest discover -s tools/phase0/provider-qualification -p 'test_*.py' -v
-python3 -m py_compile tools/phase0/provider-qualification/validate_provider_qualification.py tools/phase0/provider-qualification/test_validate_provider_qualification.py
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-qualification-schema.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-qualification-blank.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/provider-source-catalog.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/phase0/provider-qualification/fixtures/negative-cases.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- provider-qualification
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet build tools/TerraScale.Orchestrator.Tooling
 git diff --check
 ```
 

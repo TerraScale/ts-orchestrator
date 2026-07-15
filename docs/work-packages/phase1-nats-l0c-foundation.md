@@ -21,9 +21,9 @@ The dependency-free validator must enforce a closed schema, technical byte/count
 ## Verification
 
 ```text
-python3 tools/nats-l0c/validate_l0c_foundation.py
-python3 -m unittest discover -s tools/nats-l0c -p 'test_*.py' -v
-python3 -m json.tool tools/nats-l0c/l0c-cases.json
-python3 -m json.tool tools/nats-l0c/l0c-report.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-l0c
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/nats-l0c/l0c-cases.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format tools/nats-l0c/l0c-report.json
 git diff --check
 ```

@@ -17,8 +17,8 @@ Run the standard-library-only checks with no restore, network, process under
 test, or credentials:
 
 ```text
-python3 tools/mutation/validate_mutation_evidence.py --as-of 2026-07-13
-python3 -m unittest discover -s tools/mutation -p 'test_*.py' -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- mutation-evidence --as-of 2026-07-13
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 An owner/toolchain decision must select a tool and version before any invocation

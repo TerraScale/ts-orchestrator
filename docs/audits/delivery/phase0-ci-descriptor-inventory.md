@@ -44,12 +44,12 @@ Before implementation, the delivery owner must choose one feature-validation aut
 ## Verification
 
 ```text
-python3 tools/phase0/delivery-inventory/generate_inventory.py > /tmp/descriptor-inventory.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- delivery-inventory-generate > /tmp/descriptor-inventory.json
 cmp /tmp/descriptor-inventory.json docs/audits/delivery/descriptor-inventory.json
 rm -f /tmp/descriptor-inventory.json
-python3 tools/phase0/delivery-inventory/validate_inventory.py
-python3 -m unittest discover -s tools/phase0/delivery-inventory/tests -v
-python3 -m json.tool docs/audits/delivery/descriptor-inventory.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- delivery-inventory-validate
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/audits/delivery/descriptor-inventory.json
 git diff --check
 ```
 

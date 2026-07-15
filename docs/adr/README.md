@@ -2,7 +2,7 @@
 
 This directory records Phase 0 decision readiness without accepting any architecture decision. The architecture remains proposed and the owner questions and measurable cost, storage, RPO, and RTO targets remain open.
 
-`readiness-index.yaml` is JSON-compatible YAML so it can be checked with the Python standard library. It is the canonical Phase 0 map of the 24 items in `ORCHESTRATOR.md`'s initial ADR backlog.
+`readiness-index.yaml` is JSON-compatible YAML validated by the dependency-free C# tooling executable. It is the canonical Phase 0 map of the 24 items in `ORCHESTRATOR.md`'s initial ADR backlog.
 
 ## Status rules
 
@@ -13,4 +13,4 @@ This directory records Phase 0 decision readiness without accepting any architec
 
 Only the exact canonical owner lane names from `ORCHESTRATOR.md`'s exclusive-workstream table are valid: `Integration/contract steward`, `Core`, `Messaging/security`, `Runtime`, `Cloud`, `Storage`, `TerraBase`, `Delivery`, `Operations`, `Cross-repository cleanup`, and `Verification`.
 
-Run `python3 docs/adr/validate_readiness.py` and `python3 -m unittest discover -s docs/adr/tests -v` after any update. The validator proves IDs 1 through 24 occur exactly once, fields are populated, lanes and statuses are canonical, `accepted` is absent while owner inputs remain open, every local evidence anchor resolves to nonblank in-bounds lines, and every `draft-ready` record has both a precise specification anchor and a checked-in audit/ledger anchor.
+Run `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness` and `dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test` after any update. The validator proves IDs 1 through 24 occur exactly once, fields are populated, lanes and statuses are canonical, `accepted` is absent while owner inputs remain open, every local evidence anchor resolves to nonblank in-bounds lines, and every `draft-ready` record has both a precise specification anchor and a checked-in audit/ledger anchor.

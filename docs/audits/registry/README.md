@@ -18,11 +18,11 @@ The gate-family IDs are deliberately umbrella findings for steward review. Befor
 Run from the repository root:
 
 ```bash
-python3 docs/audits/registry/check_registry_audit.py \
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- registry-audit \
   --negative-fixtures docs/audits/registry/fixtures/negative-cases.json
 ```
 
-The checker uses only the Python standard library. It parses both inline and normal block-style registry entries, fails closed on incomplete or skipped list items, validates duplicate-free root schema/lifecycle metadata, seeded-ID presence, proposed-ID uniqueness, canonical owners/co-reviewers, audit parity, acceptance layers, normative source ranges/digests, explicit evidence state/targets, exact citations against `ORCHESTRATOR.md`, and summary counts. Nineteen negative fixtures cover the corresponding drift and false-completion cases.
+The checker is part of the dependency-free C# tooling executable. It validates the checked-in registry audit, seeded entry and finding counts, and fail-closed evidence state. The translated C# suite covers drift and false-completion cases.
 
 ## Steward actions
 

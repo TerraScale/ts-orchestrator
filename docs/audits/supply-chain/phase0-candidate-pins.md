@@ -59,16 +59,16 @@ Every selected external input also requires a content-addressed internal mirror 
 
 ## Validator and adversarial fixtures
 
-[`validate_supply_chain_pins.py`](../../../tools/phase0/supply-chain/validate_supply_chain_pins.py) uses only the Python standard library. It validates exact object keys, stable unique IDs, complete capability categories, version-specific official HTTPS sources, non-floating versions, license and platform metadata, mandatory x64/ARM64 distribution coverage, missing-mirror state, explicit gaps, and the absence of any selection/qualification claim. It also rejects secret-bearing fields. For the existing baseline it reads the checked-in SDK/package/lock sources, compares the recorded SDK roll-forward and package versions/content hashes, enumerates every lock file, and recomputes each SHA-256.
+The [`supply-chain` C# command](../../../tools/TerraScale.Orchestrator.Tooling/TranslatedCommands.cs) validates the candidate manifest, fail-closed qualification state, explicit gaps, checked-in SDK/package/lock sources, and each recorded lock-file SHA-256.
 
 The data-driven [negative fixtures](../../../tools/phase0/supply-chain/fixtures/negative-cases.json) cover signing selection, floating version, `latest` URL, non-primary source, production qualification, false mirror readiness, missing ARM64, erased gaps, duplicate IDs, a synthetic secret-named field, selected status, unknown category, removal of the second signing candidate, SDK version/roll-forward drift, false SDK closure, TUnit/Microsoft.Testing.Platform drift, and lock path/digest drift.
 
 Run:
 
 ```text
-python3 -m json.tool testlab/pins/supply-chain-candidates.json
-python3 tools/phase0/supply-chain/validate_supply_chain_pins.py
-python3 -m unittest discover -s tools/phase0/supply-chain -p 'test_*.py' -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format testlab/pins/supply-chain-candidates.json
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- supply-chain
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 These checks validate the evidence document, not the candidate tools. They do not satisfy L0, L1R, L3S, L4, signing, mirroring, reproducibility, or production qualification. The hard pre-deployment gate remains unchanged ([ORCHESTRATOR.md, lines 1114-1120](../../../ORCHESTRATOR.md#L1114-L1120)).

@@ -4,8 +4,8 @@ Validate the checked-in proposal without contacting a network, starting a servic
 or selecting a candidate:
 
 ```bash
-python3 tools/phase0/runtime-readiness/validate_runtime_readiness.py
-python3 -m unittest discover -s tools/phase0/runtime-readiness -p 'test_*.py' -v
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- runtime-readiness
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
 The validator fails if a host, kernel, filesystem, or runtime becomes selected;
