@@ -4,6 +4,7 @@ using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
+using System.Text.Json;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -46,10 +47,11 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             var services = client.CreateServicesContext();
             var service = await services.AddServiceAsync(
-                new NatsSvcConfig("terrascale_orchestrator", "1.0.0")
+                new NatsSvcConfig(topology.ServiceName, "1.0.0")
                 {
                     Description = "TerraScale regional control service",
-                    Metadata = new Dictionary<string, string> { ["cell"] = options.Cell }
+                    Metadata = new Dictionary<string, string> { ["cell"] = options.Cell },
+                    QueueGroup = topology.ServiceQueueGroup
                 },
                 cancellationToken);
 
@@ -57,16 +59,10 @@ public sealed class NatsRuntime : IAsyncDisposable
                 message => message.ReplyAsync("ready", cancellationToken: cancellationToken),
                 name: "health",
                 subject: topology.HealthSubject,
+                metadata: new Dictionary<string, string> { ["protocol"] = "1" },
                 cancellationToken: cancellationToken);
 
-            var health = await client.RequestAsync<string, string>(
-                topology.HealthSubject,
-                "health",
-                cancellationToken: cancellationToken);
-            if (health.Data is not "ready")
-            {
-                throw new InvalidOperationException("NATS health service returned an invalid response.");
-            }
+            await VerifyServiceAsync(client, topology, cancellationToken);
 
             return new(client, service, registration);
         }
@@ -80,6 +76,65 @@ public sealed class NatsRuntime : IAsyncDisposable
             await client.DisposeAsync();
             throw;
         }
+    }
+
+    private static async Task VerifyServiceAsync(
+        NatsClient client,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        var health = await client.RequestAsync<string, string>(
+            topology.HealthSubject,
+            "health",
+            cancellationToken: cancellationToken);
+        if (health.Data is not "ready")
+        {
+            throw new InvalidOperationException("NATS health service returned an invalid response.");
+        }
+
+        var info = await client.RequestAsync<string, string>(
+            $"$SRV.INFO.{topology.ServiceName}",
+            string.Empty,
+            cancellationToken: cancellationToken);
+        if (!HasExpectedEndpoint(info.Data, topology, requireRequest: false))
+        {
+            throw new InvalidOperationException("NATS service discovery returned invalid endpoint metadata.");
+        }
+
+        var stats = await client.RequestAsync<string, string>(
+            $"$SRV.STATS.{topology.ServiceName}",
+            string.Empty,
+            cancellationToken: cancellationToken);
+        if (!HasExpectedEndpoint(stats.Data, topology, requireRequest: true))
+        {
+            throw new InvalidOperationException("NATS service statistics did not record the health request.");
+        }
+    }
+
+    private static bool HasExpectedEndpoint(
+        string? response,
+        NatsTopology topology,
+        bool requireRequest)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(response);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("name", out var name) || name.GetString() != topology.ServiceName ||
+            !root.TryGetProperty("endpoints", out var endpoints))
+        {
+            return false;
+        }
+
+        return endpoints.EnumerateArray().Any(endpoint =>
+            endpoint.TryGetProperty("name", out var endpointName) && endpointName.GetString() == "health" &&
+            endpoint.TryGetProperty("subject", out var subject) && subject.GetString() == topology.HealthSubject &&
+            endpoint.TryGetProperty("queue_group", out var queue) && queue.GetString() == topology.ServiceQueueGroup &&
+            (!requireRequest ||
+             (endpoint.TryGetProperty("num_requests", out var requests) && requests.GetInt64() >= 1)));
     }
 
     public async ValueTask DisposeAsync()

@@ -14,6 +14,10 @@ public sealed record NatsTopology(string Cell, int Replicas)
 
     public string ProtocolObject => "orchestrator-protocol-v1";
 
+    public string ServiceName => "terrascale_orchestrator";
+
+    public string ServiceQueueGroup => $"orchestrator_{Cell}";
+
     public IReadOnlyList<StreamConfig> Streams =>
     [
         Stream("CELL_SPEC", $"{Root}.desired.>", 256 * 1024 * 1024),
