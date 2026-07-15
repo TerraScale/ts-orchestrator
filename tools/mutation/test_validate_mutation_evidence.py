@@ -115,7 +115,7 @@ class MutationEvidenceValidatorTests(unittest.TestCase):
             )
             self.assertTrue(any("inventory drift" in error for error in errors))
 
-    def test_recursive_nested_composition_source_invalidates_proof(self) -> None:
+    def test_recursive_nested_source_remains_in_required_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, policy, report, policy_path = self.make_repository(directory)
             nested = root / "src/TerraScale.Orchestrator/Nested/Mutation.cs"
@@ -125,23 +125,7 @@ class MutationEvidenceValidatorTests(unittest.TestCase):
                 policy, report, repo_root=root, policy_path=policy_path,
                 validation_date=date(2026, 7, 13), supply=self.supply,
             )
-            self.assertTrue(any("proof is stale or broader" in error for error in errors))
-
-    def test_symlinked_proof_parent_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root, policy, report, policy_path = self.make_repository(directory)
-            link = root / "linked-proof"
-            link.symlink_to(root / "docs/audits/mutation", target_is_directory=True)
-            linked_path = "linked-proof/composition-root-exclusion-proof.md"
-            policy["projects"][-1]["exclusionProof"] = linked_path
-            policy["exclusions"][0]["proof"] = linked_path
-            policy_path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
-            report["policySha256"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
-            errors = validate(
-                policy, report, repo_root=root, policy_path=policy_path,
-                validation_date=date(2026, 7, 13), supply=self.supply,
-            )
-            self.assertTrue(any("symlink path components are forbidden" in error for error in errors))
+            self.assertEqual([], errors)
 
     def test_duplicate_json_keys_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -158,7 +142,11 @@ class MutationEvidenceValidatorTests(unittest.TestCase):
 
     def test_unsafe_exclusion_path_is_rejected(self) -> None:
         policy = copy.deepcopy(self.policy)
-        policy["exclusions"][0]["paths"] = ["../Program.cs"]
+        policy["exclusions"] = [{
+            "project": "../unsafe.csproj", "category": "generated-code",
+            "paths": ["../Program.cs"], "pathDigests": [],
+            "proof": "../proof.md", "proofSha256": "0" * 64,
+        }]
         errors = validate(policy, self.report, validation_date=date(2026, 7, 13))
         self.assertTrue(any("unsafe repository-relative path" in error for error in errors))
 
@@ -169,7 +157,12 @@ class MutationEvidenceValidatorTests(unittest.TestCase):
         ):
             with self.subTest(path=invalid[:40]):
                 policy = copy.deepcopy(self.policy)
-                policy["exclusions"][0]["paths"] = [invalid]
+                policy["exclusions"] = [{
+                    "project": "src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj",
+                    "category": "generated-code", "paths": [invalid], "pathDigests": [],
+                    "proof": "docs/audits/mutation/composition-root-exclusion-proof.md",
+                    "proofSha256": "0" * 64,
+                }]
                 errors = validate(policy, self.report, validation_date=date(2026, 7, 13))
                 self.assertTrue(any("repository-relative path" in error for error in errors))
 

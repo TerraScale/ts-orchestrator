@@ -278,7 +278,7 @@
       "status": "evidence-required",
       "ownerLane": "Verification",
       "controllingInputs": ["artifact-and-evidence-signing-selection"],
-      "availableEvidence": ["ORCHESTRATOR.md:1114-1179", "requirements/registry.yaml:1-48", "Directory.Packages.props:1-10", "global.json:1-9", "testlab/pins/smolvm-v1.5.0.json:1-37", "docs/audits/toolchain/local-toolchain-audit.md:12-29"],
+      "availableEvidence": ["ORCHESTRATOR.md:1114-1179", "requirements/registry.yaml:1-48", "Directory.Packages.props:1-9", "global.json:1-9", "testlab/pins/smolvm-v1.5.0.json:1-37", "docs/audits/toolchain/local-toolchain-audit.md:12-29"],
       "missingEvidence": ["Complete canonical registry and generated trace", "Property/model/fuzz/mutation/analyzer pins", "Signing/SBOM selection and tools", "Forgejo/IAM credential enforcement design", "Internally mirrored/signed SmolVM artifacts"],
       "dependencies": [14,22],
       "exitEvidence": ["Complete stable-ID registry and architecture graph", "Fully pinned hermetic test and signing toolchain", "Negative tests for missing trace and dependency reversal", "Cold full L0/L0C thresholds", "Signed exact-tree DSSE/in-toto evidence rejected after any input change", "Credential issuance impossible without valid evidence"]

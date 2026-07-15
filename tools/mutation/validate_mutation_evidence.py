@@ -298,13 +298,18 @@ def _validate_policy(policy: dict[str, Any], repo_root: Path, errors: list[str])
         if set(recorded_digests) != set(paths):
             errors.append(f"{where}.pathDigests: digest path set must exactly match excluded paths")
 
-    composition_sources = sorted(
-        path.relative_to(repo_root).as_posix()
-        for path in (repo_root / "src/TerraScale.Orchestrator").rglob("*.cs")
-        if path.is_file() and not path.is_symlink() and not ({"bin", "obj"} & set(path.parts))
-    )
-    if composition_sources != ["src/TerraScale.Orchestrator/Program.cs"] or seen_paths != set(composition_sources):
-        errors.append("policy.exclusions: composition-root proof is stale or broader than the exact trivial source set")
+    composition = recorded.get("src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj")
+    if composition is not None and composition.get("mutationRequired") is True:
+        if seen_paths:
+            errors.append("policy.exclusions: mutation-required runtime project cannot exclude source files")
+    else:
+        composition_sources = sorted(
+            path.relative_to(repo_root).as_posix()
+            for path in (repo_root / "src/TerraScale.Orchestrator").rglob("*.cs")
+            if path.is_file() and not path.is_symlink() and not ({"bin", "obj"} & set(path.parts))
+        )
+        if composition_sources != ["src/TerraScale.Orchestrator/Program.cs"] or seen_paths != set(composition_sources):
+            errors.append("policy.exclusions: composition-root proof is stale or broader than the exact trivial source set")
 
 
 def _validate_report(

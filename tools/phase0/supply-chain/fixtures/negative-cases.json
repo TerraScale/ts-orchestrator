@@ -16,8 +16,8 @@
   {"name":"sdk-version-drift","operation":"set","path":["existingBaselinePins","sdk","version"],"value":"10.0.302","error":"version: drift from checked-in global.json"},
   {"name":"sdk-roll-forward-drift","operation":"set","path":["existingBaselinePins","sdk","rollForward"],"value":"disable","error":"rollForward: drift from checked-in global.json"},
   {"name":"sdk-false-closure-claim","operation":"set","path":["existingBaselinePins","sdk","exactClosure"],"value":true,"error":"must be false for latestFeature"},
-  {"name":"tunit-declaration-drift","operation":"set","path":["existingBaselinePins","packages",0,"declaredVersion"],"value":"1.56.17","error":"TUnit.declaredVersion: drift"},
-  {"name":"testing-platform-lock-drift","operation":"set","path":["existingBaselinePins","packages",1,"resolvedVersion"],"value":"2.2.2","error":"Microsoft.Testing.Platform.resolvedVersion: drift"},
+  {"name":"nats-declaration-drift","operation":"set","path":["existingBaselinePins","packages",0,"declaredVersion"],"value":"2.7.1","error":"NATS.Net.declaredVersion: drift"},
+  {"name":"nats-lock-drift","operation":"set","path":["existingBaselinePins","packages",0,"resolvedVersion"],"value":"2.7.1","error":"NATS.Net.resolvedVersion: drift"},
   {"name":"lock-provenance-digest-drift","operation":"set","path":["existingBaselinePins","lockProvenance",0,"sha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000","error":"SHA-256 drift"},
   {"name":"lock-provenance-path-drift","operation":"delete-list-index","path":["existingBaselinePins","lockProvenance"],"value":0,"error":"path set drift"}
 ]

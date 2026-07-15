@@ -3,11 +3,10 @@
 This directory records a strict policy and an intentionally empty mutation
 result. It does not install or run a mutation engine.
 
-`mutation-policy.json` inventories every production project, makes every
-correctness-critical project mandatory, and permits only the three exclusion
-classes allowed by `ORCHESTRATOR.md`. The sole current exclusion is the exact,
-content-addressed Phase 0 `Program.cs`; any content or project inventory drift
-fails validation.
+`mutation-policy.json` inventories every production project and makes the
+current runtime project mandatory. There are no source exclusions: startup,
+configuration, topology, and NATS runtime behavior are all operational code.
+Any project inventory drift fails validation.
 
 `mutation-evidence.json` cross-checks the Phase 0 supply-chain audit. That audit
 lists dotnet-stryker 4.16.0 only as an unselected candidate, so every execution

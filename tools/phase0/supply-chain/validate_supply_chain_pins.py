@@ -36,13 +36,9 @@ EXPECTED_SDK = {
     "testRunner": "Microsoft.Testing.Platform",
 }
 EXPECTED_BASELINE_PACKAGES = {
-    "TUnit": {
-        "declaredVersion": "1.56.18", "lockType": "Direct",
-        "lockRequested": "[1.56.18, )", "resolvedVersion": "1.56.18",
-    },
-    "Microsoft.Testing.Platform": {
-        "declaredVersion": None, "lockType": "Transitive",
-        "lockRequested": None, "resolvedVersion": "2.2.3",
+    "NATS.Net": {
+        "declaredVersion": "2.7.2", "lockType": "Direct",
+        "lockRequested": "[2.7.2, )", "resolvedVersion": "2.7.2",
     },
 }
 ENTRY_KEYS = {
@@ -139,7 +135,7 @@ def _validate_existing_baseline(data: dict[str, object], repo_root: Path, errors
     expected_sources = {
         "globalJsonSource": "global.json",
         "centralPackagesSource": "Directory.Packages.props",
-        "testLockSource": "tests/TerraScale.Orchestrator.ContractTests/packages.lock.json",
+        "testLockSource": "src/TerraScale.Orchestrator/packages.lock.json",
     }
     for key, expected in expected_sources.items():
         if baseline.get(key) != expected:
@@ -176,8 +172,8 @@ def _validate_existing_baseline(data: dict[str, object], repo_root: Path, errors
             errors.append("manifest.existingBaselinePins.sdk.closureGap: must disclose higher feature-band roll-forward")
 
     package_rows = baseline.get("packages")
-    if not isinstance(package_rows, list) or len(package_rows) != 2:
-        errors.append("manifest.existingBaselinePins.packages: expected exactly TUnit and Microsoft.Testing.Platform")
+    if not isinstance(package_rows, list) or len(package_rows) != 1:
+        errors.append("manifest.existingBaselinePins.packages: expected exactly NATS.Net")
         package_rows = []
     packages: dict[str, dict[str, object]] = {}
     for index, package in enumerate(package_rows):
@@ -185,7 +181,7 @@ def _validate_existing_baseline(data: dict[str, object], repo_root: Path, errors
         _object_keys(package, BASELINE_PACKAGE_KEYS, where, errors)
         if isinstance(package, dict) and isinstance(package.get("name"), str):
             packages[package["name"]] = package
-    if set(packages) != {"TUnit", "Microsoft.Testing.Platform"}:
+    if set(packages) != {"NATS.Net"}:
         errors.append("manifest.existingBaselinePins.packages: baseline package set drift")
     for name, expected_values in EXPECTED_BASELINE_PACKAGES.items():
         row = packages.get(name)
@@ -206,19 +202,19 @@ def _validate_existing_baseline(data: dict[str, object], repo_root: Path, errors
     except (OSError, ET.ParseError, KeyError) as exc:
         errors.append(f"checked-in Directory.Packages.props: unreadable baseline: {exc}")
     else:
-        tunit = packages.get("TUnit")
-        if tunit is not None and tunit.get("declaredVersion") != central_versions.get("TUnit"):
-            errors.append("manifest.existingBaselinePins.packages.TUnit.declaredVersion: drift from Directory.Packages.props")
+        for name, package in packages.items():
+            if package.get("declaredVersion") != central_versions.get(name):
+                errors.append(f"manifest.existingBaselinePins.packages.{name}.declaredVersion: drift from Directory.Packages.props")
 
     lock_path = repo_root / expected_sources["testLockSource"]
     try:
         lock_data = load(lock_path)
         locked = lock_data["dependencies"]["net10.0"]  # type: ignore[index]
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        errors.append(f"checked-in test lock: unreadable baseline: {exc}")
+        errors.append(f"checked-in runtime lock: unreadable baseline: {exc}")
     else:
         if not isinstance(locked, dict):
-            errors.append("checked-in test lock: net10.0 dependency group must be an object")
+            errors.append("checked-in runtime lock: net10.0 dependency group must be an object")
             locked = {}
         for name in EXPECTED_BASELINE_PACKAGES:
             row = packages.get(name)
@@ -233,7 +229,7 @@ def _validate_existing_baseline(data: dict[str, object], repo_root: Path, errors
             }
             for key, expected in expected_values.items():
                 if row.get(key) != expected:
-                    errors.append(f"manifest.existingBaselinePins.packages.{name}.{key}: drift from checked-in test lock")
+                    errors.append(f"manifest.existingBaselinePins.packages.{name}.{key}: drift from checked-in runtime lock")
 
     provenance = baseline.get("lockProvenance")
     if not isinstance(provenance, list) or not provenance:

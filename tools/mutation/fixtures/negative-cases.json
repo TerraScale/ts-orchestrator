@@ -88,59 +88,19 @@
     "error": "forbidden safety set drift"
   },
   {
-    "name": "exclude-control-plane",
+    "name": "exclude-runtime",
     "document": "policy",
     "operation": "set",
-    "path": ["projects", 1, "mutationRequired"],
+    "path": ["projects", 0, "mutationRequired"],
     "value": false,
-    "error": "all non-composition production projects are mandatory"
-  },
-  {
-    "name": "forbidden-exclusion-category",
-    "document": "policy",
-    "operation": "set",
-    "path": ["exclusions", 0, "category"],
-    "value": "deletion",
-    "error": "category is not permitted"
-  },
-  {
-    "name": "broaden-composition-exclusion",
-    "document": "policy",
-    "operation": "append",
-    "path": ["exclusions", 0, "paths"],
-    "value": "src/TerraScale.Orchestrator.ControlPlane/Authority/AuthorityEngine.cs",
-    "error": "broader than the exact trivial source set"
-  },
-  {
-    "name": "stale-excluded-source-digest",
-    "document": "policy",
-    "operation": "set",
-    "path": ["exclusions", 0, "pathDigests", 0, "sha256"],
-    "value": "0000000000000000000000000000000000000000000000000000000000000000",
-    "error": "excluded source digest is missing or stale"
-  },
-  {
-    "name": "proof-mismatch",
-    "document": "policy",
-    "operation": "set",
-    "path": ["exclusions", 0, "proof"],
-    "value": "docs/audits/mutation/phase1-mutation-readiness.md",
-    "error": "exclusion proof must exactly match the project proof"
-  },
-  {
-    "name": "stale-proof-digest",
-    "document": "policy",
-    "operation": "set",
-    "path": ["exclusions", 0, "proofSha256"],
-    "value": "0000000000000000000000000000000000000000000000000000000000000000",
-    "error": "exclusion proof must exactly match the project proof"
+    "error": "only an allowed trivial/generated classification may be excluded"
   },
   {
     "name": "noncanonical-double-slash",
     "document": "policy",
     "operation": "set",
     "path": ["projects", 0, "path"],
-    "value": "src//TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj",
+    "value": "src//TerraScale.Orchestrator/TerraScale.Orchestrator.csproj",
     "error": "unsafe repository-relative path"
   }
 ]
