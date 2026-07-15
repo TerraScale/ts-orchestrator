@@ -1314,25 +1314,7 @@ TerraScale.Orchestrator/
       Operations/
       Providers/
   tests/
-    TerraScale.Orchestrator.UnitTests/
-    TerraScale.Orchestrator.BusinessRulesTests/
-    TerraScale.Orchestrator.ModelTests/
-    TerraScale.Orchestrator.ConcurrencyTests/
-    TerraScale.Orchestrator.FuzzTests/
-    TerraScale.Orchestrator.MutationTests/
-    TerraScale.Orchestrator.ContractTests/
-    TerraScale.Orchestrator.IntegrationTests/
-    TerraScale.Orchestrator.SystemdTests/
-    TerraScale.Orchestrator.ContainerdTests/
-    TerraScale.Orchestrator.StorageTests/
-    TerraScale.Orchestrator.TerraBaseTests/
-    TerraScale.Orchestrator.MultiRegionTests/
-    TerraScale.Orchestrator.SmolVmTests/
-    TerraScale.Orchestrator.ChaosTests/
-    TerraScale.Orchestrator.OciTests/
-    TerraScale.Orchestrator.Arm64Tests/
-    TerraScale.Orchestrator.SecurityTests/
-    TerraScale.Orchestrator.PerformanceTests/
+    TerraScale.Orchestrator.Tests/             # focused functional decisions only
   schemas/                                  # generated JSON Schemas and examples
   requirements/registry.yaml                # canonical REQ/INV/ERR/SM/SEC registry
   protocols/                                # subject/version compatibility fixtures
@@ -1348,7 +1330,7 @@ TerraScale.Orchestrator/
   .forgejo/workflows/bootstrap.yml
 ```
 
-One production project builds the one executable. Directory and namespace boundaries keep capabilities organized without project-reference ceremony. Architecture tests enforce dependency direction from compiled symbols; production modules communicate through typed contracts and explicit state-machine interfaces, not a network of needless microservices.
+One production project builds the one executable. Directory and namespace boundaries keep capabilities organized without project-reference ceremony. Production modules communicate through typed contracts and explicit state-machine interfaces, not a network of needless microservices.
 
 The permitted dependency direction is:
 
@@ -1360,7 +1342,7 @@ Contracts <- pure domain/state machines <- application coordinators <- adapters
 single executable composition root -> wires every implementation; contains no policy
 ```
 
-Contracts and pure domains do not use infrastructure namespaces or types. Application coordinators may persist/dispatch typed intents through abstractions but cannot call concrete adapters. OCI/NATS/systemd/containerd/Git/filesystem/crypto-provider/Grafana adapters translate intent and observation only. A build-time architecture test rejects a reverse edge or business-rule branch in an adapter.
+Contracts and pure domains do not use infrastructure namespaces or types. Application coordinators may persist/dispatch typed intents through abstractions but cannot call concrete adapters. OCI/NATS/systemd/containerd/Git/filesystem/crypto-provider/Grafana adapters translate intent and observation only.
 
 ## Parallel multi-agent implementation model
 

@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <Description>Infrastructure-free wire-contract definitions for the TerraScale Orchestrator.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
-  </ItemGroup>
-</Project>
-

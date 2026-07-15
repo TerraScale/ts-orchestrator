@@ -1,5 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="../TerraScale.Orchestrator.Contracts/TerraScale.Orchestrator.Contracts.csproj" />
-  </ItemGroup>
-</Project>
