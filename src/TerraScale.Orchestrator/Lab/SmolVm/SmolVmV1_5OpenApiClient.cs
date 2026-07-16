@@ -64,7 +64,13 @@ internal sealed record SmolVmMachineInfo(
     [property: JsonPropertyName("allowedCidrs")] IReadOnlyList<string>? AllowedCidrs,
     [property: JsonPropertyName("storageGb")] ulong? StorageGiB,
     [property: JsonPropertyName("overlayGb")] ulong? OverlayGiB,
-    [property: JsonPropertyName("createdAt")] ulong CreatedAt);
+    [property: JsonPropertyName("createdAt")] ulong CreatedAt,
+    [property: JsonPropertyName("allowedHosts")] IReadOnlyList<string>? AllowedHosts = null,
+    [property: JsonPropertyName("egressBytes")] ulong? EgressBytes = null,
+    [property: JsonPropertyName("cpuSeconds")] ulong? CpuSeconds = null,
+    [property: JsonPropertyName("cpuMillis")] ulong? CpuMilliseconds = null,
+    [property: JsonPropertyName("rssMb")] ulong? ResidentMemoryMiB = null,
+    [property: JsonPropertyName("diskUsedMb")] ulong? DiskUsedMiB = null);
 
 internal sealed record SmolVmMachineList(
     [property: JsonPropertyName("machines")] IReadOnlyList<SmolVmMachineInfo> Machines);
