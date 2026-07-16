@@ -176,7 +176,7 @@ internal static class DevelopmentWorkloadRuntime
         supervisor.Start(
             dashboard.Name,
             vp,
-            watch ? ["run", "vinext:dev"] : ["run", "vinext:start"],
+            CreateDashboardArguments(dashboard, watch),
             directory,
             new Dictionary<string, string?>
             {
@@ -195,6 +195,18 @@ internal static class DevelopmentWorkloadRuntime
                 ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
             });
     }
+
+    internal static IReadOnlyList<string> CreateDashboardArguments(
+        DevelopmentResourcePlan dashboard,
+        bool watch) =>
+    [
+        "run",
+        watch ? "vinext:dev" : "vinext:start",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+    ];
 
     internal static Dictionary<string, string?> CreateServiceEnvironment(
         DevelopmentTopology topology,

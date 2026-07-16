@@ -80,4 +80,22 @@ public sealed class DevelopmentTopologyTests
                 StringComparison.Ordinal)))
             .IsEqualTo(3);
     }
+
+    [Test]
+    public async Task DashboardUsesItsRegionalPortInsteadOfVinextDefault()
+    {
+        var dashboard = DevelopmentTopology.CreateThreeCellR3()
+            .GetRequired("gru", DevelopmentResourceKind.Dashboard);
+
+        var arguments = DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard, watch: true);
+
+        await Assert.That(arguments).IsEquivalentTo([
+            "run",
+            "vinext:dev",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        ]);
+    }
 }
