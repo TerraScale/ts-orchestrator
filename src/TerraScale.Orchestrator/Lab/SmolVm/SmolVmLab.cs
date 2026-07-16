@@ -153,13 +153,34 @@ internal static class SmolVmLab
                     cleanupFailures.Add(exception);
                 }
             }
+            var machinesCleanedUp = false;
             try
             {
                 await driver.CleanupAsync(topology, cleanup.Token);
+                machinesCleanedUp = true;
             }
             catch (Exception exception)
             {
                 cleanupFailures.Add(exception);
+            }
+            if (currentState is not null && machinesCleanedUp)
+            {
+                try
+                {
+                    await WriteStateAsync(
+                        options.StateFile!,
+                        currentState with
+                        {
+                            Healthy = false,
+                            ObservedAt = DateTimeOffset.UtcNow,
+                            Machines = []
+                        },
+                        cleanup.Token);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
             }
             if (cleanupFailures.Count > 0)
             {
