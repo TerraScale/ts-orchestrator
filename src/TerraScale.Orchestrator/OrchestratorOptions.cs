@@ -21,6 +21,12 @@ public enum OrchestratorLabProfile
     RegionsSmol
 }
 
+public enum SmolVmLandlockMode
+{
+    Enforce,
+    Off
+}
+
 public sealed record SmolVmLabOptions(
     string RunId,
     string PinFile,
@@ -34,7 +40,9 @@ public sealed record SmolVmLabOptions(
     ulong OverlayGiB,
     ushort FirstHostPort,
     IReadOnlyList<string> AllowedEgressCidrs,
-    bool RequireInternalProvenance);
+    bool RequireInternalProvenance,
+    SmolVmLandlockMode LandlockMode,
+    bool AllowUnqualifiedHost);
 
 public sealed record OrchestratorOptions(
     OrchestratorCommand Command,
@@ -121,6 +129,7 @@ public sealed record OrchestratorOptions(
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         var watch = false;
         var requireInternalProvenance = false;
+        var allowUnqualifiedSmolVmHost = false;
         for (var index = args.Count > 0 ? 1 : 0; index < args.Count; index++)
         {
             var argument = args[index];
@@ -132,6 +141,11 @@ public sealed record OrchestratorOptions(
             if (argument == "--require-internal-provenance")
             {
                 requireInternalProvenance = true;
+                continue;
+            }
+            if (argument == "--allow-unqualified-smolvm-host")
+            {
+                allowUnqualifiedSmolVmHost = true;
                 continue;
             }
 
@@ -183,7 +197,7 @@ public sealed record OrchestratorOptions(
                 "--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--profile",
                 "--run-id", "--smolvm-pin", "--smolvm-installation", "--base-artifact", "--base-digest",
                 "--socket", "--vm-cpus", "--vm-memory-mib", "--vm-storage-gib", "--vm-overlay-gib",
-                "--first-host-port", "--allowed-cidrs"
+                "--first-host-port", "--allowed-cidrs", "--smolvm-landlock"
             ],
             StringComparer.Ordinal).FirstOrDefault();
         if (unknown is not null)
@@ -192,10 +206,17 @@ public sealed record OrchestratorOptions(
         }
 
         var smolVm = labProfile == OrchestratorLabProfile.RegionsSmol
-            ? ParseSmolVm(values, environment, workspaceRoot, dataDirectory, requireInternalProvenance)
+            ? ParseSmolVm(
+                values,
+                environment,
+                workspaceRoot,
+                dataDirectory,
+                requireInternalProvenance,
+                allowUnqualifiedSmolVmHost)
             : null;
         if (labProfile == OrchestratorLabProfile.DevHost &&
-            (requireInternalProvenance || values.Keys.Any(key => key.StartsWith("--smolvm", StringComparison.Ordinal) ||
+            (requireInternalProvenance || allowUnqualifiedSmolVmHost ||
+             values.Keys.Any(key => key.StartsWith("--smolvm", StringComparison.Ordinal) ||
                 key is "--run-id" or "--base-artifact" or "--base-digest" or "--socket" or
                     "--vm-cpus" or "--vm-memory-mib" or "--vm-storage-gib" or "--vm-overlay-gib" or
                     "--first-host-port" or "--allowed-cidrs")))
@@ -225,7 +246,8 @@ public sealed record OrchestratorOptions(
         Func<string, string?> environment,
         string workspaceRoot,
         string dataDirectory,
-        bool requireInternalProvenance)
+        bool requireInternalProvenance,
+        bool allowUnqualifiedHost)
     {
         var repository = Path.Combine(workspaceRoot, "TerraScale.Orchestrator");
         var runId = GetValue(values, "--run-id", environment("TS_ORCH_SMOLVM_RUN_ID") ?? "regions");
@@ -244,6 +266,24 @@ public sealed record OrchestratorOptions(
         {
             throw new ArgumentException("SmolVM allowed CIDRs must be an explicit comma-separated IPv4/IPv6 CIDR list.");
         }
+        var landlockMode = GetValue(
+            values,
+            "--smolvm-landlock",
+            environment("TS_ORCH_SMOLVM_LANDLOCK") ?? "enforce") switch
+        {
+            "enforce" => SmolVmLandlockMode.Enforce,
+            "off" => SmolVmLandlockMode.Off,
+            _ => throw new ArgumentException("SmolVM Landlock mode must be 'enforce' or 'off'.")
+        };
+        if (landlockMode == SmolVmLandlockMode.Off && !allowUnqualifiedHost)
+        {
+            throw new ArgumentException(
+                "Disabling SmolVM Landlock requires --allow-unqualified-smolvm-host and cannot qualify production parity.");
+        }
+        if (requireInternalProvenance && (landlockMode != SmolVmLandlockMode.Enforce || allowUnqualifiedHost))
+        {
+            throw new ArgumentException("Internally qualified SmolVM runs require Landlock enforcement.");
+        }
         return new(
             runId,
             Path.GetFullPath(GetValue(values, "--smolvm-pin", Path.Combine(repository, "testlab/pins/smolvm-v1.5.0.json"))),
@@ -257,7 +297,9 @@ public sealed record OrchestratorOptions(
             ParseNumber<ulong>(values, "--vm-overlay-gib", 4, value => value is >= 1 and <= 1_024),
             ParseNumber<ushort>(values, "--first-host-port", 24_000, value => value is >= 1024 and <= 65_355),
             cidrs,
-            requireInternalProvenance);
+            requireInternalProvenance,
+            landlockMode,
+            allowUnqualifiedHost);
     }
 
     private static T ParseNumber<T>(

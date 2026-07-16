@@ -90,6 +90,19 @@ public sealed class OrchestratorOptionsTests
                 ["lab", "plan", "--profile", "regions-smol"],
                 _ => null))
             .Throws<ArgumentException>();
+
+        await Assert.That(() => OrchestratorOptions.Parse(
+                [
+                    "lab", "plan", "--profile", "regions-smol",
+                    "--smolvm-installation", "/tmp/smolvm",
+                    "--base-artifact", "/tmp/base.smolmachine",
+                    "--base-digest", digest,
+                    "--socket", "/tmp/regions.sock",
+                    "--allowed-cidrs", "10.0.0.0/8",
+                    "--smolvm-landlock", "off"
+                ],
+                _ => null))
+            .Throws<ArgumentException>();
     }
 
     [Test]

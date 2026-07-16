@@ -26,6 +26,7 @@ public sealed class SmolVmServerSessionTests
         await Assert.That(startInfo.ArgumentList).Contains("--seccomp");
         await Assert.That(startInfo.ArgumentList).Contains("enforce");
         await Assert.That(startInfo.ArgumentList).Contains("--landlock");
+        await Assert.That(startInfo.ArgumentList.Last(value => value is "enforce" or "off")).IsEqualTo("enforce");
         await Assert.That(startInfo.Environment["SMOLVM_DATA_DIR"]).IsEqualTo("/var/tmp/ts-lab/data");
     }
 

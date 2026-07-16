@@ -25,6 +25,7 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         SmolVmVerifiedInstallation installation,
         string socketPath,
         string dataDirectory,
+        SmolVmLandlockMode landlockMode,
         TimeSpan startupTimeout,
         CancellationToken cancellationToken)
     {
@@ -47,7 +48,7 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         CreatePrivateDirectory(dataDirectory);
         var process = new Process
         {
-            StartInfo = CreateStartInfo(installation, socketPath, dataDirectory),
+            StartInfo = CreateStartInfo(installation, socketPath, dataDirectory, landlockMode),
             EnableRaisingEvents = true
         };
         var outputStopping = new CancellationTokenSource();
@@ -100,7 +101,8 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
     internal static ProcessStartInfo CreateStartInfo(
         SmolVmVerifiedInstallation installation,
         string socketPath,
-        string dataDirectory)
+        string dataDirectory,
+        SmolVmLandlockMode landlockMode = SmolVmLandlockMode.Enforce)
     {
         if (installation.Version != SmolVmV1_5OpenApiClient.ApiVersion ||
             installation.Artifacts.All(artifact => artifact.Role != "launcher") ||
@@ -119,7 +121,7 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
                      "serve", "start",
                      "--listen", $"unix://{socketPath}",
                      "--seccomp", "enforce",
-                     "--landlock", "enforce",
+                     "--landlock", landlockMode == SmolVmLandlockMode.Enforce ? "enforce" : "off",
                      "--json-logs"
                  })
         {

@@ -11,6 +11,8 @@ internal sealed record SmolVmLabState(
     string RunId,
     long Generation,
     bool Healthy,
+    bool HostHardeningQualified,
+    IReadOnlyList<string> QualificationGaps,
     DateTimeOffset ObservedAt,
     string SourceCommit,
     IReadOnlyList<SmolVmMachineInfo> Machines);
@@ -98,6 +100,7 @@ internal static class SmolVmLab
             installation,
             configuration.SocketPath,
             serverData,
+            configuration.LandlockMode,
             TimeSpan.FromSeconds(45),
             cancellationToken);
         var driver = new SmolVmLabDriver(server.Client);
@@ -114,12 +117,16 @@ internal static class SmolVmLab
                         configuration.RunId,
                         generation,
                         machines.Count == 9 && machines.All(machine => machine.State == "running"),
+                        installation.InternalProvenanceQualified &&
+                            configuration.LandlockMode == SmolVmLandlockMode.Enforce,
+                        QualificationGaps(installation, configuration),
                         DateTimeOffset.UtcNow,
                         sourceCommit,
                         machines),
                     cancellationToken);
                 Console.WriteLine(
-                    $"TerraScale regions-smol generation {generation}: {machines.Count(machine => machine.State == "running")}/9 running.");
+                    $"TerraScale regions-smol generation {generation}: {machines.Count(machine => machine.State == "running")}/9 running; " +
+                    $"host-hardening-qualified={installation.InternalProvenanceQualified && configuration.LandlockMode == SmolVmLandlockMode.Enforce}.");
                 await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
             }
         }
@@ -128,6 +135,22 @@ internal static class SmolVmLab
             using var cleanup = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             await driver.CleanupAsync(topology, cleanup.Token);
         }
+    }
+
+    private static IReadOnlyList<string> QualificationGaps(
+        SmolVmVerifiedInstallation installation,
+        SmolVmLabOptions configuration)
+    {
+        var gaps = new List<string>();
+        if (!installation.InternalProvenanceQualified)
+        {
+            gaps.Add("internal-mirror-and-signature-not-established");
+        }
+        if (configuration.LandlockMode != SmolVmLandlockMode.Enforce)
+        {
+            gaps.Add("landlock-disabled-host-incompatibility");
+        }
+        return gaps;
     }
 
     private static async Task<SmolVmLabState?> ReadStateAsync(
