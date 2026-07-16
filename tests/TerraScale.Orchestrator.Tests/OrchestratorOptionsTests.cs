@@ -64,4 +64,40 @@ public sealed class OrchestratorOptionsTests
                 name => name == "TS_ORCH_INSTANCE" ? "Controller/2" : null))
             .Throws<ArgumentException>();
     }
+
+    [Test]
+    public async Task RegionsSmolRequiresExplicitRuntimeArtifactSocketAndNetworkScope()
+    {
+        const string digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        var options = OrchestratorOptions.Parse(
+            [
+                "lab", "plan", "--profile", "regions-smol",
+                "--workspace", "/tmp/workspace",
+                "--data-directory", "/tmp/lab-data",
+                "--smolvm-installation", "/tmp/smolvm",
+                "--base-artifact", "/tmp/base.smolmachine",
+                "--base-digest", digest,
+                "--socket", "/tmp/regions.sock",
+                "--allowed-cidrs", "10.0.0.0/8,fd00::/8"
+            ],
+            _ => null);
+
+        await Assert.That(options.LabProfile).IsEqualTo(OrchestratorLabProfile.RegionsSmol);
+        await Assert.That(options.StateFile).IsEqualTo("/tmp/lab-data/regions-smol-state.json");
+        await Assert.That(options.SmolVm!.AllowedEgressCidrs).IsEquivalentTo(["10.0.0.0/8", "fd00::/8"]);
+        await Assert.That(options.SmolVm.BaseArtifactDigest).IsEqualTo(digest);
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["lab", "plan", "--profile", "regions-smol"],
+                _ => null))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task DevHostProfileRejectsSmolVmOnlyOptions()
+    {
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["lab", "plan", "--base-artifact", "/tmp/base.smolmachine"],
+                _ => null))
+            .Throws<ArgumentException>();
+    }
 }

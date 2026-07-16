@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TerraScale.Orchestrator.Lab.SmolVm;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -18,6 +19,10 @@ public static class DevelopmentLab
         if (options.Command is not OrchestratorCommand.Lab || options.LabCommand is null)
         {
             throw new InvalidOperationException("DevelopmentLab requires a lab command.");
+        }
+        if (options.LabProfile == OrchestratorLabProfile.RegionsSmol)
+        {
+            return await SmolVmLab.ExecuteAsync(options, cancellationToken);
         }
 
         var topology = DevelopmentTopology.CreateThreeCellR3();
