@@ -7,14 +7,17 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
 {
     private readonly Process process;
     private readonly CancellationTokenSource outputStopping;
+    private readonly string socketPath;
 
     private SmolVmServerSession(
         Process process,
         CancellationTokenSource outputStopping,
-        SmolVmV1_5OpenApiClient client)
+        SmolVmV1_5OpenApiClient client,
+        string socketPath)
     {
         this.process = process;
         this.outputStopping = outputStopping;
+        this.socketPath = socketPath;
         Client = client;
     }
 
@@ -37,6 +40,12 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         if (socketPath.Length > 100)
         {
             throw new ArgumentException("The SmolVM Unix socket path exceeds the portable Linux limit.", nameof(socketPath));
+        }
+        if (dataDirectory.Length > 48)
+        {
+            throw new ArgumentException(
+                "The SmolVM data root is too long for its internal Unix agent sockets (maximum 48 characters).",
+                nameof(dataDirectory));
         }
         if (startupTimeout <= TimeSpan.Zero || startupTimeout > TimeSpan.FromMinutes(2))
         {
@@ -74,7 +83,7 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
                     try
                     {
                         _ = await client.ListMachinesAsync(deadline.Token);
-                        return new(process, outputStopping, client);
+                        return new(process, outputStopping, client, socketPath);
                     }
                     catch (HttpRequestException)
                     {
@@ -196,6 +205,10 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         {
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync(CancellationToken.None);
+        }
+        if (Path.Exists(socketPath))
+        {
+            File.Delete(socketPath);
         }
         process.Dispose();
         outputStopping.Dispose();

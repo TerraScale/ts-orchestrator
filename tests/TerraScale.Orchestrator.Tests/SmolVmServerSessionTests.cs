@@ -48,6 +48,28 @@ public sealed class SmolVmServerSessionTests
     }
 
     [Test]
+    public async Task RuntimeDataRootThatCannotFitAgentSocketsIsRejectedBeforeLaunch()
+    {
+        const string launcher = "/bin/false";
+        var installation = new SmolVmVerifiedInstallation(
+            "1.5.0",
+            "6b178e16a7b95af0ed57ca69a1bbc0202e04157d",
+            launcher,
+            false,
+            [new("launcher", launcher, new string('a', 64))]);
+        var longDataRoot = $"/tmp/{new string('x', 49)}";
+
+        await Assert.That(async () => await SmolVmServerSession.StartAsync(
+                installation,
+                "/tmp/ts-smolvm-length-test.sock",
+                longDataRoot,
+                SmolVmLandlockMode.Off,
+                TimeSpan.FromSeconds(1),
+                CancellationToken.None))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task StaleUnixSocketIsRemovedButLiveListenerIsFenced()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"smolvm-socket-{Guid.NewGuid():N}");

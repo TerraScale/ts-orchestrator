@@ -34,6 +34,7 @@ public sealed record SmolVmLabOptions(
     string BaseArtifact,
     string BaseArtifactDigest,
     string SocketPath,
+    string RuntimeDataRoot,
     byte CpuCount,
     uint MemoryMiB,
     ulong StorageGiB,
@@ -196,7 +197,7 @@ public sealed record OrchestratorOptions(
             [
                 "--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--profile",
                 "--run-id", "--smolvm-pin", "--smolvm-installation", "--base-artifact", "--base-digest",
-                "--socket", "--vm-cpus", "--vm-memory-mib", "--vm-storage-gib", "--vm-overlay-gib",
+                "--socket", "--smolvm-data-root", "--vm-cpus", "--vm-memory-mib", "--vm-storage-gib", "--vm-overlay-gib",
                 "--first-host-port", "--allowed-cidrs", "--smolvm-landlock"
             ],
             StringComparer.Ordinal).FirstOrDefault();
@@ -217,7 +218,7 @@ public sealed record OrchestratorOptions(
         if (labProfile == OrchestratorLabProfile.DevHost &&
             (requireInternalProvenance || allowUnqualifiedSmolVmHost ||
              values.Keys.Any(key => key.StartsWith("--smolvm", StringComparison.Ordinal) ||
-                key is "--run-id" or "--base-artifact" or "--base-digest" or "--socket" or
+                key is "--run-id" or "--base-artifact" or "--base-digest" or "--socket" or "--smolvm-data-root" or
                     "--vm-cpus" or "--vm-memory-mib" or "--vm-storage-gib" or "--vm-overlay-gib" or
                     "--first-host-port" or "--allowed-cidrs")))
         {
@@ -260,6 +261,21 @@ public sealed record OrchestratorOptions(
         var baseDigest = RequiredValue(values, "--base-digest", environment("TS_ORCH_SMOLVM_BASE_SHA256"));
         _ = new Runtime.ArtifactDigest(baseDigest);
         var socket = RequiredValue(values, "--socket", environment("TS_ORCH_SMOLVM_SOCKET"));
+        var runtimeDataRoot = RequiredValue(
+            values,
+            "--smolvm-data-root",
+            environment("TS_ORCH_SMOLVM_DATA_ROOT"));
+        var fullSocketPath = Path.GetFullPath(socket);
+        var fullRuntimeDataRoot = Path.GetFullPath(runtimeDataRoot);
+        if (fullSocketPath.Length > 100)
+        {
+            throw new ArgumentException("The SmolVM Unix socket path exceeds the portable Linux limit.");
+        }
+        if (fullRuntimeDataRoot.Length > 48)
+        {
+            throw new ArgumentException(
+                "The SmolVM data root is too long for its internal Unix agent sockets (maximum 48 characters).");
+        }
         var cidrs = RequiredValue(values, "--allowed-cidrs", environment("TS_ORCH_SMOLVM_ALLOWED_CIDRS"))
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (cidrs.Length == 0 || cidrs.Any(value => !IsCidr(value)))
@@ -290,7 +306,8 @@ public sealed record OrchestratorOptions(
             Path.GetFullPath(installation),
             Path.GetFullPath(baseArtifact),
             baseDigest,
-            Path.GetFullPath(socket),
+            fullSocketPath,
+            fullRuntimeDataRoot,
             ParseNumber<byte>(values, "--vm-cpus", 2, value => value is >= 1 and <= 32),
             ParseNumber<uint>(values, "--vm-memory-mib", 2048, value => value is >= 512 and <= 131_072),
             ParseNumber<ulong>(values, "--vm-storage-gib", 20, value => value is >= 4 and <= 4_096),

@@ -72,8 +72,12 @@ internal static class SmolVmLab
             Console.Error.WriteLine("The regions-smol lab has no recorded state.");
             return 1;
         }
-        Console.WriteLine(JsonSerializer.Serialize(state, SerializerOptions));
-        return state.Healthy ? 0 : 1;
+        var current = state with
+        {
+            Healthy = state.Healthy && state.ObservedAt >= DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30)
+        };
+        Console.WriteLine(JsonSerializer.Serialize(current, SerializerOptions));
+        return current.Healthy ? 0 : 1;
     }
 
     private static async Task<int> RunAsync(
@@ -95,34 +99,35 @@ internal static class SmolVmLab
         var previous = await ReadStateAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.RunId == configuration.RunId ? previous.Generation : 0) + 1;
         var sourceCommit = await ReadEvidenceCommitAsync(options.EvidenceFile!, cancellationToken);
-        var serverData = Path.Combine(options.DataDirectory!, "smolvm", configuration.RunId);
         await using var server = await SmolVmServerSession.StartAsync(
             installation,
             configuration.SocketPath,
-            serverData,
+            configuration.RuntimeDataRoot,
             configuration.LandlockMode,
             TimeSpan.FromSeconds(45),
             cancellationToken);
         var driver = new SmolVmLabDriver(server.Client);
+        SmolVmLabState? currentState = null;
         try
         {
             while (true)
             {
                 var machines = await driver.ConvergeRegionsAsync(topology, cancellationToken);
+                currentState = new(
+                    1,
+                    Profile,
+                    configuration.RunId,
+                    generation,
+                    machines.Count == 9 && machines.All(machine => machine.State == "running"),
+                    installation.InternalProvenanceQualified &&
+                        configuration.LandlockMode == SmolVmLandlockMode.Enforce,
+                    QualificationGaps(installation, configuration),
+                    DateTimeOffset.UtcNow,
+                    sourceCommit,
+                    machines);
                 await WriteStateAsync(
                     options.StateFile!,
-                    new(
-                        1,
-                        Profile,
-                        configuration.RunId,
-                        generation,
-                        machines.Count == 9 && machines.All(machine => machine.State == "running"),
-                        installation.InternalProvenanceQualified &&
-                            configuration.LandlockMode == SmolVmLandlockMode.Enforce,
-                        QualificationGaps(installation, configuration),
-                        DateTimeOffset.UtcNow,
-                        sourceCommit,
-                        machines),
+                    currentState,
                     cancellationToken);
                 Console.WriteLine(
                     $"TerraScale regions-smol generation {generation}: {machines.Count(machine => machine.State == "running")}/9 running; " +
@@ -133,7 +138,33 @@ internal static class SmolVmLab
         finally
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-            await driver.CleanupAsync(topology, cleanup.Token);
+            var cleanupFailures = new List<Exception>();
+            if (currentState is not null)
+            {
+                try
+                {
+                    await WriteStateAsync(
+                        options.StateFile!,
+                        currentState with { Healthy = false, ObservedAt = DateTimeOffset.UtcNow },
+                        cleanup.Token);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
+            }
+            try
+            {
+                await driver.CleanupAsync(topology, cleanup.Token);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException("The regions-smol lab did not shut down cleanly.", cleanupFailures);
+            }
         }
     }
 

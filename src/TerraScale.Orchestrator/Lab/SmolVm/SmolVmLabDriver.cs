@@ -35,13 +35,23 @@ internal sealed class SmolVmLabDriver(ISmolVmApiClient client)
             machine = machine.State switch
             {
                 "running" => machine,
-                "created" or "stopped" => await client.StartMachineAsync(plan.Name, cancellationToken),
+                "created" or "stopped" or "failed" or "unreachable" =>
+                    await client.StartMachineAsync(plan.Name, cancellationToken),
                 _ => throw new InvalidOperationException(
                     $"SmolVM machine '{plan.Name}' is in unsupported state '{machine.State}'.")
             };
             if (machine.State != "running")
             {
                 throw new InvalidOperationException($"SmolVM machine '{plan.Name}' did not reach running state.");
+            }
+            var readiness = await client.ExecAsync(
+                plan.Name,
+                new(["/bin/true"], [], null, 10, null),
+                cancellationToken);
+            if (readiness.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"SmolVM machine '{plan.Name}' failed its in-guest readiness probe with exit code {readiness.ExitCode}.");
             }
             converged.Add(machine);
         }

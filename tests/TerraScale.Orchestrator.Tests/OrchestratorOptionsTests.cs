@@ -78,6 +78,7 @@ public sealed class OrchestratorOptionsTests
                 "--base-artifact", "/tmp/base.smolmachine",
                 "--base-digest", digest,
                 "--socket", "/tmp/regions.sock",
+                "--smolvm-data-root", "/tmp/ts-smol-data",
                 "--allowed-cidrs", "10.0.0.0/8,fd00::/8"
             ],
             _ => null);
@@ -86,6 +87,7 @@ public sealed class OrchestratorOptionsTests
         await Assert.That(options.StateFile).IsEqualTo("/tmp/lab-data/regions-smol-state.json");
         await Assert.That(options.SmolVm!.AllowedEgressCidrs).IsEquivalentTo(["10.0.0.0/8", "fd00::/8"]);
         await Assert.That(options.SmolVm.BaseArtifactDigest).IsEqualTo(digest);
+        await Assert.That(options.SmolVm.RuntimeDataRoot).IsEqualTo("/tmp/ts-smol-data");
         await Assert.That(() => OrchestratorOptions.Parse(
                 ["lab", "plan", "--profile", "regions-smol"],
                 _ => null))
@@ -98,6 +100,7 @@ public sealed class OrchestratorOptionsTests
                     "--base-artifact", "/tmp/base.smolmachine",
                     "--base-digest", digest,
                     "--socket", "/tmp/regions.sock",
+                    "--smolvm-data-root", "/tmp/ts-smol-data",
                     "--allowed-cidrs", "10.0.0.0/8",
                     "--smolvm-landlock", "off"
                 ],

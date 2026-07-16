@@ -28,9 +28,51 @@ public sealed class SmolVmLabDriverTests
             await Assert.That(result.All(machine => machine.State == "running")).IsTrue();
             await Assert.That(client.Created).Count().IsEqualTo(8);
             await Assert.That(client.Started).Count().IsEqualTo(9);
+            await Assert.That(client.Executed).Count().IsEqualTo(9);
             await Assert.That(client.Stopped).IsEquivalentTo([$"{fixture.Topology.NamespacePrefix}-sfo-elastic-1"]);
             await Assert.That(client.Deleted).IsEquivalentTo([$"{fixture.Topology.NamespacePrefix}-sfo-elastic-1"]);
             await Assert.That(client.Deleted).DoesNotContain("foreign-run-gru-seed-1");
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
+    [Test]
+    public async Task UnreachableMachineIsRestartedBeforeReadinessIsAccepted()
+    {
+        var fixture = await Fixture.CreateAsync();
+        try
+        {
+            var plan = fixture.Topology.Machines[0];
+            var client = new RecordingSmolVmClient([Info(plan, "unreachable")]);
+
+            var result = await new SmolVmLabDriver(client)
+                .ConvergeRegionsAsync(fixture.Topology, CancellationToken.None);
+
+            await Assert.That(client.Started).Contains(plan.Name);
+            await Assert.That(client.Executed).Contains(plan.Name);
+            await Assert.That(result).Count().IsEqualTo(9);
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
+    [Test]
+    public async Task FailedInGuestReadinessProbePreventsAcceptance()
+    {
+        var fixture = await Fixture.CreateAsync();
+        try
+        {
+            var client = new RecordingSmolVmClient([]) { ExecExitCode = 17 };
+
+            await Assert.That(async () => await new SmolVmLabDriver(client)
+                    .ConvergeRegionsAsync(fixture.Topology, CancellationToken.None))
+                .Throws<InvalidOperationException>();
+            await Assert.That(client.Executed).Count().IsEqualTo(1);
         }
         finally
         {
@@ -102,6 +144,8 @@ public sealed class SmolVmLabDriverTests
         public List<string> Started { get; } = [];
         public List<string> Stopped { get; } = [];
         public List<string> Deleted { get; } = [];
+        public List<string> Executed { get; } = [];
+        public int ExecExitCode { get; init; }
         public int ListCount { get; private set; }
 
         public Task<IReadOnlyList<SmolVmMachineInfo>> ListMachinesAsync(CancellationToken cancellationToken)
@@ -134,8 +178,16 @@ public sealed class SmolVmLabDriverTests
             return Task.FromResult(info);
         }
 
-        public Task<SmolVmExecResponse> ExecAsync(string name, SmolVmExecRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(new SmolVmExecResponse(0, string.Empty, string.Empty, string.Empty, string.Empty));
+        public Task<SmolVmExecResponse> ExecAsync(string name, SmolVmExecRequest request, CancellationToken cancellationToken)
+        {
+            Executed.Add(name);
+            return Task.FromResult(new SmolVmExecResponse(
+                ExecExitCode,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty));
+        }
 
         public Task<HttpResponseMessage> OpenExecStreamAsync(string name, SmolVmExecRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
