@@ -9,18 +9,19 @@ internal sealed record DevelopmentResourceHealth(bool Healthy, string Detail);
 
 internal static class DevelopmentHealthProbe
 {
+    private static readonly HttpClient HttpProbeClient = new() { Timeout = TimeSpan.FromSeconds(3) };
+
     public static async Task<IReadOnlyDictionary<string, DevelopmentResourceHealth>> ProbeAsync(
         DevelopmentTopology topology,
         DevelopmentProcessSupervisor supervisor,
         DevelopmentNatsSecurity natsSecurity,
         CancellationToken cancellationToken)
     {
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .ToArray();
         var results = await Task.WhenAll(resources.Select(resource =>
-            ProbeOneAsync(topology, resource, supervisor, natsSecurity, client, cancellationToken)));
+            ProbeOneAsync(topology, resource, supervisor, natsSecurity, cancellationToken)));
         return results.ToDictionary(result => result.Name, result => result.Health, StringComparer.Ordinal);
     }
 
@@ -40,7 +41,6 @@ internal static class DevelopmentHealthProbe
         DevelopmentResourcePlan resource,
         DevelopmentProcessSupervisor supervisor,
         DevelopmentNatsSecurity natsSecurity,
-        HttpClient client,
         CancellationToken cancellationToken)
     {
         if (!supervisor.Processes.TryGetValue(resource.Name, out var process))
@@ -64,11 +64,11 @@ internal static class DevelopmentHealthProbe
                     await ProbeNatsAsync(resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Authenticated NATS endpoint {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
-                    await ProbeHttpAsync(client, resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
                     await ProbeTcpAsync(resource.SecondaryPort!.Value, cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} and TCP {resource.SecondaryPort} ready."));
                 default:
-                    await ProbeHttpAsync(client, resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
             }
         }
@@ -84,12 +84,11 @@ internal static class DevelopmentHealthProbe
     }
 
     private static async Task ProbeHttpAsync(
-        HttpClient client,
         int port,
         string path,
         CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync($"http://127.0.0.1:{port}{path}", cancellationToken);
+        using var response = await HttpProbeClient.GetAsync($"http://127.0.0.1:{port}{path}", cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
