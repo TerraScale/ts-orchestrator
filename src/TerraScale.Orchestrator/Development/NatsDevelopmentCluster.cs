@@ -61,10 +61,14 @@ internal static class NatsDevelopmentCluster
         IReadOnlyList<DevelopmentResourcePlan> resources,
         DevelopmentResourcePlan resource)
     {
-        var seed = resources.OrderBy(candidate => candidate.Replica).First();
-        return resource.Name == seed.Name
-            ? []
-            : [$"nats-route://127.0.0.1:{seed.ClusterPort}"];
+        var ordered = resources.OrderBy(candidate => candidate.Replica).ToArray();
+        var index = Array.FindIndex(ordered, candidate => candidate.Name == resource.Name);
+        if (index < 0)
+        {
+            throw new ArgumentException("The NATS member is not part of the cluster.", nameof(resource));
+        }
+        var next = ordered[(index + 1) % ordered.Length];
+        return [$"nats-route://127.0.0.1:{next.ClusterPort}"];
     }
 
     public static async Task WaitReadyAsync(

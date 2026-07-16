@@ -110,15 +110,16 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task NatsMembersUseOneStableSeedWithoutDuplicateRouteStorms()
+    public async Task NatsMembersUseAStableBootstrapRingWithoutAllToAllRouteStorms()
     {
         var members = DevelopmentTopology.CreateThreeCellR3().Cells
             .Single(cell => cell.Cell == "fra")
             .OfKind(DevelopmentResourceKind.ControlNats);
 
-        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[0])).IsEmpty();
+        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[0]))
+            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[1].ClusterPort}"]);
         await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[1]))
-            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[0].ClusterPort}"]);
+            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[2].ClusterPort}"]);
         await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[2]))
             .IsEquivalentTo([$"nats-route://127.0.0.1:{members[0].ClusterPort}"]);
     }
