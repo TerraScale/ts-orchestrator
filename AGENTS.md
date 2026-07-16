@@ -25,3 +25,8 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Never emit plaintext secrets or private keys to Git, NATS, logs, traces, metrics, test output, or Grafana fixtures.
 - Use `apply_patch` for edits and preserve unrelated user changes.
 
+## Sibling repository ownership
+
+- `TerraScale.Infrastructure` and `Terrabase.Operator` are **retired stubs**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
+- Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.
+
