@@ -55,4 +55,29 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(first.StartupConsumer.Name).IsNotEqualTo(second.StartupConsumer.Name);
         await Assert.That(first.ServiceName).IsNotEqualTo(second.ServiceName);
     }
+
+    [Test]
+    public async Task RegionalServicesUseTheProductionDatabaseTopologyFloor()
+    {
+        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
+        var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
+
+        var environment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
+            topology,
+            cell,
+            authentication,
+            isApi: false,
+            "/tmp/terrascale-orchestrator-tests");
+
+        await Assert.That(environment["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"])
+            .IsEqualTo("false");
+        await Assert.That(environment["TerraScale__ServiceDatabases__ShardCount"]).IsEqualTo("3");
+        await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("3");
+        await Assert.That(environment["TerraScale__ServiceDatabases__DynamicNodesDistribution"]).IsEqualTo("true");
+        await Assert.That(environment.Keys.Count(key => key.StartsWith(
+                "TerraBase__Urls__",
+                StringComparison.Ordinal)))
+            .IsEqualTo(3);
+    }
 }

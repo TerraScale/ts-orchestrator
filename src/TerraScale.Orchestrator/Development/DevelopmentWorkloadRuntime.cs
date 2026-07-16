@@ -196,7 +196,7 @@ internal static class DevelopmentWorkloadRuntime
             });
     }
 
-    private static Dictionary<string, string?> CreateServiceEnvironment(
+    internal static Dictionary<string, string?> CreateServiceEnvironment(
         DevelopmentTopology topology,
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan resource,
@@ -240,9 +240,9 @@ internal static class DevelopmentWorkloadRuntime
             ["TerraScale__ServiceDatabases__ProjectName"] = "TerraScale",
             ["TerraScale__ServiceDatabases__ProjectId"] = ProductProjectId,
             ["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"] = "false",
-            ["TerraScale__ServiceDatabases__ShardCount"] = "1",
+            ["TerraScale__ServiceDatabases__ShardCount"] = "3",
             ["TerraScale__ServiceDatabases__ReplicationFactor"] = "3",
-            ["TerraScale__ServiceDatabases__DynamicNodesDistribution"] = "false"
+            ["TerraScale__ServiceDatabases__DynamicNodesDistribution"] = "true"
         };
         var members = cell.OfKind(DevelopmentResourceKind.TerraBase);
         for (var index = 0; index < members.Count; index++)
