@@ -84,10 +84,17 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task DashboardUsesItsRegionalPortInsteadOfVinextDefault()
     {
-        var dashboard = DevelopmentTopology.CreateThreeCellR3()
-            .GetRequired("gru", DevelopmentResourceKind.Dashboard);
+        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
+        var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
 
         var arguments = DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard, watch: true);
+        var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
+            topology,
+            cell.OfKind(DevelopmentResourceKind.Api).Single(),
+            cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
+            dashboard,
+            watch: true);
 
         await Assert.That(arguments).IsEquivalentTo([
             "run",
@@ -97,5 +104,8 @@ public sealed class DevelopmentTopologyTests
             "--port",
             dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
         ]);
+        await Assert.That(environment["VINEXT_NO_DEV_LOCK"]).IsEqualTo("1");
+        await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"])
+            .IsEqualTo($"http://127.0.0.1:{dashboard.Port}");
     }
 }

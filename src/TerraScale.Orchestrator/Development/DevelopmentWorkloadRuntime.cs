@@ -178,23 +178,35 @@ internal static class DevelopmentWorkloadRuntime
             vp,
             CreateDashboardArguments(dashboard, watch),
             directory,
-            new Dictionary<string, string?>
-            {
-                ["HOST"] = "127.0.0.1",
-                ["PORT"] = dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                ["NODE_ENV"] = watch ? "development" : "production",
-                ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
-                ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
-                ["TERRASCALE_API_BASE_URL"] = Http(api.Port),
-                ["TERRASCALE_AUTH_API_BASE_URL"] = Http(authentication.Port),
-                ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = Http(dashboard.Port),
-                ["TERRASCALE_DASHBOARD_CLIENT_ID"] = DashboardClientId,
-                ["TERRASCALE_DASHBOARD_PROJECT_ID"] = ProductProjectId,
-                ["TERRASCALE_DASHBOARD_TENANT_ID"] = string.Empty,
-                ["TERRASCALE_DASHBOARD_DATABASE_IDS"] = string.Empty,
-                ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
-            });
+            CreateDashboardEnvironment(topology, api, authentication, dashboard, watch));
     }
+
+    internal static IReadOnlyDictionary<string, string?> CreateDashboardEnvironment(
+        DevelopmentTopology topology,
+        DevelopmentResourcePlan api,
+        DevelopmentResourcePlan authentication,
+        DevelopmentResourcePlan dashboard,
+        bool watch) =>
+        new Dictionary<string, string?>
+        {
+            ["HOST"] = "127.0.0.1",
+            ["PORT"] = dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["NODE_ENV"] = watch ? "development" : "production",
+            // A production deployment has an isolated filesystem per dashboard. DevHost runs
+            // all regional replicas from one checkout, so the project-local Vinext PID lock
+            // must not collapse those independent cell processes into a single server.
+            ["VINEXT_NO_DEV_LOCK"] = watch ? "1" : null,
+            ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
+            ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
+            ["TERRASCALE_API_BASE_URL"] = Http(api.Port),
+            ["TERRASCALE_AUTH_API_BASE_URL"] = Http(authentication.Port),
+            ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = Http(dashboard.Port),
+            ["TERRASCALE_DASHBOARD_CLIENT_ID"] = DashboardClientId,
+            ["TERRASCALE_DASHBOARD_PROJECT_ID"] = ProductProjectId,
+            ["TERRASCALE_DASHBOARD_TENANT_ID"] = string.Empty,
+            ["TERRASCALE_DASHBOARD_DATABASE_IDS"] = string.Empty,
+            ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
+        };
 
     internal static IReadOnlyList<string> CreateDashboardArguments(
         DevelopmentResourcePlan dashboard,
