@@ -61,8 +61,8 @@ internal static class DevelopmentHealthProbe
                     return (resource.Name, new(true, $"Controller {process.Id} authority endpoint ready."));
                 case DevelopmentResourceKind.ControlNats:
                 case DevelopmentResourceKind.ProductNats:
-                    await ProbeTcpAsync(resource.Port, cancellationToken);
-                    return (resource.Name, new(true, $"NATS endpoint {resource.Port} ready."));
+                    await ProbeNatsAsync(resource, natsSecurity, cancellationToken);
+                    return (resource.Name, new(true, $"Authenticated NATS endpoint {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
                     await ProbeHttpAsync(client, resource.Port, HealthPath(resource.Kind)!, cancellationToken);
                     await ProbeTcpAsync(resource.SecondaryPort!.Value, cancellationToken);
@@ -138,6 +138,18 @@ internal static class DevelopmentHealthProbe
         {
             throw new NatsException("The controller authority endpoint is not ready.");
         }
+    }
+
+    private static async Task ProbeNatsAsync(
+        DevelopmentResourcePlan resource,
+        DevelopmentNatsSecurity natsSecurity,
+        CancellationToken cancellationToken)
+    {
+        await using var client = new NatsClient(NatsDevelopmentCluster.ClientOptions(
+            resource,
+            natsSecurity.Cell(resource.Cell)));
+        await client.ConnectAsync();
+        await client.PingAsync(cancellationToken);
     }
 
     internal static NatsTlsOpts TlsOptions(DevelopmentTlsIdentity identity) => new()

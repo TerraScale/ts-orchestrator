@@ -86,6 +86,19 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(tlsConfiguration).Contains("verify: true");
             await Assert.That(tlsConfiguration).DoesNotContain("insecure");
             await Assert.That(serverTls.Client.SpiffeId).IsNotEqualTo(serverTls.Route.SpiffeId);
+
+            var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
+            var controlProbe = NatsDevelopmentCluster.ClientOptions(
+                cell.OfKind(DevelopmentResourceKind.ControlNats)[0],
+                gru);
+            var productProbe = NatsDevelopmentCluster.ClientOptions(
+                cell.OfKind(DevelopmentResourceKind.ProductNats)[0],
+                gru);
+            await Assert.That(controlProbe.AuthOpts.NKeyFile).IsEqualTo(gru.Operator.SeedFile);
+            await Assert.That(controlProbe.TlsOpts.CertFile).IsEqualTo(operatorTls.CertificateFile);
+            await Assert.That(productProbe.AuthOpts.Username).IsEqualTo(gru.Product.Username);
+            await Assert.That(productProbe.TlsOpts.CertFile)
+                .IsEqualTo(gru.Tls.Product.Clients["gru-api"].CertificateFile);
         }
         finally
         {

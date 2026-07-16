@@ -100,8 +100,10 @@ public static class DevelopmentLab
                 DevelopmentResourceKind.ProductNats,
                 Path.Combine(options.DataDirectory!, "nats"),
                 natsSecurity.Cell(cell.Cell));
-            await NatsDevelopmentCluster.WaitReadyAsync(control, supervisor, cancellationToken);
-            await NatsDevelopmentCluster.WaitReadyAsync(product, supervisor, cancellationToken);
+            await NatsDevelopmentCluster.WaitReadyAsync(
+                control, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
+            await NatsDevelopmentCluster.WaitReadyAsync(
+                product, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
         }
 
         StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);

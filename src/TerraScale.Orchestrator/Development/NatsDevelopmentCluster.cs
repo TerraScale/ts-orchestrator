@@ -1,4 +1,6 @@
 using System.Net.Sockets;
+using NATS.Client.Core;
+using NATS.Net;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -141,6 +143,7 @@ internal static class NatsDevelopmentCluster
     public static async Task WaitReadyAsync(
         IReadOnlyList<DevelopmentResourcePlan> resources,
         DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsCellSecurity security,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -152,16 +155,59 @@ internal static class NatsDevelopmentCluster
                 supervisor.ThrowIfAnyExited();
                 try
                 {
-                    using var client = new TcpClient();
-                    await client.ConnectAsync("127.0.0.1", resource.Port, timeout.Token);
+                    await using var client = new NatsClient(ClientOptions(resource, security));
+                    await client.ConnectAsync();
+                    await client.PingAsync(timeout.Token);
                     break;
                 }
-                catch (SocketException) when (!timeout.IsCancellationRequested)
+                catch (Exception exception) when (
+                    exception is NatsException or SocketException or IOException &&
+                    !timeout.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(200), timeout.Token);
                 }
             }
         }
+    }
+
+    internal static NatsOpts ClientOptions(
+        DevelopmentResourcePlan resource,
+        DevelopmentNatsCellSecurity security)
+    {
+        if (resource.Cell != security.Cell)
+        {
+            throw new InvalidOperationException("NATS probe credentials must match the resource cell.");
+        }
+
+        var options = new NatsOpts
+        {
+            Url = $"nats://127.0.0.1:{resource.Port}",
+            RetryOnInitialConnect = false,
+            RequestTimeout = TimeSpan.FromSeconds(3)
+        };
+        return resource.Kind switch
+        {
+            DevelopmentResourceKind.ControlNats => options with
+            {
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Operator.SeedFile },
+                TlsOpts = DevelopmentHealthProbe.TlsOptions(
+                    security.Tls.Control.Clients["operator-read"])
+            },
+            DevelopmentResourceKind.ProductNats => options with
+            {
+                AuthOpts = new NatsAuthOpts
+                {
+                    Username = security.Product.Username,
+                    Password = security.Product.Password
+                },
+                TlsOpts = DevelopmentHealthProbe.TlsOptions(
+                    security.Tls.Product.Clients[$"{security.Cell}-api"])
+            },
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(resource),
+                resource.Kind,
+                "Only NATS resources have NATS probe options.")
+        };
     }
 
     private static string ResolveNatsServer()
