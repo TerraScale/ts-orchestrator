@@ -31,7 +31,8 @@ public sealed record DevelopmentRuntimeState(
     long Generation,
     DateTimeOffset StartedAt,
     DateTimeOffset ObservedAt,
-    IReadOnlyList<DevelopmentResourceObservation> Resources);
+    IReadOnlyList<DevelopmentResourceObservation> Resources,
+    DevelopmentReconciliationState Reconciliation);
 
 public sealed record DevelopmentEndpointMap(
     int SchemaVersion,

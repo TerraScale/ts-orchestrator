@@ -213,13 +213,22 @@ public static class DevelopmentLab
             .Concat(topology.GlobalResources)
             .Select(resource => Observe(resource, supervisor, state, health, observedAt))
             .ToArray();
+        var reconciliation = DevelopmentReconciliation.Evaluate(topology, generation, all);
+        if (state == DevelopmentResourceState.Ready &&
+            all.All(resource => resource.State == DevelopmentResourceState.Ready) &&
+            (reconciliation.Errors.Count != 0 || reconciliation.ConvergedResources != all.Length))
+        {
+            throw new InvalidOperationException(
+                "The development graph cannot be accepted until typed reconciliation proves exact convergence.");
+        }
         var runtimeState = new DevelopmentRuntimeState(
-            1,
+            2,
             topology.Profile,
             generation,
             startedAt,
             observedAt,
-            all);
+            all,
+            reconciliation);
         var endpointValues = all.Where(observation => observation.Endpoint is not null)
             .ToDictionary(observation => observation.Name, observation => observation.Endpoint!, StringComparer.Ordinal);
         AddDevHostAliases(endpointValues, topology);
