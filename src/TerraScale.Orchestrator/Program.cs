@@ -11,7 +11,11 @@ try
     {
         return HostRuntimeCli.Execute(args.Skip(1).ToArray());
     }
-    var options = OrchestratorOptions.Parse(args, Environment.GetEnvironmentVariable);
+    var runtimeConfiguration = OrchestratorRuntimeConfiguration.Load(
+        Environment.GetEnvironmentVariable("TS_ORCH_CONFIG"));
+    var options = OrchestratorOptions.Parse(
+        args,
+        key => runtimeConfiguration?.GetEnvironmentValue(key) ?? Environment.GetEnvironmentVariable(key));
     using var shutdown = new CancellationTokenSource();
 
     Console.CancelKeyPress += (_, eventArgs) =>

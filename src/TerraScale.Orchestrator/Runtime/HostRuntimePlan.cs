@@ -124,11 +124,21 @@ public sealed record HostRuntimePlan(
         RuntimeResourceLimits resources)
     {
         var unit = $"terrascale-{allocation}.service";
+        var stateDirectory = $"/var/lib/terrascale-{allocation}";
         var executable = $"/opt/terrascale/artifacts/{descriptor.ArtifactKey}/sha256-{digest}/{descriptor.ArtifactKey}";
+        var arguments = descriptor.Role switch
+        {
+            AdmittedRole.ControlNatsServer or AdmittedRole.ProductNatsServer or AdmittedRole.RoutePolicyController =>
+                new[] { "--config", $"{stateDirectory}/config.json" },
+            _ => []
+        };
+        var configurationProperty = descriptor.Role == AdmittedRole.Orchestrator
+            ? $"Environment=TS_ORCH_CONFIG={stateDirectory}/config.json"
+            : $"EnvironmentFile=-{stateDirectory}/environment";
         return new(
             unit,
             executable,
-            [$"--config=/var/lib/terrascale-{allocation}/config.json"],
+            arguments,
             [
                 "Type=exec",
                 "Restart=always",
@@ -143,6 +153,9 @@ public sealed record HostRuntimePlan(
                 "RestrictSUIDSGID=yes",
                 "LockPersonality=yes",
                 $"StateDirectory=terrascale-{allocation}",
+                $"RuntimeDirectory=terrascale-{allocation}",
+                configurationProperty,
+                $"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred",
                 $"MemoryMax={resources.MemoryMaxBytes}",
                 $"TasksMax={resources.TasksMax}",
                 $"CPUQuota={resources.CpuQuotaPercent}%"

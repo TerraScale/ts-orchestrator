@@ -24,6 +24,10 @@ public sealed class HostRuntimePlanTests
         await Assert.That(plan.Systemd.Properties).Contains("NoNewPrivileges=yes");
         await Assert.That(plan.Systemd.Properties).Contains("ProtectSystem=strict");
         await Assert.That(plan.Systemd.Properties).Contains("ProtectControlGroups=yes");
+        await Assert.That(plan.Systemd.Properties)
+            .Contains("EnvironmentFile=-/var/lib/terrascale-gru-terrabase-1/environment");
+        await Assert.That(plan.Systemd.Properties)
+            .Contains("LoadCredentialEncrypted=workload:/var/lib/terrascale-gru-terrabase-1/credentials/workload.cred");
     }
 
     [Test]
