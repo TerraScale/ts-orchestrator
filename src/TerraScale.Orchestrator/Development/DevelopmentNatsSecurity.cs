@@ -60,20 +60,36 @@ internal sealed class DevelopmentNatsSecurity
     internal static DevelopmentNKeyIdentity EnsureNKey(string path)
     {
         string seed;
+        string? storedPublicKey = null;
         if (File.Exists(path))
         {
             RequirePrivateFile(path);
-            seed = File.ReadAllText(path).Trim();
+            var lines = File.ReadAllLines(path)
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToArray();
+            seed = lines.FirstOrDefault()
+                ?? throw new InvalidOperationException("A development NATS NKey file is empty.");
+            storedPublicKey = lines.Skip(1).FirstOrDefault();
         }
         else
         {
             seed = NKeys.CreateUserSeed();
-            WriteSecret(path, seed + Environment.NewLine);
         }
 
         try
         {
-            return new DevelopmentNKeyIdentity(NKeys.PublicKeyFromSeed(seed), path);
+            var publicKey = NKeys.PublicKeyFromSeed(seed);
+            if (storedPublicKey is not null && storedPublicKey != publicKey)
+            {
+                throw new InvalidOperationException(
+                    "A development NATS NKey file contains a mismatched public key.");
+            }
+            if (storedPublicKey is null)
+            {
+                WriteSecret(path, $"{seed}{Environment.NewLine}{publicKey}{Environment.NewLine}", overwrite: true);
+            }
+            return new DevelopmentNKeyIdentity(publicKey, path);
         }
         catch (Exception exception) when (exception is ArgumentException or FormatException)
         {
@@ -108,7 +124,7 @@ internal sealed class DevelopmentNatsSecurity
         }
     }
 
-    private static void WriteSecret(string path, string contents)
+    private static void WriteSecret(string path, string contents, bool overwrite = false)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -118,7 +134,7 @@ internal sealed class DevelopmentNatsSecurity
         var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(temporary, contents);
         File.SetUnixFileMode(temporary, SecretFileMode);
-        File.Move(temporary, path, overwrite: false);
+        File.Move(temporary, path, overwrite);
         RequirePrivateFile(path);
     }
 
