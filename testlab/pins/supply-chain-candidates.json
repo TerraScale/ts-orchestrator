@@ -39,6 +39,10 @@
     ],
     "lockProvenance": [
       {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "64ec075fc02ab7e4da4abd5cc7be38c54035880e12ca518d6bd6bc549d2b15eb"},
+      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
+      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
+      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
+      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
       {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
       {"path": "tools/TerraScale.Orchestrator.Tooling/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"}
     ],
