@@ -33,14 +33,15 @@ public sealed class NatsRuntime : IAsyncDisposable
         var client = new NatsClient(new NatsOpts
         {
             Url = options.NatsUrl,
-            RetryOnInitialConnect = false
+            RetryOnInitialConnect = true,
+            RequestTimeout = TimeSpan.FromSeconds(15)
         });
 
         RuntimeRegistration? registration = null;
         try
         {
             await client.ConnectAsync();
-            var state = await ReconcileStateAsync(client, topology, cancellationToken);
+            var state = await ReconcileStateWithRetryAsync(client, topology, cancellationToken);
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
@@ -79,6 +80,26 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await client.DisposeAsync();
             throw;
+        }
+    }
+
+    private static async Task<RuntimeState> ReconcileStateWithRetryAsync(
+        NatsClient client,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await ReconcileStateAsync(client, topology, cancellationToken);
+            }
+            catch (Exception exception) when (
+                attempt < 5 &&
+                exception is NatsJSApiNoResponseException or NatsJSTimeoutException or NatsJSConnectionException)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), cancellationToken);
+            }
         }
     }
 
