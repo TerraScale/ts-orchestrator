@@ -1206,7 +1206,7 @@ The installed lab tool is `smol-machines/smolvm` 1.5.0 on x86_64 KVM. Phase 0 re
 
 SmolVM's `init.krun` PID 1 and directory/overlay storage are deliberate limitations in the evidence model. L3S proves the real TerraScale/NATS/TerraBase/Grafana/OTel processes, protocols, identities, topology, persistence, restart, and failure logic, but never claims to prove systemd unit semantics, OCI attachment/online expansion, block durability/performance, or A1 behavior. Those claims belong only to L1R/L4. The SmolVM test coordinator itself must also run inside a SmolVM when it drives L1R/L4, keeping test tooling hermetic while the production boundary remains real.
 
-The existing Aspire AppHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, email and Stripe emulators, with current dependency/health ordering. Aspire tests remain fast product-contract tests; they do not replace the Linux lab.
+The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, email and Stripe emulators, with the current dependency and health ordering. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
 
 ### Mandatory nine-SmolVM regional topology
 
@@ -1732,7 +1732,7 @@ These files are the starting executable specifications. Paths are relative to th
 - Historical OCI node-generation/autoscaling/IAM behavior and workaround evidence: `../TerraScale.Infrastructure/src/TerraScale.Infrastructure/OkeResources.cs`, `InfrastructureSettings.cs`, and CLI/verifier projects.
 - Historical checked-in mTLS ingest behavior: `../TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs` and GRU regional ingest manifests.
 - Release semantics: `../TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs`, `../TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/FluxNotificationBarrier.cs`, tests, and every `.terrascale/deploy.json`.
-- Local runtime graph: `../TerraScale.Internals/src/Hosting/TerraScale.AppHost/AppHost.cs` and `docs/AppHost.md`.
+- Local runtime graph: `../TerraScale.DevHost/src/TerraScale.DevHost/DevStack.cs`, `../TerraScale.DevHost/src/TerraScale.DevHost/DevStackEnvironment.cs`, and `../TerraScale.Internals/docs/DevHost.md`.
 - Product regions/replication: `../TerraScale.Internals/docs/databases/regions-and-replication.md` and the project placement implementation.
 - Queue contract: `../TerraScale.Internals/docs/queue/architecture.md` and `src/Core/TerraScale.Queue/`.
 - Health/OTel/runtime contracts: Internals ServiceDefaults, API/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.

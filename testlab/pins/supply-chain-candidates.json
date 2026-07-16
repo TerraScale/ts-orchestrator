@@ -27,10 +27,19 @@
         "lockRequested": "[2.7.2, )",
         "resolvedVersion": "2.7.2",
         "contentHash": "6B8RlcstYwgoKm9IXcZEDADpH93Hn6+LcvR8hvmFa8jzwshNlIArv8tL5jelJD+fQmnlymKoQYcZ5cL7J1bITw=="
+      },
+      {
+        "name": "TUnit",
+        "declaredVersion": "1.56.18",
+        "lockType": "Direct",
+        "lockRequested": "[1.56.18, )",
+        "resolvedVersion": "1.56.18",
+        "contentHash": "jjrUFc81DA7qiNNisr0aPmbYmTxC2FE+aHbPYpNc75KKXVX5J6noan9FyJvnXdofGwZks+ZtkEggx55ZbSbC2A=="
       }
     ],
     "lockProvenance": [
       {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "64ec075fc02ab7e4da4abd5cc7be38c54035880e12ca518d6bd6bc549d2b15eb"},
+      {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "3306bd3ed3da933a331e2792e3fa72c1a8d6e8fc69024b964524353154ea1af6"},
       {"path": "tools/TerraScale.Orchestrator.Tooling/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"}
     ],
     "lockProvenanceStatus": "checked-in-lock-files-bound-by-sha256-but-not-yet-qualified-against-an-internal-mirror"

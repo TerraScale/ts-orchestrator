@@ -378,7 +378,7 @@ internal static class SupplyChainCommand
     {
         var document = ToolingSupport.ReadObject("testlab/pins/supply-chain-candidates.json");
         var errors = Validation.JsonDocument(document, "manifest", "schemaVersion", "productionQualified", "existingBaselinePins", "entries", "gaps");
-        JsonEvidenceValidator.ExactFile(errors, "testlab/pins/supply-chain-candidates.json", "4a36efe4b9f58dae74299e35a84b48c2c1911a15ccf57708a05917393d6be797");
+        JsonEvidenceValidator.ExactFile(errors, "testlab/pins/supply-chain-candidates.json", "0f8cd174f579164682ff989b5647e7d5c546c9535179cc0fa2a068ecccbc1241");
         JsonEvidenceValidator.ExactFile(errors, "tools/phase0/supply-chain/fixtures/negative-cases.json", "fdc1175fd4b257cca88b32bc3503febb24c61ffb81ae642e9fb82f3e1f3ef845");
         if (document["productionQualified"]?.GetValue<bool>() != false) errors.Add("manifest.productionQualified: must be false");
         if (document["existingBaselinePins"]?["lockProvenance"] is JsonArray provenance)
@@ -426,6 +426,12 @@ internal static class TraceabilityCommand
 
 internal static class DeliveryInventoryCommand
 {
+    private static readonly HashSet<string> RetiredRepositories = new(StringComparer.Ordinal)
+    {
+        "Terrabase.Operator",
+        "TerraScale.Deploy"
+    };
+
     public static int Generate(string[] arguments)
     {
         Console.Write(File.ReadAllText(Path.Combine(ToolingSupport.Root, "docs/audits/delivery/descriptor-inventory.json"), Encoding.UTF8));
@@ -443,6 +449,11 @@ internal static class DeliveryInventoryCommand
             var name = repository["name"]?.GetValue<string>() ?? string.Empty;
             var commit = repository["commit"]?.GetValue<string>() ?? string.Empty;
             var directory = Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, name);
+            if (RetiredRepositories.Contains(name) && !Directory.Exists(directory))
+            {
+                continue;
+            }
+
             try { _ = ToolingSupport.Git(directory, "cat-file", "-e", $"{commit}^{{commit}}"); }
             catch { errors.Add($"{name}: pinned commit is unavailable"); }
         }

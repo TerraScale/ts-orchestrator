@@ -1,4 +1,5 @@
 using TerraScale.Orchestrator;
+using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
 try
@@ -11,6 +12,11 @@ try
         eventArgs.Cancel = true;
         shutdown.Cancel();
     };
+
+    if (options.Command is OrchestratorCommand.Lab)
+    {
+        return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);
+    }
 
     await using var runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
     Console.WriteLine($"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}");

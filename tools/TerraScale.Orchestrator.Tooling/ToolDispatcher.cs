@@ -17,6 +17,7 @@ internal static class ToolDispatcher
             ["nats-l0c"] = arguments => Task.FromResult(NatsL0cCommand.Run(arguments)),
             ["delivery-inventory-generate"] = arguments => Task.FromResult(DeliveryInventoryCommand.Generate(arguments)),
             ["delivery-inventory-validate"] = arguments => Task.FromResult(DeliveryInventoryCommand.Validate(arguments)),
+            ["development-attest"] = arguments => Task.FromResult(DevelopmentEvidenceCommand.Run(arguments)),
             ["oci-inventory"] = arguments => Task.FromResult(OciInventoryCommand.Run(arguments)),
             ["provider-qualification"] = arguments => Task.FromResult(ProviderQualificationCommand.Run(arguments)),
             ["runtime-readiness"] = arguments => Task.FromResult(RuntimeReadinessCommand.Run(arguments)),

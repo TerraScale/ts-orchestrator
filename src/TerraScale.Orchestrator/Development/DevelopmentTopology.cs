@@ -1,0 +1,128 @@
+namespace TerraScale.Orchestrator.Development;
+
+public enum DevelopmentResourceKind
+{
+    ControllerAgent,
+    ControlNats,
+    ProductNats,
+    TerraBase,
+    Authentication,
+    Api,
+    Dashboard,
+    EmailEmulator,
+    StripeEmulator
+}
+
+public sealed record DevelopmentResourcePlan(
+    string Name,
+    string Cell,
+    DevelopmentResourceKind Kind,
+    int Replica,
+    int Port,
+    int? ClusterPort = null,
+    int? SecondaryPort = null);
+
+public sealed record DevelopmentCellPlan(
+    string Cell,
+    int Ordinal,
+    IReadOnlyList<DevelopmentResourcePlan> Resources)
+{
+    public IReadOnlyList<DevelopmentResourcePlan> OfKind(DevelopmentResourceKind kind) =>
+        Resources.Where(resource => resource.Kind == kind).ToArray();
+}
+
+public sealed record DevelopmentTopology(
+    string Profile,
+    IReadOnlyList<DevelopmentCellPlan> Cells,
+    IReadOnlyList<DevelopmentResourcePlan> GlobalResources)
+{
+    private const int CellStride = 200;
+    private const int BasePort = 18600;
+
+    public static DevelopmentTopology CreateThreeCellR3()
+    {
+        var cells = new[] { "gru", "sfo", "fra" }
+            .Select((cell, ordinal) => CreateCell(cell, ordinal))
+            .ToArray();
+        var globalBase = BasePort + (cells.Length * CellStride);
+        var global = new[]
+        {
+            new DevelopmentResourcePlan(
+                "email-emulator",
+                "gru",
+                DevelopmentResourceKind.EmailEmulator,
+                1,
+                globalBase),
+            new DevelopmentResourcePlan(
+                "stripe-emulator",
+                "gru",
+                DevelopmentResourceKind.StripeEmulator,
+                1,
+                globalBase + 1)
+        };
+        return new("devhost-three-cell-r3", cells, global);
+    }
+
+    public DevelopmentResourcePlan GetRequired(
+        string cell,
+        DevelopmentResourceKind kind,
+        int replica = 1) =>
+        Cells.Single(candidate => candidate.Cell == cell)
+            .Resources.Single(resource => resource.Kind == kind && resource.Replica == replica);
+
+    private static DevelopmentCellPlan CreateCell(string cell, int ordinal)
+    {
+        var start = BasePort + (ordinal * CellStride);
+        var resources = new List<DevelopmentResourcePlan>();
+        for (var replica = 1; replica <= 3; replica++)
+        {
+            resources.Add(new(
+                $"{cell}-control-nats-{replica}",
+                cell,
+                DevelopmentResourceKind.ControlNats,
+                replica,
+                start + replica - 1,
+                start + 10 + replica - 1));
+            resources.Add(new(
+                $"{cell}-product-nats-{replica}",
+                cell,
+                DevelopmentResourceKind.ProductNats,
+                replica,
+                start + 20 + replica - 1,
+                start + 30 + replica - 1));
+            resources.Add(new(
+                $"{cell}-controller-{replica}",
+                cell,
+                DevelopmentResourceKind.ControllerAgent,
+                replica,
+                start + 40 + replica - 1));
+            resources.Add(new(
+                $"{cell}-terrabase-{replica}",
+                cell,
+                DevelopmentResourceKind.TerraBase,
+                replica,
+                start + 50 + replica - 1,
+                SecondaryPort: start + 60 + replica - 1));
+        }
+
+        resources.Add(new(
+            $"{cell}-authentication",
+            cell,
+            DevelopmentResourceKind.Authentication,
+            1,
+            start + 70));
+        resources.Add(new(
+            $"{cell}-api",
+            cell,
+            DevelopmentResourceKind.Api,
+            1,
+            start + 71));
+        resources.Add(new(
+            $"{cell}-dashboard",
+            cell,
+            DevelopmentResourceKind.Dashboard,
+            1,
+            start + 72));
+        return new(cell, ordinal, resources);
+    }
+}

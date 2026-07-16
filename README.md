@@ -26,7 +26,7 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-valid
 Run the executable without arguments to list every command. The translated
 test suite also fails if a Python source file is reintroduced.
 
-The repository contains one project and produces one operational binary. The source is limited to the command-line entry point, validated options, and the NATS runtime it actually executes. The `check` command is the functional test: it exercises the same production startup path as `run` against a real JetStream-enabled NATS server, then exits cleanly.
+The repository produces one operational Orchestrator binary, a dependency-free policy/evidence tool, and a test executable. The `check` command exercises the production controller startup path against a real JetStream-enabled NATS server, then exits cleanly. The `lab` command is the native development adapter used by DevHost; it does not weaken or replace the SmolVM production-parity lab.
 
 ## Run
 
@@ -42,3 +42,31 @@ dotnet run --project src/TerraScale.Orchestrator -- run
 ```
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` and `ORCH_RUNTIME` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
+
+## DevHost three-cell profile
+
+`lab plan` is a pure operation and prints the fixed `devhost-three-cell-r3` topology. It contains GRU, SFO, and FRA cells. Every cell has three Orchestrator controllers, three control-plane NATS members, three product-plane NATS members, three TerraBase members, Authentication, API, and Dashboard. Email and Stripe emulators are shared development fixtures.
+
+```bash
+dotnet run --project src/TerraScale.Orchestrator -- lab plan
+dotnet run --project src/TerraScale.Orchestrator -- lab status \
+  --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
+```
+
+`lab up` is intentionally fail-closed. DevHost first invokes `development-attest`, which requires a clean Orchestrator checkout, runs the solution and policy test suites, and writes short-lived evidence outside the repository for the exact source commit and executable assembly. Only then can the Orchestrator start workload processes or mutate persistent lab state.
+
+```bash
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
+  development-attest \
+  --output /tmp/terrascale-orchestrator-evidence.json \
+  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator
+
+src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
+  lab up \
+  --workspace /workspaces/TerraScale \
+  --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
+  --evidence /tmp/terrascale-orchestrator-evidence.json \
+  --watch
+```
+
+The native adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Killing the foreground Orchestrator tears down its entire child process tree; persisted data remains for the next generation.
