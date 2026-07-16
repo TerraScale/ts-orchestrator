@@ -4,19 +4,19 @@ using NATS.Client.ObjectStore;
 
 namespace TerraScale.Orchestrator.Messaging;
 
-public sealed record NatsTopology(string Cell, int Replicas)
+public sealed record NatsTopology(string Cell, int Replicas, string Instance = "local")
 {
     private string Root => $"ts.orch.v1.{Cell}";
 
     public string HealthSubject => $"{Root}.query.health";
 
-    public string StartupSubject => $"{Root}.event.runtime.started";
+    public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";
 
     public string ProtocolObject => "orchestrator-protocol-v1";
 
-    public string ServiceName => "terrascale_orchestrator";
+    public string ServiceName => $"terrascale_orchestrator_{Cell}_{Instance.Replace('-', '_')}";
 
-    public string ServiceQueueGroup => $"orchestrator_{Cell}";
+    public string ServiceQueueGroup => $"orchestrator_{Cell}_{Instance}";
 
     public IReadOnlyList<StreamConfig> Streams =>
     [
@@ -49,9 +49,9 @@ public sealed record NatsTopology(string Cell, int Replicas)
         NumberOfReplicas = Replicas
     };
 
-    public ConsumerConfig StartupConsumer => new("runtime_startup")
+    public ConsumerConfig StartupConsumer => new($"runtime_startup_{Instance}")
     {
-        Description = $"Acknowledged runtime startup events for {Cell}",
+        Description = $"Acknowledged runtime startup events for {Cell}/{Instance}",
         FilterSubject = StartupSubject,
         AckWait = TimeSpan.FromSeconds(15),
         MaxDeliver = 5,

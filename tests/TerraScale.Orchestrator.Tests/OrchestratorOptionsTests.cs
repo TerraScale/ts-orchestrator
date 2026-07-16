@@ -37,4 +37,21 @@ public sealed class OrchestratorOptionsTests
             .Throws<InvalidOperationException>();
         await Assert.That(exception!.Message).Contains("--evidence");
     }
+
+    [Test]
+    public async Task ParsesAndValidatesStableControllerInstance()
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["TS_ORCH_INSTANCE"] = "controller-2"
+        };
+
+        var options = OrchestratorOptions.Parse(["run"], name => values.GetValueOrDefault(name));
+
+        await Assert.That(options.Instance).IsEqualTo("controller-2");
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["run"],
+                name => name == "TS_ORCH_INSTANCE" ? "Controller/2" : null))
+            .Throws<ArgumentException>();
+    }
 }

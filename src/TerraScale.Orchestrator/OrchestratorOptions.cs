@@ -25,7 +25,8 @@ public sealed record OrchestratorOptions(
     string? StateFile = null,
     string? EndpointsFile = null,
     string? EvidenceFile = null,
-    bool Watch = false)
+    bool Watch = false,
+    string Instance = "local")
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -42,6 +43,7 @@ public sealed record OrchestratorOptions(
         var cell = environment("TS_ORCH_CELL") ?? "local";
         var url = environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222";
         var replicasText = environment("TS_ORCH_REPLICAS") ?? "1";
+        var instance = environment("TS_ORCH_INSTANCE") ?? "local";
 
         if (!IsSubjectToken(cell))
         {
@@ -58,12 +60,17 @@ public sealed record OrchestratorOptions(
             throw new ArgumentException("TS_ORCH_REPLICAS must be 1, 3, or 5.");
         }
 
-        if (command is not OrchestratorCommand.Lab)
+        if (!IsSubjectToken(instance))
         {
-            return new(command, cell, uri.ToString(), replicas);
+            throw new ArgumentException("TS_ORCH_INSTANCE must contain only lowercase letters, digits, or hyphens.");
         }
 
-        return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas);
+        if (command is not OrchestratorCommand.Lab)
+        {
+            return new(command, cell, uri.ToString(), replicas, Instance: instance);
+        }
+
+        return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);
     }
 
     private static OrchestratorOptions ParseLab(
@@ -71,7 +78,8 @@ public sealed record OrchestratorOptions(
         Func<string, string?> environment,
         string cell,
         string natsUrl,
-        int replicas)
+        int replicas,
+        string instance)
     {
         var labCommand = args.FirstOrDefault() switch
         {
@@ -143,7 +151,8 @@ public sealed record OrchestratorOptions(
             stateFile,
             endpointsFile,
             evidenceFile is null ? null : Path.GetFullPath(evidenceFile),
-            watch);
+            watch,
+            instance);
     }
 
     private static string GetValue(

@@ -44,4 +44,15 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(() => topology.GetRequired("gru", DevelopmentResourceKind.Api, replica: 2))
             .Throws<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task ControllerMessagingProbesAreIsolatedByStableInstance()
+    {
+        var first = new Messaging.NatsTopology("gru", 3, "1");
+        var second = new Messaging.NatsTopology("gru", 3, "2");
+
+        await Assert.That(first.StartupSubject).IsNotEqualTo(second.StartupSubject);
+        await Assert.That(first.StartupConsumer.Name).IsNotEqualTo(second.StartupConsumer.Name);
+        await Assert.That(first.ServiceName).IsNotEqualTo(second.ServiceName);
+    }
 }

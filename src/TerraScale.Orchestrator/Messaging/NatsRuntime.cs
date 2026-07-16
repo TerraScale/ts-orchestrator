@@ -29,7 +29,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         OrchestratorOptions options,
         CancellationToken cancellationToken)
     {
-        var topology = new NatsTopology(options.Cell, options.Replicas);
+        var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var client = new NatsClient(new NatsOpts
         {
             Url = options.NatsUrl,
@@ -50,7 +50,11 @@ public sealed class NatsRuntime : IAsyncDisposable
                 new NatsSvcConfig(topology.ServiceName, "1.0.0")
                 {
                     Description = "TerraScale regional control service",
-                    Metadata = new Dictionary<string, string> { ["cell"] = options.Cell },
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["cell"] = options.Cell,
+                        ["instance"] = options.Instance
+                    },
                     QueueGroup = topology.ServiceQueueGroup
                 },
                 cancellationToken);
