@@ -1,9 +1,22 @@
 using TerraScale.Orchestrator.Development;
+using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
 public sealed class DevelopmentNatsSecurityTests
 {
+    [Test]
+    public async Task FreshAuthorityLeaseAgeDoesNotInheritProcessStartupTime()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var health = RegionalAuthorityCoordinator.Health(now, TimeSpan.Zero);
+
+        await Assert.That(health.ServerTime).IsEqualTo(now);
+        await Assert.That(health.MonotonicElapsed).IsEqualTo(TimeSpan.Zero);
+        await Assert.That(health.PartitionCertain).IsTrue();
+        await Assert.That(health.ClockCertain).IsTrue();
+    }
+
     [Test]
     public async Task DevelopmentNatsIdentitiesArePrivateDistinctAndPlaneScoped()
     {

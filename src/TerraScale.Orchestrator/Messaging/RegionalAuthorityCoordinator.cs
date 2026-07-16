@@ -65,7 +65,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     private readonly INatsKVStore store;
     private readonly string authorityId;
     private readonly string candidateId;
-    private readonly Stopwatch monotonic = Stopwatch.StartNew();
+    private readonly Stopwatch confirmedLeaseAge = new();
     private readonly CancellationTokenSource stopping = new();
     private readonly List<AuthorityEvent> history = [];
     private Task? loop;
@@ -143,7 +143,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         }
 
         var requestId = $"acquire-{Guid.NewGuid():N}";
-        var health = Health(now);
+        var health = Health(now, TimeSpan.Zero);
         var acquisition = AuthorityEngine.Decide(history, new AcquireAuthority(
             authorityId,
             candidateId,
@@ -173,7 +173,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             candidateId,
             requestId,
             current,
-            Health(now),
+            Health(now, confirmedLeaseAge.Elapsed),
             LeaseDuration));
         Append(renewal);
         if (renewal.Intents.SingleOrDefault() is not CompareAndSetLeaseIntent intent)
@@ -217,8 +217,12 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
                 intent.RequestId,
                 AuthorityCasOutcome.Succeeded,
                 observed,
-                Health(DateTimeOffset.UtcNow)));
+                Health(DateTimeOffset.UtcNow, TimeSpan.Zero)));
             Append(result);
+            if (result.State.Status == AuthorityStatus.Leader)
+            {
+                confirmedLeaseAge.Restart();
+            }
             PublishDecision(result, observed, DateTimeOffset.UtcNow);
         }
         catch (Exception exception) when (
@@ -231,7 +235,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
                 intent.RequestId,
                 AuthorityCasOutcome.Conflict,
                 observed,
-                Health(DateTimeOffset.UtcNow)));
+                Health(DateTimeOffset.UtcNow, TimeSpan.Zero)));
             Append(result);
             // Losing a CAS is the normal follower path. It denies mutation
             // authority but does not make the read-serving controller unhealthy.
@@ -267,8 +271,8 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         }
     }
 
-    private AuthorityHealth Health(DateTimeOffset now) =>
-        new(now, monotonic.Elapsed, PartitionCertain: true, ClockCertain: true);
+    internal static AuthorityHealth Health(DateTimeOffset now, TimeSpan confirmedLeaseAge) =>
+        new(now, confirmedLeaseAge, PartitionCertain: true, ClockCertain: true);
 
     private void Append(AuthorityDecision decision)
     {
