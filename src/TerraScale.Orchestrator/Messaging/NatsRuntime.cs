@@ -17,14 +17,22 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     private readonly NatsClient client;
     private readonly RuntimeRegistration registration;
+    private readonly RegionalAuthorityCoordinator authority;
     private readonly INatsSvcServer service;
 
-    private NatsRuntime(NatsClient client, INatsSvcServer service, RuntimeRegistration registration)
+    private NatsRuntime(
+        NatsClient client,
+        INatsSvcServer service,
+        RuntimeRegistration registration,
+        RegionalAuthorityCoordinator authority)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
+        this.authority = authority;
     }
+
+    public Task Completion => authority.Completion;
 
     public static async Task<NatsRuntime> StartAsync(
         OrchestratorOptions options,
@@ -39,6 +47,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         });
 
         RuntimeRegistration? registration = null;
+        RegionalAuthorityCoordinator? authority = null;
         try
         {
             await client.ConnectAsync();
@@ -46,6 +55,11 @@ public sealed class NatsRuntime : IAsyncDisposable
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
+            authority = await RegionalAuthorityCoordinator.StartAsync(
+                state.Leaders,
+                options.Cell,
+                options.Instance,
+                cancellationToken);
 
             var services = client.CreateServicesContext();
             var service = await services.AddServiceAsync(
@@ -62,7 +76,9 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken);
 
             await service.AddEndpointAsync<string>(
-                message => message.ReplyAsync("ready", cancellationToken: cancellationToken),
+                message => message.ReplyAsync(
+                    authority.Snapshot.Ready ? "ready" : "not-ready",
+                    cancellationToken: cancellationToken),
                 name: "health",
                 subject: topology.HealthSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1" },
@@ -70,33 +86,43 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             var startedAt = DateTimeOffset.UtcNow;
             await service.AddEndpointAsync<string>(
-                message => message.ReplyAsync(
-                    JsonSerializer.Serialize(
-                        new RegionalControllerStatus(
-                            1,
-                            options.Cell,
-                            options.Instance,
-                            options.Replicas,
-                            true,
-                            startedAt,
-                            DateTimeOffset.UtcNow,
-                            BuildVersion.Current.DisplayName,
-                            [
-                                "authority",
-                                "delivery",
-                                "messaging",
-                                "observability",
-                                "operator-read",
-                                "provider-ownership",
-                                "reconciliation",
-                                "runtime",
-                                "scheduler",
-                                "security",
-                                "storage",
-                                "terrabase"
-                            ]),
-                        RegionalControllerStatusJsonContext.Default.RegionalControllerStatus),
-                    cancellationToken: cancellationToken),
+                message =>
+                {
+                    var authoritySnapshot = authority.Snapshot;
+                    return message.ReplyAsync(
+                        JsonSerializer.Serialize(
+                            new RegionalControllerStatus(
+                                2,
+                                options.Cell,
+                                options.Instance,
+                                options.Replicas,
+                                authoritySnapshot.Ready,
+                                startedAt,
+                                DateTimeOffset.UtcNow,
+                                BuildVersion.Current.DisplayName,
+                                [
+                                    "authority",
+                                    "authority-election",
+                                    "delivery",
+                                    "messaging",
+                                    "observability",
+                                    "operator-read",
+                                    "provider-ownership",
+                                    "reconciliation",
+                                    "runtime",
+                                    "scheduler",
+                                    "security",
+                                    "storage",
+                                    "terrabase"
+                                ],
+                                authoritySnapshot.State,
+                                authoritySnapshot.IsLeader,
+                                authoritySnapshot.Epoch,
+                                authoritySnapshot.KvRevision,
+                                authoritySnapshot.LeaseExpiresAt),
+                            RegionalControllerStatusJsonContext.Default.RegionalControllerStatus),
+                        cancellationToken: cancellationToken);
+                },
                 name: "status",
                 subject: topology.StatusSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1", ["readOnly"] = "true" },
@@ -104,10 +130,14 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
-            return new(client, service, registration);
+            return new(client, service, registration, authority);
         }
         catch
         {
+            if (authority is not null)
+            {
+                await authority.DisposeAsync();
+            }
             if (registration is not null)
             {
                 await registration.DisposeAsync();
@@ -217,11 +247,18 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             try
             {
-                await registration.DisposeAsync();
+                await authority.DisposeAsync();
             }
             finally
             {
-                await client.DisposeAsync();
+                try
+                {
+                    await registration.DisposeAsync();
+                }
+                finally
+                {
+                    await client.DisposeAsync();
+                }
             }
         }
     }
@@ -238,7 +275,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         }
 
         var keyValue = jetStream.CreateKeyValueStoreContext();
-        await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
+        var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
         var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
 
         var objects = jetStream.CreateObjectStoreContext();
@@ -256,7 +293,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             "CELL_EVENTS",
             topology.StartupConsumer,
             cancellationToken);
-        return new(startupConsumer, runtime, bundles);
+        return new(startupConsumer, leaders, runtime, bundles);
     }
 
     private static async Task VerifyProtocolPackageAsync(
@@ -323,6 +360,7 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     private sealed record RuntimeState(
         INatsJSConsumer StartupConsumer,
+        INatsKVStore Leaders,
         INatsKVStore Runtime,
         INatsObjStore Bundles);
 

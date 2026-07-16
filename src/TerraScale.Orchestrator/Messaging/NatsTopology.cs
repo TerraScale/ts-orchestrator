@@ -16,9 +16,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string ProtocolObject => "orchestrator-protocol-v1";
 
-    public string ServiceName => $"terrascale_orchestrator_{Cell}_{Instance.Replace('-', '_')}";
+    public string ServiceName => $"terrascale_orchestrator_{Cell}";
 
-    public string ServiceQueueGroup => $"orchestrator_{Cell}_{Instance}";
+    public string ServiceQueueGroup => $"orchestrator_{Cell}";
 
     public IReadOnlyList<StreamConfig> Streams =>
     [

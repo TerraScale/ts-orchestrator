@@ -47,9 +47,22 @@ dotnet run --project src/TerraScale.Orchestrator -- \
 `operator status` is a read-only NATS request/reply operation. The regional
 service validates and returns its cell, controller instance, R3 configuration,
 exact build, start/observation times, and implemented capability inventory.
-The CLI rejects a response from another cell or an invalid/unready projection.
+It also reports the current regional authority state, fencing epoch, KV
+revision, and lease expiry. The CLI rejects a response from another cell, an
+expired lease, contradictory leader state, or an invalid/unready projection.
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` and `ORCH_RUNTIME` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
+
+The three regional controller candidates share one NATS service queue group
+and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
+revisions. The production authority state machine advances the fencing epoch,
+binds the lease identity, and grants a mutation permit only to the exact CAS
+winner. Followers remain available for read-only operator traffic. The winner
+renews every three seconds with a fifteen-second lease; a renewal conflict or
+uncertain authority result fences the candidate and terminates it for an
+external supervisor restart. DevHost exercises this election on each real R3
+cell, but its single-host clock/loopback transport is development evidence and
+does not replace the real multi-host clock, partition, mTLS, and NATS-JWT gates.
 
 ## DevHost three-cell profile
 

@@ -50,7 +50,7 @@ try
 
     if (options.Command is OrchestratorCommand.Run)
     {
-        await Task.Delay(Timeout.InfiniteTimeSpan, shutdown.Token);
+        await runtime.Completion.WaitAsync(shutdown.Token);
     }
 
     return 0;

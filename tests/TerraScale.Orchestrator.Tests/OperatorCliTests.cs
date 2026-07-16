@@ -23,7 +23,7 @@ public sealed class OperatorCliTests
     public async Task RegionalStatusRejectsWrongCellAndUnqualifiedCapabilities()
     {
         var status = new RegionalControllerStatus(
-            1,
+            2,
             "gru",
             "1",
             3,
@@ -31,11 +31,20 @@ public sealed class OperatorCliTests
             DateTimeOffset.UtcNow.AddMinutes(-1),
             DateTimeOffset.UtcNow,
             "test",
-            ["reconciliation", "runtime"]);
+            ["reconciliation", "runtime"],
+            "leader",
+            true,
+            4,
+            9,
+            DateTimeOffset.UtcNow.AddSeconds(10));
 
         status.Validate("gru");
         await Assert.That(() => status.Validate("sfo")).Throws<InvalidOperationException>();
         await Assert.That(() => (status with { Capabilities = ["runtime", "runtime"] }).Validate("gru"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(() => (status with { AuthorityEpoch = 0 }).Validate("gru"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(() => (status with { AuthorityState = "follower" }).Validate("gru"))
             .Throws<InvalidOperationException>();
     }
 }
