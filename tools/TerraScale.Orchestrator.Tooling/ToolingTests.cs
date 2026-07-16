@@ -15,7 +15,7 @@ internal static class ToolingTests
             ("adr invalid lane", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "ownerLane"], "unknown"), AdrReadinessCommand.Validate)),
             ("adr missing field", () => AssertInvalid(Delete("docs/adr/readiness-index.yaml", ["entries", 0, "title"]), AdrReadinessCommand.Validate)),
             ("owner baseline", () => AssertValid(OwnerDecisionCommand.Validate(ToolingSupport.ReadObject("docs/decisions/owner-decision-packet.json")))),
-            ("owner accidental default", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "answer"], "A"), OwnerDecisionCommand.Validate)),
+            ("owner decision drift", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "answer"], "B"), OwnerDecisionCommand.Validate)),
             ("owner invalid option", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 1, "answer"], "C"), OwnerDecisionCommand.Validate)),
             ("owner invalid unit", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["inputs", 2, "unit"], "USD/month"), OwnerDecisionCommand.Validate)),
             ("owner later selection default", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "selection"], "cosign"), OwnerDecisionCommand.Validate)),

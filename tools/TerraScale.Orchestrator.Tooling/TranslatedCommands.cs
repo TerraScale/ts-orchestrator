@@ -144,27 +144,45 @@ internal static class OwnerDecisionCommand
 {
     private static readonly IReadOnlyDictionary<string, string> Units = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["team-size"] = "people", ["first-production-date"] = "ISO-8601-date-or-quarter",
-        ["maximum-three-region-pre-user-cost"] = "BRL/day", ["storage-minimum-iops-per-member"] = "IOPS",
-        ["storage-minimum-throughput-per-member"] = "MiB/s", ["storage-p95-read-latency"] = "ms",
-        ["storage-p99-read-latency"] = "ms", ["storage-p95-write-latency"] = "ms", ["storage-p99-write-latency"] = "ms",
-        ["regional-rpo"] = "seconds", ["regional-rto"] = "minutes", ["security-credential-revocation"] = "seconds",
-        ["security-workload-certificate-ttl"] = "hours", ["security-certificate-renewal-lead"] = "hours",
-        ["security-break-glass-session-ttl"] = "minutes", ["security-critical-remediation"] = "hours",
-        ["memory-orchestrator-rss-per-host"] = "MiB", ["density-compact-post-failure-utilization-ceiling"] = "percent",
-        ["audit-hot-retention"] = "days", ["audit-immutable-retention"] = "days", ["maximum-regional-survival-window"] = "hours",
+        ["team-size"] = "people",
+        ["first-production-date"] = "ISO-8601-date-or-quarter",
+        ["maximum-three-region-pre-user-cost"] = "BRL/day",
+        ["storage-minimum-iops-per-member"] = "IOPS",
+        ["storage-minimum-throughput-per-member"] = "MiB/s",
+        ["storage-p95-read-latency"] = "ms",
+        ["storage-p99-read-latency"] = "ms",
+        ["storage-p95-write-latency"] = "ms",
+        ["storage-p99-write-latency"] = "ms",
+        ["regional-rpo"] = "seconds",
+        ["regional-rto"] = "minutes",
+        ["security-credential-revocation"] = "seconds",
+        ["security-workload-certificate-ttl"] = "hours",
+        ["security-certificate-renewal-lead"] = "hours",
+        ["security-break-glass-session-ttl"] = "minutes",
+        ["security-critical-remediation"] = "hours",
+        ["memory-orchestrator-rss-per-host"] = "MiB",
+        ["density-compact-post-failure-utilization-ceiling"] = "percent",
+        ["audit-hot-retention"] = "days",
+        ["audit-immutable-retention"] = "days",
+        ["maximum-regional-survival-window"] = "hours",
     };
     public static int Run(string[] arguments)
     {
         var path = arguments.Length > 0 ? arguments[0] : "docs/decisions/owner-decision-packet.json";
         ToolingSupport.RequireNoErrors(Validate(ToolingSupport.ReadObject(path)));
-        Console.WriteLine("owner decision packet valid: ten questions remain explicit and unselected");
+        Console.WriteLine("owner decision packet valid: decisions 1A-10A accepted; measurable qualification targets remain unset");
         return 0;
     }
 
     public static List<string> Validate(JsonObject document)
     {
-        var errors = Validation.JsonDocument(document, "packet", "schemaVersion", "status", "questions");
+        var errors = Validation.JsonDocument(document, "packet", "schemaVersion", "status", "recordedResponse", "questions");
+        if (document["status"]?.GetValue<string>() != "owner-choices-accepted-measurable-targets-pending")
+            errors.Add("status: owner choices must be accepted while measurable targets remain pending");
+        if (document["recordedResponse"] is not JsonObject response
+            || response["answer"]?.GetValue<string>() != "all A"
+            || response["priority"]?.GetValue<string>() != "reliability-first")
+            errors.Add("recordedResponse: explicit all-A reliability-first response is required");
         var questions = document["questions"] as JsonArray;
         if (questions is null || questions.Count != 10) errors.Add("questions: exactly ten owner questions are required");
         else
@@ -176,8 +194,7 @@ internal static class OwnerDecisionCommand
             {
                 var id = question["id"]?.GetValue<int>() ?? 0;
                 var answer = question["answer"]?.GetValue<string>();
-                if (answer is not null && answer is not "A" and not "B") errors.Add($"question {id}: answer must be null, A, or B");
-                if (answer is not null) errors.Add($"question {id}: checked-in answer must remain null");
+                if (answer is not "A") errors.Add($"question {id}: answer must match the explicit owner selection A");
                 if (question["optionA"] is null || question["optionB"] is null) errors.Add($"question {question["id"]}: exactly two options required");
                 var sourceLine = question["sourceLine"]?.GetValue<int>() ?? 0;
                 if (sourceLine <= 0 || sourceLine > specification.Length) { errors.Add($"question {id}: invalid source line"); continue; }
@@ -195,7 +212,13 @@ internal static class OwnerDecisionCommand
         {
             var id = input["id"]?.GetValue<string>() ?? string.Empty;
             if (!Units.TryGetValue(id, out var unit) || input["unit"]?.GetValue<string>() != unit) errors.Add($"input {id}: unit must be {unit}");
-            if (input["value"] is not null) errors.Add($"input {id}: checked-in value must remain null");
+            if (input["value"] is not null) errors.Add($"input {id}: unmeasured value must remain null");
+            var isPlanningInput = id is "team-size" or "first-production-date";
+            var expectedStage = isPlanningInput ? "phase-0-planning" : "deployment-qualification";
+            if (input["readinessStage"]?.GetValue<string>() != expectedStage)
+                errors.Add($"input {id}: readiness stage must be {expectedStage}");
+            if (input["requiredBeforeContractFreeze"]?.GetValue<bool>() is not false)
+                errors.Add($"input {id}: unmeasured qualification values cannot block pure contract freeze");
         }
         if (document["laterImplementationSelections"] is not JsonArray selections || selections.Count != 7) errors.Add("later implementation selections must occur exactly once");
         else foreach (var selection in selections.OfType<JsonObject>()) if (selection["selection"] is not null) errors.Add($"selection {selection["id"]}: checked-in selection must remain null");
@@ -223,8 +246,8 @@ internal static class RegistryAuditCommand
     public static int Run(string[] arguments)
     {
         var errors = JsonEvidenceValidator.Validate("docs/audits/registry/registry-audit.json", "schemaVersion", "summary", "findings");
-        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "50b3d7e0af1673e765b8e0790429ab1fe87914a05373960e834e5bdda44986cd");
-        JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/registry-audit.json", "a128fe83b8442f804171ec60a28d3ce86c5dd51090d58768b2423a3c078ad61c");
+        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "0a3dfb53228f71a4eb976a209ae05668d0e49b0708ddc32a0d8457d63106aa72");
+        JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/registry-audit.json", "f7057fb8a86fbb4f379a07a28567cbf682590216176d8867a42afc67e9f8b3d5");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/owner-mapping.json", "754e37b4081b262ae338a852543bc14946eec6e1bf4dd355819698b5cb339931");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/fixtures/negative-cases.json", "de9b1b3132d54d3840cdc678980f18ef05a0c0f34e9eb9b59ce7f0132c4ef10a");
         var audit = ToolingSupport.ReadObject("docs/audits/registry/registry-audit.json");

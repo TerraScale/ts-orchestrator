@@ -1,1 +1,1 @@
-{"name":"accidental recommendation default","operation":"set","path":["questions",0,"answer"],"value":"A","expected":"question 1: checked-in answer must remain null"}
+{"name":"accepted decision drift","operation":"set","path":["questions",0,"answer"],"value":"B","expected":"question 1: answer must match the explicit owner selection A"}

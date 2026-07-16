@@ -1,5 +1,7 @@
 # Phase 0 work package: owner decision and SLO freeze packet
 
+Status: completed as an unanswered packet, then superseded on 2026-07-16 when the owner explicitly selected 1A–10A with reliability first. The measurable targets remain evidence-derived deployment-qualification inputs.
+
 - Predecessor commit: `f393dc4`
 - Contract version: proposed architecture dated 2026-07-13; all answers remain unset unless explicitly supplied by the owner
 - Requirement scope: owner questions 1–10; team/date/cost/storage/RPO/RTO inputs; security, memory/density, audit-retention, and regional-survival targets required by the Phase 0/ADR readiness map

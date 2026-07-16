@@ -1,5 +1,7 @@
 # Phase 0 owner decision and SLO packet handoff
 
+Superseded on 2026-07-16: the owner explicitly selected 1A–10A with reliability first. The machine-readable packet and validator now enforce those choices; only measurable qualification targets and later implementation selections remain unset. The text below records the original blank-packet handoff and is retained as historical evidence.
+
 - Work package predecessor: `f393dc4`
 - Branch starting point observed by this lane: `5322e62`
 - Scope changed: `docs/decisions/**` and this handoff only

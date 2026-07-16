@@ -1,12 +1,12 @@
 # Phase 0 owner decision and SLO packet
 
-Status: awaiting explicit owner input; no recommendation, answer, target, or implementation selection has been accepted.
+Status: owner choices 1A–10A accepted on 2026-07-16 with reliability first; measurable targets and later implementation selections remain pending.
 
-The machine-readable packet is `owner-decision-packet.json`. Its validator binds each question to the exact table row in `ORCHESTRATOR.md`, including Markdown semantics, source line, and SHA-256 over the four cells joined by ASCII unit separator. The `recommended` field records which source column is labelled recommended; it never supplies `answer`.
+The machine-readable packet is `owner-decision-packet.json`. Its validator binds each decision to the exact table row in `ORCHESTRATOR.md`, including Markdown semantics, source line, and SHA-256 over the four cells joined by ASCII unit separator. The recorded `answer` must match the explicit owner response; the `recommended` field is historical decision context only.
 
 ## Owner questions (exact source text)
 
-| # | Question | A — recommended | B |
+| # | Question | A — selected | B |
 |---|---|---|---|
 | 1 | Regional control topology | Three controller candidates plus three control-NATS servers in **each** region: 9 of each across GRU/SFO/FRA, with independent regional JetStream R3 consensus | Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants |
 | 2 | GRU/WAN outage deployments | Regions keep serving, healing, replacing/scaling nodes, expanding storage, and renewing existing identities; freeze new global releases/policy changes | Allow each isolated region to accept independent releases/policy changes |
@@ -21,19 +21,21 @@ The machine-readable packet is `owner-decision-packet.json`. Its validator binds
 
 ## Readiness boundary
 
-Questions 1–10 require explicit A/B owner answers before contract freeze. Cost, per-member storage performance/latency, regional RPO/RTO, security, memory/density, audit retention, and maximum disconnected regional-survival targets also block the affected contract/ADR tranche. Their exact units and validation constraints are in the packet, and every value is null.
+Questions 1–10 are resolved as A. Cost, per-member storage performance/latency, regional RPO/RTO, security, memory/density, audit retention, and maximum disconnected regional-survival targets remain null until Phase 0 evidence supports honest values. They block the affected deployment and production qualification gates, while pure contracts model them as explicit inputs.
 
 Team size and desired first-production date are Phase 0 planning inputs requested “when available”; they are not falsely promoted to architecture choices. Artifact/evidence signing, DNS, VPN, operator identity provider, regional artifact mirror, ARM64 host image, and NATS N/N-1 policy are explicitly segregated as later Phase 0 implementation selections. They remain null and do not masquerade as answers to the owner questions.
 
-The ADR mappings use the canonical 1–24 IDs from `ORCHESTRATOR.md:1709-1732` and match the Phase 0 readiness map. Gate labels name the specification’s contract freeze, Phase 0 exit, and acceptance layers; they indicate downstream impact, not evidence that a gate passed.
+The ADR mappings use the canonical 1–24 IDs from `ORCHESTRATOR.md:1681-1704` and match the Phase 0 readiness map. Gate labels name the specification’s contract freeze, Phase 0 exit, and acceptance layers; they indicate downstream impact, not evidence that a gate passed.
 
-## Compact owner response
+## Recorded owner response
 
-Replace every `_` for which a value is approved; leave unknown values as `_`. Do not use `all A` unless that is an intentional answer to every question after reviewing each option.
+The explicit response governing this packet is:
 
 ```text
-1=_ 2=_ 3=_ 4=_ 5=_ 6=_ 7=_ 8=_ 9=_ 10=_; team-size=_ people; first-production-date=_; maximum-cost=_ BRL/day; storage-iops=_ IOPS; storage-throughput=_ MiB/s; storage-read-p95=_ ms; storage-read-p99=_ ms; storage-write-p95=_ ms; storage-write-p99=_ ms; regional-rpo=_ seconds; regional-rto=_ minutes; security-revocation=_ seconds; certificate-ttl=_ hours; certificate-renewal-lead=_ hours; break-glass-ttl=_ minutes; security-critical-remediation=_ hours; orchestrator-rss=_ MiB; compact-post-failure-utilization=_ percent; audit-hot-retention=_ days; audit-immutable-retention=_ days; regional-survival=_ hours
+all A; reliability first
 ```
+
+Unknown numeric values are filled only from approved evidence. Until then, cost policy may stop non-safety growth but cannot reduce availability, durability, backup, storage-integrity, or security floors.
 
 ## Validation
 
@@ -44,4 +46,4 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/d
 git diff --check
 ```
 
-The adversarial fixtures prove rejection of accidental recommendation defaulting, a missing question, an invalid option, a changed unit, exact specification semantic drift, and accidental selection of a later implementation dependency.
+The adversarial fixtures prove rejection of decision drift, a missing question, an invalid option, a changed unit, exact specification semantic drift, and accidental selection of a later implementation dependency.

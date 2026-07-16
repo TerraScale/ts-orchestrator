@@ -1,7 +1,7 @@
 schemaVersion: 2
 status: draft
 source: ORCHESTRATOR.md
-unresolvedOwnerQuestions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+resolvedOwnerDecisions: [1A, 2A, 3A, 4A, 5A, 6A, 7A, 8A, 9A, 10A]
 evidenceStateVocabulary: [missing, partial, verified]
 entries:
   - id: REQ-O001
@@ -51,12 +51,12 @@ entries:
     contractStatus: proposed
     owner: Core
     coReviewers: []
-    normativeStatement: "One lightweight C# process/host, no sidecars, provisional RSS budgets, measured resource admission, and no fixed pod/allocation ceiling"
+    normativeStatement: "One lightweight C# process/host, no sidecars, measured RSS budgets, resource-based admission, and no fixed pod/allocation ceiling"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 115
     normativeEndLine: 115
     normativeContains: "Avoid Kubernetes memory overhead"
-    normativeSha256: 12713dc72914dffb53b0c86dd392db8897e20ac34ab1c9494c45e4b712e97933
+    normativeSha256: 6c16f09d8b0282ca3b3b7bdc5373cce2c2aa3a8e01ea96bba282402fa3239057
     acceptanceLayers:
       - L0
       - L3S
@@ -131,12 +131,12 @@ entries:
     contractStatus: proposed
     owner: Messaging/security
     coReviewers: []
-    normativeStatement: "Two R3 clusters per region; separate-host meaning remains question 8 and disk layout is benchmark-selected"
+    normativeStatement: "Two R3 clusters per region; decision 8A permits benchmarked host sharing while disk layout remains qualification-selected"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 119
     normativeEndLine: 119
     normativeContains: "Dedicated orchestrator NATS"
-    normativeSha256: 5240706829619b0e1a54ac0f178a1fea32c20f726198eb5a7e83e06f1ec679d2
+    normativeSha256: a802ce8b77771fb54bdf7bd608db723e0ed3986b008e3743df5138a32dbd5a0e
     acceptanceLayers:
       - L0
       - L0C
@@ -237,12 +237,12 @@ entries:
     contractStatus: proposed
     owner: Runtime
     coReviewers: []
-    normativeStatement: "containerd and systemd executors with one lifecycle contract; runtime default remains question 4"
+    normativeStatement: "containerd and systemd executors with one lifecycle contract; decision 4A selects native TerraBase and containerized API/Auth/Dashboard defaults"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 124
     normativeEndLine: 124
     normativeContains: "containers and native systemd"
-    normativeSha256: b18960dee454868d790a56c5a4623a87983ded7db5a16ead291fae6a0e8f8335
+    normativeSha256: 44ac79bcd36ce904c71729ae85fdb9b423ff9d3f0e0a649ba0f5bbc3341b7f1f
     acceptanceLayers:
       - L0
       - L1R
@@ -299,12 +299,12 @@ entries:
     contractStatus: proposed
     owner: Delivery
     coReviewers: [Messaging/security]
-    normativeStatement: "Vault/PKI/policy service and immutable promotion/isolated runners; authority/bootstrap boundaries remain questions 3 and 7"
+    normativeStatement: "Vault/PKI/policy service with OCI Vault/KMS root protection and immutable promotion/isolated runners with the decision 7A recovery exception"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 127
     normativeEndLine: 127
     normativeContains: "Built-in vault, CI and CD"
-    normativeSha256: a469ce285900c4dab9f0b12a9866568474a8c9d9c910ee129b851b87bd27f50b
+    normativeSha256: bf78da81ee3bdb44235b5dc3ae5c38b0ed10d0f8abbb7553aff76a60e7924f6d
     acceptanceLayers:
       - L0
       - L3S
@@ -377,12 +377,12 @@ entries:
     contractStatus: proposed
     owner: Cloud
     coReviewers: []
-    normativeStatement: "OCI-first dynamic region/provider contract, initial three active cells, no hard-coded trio; exact portability timing remains question 6"
+    normativeStatement: "Decision 6A: OCI-first dynamic region/provider contract, initial three active cells, no hard-coded trio, and another adapter only when needed"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 131
     normativeEndLine: 131
     normativeContains: "at least 20 regions"
-    normativeSha256: c65197efc008be4ee3c44ccf3403a5f9b5c2827c50d378b1a31be9ea970576f9
+    normativeSha256: 2690fb5367b21a0ce8aa29ffa85b904f131b34e8c9acdae140765d2fc32e0c4e
     acceptanceLayers:
       - L0
       - L4
@@ -811,12 +811,12 @@ entries:
     contractStatus: proposed
     owner: Messaging/security
     coReviewers: [Cloud, Runtime, Storage]
-    normativeStatement: "Every active region has operationally and cryptographically separate orchestrator-control and TerraScale-product NATS clusters, each with three servers and separate stores; host isolation follows question 8 and physical disk layout is the cheapest tested safe layout."
+    normativeStatement: "Every active region has operationally and cryptographically separate orchestrator-control and TerraScale-product NATS clusters, each with three servers and separate stores; decision 8A permits benchmarked host sharing and physical disk layout is the cheapest tested safe layout."
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 160
     normativeEndLine: 160
-    normativeContains: "operationally and cryptographically separate"
-    normativeSha256: 859f805ded80527a94e610e4c0e88d56771f42daccc7edf73c2e30e5269b49d2
+    normativeContains: "decision 8A permits benchmarked host sharing"
+    normativeSha256: c06a885a5fc13a52c4944670807e608a713ed7b870c394f77e2159f737f4c898
     acceptanceLayers:
       - L0
       - L0C
@@ -833,12 +833,12 @@ entries:
     contractStatus: proposed
     owner: Integration/contract steward
     coReviewers: []
-    normativeStatement: "Phase 1 contract freeze and implementation remain held while required owner decisions and measurable targets are unresolved."
+    normativeStatement: "Pure Phase 1 contract tranches may freeze after decisions 1A-10A, while deployment qualification remains held until measurable targets and exact-tree evidence pass."
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 3
     normativeEndLine: 4
-    normativeContains: "Phase 1 contract freeze waits"
-    normativeSha256: 083b1301145665f541f2a082350050d80a0d41eaeb6c7d4705aa2803e18b19ab
+    normativeContains: "measured cost/storage/RPO/RTO targets remain deployment-qualification gates"
+    normativeSha256: 1838d571bb1a33efdb8f8fb512f56af66b6660dd5f7979d32ba94b5f9c3ac4bf
     acceptanceLayers:
       - L0
     evidenceState: missing

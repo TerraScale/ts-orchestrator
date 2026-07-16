@@ -1,6 +1,6 @@
 # ADR readiness index
 
-This directory records Phase 0 decision readiness without accepting any architecture decision. The architecture remains proposed and the owner questions and measurable cost, storage, RPO, and RTO targets remain open.
+This directory records Phase 0 decision readiness. Owner choices 1A–10A were accepted on 2026-07-16 with reliability first; measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs rather than blockers for pure contract work.
 
 `readiness-index.yaml` is JSON-compatible YAML validated by the dependency-free C# tooling executable. It is the canonical Phase 0 map of the 24 items in `ORCHESTRATOR.md`'s initial ADR backlog.
 

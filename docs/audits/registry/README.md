@@ -29,5 +29,5 @@ The checker is part of the dependency-free C# tooling executable. It validates t
 1. Preserve the schema-v2 normative statement/source digest and evidence-target checks as entries evolve.
 2. Resolve the independent v2 review findings before registering any proposed SM/ERR/SEC/gate ID; in particular, do not add the contradictory `REQ-GATE-*`/`acceptance-gate` pairs unchanged.
 3. Review co-review metadata for cross-lane entries, especially the former `control-plane`, `cloud-storage`, and `delivery-security` aliases.
-4. Keep contract status draft while questions 1–10 and cost, storage, RPO, and RTO targets remain unresolved.
+4. Record decisions 1A–10A as accepted; keep deployment qualification incomplete until measured cost, storage, RPO, and RTO targets pass without weakening reliability floors.
 5. Make the checker (or its steward-integrated successor) a Phase 0 CI input before generating code/test/evidence traceability.

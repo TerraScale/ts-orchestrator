@@ -5,7 +5,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 ## Current implementation boundary
 
 - Read `ORCHESTRATOR.md` before changing architecture or production behavior.
-- Phase 0 repository/baseline work may proceed. Do not freeze Phase 1 contracts while the numbered owner decisions and measurable cost, storage, RPO, and RTO targets remain unresolved.
+- Owner decisions 1A–10A are accepted. Pure Phase 1 contract tranches may freeze when safety policy remains explicit and configurable; unmeasured cost, storage, RPO, and RTO targets block deployment qualification, not implementation.
 - Never start a system-under-test VM, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
 - Never edit sibling repositories from this checkout. Cross-repository cleanup must be done inside each owning product repo on `develop` (or on a user-requested branch/worktree pair), then committed and pushed to that repo's `develop` after the native replacement gate exists.
 
@@ -15,7 +15,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - A sub-agent must have a checked-in work package under `docs/work-packages/`, an explicit allowed-path list, and isolation only when the user requests a branch/worktree pair (otherwise work on `develop`).
 - Production dependencies flow from contracts to pure decisions to coordinators to adapters. Contracts and pure decisions must not reference NATS, OCI, D-Bus, containerd, filesystems, sockets, environment variables, or wall-clock APIs.
 - Adapters translate persisted intents and typed observations. Do not hide business rules in infrastructure adapters.
-- Unresolved owner choices must stay explicit/configurable; do not silently select a recommendation.
+- The accepted 1A–10A owner choices are normative. Any future unresolved choice must stay explicit/configurable; never replace a recorded decision silently.
 
 ## Quality and safety
 
@@ -29,4 +29,3 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 - `TerraScale.Infrastructure` and `Terrabase.Operator` are **retired stubs**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
 - Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.
-

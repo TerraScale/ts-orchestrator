@@ -611,8 +611,8 @@ gaps:
     follow_up: Create a read-only residual-account inventory package, then one explicitly approved cleanup package per positively identified remnant.
   - id: GAP-WRK-002
     disposition: follow-up-required
-    detail: Owner questions and measurable storage, cost, RPO, and RTO targets remain open, so removal phases are gates rather than scheduled releases.
-    follow_up: Freeze owner decisions and targets before converting pending cleanup identifiers into repository-local PRs.
+    detail: Owner decisions 1A-10A are accepted; measurable storage, cost, RPO, and RTO targets remain deployment-qualification gates, not blockers for repository cleanup whose native replacement evidence is green.
+    follow_up: Convert each pending cleanup identifier only after its native replacement and repository-local regression gate pass; do not wait on unrelated numeric targets.
   - id: GAP-WRK-003
     disposition: explicit-none-found
     detail: The read-only scan found no distinct production-orchestrator retirement workaround in TerraScale.DotNet, TerraScale.DevHost, or Terrascale.Landingpage beyond cross-repository generated-contract drift already dispositioned above.
