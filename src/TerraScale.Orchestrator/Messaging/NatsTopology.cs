@@ -10,6 +10,8 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string HealthSubject => $"{Root}.query.health";
 
+    public string StatusSubject => $"{Root}.query.status";
+
     public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";
 
     public string ProtocolObject => "orchestrator-protocol-v1";

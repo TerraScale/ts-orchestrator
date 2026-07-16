@@ -39,7 +39,15 @@ TS_ORCH_REPLICAS=1 \
 dotnet run --project src/TerraScale.Orchestrator -- check
 
 dotnet run --project src/TerraScale.Orchestrator -- run
+
+dotnet run --project src/TerraScale.Orchestrator -- \
+  operator status --cell gru --nats-url nats://127.0.0.1:4222
 ```
+
+`operator status` is a read-only NATS request/reply operation. The regional
+service validates and returns its cell, controller instance, R3 configuration,
+exact build, start/observation times, and implemented capability inventory.
+The CLI rejects a response from another cell or an invalid/unready projection.
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` and `ORCH_RUNTIME` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
@@ -77,6 +85,42 @@ Authentication/API readiness, regional Dashboard stack views, and emulator
 readiness. A failed probe is projected as degraded immediately; three
 consecutive unhealthy observations fail the foreground generation so DevHost
 can re-attest and recover the graph.
+
+Every DevHost state projection is also evaluated by the production typed
+reconciliation engine. The graph is not accepted as ready unless all 47
+allowlisted resources have exact generation/digest observations and converge
+in dependency order.
+
+## Nine-machine SmolVM profile
+
+The deployment-shaped `regions-smol` profile owns exactly three persistent
+seed machines in each of GRU, SFO, and FRA. It requires commit-bound evidence,
+the verified v1.5.0 installation closure, an immutable base artifact and digest,
+an explicit egress scope, and a short private runtime data root. Each reconcile
+executes `/bin/true` inside every guest before reporting it ready.
+
+When the lab is hosted by systemd, `KillMode=mixed` is required so the stop
+signal reaches the Orchestrator first while its child SmolVM API remains alive
+for deterministic machine deletion. The remaining cgroup is reaped after the
+Orchestrator exits:
+
+```bash
+systemd-run --user --unit=terrascale-regions-smol --collect \
+  --property=Type=exec --property=KillMode=mixed \
+  --property=KillSignal=SIGINT --property=TimeoutStopSec=180s \
+  --property=Restart=no -- \
+  terrascale-orchestrator lab up --profile regions-smol \
+  --workspace /workspaces/TerraScale --data-directory /var/tmp/ts-smol-state \
+  --smolvm-installation /opt/terrascale/smolvm/v1.5.0 \
+  --base-artifact /opt/terrascale/testlab/base.smolmachine \
+  --base-digest <sha256> --socket /run/user/1000/ts-regions-smol.sock \
+  --smolvm-data-root /var/tmp/ts-smol-regions \
+  --allowed-cidrs 10.0.0.0/8 --evidence /var/tmp/regions-smol-evidence.json
+```
+
+Landlock enforcement is the qualifying default. Disabling it requires the
+explicit `--allow-unqualified-smolvm-host` acknowledgement and is recorded as
+a host-hardening gap rather than production-parity evidence.
 
 ## Closed production role catalog
 

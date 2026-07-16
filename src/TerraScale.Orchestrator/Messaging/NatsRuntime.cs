@@ -5,6 +5,7 @@ using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
 using System.Text.Json;
+using TerraScale.Orchestrator.Operations;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -65,6 +66,40 @@ public sealed class NatsRuntime : IAsyncDisposable
                 name: "health",
                 subject: topology.HealthSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1" },
+                cancellationToken: cancellationToken);
+
+            var startedAt = DateTimeOffset.UtcNow;
+            await service.AddEndpointAsync<string>(
+                message => message.ReplyAsync(
+                    JsonSerializer.Serialize(
+                        new RegionalControllerStatus(
+                            1,
+                            options.Cell,
+                            options.Instance,
+                            options.Replicas,
+                            true,
+                            startedAt,
+                            DateTimeOffset.UtcNow,
+                            BuildVersion.Current.DisplayName,
+                            [
+                                "authority",
+                                "delivery",
+                                "messaging",
+                                "observability",
+                                "operator-read",
+                                "provider-ownership",
+                                "reconciliation",
+                                "runtime",
+                                "scheduler",
+                                "security",
+                                "storage",
+                                "terrabase"
+                            ]),
+                        RegionalControllerStatusJsonContext.Default.RegionalControllerStatus),
+                    cancellationToken: cancellationToken),
+                name: "status",
+                subject: topology.StatusSubject,
+                metadata: new Dictionary<string, string> { ["protocol"] = "1", ["readOnly"] = "true" },
                 cancellationToken: cancellationToken);
 
             await VerifyServiceAsync(client, topology, cancellationToken);
@@ -134,6 +169,16 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             throw new InvalidOperationException("NATS service statistics did not record the health request.");
         }
+
+        var statusResponse = await client.RequestAsync<string, string>(
+            topology.StatusSubject,
+            "status",
+            cancellationToken: cancellationToken);
+        var status = JsonSerializer.Deserialize(
+            statusResponse.Data ?? throw new InvalidOperationException("NATS status service returned no response."),
+            RegionalControllerStatusJsonContext.Default.RegionalControllerStatus)
+            ?? throw new InvalidOperationException("NATS status service returned no response.");
+        status.Validate(topology.Cell);
     }
 
     private static bool HasExpectedEndpoint(

@@ -2,6 +2,7 @@ using TerraScale.Orchestrator;
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
+using TerraScale.Orchestrator.Operations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -11,19 +12,24 @@ try
     {
         return HostRuntimeCli.Execute(args.Skip(1).ToArray());
     }
-    var runtimeConfiguration = OrchestratorRuntimeConfiguration.Load(
-        Environment.GetEnvironmentVariable("TS_ORCH_CONFIG"));
-    var options = OrchestratorOptions.Parse(
-        args,
-        key => runtimeConfiguration?.GetEnvironmentValue(key) ?? Environment.GetEnvironmentVariable(key));
     using var shutdown = new CancellationTokenSource();
-
     Console.CancelKeyPress += (_, eventArgs) =>
     {
         eventArgs.Cancel = true;
         shutdown.Cancel();
     };
-
+    if (args.FirstOrDefault() is "operator")
+    {
+        return await OperatorCli.ExecuteAsync(
+            args.Skip(1).ToArray(),
+            Environment.GetEnvironmentVariable,
+            shutdown.Token);
+    }
+    var runtimeConfiguration = OrchestratorRuntimeConfiguration.Load(
+        Environment.GetEnvironmentVariable("TS_ORCH_CONFIG"));
+    var options = OrchestratorOptions.Parse(
+        args,
+        key => runtimeConfiguration?.GetEnvironmentValue(key) ?? Environment.GetEnvironmentVariable(key));
     if (options.Command is OrchestratorCommand.Lab)
     {
         return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);

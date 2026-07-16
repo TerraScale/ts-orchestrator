@@ -54,6 +54,7 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(first.StartupSubject).IsNotEqualTo(second.StartupSubject);
         await Assert.That(first.StartupConsumer.Name).IsNotEqualTo(second.StartupConsumer.Name);
         await Assert.That(first.ServiceName).IsNotEqualTo(second.ServiceName);
+        await Assert.That(first.StatusSubject).IsEqualTo("ts.orch.v1.gru.query.status");
     }
 
     [Test]
