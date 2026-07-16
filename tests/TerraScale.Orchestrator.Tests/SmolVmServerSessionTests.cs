@@ -45,4 +45,44 @@ public sealed class SmolVmServerSessionTests
                 "/tmp/data"))
             .Throws<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task StaleUnixSocketIsRemovedButLiveListenerIsFenced()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"smolvm-socket-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "server.sock");
+        try
+        {
+            using (var stale = new System.Net.Sockets.Socket(
+                       System.Net.Sockets.AddressFamily.Unix,
+                       System.Net.Sockets.SocketType.Stream,
+                       System.Net.Sockets.ProtocolType.Unspecified))
+            {
+                stale.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(path));
+            }
+            await SmolVmServerSession.PrepareSocketPathAsync(path, CancellationToken.None);
+            await Assert.That(Path.Exists(path)).IsFalse();
+
+            using var live = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.Unix,
+                System.Net.Sockets.SocketType.Stream,
+                System.Net.Sockets.ProtocolType.Unspecified);
+            live.Bind(new System.Net.Sockets.UnixDomainSocketEndPoint(path));
+            live.Listen();
+            await Assert.That(async () => await SmolVmServerSession.PrepareSocketPathAsync(
+                    path,
+                    CancellationToken.None))
+                .Throws<InvalidOperationException>();
+            await Assert.That(Path.Exists(path)).IsTrue();
+        }
+        finally
+        {
+            if (Path.Exists(path))
+            {
+                File.Delete(path);
+            }
+            Directory.Delete(directory);
+        }
+    }
 }

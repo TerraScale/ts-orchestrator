@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Sockets;
 
 namespace TerraScale.Orchestrator.Lab.SmolVm;
 
@@ -36,16 +37,13 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         {
             throw new ArgumentException("The SmolVM Unix socket path exceeds the portable Linux limit.", nameof(socketPath));
         }
-        if (Path.Exists(socketPath))
-        {
-            throw new InvalidOperationException("The private SmolVM socket path is already occupied.");
-        }
         if (startupTimeout <= TimeSpan.Zero || startupTimeout > TimeSpan.FromMinutes(2))
         {
             throw new ArgumentOutOfRangeException(nameof(startupTimeout));
         }
 
         CreatePrivateDirectory(Path.GetDirectoryName(socketPath)!);
+        await PrepareSocketPathAsync(socketPath, cancellationToken);
         CreatePrivateDirectory(dataDirectory);
         var process = new Process
         {
@@ -129,6 +127,32 @@ internal sealed class SmolVmServerSession : IAsyncDisposable
         }
         startInfo.Environment["SMOLVM_DATA_DIR"] = dataDirectory;
         return startInfo;
+    }
+
+    internal static async Task PrepareSocketPathAsync(
+        string socketPath,
+        CancellationToken cancellationToken)
+    {
+        if (!Path.Exists(socketPath))
+        {
+            return;
+        }
+        using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        try
+        {
+            await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), cancellationToken);
+            throw new InvalidOperationException("The private SmolVM socket path has a live listener.");
+        }
+        catch (SocketException exception) when (exception.SocketErrorCode == SocketError.ConnectionRefused)
+        {
+            File.Delete(socketPath);
+        }
+        catch (SocketException exception)
+        {
+            throw new InvalidOperationException(
+                "The private SmolVM socket path is occupied by an unrecognized filesystem object.",
+                exception);
+        }
     }
 
     private static void CreatePrivateDirectory(string path)
