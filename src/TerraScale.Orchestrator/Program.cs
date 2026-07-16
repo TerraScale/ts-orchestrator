@@ -1,6 +1,9 @@
 using TerraScale.Orchestrator;
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Runtime;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 try
 {
@@ -16,6 +19,16 @@ try
     if (options.Command is OrchestratorCommand.Lab)
     {
         return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);
+    }
+    if (options.Command is OrchestratorCommand.Catalog)
+    {
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(AdmittedRoleCatalog.All, serializerOptions));
+        return 0;
     }
 
     await using var runtime = await NatsRuntime.StartAsync(options, shutdown.Token);

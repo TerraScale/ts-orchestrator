@@ -70,3 +70,24 @@ src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator 
 ```
 
 The native adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Killing the foreground Orchestrator tears down its entire child process tree; persisted data remains for the next generation.
+
+After startup, Orchestrator continuously probes every planned process and its
+role-specific health surface: NATS client ports, TerraBase HTTP and native TCP,
+Authentication/API readiness, regional Dashboard stack views, and emulator
+readiness. A failed probe is projected as degraded immediately; three
+consecutive unhealthy observations fail the foreground generation so DevHost
+can re-attest and recover the graph.
+
+## Closed production role catalog
+
+The executable exposes the exhaustive v1 production role catalog as JSON:
+
+```bash
+src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator catalog
+```
+
+All production-shaped DevHost resources project to one of these built-in
+descriptors. API, Authentication, and Dashboard retain the production OCI
+default; TerraBase, both NATS planes, and Orchestrator retain their native
+systemd defaults. Email and Stripe emulators are explicitly development-only
+fixtures and cannot be admitted as production workloads.

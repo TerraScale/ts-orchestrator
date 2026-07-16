@@ -3,6 +3,16 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OrchestratorOptionsTests
 {
     [Test]
+    public async Task CatalogCommandIsReadOnlyAndRejectsArguments()
+    {
+        var options = OrchestratorOptions.Parse(["catalog"], _ => null);
+
+        await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Catalog);
+        await Assert.That(() => OrchestratorOptions.Parse(["catalog", "extra"], _ => null))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ParsesLabPlanWithoutDeploymentEvidence()
     {
         var options = OrchestratorOptions.Parse(

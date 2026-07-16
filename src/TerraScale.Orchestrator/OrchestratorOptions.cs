@@ -4,7 +4,8 @@ public enum OrchestratorCommand
 {
     Run,
     Check,
-    Lab
+    Lab,
+    Catalog
 }
 
 public enum OrchestratorLabCommand
@@ -37,7 +38,8 @@ public sealed record OrchestratorOptions(
             null or "run" => OrchestratorCommand.Run,
             "check" => OrchestratorCommand.Check,
             "lab" => OrchestratorCommand.Lab,
-            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', or 'lab'.")
+            "catalog" => OrchestratorCommand.Catalog,
+            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', 'catalog', or 'lab'.")
         };
 
         var cell = environment("TS_ORCH_CELL") ?? "local";
@@ -67,6 +69,10 @@ public sealed record OrchestratorOptions(
 
         if (command is not OrchestratorCommand.Lab)
         {
+            if (args.Count > 1)
+            {
+                throw new ArgumentException($"The {args[0]} command does not accept arguments.");
+            }
             return new(command, cell, uri.ToString(), replicas, Instance: instance);
         }
 
