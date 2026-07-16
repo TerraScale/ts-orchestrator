@@ -117,11 +117,16 @@ public static class DevelopmentLab
             cancellationToken);
         Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
 
-        var consecutiveUnhealthyObservations = 0;
+        var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
         while (!cancellationToken.IsCancellationRequested)
         {
-            supervisor.ThrowIfAnyExited();
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            foreach (var resourceName in supervisor.ExitedResources())
+            {
+                await supervisor.RestartAsync(resourceName);
+                consecutiveUnhealthyObservations[resourceName] = 0;
+                Console.WriteLine($"Restarted development resource {resourceName} after an unexpected exit.");
+            }
             var health = await DevelopmentHealthProbe.ProbeAsync(
                 topology,
                 supervisor,
@@ -135,16 +140,24 @@ public static class DevelopmentLab
                 DevelopmentResourceState.Ready,
                 health,
                 cancellationToken);
-            var unhealthy = health.Where(observation => !observation.Value.Healthy).ToArray();
-            consecutiveUnhealthyObservations = unhealthy.Length == 0
-                ? 0
-                : consecutiveUnhealthyObservations + 1;
-            if (consecutiveUnhealthyObservations >= 3)
+            foreach (var observation in health)
             {
-                throw new InvalidOperationException(
-                    "Development topology remained unhealthy for three observations: " +
-                    string.Join(", ", unhealthy.Select(observation =>
-                        $"{observation.Key} ({observation.Value.Detail})")));
+                if (observation.Value.Healthy ||
+                    supervisor.IsWithinStartupGrace(observation.Key, TimeSpan.FromSeconds(90)))
+                {
+                    consecutiveUnhealthyObservations[observation.Key] = 0;
+                    continue;
+                }
+                var failures = consecutiveUnhealthyObservations.GetValueOrDefault(observation.Key) + 1;
+                consecutiveUnhealthyObservations[observation.Key] = failures;
+                if (failures < 3)
+                {
+                    continue;
+                }
+                await supervisor.RestartAsync(observation.Key);
+                consecutiveUnhealthyObservations[observation.Key] = 0;
+                Console.WriteLine(
+                    $"Restarted unhealthy development resource {observation.Key}: {observation.Value.Detail}");
             }
         }
         return 0;
@@ -231,10 +244,13 @@ public static class DevelopmentLab
         {
             health.TryGetValue(resource.Name, out resourceHealth);
         }
+        var withinStartupGrace = supervisor.IsWithinStartupGrace(resource.Name, TimeSpan.FromSeconds(90));
         var state = exited
             ? DevelopmentResourceState.Failed
             : resourceHealth is { Healthy: false }
-                ? DevelopmentResourceState.Degraded
+                ? withinStartupGrace
+                    ? DevelopmentResourceState.Starting
+                    : DevelopmentResourceState.Degraded
                 : desiredState;
         var healthy = state is DevelopmentResourceState.Ready && resourceHealth?.Healthy is not false;
         return new(

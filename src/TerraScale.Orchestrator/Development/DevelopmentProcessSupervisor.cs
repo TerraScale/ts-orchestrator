@@ -5,6 +5,8 @@ namespace TerraScale.Orchestrator.Development;
 internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 {
     private readonly Dictionary<string, Process> processes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DevelopmentProcessSpec> specifications = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> startedAt = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource stopping = new();
 
     public IReadOnlyDictionary<string, Process> Processes => processes;
@@ -21,36 +23,84 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             throw new InvalidOperationException($"Development resource '{name}' is already running.");
         }
 
+        var specification = new DevelopmentProcessSpec(
+            name,
+            executable,
+            arguments.ToArray(),
+            workingDirectory,
+            environment?.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
+        specifications.Add(name, specification);
+        return StartCore(specification);
+    }
+
+    public IReadOnlyList<string> ExitedResources() => processes
+        .Where(pair => pair.Value.HasExited)
+        .Select(pair => pair.Key)
+        .ToArray();
+
+    public bool IsWithinStartupGrace(string name, TimeSpan grace) =>
+        startedAt.TryGetValue(name, out var value) && DateTimeOffset.UtcNow - value < grace;
+
+    public async Task<Process> RestartAsync(string name)
+    {
+        if (!specifications.TryGetValue(name, out var specification))
+        {
+            throw new InvalidOperationException($"Development resource '{name}' has no trusted process specification.");
+        }
+        if (processes.Remove(name, out var previous))
+        {
+            try
+            {
+                if (!previous.HasExited)
+                {
+                    previous.Kill(entireProcessTree: true);
+                }
+                await previous.WaitForExitAsync();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            finally
+            {
+                previous.Dispose();
+            }
+        }
+        return StartCore(specification);
+    }
+
+    private Process StartCore(DevelopmentProcessSpec specification)
+    {
         var process = new Process
         {
-            StartInfo = new ProcessStartInfo(executable)
+            StartInfo = new ProcessStartInfo(specification.Executable)
             {
-                WorkingDirectory = workingDirectory,
+                WorkingDirectory = specification.WorkingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false
             },
             EnableRaisingEvents = true
         };
-        foreach (var argument in arguments)
+        foreach (var argument in specification.Arguments)
         {
             process.StartInfo.ArgumentList.Add(argument);
         }
         process.StartInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
         process.StartInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         process.StartInfo.Environment["UseSharedCompilation"] = "false";
-        if (environment is not null)
+        if (specification.Environment is not null)
         {
-            foreach (var (key, value) in environment)
+            foreach (var (key, value) in specification.Environment)
             {
                 process.StartInfo.Environment[key] = value;
             }
         }
 
         process.Start();
-        processes.Add(name, process);
-        _ = PumpAsync(name, process.StandardOutput, Console.Out, stopping.Token);
-        _ = PumpAsync(name, process.StandardError, Console.Error, stopping.Token);
+        processes.Add(specification.Name, process);
+        startedAt[specification.Name] = DateTimeOffset.UtcNow;
+        _ = PumpAsync(specification.Name, process.StandardOutput, Console.Out, stopping.Token);
+        _ = PumpAsync(specification.Name, process.StandardError, Console.Error, stopping.Token);
         return process;
     }
 
@@ -86,6 +136,8 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             }
         }
         processes.Clear();
+        specifications.Clear();
+        startedAt.Clear();
         stopping.Dispose();
     }
 
@@ -109,4 +161,11 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         {
         }
     }
+
+    private sealed record DevelopmentProcessSpec(
+        string Name,
+        string Executable,
+        IReadOnlyList<string> Arguments,
+        string WorkingDirectory,
+        IReadOnlyDictionary<string, string?>? Environment);
 }
