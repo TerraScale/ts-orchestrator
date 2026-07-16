@@ -120,7 +120,9 @@ internal static class DevelopmentHealthProbe
             AuthOpts = new NatsAuthOpts
             {
                 NKeyFile = natsSecurity.Cell(resource.Cell).Controllers[resource.Replica].SeedFile
-            }
+            },
+            TlsOpts = TlsOptions(
+                natsSecurity.Cell(resource.Cell).Tls.Control.Clients[resource.Name])
         };
         await using var client = new NatsClient(options);
         await client.ConnectAsync();
@@ -137,4 +139,12 @@ internal static class DevelopmentHealthProbe
             throw new NatsException("The controller authority endpoint is not ready.");
         }
     }
+
+    internal static NatsTlsOpts TlsOptions(DevelopmentTlsIdentity identity) => new()
+    {
+        Mode = TlsMode.Require,
+        CaFile = identity.CaFile,
+        CertFile = identity.CertificateFile,
+        KeyFile = identity.KeyFile
+    };
 }

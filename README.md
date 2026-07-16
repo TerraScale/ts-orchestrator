@@ -42,7 +42,10 @@ dotnet run --project src/TerraScale.Orchestrator -- run
 
 dotnet run --project src/TerraScale.Orchestrator -- \
   operator status --cell gru --nats-url nats://127.0.0.1:4222 \
-  --nkey-file /run/credentials/terrascale/operator-read.nk
+  --nkey-file /run/credentials/terrascale/operator-read.nk \
+  --tls-ca-file /run/credentials/terrascale/ca.pem \
+  --tls-cert-file /run/credentials/terrascale/operator.pem \
+  --tls-key-file /run/credentials/terrascale/operator.key.pem
 ```
 
 `operator status` is a read-only NATS request/reply operation. The regional
@@ -54,6 +57,10 @@ expired lease, contradictory leader state, or an invalid/unready projection.
 The optional `--nkey-file` (or `TS_ORCH_NATS_NKEY_FILE`) must be an existing,
 bounded owner-private seed file; raw key material is never accepted on the
 command line.
+The TLS CA, certificate, and key options (or matching
+`TS_ORCH_NATS_TLS_*_FILE` variables) are atomic: all three must be present,
+the PEM identity must match its owner-private key, and TLS is required rather
+than opportunistically negotiated.
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` and `ORCH_RUNTIME` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
@@ -102,11 +109,14 @@ separate read-only operator NKey that can request only regional status and
 receive its inbox reply. Control NATS denies anonymous clients; every
 controller proves that denial during startup before advertising the
 `nats-nkey-authenticated` capability. Product NATS uses an independent random
-per-cell username/password consumed by the existing product queue client. NATS
-configuration files are mode `0600`, contain public controller/operator NKeys
-but never their seeds, and are isolated from product credentials. This closes
-anonymous DevHost messaging; NATS operator/account JWTs, route/gateway mTLS,
-and rotation/revocation remain separate production qualification gates.
+per-cell username/password consumed by the existing product queue client.
+Control and product planes have separate development PKI roots, one regional
+intermediate per cell, SPIFFE-like leaf identities, mandatory client mTLS, and
+separate server/route certificates. NATS configuration files are mode `0600`,
+contain public controller/operator NKeys but never their seeds, and are
+isolated from product credentials. This closes anonymous DevHost messaging and
+intra-cell plaintext transport; NATS operator/account JWTs, cross-cell gateway
+mTLS, and rotation/revocation remain separate production qualification gates.
 
 After startup, Orchestrator continuously probes every planned process and its
 role-specific health surface: NATS client ports, TerraBase HTTP and native TCP,

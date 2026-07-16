@@ -52,6 +52,19 @@ public sealed class NatsRuntime : IAsyncDisposable
                 AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile }
             };
         }
+        if (options.NatsTls is not null)
+        {
+            clientOptions = clientOptions with
+            {
+                TlsOpts = new NatsTlsOpts
+                {
+                    Mode = TlsMode.Require,
+                    CaFile = options.NatsTls.CaFile,
+                    CertFile = options.NatsTls.CertificateFile,
+                    KeyFile = options.NatsTls.KeyFile
+                }
+            };
+        }
         var client = new NatsClient(clientOptions);
 
         RuntimeRegistration? registration = null;
@@ -59,7 +72,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         try
         {
             await client.ConnectAsync();
-            if (options.NatsNKeyFile is not null)
+            if (options.NatsNKeyFile is not null || options.NatsTls is not null)
             {
                 await VerifyAnonymousDeniedAsync(options.NatsUrl, cancellationToken);
             }
@@ -129,6 +142,10 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (options.NatsNKeyFile is not null)
             {
                 capabilities.Add("nats-nkey-authenticated");
+            }
+            if (options.NatsTls is not null)
+            {
+                capabilities.Add("nats-mtls");
             }
             capabilities.Sort(StringComparer.Ordinal);
             await service.AddEndpointAsync<string>(

@@ -193,6 +193,8 @@ public static class DevelopmentLab
             var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).First();
             foreach (var controller in cell.OfKind(DevelopmentResourceKind.ControllerAgent))
             {
+                var cellSecurity = natsSecurity.Cell(cell.Cell);
+                var tls = cellSecurity.Tls.Control.Clients[controller.Name];
                 supervisor.Start(
                     controller.Name,
                     executable,
@@ -203,8 +205,10 @@ public static class DevelopmentLab
                         ["TS_ORCH_CELL"] = cell.Cell,
                         ["TS_ORCH_NATS_URL"] = $"nats://127.0.0.1:{controlNats.Port}",
                         ["TS_ORCH_REPLICAS"] = "3",
-                        ["TS_ORCH_NATS_NKEY_FILE"] = natsSecurity.Cell(cell.Cell)
-                            .Controllers[controller.Replica].SeedFile,
+                        ["TS_ORCH_NATS_NKEY_FILE"] = cellSecurity.Controllers[controller.Replica].SeedFile,
+                        ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.CaFile,
+                        ["TS_ORCH_NATS_TLS_CERT_FILE"] = tls.CertificateFile,
+                        ["TS_ORCH_NATS_TLS_KEY_FILE"] = tls.KeyFile,
                         ["TS_ORCH_INSTANCE"] = controller.Replica.ToString(
                             System.Globalization.CultureInfo.InvariantCulture)
                     });

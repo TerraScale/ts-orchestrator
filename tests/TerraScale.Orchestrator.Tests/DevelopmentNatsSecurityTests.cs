@@ -1,5 +1,6 @@
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
+using System.Security.Cryptography.X509Certificates;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -37,6 +38,8 @@ public sealed class DevelopmentNatsSecurityTests
                 .IsEqualTo(3);
             await Assert.That(gru.Operator.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
             await Assert.That(gru.Product.Password).IsNotEqualTo(sfo.Product.Password);
+            await Assert.That(File.ReadAllText(gru.Tls.Control.Clients["operator-read"].CaFile))
+                .IsNotEqualTo(File.ReadAllText(gru.Tls.Product.Clients["gru-api"].CaFile));
 
             foreach (var identity in gru.Controllers.Values.Append(gru.Operator))
             {
@@ -56,6 +59,33 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(authorization).Contains("\"$O.>\"");
             await Assert.That(authorization).DoesNotContain(File.ReadLines(gru.Operator.SeedFile).First());
             await Assert.That(authorization).DoesNotContain(gru.Product.Password);
+
+            var operatorTls = gru.Tls.Control.Clients["operator-read"];
+            await Assert.That(operatorTls.SpiffeId)
+                .IsEqualTo("spiffe://terrascale.tech/cell/gru/operator/operator-read");
+            await Assert.That(File.GetUnixFileMode(operatorTls.KeyFile))
+                .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            await Assert.That(File.GetUnixFileMode(operatorTls.CertificateFile))
+                .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                    UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            using var certificate = X509Certificate2.CreateFromPemFile(
+                operatorTls.CertificateFile,
+                operatorTls.KeyFile);
+            await Assert.That(certificate.HasPrivateKey).IsTrue();
+            await Assert.That(certificate.Extensions["2.5.29.17"]!.Format(false))
+                .Contains(operatorTls.SpiffeId);
+            var resolved = NatsTlsFiles.Resolve(
+                operatorTls.CaFile,
+                operatorTls.CertificateFile,
+                operatorTls.KeyFile,
+                "test TLS");
+            await Assert.That(resolved).IsNotNull();
+
+            var serverTls = gru.Tls.Control.Servers["gru-control-nats-1"];
+            var tlsConfiguration = NatsDevelopmentCluster.TlsConfiguration(serverTls.Client);
+            await Assert.That(tlsConfiguration).Contains("verify: true");
+            await Assert.That(tlsConfiguration).DoesNotContain("insecure");
+            await Assert.That(serverTls.Client.SpiffeId).IsNotEqualTo(serverTls.Route.SpiffeId);
         }
         finally
         {

@@ -60,7 +60,8 @@ public sealed record OrchestratorOptions(
     string Instance = "local",
     OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevHost,
     SmolVmLabOptions? SmolVm = null,
-    string? NatsNKeyFile = null)
+    string? NatsNKeyFile = null,
+    Messaging.NatsTlsFiles? NatsTls = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -80,6 +81,11 @@ public sealed record OrchestratorOptions(
         var replicasText = environment("TS_ORCH_REPLICAS") ?? "1";
         var instance = environment("TS_ORCH_INSTANCE") ?? "local";
         var natsNKeyFile = environment("TS_ORCH_NATS_NKEY_FILE");
+        var natsTls = Messaging.NatsTlsFiles.Resolve(
+            environment("TS_ORCH_NATS_TLS_CA_FILE"),
+            environment("TS_ORCH_NATS_TLS_CERT_FILE"),
+            environment("TS_ORCH_NATS_TLS_KEY_FILE"),
+            "TS_ORCH_NATS_TLS");
 
         if (!IsSubjectToken(cell))
         {
@@ -116,7 +122,8 @@ public sealed record OrchestratorOptions(
                 uri.ToString(),
                 replicas,
                 Instance: instance,
-                NatsNKeyFile: natsNKeyFile);
+                NatsNKeyFile: natsNKeyFile,
+                NatsTls: natsTls);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

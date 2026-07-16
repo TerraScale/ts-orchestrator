@@ -8,11 +8,30 @@ internal sealed record DevelopmentNKeyIdentity(string PublicKey, string SeedFile
 
 internal sealed record DevelopmentProductNatsIdentity(string Username, string Password);
 
+internal sealed record DevelopmentTlsIdentity(
+    string CertificateFile,
+    string KeyFile,
+    string CaFile,
+    string SpiffeId);
+
+internal sealed record DevelopmentNatsServerTlsIdentity(
+    DevelopmentTlsIdentity Client,
+    DevelopmentTlsIdentity Route);
+
+internal sealed record DevelopmentNatsTlsPlane(
+    IReadOnlyDictionary<string, DevelopmentNatsServerTlsIdentity> Servers,
+    IReadOnlyDictionary<string, DevelopmentTlsIdentity> Clients);
+
+internal sealed record DevelopmentNatsTlsSecurity(
+    DevelopmentNatsTlsPlane Control,
+    DevelopmentNatsTlsPlane Product);
+
 internal sealed record DevelopmentNatsCellSecurity(
     string Cell,
     IReadOnlyDictionary<int, DevelopmentNKeyIdentity> Controllers,
     DevelopmentNKeyIdentity Operator,
-    DevelopmentProductNatsIdentity Product);
+    DevelopmentProductNatsIdentity Product,
+    DevelopmentNatsTlsSecurity Tls);
 
 internal sealed class DevelopmentNatsSecurity
 {
@@ -37,6 +56,7 @@ internal sealed class DevelopmentNatsSecurity
     {
         var root = Path.Combine(dataDirectory, "credentials", "nats");
         EnsurePrivateDirectory(root);
+        var tls = DevelopmentPki.Create(topology, dataDirectory);
         var cells = new Dictionary<string, DevelopmentNatsCellSecurity>(StringComparer.Ordinal);
         foreach (var cell in topology.Cells)
         {
@@ -51,7 +71,8 @@ internal sealed class DevelopmentNatsSecurity
                 cell.Cell,
                 controllers,
                 EnsureNKey(Path.Combine(cellRoot, "operator-read.nk")),
-                EnsureProductIdentity(Path.Combine(cellRoot, "product.json"), cell.Cell));
+                EnsureProductIdentity(Path.Combine(cellRoot, "product.json"), cell.Cell),
+                tls[cell.Cell]);
             cells.Add(cell.Cell, security);
         }
         return new DevelopmentNatsSecurity(cells);

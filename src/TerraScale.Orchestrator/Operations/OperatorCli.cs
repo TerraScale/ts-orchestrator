@@ -29,6 +29,11 @@ internal static class OperatorCli
             "--nkey-file",
             environment("TS_ORCH_NATS_NKEY_FILE"));
         nkeyFile = NatsCredentialFile.Resolve(nkeyFile, "operator --nkey-file");
+        var tls = NatsTlsFiles.Resolve(
+            ValueOrNull(values, "--tls-ca-file", environment("TS_ORCH_NATS_TLS_CA_FILE")),
+            ValueOrNull(values, "--tls-cert-file", environment("TS_ORCH_NATS_TLS_CERT_FILE")),
+            ValueOrNull(values, "--tls-key-file", environment("TS_ORCH_NATS_TLS_KEY_FILE")),
+            "operator TLS");
         _ = OrchestratorOptions.Parse(
             ["check"],
             key => key switch
@@ -52,6 +57,19 @@ internal static class OperatorCli
                 AuthOpts = new NatsAuthOpts { NKeyFile = nkeyFile }
             };
         }
+        if (tls is not null)
+        {
+            clientOptions = clientOptions with
+            {
+                TlsOpts = new NatsTlsOpts
+                {
+                    Mode = TlsMode.Require,
+                    CaFile = tls.CaFile,
+                    CertFile = tls.CertificateFile,
+                    KeyFile = tls.KeyFile
+                }
+            };
+        }
         await using var client = new NatsClient(clientOptions);
         await client.ConnectAsync();
         var response = await client.RequestAsync<string, string>(
@@ -73,11 +91,14 @@ internal static class OperatorCli
         for (var index = 0; index < arguments.Count; index += 2)
         {
             if (index + 1 >= arguments.Count ||
-                arguments[index] is not ("--cell" or "--nats-url" or "--nkey-file") ||
+                arguments[index] is not ("--cell" or "--nats-url" or "--nkey-file" or
+                    "--tls-ca-file" or "--tls-cert-file" or "--tls-key-file") ||
                 !values.TryAdd(arguments[index], arguments[index + 1]))
             {
                 throw new ArgumentException(
-                    "operator status accepts [--cell <cell>] [--nats-url <nats-url>] [--nkey-file <seed-file>].");
+                    "operator status accepts [--cell <cell>] [--nats-url <nats-url>] " +
+                    "[--nkey-file <seed-file>] [--tls-ca-file <pem>] " +
+                    "[--tls-cert-file <pem>] [--tls-key-file <pem>].");
             }
         }
         return values;

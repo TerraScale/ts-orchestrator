@@ -237,6 +237,9 @@ internal static class DevelopmentWorkloadRuntime
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats).First();
         var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
+        var productTls = isApi
+            ? natsSecurity?.Cell(cell.Cell).Tls.Product.Clients[resource.Name]
+            : null;
         var environment = new Dictionary<string, string?>
         {
             ["ASPNETCORE_ENVIRONMENT"] = "Development",
@@ -319,6 +322,10 @@ internal static class DevelopmentWorkloadRuntime
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";
         environment["TerraScale__Queue__NatsUsername"] = productIdentity?.Username;
         environment["TerraScale__Queue__NatsPassword"] = productIdentity?.Password;
+        environment["TerraScale__Queue__RequireTls"] = productTls is null ? null : "true";
+        environment["TerraScale__Queue__TlsCaFile"] = productTls?.CaFile;
+        environment["TerraScale__Queue__TlsCertificateFile"] = productTls?.CertificateFile;
+        environment["TerraScale__Queue__TlsKeyFile"] = productTls?.KeyFile;
         environment["TerraScale__Queue__SubjectPrefix"] = $"terrascale.devhost.{cell.Cell}";
         environment["TerraScale__Queue__StreamReplicas"] = "3";
         environment["TerraScale__Queue__ConsumerReplicas"] = "3";

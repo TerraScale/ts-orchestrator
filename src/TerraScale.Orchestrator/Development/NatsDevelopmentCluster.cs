@@ -41,11 +41,16 @@ internal static class NatsDevelopmentCluster
             var authorization = kind == DevelopmentResourceKind.ControlNats
                 ? ControlAuthorization(cell, security)
                 : ProductAuthorization(security);
+            var planeTls = kind == DevelopmentResourceKind.ControlNats
+                ? security.Tls.Control
+                : security.Tls.Product;
+            var tls = planeTls.Servers[resource.Name];
             File.WriteAllText(config, $$"""
                 server_name: "{{resource.Name}}"
                 host: "127.0.0.1"
                 port: {{resource.Port}}
                 {{authorization}}
+                {{TlsConfiguration(tls.Client)}}
                 jetstream {
                   domain: "{{domain}}"
                   store_dir: "{{Path.Combine(root, "store")}}"
@@ -54,6 +59,7 @@ internal static class NatsDevelopmentCluster
                   name: "{{clusterName}}"
                   host: "127.0.0.1"
                   port: {{resource.ClusterPort}}
+                  {{TlsConfiguration(tls.Route)}}
                 {{routeConfiguration}}
                 }
                 """);
@@ -105,6 +111,16 @@ internal static class NatsDevelopmentCluster
                   subscribe: { allow: [">"] }
                 } }
               ]
+            }
+        """;
+
+    internal static string TlsConfiguration(DevelopmentTlsIdentity identity) => $$"""
+            tls {
+              cert_file: "{{identity.CertificateFile}}"
+              key_file: "{{identity.KeyFile}}"
+              ca_file: "{{identity.CaFile}}"
+              verify: true
+              timeout: 3
             }
         """;
 

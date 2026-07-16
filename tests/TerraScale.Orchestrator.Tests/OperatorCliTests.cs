@@ -10,11 +10,15 @@ public sealed class OperatorCliTests
         var parsed = OperatorCli.ParseValues([
             "--cell", "gru",
             "--nats-url", "nats://127.0.0.1:4222",
-            "--nkey-file", "/run/credentials/operator.nk"
+            "--nkey-file", "/run/credentials/operator.nk",
+            "--tls-ca-file", "/run/credentials/ca.pem",
+            "--tls-cert-file", "/run/credentials/operator.pem",
+            "--tls-key-file", "/run/credentials/operator.key.pem"
         ]);
 
         await Assert.That(parsed["--cell"]).IsEqualTo("gru");
         await Assert.That(parsed["--nkey-file"]).IsEqualTo("/run/credentials/operator.nk");
+        await Assert.That(parsed["--tls-ca-file"]).IsEqualTo("/run/credentials/ca.pem");
         await Assert.That(() => OperatorCli.ParseValues(["--cell", "gru", "--cell", "sfo"]))
             .Throws<ArgumentException>();
         await Assert.That(() => OperatorCli.ParseValues(["--token", "secret"]))
