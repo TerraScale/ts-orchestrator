@@ -71,6 +71,7 @@ public static class DevelopmentLab
         var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;
         var startedAt = DateTimeOffset.UtcNow;
+        File.Delete(options.EndpointsFile!);
 
         await using var supervisor = new DevelopmentProcessSupervisor();
         await PersistAsync(
@@ -81,6 +82,7 @@ public static class DevelopmentLab
             startedAt,
             DevelopmentResourceState.Starting,
             null,
+            publishEndpoints: false,
             cancellationToken);
 
         foreach (var cell in topology.Cells)
@@ -111,6 +113,8 @@ public static class DevelopmentLab
             cancellationToken);
         supervisor.ThrowIfAnyExited();
 
+        var initialHealth = await WaitForInitialHealthAsync(
+            options, topology, supervisor, generation, startedAt, cancellationToken);
         await PersistAsync(
             options,
             topology,
@@ -118,7 +122,8 @@ public static class DevelopmentLab
             generation,
             startedAt,
             DevelopmentResourceState.Ready,
-            null,
+            initialHealth,
+            publishEndpoints: true,
             cancellationToken);
         Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
 
@@ -144,6 +149,7 @@ public static class DevelopmentLab
                 startedAt,
                 DevelopmentResourceState.Ready,
                 health,
+                publishEndpoints: true,
                 cancellationToken);
             foreach (var observation in health)
             {
@@ -198,6 +204,41 @@ public static class DevelopmentLab
         }
     }
 
+    private static async Task<IReadOnlyDictionary<string, DevelopmentResourceHealth>> WaitForInitialHealthAsync(
+        OrchestratorOptions options,
+        DevelopmentTopology topology,
+        DevelopmentProcessSupervisor supervisor,
+        long generation,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(2));
+        while (true)
+        {
+            supervisor.ThrowIfAnyExited();
+            var health = await DevelopmentHealthProbe.ProbeAsync(
+                topology,
+                supervisor,
+                timeout.Token);
+            if (health.Values.All(value => value.Healthy))
+            {
+                return health;
+            }
+            await PersistAsync(
+                options,
+                topology,
+                supervisor,
+                generation,
+                startedAt,
+                DevelopmentResourceState.Starting,
+                health,
+                publishEndpoints: false,
+                timeout.Token);
+            await Task.Delay(TimeSpan.FromSeconds(1), timeout.Token);
+        }
+    }
+
     private static async Task PersistAsync(
         OrchestratorOptions options,
         DevelopmentTopology topology,
@@ -206,6 +247,7 @@ public static class DevelopmentLab
         DateTimeOffset startedAt,
         DevelopmentResourceState state,
         IReadOnlyDictionary<string, DevelopmentResourceHealth>? health,
+        bool publishEndpoints,
         CancellationToken cancellationToken)
     {
         var observedAt = DateTimeOffset.UtcNow;
@@ -240,7 +282,7 @@ public static class DevelopmentLab
             options.StateFile!,
             options.EndpointsFile!,
             runtimeState,
-            endpoints,
+            publishEndpoints ? endpoints : null,
             cancellationToken);
     }
 

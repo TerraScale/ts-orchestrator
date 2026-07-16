@@ -51,11 +51,14 @@ internal static class DevelopmentStateStore
         string stateFile,
         string endpointsFile,
         DevelopmentRuntimeState state,
-        DevelopmentEndpointMap endpoints,
+        DevelopmentEndpointMap? endpoints,
         CancellationToken cancellationToken)
     {
         await WriteAtomicAsync(stateFile, state, cancellationToken);
-        await WriteAtomicAsync(endpointsFile, endpoints, cancellationToken);
+        if (endpoints is not null)
+        {
+            await WriteAtomicAsync(endpointsFile, endpoints, cancellationToken);
+        }
     }
 
     public static async Task<DevelopmentRuntimeState?> ReadAsync(

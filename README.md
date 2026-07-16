@@ -102,7 +102,11 @@ can re-attest and recover the graph.
 Every DevHost state projection is also evaluated by the production typed
 reconciliation engine. The graph is not accepted as ready unless all 47
 allowlisted resources have exact generation/digest observations and converge
-in dependency order.
+in dependency order. Startup progress is written to the resource-state file,
+but the endpoint map used for DevHost cutover is withheld until one complete
+health pass—including each controller's instance-specific authority endpoint—
+and 47/47 typed convergence succeed. This prevents a starting generation from
+being mistaken for a deployable candidate.
 
 ## Nine-machine SmolVM profile
 

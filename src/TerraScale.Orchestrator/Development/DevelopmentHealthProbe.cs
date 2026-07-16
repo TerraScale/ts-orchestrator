@@ -1,4 +1,7 @@
 using System.Net.Sockets;
+using NATS.Client.Core;
+using NATS.Net;
+using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -16,7 +19,7 @@ internal static class DevelopmentHealthProbe
             .Concat(topology.GlobalResources)
             .ToArray();
         var results = await Task.WhenAll(resources.Select(resource =>
-            ProbeOneAsync(resource, supervisor, client, cancellationToken)));
+            ProbeOneAsync(topology, resource, supervisor, client, cancellationToken)));
         return results.ToDictionary(result => result.Name, result => result.Health, StringComparer.Ordinal);
     }
 
@@ -32,6 +35,7 @@ internal static class DevelopmentHealthProbe
     };
 
     private static async Task<(string Name, DevelopmentResourceHealth Health)> ProbeOneAsync(
+        DevelopmentTopology topology,
         DevelopmentResourcePlan resource,
         DevelopmentProcessSupervisor supervisor,
         HttpClient client,
@@ -51,7 +55,8 @@ internal static class DevelopmentHealthProbe
             switch (resource.Kind)
             {
                 case DevelopmentResourceKind.ControllerAgent:
-                    return (resource.Name, new(true, $"Process {process.Id} ready."));
+                    await ProbeControllerAsync(topology, resource, cancellationToken);
+                    return (resource.Name, new(true, $"Controller {process.Id} authority endpoint ready."));
                 case DevelopmentResourceKind.ControlNats:
                 case DevelopmentResourceKind.ProductNats:
                     await ProbeTcpAsync(resource.Port, cancellationToken);
@@ -65,7 +70,8 @@ internal static class DevelopmentHealthProbe
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
             }
         }
-        catch (Exception exception) when (exception is HttpRequestException or SocketException or TaskCanceledException)
+        catch (Exception exception) when (
+            exception is HttpRequestException or SocketException or TaskCanceledException or NatsException)
         {
             return (resource.Name, new(false, $"Health probe failed: {exception.Message}"));
         }
@@ -91,5 +97,33 @@ internal static class DevelopmentHealthProbe
         timeout.CancelAfter(TimeSpan.FromSeconds(3));
         using var client = new TcpClient();
         await client.ConnectAsync("127.0.0.1", port, timeout.Token);
+    }
+
+    private static async Task ProbeControllerAsync(
+        DevelopmentTopology topology,
+        DevelopmentResourcePlan resource,
+        CancellationToken cancellationToken)
+    {
+        var cell = topology.Cells.Single(candidate => candidate.Cell == resource.Cell);
+        var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).First();
+        await using var client = new NatsClient(new NatsOpts
+        {
+            Url = $"nats://127.0.0.1:{controlNats.Port}",
+            RetryOnInitialConnect = false,
+            RequestTimeout = TimeSpan.FromSeconds(3)
+        });
+        await client.ConnectAsync();
+        var response = await client.RequestAsync<string, string>(
+            new NatsTopology(
+                resource.Cell,
+                3,
+                resource.Replica.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                .InstanceHealthSubject,
+            "health",
+            cancellationToken: cancellationToken);
+        if (response.Data != "ready")
+        {
+            throw new NatsException("The controller authority endpoint is not ready.");
+        }
     }
 }
