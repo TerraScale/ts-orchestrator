@@ -134,6 +134,11 @@ public static class OperationDigest
             case OperationState state:
                 Append(builder, State(state));
                 return;
+            case System.Collections.ICollection collection:
+                builder.Append('A').Append(collection.Count).Append('[');
+                foreach (var item in collection) Append(builder, item);
+                builder.Append("];");
+                return;
             case System.Collections.IEnumerable sequence:
                 var items = sequence.Cast<object?>().ToArray();
                 builder.Append('A').Append(items.Length).Append('[');
