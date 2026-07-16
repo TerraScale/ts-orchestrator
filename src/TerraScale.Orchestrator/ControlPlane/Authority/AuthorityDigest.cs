@@ -94,6 +94,10 @@ public static class AuthorityDigest
                     permit.AuthorityId, permit.CandidateId, permit.RequestId,
                     permit.LeaseId, permit.Epoch, permit.KvRevision, permit.ObservationId,
                     permit.EvaluatedServerTime, permit.EvaluatedMonotonicElapsed)); return;
+            case System.Collections.ICollection collection:
+                builder.Append('A').Append(collection.Count).Append('[');
+                foreach (var item in collection) Append(builder, item);
+                builder.Append("];"); return;
             case System.Collections.IEnumerable sequence:
                 var items = sequence.Cast<object?>().ToArray();
                 builder.Append('A').Append(items.Length).Append('[');
