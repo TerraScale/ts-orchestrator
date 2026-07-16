@@ -39,6 +39,8 @@ public sealed class DevelopmentNatsSecurityTests
                 gru);
             await Assert.That(authorization).Contains(gru.Operator.PublicKey);
             await Assert.That(authorization).Contains(gru.Controllers[1].PublicKey);
+            await Assert.That(authorization).Contains("\"$KV.>\"");
+            await Assert.That(authorization).Contains("\"$O.>\"");
             await Assert.That(authorization).DoesNotContain(File.ReadLines(gru.Operator.SeedFile).First());
             await Assert.That(authorization).DoesNotContain(gru.Product.Password);
         }
