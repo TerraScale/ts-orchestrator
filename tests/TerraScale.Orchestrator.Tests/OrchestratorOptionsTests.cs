@@ -66,6 +66,39 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task ControllerNKeyMustBeAnExistingFile()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        var path = Path.Combine(Path.GetTempPath(), $"ts-orch-option-{Guid.NewGuid():N}.nk");
+        try
+        {
+            await File.WriteAllTextAsync(path, "seed");
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var options = OrchestratorOptions.Parse(
+                ["run"],
+                name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null);
+
+            await Assert.That(options.NatsNKeyFile).IsEqualTo(path);
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.OtherRead);
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["run"],
+                    name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null))
+                .Throws<ArgumentException>();
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["run"],
+                    name => name == "TS_ORCH_NATS_NKEY_FILE" ? path + ".missing" : null))
+                .Throws<ArgumentException>();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task RegionsSmolRequiresExplicitRuntimeArtifactSocketAndNetworkScope()
     {
         const string digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

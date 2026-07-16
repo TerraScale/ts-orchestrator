@@ -14,6 +14,7 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentTopology topology,
         string workspaceRoot,
         string dataDirectory,
+        DevelopmentNatsSecurity natsSecurity,
         bool watch,
         CancellationToken cancellationToken)
     {
@@ -48,7 +49,8 @@ internal static class DevelopmentWorkloadRuntime
                 authentication,
                 Path.Combine(internalsRoot, "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
                 watch,
-                CreateServiceEnvironment(topology, cell, authentication, isApi: false, dataDirectory));
+                CreateServiceEnvironment(
+                    topology, cell, authentication, isApi: false, dataDirectory, natsSecurity));
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
 
             var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
@@ -57,7 +59,8 @@ internal static class DevelopmentWorkloadRuntime
                 api,
                 Path.Combine(internalsRoot, "src", "API", "TerraScale.API", "TerraScale.API.csproj"),
                 watch,
-                CreateServiceEnvironment(topology, cell, api, isApi: true, dataDirectory));
+                CreateServiceEnvironment(
+                    topology, cell, api, isApi: true, dataDirectory, natsSecurity));
             await WaitHttpAsync(api.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
@@ -225,13 +228,15 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan resource,
         bool isApi,
-        string dataDirectory)
+        string dataDirectory,
+        DevelopmentNatsSecurity? natsSecurity = null)
     {
         var email = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.EmailEmulator);
         var stripe = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.StripeEmulator);
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats).First();
+        var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
         var environment = new Dictionary<string, string?>
         {
             ["ASPNETCORE_ENVIRONMENT"] = "Development",
@@ -312,6 +317,8 @@ internal static class DevelopmentWorkloadRuntime
         environment["AuthenticationService__BaseUrl"] = Http(authentication.Port);
         environment["TerraScale__Queue__Provider"] = "Nats";
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";
+        environment["TerraScale__Queue__NatsUsername"] = productIdentity?.Username;
+        environment["TerraScale__Queue__NatsPassword"] = productIdentity?.Password;
         environment["TerraScale__Queue__SubjectPrefix"] = $"terrascale.devhost.{cell.Cell}";
         environment["TerraScale__Queue__StreamReplicas"] = "3";
         environment["TerraScale__Queue__ConsumerReplicas"] = "3";

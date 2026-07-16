@@ -39,18 +39,30 @@ public sealed class NatsRuntime : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
-        var client = new NatsClient(new NatsOpts
+        var clientOptions = new NatsOpts
         {
             Url = options.NatsUrl,
             RetryOnInitialConnect = true,
             RequestTimeout = TimeSpan.FromSeconds(15)
-        });
+        };
+        if (options.NatsNKeyFile is not null)
+        {
+            clientOptions = clientOptions with
+            {
+                AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile }
+            };
+        }
+        var client = new NatsClient(clientOptions);
 
         RuntimeRegistration? registration = null;
         RegionalAuthorityCoordinator? authority = null;
         try
         {
             await client.ConnectAsync();
+            if (options.NatsNKeyFile is not null)
+            {
+                await VerifyAnonymousDeniedAsync(options.NatsUrl, cancellationToken);
+            }
             var state = await ReconcileStateWithRetryAsync(client, topology, cancellationToken);
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
@@ -98,6 +110,27 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken: cancellationToken);
 
             var startedAt = DateTimeOffset.UtcNow;
+            var capabilities = new List<string>
+            {
+                "authority",
+                "authority-election",
+                "delivery",
+                "messaging",
+                "observability",
+                "operator-read",
+                "provider-ownership",
+                "reconciliation",
+                "runtime",
+                "scheduler",
+                "security",
+                "storage",
+                "terrabase"
+            };
+            if (options.NatsNKeyFile is not null)
+            {
+                capabilities.Add("nats-nkey-authenticated");
+            }
+            capabilities.Sort(StringComparer.Ordinal);
             await service.AddEndpointAsync<string>(
                 message =>
                 {
@@ -113,21 +146,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 startedAt,
                                 DateTimeOffset.UtcNow,
                                 BuildVersion.Current.DisplayName,
-                                [
-                                    "authority",
-                                    "authority-election",
-                                    "delivery",
-                                    "messaging",
-                                    "observability",
-                                    "operator-read",
-                                    "provider-ownership",
-                                    "reconciliation",
-                                    "runtime",
-                                    "scheduler",
-                                    "security",
-                                    "storage",
-                                    "terrabase"
-                                ],
+                                capabilities,
                                 authoritySnapshot.State,
                                 authoritySnapshot.IsLeader,
                                 authoritySnapshot.Epoch,
@@ -179,6 +198,29 @@ public sealed class NatsRuntime : IAsyncDisposable
                 await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), cancellationToken);
             }
         }
+    }
+
+    private static async Task VerifyAnonymousDeniedAsync(
+        string url,
+        CancellationToken cancellationToken)
+    {
+        await using var anonymous = new NatsClient(new NatsOpts
+        {
+            Url = url,
+            RetryOnInitialConnect = false,
+            ConnectTimeout = TimeSpan.FromSeconds(3),
+            RequestTimeout = TimeSpan.FromSeconds(3)
+        });
+        try
+        {
+            await anonymous.ConnectAsync();
+        }
+        catch (NatsException)
+        {
+            return;
+        }
+        throw new InvalidOperationException(
+            "Control NATS accepted an anonymous client while NKey authentication was required.");
     }
 
     private static async Task VerifyServiceAsync(

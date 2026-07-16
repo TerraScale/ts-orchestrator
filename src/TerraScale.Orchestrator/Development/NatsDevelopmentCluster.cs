@@ -8,7 +8,8 @@ internal static class NatsDevelopmentCluster
         DevelopmentProcessSupervisor supervisor,
         DevelopmentCellPlan cell,
         DevelopmentResourceKind kind,
-        string dataDirectory)
+        string dataDirectory,
+        DevelopmentNatsCellSecurity security)
     {
         if (kind is not DevelopmentResourceKind.ControlNats and not DevelopmentResourceKind.ProductNats)
         {
@@ -37,10 +38,14 @@ internal static class NatsDevelopmentCluster
             var root = Path.Combine(dataDirectory, resource.Name);
             Directory.CreateDirectory(root);
             var config = Path.Combine(root, "nats.conf");
+            var authorization = kind == DevelopmentResourceKind.ControlNats
+                ? ControlAuthorization(cell, security)
+                : ProductAuthorization(security);
             File.WriteAllText(config, $$"""
                 server_name: "{{resource.Name}}"
                 host: "127.0.0.1"
                 port: {{resource.Port}}
+                {{authorization}}
                 jetstream {
                   domain: "{{domain}}"
                   store_dir: "{{Path.Combine(root, "store")}}"
@@ -52,10 +57,56 @@ internal static class NatsDevelopmentCluster
                 {{routeConfiguration}}
                 }
                 """);
+            if (!OperatingSystem.IsLinux())
+            {
+                throw new PlatformNotSupportedException("The Orchestrator development runtime requires Linux.");
+            }
+            File.SetUnixFileMode(config, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             supervisor.Start(resource.Name, natsServer, ["--config", config], root);
         }
         return resources;
     }
+
+    internal static string ControlAuthorization(
+        DevelopmentCellPlan cell,
+        DevelopmentNatsCellSecurity security)
+    {
+        if (security.Cell != cell.Cell || security.Controllers.Count != 3)
+        {
+            throw new InvalidOperationException("Control NATS security must match the exact regional R3 topology.");
+        }
+        var root = $"ts.orch.v1.{cell.Cell}.>";
+        var controllerUsers = string.Join(
+            Environment.NewLine,
+            security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
+                    { nkey: "{{pair.Value.PublicKey}}", permissions: {
+                      publish: { allow: ["{{root}}", "$JS.>", "$SRV.>", "_INBOX.>"] }
+                      subscribe: { allow: ["{{root}}", "$JS.>", "$SRV.>", "_INBOX.>"] }
+                    } },
+                """));
+        return $$"""
+                authorization {
+                  users: [
+                {{controllerUsers}}
+                    { nkey: "{{security.Operator.PublicKey}}", permissions: {
+                      publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status"] }
+                      subscribe: { allow: ["_INBOX.>"] }
+                    } }
+                  ]
+                }
+            """;
+    }
+
+    internal static string ProductAuthorization(DevelopmentNatsCellSecurity security) => $$"""
+            authorization {
+              users: [
+                { user: "{{security.Product.Username}}", password: "{{security.Product.Password}}", permissions: {
+                  publish: { allow: [">"] }
+                  subscribe: { allow: [">"] }
+                } }
+              ]
+            }
+        """;
 
     internal static IReadOnlyList<string> CreateRoutes(
         IReadOnlyList<DevelopmentResourcePlan> resources,

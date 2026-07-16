@@ -24,6 +24,11 @@ internal static class OperatorCli
         var values = ParseValues(arguments.Skip(1).ToArray());
         var cell = Value(values, "--cell", environment("TS_ORCH_CELL") ?? "local");
         var url = Value(values, "--nats-url", environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222");
+        var nkeyFile = ValueOrNull(
+            values,
+            "--nkey-file",
+            environment("TS_ORCH_NATS_NKEY_FILE"));
+        nkeyFile = NatsCredentialFile.Resolve(nkeyFile, "operator --nkey-file");
         _ = OrchestratorOptions.Parse(
             ["check"],
             key => key switch
@@ -34,12 +39,20 @@ internal static class OperatorCli
                 _ => null
             });
 
-        await using var client = new NatsClient(new NatsOpts
+        var clientOptions = new NatsOpts
         {
             Url = url,
             RetryOnInitialConnect = false,
             RequestTimeout = TimeSpan.FromSeconds(10)
-        });
+        };
+        if (nkeyFile is not null)
+        {
+            clientOptions = clientOptions with
+            {
+                AuthOpts = new NatsAuthOpts { NKeyFile = nkeyFile }
+            };
+        }
+        await using var client = new NatsClient(clientOptions);
         await client.ConnectAsync();
         var response = await client.RequestAsync<string, string>(
             new NatsTopology(cell, 1).StatusSubject,
@@ -60,10 +73,11 @@ internal static class OperatorCli
         for (var index = 0; index < arguments.Count; index += 2)
         {
             if (index + 1 >= arguments.Count ||
-                arguments[index] is not ("--cell" or "--nats-url") ||
+                arguments[index] is not ("--cell" or "--nats-url" or "--nkey-file") ||
                 !values.TryAdd(arguments[index], arguments[index + 1]))
             {
-                throw new ArgumentException("operator status accepts [--cell <cell>] [--nats-url <nats-url>].");
+                throw new ArgumentException(
+                    "operator status accepts [--cell <cell>] [--nats-url <nats-url>] [--nkey-file <seed-file>].");
             }
         }
         return values;
@@ -73,4 +87,12 @@ internal static class OperatorCli
         values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : fallback;
+
+    private static string? ValueOrNull(
+        IReadOnlyDictionary<string, string> values,
+        string key,
+        string? fallback) =>
+        values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : string.IsNullOrWhiteSpace(fallback) ? null : fallback;
 }

@@ -12,6 +12,7 @@ internal static class DevelopmentHealthProbe
     public static async Task<IReadOnlyDictionary<string, DevelopmentResourceHealth>> ProbeAsync(
         DevelopmentTopology topology,
         DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
         CancellationToken cancellationToken)
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
@@ -19,7 +20,7 @@ internal static class DevelopmentHealthProbe
             .Concat(topology.GlobalResources)
             .ToArray();
         var results = await Task.WhenAll(resources.Select(resource =>
-            ProbeOneAsync(topology, resource, supervisor, client, cancellationToken)));
+            ProbeOneAsync(topology, resource, supervisor, natsSecurity, client, cancellationToken)));
         return results.ToDictionary(result => result.Name, result => result.Health, StringComparer.Ordinal);
     }
 
@@ -38,6 +39,7 @@ internal static class DevelopmentHealthProbe
         DevelopmentTopology topology,
         DevelopmentResourcePlan resource,
         DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
         HttpClient client,
         CancellationToken cancellationToken)
     {
@@ -55,7 +57,7 @@ internal static class DevelopmentHealthProbe
             switch (resource.Kind)
             {
                 case DevelopmentResourceKind.ControllerAgent:
-                    await ProbeControllerAsync(topology, resource, cancellationToken);
+                    await ProbeControllerAsync(topology, resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Controller {process.Id} authority endpoint ready."));
                 case DevelopmentResourceKind.ControlNats:
                 case DevelopmentResourceKind.ProductNats:
@@ -102,16 +104,25 @@ internal static class DevelopmentHealthProbe
     private static async Task ProbeControllerAsync(
         DevelopmentTopology topology,
         DevelopmentResourcePlan resource,
+        DevelopmentNatsSecurity natsSecurity,
         CancellationToken cancellationToken)
     {
         var cell = topology.Cells.Single(candidate => candidate.Cell == resource.Cell);
         var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).First();
-        await using var client = new NatsClient(new NatsOpts
+        var options = new NatsOpts
         {
             Url = $"nats://127.0.0.1:{controlNats.Port}",
             RetryOnInitialConnect = false,
             RequestTimeout = TimeSpan.FromSeconds(3)
-        });
+        };
+        options = options with
+        {
+            AuthOpts = new NatsAuthOpts
+            {
+                NKeyFile = natsSecurity.Cell(resource.Cell).Controllers[resource.Replica].SeedFile
+            }
+        };
+        await using var client = new NatsClient(options);
         await client.ConnectAsync();
         var response = await client.RequestAsync<string, string>(
             new NatsTopology(

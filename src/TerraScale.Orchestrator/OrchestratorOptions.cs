@@ -59,7 +59,8 @@ public sealed record OrchestratorOptions(
     bool Watch = false,
     string Instance = "local",
     OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevHost,
-    SmolVmLabOptions? SmolVm = null)
+    SmolVmLabOptions? SmolVm = null,
+    string? NatsNKeyFile = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -78,6 +79,7 @@ public sealed record OrchestratorOptions(
         var url = environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222";
         var replicasText = environment("TS_ORCH_REPLICAS") ?? "1";
         var instance = environment("TS_ORCH_INSTANCE") ?? "local";
+        var natsNKeyFile = environment("TS_ORCH_NATS_NKEY_FILE");
 
         if (!IsSubjectToken(cell))
         {
@@ -98,6 +100,9 @@ public sealed record OrchestratorOptions(
         {
             throw new ArgumentException("TS_ORCH_INSTANCE must contain only lowercase letters, digits, or hyphens.");
         }
+        natsNKeyFile = Messaging.NatsCredentialFile.Resolve(
+            natsNKeyFile,
+            "TS_ORCH_NATS_NKEY_FILE");
 
         if (command is not OrchestratorCommand.Lab)
         {
@@ -105,7 +110,13 @@ public sealed record OrchestratorOptions(
             {
                 throw new ArgumentException($"The {args[0]} command does not accept arguments.");
             }
-            return new(command, cell, uri.ToString(), replicas, Instance: instance);
+            return new(
+                command,
+                cell,
+                uri.ToString(),
+                replicas,
+                Instance: instance,
+                NatsNKeyFile: natsNKeyFile);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

@@ -74,6 +74,7 @@ public static class DevelopmentLab
         File.Delete(options.EndpointsFile!);
 
         await using var supervisor = new DevelopmentProcessSupervisor();
+        var natsSecurity = DevelopmentNatsSecurity.Create(topology, options.DataDirectory!);
         await PersistAsync(
             options,
             topology,
@@ -91,17 +92,19 @@ public static class DevelopmentLab
                 supervisor,
                 cell,
                 DevelopmentResourceKind.ControlNats,
-                Path.Combine(options.DataDirectory!, "nats"));
+                Path.Combine(options.DataDirectory!, "nats"),
+                natsSecurity.Cell(cell.Cell));
             var product = NatsDevelopmentCluster.Start(
                 supervisor,
                 cell,
                 DevelopmentResourceKind.ProductNats,
-                Path.Combine(options.DataDirectory!, "nats"));
+                Path.Combine(options.DataDirectory!, "nats"),
+                natsSecurity.Cell(cell.Cell));
             await NatsDevelopmentCluster.WaitReadyAsync(control, supervisor, cancellationToken);
             await NatsDevelopmentCluster.WaitReadyAsync(product, supervisor, cancellationToken);
         }
 
-        StartControllers(supervisor, topology, options.WorkspaceRoot!);
+        StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
         await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         supervisor.ThrowIfAnyExited();
         await DevelopmentWorkloadRuntime.StartAsync(
@@ -109,12 +112,13 @@ public static class DevelopmentLab
             topology,
             options.WorkspaceRoot!,
             options.DataDirectory!,
+            natsSecurity,
             options.Watch,
             cancellationToken);
         supervisor.ThrowIfAnyExited();
 
         var initialHealth = await WaitForInitialHealthAsync(
-            options, topology, supervisor, generation, startedAt, cancellationToken);
+            options, topology, supervisor, natsSecurity, generation, startedAt, cancellationToken);
         await PersistAsync(
             options,
             topology,
@@ -140,6 +144,7 @@ public static class DevelopmentLab
             var health = await DevelopmentHealthProbe.ProbeAsync(
                 topology,
                 supervisor,
+                natsSecurity,
                 cancellationToken);
             await PersistAsync(
                 options,
@@ -177,6 +182,7 @@ public static class DevelopmentLab
     private static void StartControllers(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity,
         string workspaceRoot)
     {
         var executable = Environment.ProcessPath
@@ -197,6 +203,8 @@ public static class DevelopmentLab
                         ["TS_ORCH_CELL"] = cell.Cell,
                         ["TS_ORCH_NATS_URL"] = $"nats://127.0.0.1:{controlNats.Port}",
                         ["TS_ORCH_REPLICAS"] = "3",
+                        ["TS_ORCH_NATS_NKEY_FILE"] = natsSecurity.Cell(cell.Cell)
+                            .Controllers[controller.Replica].SeedFile,
                         ["TS_ORCH_INSTANCE"] = controller.Replica.ToString(
                             System.Globalization.CultureInfo.InvariantCulture)
                     });
@@ -208,6 +216,7 @@ public static class DevelopmentLab
         OrchestratorOptions options,
         DevelopmentTopology topology,
         DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
         long generation,
         DateTimeOffset startedAt,
         CancellationToken cancellationToken)
@@ -220,6 +229,7 @@ public static class DevelopmentLab
             var health = await DevelopmentHealthProbe.ProbeAsync(
                 topology,
                 supervisor,
+                natsSecurity,
                 timeout.Token);
             if (health.Values.All(value => value.Healthy))
             {
