@@ -108,4 +108,31 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"])
             .IsEqualTo($"http://127.0.0.1:{dashboard.Port}");
     }
+
+    [Test]
+    public async Task NatsMembersUseOneStableSeedWithoutDuplicateRouteStorms()
+    {
+        var members = DevelopmentTopology.CreateThreeCellR3().Cells
+            .Single(cell => cell.Cell == "fra")
+            .OfKind(DevelopmentResourceKind.ControlNats);
+
+        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[0])).IsEmpty();
+        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[1]))
+            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[0].ClusterPort}"]);
+        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[2]))
+            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[0].ClusterPort}"]);
+    }
+
+    [Test]
+    public async Task ContinuousHealthUsesRoleSpecificProductionSurfaces()
+    {
+        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.TerraBase))
+            .IsEqualTo("/build/version");
+        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.Api))
+            .IsEqualTo("/health/ready");
+        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.Dashboard))
+            .IsEqualTo("/api/stack");
+        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.ControlNats))
+            .IsNull();
+    }
 }

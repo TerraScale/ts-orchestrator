@@ -75,6 +75,7 @@ public static class DevelopmentLab
             generation,
             startedAt,
             DevelopmentResourceState.Starting,
+            null,
             cancellationToken);
 
         foreach (var cell in topology.Cells)
@@ -112,13 +113,19 @@ public static class DevelopmentLab
             generation,
             startedAt,
             DevelopmentResourceState.Ready,
+            null,
             cancellationToken);
         Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
 
+        var consecutiveUnhealthyObservations = 0;
         while (!cancellationToken.IsCancellationRequested)
         {
             supervisor.ThrowIfAnyExited();
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            var health = await DevelopmentHealthProbe.ProbeAsync(
+                topology,
+                supervisor,
+                cancellationToken);
             await PersistAsync(
                 options,
                 topology,
@@ -126,7 +133,19 @@ public static class DevelopmentLab
                 generation,
                 startedAt,
                 DevelopmentResourceState.Ready,
+                health,
                 cancellationToken);
+            var unhealthy = health.Where(observation => !observation.Value.Healthy).ToArray();
+            consecutiveUnhealthyObservations = unhealthy.Length == 0
+                ? 0
+                : consecutiveUnhealthyObservations + 1;
+            if (consecutiveUnhealthyObservations >= 3)
+            {
+                throw new InvalidOperationException(
+                    "Development topology remained unhealthy for three observations: " +
+                    string.Join(", ", unhealthy.Select(observation =>
+                        $"{observation.Key} ({observation.Value.Detail})")));
+            }
         }
         return 0;
     }
@@ -168,12 +187,13 @@ public static class DevelopmentLab
         long generation,
         DateTimeOffset startedAt,
         DevelopmentResourceState state,
+        IReadOnlyDictionary<string, DevelopmentResourceHealth>? health,
         CancellationToken cancellationToken)
     {
         var observedAt = DateTimeOffset.UtcNow;
         var all = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
-            .Select(resource => Observe(resource, supervisor, state, observedAt))
+            .Select(resource => Observe(resource, supervisor, state, health, observedAt))
             .ToArray();
         var runtimeState = new DevelopmentRuntimeState(
             1,
@@ -201,21 +221,34 @@ public static class DevelopmentLab
         DevelopmentResourcePlan resource,
         DevelopmentProcessSupervisor supervisor,
         DevelopmentResourceState desiredState,
+        IReadOnlyDictionary<string, DevelopmentResourceHealth>? health,
         DateTimeOffset observedAt)
     {
         supervisor.Processes.TryGetValue(resource.Name, out var process);
         var exited = process?.HasExited == true;
-        var state = exited ? DevelopmentResourceState.Failed : desiredState;
+        DevelopmentResourceHealth? resourceHealth = null;
+        if (health is not null)
+        {
+            health.TryGetValue(resource.Name, out resourceHealth);
+        }
+        var state = exited
+            ? DevelopmentResourceState.Failed
+            : resourceHealth is { Healthy: false }
+                ? DevelopmentResourceState.Degraded
+                : desiredState;
+        var healthy = state is DevelopmentResourceState.Ready && resourceHealth?.Healthy is not false;
         return new(
             resource.Name,
             resource.Cell,
             resource.Kind,
             resource.Replica,
             state,
-            state is DevelopmentResourceState.Ready,
+            healthy,
             process is not null && !exited ? process.Id : null,
             Endpoint(resource),
-            exited ? $"Exited with code {process!.ExitCode}." : state.ToString(),
+            exited
+                ? $"Exited with code {process!.ExitCode}."
+                : resourceHealth?.Detail ?? state.ToString(),
             observedAt);
     }
 

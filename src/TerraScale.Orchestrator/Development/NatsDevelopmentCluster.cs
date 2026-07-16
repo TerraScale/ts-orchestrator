@@ -30,9 +30,10 @@ internal static class NatsDevelopmentCluster
         var natsServer = ResolveNatsServer();
         foreach (var resource in resources)
         {
-            var routes = string.Join(", ", resources
-                .Where(candidate => candidate.Name != resource.Name)
-                .Select(candidate => $"\"nats-route://127.0.0.1:{candidate.ClusterPort}\""));
+            var routes = CreateRoutes(resources, resource);
+            var routeConfiguration = routes.Count == 0
+                ? string.Empty
+                : $"  routes: [{string.Join(", ", routes.Select(route => $"\"{route}\""))}]";
             var root = Path.Combine(dataDirectory, resource.Name);
             Directory.CreateDirectory(root);
             var config = Path.Combine(root, "nats.conf");
@@ -48,12 +49,22 @@ internal static class NatsDevelopmentCluster
                   name: "{{clusterName}}"
                   host: "127.0.0.1"
                   port: {{resource.ClusterPort}}
-                  routes: [{{routes}}]
+                {{routeConfiguration}}
                 }
                 """);
             supervisor.Start(resource.Name, natsServer, ["--config", config], root);
         }
         return resources;
+    }
+
+    internal static IReadOnlyList<string> CreateRoutes(
+        IReadOnlyList<DevelopmentResourcePlan> resources,
+        DevelopmentResourcePlan resource)
+    {
+        var seed = resources.OrderBy(candidate => candidate.Replica).First();
+        return resource.Name == seed.Name
+            ? []
+            : [$"nats-route://127.0.0.1:{seed.ClusterPort}"];
     }
 
     public static async Task WaitReadyAsync(
