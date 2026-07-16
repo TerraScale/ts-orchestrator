@@ -84,6 +84,19 @@ public sealed class NatsRuntime : IAsyncDisposable
                 metadata: new Dictionary<string, string> { ["protocol"] = "1" },
                 cancellationToken: cancellationToken);
 
+            await service.AddEndpointAsync<string>(
+                message => message.ReplyAsync(
+                    authority.Snapshot.Ready ? "ready" : "not-ready",
+                    cancellationToken: cancellationToken),
+                name: "instance_health",
+                subject: topology.InstanceHealthSubject,
+                metadata: new Dictionary<string, string>
+                {
+                    ["protocol"] = "1",
+                    ["instance"] = options.Instance
+                },
+                cancellationToken: cancellationToken);
+
             var startedAt = DateTimeOffset.UtcNow;
             await service.AddEndpointAsync<string>(
                 message =>
@@ -174,7 +187,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var health = await client.RequestAsync<string, string>(
-            topology.HealthSubject,
+            topology.InstanceHealthSubject,
             "health",
             cancellationToken: cancellationToken);
         if (health.Data is not "ready")
@@ -186,18 +199,9 @@ public sealed class NatsRuntime : IAsyncDisposable
             $"$SRV.INFO.{topology.ServiceName}",
             string.Empty,
             cancellationToken: cancellationToken);
-        if (!HasExpectedEndpoint(info.Data, topology, requireRequest: false))
+        if (!HasExpectedEndpoint(info.Data, topology))
         {
             throw new InvalidOperationException("NATS service discovery returned invalid endpoint metadata.");
-        }
-
-        var stats = await client.RequestAsync<string, string>(
-            $"$SRV.STATS.{topology.ServiceName}",
-            string.Empty,
-            cancellationToken: cancellationToken);
-        if (!HasExpectedEndpoint(stats.Data, topology, requireRequest: true))
-        {
-            throw new InvalidOperationException("NATS service statistics did not record the health request.");
         }
 
         var statusResponse = await client.RequestAsync<string, string>(
@@ -213,8 +217,7 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     private static bool HasExpectedEndpoint(
         string? response,
-        NatsTopology topology,
-        bool requireRequest)
+        NatsTopology topology)
     {
         if (string.IsNullOrWhiteSpace(response))
         {
@@ -232,9 +235,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         return endpoints.EnumerateArray().Any(endpoint =>
             endpoint.TryGetProperty("name", out var endpointName) && endpointName.GetString() == "health" &&
             endpoint.TryGetProperty("subject", out var subject) && subject.GetString() == topology.HealthSubject &&
-            endpoint.TryGetProperty("queue_group", out var queue) && queue.GetString() == topology.ServiceQueueGroup &&
-            (!requireRequest ||
-             (endpoint.TryGetProperty("num_requests", out var requests) && requests.GetInt64() >= 1)));
+            endpoint.TryGetProperty("queue_group", out var queue) && queue.GetString() == topology.ServiceQueueGroup);
     }
 
     public async ValueTask DisposeAsync()
