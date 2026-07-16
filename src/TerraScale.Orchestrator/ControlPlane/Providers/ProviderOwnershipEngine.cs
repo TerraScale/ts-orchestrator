@@ -190,19 +190,42 @@ public static class ProviderOwnershipEngine
         ProviderDecisionCode.TagsConsistent,
         ProviderDecisionCode.TagsNotAuthority,
     ];
-    private static bool HasOwnershipConflict(IGrouping<string, ProviderOwnershipRecord> g) => g
-        .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, Invariant(x.Generation.Value)))
-        .Distinct(StringComparer.Ordinal).Skip(1).Any();
-    private static bool HasObservationConflict(IGrouping<string, ProviderResourceObservation> g) => g
-        .Select(x => string.Join('|', Invariant(x.Generation.Value), x.State))
-        .Distinct(StringComparer.Ordinal).Skip(1).Any();
-    private static bool HasCreateObservationConflict(IGrouping<string, ProviderCreateObservation> g) => g
-        .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, Invariant(x.Generation.Value),
-            x.State, x.ResolvedResourceId?.Value ?? "-"))
-        .Distinct(StringComparer.Ordinal).Skip(1).Any();
-    private static bool HasTagConflict(IGrouping<string, ProviderInventoryTagEvidence> g) => g
-        .Select(x => string.Join('|', x.CellId.Value, x.CompartmentId.Value, x.OperationId.Value, Invariant(x.Generation.Value)))
-        .Distinct(StringComparer.Ordinal).Skip(1).Any();
+    private static bool HasOwnershipConflict(IGrouping<string, ProviderOwnershipRecord> group)
+    {
+        var first = group.First();
+        return group.Skip(1).Any(item =>
+            item.CellId != first.CellId ||
+            item.CompartmentId != first.CompartmentId ||
+            item.Generation != first.Generation);
+    }
+
+    private static bool HasObservationConflict(IGrouping<string, ProviderResourceObservation> group)
+    {
+        var first = group.First();
+        return group.Skip(1).Any(item =>
+            item.Generation != first.Generation || item.State != first.State);
+    }
+
+    private static bool HasCreateObservationConflict(IGrouping<string, ProviderCreateObservation> group)
+    {
+        var first = group.First();
+        return group.Skip(1).Any(item =>
+            item.CellId != first.CellId ||
+            item.CompartmentId != first.CompartmentId ||
+            item.Generation != first.Generation ||
+            item.State != first.State ||
+            (item.ResolvedResourceId?.Value ?? "-") != (first.ResolvedResourceId?.Value ?? "-"));
+    }
+
+    private static bool HasTagConflict(IGrouping<string, ProviderInventoryTagEvidence> group)
+    {
+        var first = group.First();
+        return group.Skip(1).Any(item =>
+            item.CellId != first.CellId ||
+            item.CompartmentId != first.CompartmentId ||
+            item.OperationId != first.OperationId ||
+            item.Generation != first.Generation);
+    }
     private static bool TagsConsistent(ProviderAuthorizationRequest request)
     {
         if (request.Context.Target is not ExistingProviderResource target) return request.Tags.Count == 0;
