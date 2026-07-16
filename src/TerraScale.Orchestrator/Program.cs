@@ -7,6 +7,10 @@ using System.Text.Json.Serialization;
 
 try
 {
+    if (args.FirstOrDefault() is "runtime")
+    {
+        return HostRuntimeCli.Execute(args.Skip(1).ToArray());
+    }
     var options = OrchestratorOptions.Parse(args, Environment.GetEnvironmentVariable);
     using var shutdown = new CancellationTokenSource();
 

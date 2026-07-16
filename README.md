@@ -91,3 +91,21 @@ descriptors. API, Authentication, and Dashboard retain the production OCI
 default; TerraBase, both NATS planes, and Orchestrator retain their native
 systemd defaults. Email and Stripe emulators are explicitly development-only
 fixtures and cannot be admitted as production workloads.
+
+`runtime plan` resolves a role and artifact digest through that catalog into a
+typed host execution plan. It never accepts an executable path, image
+repository, unit directive, host path, capability, privileged flag, or secret:
+
+```bash
+terrascale-orchestrator runtime plan \
+  --role api \
+  --allocation gru-api-1 \
+  --digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Native plans derive an immutable artifact path and hardened systemd
+properties. OCI plans derive a digest-pinned internal-registry reference,
+non-root identity, read-only root filesystem, no-new-privileges policy,
+drop-all capabilities, seccomp profile, cgroup, and resource ceiling. Plan
+generation is pure; applying it remains fail-closed until the selected
+systemd/containerd host adapter and its pinned runtime are qualified.
