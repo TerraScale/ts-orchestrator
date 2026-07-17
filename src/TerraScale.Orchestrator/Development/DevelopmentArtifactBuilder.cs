@@ -36,7 +36,7 @@ internal static class DevelopmentArtifactBuilder
     }
 
     internal static IReadOnlyList<string> DotNetBuildArguments(string project) =>
-        ["build", project, "--configuration", "Release", "--no-restore", "--nologo",
+        ["build", project, "--configuration", "Release", "--nologo",
             "--no-incremental", "--maxcpucount:1", "--nodeReuse:false"];
 
     private static async Task RunAsync(
@@ -67,14 +67,17 @@ internal static class DevelopmentArtifactBuilder
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
         await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         var standardError = await error;
-        _ = await output;
+        var standardOutput = await output;
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException($"Development artifact build failed: {FirstLine(standardError)}");
+            throw new InvalidOperationException(
+                $"Development artifact build failed: {FirstLine(standardError, standardOutput)}");
         }
     }
 
-    private static string FirstLine(string value) =>
-        value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    private static string FirstLine(params string[] values) =>
+        values.SelectMany(value => value.Split(
+                ['\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .FirstOrDefault() ?? "build exited without diagnostics";
 }
