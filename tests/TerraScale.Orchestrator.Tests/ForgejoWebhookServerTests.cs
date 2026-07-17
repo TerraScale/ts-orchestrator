@@ -79,7 +79,7 @@ public sealed class ForgejoWebhookServerTests
     }
 
     [Test]
-    public async Task RunOptionsActivateTheValidatedWebhookBoundary()
+    public async Task RunOptionsRejectWebhookWithoutGlobalAuthority()
     {
         var secretFile = await CreateSecretFileAsync();
         try
@@ -91,13 +91,17 @@ public sealed class ForgejoWebhookServerTests
                 ["TS_ORCH_FORGEJO_SECRET_FILE"] = secretFile,
             };
 
-            var options = OrchestratorOptions.Parse(["run"], values.GetValueOrDefault);
+            var configuration = ForgejoWebhookConfiguration.Resolve(
+                values["TS_ORCH_FORGEJO_LISTEN_PREFIX"],
+                values["TS_ORCH_FORGEJO_REPOSITORY"],
+                values["TS_ORCH_FORGEJO_SECRET_FILE"]);
             var catalog = OrchestratorOptions.Parse(
                 ["catalog"],
                 name => name == "TS_ORCH_FORGEJO_LISTEN_PREFIX" ? values[name] : null);
 
-            await Assert.That(options.ForgejoWebhook).IsNotNull();
-            await Assert.That(options.ForgejoWebhook!.Repository).IsEqualTo(Repository);
+            await Assert.That(configuration!.Repository).IsEqualTo(Repository);
+            await Assert.That(() => OrchestratorOptions.Parse(["run"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
             await Assert.That(catalog.ForgejoWebhook).IsNull();
         }
         finally

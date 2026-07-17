@@ -112,11 +112,11 @@ public sealed class NativeGitOpsSourceJournalTests
     [Test]
     public async Task TopologySeparatesSmallCasPointersFromBoundedManifestObjects()
     {
-        var topology = new NatsTopology("gru", 3);
+        var topology = new GlobalNatsTopology(3);
 
-        await Assert.That(topology.Delivery.MaxValueSize).IsEqualTo(16 * 1024);
-        await Assert.That(topology.Bundles.Bucket).IsEqualTo("CELL_BUNDLES");
-        await Assert.That(topology.Bundles.MaxBytes).IsEqualTo(64 * 1024 * 1024);
+        await Assert.That(topology.Releases.MaxValueSize).IsEqualTo(16 * 1024);
+        await Assert.That(topology.Bundles.Bucket).IsEqualTo("GLOBAL_BUNDLES");
+        await Assert.That(topology.Bundles.MaxBytes).IsEqualTo(1024L * 1024 * 1024);
         await Assert.That(topology.Bundles.NumberOfReplicas).IsEqualTo(3);
     }
 

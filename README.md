@@ -117,7 +117,7 @@ configuring fewer than three replicas fails before the global connection.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
-contains no secret, signature, or raw payload. `ORCH_DELIVERY` then reserves
+contains no secret, signature, or raw payload. Global `GLOBAL_RELEASES` then reserves
 both the Forgejo delivery ID and signed-payload digest with compare-and-set;
 only a matching, fully committed identity pair produces an acknowledgeable
 receipt. Exact retries are idempotent, while delivery collisions, altered-ID
@@ -280,8 +280,8 @@ accepted/proposed diff as one source plan. Symlinks, path substitution,
 malformed encoding, size mismatch, unsigned commits, and stale or conflicting
 generations fail closed before regional work is planned.
 
-The fenced leader stores accepted manifest bytes under their content digest in
-`CELL_BUNDLES` and advances a compact branch pointer in `ORCH_DELIVERY` with
+The fenced global leader stores accepted manifest bytes under their content digest in
+`GLOBAL_BUNDLES` and advances a compact branch pointer in `GLOBAL_RELEASES` with
 exact compare-and-set. It reads the object back before moving that pointer and
 recompiles accepted bytes after restart, so a crash between the two writes
 leaves only harmless unreferenced content. A concurrent pointer winner forces
@@ -291,13 +291,17 @@ stored object, and a stale-generation replay cannot advance accepted state. A
 repository without the native manifest is treated as not configured and does
 not disturb its last accepted plan.
 
-The optional polling fallback runs only on the current fenced regional leader.
+The optional polling fallback runs only on the current fenced global leader.
 It reads protected `develop` and `main` refs every 30 seconds, resolves each
 observed commit to its exact Git tree, then records the observation in
-`ORCH_DELIVERY` under the authority epoch and poll sequence. A lease change
+`GLOBAL_RELEASES` under the authority epoch and poll sequence. A lease change
 during the API read discards the result; an old leader cannot overwrite a newer
 epoch. Use a private token file containing a repository-scoped Forgejo token
 with only `read:repository` permission:
+
+Forgejo listener or polling configuration is rejected unless the complete
+global-control NATS configuration above is also present; regional controllers
+cannot accept global Git or CI state.
 
 ```bash
 TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \

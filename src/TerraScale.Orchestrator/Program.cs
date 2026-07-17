@@ -81,14 +81,14 @@ try
     try
     {
         webhookServer = options.Command == OrchestratorCommand.Run && options.ForgejoWebhook is not null
-            ? ForgejoWebhookServer.Start(options.ForgejoWebhook, ownedRuntime.ForgejoWebhooks)
+            ? ForgejoWebhookServer.Start(options.ForgejoWebhook, ownedGlobalRuntime!.ForgejoWebhooks)
             : null;
         sourcePoller = options.Command == OrchestratorCommand.Run && options.ForgejoSource is not null
             ? ForgejoSourcePoller.Start(
                 options.ForgejoSource,
-                ownedRuntime.ForgejoSources,
-                ownedRuntime.NativeGitOpsSources,
-                () => ownedRuntime.AuthoritySnapshot)
+                ownedGlobalRuntime!.ForgejoSources,
+                ownedGlobalRuntime.NativeGitOpsSources,
+                () => ownedGlobalRuntime.AuthoritySnapshot)
             : null;
     }
     catch (Exception exception)

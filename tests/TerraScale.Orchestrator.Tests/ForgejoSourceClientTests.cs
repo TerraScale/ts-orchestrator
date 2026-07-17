@@ -14,7 +14,7 @@ public sealed class ForgejoSourceClientTests
     private const string Token = "0123456789abcdef0123456789abcdef01234567";
 
     [Test]
-    public async Task RunOptionsActivateCredentialReferencedPolling()
+    public async Task RunOptionsRejectPollingWithoutGlobalAuthority()
     {
         var tokenFile = await CreateTokenFileAsync();
         try
@@ -26,10 +26,14 @@ public sealed class ForgejoSourceClientTests
                 ["TS_ORCH_FORGEJO_API_TOKEN_FILE"] = tokenFile,
             };
 
-            var options = OrchestratorOptions.Parse(["run"], values.GetValueOrDefault);
+            var configuration = ForgejoSourceConfiguration.Resolve(
+                values["TS_ORCH_FORGEJO_API_URL"],
+                values["TS_ORCH_FORGEJO_REPOSITORY"],
+                values["TS_ORCH_FORGEJO_API_TOKEN_FILE"]);
 
-            await Assert.That(options.ForgejoSource).IsNotNull();
-            await Assert.That(options.ForgejoSource!.Repository).IsEqualTo(Repository);
+            await Assert.That(configuration!.Repository).IsEqualTo(Repository);
+            await Assert.That(() => OrchestratorOptions.Parse(["run"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
         }
         finally
         {

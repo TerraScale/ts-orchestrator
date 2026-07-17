@@ -66,6 +66,17 @@ public sealed class GlobalNatsTopologyTests
             var globalNkey = gru.Operator.SeedFile;
             var globalTls = gru.Tls.Control.Clients["operator-read"];
             var values = Values(regionalNkey, regionalTls, globalNkey, globalTls);
+            var forgejoSecret = Path.Combine(directory, "forgejo-secret");
+            var forgejoToken = Path.Combine(directory, "forgejo-token");
+            await File.WriteAllTextAsync(forgejoSecret, "0123456789abcdef0123456789abcdef");
+            await File.WriteAllTextAsync(forgejoToken, "0123456789abcdef0123456789abcdef01234567");
+            File.SetUnixFileMode(forgejoSecret, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.SetUnixFileMode(forgejoToken, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            values["TS_ORCH_FORGEJO_LISTEN_PREFIX"] = "http://127.0.0.1:8080/hooks/forgejo/";
+            values["TS_ORCH_FORGEJO_API_URL"] = "https://git.terrascale.tech/";
+            values["TS_ORCH_FORGEJO_REPOSITORY"] = "TerraScale/TerraScale.Orchestrator";
+            values["TS_ORCH_FORGEJO_SECRET_FILE"] = forgejoSecret;
+            values["TS_ORCH_FORGEJO_API_TOKEN_FILE"] = forgejoToken;
 
             var options = OrchestratorOptions.Parse(
                 ["check"],
@@ -74,6 +85,8 @@ public sealed class GlobalNatsTopologyTests
             await Assert.That(options.GlobalNats).IsNotNull();
             await Assert.That(options.GlobalNats!.Url).IsEqualTo("tls://global-control.internal:4222/");
             await Assert.That(options.GlobalNats.NKeyFile).IsEqualTo(globalNkey);
+            await Assert.That(options.ForgejoWebhook).IsNotNull();
+            await Assert.That(options.ForgejoSource).IsNotNull();
 
             var reused = Values(regionalNkey, regionalTls, regionalNkey, regionalTls);
             await Assert.That(() => OrchestratorOptions.Parse(

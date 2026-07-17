@@ -101,15 +101,15 @@ public sealed class ForgejoWebhookJournalTests
     }
 
     [Test]
-    public async Task TopologyProvisionsReplicatedBoundedDeliveryJournal()
+    public async Task GlobalTopologyProvisionsReplicatedBoundedDeliveryJournal()
     {
-        var configuration = new NatsTopology("gru", 3).Delivery;
+        var configuration = new GlobalNatsTopology(3).Releases;
 
-        await Assert.That(configuration.Bucket).IsEqualTo("ORCH_DELIVERY");
+        await Assert.That(configuration.Bucket).IsEqualTo("GLOBAL_RELEASES");
         await Assert.That(configuration.NumberOfReplicas).IsEqualTo(3);
-        await Assert.That(configuration.History).IsEqualTo(2);
+        await Assert.That(configuration.History).IsEqualTo(64);
         await Assert.That(configuration.MaxValueSize).IsEqualTo(16 * 1024);
-        await Assert.That(configuration.MaxBytes).IsEqualTo(256 * 1024 * 1024);
+        await Assert.That(configuration.MaxBytes).IsEqualTo(1024L * 1024 * 1024);
     }
 
     private static ForgejoWebhookEnvelope Envelope(string reference, string delivery)

@@ -119,6 +119,8 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_FORGEJO_REPOSITORY"),
                     environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
                 : null;
+            if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
+                throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
             return new(
                 command,
                 cell,

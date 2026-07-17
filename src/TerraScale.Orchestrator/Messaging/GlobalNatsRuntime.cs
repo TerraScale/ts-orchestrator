@@ -15,16 +15,25 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
+        ForgejoWebhookJournal forgejoWebhooks,
+        ForgejoSourceJournal forgejoSources,
+        NativeGitOpsSourceJournal nativeGitOpsSources,
         RepositoryCiPromotionJournal promotions,
         RepositoryCiCandidateJournal candidates)
     {
         this.client = client;
         this.authority = authority;
+        ForgejoWebhooks = forgejoWebhooks;
+        ForgejoSources = forgejoSources;
+        NativeGitOpsSources = nativeGitOpsSources;
         Promotions = promotions;
         Candidates = candidates;
     }
 
     public Task Completion => authority.Completion;
+    public ForgejoWebhookJournal ForgejoWebhooks { get; }
+    public ForgejoSourceJournal ForgejoSources { get; }
+    public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     public RepositoryCiPromotionJournal Promotions { get; }
     public RepositoryCiCandidateJournal Candidates { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
@@ -65,7 +74,14 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
             var objects = new NatsNativeGitOpsManifestStore(state.Bundles);
-            return new(client, authority, new(ledger), new(ledger, objects));
+            return new(
+                client,
+                authority,
+                new(ledger),
+                new(ledger),
+                new(ledger, objects),
+                new(ledger),
+                new(ledger, objects));
         }
         catch
         {

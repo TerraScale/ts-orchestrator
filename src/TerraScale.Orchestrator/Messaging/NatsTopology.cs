@@ -48,7 +48,7 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public NatsKVConfig Delivery => new("ORCH_DELIVERY")
     {
-        Description = $"Durable Forgejo delivery, source, and GitOps pointers for {Cell}",
+        Description = $"Durable regional delivery and handoff coordination for {Cell}",
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
@@ -57,7 +57,7 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
-        Description = $"Signed control bundles and content-addressed source manifests for {Cell}",
+        Description = $"Signed regional control and protocol bundles for {Cell}",
         MaxBytes = 64 * 1024 * 1024,
         NumberOfReplicas = Replicas
     };
