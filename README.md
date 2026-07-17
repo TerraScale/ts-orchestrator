@@ -324,6 +324,13 @@ canonical metadata headers rather than Base64-expanding the payload. CellSpecs
 are capped at 896 KiB, headers at 64 KiB, and the complete command plus protocol
 allowance at 1 MiB. Duplicate, unknown, non-canonical, oversized, reordered,
 digest-mismatched, and payload-substituted inputs fail before durable delivery.
+The JetStream publisher sends one signed command to
+`ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
+uses handoff/cell/writer-epoch message identity so exact retries deduplicate but
+a fenced takeover is not suppressed. Authority loss before publish causes no
+mutation; loss after the storage acknowledgement is reported distinctly so the
+stale durable message cannot be mistaken for authority to advance the global
+plan. The regional epoch/signature gate still rejects that stale message.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
