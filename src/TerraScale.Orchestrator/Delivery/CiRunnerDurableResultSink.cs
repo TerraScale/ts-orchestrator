@@ -294,6 +294,13 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     FileShare.Read,
                     64 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
+                var header = new byte[20];
+                var headerBytes = await input.ReadAtLeastAsync(
+                    header,
+                    header.Length,
+                    throwOnEndOfStream: false,
+                    cancellationToken);
+                input.Position = 0;
                 using var hashed = new HashingReadStream(input);
                 var tar = TarEntry(TarEntryType.RegularFile, normalized, executable);
                 tar.DataStream = hashed;
@@ -307,7 +314,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     .Append(length.ToString(CultureInfo.InvariantCulture)).Append(':')
                     .Append(executable ? '1' : '0').Append(':').Append(content.Sha256).Append('\n');
                 foreach (var artifact in artifacts)
-                    artifact.File(normalized, length, executable, content.Sha256);
+                    artifact.File(normalized, length, executable, content.Sha256, header.AsSpan(0, headerBytes));
                 bytes += length;
                 files++;
             }
@@ -351,6 +358,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         private readonly StringBuilder canonical = new();
         private bool rootFound;
         private int files;
+        private int executables;
 
         internal void Directory(string path)
         {
@@ -363,9 +371,19 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 canonical.Append("d:").Append(relative).Append('\n');
         }
 
-        internal void File(string path, long bytes, bool executable, string digest)
+        internal void File(
+            string path,
+            long bytes,
+            bool executable,
+            string digest,
+            ReadOnlySpan<byte> header)
         {
             if (Relative(path) is not { } relative) return;
+            if (executable)
+            {
+                RequireElfArchitecture(header, artifact.Architecture);
+                executables++;
+            }
             canonical.Append("f:").Append(relative).Append(':')
                 .Append(bytes.ToString(CultureInfo.InvariantCulture)).Append(':')
                 .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
@@ -374,7 +392,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
 
         internal CiRunnerStoredArtifactEvidence Complete()
         {
-            if (!rootFound || files == 0)
+            if (!rootFound || files == 0 ||
+                artifact.Architecture != RepositoryCiArchitecture.Any && executables == 0)
                 throw new InvalidDataException("A declared CI artifact root is missing or empty.");
             return new(
                 artifact.Artifact,
@@ -386,6 +405,23 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         private string? Relative(string path) => path.StartsWith(artifact.Path + '/', StringComparison.Ordinal)
             ? path[(artifact.Path.Length + 1)..]
             : null;
+
+        private static void RequireElfArchitecture(
+            ReadOnlySpan<byte> header,
+            RepositoryCiArchitecture architecture)
+        {
+            if (architecture == RepositoryCiArchitecture.Any) return;
+            var machine = architecture switch
+            {
+                RepositoryCiArchitecture.LinuxX64 => 62,
+                RepositoryCiArchitecture.LinuxArm64 => 183,
+                _ => 0,
+            };
+            if (header.Length < 20 || !header[..4].SequenceEqual("\x7fELF"u8) ||
+                header[4] != 2 || header[5] != 1 || header[6] != 1 ||
+                header[18] != (byte)machine || header[19] != 0)
+                throw new InvalidDataException("A CI artifact executable has the wrong ELF architecture.");
+        }
     }
 
     private sealed record ArchiveEvidence(

@@ -39,9 +39,9 @@ public sealed class CiRunnerDurableResultSinkTests
         await Assert.That(stored.ArtifactSha256)
             .IsEqualTo(Convert.ToHexStringLower(SHA256.HashData(firstArtifact)));
         var native = stored.Artifacts!.Single();
-        var nativeContent = "native"u8.ToArray();
+        var nativeContent = X64Elf();
         var nativeCanonical = Encoding.UTF8.GetBytes(
-            $"f:orchestrator:{nativeContent.Length}:0:{Convert.ToHexStringLower(SHA256.HashData(nativeContent))}\n");
+            $"f:orchestrator:{nativeContent.Length}:1:{Convert.ToHexStringLower(SHA256.HashData(nativeContent))}\n");
         await Assert.That(native.Artifact).IsEqualTo("TerraScale/TerraScale.Orchestrator");
         await Assert.That(native.Architecture).IsEqualTo(RepositoryCiArchitecture.LinuxX64);
         await Assert.That(native.Path).IsEqualTo("linux-x64");
@@ -159,6 +159,31 @@ public sealed class CiRunnerDurableResultSinkTests
                 default);
             await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
         }
+
+        using (var wrongArchitecture = await Fixture.CreateAsync())
+        {
+            var manifest = new CiRunnerResultManifest(
+                1,
+                wrongArchitecture.Evidence.Job,
+                wrongArchitecture.Evidence.PlanDigest,
+                true,
+                0,
+                [new(
+                    "TerraScale/TerraScale.Orchestrator",
+                    RepositoryCiArchitecture.LinuxArm64,
+                    "linux-x64")]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(wrongArchitecture.Export, CiRunnerDurableResultSink.ResultManifestPath),
+                JsonSerializer.SerializeToUtf8Bytes(
+                    manifest,
+                    CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
+            var rejected = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
+                wrongArchitecture.Evidence,
+                wrongArchitecture.Log,
+                wrongArchitecture.Export,
+                default);
+            await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
+        }
     }
 
     private static string[] ArchiveEntries(byte[] content)
@@ -208,7 +233,10 @@ public sealed class CiRunnerDurableResultSinkTests
             Directory.CreateDirectory(invocation.ExportDirectory);
             File.WriteAllText(Path.Combine(invocation.ExportDirectory, "result.txt"), "passed");
             var artifactRoot = Directory.CreateDirectory(Path.Combine(invocation.ExportDirectory, "linux-x64"));
-            File.WriteAllText(Path.Combine(artifactRoot.FullName, "orchestrator"), "native");
+            var executable = Path.Combine(artifactRoot.FullName, "orchestrator");
+            File.WriteAllBytes(executable, X64Elf());
+            File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
             var manifest = new CiRunnerResultManifest(
                 1,
                 "ci-job",
@@ -301,5 +329,16 @@ public sealed class CiRunnerDurableResultSinkTests
         }
 
         public void Dispose() => fixture.Dispose();
+    }
+
+    private static byte[] X64Elf()
+    {
+        var header = new byte[20];
+        "\x7fELF"u8.CopyTo(header);
+        header[4] = 2;
+        header[5] = 1;
+        header[6] = 1;
+        header[18] = 62;
+        return header;
     }
 }
