@@ -257,8 +257,12 @@ and SHA-256 identity, and publish it under that content address in
 token out of runner jobs. The prepared-job CAS lease durably fixes that exact
 object name, digest, and byte length across replay, takeover, and retry. Signed
 CI job schema v3 carries the same identity into the runner execution plan;
-legacy active records remain readable but cannot invent it. No runner-side
-archive extraction is installed yet.
+legacy active records remain readable but cannot invent it. The runner-side
+materializer verifies those signed bytes, admits one tar root containing only
+bounded regular files/directories, applies private owner-only modes in a fresh
+workspace, and rejects links, special files, traversal, duplicate paths,
+corruption, decompression excess, and missing fixed descriptor/recipe files.
+It does not invoke BuildKit.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -305,10 +309,10 @@ control-NATS, or database networks. A signed command is now acknowledgeable
 only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
-evidence digest or typed failure. The exact-tree source materializer, rootless
-BuildKit adapter, bounded log/artifact evidence writer, and result coordinator
-are still separate missing gates; the archive publisher, journal, and plan do
-not claim that a workload ran.
+evidence digest or typed failure. The rootless BuildKit adapter, bounded
+log/artifact evidence writer, and result coordinator are still separate missing
+gates; source materialization, the archive publisher, journal, and plan do not
+claim that a workload ran.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
