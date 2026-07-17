@@ -21,6 +21,7 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");
         await Assert.That(topology.Releases.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.History).IsEqualTo(64);
+        await Assert.That(topology.Releases.MaxAge).IsEqualTo(TimeSpan.FromDays(365));
         await Assert.That(topology.Releases.MaxValueSize).IsEqualTo(16 * 1024);
         await Assert.That(() => new GlobalNatsTopology(1)).Throws<ArgumentOutOfRangeException>();
     }

@@ -1,5 +1,6 @@
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
+using NATS.Client.ObjectStore;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -43,7 +44,15 @@ public sealed class GlobalNatsTopology
     {
         Description = "Candidate, release-set, approval, promotion, and rollback journal",
         History = 64,
+        MaxAge = TimeSpan.FromDays(365),
         MaxValueSize = 16 * 1024,
+        MaxBytes = 1024L * 1024 * 1024,
+        NumberOfReplicas = Replicas,
+    };
+
+    public NatsObjConfig Bundles => new("GLOBAL_BUNDLES")
+    {
+        Description = "Content-addressed global candidate and handoff records",
         MaxBytes = 1024L * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };

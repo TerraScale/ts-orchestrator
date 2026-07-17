@@ -1,6 +1,7 @@
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
+using NATS.Client.ObjectStore;
 using NATS.Net;
 using TerraScale.Orchestrator.Delivery;
 
@@ -14,15 +15,18 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
-        RepositoryCiPromotionJournal promotions)
+        RepositoryCiPromotionJournal promotions,
+        RepositoryCiCandidateJournal candidates)
     {
         this.client = client;
         this.authority = authority;
         Promotions = promotions;
+        Candidates = candidates;
     }
 
     public Task Completion => authority.Completion;
     public RepositoryCiPromotionJournal Promotions { get; }
+    public RepositoryCiCandidateJournal Candidates { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<GlobalNatsRuntime> StartAsync(
@@ -57,7 +61,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 state.Leaders,
                 instance,
                 cancellationToken);
-            return new(client, authority, new(new NatsForgejoDeliveryLedger(state.Releases)));
+            if (!authority.Snapshot.Ready)
+                throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
+            var ledger = new NatsForgejoDeliveryLedger(state.Releases);
+            var objects = new NatsNativeGitOpsManifestStore(state.Bundles);
+            return new(client, authority, new(ledger), new(ledger, objects));
         }
         catch
         {
@@ -82,7 +90,17 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 var keyValue = jetStream.CreateKeyValueStoreContext();
                 var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
                 var releases = await keyValue.CreateOrUpdateStoreAsync(topology.Releases, cancellationToken);
-                return new(leaders, releases);
+                var objectStore = jetStream.CreateObjectStoreContext();
+                INatsObjStore bundles;
+                try
+                {
+                    bundles = await objectStore.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+                }
+                catch (NatsJSApiException exception) when (exception.Error.Code == 404)
+                {
+                    bundles = await objectStore.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
+                }
+                return new(leaders, releases, bundles);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -105,5 +123,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         }
     }
 
-    private sealed record GlobalState(INatsKVStore Leaders, INatsKVStore Releases);
+    private sealed record GlobalState(
+        INatsKVStore Leaders,
+        INatsKVStore Releases,
+        INatsObjStore Bundles);
 }

@@ -99,8 +99,9 @@ only with the complete `TS_ORCH_GLOBAL_NATS_*` configuration. The connection
 requires R3, a `tls://` endpoint, a valid private user NKey seed, and a complete
 mTLS identity distinct from the regional account. The endpoint may be the same
 GRU control-NATS cluster because account authorization is separate. Startup
-then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, and the
-64-revision-per-release `GLOBAL_RELEASES` KV journal before reporting ready:
+then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, the
+64-revision-per-release `GLOBAL_RELEASES` KV journal, and the R3
+`GLOBAL_BUNDLES` content store before reporting ready:
 
 ```bash
 TS_ORCH_GLOBAL_NATS_URL=tls://control-nats-gru.internal:4222 \
@@ -180,6 +181,17 @@ SFO then FRA then GRU verification, and unwinds affected regions in reverse.
 No coordinator drives that journal yet; registry publication, regional
 actuators, live verification, and the real runner executor remain separate
 gates.
+
+Candidates and their later main-tree qualifications survive controller restart.
+`GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
+while `GLOBAL_RELEASES` commits only a small immutable pointer after reading the
+object back. Recovery revalidates and re-hashes the pipeline, impact, exact
+source set, every first-attempt job result, every signed architecture-specific
+artifact, runtime digest, and qualified main tree. A qualification cannot be
+recorded before its exact candidate. Concurrent exact writes converge; pointer
+collisions, corrupt or missing objects, interrupted writes, and a lost global
+authority fail closed. Candidate lookup indexing, retention cleanup, and a
+coordinator that consumes these records remain unimplemented.
 
 Runner admission is likewise a pure contract today. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,

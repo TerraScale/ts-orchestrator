@@ -139,7 +139,13 @@ public static class RepositoryCiCandidateAssembler
                 source.Tree.ToLowerInvariant(),
                 source.SignatureVerified))
             .ToArray();
-        var digest = Digest(pipeline, sources, orderedResults, orderedArtifacts);
+        var digest = Digest(
+            pipeline.Pipeline,
+            pipeline.Digest,
+            pipeline.ImpactDigest,
+            sources,
+            orderedResults,
+            orderedArtifacts);
         return new(
             $"candidate-{digest}",
             digest,
@@ -149,6 +155,72 @@ public static class RepositoryCiCandidateAssembler
             ReadOnly(sources),
             ReadOnly(orderedResults),
             ReadOnly(orderedArtifacts));
+    }
+
+    internal static RepositoryCiCandidate Restore(
+        string expectedDigest,
+        string pipelineId,
+        string pipelineDigest,
+        string impactDigest,
+        IEnumerable<RepositoryCiCandidateSource> sources,
+        IEnumerable<RepositoryCiJobResult> jobs,
+        IEnumerable<RepositoryCiArtifactResult> artifacts)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(artifacts);
+        if (!IsDigest(expectedDigest) || !IsIdentity(pipelineId) ||
+            !IsDigest(pipelineDigest) || !IsDigest(impactDigest))
+            throw new InvalidDataException("Persisted candidate identity is invalid.");
+
+        var sourceArray = sources.Take(65).ToArray();
+        var jobArray = jobs.Take(MaximumJobs + 1).ToArray();
+        var artifactArray = artifacts.Take(MaximumArtifacts + 1).ToArray();
+        if (sourceArray.Length is < 1 or > 64 || jobArray.Length is < 1 or > MaximumJobs ||
+            artifactArray.Length is < 1 or > MaximumArtifacts ||
+            sourceArray.Any(static source => source is null) || jobArray.Any(static job => job is null) ||
+            artifactArray.Any(static artifact => artifact is null))
+            throw new InvalidDataException("Persisted candidate inputs exceed their technical bounds.");
+        if (sourceArray.Select(static source => source.Repository).Distinct(StringComparer.Ordinal).Count() != sourceArray.Length ||
+            !sourceArray.SequenceEqual(sourceArray.OrderBy(static source => source.Repository, StringComparer.Ordinal)) ||
+            sourceArray.Any(static source => !source.SignatureVerified ||
+                !ForgejoWebhookVerifier.IsRepository(source.Repository) || !IsObjectId(source.Commit) ||
+                !IsObjectId(source.Tree)))
+            throw new InvalidDataException("Persisted candidate sources are invalid.");
+
+        var jobById = UniqueResults(jobArray);
+        if (jobArray.Any(static job => job.Attempt != 1 || !job.Succeeded || job.RequiredTestSkips != 0 ||
+                !IsDigest(job.EvidenceDigest)))
+            throw new InvalidDataException("Persisted candidate jobs are invalid.");
+        var artifactByIdentity = UniqueArtifacts(artifactArray);
+        if (artifactByIdentity.Count != artifactArray.Length ||
+            artifactArray.Any(artifact => !jobById.ContainsKey(artifact.Job.Value)))
+            throw new InvalidDataException("Persisted candidate artifacts do not match its jobs.");
+        foreach (var artifact in artifactArray)
+        {
+            ValidateArtifact(artifact);
+            if (artifact.Architecture == RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest is not null ||
+                artifact.Architecture != RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest != artifact.Digest)
+                throw new InvalidDataException("Persisted candidate runtime evidence is invalid.");
+        }
+        if (!artifactArray.SequenceEqual(artifactArray
+                .OrderBy(static artifact => artifact.Job.Value, StringComparer.Ordinal)
+                .ThenBy(static artifact => artifact.Architecture)))
+            throw new InvalidDataException("Persisted candidate artifacts are not canonical.");
+
+        var pipeline = new PipelineId(pipelineId);
+        var digest = Digest(pipeline, pipelineDigest, impactDigest, sourceArray, jobArray, artifactArray);
+        if (digest != expectedDigest)
+            throw new InvalidDataException("Persisted candidate content does not match its digest.");
+        return new(
+            $"candidate-{digest}",
+            digest,
+            pipeline,
+            pipelineDigest,
+            impactDigest,
+            ReadOnly(sourceArray),
+            ReadOnly(jobArray),
+            ReadOnly(artifactArray));
     }
 
     private static Dictionary<string, RepositoryCiJobResult> UniqueResults(
@@ -187,7 +259,9 @@ public static class RepositoryCiCandidateAssembler
     }
 
     private static string Digest(
-        RepositoryCiPipelinePlan pipeline,
+        PipelineId pipeline,
+        string pipelineDigest,
+        string impactDigest,
         IReadOnlyList<RepositoryCiCandidateSource> sources,
         IReadOnlyList<RepositoryCiJobResult> results,
         IReadOnlyList<RepositoryCiArtifactResult> artifacts)
@@ -196,9 +270,9 @@ public static class RepositoryCiCandidateAssembler
         using (var writer = new Utf8JsonWriter(bytes))
         {
             writer.WriteStartObject();
-            writer.WriteString("pipeline", pipeline.Pipeline.Value);
-            writer.WriteString("pipelineDigest", pipeline.Digest);
-            writer.WriteString("impactDigest", pipeline.ImpactDigest);
+            writer.WriteString("pipeline", pipeline.Value);
+            writer.WriteString("pipelineDigest", pipelineDigest);
+            writer.WriteString("impactDigest", impactDigest);
             writer.WriteStartArray("sources");
             foreach (var source in sources)
             {
@@ -248,6 +322,10 @@ public static class RepositoryCiCandidateAssembler
 
     private static bool IsIdentity(string? value) => value is { Length: >= 1 and <= 512 } &&
         !value.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character));
+
+    private static bool IsObjectId(string? value) => value is { Length: 40 or 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
+        value.Any(static character => character != '0');
 
     private static bool IsDigest(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');

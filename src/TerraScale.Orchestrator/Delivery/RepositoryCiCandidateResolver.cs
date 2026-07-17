@@ -100,6 +100,36 @@ public static class RepositoryCiCandidateResolver
         return new($"qualified-{digest}", digest, candidate, ReadOnly(qualified));
     }
 
+    internal static RepositoryCiQualifiedCandidate Restore(
+        string expectedDigest,
+        RepositoryCiCandidate candidate,
+        IEnumerable<RepositoryCiQualifiedSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(sources);
+        if (!IsDigest(expectedDigest) || !IsDigest(candidate.Digest) ||
+            candidate.Id != $"candidate-{candidate.Digest}")
+            throw new InvalidDataException("Persisted qualification identity is invalid.");
+        var sourceArray = sources.Take(65).ToArray();
+        if (sourceArray.Length != candidate.Sources.Count || sourceArray.Any(static source => source is null) ||
+            !sourceArray.SequenceEqual(sourceArray.OrderBy(static source => source.Repository, StringComparer.Ordinal)) ||
+            sourceArray.Select(static source => source.Repository).Distinct(StringComparer.Ordinal).Count() != sourceArray.Length)
+            throw new InvalidDataException("Persisted qualified sources are invalid.");
+        var candidateByRepository = candidate.Sources.ToDictionary(static source => source.Repository, StringComparer.Ordinal);
+        foreach (var source in sourceArray)
+        {
+            if (!candidateByRepository.TryGetValue(source.Repository, out var candidateSource) ||
+                !IsObjectId(source.CandidateCommit) || !IsObjectId(source.MainCommit) || !IsObjectId(source.Tree) ||
+                !StringComparer.OrdinalIgnoreCase.Equals(source.CandidateCommit, candidateSource.Commit) ||
+                !StringComparer.OrdinalIgnoreCase.Equals(source.Tree, candidateSource.Tree))
+                throw new InvalidDataException("Persisted qualification differs from its candidate source set.");
+        }
+        var digest = Digest(candidate, sourceArray);
+        if (digest != expectedDigest)
+            throw new InvalidDataException("Persisted qualification content does not match its digest.");
+        return new($"qualified-{digest}", digest, candidate, ReadOnly(sourceArray.ToList()));
+    }
+
     private static string Digest(
         RepositoryCiCandidate candidate,
         IReadOnlyList<RepositoryCiQualifiedSource> sources)
