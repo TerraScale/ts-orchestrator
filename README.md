@@ -170,9 +170,13 @@ in `GLOBAL_BUNDLES`, advances a compact monotonic pointer in `CI_RUNNER_JOBS`,
 and acknowledges only after both objects survive readback and the pointer CAS
 succeeds. Exact redelivery after an acknowledgement failure resumes from that
 durable acceptance; higher fenced takeover and contiguous retry attempts can
-replace it. The live pipeline coordinator, CI signer/identity wiring, bounded
-runner pull consumer, and executor remain separate unimplemented gates; no
-unsigned runtime fallback is installed.
+replace it. A bounded runner pull adapter derives one durable exact-subject
+consumer per runner, permits one in-flight command, rejects wrong
+stream/consumer/sequence/redelivery metadata, and uses a double ACK only through
+that durable inbox. The live pipeline coordinator, CI signer/identity and NATS
+credential wiring, dynamic runner consumer reconciliation, runner process, and
+executor remain separate unimplemented gates; no unsigned runtime fallback is
+installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy

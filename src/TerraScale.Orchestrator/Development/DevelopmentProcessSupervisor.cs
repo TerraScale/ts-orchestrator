@@ -130,7 +130,15 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             Path.GetFullPath(workingDirectory),
             environment?.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
         specifications.Add(name, specification);
-        return StartCore(specification);
+        try
+        {
+            return StartCore(specification);
+        }
+        catch
+        {
+            specifications.Remove(name);
+            throw;
+        }
     }
 
     public IReadOnlyList<string> ExitedResources() => processes
@@ -175,8 +183,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false
-            },
-            EnableRaisingEvents = true
+            }
         };
         var memory = MemoryLimit(topology, specification.Name);
         Add(process.StartInfo,
@@ -203,8 +210,17 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         }
         Add(process.StartInfo, ["--workdir", specification.WorkingDirectory, specification.Image]);
         Add(process.StartInfo, specification.Arguments);
-        process.Start();
         processes.Add(specification.Name, process);
+        try
+        {
+            process.Start();
+        }
+        catch
+        {
+            processes.Remove(specification.Name);
+            process.Dispose();
+            throw;
+        }
         startedAt[specification.Name] = DateTimeOffset.UtcNow;
         _ = PumpAsync(specification.Name, process.StandardOutput, Console.Out, stopping.Token);
         _ = PumpAsync(specification.Name, process.StandardError, Console.Error, stopping.Token);
