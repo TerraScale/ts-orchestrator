@@ -175,6 +175,17 @@ suspension and guarded retirement are dependent-first. A stable workload ID
 cannot change its admitted role, and an active workload cannot depend on a
 suspended role.
 
+The native source boundary reads `.terrascale/orchestrator.json` only from the
+exact immutable commit returned by Forgejo resolution; it never substitutes a
+branch or tag for that object ID. Loading requires a signature-verified commit
+before any file request is made. The response must identify the exact regular
+file path, a nonzero Git blob, Base64 encoding, and a matching declared size
+within the 1 MiB manifest ceiling. The loader records an independent SHA-256
+of the decoded bytes, compiles the closed manifest, and produces the typed
+accepted/proposed diff as one source plan. Symlinks, path substitution,
+malformed encoding, size mismatch, unsigned commits, and stale or conflicting
+generations fail closed before regional work is planned.
+
 The optional polling fallback runs only on the current fenced regional leader.
 It reads protected `develop` and `main` refs every 30 seconds, resolves each
 observed commit to its exact Git tree, then records the observation in
