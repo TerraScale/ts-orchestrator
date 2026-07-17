@@ -189,6 +189,7 @@ public sealed class RepositoryCiCandidateCoordinatorTests
                 new($"artifact-{architecture}"),
                 architecture,
                 digest,
+                architecture == RepositoryCiArchitecture.Any ? [] : ["app"],
                 new("trusted-build-signer"),
                 new($"signature-{architecture}"),
                 true,

@@ -18,6 +18,7 @@ public sealed record RepositoryCiArtifactResult(
     ArtifactId Artifact,
     RepositoryCiArchitecture Architecture,
     DigestId Digest,
+    IReadOnlyList<string> Entrypoints,
     SigningIdentityId SigningIdentity,
     SignatureId Signature,
     bool SignatureVerified,
@@ -127,6 +128,10 @@ public static class RepositoryCiCandidateAssembler
         var orderedArtifacts = artifactArray
             .OrderBy(static artifact => artifact.Job.Value, StringComparer.Ordinal)
             .ThenBy(static artifact => artifact.Architecture)
+            .Select(static artifact => artifact with
+            {
+                Entrypoints = Array.AsReadOnly(artifact.Entrypoints.ToArray()),
+            })
             .ToArray();
         var sources = pipeline.Jobs
             .Select(static job => job.Source)
@@ -207,6 +212,10 @@ public static class RepositoryCiCandidateAssembler
                 .OrderBy(static artifact => artifact.Job.Value, StringComparer.Ordinal)
                 .ThenBy(static artifact => artifact.Architecture)))
             throw new InvalidDataException("Persisted candidate artifacts are not canonical.");
+        artifactArray = artifactArray.Select(static artifact => artifact with
+        {
+            Entrypoints = Array.AsReadOnly(artifact.Entrypoints.ToArray()),
+        }).ToArray();
 
         var pipeline = new PipelineId(pipelineId);
         var digest = Digest(pipeline, pipelineDigest, impactDigest, sourceArray, jobArray, artifactArray);
@@ -252,6 +261,10 @@ public static class RepositoryCiCandidateAssembler
     private static void ValidateArtifact(RepositoryCiArtifactResult artifact)
     {
         if (!IsArtifactId(artifact.Artifact?.Value) || !IsDigest(artifact.Digest?.Value) ||
+            !RepositoryCiArtifactAttestation.TryEntrypointsDigest(
+                artifact.Architecture,
+                artifact.Entrypoints,
+                out _) ||
             !IsIdentity(artifact.SigningIdentity?.Value) || !IsIdentity(artifact.Signature?.Value) ||
             !artifact.SignatureVerified || artifact.ObservedRuntimeDigest is not null &&
             !IsDigest(artifact.ObservedRuntimeDigest.Value))
@@ -302,6 +315,9 @@ public static class RepositoryCiCandidateAssembler
                 writer.WriteString("artifact", artifact.Artifact.Value);
                 writer.WriteString("architecture", artifact.Architecture.ToString());
                 writer.WriteString("digest", artifact.Digest.Value);
+                writer.WriteStartArray("entrypoints");
+                foreach (var entrypoint in artifact.Entrypoints) writer.WriteStringValue(entrypoint);
+                writer.WriteEndArray();
                 writer.WriteString("signingIdentity", artifact.SigningIdentity.Value);
                 writer.WriteString("signature", artifact.Signature.Value);
                 if (artifact.ObservedRuntimeDigest is not null)

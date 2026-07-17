@@ -7,7 +7,8 @@ internal sealed record RepositoryCiArtifactSubject(
     JobId Job,
     ArtifactId Artifact,
     RepositoryCiArchitecture Architecture,
-    DigestId Digest);
+    DigestId Digest,
+    string EntrypointsDigest);
 
 internal sealed record RepositoryCiVerifiedArtifactAttestation(
     SigningIdentityId SigningIdentity,
@@ -91,7 +92,10 @@ internal sealed class RepositoryCiCandidateArtifactReader(
                     planned.Request.Job,
                     new(declared.Artifact),
                     architecture,
-                    new(declared.Digest));
+                    new(declared.Digest),
+                    RepositoryCiArtifactAttestation.EntrypointsDigest(
+                        architecture,
+                        declared.Entrypoints));
                 var verified = await attestations.VerifyAsync(subject, cancellationToken) ??
                     throw new InvalidDataException("A candidate artifact lacks verified signature or runtime evidence.");
                 var signingIdentity = verified.SigningIdentity;
@@ -106,6 +110,7 @@ internal sealed class RepositoryCiCandidateArtifactReader(
                     subject.Artifact,
                     subject.Architecture,
                     subject.Digest,
+                    Array.AsReadOnly(declared.Entrypoints.ToArray()),
                     signingIdentity,
                     signature,
                     true,

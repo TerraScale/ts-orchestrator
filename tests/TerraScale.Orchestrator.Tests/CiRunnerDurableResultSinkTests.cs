@@ -66,6 +66,8 @@ public sealed class CiRunnerDurableResultSinkTests
             .IsEquivalentTo(["linux-x64", "linux-arm64"]);
         await Assert.That(stored.Artifacts!.All(static value => value.Files == 1 && value.Bytes > 0 &&
             value.Digest.Length == 64)).IsTrue();
+        await Assert.That(stored.Artifacts!.All(static value => value.Entrypoints.SequenceEqual(["app"])))
+            .IsTrue();
         await Assert.That(ArchiveEntries(store.Values[stored.ArtifactObject])).IsEquivalentTo([
             CiRunnerDurableResultSink.ResultManifestPath,
             "linux-x64/app",
@@ -80,7 +82,7 @@ public sealed class CiRunnerDurableResultSinkTests
         await File.WriteAllTextAsync(
             Path.Combine(fixture.Export, CiRunnerDurableResultSink.ResultManifestPath),
             $$"""
-            {"schemaVersion":1,"job":"{{fixture.Evidence.Job}}","planDigest":"{{fixture.Evidence.PlanDigest}}","succeeded":true,"requiredTestSkips":0}
+            {"schemaVersion":2,"job":"{{fixture.Evidence.Job}}","planDigest":"{{fixture.Evidence.PlanDigest}}","succeeded":true,"requiredTestSkips":0}
             """);
         var output = await CiRunnerBuildKitExecutor.HashOutputAsync(fixture.Export, 1024 * 1024, default);
         var evidence = fixture.Evidence with
@@ -111,8 +113,8 @@ public sealed class CiRunnerDurableResultSinkTests
         using (var substituted = await CandidateFixture.CreateAsync())
         {
             substituted.WriteManifest([
-                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-x64"),
-                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-arm64"),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-x64", ["app"]),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-arm64", ["app"]),
             ]);
             var result = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
                 substituted.Evidence,
@@ -166,6 +168,21 @@ public sealed class CiRunnerDurableResultSinkTests
                 mislabeled.Log,
                 mislabeled.Export,
                 mislabeled.Plan,
+                default);
+            await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
+        }
+
+        using (var missingEntrypoint = await CandidateFixture.CreateAsync())
+        {
+            missingEntrypoint.WriteManifest([
+                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-x64", ["missing"]),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-arm64", ["app"]),
+            ]);
+            var result = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
+                missingEntrypoint.Evidence,
+                missingEntrypoint.Log,
+                missingEntrypoint.Export,
+                missingEntrypoint.Plan,
                 default);
             await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
         }
@@ -249,7 +266,7 @@ public sealed class CiRunnerDurableResultSinkTests
             await File.WriteAllTextAsync(
                 Path.Combine(duplicate.Export, CiRunnerDurableResultSink.ResultManifestPath),
                 $$"""
-                {"schemaVersion":1,"schemaVersion":1,"job":"{{duplicate.Evidence.Job}}","planDigest":"{{duplicate.Evidence.PlanDigest}}","succeeded":true,"requiredTestSkips":0}
+                {"schemaVersion":2,"schemaVersion":2,"job":"{{duplicate.Evidence.Job}}","planDigest":"{{duplicate.Evidence.PlanDigest}}","succeeded":true,"requiredTestSkips":0}
                 """);
             var rejected = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
                 duplicate.Evidence,
@@ -263,12 +280,12 @@ public sealed class CiRunnerDurableResultSinkTests
         using (var missing = await Fixture.CreateAsync())
         {
             var manifest = new CiRunnerResultManifest(
-                1,
+                2,
                 missing.Evidence.Job,
                 missing.Evidence.PlanDigest,
                 true,
                 0,
-                [new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "missing")]);
+                [new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "missing", ["app"])]);
             await File.WriteAllBytesAsync(
                 Path.Combine(missing.Export, CiRunnerDurableResultSink.ResultManifestPath),
                 JsonSerializer.SerializeToUtf8Bytes(
@@ -332,7 +349,7 @@ public sealed class CiRunnerDurableResultSinkTests
             Directory.CreateDirectory(invocation.ExportDirectory);
             File.WriteAllText(Path.Combine(invocation.ExportDirectory, "result.txt"), "passed");
             var manifest = new CiRunnerResultManifest(
-                1,
+                2,
                 "ci-job",
                 CiRunnerSourceMaterializerTests.Plan([0x1f, 0x8b, 0x08, 1]).Digest,
                 true,
@@ -485,8 +502,8 @@ public sealed class CiRunnerDurableResultSinkTests
                 UnixFileMode.UserExecute);
             var log = "candidate built safely\n"u8.ToArray();
             WriteManifest(export, plan, [
-                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-x64"),
-                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-arm64"),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-x64", ["app"]),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-arm64", ["app"]),
             ]);
             var output = await CiRunnerBuildKitExecutor.HashOutputAsync(export, 1024 * 1024, default);
             return new(
@@ -507,7 +524,7 @@ public sealed class CiRunnerDurableResultSinkTests
             File.WriteAllBytes(
                 Path.Combine(export, CiRunnerDurableResultSink.ResultManifestPath),
                 JsonSerializer.SerializeToUtf8Bytes(
-                    new CiRunnerResultManifest(1, plan.Job, plan.Digest, true, 0, artifacts),
+                    new CiRunnerResultManifest(2, plan.Job, plan.Digest, true, 0, artifacts),
                     CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
 
         private static CiRunnerWorkloadEvidence CreateEvidence(

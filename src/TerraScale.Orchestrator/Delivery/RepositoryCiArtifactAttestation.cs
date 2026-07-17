@@ -127,6 +127,34 @@ internal static class RepositoryCiArtifactAttestation
         Identity(runtime.RunnerIdentity) && Digest(runtime.ObservedRuntimeDigest?.Value) &&
         ValidSignature(runtime.SignatureId, runtime.Signature);
 
+    internal static string EntrypointsDigest(
+        RepositoryCiArchitecture architecture,
+        IReadOnlyList<string>? entrypoints)
+    {
+        if (!TryEntrypointsDigest(architecture, entrypoints, out var digest))
+            throw new ArgumentException("The artifact entrypoint set is invalid.", nameof(entrypoints));
+        return digest;
+    }
+
+    internal static bool TryEntrypointsDigest(
+        RepositoryCiArchitecture architecture,
+        IReadOnlyList<string>? entrypoints,
+        out string digest)
+    {
+        digest = string.Empty;
+        if (entrypoints is null || !Enum.IsDefined(architecture) ||
+            architecture == RepositoryCiArchitecture.Unspecified ||
+            architecture == RepositoryCiArchitecture.Any && entrypoints.Count != 0 ||
+            architecture != RepositoryCiArchitecture.Any && entrypoints.Count is not (>= 1 and <= 8) ||
+            entrypoints.Any(static value => !Entrypoint(value)) ||
+            entrypoints.Distinct(StringComparer.Ordinal).Count() != entrypoints.Count ||
+            !entrypoints.SequenceEqual(entrypoints.Order(StringComparer.Ordinal), StringComparer.Ordinal))
+            return false;
+        digest = Convert.ToHexStringLower(SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(string.Join('\n', entrypoints))));
+        return true;
+    }
+
     private static ReadOnlyMemory<byte> ArtifactMaterial(
         RepositoryCiArtifactSubject subject,
         SigningIdentityId signingIdentity) => Material(writer =>
@@ -166,6 +194,7 @@ internal static class RepositoryCiArtifactAttestation
         writer.WriteString("artifact", subject.Artifact.Value);
         writer.WriteString("architecture", subject.Architecture.ToString());
         writer.WriteString("digest", subject.Digest.Value);
+        writer.WriteString("entrypointsDigest", subject.EntrypointsDigest);
     }
 
     private static void RequireSignature(OpaqueSignature? signature)
@@ -184,10 +213,17 @@ internal static class RepositoryCiArtifactAttestation
     private static bool Valid(RepositoryCiArtifactSubject subject) =>
         Digest(subject.PipelineDigest) && Identity(subject.Job?.Value) && Artifact(subject.Artifact?.Value) &&
         Enum.IsDefined(subject.Architecture) &&
-        subject.Architecture != RepositoryCiArchitecture.Unspecified && Digest(subject.Digest?.Value);
+        subject.Architecture != RepositoryCiArchitecture.Unspecified && Digest(subject.Digest?.Value) &&
+        Digest(subject.EntrypointsDigest);
 
     private static bool Artifact(string? value) => value is { Length: >= 1 and <= 256 } &&
         value[0] != '/' && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
+
+    private static bool Entrypoint(string? value) => value is { Length: >= 1 and <= 1024 } &&
+        value[0] != '/' && !value.EndsWith('/') && !value.Contains("//", StringComparison.Ordinal) &&
         value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
             >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
         value.Split('/').All(static segment => segment is not ("" or "." or ".."));

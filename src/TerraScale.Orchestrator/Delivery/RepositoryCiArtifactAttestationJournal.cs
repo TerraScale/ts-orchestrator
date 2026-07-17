@@ -240,21 +240,24 @@ internal sealed record RepositoryCiArtifactProofSubjectDocument(
     string Job,
     string Artifact,
     RepositoryCiArchitecture Architecture,
-    string Digest)
+    string Digest,
+    string EntrypointsDigest)
 {
     internal static RepositoryCiArtifactProofSubjectDocument From(RepositoryCiArtifactSubject value) => new(
         value.PipelineDigest,
         value.Job.Value,
         value.Artifact.Value,
         value.Architecture,
-        value.Digest.Value);
+        value.Digest.Value,
+        value.EntrypointsDigest);
 
     internal RepositoryCiArtifactSubject Value() => new(
         PipelineDigest,
         new JobId(Job),
         new ArtifactId(Artifact),
         Architecture,
-        new DigestId(Digest));
+        new DigestId(Digest),
+        EntrypointsDigest);
 }
 
 internal sealed record RepositoryCiArtifactProofDocument(

@@ -234,7 +234,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
             File.WriteAllBytes(
                 Path.Combine(invocation.ExportDirectory, CiRunnerDurableResultSink.ResultManifestPath),
                 JsonSerializer.SerializeToUtf8Bytes(
-                    new CiRunnerResultManifest(1, plan.Job, plan.Digest, true, 0, []),
+                    new CiRunnerResultManifest(2, plan.Job, plan.Digest, true, 0, []),
                     CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
             File.WriteAllText(invocation.MetadataFile, "{\"result\":\"ok\"}");
             var log = Array.Empty<byte>();

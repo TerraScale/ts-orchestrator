@@ -18,6 +18,7 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
         await Assert.That(artifacts.Count).IsEqualTo(2);
         await Assert.That(artifacts.All(static value => value.SignatureVerified)).IsTrue();
         await Assert.That(artifacts.All(static value => value.ObservedRuntimeDigest == value.Digest)).IsTrue();
+        await Assert.That(artifacts.All(static value => value.Entrypoints.SequenceEqual(["app"]))).IsTrue();
         await Assert.That(fixture.Attestations.Subjects.Select(static value => value.Architecture))
             .IsEquivalentTo([
                 RepositoryCiArchitecture.LinuxX64,
@@ -97,7 +98,8 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
                     "linux-x64",
                     Digest(903),
                     1,
-                    256),
+                    256,
+                    ["app"]),
             };
             if (!omitArm64)
                 declarations.Add(new(
@@ -106,7 +108,8 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
                     "linux-arm64",
                     Digest(904),
                     1,
-                    256));
+                    256,
+                    ["app"]));
             var workload = new CiRunnerWorkloadEvidence(
                 1,
                 runner,
@@ -136,7 +139,7 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
                 RepositoryCiJobFailureKind.Unspecified,
                 CiRunnerWorkloadFailureCode.Unspecified);
             var stored = new CiRunnerStoredWorkloadEvidence(
-                1,
+                2,
                 workload,
                 $"ci-result-log-{workload.LogSha256}",
                 workload.LogSha256,

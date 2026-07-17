@@ -20,7 +20,8 @@ internal sealed record CiRunnerResultManifest(
 internal sealed record CiRunnerResultArtifact(
     string Artifact,
     string Architecture,
-    string Path);
+    string Path,
+    string[]? Entrypoints);
 
 internal sealed record CiRunnerStoredArtifactEvidence(
     string Artifact,
@@ -28,7 +29,8 @@ internal sealed record CiRunnerStoredArtifactEvidence(
     string Path,
     string Digest,
     int Files,
-    long Bytes);
+    long Bytes,
+    string[] Entrypoints);
 
 internal sealed record CiRunnerStoredWorkloadEvidence(
     int SchemaVersion,
@@ -50,7 +52,7 @@ internal sealed record CiRunnerStoredWorkloadEvidence(
 [SupportedOSPlatform("linux")]
 internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : ICiRunnerWorkloadResultSink
 {
-    internal const string ResultManifestPath = "terrascale-ci-result-v1.json";
+    internal const string ResultManifestPath = "terrascale-ci-result-v2.json";
     internal const int RetentionDays = 30;
     private const int MaximumEvidenceBytes = 64 * 1024;
     private const int MaximumManifestBytes = 16 * 1024;
@@ -169,7 +171,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         CancellationToken cancellationToken)
     {
         var document = new CiRunnerStoredWorkloadEvidence(
-            1,
+            2,
             evidence,
             logObject,
             evidence.LogSha256,
@@ -221,7 +223,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 content,
                 CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest)
                 ?? throw new JsonException();
-            if (value.SchemaVersion != 1 || value.Job != evidence.Job ||
+            if (value.SchemaVersion != 2 || value.Job != evidence.Job ||
                 value.PlanDigest != evidence.PlanDigest || !value.Succeeded ||
                 value.RequiredTestSkips is < 0 or > 1_000_000 || !ValidArtifacts(value.Artifacts))
                 throw new JsonException();
@@ -334,7 +336,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
     {
         artifacts ??= [];
         if (artifacts.Length > 2 || artifacts.Any(static value => value is null ||
-                !ArtifactId(value.Artifact) || !Architecture(value.Architecture) || !RelativePath(value.Path)) ||
+                !ArtifactId(value.Artifact) || !Architecture(value.Architecture) || !RelativePath(value.Path) ||
+                !ValidEntrypoints(value)) ||
             artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
             artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length)
             return false;
@@ -373,11 +376,22 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         nameof(RepositoryCiArchitecture.Any) or nameof(RepositoryCiArchitecture.LinuxX64) or
         nameof(RepositoryCiArchitecture.LinuxArm64);
 
+    private static bool ValidEntrypoints(CiRunnerResultArtifact artifact) =>
+        Enum.TryParse<RepositoryCiArchitecture>(artifact.Architecture, out var architecture) &&
+        RepositoryCiArtifactAttestation.TryEntrypointsDigest(
+            architecture,
+            artifact.Entrypoints,
+            out _);
+
     private sealed class ArtifactTracker(CiRunnerResultArtifact artifact)
     {
         private readonly StringBuilder canonical = new();
         private readonly RepositoryCiArchitecture architecture =
             Enum.Parse<RepositoryCiArchitecture>(artifact.Architecture);
+        private readonly string[] declaredEntrypoints = artifact.Entrypoints ?? [];
+        private readonly HashSet<string> missingEntrypoints = new(
+            artifact.Entrypoints ?? [],
+            StringComparer.Ordinal);
         private bool rootFound;
         private int files;
         private int executables;
@@ -406,11 +420,14 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             ReadOnlySpan<byte> header)
         {
             if (Relative(path) is not { } relative) return;
+            if (missingEntrypoints.Contains(relative) && !executable)
+                throw new InvalidDataException("A declared CI artifact entrypoint is not executable.");
             if (executable)
             {
                 RequireElfArchitecture(header, architecture);
                 executables++;
             }
+            _ = missingEntrypoints.Remove(relative);
             canonical.Append("f:").Append(relative).Append(':')
                 .Append(bytes.ToString(CultureInfo.InvariantCulture)).Append(':')
                 .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
@@ -420,7 +437,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
 
         internal CiRunnerStoredArtifactEvidence Complete()
         {
-            if (!rootFound || files == 0 ||
+            if (!rootFound || files == 0 || missingEntrypoints.Count != 0 ||
                 architecture != RepositoryCiArchitecture.Any && executables == 0)
                 throw new InvalidDataException("A declared CI artifact root is missing or empty.");
             return new(
@@ -429,7 +446,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 artifact.Path,
                 Hash(Encoding.UTF8.GetBytes(canonical.ToString())),
                 files,
-                bytes);
+                bytes,
+                declaredEntrypoints.ToArray());
         }
 
         private string? Relative(string path) => path.StartsWith(artifact.Path + '/', StringComparison.Ordinal)

@@ -89,7 +89,7 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
     {
         var expected = execution.Document;
         var workload = stored.Workload;
-        if (stored.SchemaVersion != 1 || stored.RetentionDays != CiRunnerDurableResultSink.RetentionDays ||
+        if (stored.SchemaVersion != 2 || stored.RetentionDays != CiRunnerDurableResultSink.RetentionDays ||
             stored.LogObject is null || stored.LogSha256 is null || stored.ArtifactObject is null ||
             stored.ArtifactSha256 is null || workload is null || workload.SchemaVersion != 1 ||
             workload.Runner != expected.Runner ||
@@ -142,6 +142,10 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
                     RepositoryCiArchitecture.LinuxArm64) || !RelativePath(artifact.Path) ||
                 !Digest(artifact.Digest) || artifact.Files is < 1 or > MaximumOutputFiles ||
                 artifact.Bytes is < 1 or > MaximumOutputBytes ||
+                !RepositoryCiArtifactAttestation.TryEntrypointsDigest(
+                    artifact.Architecture,
+                    artifact.Entrypoints,
+                    out _) ||
                 bytes > workload.OutputBytes - artifact.Bytes ||
                 files > workload.OutputFiles - artifact.Files)
                 return false;

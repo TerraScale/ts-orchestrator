@@ -12,7 +12,11 @@ internal sealed record CiResultManifestOptions(
     IReadOnlyList<string> TrxFiles,
     IReadOnlyList<CiResultArtifactOption> Artifacts);
 
-internal sealed record CiResultArtifactOption(string Artifact, string Architecture, string Path);
+internal sealed record CiResultArtifactOption(
+    string Artifact,
+    string Architecture,
+    string Path,
+    IReadOnlyList<string> Entrypoints);
 
 internal static class CiResultManifestCommand
 {
@@ -50,7 +54,7 @@ internal static class CiResultManifestCommand
         using (var writer = new Utf8JsonWriter(content))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", 1);
+            writer.WriteNumber("schemaVersion", 2);
             writer.WriteString("job", options.Job);
             writer.WriteString("planDigest", options.PlanDigest);
             writer.WriteBoolean("succeeded", true);
@@ -62,6 +66,9 @@ internal static class CiResultManifestCommand
                 writer.WriteString("artifact", artifact.Artifact);
                 writer.WriteString("architecture", artifact.Architecture);
                 writer.WriteString("path", artifact.Path);
+                writer.WriteStartArray("entrypoints");
+                foreach (var entrypoint in artifact.Entrypoints) writer.WriteStringValue(entrypoint);
+                writer.WriteEndArray();
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -126,10 +133,20 @@ internal static class CiResultManifestCommand
     private static CiResultArtifactOption ParseArtifact(string value)
     {
         var fields = value.Split('|');
-        if (fields is not [var artifact, var architecture, var path] || !ArtifactId(artifact) ||
-            architecture is not ("Any" or "LinuxX64" or "LinuxArm64") || !RelativePath(path))
+        if (fields is not [var artifact, var architecture, var path, var declaredEntrypoints] ||
+            !ArtifactId(artifact) || architecture is not ("Any" or "LinuxX64" or "LinuxArm64") ||
+            !RelativePath(path))
             throw new ToolValidationException(["ci-result-manifest artifact declaration is invalid"]);
-        return new(artifact, architecture, path);
+        var entrypoints = declaredEntrypoints.Length == 0
+            ? []
+            : declaredEntrypoints.Split(',', StringSplitOptions.None);
+        if (architecture == "Any" && entrypoints.Length != 0 ||
+            architecture != "Any" && entrypoints.Length is not (>= 1 and <= 8) ||
+            entrypoints.Any(static value => !RelativePath(value)) ||
+            entrypoints.Distinct(StringComparer.Ordinal).Count() != entrypoints.Length ||
+            !entrypoints.SequenceEqual(entrypoints.Order(StringComparer.Ordinal), StringComparer.Ordinal))
+            throw new ToolValidationException(["ci-result-manifest artifact entrypoints are invalid"]);
+        return new(artifact, architecture, path, Array.AsReadOnly(entrypoints));
     }
 
     internal static (int Total, int Skipped) ReadTrx(string path)

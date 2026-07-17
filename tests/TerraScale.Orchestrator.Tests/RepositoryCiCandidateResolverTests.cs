@@ -124,6 +124,7 @@ public sealed class RepositoryCiCandidateResolverTests
                 new($"artifact-{index}"),
                 RepositoryCiArchitecture.Any,
                 new(Digest(index + 100)),
+                [],
                 new("trusted-build-signer"),
                 new($"signature-{index}"),
                 true,

@@ -122,7 +122,10 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
             new("candidate-job"),
             new("TerraScale/TerraScale.Orchestrator"),
             RepositoryCiArchitecture.LinuxArm64,
-            new(Digest('b')));
+            new(Digest('b')),
+            RepositoryCiArtifactAttestation.EntrypointsDigest(
+                RepositoryCiArchitecture.LinuxArm64,
+                ["app"]));
         var artifact = RepositoryCiArtifactAttestation.Sign(subject, artifactTrust);
         var runtime = RepositoryCiArtifactAttestation.ObserveRuntime(subject, subject.Digest, runtimeTrust);
         var ledger = new ForgejoWebhookJournalTests.TestLedger();

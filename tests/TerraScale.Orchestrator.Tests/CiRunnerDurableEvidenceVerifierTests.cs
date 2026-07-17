@@ -158,7 +158,7 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
             var logObject = $"ci-result-log-{workload.LogSha256}";
             var artifactObject = $"ci-result-artifact-{workload.OutputSha256}";
             var stored = new CiRunnerStoredWorkloadEvidence(
-                1,
+                2,
                 workload,
                 logObject,
                 workload.LogSha256,
@@ -175,7 +175,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                         "linux-x64",
                         Digest('2'),
                         1,
-                        100)]
+                        100,
+                        ["app"])]
                     : [],
                 0,
                 30);

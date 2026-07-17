@@ -78,6 +78,12 @@ public sealed class RepositoryCiArtifactAttestationTests
             new(Digest('d')),
             runtimeTrust);
         var changedSubject = subject with { Digest = new(Digest('e')) };
+        var changedEntrypoints = subject with
+        {
+            EntrypointsDigest = RepositoryCiArtifactAttestation.EntrypointsDigest(
+                subject.Architecture,
+                ["different"]),
+        };
 
         await Assert.That(RepositoryCiArtifactAttestation.Validate(
                 subject,
@@ -88,6 +94,13 @@ public sealed class RepositoryCiArtifactAttestationTests
             .IsNull();
         await Assert.That(RepositoryCiArtifactAttestation.Validate(
                 changedSubject,
+                artifact,
+                null,
+                artifactTrust,
+                runtimeTrust))
+            .IsNull();
+        await Assert.That(RepositoryCiArtifactAttestation.Validate(
+                changedEntrypoints,
                 artifact,
                 null,
                 artifactTrust,
@@ -145,7 +158,10 @@ public sealed class RepositoryCiArtifactAttestationTests
         new("candidate-job"),
         new("TerraScale/TerraScale.Orchestrator"),
         architecture,
-        new(Digest(digest)));
+        new(Digest(digest)),
+        RepositoryCiArtifactAttestation.EntrypointsDigest(
+            architecture,
+            architecture == RepositoryCiArchitecture.Any ? [] : ["app"]));
 
     private static string Digest(char value) => new(value, 64);
 
