@@ -15,7 +15,7 @@ public sealed class AvailabilityPolicyEvaluator
             .OrderBy(observation => observation.ReplicaId.Value, StringComparer.Ordinal)
             .ThenBy(observation => observation.CanonicalKey, StringComparer.Ordinal)
             .ToArray();
-        var groups = observations.GroupBy(observation => observation.ReplicaId.Value, StringComparer.Ordinal).ToArray();
+        var groups = observations.ToLookup(observation => observation.ReplicaId.Value, StringComparer.Ordinal);
         var duplicateCount = groups.Where(group => group.Count() > 1)
             .Aggregate(0, (total, group) => checked(total + group.Count() - 1));
         var conflictCount = groups.Count(group => group.Select(observation => observation.CanonicalKey)

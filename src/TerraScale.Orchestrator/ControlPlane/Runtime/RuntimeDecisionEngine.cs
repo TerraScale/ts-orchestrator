@@ -8,7 +8,7 @@ public static class RuntimeDecisionEngine
     {
         ArgumentNullException.ThrowIfNull(request);
         var trace = new List<RuntimeDecisionReason>();
-        var healthGroups = request.Health.GroupBy(h => h.Dimension).ToArray();
+        var healthGroups = request.Health.ToLookup(h => h.Dimension);
         var duplicates = healthGroups.Sum(g => Math.Max(0, g.Count() - 1));
         var conflicts = healthGroups.Count(g => g.Select(h => (h.OperationId, h.AllocationId, h.Generation, h.Status)).Distinct().Skip(1).Any());
         trace.Add(Hold(RuntimeDecisionCode.EvidenceUnique, duplicates == 0, checked((ulong)duplicates), 0));
@@ -118,7 +118,7 @@ public static class RuntimeDecisionEngine
         var compatibility = compatibilityScopeExact && request.Compatibility.NToNMinusOne == CompatibilityStatus.Compatible &&
                             request.Compatibility.Status == CompatibilityStatus.Compatible;
         trace.Add(Reject(RuntimeDecisionCode.CompatibilityExact, compatibility, compatibility ? 1UL : 0UL, 1));
-        var healthGroups = request.Health.GroupBy(h => h.Dimension).ToArray();
+        var healthGroups = request.Health.ToLookup(h => h.Dimension);
         var healthUnique = healthGroups.All(g => g.Count() == 1);
         trace.Add(Hold(RuntimeDecisionCode.EvidenceUnique, healthUnique, healthUnique ? 0UL : 1UL, 0));
         var expectedHealthGeneration = observation.Phase == UpdatePhase.RolledBack ? request.CurrentGeneration : request.TargetGeneration;
