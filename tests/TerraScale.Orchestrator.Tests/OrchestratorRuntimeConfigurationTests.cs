@@ -78,7 +78,14 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 replicas = 3,
                 instance = "1",
                 ciRunnerNatsAccountSigningKeyFile = "/run/credentials/orchestrator/runner-account.nk",
-                ciRunnerNatsAccountPublicKey = "AEXAMPLE"
+                ciRunnerNatsAccountPublicKey = "AEXAMPLE",
+                infisicalUrl = "https://eu.infisical.com",
+                infisicalProjectId = "project-1",
+                infisicalEnvironment = "prod",
+                infisicalSecretPath = "/orchestrator/fra",
+                infisicalClientIdFile = "/run/credentials/infisical-client-id",
+                infisicalClientSecretFile = "/run/credentials/infisical-client-secret",
+                infisicalOrganizationSlug = "terrascale"
             }));
 
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
@@ -89,6 +96,20 @@ public sealed class OrchestratorRuntimeConfigurationTests
             await Assert.That(configuration.GetEnvironmentValue(
                     "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
                 .IsEqualTo("AEXAMPLE");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_URL"))
+                .IsEqualTo("https://eu.infisical.com");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_PROJECT_ID"))
+                .IsEqualTo("project-1");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_ENVIRONMENT"))
+                .IsEqualTo("prod");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_SECRET_PATH"))
+                .IsEqualTo("/orchestrator/fra");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_CLIENT_ID_FILE"))
+                .IsEqualTo("/run/credentials/infisical-client-id");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_CLIENT_SECRET_FILE"))
+                .IsEqualTo("/run/credentials/infisical-client-secret");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_ORGANIZATION_SLUG"))
+                .IsEqualTo("terrascale");
         }
         finally
         {

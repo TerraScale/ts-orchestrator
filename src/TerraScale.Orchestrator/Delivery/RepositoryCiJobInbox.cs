@@ -97,6 +97,24 @@ internal sealed class RepositoryCiJobAcceptanceJournal
         var document = command.Document;
         if (document.Runner != expectedRunner)
             return new(RepositoryCiJobAcceptanceDisposition.RunnerMismatch, CommandValidationError.None, null);
+        var proposed = RepositoryCiJobAcceptanceDocument.From(command, streamSequence, now);
+        proposed.Validate();
+        var key = Index(expectedRunner, document.PipelineDigest, document.Job);
+        var persisted = await ledger.GetAsync(key, cancellationToken);
+        if (persisted is not null)
+        {
+            var accepted = await ReadAsync(
+                expectedRunner,
+                document.PipelineDigest,
+                document.Job,
+                persisted,
+                cancellationToken);
+            if (Compare(accepted, proposed) == RepositoryCiJobAcceptanceDisposition.Duplicate)
+                return new(
+                    RepositoryCiJobAcceptanceDisposition.Duplicate,
+                    CommandValidationError.None,
+                    accepted);
+        }
         var protocol = Validate(command, now, allowedClockSkew, signatureVerifier);
         if (!protocol.IsValid)
             return new(
@@ -104,9 +122,6 @@ internal sealed class RepositoryCiJobAcceptanceJournal
                 protocol.Error,
                 null);
 
-        var proposed = RepositoryCiJobAcceptanceDocument.From(command, streamSequence, now);
-        proposed.Validate();
-        var key = Index(expectedRunner, document.PipelineDigest, document.Job);
         var payloadStored = false;
 
         for (var conflict = 0; conflict < MaximumConflictRetries; conflict++)
