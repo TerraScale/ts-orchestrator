@@ -93,13 +93,20 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task DashboardRunsPublishedBuildOnAllInterfacesInsideThePod()
     {
-        var dashboard = DevelopmentTopology.CreateThreeCellLean()
-            .Cells.Single(cell => cell.Cell == "gru")
-            .OfKind(DevelopmentResourceKind.Dashboard).Single();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var cell = topology.Cells.Single(cell => cell.Cell == "gru");
+        var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
+        var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
+            topology,
+            cell.OfKind(DevelopmentResourceKind.Api).Single(),
+            cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
+            dashboard,
+            "/runtime/product-ca.pem");
 
         await Assert.That(DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard)).IsEquivalentTo([
             "run", "vinext:start", "--hostname", "0.0.0.0", "--port", dashboard.Port.ToString()
         ]);
+        await Assert.That(environment["SSL_CERT_FILE"]).IsEqualTo("/runtime/product-ca.pem");
     }
 
     [Test]

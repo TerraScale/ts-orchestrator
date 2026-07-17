@@ -61,7 +61,7 @@ internal static class DevelopmentWorkloadRuntime
             await WaitHttpAsync(api.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
-            StartDashboard(supervisor, topology, cell, dashboard, internalsRoot);
+            StartDashboard(supervisor, topology, cell, dashboard, internalsRoot, natsSecurity);
             await WaitHttpAsync(dashboard.Port, "/api/stack", supervisor, cancellationToken);
         }
     }
@@ -171,7 +171,8 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentTopology topology,
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan dashboard,
-        string internalsRoot)
+        string internalsRoot,
+        DevelopmentNatsSecurity natsSecurity)
     {
         var directory = Path.Combine(internalsRoot, "src", "Dashboard", "TerraScale.Dashboard.Next");
         RequireDirectory(directory, "Dashboard project");
@@ -182,24 +183,27 @@ internal static class DevelopmentWorkloadRuntime
         }
         var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
+        var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[api.Name].CaFile;
         supervisor.Start(
             dashboard.Name,
             DevelopmentContainerImages.Node,
             [vp, .. CreateDashboardArguments(dashboard)],
             directory,
-            CreateDashboardEnvironment(topology, api, authentication, dashboard));
+            CreateDashboardEnvironment(topology, api, authentication, dashboard, certificateBundle));
     }
 
     internal static IReadOnlyDictionary<string, string?> CreateDashboardEnvironment(
         DevelopmentTopology topology,
         DevelopmentResourcePlan api,
         DevelopmentResourcePlan authentication,
-        DevelopmentResourcePlan dashboard) =>
+        DevelopmentResourcePlan dashboard,
+        string certificateBundle) =>
         new Dictionary<string, string?>
         {
             ["HOST"] = "127.0.0.1",
             ["PORT"] = dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["NODE_ENV"] = "production",
+            ["SSL_CERT_FILE"] = certificateBundle,
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
             ["TERRASCALE_API_BASE_URL"] = Http(api.Port),
