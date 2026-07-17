@@ -30,6 +30,48 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
     }
 
     [Test]
+    public async Task ReferencedLogCorruptionFailsBeforeResultProjection()
+    {
+        var fixture = await Fixture.CreateAsync();
+        fixture.Store.Values[fixture.LogObject][0] ^= 1;
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsFalse();
+    }
+
+    [Test]
+    public async Task ReferencedArtifactCorruptionFailsBeforeResultProjection()
+    {
+        var fixture = await Fixture.CreateAsync();
+        fixture.Store.Values[fixture.ArtifactObject][0] ^= 1;
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsFalse();
+    }
+
+    [Test]
+    public async Task RehashedUnsafeLogStillFailsBeforeResultProjection()
+    {
+        var fixture = await Fixture.CreateAsync(unsafeLog: true);
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsFalse();
+    }
+
+    [Test]
+    public async Task RehashedArtifactCannotExceedItsDeclaredBound()
+    {
+        var fixture = await Fixture.CreateAsync(artifactBytesAdjustment: -1);
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsFalse();
+    }
+
+    [Test]
     public async Task RehashedEvidenceFromAnotherLeaseCannotSatisfyTheExecutionPointer()
     {
         var fixture = await Fixture.CreateAsync(changeLeaseSequence: true);
@@ -42,9 +84,14 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
     private sealed record Fixture(
         TestObjectStore Store,
         CiRunnerDurableEvidenceVerifier Verifier,
-        RepositoryCiJobExecutionSnapshot Execution)
+        RepositoryCiJobExecutionSnapshot Execution,
+        string LogObject,
+        string ArtifactObject)
     {
-        internal static async Task<Fixture> CreateAsync(bool changeLeaseSequence = false)
+        internal static async Task<Fixture> CreateAsync(
+            bool changeLeaseSequence = false,
+            bool unsafeLog = false,
+            int artifactBytesAdjustment = 0)
         {
             var accepted = await RepositoryCiJobInboxTests.AcceptedAsync();
             var journal = new RepositoryCiJobExecutionJournal(
@@ -56,6 +103,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 Now.AddSeconds(1),
                 TimeSpan.FromMinutes(5));
             var execution = acquired.Execution!;
+            var log = unsafeLog ? "password=hunter2"u8.ToArray() : "redacted build log"u8.ToArray();
+            var artifact = "deterministic artifact archive"u8.ToArray();
             var workload = new CiRunnerWorkloadEvidence(
                 1,
                 execution.Document.Runner,
@@ -75,8 +124,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 Digest('d'),
                 CiRunnerBuildKitExecutionDisposition.Succeeded,
                 0,
-                Digest('e'),
-                128,
+                Hash(log),
+                log.LongLength,
                 Digest('f'),
                 Digest('1'),
                 1,
@@ -84,15 +133,17 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 true,
                 RepositoryCiJobFailureKind.Unspecified,
                 CiRunnerWorkloadFailureCode.Unspecified);
+            var logObject = $"ci-result-log-{workload.LogSha256}";
+            var artifactObject = $"ci-result-artifact-{workload.OutputSha256}";
             var stored = new CiRunnerStoredWorkloadEvidence(
                 1,
                 workload,
-                $"ci-result-log-{workload.LogSha256}",
+                logObject,
                 workload.LogSha256,
                 workload.LogBytes,
-                $"ci-result-artifact-{workload.OutputSha256}",
-                Digest('2'),
-                512,
+                artifactObject,
+                Hash(artifact),
+                artifact.LongLength + artifactBytesAdjustment,
                 0,
                 30);
             var content = JsonSerializer.SerializeToUtf8Bytes(
@@ -100,6 +151,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 CiRunnerDurableResultJsonContext.Default.CiRunnerStoredWorkloadEvidence);
             var digest = Convert.ToHexStringLower(SHA256.HashData(content));
             var store = new TestObjectStore();
+            store.Values[logObject] = log;
+            store.Values[artifactObject] = artifact;
             store.Values[$"ci-result-evidence-{digest}"] = content;
             var completed = await journal.CompleteAsync(
                 execution,
@@ -108,11 +161,14 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 0,
                 RepositoryCiJobFailureKind.Unspecified,
                 Now.AddSeconds(2));
-            return new(store, new(store), completed.Execution!);
+            return new(store, new(store), completed.Execution!, logObject, artifactObject);
         }
     }
 
     private static string Digest(char value) => new(value, 64);
+
+    private static string Hash(ReadOnlySpan<byte> value) =>
+        Convert.ToHexStringLower(SHA256.HashData(value));
 
     private sealed class TestObjectStore : IDeliveryObjectStore
     {

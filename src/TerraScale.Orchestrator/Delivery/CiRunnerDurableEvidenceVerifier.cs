@@ -46,7 +46,34 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
         {
             return false;
         }
-        return stored is not null && Matches(execution, stored);
+        return stored is not null && Matches(execution, stored) &&
+            await VerifyObjectsAsync(stored, cancellationToken);
+    }
+
+    private async Task<bool> VerifyObjectsAsync(
+        CiRunnerStoredWorkloadEvidence stored,
+        CancellationToken cancellationToken)
+    {
+        if (stored.LogBytes > 0)
+        {
+            var log = await objects.GetAsync(stored.LogObject, cancellationToken);
+            if (log.LongLength != stored.LogBytes || Hash(log) != stored.LogSha256 ||
+                !CiRunnerLogRedactor.IsSafe(log))
+                return false;
+        }
+
+        if (stored.ArtifactBytes == 0) return true;
+        using var observed = new BoundedHashingStream(stored.ArtifactBytes);
+        try
+        {
+            await objects.CopyToAsync(stored.ArtifactObject, observed, cancellationToken);
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+        var artifact = observed.Complete();
+        return artifact.Bytes == stored.ArtifactBytes && artifact.Sha256 == stored.ArtifactSha256;
     }
 
     private static bool Matches(
@@ -172,4 +199,59 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
 
     private static string Hash(ReadOnlySpan<byte> value) =>
         Convert.ToHexStringLower(SHA256.HashData(value));
+
+    private sealed class BoundedHashingStream(long maximumBytes) : Stream
+    {
+        private readonly IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private long bytes;
+        private bool completed;
+
+        internal (string Sha256, long Bytes) Complete()
+        {
+            if (completed) throw new InvalidOperationException("The object digest was already completed.");
+            completed = true;
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), bytes);
+        }
+
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Capture(buffer);
+        }
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Capture(buffer.Span);
+            return ValueTask.CompletedTask;
+        }
+
+        private void Capture(ReadOnlySpan<byte> value)
+        {
+            if (value.Length > maximumBytes - bytes)
+                throw new InvalidDataException("The durable CI result object exceeded its bound.");
+            hash.AppendData(value);
+            bytes += value.Length;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) hash.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => bytes;
+        public override long Position { get => bytes; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+    }
 }
