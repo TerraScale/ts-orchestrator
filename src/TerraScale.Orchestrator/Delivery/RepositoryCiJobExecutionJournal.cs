@@ -292,7 +292,7 @@ internal sealed class RepositoryCiJobExecutionJournal
         return new(RepositoryCiJobExecutionDisposition.Contention, null);
     }
 
-    private static void ValidateAccepted(RepositoryCiAcceptedJob accepted)
+    internal static void ValidateAccepted(RepositoryCiAcceptedJob accepted)
     {
         ArgumentNullException.ThrowIfNull(accepted);
         accepted.Command.Validate();

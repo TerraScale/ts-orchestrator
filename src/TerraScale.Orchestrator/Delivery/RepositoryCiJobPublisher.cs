@@ -311,7 +311,7 @@ internal static class RepositoryCiJobWireCodec
         string signature) =>
         new(ExpectedHeaderCount, StringComparer.Ordinal)
         {
-            [Schema] = "1",
+            [Schema] = "2",
             [Protocol] = "1",
             [Type] = "repository-ci-job",
             [Pipeline] = document.PipelineDigest,
@@ -441,6 +441,7 @@ internal sealed record RepositoryCiJobWireDocument(
     string NodeId,
     RepositoryCiNodeKind NodeKind,
     RepositoryCiResourceWeight ResourceWeight,
+    RepositoryCiArchitecture[] Architectures,
     string SourceCommit,
     string SourceTree,
     bool SourceSignatureVerified,
@@ -484,7 +485,7 @@ internal sealed record RepositoryCiJobWireDocument(
         var job = prepared.Job;
         var request = job.Request;
         return new(
-            1,
+            2,
             request.Pipeline.Value,
             prepared.Document.PipelineDigest,
             pipeline.ImpactDigest,
@@ -496,6 +497,7 @@ internal sealed record RepositoryCiJobWireDocument(
             job.Plan.Node.Id,
             job.Plan.Node.Kind,
             job.Plan.Node.ResourceWeight,
+            job.Plan.Node.Architectures.ToArray(),
             job.Source.Commit,
             job.Source.Tree,
             job.Source.SignatureVerified,
@@ -528,11 +530,11 @@ internal sealed record RepositoryCiJobWireDocument(
 
     internal void Validate()
     {
-        if (SchemaVersion != 1 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
+        if (SchemaVersion != 2 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
             Pipeline != $"ci-{PipelineDigest[..24]}" || !Identity(Job) || !Digest(JobDigest) ||
             !EnumValue(Profile) || !Identity(PlanId) || !ForgejoWebhookVerifier.IsRepository(Repository) ||
             !Node(NodeId) || PlanId != $"{Repository}:{NodeId}" ||
-            !EnumValue(NodeKind) || !EnumValue(ResourceWeight) || !ObjectId(SourceCommit) ||
+            !EnumValue(NodeKind) || !EnumValue(ResourceWeight) || !ValidArchitectures() || !ObjectId(SourceCommit) ||
             !ObjectId(SourceTree) || !EnumValue(Kind) || !ObjectId(Tree) || Tree != SourceTree ||
             Generation <= 0 || Attempt is < 1 or > 3 || MaximumAttempts != 3 ||
             !Identity(BaseIdempotency) || !Identity(Idempotency) ||
@@ -562,7 +564,7 @@ internal sealed record RepositoryCiJobWireDocument(
                     !SourceSignatureVerified || RequiredCapabilities.Any(static capability => capability is not (
                         RunnerCapability.Compile or RunnerCapability.Test or RunnerCapability.Sign))) ||
             Kind is not (JobKind.ProductValidation or JobKind.TrustedBuild) ||
-            MayPublishCandidateArtifact && NodeKind != RepositoryCiNodeKind.Artifact ||
+            !ValidNodeContract() ||
             JobDigest != ExpectedJobDigest())
             throw new InvalidDataException("The CI job wire document is invalid.");
     }
@@ -572,7 +574,8 @@ internal sealed record RepositoryCiJobWireDocument(
         var value = new StringBuilder(PipelineDigest).Append('\n')
             .Append(ImpactDigest).Append('\n')
             .Append(PlanId).Append(':').Append(Repository).Append(':')
-            .Append(NodeId).Append(':').Append(NodeKind).Append(':').Append(ResourceWeight).Append('\n')
+            .Append(NodeId).Append(':').Append(NodeKind).Append(':').Append(ResourceWeight).Append(':')
+            .AppendJoin(',', Architectures).Append('\n')
             .Append(Repository).Append(':').Append(SourceCommit).Append(':')
             .Append(SourceTree).Append(':').Append(SourceSignatureVerified ? '1' : '0').Append('\n')
             .Append(Pipeline).Append(':').Append(Job).Append(':').Append(Kind).Append(':')
@@ -585,6 +588,31 @@ internal sealed record RepositoryCiJobWireDocument(
             .Append(MayPublishCandidateArtifact ? '1' : '0');
         return Hash(value.ToString());
     }
+
+    private bool ValidArchitectures() => Architectures is { Length: 1 or 2 } &&
+        Architectures.All(static value => EnumValue(value)) &&
+        Architectures.Distinct().Count() == Architectures.Length &&
+        (Architectures.SequenceEqual([RepositoryCiArchitecture.Any]) ||
+            Architectures.SequenceEqual([
+                RepositoryCiArchitecture.LinuxX64,
+                RepositoryCiArchitecture.LinuxArm64]));
+
+    private bool ValidNodeContract() => NodeKind switch
+    {
+        RepositoryCiNodeKind.Static or RepositoryCiNodeKind.Build =>
+            Architectures.SequenceEqual([RepositoryCiArchitecture.Any]) &&
+            RequiredCapabilities.SequenceEqual([RunnerCapability.Compile]) &&
+            !MayPublishCandidateArtifact,
+        RepositoryCiNodeKind.Test =>
+            Architectures.SequenceEqual([RepositoryCiArchitecture.Any]) &&
+            RequiredCapabilities.SequenceEqual([RunnerCapability.Test]) &&
+            !MayPublishCandidateArtifact,
+        RepositoryCiNodeKind.Artifact =>
+            Kind == JobKind.TrustedBuild &&
+            RequiredCapabilities.SequenceEqual([RunnerCapability.Compile, RunnerCapability.Sign]) &&
+            MayPublishCandidateArtifact,
+        _ => false,
+    };
 
     private static string EffectiveIdempotency(string value, int attempt) => attempt == 1
         ? value

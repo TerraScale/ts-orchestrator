@@ -244,7 +244,12 @@ free-form commands, retired Flux strategies, missing/profile-narrowing edges,
 cycles, unsafe paths, and native candidates that do not cover Linux x64 and
 ARM64. The affected planner then requires every changed path to select an
 explainable node, closes prerequisites and dependents transitively, propagates
-cross-repository reasons, and emits a deterministic DAG digest.
+cross-repository reasons, and emits a deterministic DAG digest. At the runner
+boundary every accepted node maps to the fixed `.terrascale/ci.Dockerfile`
+recipe and `ci-<node-id>` target through the `dockerfile.v0` frontend. The
+repository cannot place an executable, argument, host path, or BuildKit
+endpoint in the descriptor. The signed command directly retains the exact
+`Any` or `linux-x64`/`linux-arm64` architecture set before this plan is built.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -291,9 +296,10 @@ control-NATS, or database networks. A signed command is now acknowledgeable
 only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
-evidence digest or typed failure. The source materializer, closed execution
-recipe, BuildKit adapter, and result coordinator are still separate missing
-gates; this journal does not claim that a workload ran.
+evidence digest or typed failure. The exact-tree source materializer, rootless
+BuildKit adapter, bounded log/artifact evidence writer, and result coordinator
+are still separate missing gates; this journal and plan do not claim that a
+workload ran.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

@@ -36,9 +36,12 @@ public sealed class RepositoryCiJobPublisherTests
             $"{GlobalNatsTopology.CiJobSubjectPrefix}.untrusted-product.");
         await Assert.That(published.MessageId).EndsWith(":1:1");
         await Assert.That(document.PipelineDigest).IsEqualTo(prepared.Pipeline.Digest);
+        await Assert.That(document.SchemaVersion).IsEqualTo(2);
+        await Assert.That(published.Message.Headers["TS-CI-Job-Schema"]).IsEqualTo("2");
         await Assert.That(document.ImpactDigest).IsEqualTo(prepared.Pipeline.ImpactDigest);
         await Assert.That(document.Job).IsEqualTo(prepared.Job.Request.Job.Value);
         await Assert.That(document.JobDigest).IsEqualTo(prepared.Receipt.Job!.Document.JobDigest);
+        await Assert.That(document.Architectures).IsEquivalentTo(prepared.Job.Plan.Node.Architectures);
         await Assert.That(document.Runner).IsEqualTo(prepared.Receipt.Job!.RunnerId);
         await Assert.That(document.FencingToken).IsEqualTo(1);
         await Assert.That(document.ExpiresAtUnixMilliseconds - document.IssuedAtUnixMilliseconds)
@@ -144,12 +147,20 @@ public sealed class RepositoryCiJobPublisherTests
             StringComparison.Ordinal));
         var forgedHeaders = wire.Headers.ToDictionary(static item => item.Key, static item => item.Value);
         forgedHeaders["TS-Payload-Sha256"] = Convert.ToHexStringLower(SHA256.HashData(forgedPayload));
+        var forgedArchitectures = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(wire.Payload.Span).Replace(
+            "\"Architectures\":[1]",
+            "\"Architectures\":[2]",
+            StringComparison.Ordinal));
+        var architectureHeaders = wire.Headers.ToDictionary(static item => item.Key, static item => item.Value);
+        architectureHeaders["TS-Payload-Sha256"] = Convert.ToHexStringLower(SHA256.HashData(forgedArchitectures));
 
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(payload, wire.Headers))
             .Throws<InvalidDataException>();
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(wire.Payload, changedHeaders))
             .Throws<InvalidDataException>();
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(forgedPayload, forgedHeaders))
+            .Throws<InvalidDataException>();
+        await Assert.That(() => RepositoryCiJobWireCodec.Decode(forgedArchitectures, architectureHeaders))
             .Throws<InvalidDataException>();
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(
                 wire.Payload,

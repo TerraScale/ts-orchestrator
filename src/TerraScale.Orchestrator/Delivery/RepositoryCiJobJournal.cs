@@ -727,7 +727,8 @@ internal sealed class RepositoryCiJobJournal
             .Append(pipeline.ImpactDigest).Append('\n')
             .Append(job.Plan.Id).Append(':').Append(job.Plan.Repository).Append(':')
             .Append(job.Plan.Node.Id).Append(':').Append(job.Plan.Node.Kind).Append(':')
-            .Append(job.Plan.Node.ResourceWeight).Append('\n')
+            .Append(job.Plan.Node.ResourceWeight).Append(':')
+            .AppendJoin(',', job.Plan.Node.Architectures).Append('\n')
             .Append(job.Source.Repository).Append(':').Append(job.Source.Commit).Append(':')
             .Append(job.Source.Tree).Append(':').Append(job.Source.SignatureVerified ? '1' : '0').Append('\n')
             .Append(request.Pipeline.Value).Append(':').Append(request.Job.Value).Append(':')
@@ -743,7 +744,7 @@ internal sealed class RepositoryCiJobJournal
         return Hash(value.ToString());
     }
 
-    private static string IsolationDigest(CiRunnerIsolationEvidence value)
+    internal static string IsolationDigest(CiRunnerIsolationEvidence value)
     {
         var content = JsonSerializer.SerializeToUtf8Bytes(
             value,
