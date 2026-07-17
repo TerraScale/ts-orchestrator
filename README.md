@@ -196,8 +196,10 @@ pipeline coordinator starts only from the durable trigger decision, recovers an
 already persisted pipeline before making source calls, reads this bounded exact
 change set, and CAS-records the resulting immutable pipeline under the same
 event identity. Authority loss before or during source resolution produces no
-pipeline. Exact cross-repository descriptor and source selection is an injected
-policy boundary; the coordinator never infers those inputs from moving refs.
+pipeline. A bounded repository catalog drives exact cross-repository descriptor
+and source selection: the triggering repository stays pinned to the webhook
+commit, affected dependents use protected `develop`, and the coordinator never
+infers inputs outside that explicit catalog.
 
 Once supplied, the exact descriptor blobs, changed paths, source commits/trees,
 trigger policy, controller generation, and runner evidence window are rebuilt
@@ -390,8 +392,8 @@ rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
 new fence. Package and native-strategy candidates now retain their per-
 repository promotion policy and can be published through the Forgejo generic-
-package API under the exact candidate version. That coordinator reopens and verifies every content-
-addressed runner archive before the first upload, streams only the matching
+package API under the exact candidate version. That coordinator reopens and
+verifies every content-addressed runner archive before the first upload, streams only the matching
 durable object under current authority, reconciles immutable retries by exact
 digest and length readback, and emits stable publication evidence. OCI registry
 and Pages publishers, the live regional actuator implementation, runtime
@@ -440,12 +442,12 @@ records the resolved qualification under current authority. Missing triggers,
 non-qualification events, missing candidates, changed trees or webhook commits,
 and authority loss cannot create a qualification. With the OCI CI controller
 enabled, protected-`main` deliveries enter that coordinator instead of being
-acknowledged after classification. The current single-repository source adapter
-re-reads signed protected `main`; a missing candidate or lost authority leaves
-the JetStream delivery pending, while exact qualification and its verified
-Forgejo success status must both complete before acknowledgement. Cross-repository
-main-source selection remains the explicit injected policy boundary described
-above.
+acknowledged after classification. The catalog-backed source graph re-reads
+protected `main` for every affected repository and requires the triggering
+repository to remain at the webhook commit. A missing candidate, changed tree,
+or lost authority leaves the JetStream delivery pending, while exact
+qualification and its verified Forgejo success status must both complete before
+acknowledgement.
 
 Runner admission remains a pure policy contract. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
@@ -469,9 +471,11 @@ roots and runner identity/resource values are supplied through `HOME`,
 `XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
 configurable from 30 to 900 seconds. Controller-side runner-result projection
 and candidate recording are part of the production loop when an artifact-
-attestation verifier is supplied. Package publication is implemented behind its
-qualified-candidate boundary; live runtime wiring, non-package publishers, and
-the artifact-attestation verifier implementation remain separate release gates.
+attestation signer and trust sets are supplied. Package publication and signed
+artifact-attestation verification are implemented behind the qualified-candidate
+boundary; promotion runtime wiring, non-package publishers, live regional
+actuation, and real-architecture runtime observations remain separate release
+gates.
 No result is acknowledged unless its exact durable sink completed first.
 
 Before any NATS connection, the runner now reads its own Linux process status,
@@ -538,6 +542,21 @@ jobs from durable runner results, and ETag-terminates every pool node after its
 }
 ```
 
+Cross-repository impact and qualification use the optional bounded catalog at
+`TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE`. It accepts schema version 1 and one to
+64 unique `owner/name` repositories, including the webhook repository. When it
+is omitted, CI keeps the compatible root-only graph.
+
+```json
+{
+  "schemaVersion": 1,
+  "repositories": [
+    "TerraScale/TerraBase",
+    "TerraScale/TerraScale.Orchestrator"
+  ]
+}
+```
+
 Bootstrap paths are relative to the pool file. Their bounded cloud-init/script
 content is the only value placed in OCI `user_data`; the loader rejects embedded
 NATS JWTs, NKey seeds, and private keys. Each image/bootstrap obtains its
@@ -550,6 +569,7 @@ signer:
 
 ```bash
 TS_ORCH_CI_OCI_CONFIG=/etc/terrascale/oci-ci-pool.json \
+TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE=/etc/terrascale/forgejo-ci-source-graph.json \
 TS_ORCH_COMMAND_SIGNING_KEY_FILE=/run/credentials/command-signing.pem \
 TS_ORCH_COMMAND_TRUST_KEY_FILES=/run/credentials/command-signing.pub.pem \
 TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
@@ -558,10 +578,10 @@ TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-ci-token \
 terrascale-orchestrator run
 ```
 
-The OCI CI controller token must be restricted to that one repository and have
-Forgejo `write:repository` scope because it reads exact source objects and posts
-terminal commit statuses. A polling-only controller can keep the narrower
-`read:repository` token described below.
+The OCI CI controller token must read every repository in the configured source
+graph and have Forgejo `write:repository` access to the webhook repository
+because it posts terminal commit statuses there. A root-only polling controller
+can keep the narrower `read:repository` token described below.
 
 This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The

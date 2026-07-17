@@ -6,6 +6,20 @@ using System.Text.Json;
 
 namespace TerraScale.Orchestrator.Delivery;
 
+internal interface IForgejoRepositorySourceClient : IAsyncDisposable
+{
+    Task<ForgejoResolvedRevision> ResolveAsync(string commit, CancellationToken cancellationToken = default);
+    Task<ForgejoBranchObservation> PollBranchAsync(string branch, CancellationToken cancellationToken = default);
+    Task<ForgejoSourceFile> ReadFileAsync(
+        string commit,
+        string path,
+        int maximumBytes,
+        CancellationToken cancellationToken = default);
+    Task<ForgejoSourceArchive> ReadArchiveAsync(
+        ForgejoResolvedRevision revision,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class ForgejoSourceConfiguration
 {
     private ForgejoSourceConfiguration(Uri server, string repository, string tokenFile)
@@ -58,6 +72,13 @@ public sealed class ForgejoSourceConfiguration
         {
             CryptographicOperations.ZeroMemory(bytes);
         }
+    }
+
+    internal ForgejoSourceConfiguration ForRepository(string repository)
+    {
+        if (!ForgejoWebhookVerifier.IsRepository(repository))
+            throw new ArgumentException("The Forgejo repository identity is invalid.", nameof(repository));
+        return new(Server, repository, TokenFile);
     }
 
     private static string ResolveTokenFile(string value)
@@ -175,7 +196,7 @@ internal enum ForgejoCommitStatusState
 }
 
 /// <summary>Resolves immutable Forgejo commit and tree identities with bounded authenticated API reads.</summary>
-public sealed class ForgejoSourceClient : IAsyncDisposable
+public sealed class ForgejoSourceClient : IForgejoRepositorySourceClient
 {
     internal const string CiStatusContext = "terrascale/orchestrator-ci";
     private const int MaximumMetadataResponseBytes = 64 * 1024;

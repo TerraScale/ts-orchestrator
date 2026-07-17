@@ -73,6 +73,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INatsAccountJwtSigner? ciRunnerNatsSigner,
         CancellationToken cancellationToken,
         ForgejoSourceConfiguration? ciSource = null,
+        ForgejoRepositoryCiSourceGraphConfiguration? ciSourceGraph = null,
         OciCiRunnerPoolConfiguration? ciPool = null,
         IRepositoryCiJobSigner? ciJobSigner = null,
         IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
@@ -128,29 +129,24 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             {
                 if (ciSource is null || ciJobSigner is null)
                     throw new ArgumentException("OCI CI requires Forgejo source access and a command signer.");
-                var source = ForgejoSourceClient.Create(ciSource);
-                var capacity = OciCiRunnerComputeAdapter.CreateForInstancePrincipal(ciPool.Endpoint.ToString());
+                var sourceGraph = ForgejoRepositoryCiSourceGraph.Create(
+                    ciSource,
+                    ciSourceGraph ?? ForgejoRepositoryCiSourceGraphConfiguration.Load(null, ciSource)!);
+                var source = sourceGraph.RootClient!;
+                IOciCiRunnerCapacityAdapter? capacity = null;
                 try
                 {
+                    capacity = OciCiRunnerComputeAdapter.CreateForInstancePrincipal(ciPool.Endpoint.ToString());
                     var coordinator = new RepositoryCiPipelineCoordinator(
                         triggerJournal,
                         pipelines,
                         source.ReadChangedPathsAsync,
-                        async (trigger, token) =>
-                        {
-                            var revision = await source.ResolveAsync(trigger.Envelope.Revision, token);
-                            var descriptor = await source.ReadFileAsync(
-                                revision.Commit,
-                                RepositoryCiImpactPlanner.DescriptorPath,
-                                ForgejoSourceClient.MaximumFileBytes,
-                                token);
-                            return new([descriptor], [revision]);
-                        });
+                        sourceGraph.ResolvePipelineAsync);
                     var dispatcher = new RepositoryCiJobDispatchCoordinator(
                         jobs,
                         new(runnerObjects),
                         new(jobs, new(new NatsRepositoryCiJobTransport(client), ciJobSigner)),
-                        source.ReadArchiveAsync,
+                        sourceGraph.ReadArchiveAsync,
                         (job, runner, token) =>
                         {
                             token.ThrowIfCancellationRequested();
@@ -239,18 +235,15 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         capacity,
                         () => authority.Snapshot,
                         instance,
-                        ownedSource: source,
+                        ownedSource: sourceGraph,
                         recordCandidate: recordCandidate);
                     var qualificationCoordinator = new RepositoryCiQualificationCoordinator(
                         triggerJournal,
                         candidates,
                         async (trigger, token) =>
                         {
-                            var observation = await source.PollBranchAsync("main", token);
-                            if (observation.Revision.Repository != trigger.Envelope.Repository)
-                                throw new InvalidDataException(
-                                    "The protected-main source does not match the qualification trigger.");
-                            return [observation];
+                            var paths = await source.ReadChangedPathsAsync(trigger.Envelope, token);
+                            return await sourceGraph.ReadCurrentMainSourcesAsync(trigger, paths, token);
                         });
                     qualificationController = new(
                         qualificationCoordinator.CoordinateAsync,
@@ -259,8 +252,16 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 }
                 catch
                 {
-                    capacity.Dispose();
-                    await source.DisposeAsync();
+                    if (ciController is not null)
+                    {
+                        await ciController.DisposeAsync();
+                        ciController = null;
+                    }
+                    else
+                    {
+                        capacity?.Dispose();
+                        await sourceGraph.DisposeAsync();
+                    }
                     throw;
                 }
             }

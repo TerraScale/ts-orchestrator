@@ -21,6 +21,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
         await RecordTrigger(triggers, trigger);
         var pathReads = 0;
         var graphReads = 0;
+        IReadOnlyList<string>? graphPaths = null;
         var coordinator = new RepositoryCiPipelineCoordinator(
             triggers,
             new RepositoryCiPipelineJournal(ledger, objects),
@@ -29,9 +30,10 @@ public sealed class RepositoryCiPipelineCoordinatorTests
                 pathReads++;
                 return Task.FromResult<IReadOnlyList<string>>(["src/file.cs"]);
             },
-            (plan, _) =>
+            (plan, paths, _) =>
             {
                 graphReads++;
+                graphPaths = paths;
                 return Task.FromResult(Graph());
             });
 
@@ -40,7 +42,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
             new ForgejoCiTriggerJournal(ledger),
             new RepositoryCiPipelineJournal(ledger, objects),
             static (_, _) => throw new InvalidOperationException("unexpected path read"),
-            static (_, _) => throw new InvalidOperationException("unexpected graph read"));
+            static (_, _, _) => throw new InvalidOperationException("unexpected graph read"));
         var replay = await Coordinate(restarted, trigger.Envelope.DedupeKey);
         var changedWindow = await Coordinate(restarted, trigger.Envelope.DedupeKey, generation: 8);
 
@@ -55,6 +57,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
             .IsEqualTo(RepositoryCiPipelineCoordinationDisposition.IdentityConflict);
         await Assert.That(pathReads).IsEqualTo(1);
         await Assert.That(graphReads).IsEqualTo(1);
+        await Assert.That(graphPaths).IsEquivalentTo(["src/file.cs"]);
         await Assert.That(objects.Count).IsEqualTo(1);
     }
 
@@ -73,7 +76,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
                 calls++;
                 return Task.FromResult<IReadOnlyList<string>>(["src/file.cs"]);
             },
-            (_, _) =>
+            (_, _, _) =>
             {
                 calls++;
                 return Task.FromResult(Graph());
@@ -112,7 +115,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
             triggers,
             new RepositoryCiPipelineJournal(ledger, objects),
             static (_, _) => Task.FromResult<IReadOnlyList<string>>(["src/file.cs"]),
-            (_, _) =>
+            (_, _, _) =>
             {
                 graphReads++;
                 return Task.FromResult(Graph());
@@ -144,7 +147,7 @@ public sealed class RepositoryCiPipelineCoordinatorTests
             triggers,
             new RepositoryCiPipelineJournal(ledger, objects),
             static (_, _) => Task.FromResult<IReadOnlyList<string>>(["src/file.cs"]),
-            (_, _) => Task.FromResult(new RepositoryCiPipelineGraph(
+            (_, _, _) => Task.FromResult(new RepositoryCiPipelineGraph(
                 [Descriptor(substitutedCommit)],
                 [new(Repository, substitutedCommit, Tree, signatureVerified: false)])));
 

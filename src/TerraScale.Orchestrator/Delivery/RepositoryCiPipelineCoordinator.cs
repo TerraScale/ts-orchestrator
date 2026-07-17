@@ -33,7 +33,8 @@ internal sealed class RepositoryCiPipelineCoordinator(
     ForgejoCiTriggerJournal triggers,
     RepositoryCiPipelineJournal pipelines,
     Func<ForgejoWebhookEnvelope, CancellationToken, Task<IReadOnlyList<string>>> readChangedPaths,
-    Func<ForgejoCiTriggerPlan, CancellationToken, Task<RepositoryCiPipelineGraph>> resolveGraph)
+    Func<ForgejoCiTriggerPlan, IReadOnlyList<string>, CancellationToken,
+        Task<RepositoryCiPipelineGraph>> resolveGraph)
 {
     internal async Task<RepositoryCiPipelineCoordinationReceipt> CoordinateAsync(
         string dedupeKey,
@@ -76,7 +77,7 @@ internal sealed class RepositoryCiPipelineCoordinator(
         var paths = await readChangedPaths(trigger.Envelope, cancellationToken);
         if (!authorityStillValid())
             return Result(RepositoryCiPipelineCoordinationDisposition.AuthorityLost);
-        var graph = await resolveGraph(trigger, cancellationToken)
+        var graph = await resolveGraph(trigger, paths, cancellationToken)
             ?? throw new InvalidDataException("The CI source graph resolver returned no graph.");
         if (graph.DescriptorFiles is null || graph.Sources is null)
             throw new InvalidDataException("The CI source graph is incomplete.");

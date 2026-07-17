@@ -39,6 +39,7 @@ public sealed record OrchestratorOptions(
     Messaging.GlobalNatsConfiguration? GlobalNats = null,
     Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
     Delivery.ForgejoSourceConfiguration? ForgejoSource = null,
+    Delivery.ForgejoRepositoryCiSourceGraphConfiguration? ForgejoCiSourceGraph = null,
     Delivery.CommandIdentityConfiguration? CommandIdentity = null,
     Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null,
     ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null)
@@ -122,6 +123,11 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_FORGEJO_REPOSITORY"),
                     environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
                 : null;
+            var forgejoCiSourceGraph = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? Delivery.ForgejoRepositoryCiSourceGraphConfiguration.Load(
+                    environment("TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE"),
+                    forgejoSource)
+                : null;
             var commandIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
                 ? Delivery.CommandIdentityConfiguration.Resolve(
                     environment("TS_ORCH_COMMAND_SIGNING_KEY_FILE"),
@@ -155,6 +161,7 @@ public sealed record OrchestratorOptions(
                 GlobalNats: globalNats,
                 ForgejoWebhook: forgejoWebhook,
                 ForgejoSource: forgejoSource,
+                ForgejoCiSourceGraph: forgejoCiSourceGraph,
                 CommandIdentity: commandIdentity,
                 CiRunnerNatsIdentity: ciRunnerNatsIdentity,
                 OciCiRunnerPool: ociCiRunnerPool);

@@ -89,6 +89,7 @@ try
                 ciRunnerNatsIdentity,
                 shutdown.Token,
                 options.ForgejoSource,
+                options.ForgejoCiSourceGraph,
                 options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
                 commandIdentity?.Signer,
                 commandIdentity?.Signer,

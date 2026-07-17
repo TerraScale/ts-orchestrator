@@ -62,7 +62,7 @@ public sealed class RepositoryCiControllerTests
                 triggers,
                 pipelines,
                 static (_, _) => Task.FromResult<IReadOnlyList<string>>(["src/file.cs"]),
-                static (_, _) => Task.FromResult(new RepositoryCiPipelineGraph(
+                static (_, _, _) => Task.FromResult(new RepositoryCiPipelineGraph(
                     [Descriptor()],
                     [new(Repository, Commit, Tree, signatureVerified: false)])));
             var jobs = new RepositoryCiJobJournal(ledger);
@@ -181,7 +181,7 @@ public sealed class RepositoryCiControllerTests
                     triggers,
                     pipelines,
                     static (_, _) => throw new InvalidOperationException("A held trigger read changed paths."),
-                    static (_, _) => throw new InvalidOperationException("A held trigger resolved sources.")),
+                    static (_, _, _) => throw new InvalidOperationException("A held trigger resolved sources.")),
                 jobs,
                 new(
                     jobs,
