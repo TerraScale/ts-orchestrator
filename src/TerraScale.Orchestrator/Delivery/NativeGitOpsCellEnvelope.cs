@@ -150,6 +150,7 @@ public static class NativeGitOpsCellEnvelope
     {
         if (handoff.RequiredCells is null || handoff.Cells is null || handoff.Generation <= 0 ||
             !IsDigest(handoff.GlobalPlanDigest) || !IsDigest(handoff.HandoffDigest) ||
+            handoff.RequiredCells.Count > NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff ||
             handoff.RequiredCells.Count != handoff.Cells.Count ||
             !handoff.RequiredCells.SequenceEqual(
                 handoff.RequiredCells.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal),

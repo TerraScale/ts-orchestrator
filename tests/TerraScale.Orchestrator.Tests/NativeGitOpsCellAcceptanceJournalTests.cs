@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -161,6 +162,15 @@ public sealed class NativeGitOpsCellAcceptanceJournalTests
         await Assert.That(stale.CanAcknowledge).IsFalse();
         await Assert.That(recorded.CanAcknowledge).IsTrue();
         await Assert.That(async () => await journal.ReadAsync("gru")).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task RegionalBundleStoreCoversBoundedCellHandoffCapacity()
+    {
+        var bundles = new NatsTopology("gru", 3).Bundles;
+
+        await Assert.That(bundles.MaxBytes).IsEqualTo(256L * 1024 * 1024);
+        await Assert.That(bundles.NumberOfReplicas).IsEqualTo(3);
     }
 
     private static CommandEnvelope Envelope(

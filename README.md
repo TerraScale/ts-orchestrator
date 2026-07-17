@@ -287,6 +287,9 @@ acceptance time, and original stream sequence. Replays converge on the same
 receipt; stale writers/generations, same-generation equivocation, authority
 loss, corrupt payloads, and crash-before-pointer fail closed. `CELL_SPEC`
 transport/consumer wiring and the owner-selected production KMS adapter remain.
+One compiled handoff targets at most 64 distinct cells, regardless of how cells
+are distributed across workloads, and the regional bundle store is capped at
+256 MiB so one maximally bounded handoff does not consume its entire capacity.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a

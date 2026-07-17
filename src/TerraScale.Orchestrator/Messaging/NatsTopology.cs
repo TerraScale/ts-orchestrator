@@ -58,7 +58,7 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
         Description = $"Signed regional control and protocol bundles for {Cell}",
-        MaxBytes = 64 * 1024 * 1024,
+        MaxBytes = 256 * 1024 * 1024,
         NumberOfReplicas = Replicas
     };
 

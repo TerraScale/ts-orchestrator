@@ -72,6 +72,7 @@ public sealed class NativeGitOpsCellHandoff
 public static class NativeGitOpsCellSpecCompiler
 {
     public const int MaximumCellSpecBytes = 1024 * 1024;
+    public const int MaximumCellsPerHandoff = 64;
 
     public static NativeGitOpsCellHandoff Compile(NativeGitOpsSourcePlan source)
     {
@@ -82,6 +83,8 @@ public static class NativeGitOpsCellSpecCompiler
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        if (cells.Length > MaximumCellsPerHandoff)
+            throw new InvalidDataException("A native GitOps handoff exceeded its regional fan-out bound.");
         var specs = cells.Select(cell => CompileCell(source, cell)).ToArray();
         return new(
             source.Proposed.Generation,

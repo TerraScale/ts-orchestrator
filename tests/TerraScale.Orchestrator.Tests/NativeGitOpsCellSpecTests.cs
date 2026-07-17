@@ -109,6 +109,22 @@ public sealed class NativeGitOpsCellSpecTests
         }
     }
 
+    [Test]
+    public async Task TotalCellFanOutIsBoundedIndependentlyOfEachWorkload()
+    {
+        var workloads = Enumerable.Range(0, NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff + 1)
+            .Select(index => Workload(
+                $"api-{index}",
+                "Api",
+                ApiV1,
+                [$"cell-{index}"]))
+            .ToArray();
+        var source = SourcePlan(null, Plan(1, workloads));
+
+        await Assert.That(() => NativeGitOpsCellSpecCompiler.Compile(source))
+            .Throws<InvalidDataException>();
+    }
+
     private static NativeGitOpsSourcePlan SourcePlan(NativeGitOpsPlan? accepted, byte[] content)
     {
         var proposed = NativeGitOpsManifest.Parse(content);
