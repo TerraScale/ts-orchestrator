@@ -231,6 +231,8 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
             RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
         RepositoryCiJobResultReconcileDisposition.IdentityConflict =>
             RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+        RepositoryCiJobResultReconcileDisposition.EvidenceConflict =>
+            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
         RepositoryCiJobResultReconcileDisposition.Contention =>
             RepositoryCiPipelineRunCoordinationDisposition.Contention,
         _ => null,

@@ -80,6 +80,41 @@ public sealed class RepositoryCiJobResultReconcilerTests
     }
 
     [Test]
+    public async Task UnverifiedTerminalEvidenceCannotAdvanceControllerState()
+    {
+        var fixture = await Fixture.CreateAsync();
+        var runnerLease = await fixture.Executions.AcquireAsync(
+            fixture.Accepted,
+            fixture.Accepted.Command.Operation,
+            Now.AddSeconds(1),
+            TimeSpan.FromMinutes(5));
+        await fixture.Executions.CompleteAsync(
+            runnerLease.Execution!,
+            true,
+            Digest('c'),
+            0,
+            RepositoryCiJobFailureKind.Unspecified,
+            Now.AddSeconds(2));
+        var reconciler = new RepositoryCiJobResultReconciler(
+            fixture.Jobs,
+            fixture.Executions,
+            new TestEvidenceVerifier(false));
+
+        var receipt = await reconciler.ReconcileAsync(
+            fixture.Pipeline,
+            fixture.JobId,
+            "gru-controller-1",
+            5,
+            static () => true);
+        var current = (await fixture.Jobs.ReadAsync(fixture.Pipeline)).Jobs
+            .Single(value => value.Job.Request.Job == fixture.JobId);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiJobResultReconcileDisposition.EvidenceConflict);
+        await Assert.That(current.Phase).IsEqualTo(RepositoryCiJobPhase.Dispatched);
+    }
+
+    [Test]
     public async Task AReadyExecutionForAnotherSignedOperationFailsClosed()
     {
         var (_, takeover) = await RepositoryCiJobInboxTests.AcceptedTakeoverAsync();
@@ -103,7 +138,8 @@ public sealed class RepositoryCiJobResultReconcilerTests
         var job = (await jobs.ReadAsync(pipeline)).Ready[0];
         var reconciler = new RepositoryCiJobResultReconciler(
             jobs,
-            new(new ForgejoWebhookJournalTests.TestLedger()));
+            new(new ForgejoWebhookJournalTests.TestLedger()),
+            new TestEvidenceVerifier());
 
         var receipt = await reconciler.ReconcileAsync(
             pipeline,
@@ -158,7 +194,7 @@ public sealed class RepositoryCiJobResultReconcilerTests
                 job.Request.Job,
                 jobs,
                 executions,
-                new(jobs, executions));
+                new(jobs, executions, new TestEvidenceVerifier()));
         }
 
         internal Task<RepositoryCiJobResultReconcileReceipt> ReconcileAsync() => Reconciler.ReconcileAsync(
@@ -172,5 +208,17 @@ public sealed class RepositoryCiJobResultReconcilerTests
     private sealed class FixedTimeProvider : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    internal sealed class TestEvidenceVerifier(bool valid = true) : IRepositoryCiJobResultEvidenceVerifier
+    {
+        public Task<bool> VerifyAsync(
+            RepositoryCiJobExecutionSnapshot execution,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(execution);
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(valid);
+        }
     }
 }

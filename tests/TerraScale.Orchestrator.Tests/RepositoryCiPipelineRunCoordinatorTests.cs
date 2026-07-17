@@ -173,7 +173,10 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
                 new(
                     jobs,
                     dispatch,
-                    new(jobs, executions),
+                    new(
+                        jobs,
+                        executions,
+                        new RepositoryCiJobResultReconcilerTests.TestEvidenceVerifier()),
                     (job, cancellationToken) =>
                     {
                         cancellationToken.ThrowIfCancellationRequested();

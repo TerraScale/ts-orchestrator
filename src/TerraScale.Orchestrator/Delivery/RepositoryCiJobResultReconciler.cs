@@ -13,6 +13,7 @@ internal enum RepositoryCiJobResultReconcileDisposition
     LeaseHeld,
     NotDispatchable,
     IdentityConflict,
+    EvidenceConflict,
     Contention,
 }
 
@@ -27,11 +28,14 @@ internal sealed record RepositoryCiJobResultReconcileReceipt(
 /// </summary>
 internal sealed class RepositoryCiJobResultReconciler(
     RepositoryCiJobJournal jobs,
-    RepositoryCiJobExecutionJournal executions)
+    RepositoryCiJobExecutionJournal executions,
+    IRepositoryCiJobResultEvidenceVerifier evidence)
 {
     private readonly RepositoryCiJobJournal jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
     private readonly RepositoryCiJobExecutionJournal executions =
         executions ?? throw new ArgumentNullException(nameof(executions));
+    private readonly IRepositoryCiJobResultEvidenceVerifier evidence =
+        evidence ?? throw new ArgumentNullException(nameof(evidence));
 
     internal async Task<RepositoryCiJobResultReconcileReceipt> ReconcileAsync(
         RepositoryCiPipelinePlan pipeline,
@@ -62,10 +66,12 @@ internal sealed class RepositoryCiJobResultReconciler(
                 pipeline.Digest,
                 jobId.Value,
                 cancellationToken);
+            if (!ExactTerminal(job, terminal))
+                return Result(RepositoryCiJobResultReconcileDisposition.IdentityConflict, job, terminal);
+            if (!await evidence.VerifyAsync(terminal!, cancellationToken))
+                return Result(RepositoryCiJobResultReconcileDisposition.EvidenceConflict, job, terminal);
             return Result(
-                ExactTerminal(job, terminal)
-                    ? RepositoryCiJobResultReconcileDisposition.Duplicate
-                    : RepositoryCiJobResultReconcileDisposition.IdentityConflict,
+                RepositoryCiJobResultReconcileDisposition.Duplicate,
                 job,
                 terminal);
         }
@@ -95,6 +101,10 @@ internal sealed class RepositoryCiJobResultReconciler(
                     : RepositoryCiJobResultReconcileDisposition.IdentityConflict,
                 job,
                 execution);
+        if (execution.Phase is (RepositoryCiJobExecutionPhase.Succeeded or
+                RepositoryCiJobExecutionPhase.Failed) &&
+            !await evidence.VerifyAsync(execution, cancellationToken))
+            return Result(RepositoryCiJobResultReconcileDisposition.EvidenceConflict, job, execution);
 
         if (job.Phase == RepositoryCiJobPhase.Dispatched)
         {
