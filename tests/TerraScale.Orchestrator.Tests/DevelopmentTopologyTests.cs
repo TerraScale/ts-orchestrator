@@ -103,15 +103,14 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task EmulatorsListenBeyondContainerLoopback()
+    public async Task EmulatorEnvironmentKeepsTheAssignedPort()
     {
         var emulator = DevelopmentTopology.CreateThreeCellLean().GlobalResources
             .Single(resource => resource.Kind == DevelopmentResourceKind.EmailEmulator);
 
         var environment = DevelopmentWorkloadRuntime.CreateEmulatorEnvironment(emulator);
 
-        await Assert.That(environment["ASPNETCORE_URLS"])
-            .IsEqualTo($"http://0.0.0.0:{emulator.Port}");
+        await Assert.That(environment["PORT"]).IsEqualTo(emulator.Port.ToString());
     }
 
     [Test]
@@ -199,5 +198,6 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(arguments).Contains(DevelopmentContainerImages.RuntimeDependencies);
         await Assert.That(arguments).Contains("--infra-command");
         await Assert.That(arguments).Contains("sleep infinity");
+        await Assert.That(arguments).Contains("pasta:--host-lo-to-ns-lo");
     }
 }

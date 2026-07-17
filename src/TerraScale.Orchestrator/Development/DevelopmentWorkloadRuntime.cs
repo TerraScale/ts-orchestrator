@@ -104,7 +104,6 @@ internal static class DevelopmentWorkloadRuntime
         new Dictionary<string, string?>
         {
             ["PORT"] = resource.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["ASPNETCORE_URLS"] = $"http://0.0.0.0:{resource.Port}",
             ["Logging__LogLevel__Default"] = "Warning",
             ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning"
         };
