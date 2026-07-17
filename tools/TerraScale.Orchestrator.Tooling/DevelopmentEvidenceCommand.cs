@@ -11,8 +11,8 @@ internal static class DevelopmentEvidenceCommand
     internal const int MaximumParallelTestModules = 1;
     internal const int MaximumParallelTests = 4;
     internal const int MaximumValidationProcesses = 512;
-    internal const long AggregateMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
-    internal const long ExecutionMemoryLimitBytes = 14L * 1024 * 1024 * 1024;
+    internal const long AggregateMemoryLimitBytes = 24L * 1024 * 1024 * 1024;
+    internal const long ExecutionMemoryLimitBytes = 20L * 1024 * 1024 * 1024;
     internal const long ReservedHeadroomBytes = AggregateMemoryLimitBytes - ExecutionMemoryLimitBytes;
     internal static readonly IReadOnlyList<TestModule> TestModules =
     [

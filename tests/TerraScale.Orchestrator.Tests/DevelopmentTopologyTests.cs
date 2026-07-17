@@ -178,7 +178,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task OverBudgetTopologyFailsBeforeRuntimeStartup()
     {
-        var resources = Enumerable.Range(1, 10)
+        var resources = Enumerable.Range(1, 11)
             .Select(replica => new DevelopmentResourcePlan(
                 $"gru-terrabase-{replica}",
                 "gru",

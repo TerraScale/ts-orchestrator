@@ -19,7 +19,7 @@ run. It builds once, runs all five TUnit executables sequentially with at most
 four tests active in a module, then runs policy tooling. A repository-wide
 lease prevents it from overlapping a Podman lab. Its evidence records the
 test count for every module and observed peak memory/process counts under a
-14 GiB execution ceiling, leaving 2 GiB of the 16 GiB local budget for the
+20 GiB execution ceiling, leaving 4 GiB of the 24 GiB local budget for the
 host. `lab up` rejects legacy or incomplete evidence that omits this bounded
 inventory.
 
@@ -822,7 +822,7 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 14 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 14 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,248 MiB. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,248 MiB, leaving substantial burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \

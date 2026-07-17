@@ -17,7 +17,7 @@ public sealed class PreDeploymentEvidenceTests
     {
         var evidence = CreateEvidence();
         var observations = evidence.ProcessObservations!.ToArray();
-        observations[0] = observations[0] with { PeakMemoryBytes = 14L * 1024 * 1024 * 1024 + 1 };
+        observations[0] = observations[0] with { PeakMemoryBytes = 20L * 1024 * 1024 * 1024 + 1 };
 
         await Assert.That((evidence with { ProcessObservations = observations }).HasBoundedValidationEvidence())
             .IsFalse();
@@ -47,7 +47,7 @@ public sealed class PreDeploymentEvidenceTests
             "digest",
             "dev-containers-three-cell-lean",
             DateTimeOffset.UtcNow.AddHours(1),
-            new(16L * 1024 * 1024 * 1024, 14L * 1024 * 1024 * 1024, 2L * 1024 * 1024 * 1024, 1, 4, 512),
+            new(24L * 1024 * 1024 * 1024, 20L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024, 1, 4, 512),
             modules,
             observations);
     }

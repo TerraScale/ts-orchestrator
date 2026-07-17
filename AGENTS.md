@@ -7,9 +7,9 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Read `ORCHESTRATOR.md` before changing architecture or production behavior.
 - Owner decisions 1A–10A are accepted. Pure Phase 1 contract tranches may freeze when safety policy remains explicit and configurable; unmeasured cost, storage, RPO, and RTO targets block deployment qualification, not implementation.
 - Never start a system-under-test VM, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
-- Keep the aggregate local container and test workload at or below 16 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
+- Keep the aggregate local container and test workload at or below 24 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
 - Do not reproduce the full production topology locally. Use three regions with replication factor 1; validating regional behavior is more important than simulating quorum locally.
-- Reserve 2 GiB for the host and tooling. An owned Podman lab or bounded validation process may use at most 14 GiB, and topology admission must fail before startup when the sum of declared limits exceeds that budget.
+- Reserve 4 GiB for the host and tooling. An owned Podman lab or bounded validation process may use at most 20 GiB, and topology admission must fail before startup when the sum of declared limits exceeds that budget.
 - Run the five test executables sequentially and pass `--maximum-parallel-tests 4` to TUnit. Never run multiple test modules, a test run and a lab, or two labs concurrently in this checkout; use the repository validation lease.
 - Do not edit, stage, commit, rebase, or otherwise mutate this checkout while the validation lease is held. Check the lease immediately before a write and defer the write until it is free; exact-tree attestation and an admitted lab must see a stable checkout for their full run.
 - Test at the lowest sufficient fidelity: pure business behavior in process; routing, identity, messaging, persistence, health, restart, and reconciliation in the three-region RF=1 lab; quorum only in a targeted one-region R3 component lane; systemd, containerd, storage, and provider boundaries one fixture at a time.

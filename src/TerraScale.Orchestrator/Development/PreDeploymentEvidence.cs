@@ -74,8 +74,8 @@ internal sealed record PreDeploymentEvidence(
 
     internal bool HasBoundedValidationEvidence()
     {
-        const long aggregateLimit = 16L * 1024 * 1024 * 1024;
-        const long executionLimit = 14L * 1024 * 1024 * 1024;
+        const long aggregateLimit = 24L * 1024 * 1024 * 1024;
+        const long executionLimit = 20L * 1024 * 1024 * 1024;
         const int processLimit = 512;
         if (ResourcePolicy is not
             {

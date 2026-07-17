@@ -136,8 +136,9 @@ internal static class ToolingTests
         AssertEqual(2, DevelopmentEvidenceCommand.EvidenceSchemaVersion);
         AssertEqual(4, DevelopmentEvidenceCommand.MaximumParallelTests);
         AssertEqual(5, DevelopmentEvidenceCommand.TestModules.Count);
-        AssertEqual(16L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.AggregateMemoryLimitBytes);
-        AssertEqual(14L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ExecutionMemoryLimitBytes);
+        AssertEqual(24L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.AggregateMemoryLimitBytes);
+        AssertEqual(20L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ExecutionMemoryLimitBytes);
+        AssertEqual(4L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ReservedHeadroomBytes);
         AssertEqual(46, DevelopmentEvidenceCommand.ParseTestTotal("sample", "total: 46\n"));
     }
 
