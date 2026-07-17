@@ -9,10 +9,10 @@ public static class ProviderOwnershipEngine
     {
         ArgumentNullException.ThrowIfNull(request);
         var context = request.Context;
-        var ownershipGroups = request.OwnershipRecords.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
-        var observationGroups = request.Observations.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
-        var createObservationGroups = request.CreateObservations.GroupBy(x => x.CreateKey.Value, StringComparer.Ordinal).ToArray();
-        var tagGroups = request.Tags.GroupBy(x => x.ResourceId.Value, StringComparer.Ordinal).ToArray();
+        var ownershipGroups = request.OwnershipRecords.ToLookup(x => x.ResourceId.Value, StringComparer.Ordinal);
+        var observationGroups = request.Observations.ToLookup(x => x.ResourceId.Value, StringComparer.Ordinal);
+        var createObservationGroups = request.CreateObservations.ToLookup(x => x.CreateKey.Value, StringComparer.Ordinal);
+        var tagGroups = request.Tags.ToLookup(x => x.ResourceId.Value, StringComparer.Ordinal);
         var duplicateCount = CheckedDuplicates(ownershipGroups.Select(x => x.Count())
             .Concat(observationGroups.Select(x => x.Count())).Concat(createObservationGroups.Select(x => x.Count()))
             .Concat(tagGroups.Select(x => x.Count())));
@@ -46,19 +46,19 @@ public static class ProviderOwnershipEngine
         var generationMatches = true;
         if (context.Target is ExistingProviderResource target)
         {
-            var records = request.OwnershipRecords.Where(x => x.ResourceId == target.Id).ToArray();
-            var observations = request.Observations.Where(x => x.ResourceId == target.Id).ToArray();
-            ownershipMatches = records.Length == 1 && records[0].CellId == context.CellId && records[0].CompartmentId == context.CompartmentId;
-            generationMatches = records.Length == 1 && observations.Length == 1 &&
-                                records[0].Generation == context.ExpectedGeneration &&
-                                observations[0].Generation == context.ExpectedGeneration &&
-                                observations[0].State == context.ExpectedObservedState;
+            var record = ownershipGroups[target.Id.Value].SingleOrDefault();
+            var observation = observationGroups[target.Id.Value].SingleOrDefault();
+            ownershipMatches = record is not null && record.CellId == context.CellId && record.CompartmentId == context.CompartmentId;
+            generationMatches = record is not null && observation is not null &&
+                                record.Generation == context.ExpectedGeneration &&
+                                observation.Generation == context.ExpectedGeneration &&
+                                observation.State == context.ExpectedObservedState;
         }
         else if (context.Target is IdempotentProviderCreate create)
         {
-            var observations = request.CreateObservations.Where(x => x.CreateKey == create.Key).ToArray();
+            var observation = createObservationGroups[create.Key.Value].SingleOrDefault();
             ownershipMatches = request.OwnershipRecords.Count == 0;
-            generationMatches = observations is [var observation] &&
+            generationMatches = observation is not null &&
                                 observation.CellId == context.CellId &&
                                 observation.CompartmentId == context.CompartmentId &&
                                 observation.Generation == context.ExpectedGeneration &&
@@ -84,7 +84,7 @@ public static class ProviderOwnershipEngine
         trace.Add(Reject(ProviderDecisionCode.PriorAuthorizationCompatible, priorCompatible, priorCompatible ? 1UL : 0UL, 1));
         var compatible = Compatible(context);
         trace.Add(Reject(ProviderDecisionCode.ActionResourceCompatible, compatible, compatible ? 1UL : 0UL, 1));
-        var tagsConsistent = TagsConsistent(request);
+        var tagsConsistent = TagsConsistent(request, tagGroups);
         trace.Add(Reject(ProviderDecisionCode.TagsConsistent, tagsConsistent, tagsConsistent ? 1UL : 0UL, 1));
         trace.Add(new(ProviderDecisionCode.TagsNotAuthority, ProviderDecisionOutcome.NotApplicable, checked((ulong)request.Tags.Count), 0));
 
@@ -92,7 +92,7 @@ public static class ProviderOwnershipEngine
         var durablyAccepted = request.Context.Action != ProviderAction.Observe
             && request.CallEvidence.Status is ProviderCallStatus.Accepted or ProviderCallStatus.ResponseLost or ProviderCallStatus.Completed
             ? request.Context : null;
-        return Decision(trace, [NextIntent(request)], durablyAccepted);
+        return Decision(trace, [NextIntent(request, createObservationGroups)], durablyAccepted);
     }
 
     public static HandoffDecision EvaluateHandoff(HandoffRequest request)
@@ -127,7 +127,9 @@ public static class ProviderOwnershipEngine
             ready ? new(inventory, request.ExpectedScope, request.CurrentAcceptedBootstrapGeneration) : null);
     }
 
-    private static ProviderIntent NextIntent(ProviderAuthorizationRequest request)
+    private static ProviderIntent NextIntent(
+        ProviderAuthorizationRequest request,
+        ILookup<string, ProviderCreateObservation> createObservationGroups)
     {
         if (request.CallEvidence.Status is ProviderCallStatus.Accepted or ProviderCallStatus.ResponseLost && request.CallEvidence.WorkRequestId is not null)
             return new ReadProviderWorkRequestIntent(request.Context, request.CallEvidence.WorkRequestId);
@@ -135,7 +137,7 @@ public static class ProviderOwnershipEngine
             return new ObserveProviderResourceIntent(request.Context);
         if (request.Context.Target is IdempotentProviderCreate create)
         {
-            var observation = request.CreateObservations.Single(x => x.CreateKey == create.Key);
+            var observation = createObservationGroups[create.Key.Value].Single();
             if (observation.ResolvedResourceId is not null)
                 return new ObserveResolvedProviderCreateIntent(request.Context, observation);
         }
@@ -226,11 +228,13 @@ public static class ProviderOwnershipEngine
             item.OperationId != first.OperationId ||
             item.Generation != first.Generation);
     }
-    private static bool TagsConsistent(ProviderAuthorizationRequest request)
+    private static bool TagsConsistent(
+        ProviderAuthorizationRequest request,
+        ILookup<string, ProviderInventoryTagEvidence> tagGroups)
     {
         if (request.Context.Target is not ExistingProviderResource target) return request.Tags.Count == 0;
-        var tags = request.Tags.Where(x => x.ResourceId == target.Id).ToArray();
-        return tags.Length == 0 || tags is [var tag] &&
+        var tag = tagGroups[target.Id.Value].SingleOrDefault();
+        return tag is null ||
             tag.CellId == request.Context.CellId &&
             tag.CompartmentId == request.Context.CompartmentId &&
             tag.OperationId == request.Context.OperationId &&
