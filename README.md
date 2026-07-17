@@ -358,7 +358,9 @@ for every architecture in the signed execution plan. The runner rejects missing,
 substituted, overlapping, or undeclared roots, computes a canonical content
 digest for each architecture, and retains that bounded root evidence in the
 read-verified workload record. This is content evidence, not an artifact
-signature; candidate admission still requires the separate signing gate below.
+signature. The authoritative terminal path derives the exact subject from that
+read-verified record and signs it under its fenced global lease; runner output
+cannot choose the signed digest or identity.
 Source bytes are removed before artifact capture and archive
 overhead is reserved inside the signed ephemeral-disk budget. The isolated
 `runner` process mode owns that BuildKit daemon and exits when its bounded idle
@@ -408,11 +410,13 @@ under current authority. Feature-profile, active, failed, incomplete, unsigned,
 substituted, and authority-lost inputs produce no candidate. Retention cleanup
 remains unimplemented. The OCI CI terminal path now invokes that coordinator
 after runner cleanup and reports Forgejo success only after the exact candidate
-is durable. The runtime reads the new content-addressed artifact and native-
-runtime proof journals and verifies their exact signed subjects with the
-configured P-256 trust set. Without both verifiers, a successful release
-delivery remains pending; issuing and recording those proofs remains a separate
-production gate. The qualification coordinator starts only from a durable
+is durable. Under the same fenced lease, the controller mints and readback-
+verifies a content-addressed P-256 artifact proof exactly once, then reads the
+independent native-runtime proof journal and verifies both exact signed subjects
+with the configured trust set. Without the signer and both verifiers, or without
+a matching-architecture native observation, a successful release delivery
+remains pending. Producing that runtime observation on real architecture remains
+a separate production gate. The qualification coordinator starts only from a durable
 admitted protected-`main` trigger, snapshots injected signed protected-main
 observations once, locates the immutable candidate by exact tree-set index, and
 records the resolved qualification under current authority. Missing triggers,

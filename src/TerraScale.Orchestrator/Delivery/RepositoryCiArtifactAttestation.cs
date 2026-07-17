@@ -269,3 +269,55 @@ internal sealed class RepositoryCiSignedArtifactAttestationVerifier(
             runtimeVerifier);
     }
 }
+
+internal sealed class RepositoryCiArtifactProofAuthorityLostException : Exception { }
+
+/// <summary>
+/// Mints the controller-owned artifact signature only after the candidate reader has derived an
+/// exact subject from read-verified runner evidence. Native-runtime proof remains independent.
+/// </summary>
+internal sealed class RepositoryCiIssuingArtifactAttestationVerifier(
+    RepositoryCiArtifactAttestationJournal journal,
+    IRepositoryCiArtifactAttestationSigner signer,
+    IRepositoryCiArtifactAttestationVerifier verifier,
+    long authorityEpoch,
+    long sequence,
+    Func<bool> authorityStillValid) : IRepositoryCiArtifactAttestationVerifier
+{
+    private readonly RepositoryCiArtifactAttestationJournal journal = journal ??
+        throw new ArgumentNullException(nameof(journal));
+    private readonly IRepositoryCiArtifactAttestationSigner signer = signer ??
+        throw new ArgumentNullException(nameof(signer));
+    private readonly IRepositoryCiArtifactAttestationVerifier verifier = verifier ??
+        throw new ArgumentNullException(nameof(verifier));
+    private readonly Func<bool> authorityStillValid = authorityStillValid ??
+        throw new ArgumentNullException(nameof(authorityStillValid));
+
+    public async Task<RepositoryCiVerifiedArtifactAttestation?> VerifyAsync(
+        RepositoryCiArtifactSubject subject,
+        CancellationToken cancellationToken)
+    {
+        if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
+        if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
+        if (!authorityStillValid()) throw new RepositoryCiArtifactProofAuthorityLostException();
+
+        if (await journal.ReadArtifactAsync(subject, cancellationToken) is null)
+        {
+            var disposition = await journal.RecordArtifactAsync(
+                RepositoryCiArtifactAttestation.Sign(subject, signer),
+                authorityEpoch,
+                sequence,
+                authorityStillValid,
+                cancellationToken);
+            if (disposition == RepositoryCiArtifactAttestationJournalDisposition.StaleAuthority)
+                throw new RepositoryCiArtifactProofAuthorityLostException();
+            if (disposition == RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict)
+                throw new InvalidDataException("The artifact subject already has a different signed proof.");
+            if (disposition is not (RepositoryCiArtifactAttestationJournalDisposition.Recorded or
+                    RepositoryCiArtifactAttestationJournalDisposition.Duplicate))
+                throw new InvalidDataException("The artifact proof journal returned an unspecified disposition.");
+        }
+        if (!authorityStillValid()) throw new RepositoryCiArtifactProofAuthorityLostException();
+        return await verifier.VerifyAsync(subject, cancellationToken);
+    }
+}

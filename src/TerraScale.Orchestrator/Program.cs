@@ -91,6 +91,7 @@ try
                 options.ForgejoSource,
                 options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
                 commandIdentity?.Signer,
+                commandIdentity?.Signer,
                 commandIdentity?.Verifier,
                 commandIdentity?.Verifier);
     }

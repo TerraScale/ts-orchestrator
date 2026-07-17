@@ -65,12 +65,15 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoSourceConfiguration? ciSource = null,
         OciCiRunnerPoolConfiguration? ciPool = null,
         IRepositoryCiJobSigner? ciJobSigner = null,
+        IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
         IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
         IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        if ((ciArtifactSignatures is null) != (ciRuntimeSignatures is null))
-            throw new ArgumentException("OCI CI artifact and runtime signature verifiers must be configured together.");
+        if (ciPool is not null && (ciArtifactSigner is null || ciArtifactSignatures is null ||
+                ciRuntimeSignatures is null) && (ciArtifactSigner is not null ||
+                ciArtifactSignatures is not null || ciRuntimeSignatures is not null))
+            throw new ArgumentException("OCI CI artifact signing and both proof verifiers must be configured together.");
         var topology = new GlobalNatsTopology(3);
         var client = new NatsClient(new NatsOpts
         {
@@ -149,40 +152,56 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         });
                     var availability = new OciCiRunnerAvailability();
                     Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null;
-                    if (ciArtifactSignatures is not null && ciRuntimeSignatures is not null)
+                    if (ciArtifactSigner is not null && ciArtifactSignatures is not null &&
+                        ciRuntimeSignatures is not null)
                     {
                         var executions = new RepositoryCiJobExecutionJournal(runnerLedger);
                         var attestations = new RepositoryCiArtifactAttestationJournal(
                             runnerLedger,
                             runnerObjects);
-                        var artifacts = new RepositoryCiCandidateArtifactReader(
-                            (job, token) => executions.ReadAsync(
-                                job.RunnerId,
-                                job.Document.PipelineDigest,
-                                job.Job.Request.Job.Value,
-                                token),
-                            new(runnerObjects),
-                            new RepositoryCiSignedArtifactAttestationVerifier(
-                                attestations.ReadArtifactAsync,
-                                attestations.ReadRuntimeAsync,
-                                ciArtifactSignatures,
-                                ciRuntimeSignatures));
-                        var candidateCoordinator = new RepositoryCiCandidateCoordinator(
-                            candidates,
-                            jobs.ReadAsync,
-                            artifacts.ReadAsync);
+                        var verifier = new RepositoryCiSignedArtifactAttestationVerifier(
+                            attestations.ReadArtifactAsync,
+                            attestations.ReadRuntimeAsync,
+                            ciArtifactSignatures,
+                            ciRuntimeSignatures);
                         recordCandidate = async (pipeline, token) =>
                         {
                             var lease = authority.Snapshot;
                             if (!lease.Ready || !lease.IsLeader || lease.Epoch <= 0 || lease.KvRevision <= 0)
                                 return false;
                             bool StillValid() => RepositoryCiController.SameAuthority(lease, authority.Snapshot);
-                            var receipt = await candidateCoordinator.CoordinateAsync(
-                                pipeline,
-                                lease.Epoch,
-                                lease.KvRevision,
-                                StillValid,
-                                token);
+                            var artifacts = new RepositoryCiCandidateArtifactReader(
+                                (job, innerToken) => executions.ReadAsync(
+                                    job.RunnerId,
+                                    job.Document.PipelineDigest,
+                                    job.Job.Request.Job.Value,
+                                    innerToken),
+                                new(runnerObjects),
+                                new RepositoryCiIssuingArtifactAttestationVerifier(
+                                    attestations,
+                                    ciArtifactSigner,
+                                    verifier,
+                                    lease.Epoch,
+                                    lease.KvRevision,
+                                    StillValid));
+                            RepositoryCiCandidateCoordinationReceipt receipt;
+                            try
+                            {
+                                receipt = await new RepositoryCiCandidateCoordinator(
+                                        candidates,
+                                        jobs.ReadAsync,
+                                        artifacts.ReadAsync)
+                                    .CoordinateAsync(
+                                        pipeline,
+                                        lease.Epoch,
+                                        lease.KvRevision,
+                                        StillValid,
+                                        token);
+                            }
+                            catch (RepositoryCiArtifactProofAuthorityLostException)
+                            {
+                                return false;
+                            }
                             if (receipt.IsRecorded) return true;
                             if (receipt.Disposition == RepositoryCiCandidateCoordinationDisposition.AuthorityLost)
                                 return false;

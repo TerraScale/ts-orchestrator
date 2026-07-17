@@ -115,6 +115,58 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
         await Assert.That(verified.ObservedRuntimeDigest).IsEqualTo(fixture.Subject.Digest);
     }
 
+    [Test]
+    public async Task ControllerIssuesArtifactProofButStillRequiresIndependentNativeObservation()
+    {
+        var fixture = Create();
+        var verifier = new RepositoryCiSignedArtifactAttestationVerifier(
+            fixture.Journal.ReadArtifactAsync,
+            fixture.Journal.ReadRuntimeAsync,
+            artifactTrust,
+            runtimeTrust);
+        var issuing = new RepositoryCiIssuingArtifactAttestationVerifier(
+            fixture.Journal,
+            artifactTrust,
+            verifier,
+            7,
+            11,
+            static () => true);
+
+        var beforeRuntime = await issuing.VerifyAsync(fixture.Subject, default);
+        await fixture.Journal.RecordRuntimeAsync(fixture.Runtime, 7, 12, static () => true);
+        var complete = await issuing.VerifyAsync(fixture.Subject, default);
+
+        await Assert.That(beforeRuntime).IsNull();
+        await Assert.That(complete).IsNotNull();
+        await Assert.That(await fixture.Journal.ReadArtifactAsync(fixture.Subject)).IsNotNull();
+        await Assert.That(complete!.ObservedRuntimeDigest).IsEqualTo(fixture.Subject.Digest);
+        await Assert.That(fixture.Ledger.Mutations).IsEqualTo(2);
+        await Assert.That(fixture.Objects.Values.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task LostAuthorityCannotIssueArtifactProof()
+    {
+        var fixture = Create();
+        var verifier = new RepositoryCiSignedArtifactAttestationVerifier(
+            fixture.Journal.ReadArtifactAsync,
+            fixture.Journal.ReadRuntimeAsync,
+            artifactTrust,
+            runtimeTrust);
+        var issuing = new RepositoryCiIssuingArtifactAttestationVerifier(
+            fixture.Journal,
+            artifactTrust,
+            verifier,
+            7,
+            11,
+            static () => false);
+
+        await Assert.That(async () => await issuing.VerifyAsync(fixture.Subject, default))
+            .Throws<RepositoryCiArtifactProofAuthorityLostException>();
+        await Assert.That(fixture.Ledger.Mutations).IsEqualTo(0);
+        await Assert.That(fixture.Objects.Values).IsEmpty();
+    }
+
     private Fixture Create()
     {
         var subject = new RepositoryCiArtifactSubject(
