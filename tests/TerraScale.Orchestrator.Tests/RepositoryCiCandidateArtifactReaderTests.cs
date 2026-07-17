@@ -67,11 +67,57 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
         await Assert.That(fixture.Attestations.Subjects).IsEmpty();
     }
 
+    [Test]
+    public async Task CandidateCanRecoverOnlyItsExactVerifiedArchive()
+    {
+        var fixture = Fixture.Create();
+        var artifacts = await fixture.Reader.ReadAsync(fixture.Pipeline, fixture.Run);
+        var candidate = RepositoryCiCandidateAssembler.Assemble(
+            fixture.Pipeline,
+            fixture.Run.Results,
+            artifacts);
+        var job = fixture.Pipeline.Jobs.Single(static value =>
+            value.Plan.Node.Kind == RepositoryCiNodeKind.Artifact).Request.Job;
+
+        var archive = await fixture.Evidence.ReadCandidateArchiveAsync(candidate, job);
+
+        await Assert.That(archive).IsNotNull();
+        await Assert.That(archive!.ObjectName).IsEqualTo(fixture.ArtifactObject);
+        await Assert.That(archive.Sha256).IsEqualTo(Hash(fixture.Store.Values[fixture.ArtifactObject]));
+        await Assert.That(archive.Bytes).IsEqualTo(fixture.Store.Values[fixture.ArtifactObject].LongLength);
+    }
+
+    [Test]
+    public async Task CandidateArtifactSubstitutionCannotRecoverRunnerArchive()
+    {
+        var fixture = Fixture.Create();
+        var artifacts = (await fixture.Reader.ReadAsync(fixture.Pipeline, fixture.Run)).ToArray();
+        var replacement = new DigestId(Digest(999));
+        artifacts[0] = artifacts[0] with
+        {
+            Digest = replacement,
+            ObservedRuntimeDigest = replacement,
+        };
+        var candidate = RepositoryCiCandidateAssembler.Assemble(
+            fixture.Pipeline,
+            fixture.Run.Results,
+            artifacts);
+        var job = fixture.Pipeline.Jobs.Single(static value =>
+            value.Plan.Node.Kind == RepositoryCiNodeKind.Artifact).Request.Job;
+
+        var archive = await fixture.Evidence.ReadCandidateArchiveAsync(candidate, job);
+
+        await Assert.That(archive).IsNull();
+    }
+
     private sealed record Fixture(
         RepositoryCiPipelinePlan Pipeline,
         RepositoryCiPipelineRunSnapshot Run,
         RepositoryCiCandidateArtifactReader Reader,
-        TestAttestationVerifier Attestations)
+        TestAttestationVerifier Attestations,
+        CiRunnerDurableEvidenceVerifier Evidence,
+        TestObjectStore Store,
+        string ArtifactObject)
     {
         internal static Fixture Create(
             Func<RepositoryCiArtifactSubject, RepositoryCiVerifiedArtifactAttestation?>? attestation = null,
@@ -206,15 +252,16 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
                 new("trusted-build-signer"),
                 new($"signature-{subject.Architecture}"),
                 subject.Digest)));
+            var evidence = new CiRunnerDurableEvidenceVerifier(store);
             var reader = new RepositoryCiCandidateArtifactReader(
                 (_, token) =>
                 {
                     token.ThrowIfCancellationRequested();
                     return Task.FromResult<RepositoryCiJobExecutionSnapshot?>(execution);
                 },
-                new(store),
+                evidence,
                 verifier);
-            return new(pipeline, run, reader, verifier);
+            return new(pipeline, run, reader, verifier, evidence, store, stored.ArtifactObject);
         }
 
         private static RepositoryCiJobSnapshot Snapshot(
