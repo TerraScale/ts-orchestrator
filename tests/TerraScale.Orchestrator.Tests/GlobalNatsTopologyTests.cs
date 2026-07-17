@@ -12,7 +12,6 @@ public sealed class GlobalNatsTopologyTests
         var topology = new GlobalNatsTopology(3);
         var specification = topology.Streams.Single(stream => stream.Name == "GLOBAL_SPEC");
         var ci = topology.Streams.Single(stream => stream.Name == GlobalNatsTopology.CiStream);
-        var runner = topology.CiJobConsumer("untrusted-product", "runner-static");
 
         await Assert.That(specification.Name).IsEqualTo("GLOBAL_SPEC");
         await Assert.That(specification.Subjects).IsEquivalentTo(["ts.orch.v1.global.desired.>"]);
@@ -38,21 +37,7 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.RunnerJobs.History).IsEqualTo(8);
         await Assert.That(topology.RunnerJobs.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
         await Assert.That(topology.RunnerJobs.MaxValueSize).IsEqualTo(16 * 1024);
-        await Assert.That(runner.Name).StartsWith("ci_runner_untrusted_product_");
-        await Assert.That(runner.DurableName).IsEqualTo(runner.Name);
-        await Assert.That(runner.FilterSubject)
-            .IsEqualTo(GlobalNatsTopology.CiJobSubject("untrusted-product", "runner-static"));
-        await Assert.That(runner.AckWait).IsEqualTo(TimeSpan.FromSeconds(30));
-        await Assert.That(runner.MaxDeliver).IsEqualTo(5);
-        await Assert.That(runner.MaxAckPending).IsEqualTo(1);
-        await Assert.That(runner.MaxWaiting).IsEqualTo(4);
-        await Assert.That(runner.InactiveThreshold).IsEqualTo(TimeSpan.FromHours(24));
-        await Assert.That(runner.NumReplicas).IsEqualTo(3);
         await Assert.That(() => new GlobalNatsTopology(1)).Throws<ArgumentOutOfRangeException>();
-        await Assert.That(() => topology.CiJobConsumer("production-release", "runner-static"))
-            .Throws<ArgumentException>();
-        await Assert.That(() => topology.CiJobConsumer("trusted-build", "bad runner"))
-            .Throws<ArgumentException>();
     }
 
     [Test]

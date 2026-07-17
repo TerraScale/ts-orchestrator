@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
@@ -100,39 +98,4 @@ public sealed class GlobalNatsTopology
         ],
         NumReplicas = Replicas,
     };
-
-    public ConsumerConfig CiJobConsumer(string zone, string runner)
-    {
-        var subject = CiJobSubject(zone, runner);
-        var runnerHash = subject[(subject.LastIndexOf('.') + 1)..];
-        return new($"ci_runner_{zone.Replace('-', '_')}_{runnerHash}")
-        {
-            Description = $"Durable fenced CI command inbox for {zone} runner {runnerHash}",
-            FilterSubject = subject,
-            AckWait = TimeSpan.FromSeconds(30),
-            MaxDeliver = 5,
-            MaxAckPending = 1,
-            MaxWaiting = 4,
-            InactiveThreshold = TimeSpan.FromHours(24),
-            Backoff =
-            [
-                TimeSpan.FromSeconds(1),
-                TimeSpan.FromSeconds(5),
-                TimeSpan.FromSeconds(15),
-                TimeSpan.FromSeconds(30),
-            ],
-            NumReplicas = Replicas,
-        };
-    }
-
-    public static string CiJobSubject(string zone, string runner)
-    {
-        if (zone is not ("untrusted-product" or "trusted-build"))
-            throw new ArgumentException("The CI runner subject zone is invalid.", nameof(zone));
-        if (runner is not { Length: >= 1 and <= 512 } ||
-            runner.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character)))
-            throw new ArgumentException("The CI runner subject identity is invalid.", nameof(runner));
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(runner)));
-        return $"{CiJobSubjectPrefix}.{zone}.{hash[..24]}";
-    }
 }

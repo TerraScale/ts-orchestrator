@@ -166,7 +166,7 @@ internal sealed class RepositoryCiJobPublisher(
             TrustZone.TrustedBuild => "trusted-build",
             _ => throw new InvalidDataException("The repository CI job has no publishable trust zone."),
         };
-        return GlobalNatsTopology.CiJobSubject(zone, prepared.RunnerId);
+        return $"{GlobalNatsTopology.CiJobSubjectPrefix}.{zone}.{Hash(prepared.RunnerId)[..24]}";
     }
 
     private static string MessageId(RepositoryCiJobSnapshot prepared) =>
@@ -221,9 +221,8 @@ internal static class RepositoryCiJobWireCodec
 {
     internal const int MaximumPayloadBytes = 64 * 1024;
     internal const int MaximumSignatureBytes = 16 * 1024;
-    internal const int MaximumWireBytes = 128 * 1024;
-    internal const int ExpectedHeaderCount = 12;
     private const int MaximumHeaderBytes = 64 * 1024;
+    private const int HeaderCount = 12;
     private const string Schema = "TS-CI-Job-Schema";
     private const string Protocol = "TS-Protocol-Version";
     private const string Type = "TS-Message-Type";
@@ -270,11 +269,11 @@ internal static class RepositoryCiJobWireCodec
     {
         ArgumentNullException.ThrowIfNull(headers);
         if (payload.Length is < 1 or > MaximumPayloadBytes) throw Invalid();
-        var captured = headers.Take(ExpectedHeaderCount + 1).ToArray();
-        if (captured.Length != ExpectedHeaderCount || captured.Any(static item =>
+        var captured = headers.Take(HeaderCount + 1).ToArray();
+        if (captured.Length != HeaderCount || captured.Any(static item =>
                 string.IsNullOrEmpty(item.Key) || item.Value is null))
             throw Invalid();
-        var values = new Dictionary<string, string>(ExpectedHeaderCount, StringComparer.Ordinal);
+        var values = new Dictionary<string, string>(HeaderCount, StringComparer.Ordinal);
         foreach (var header in captured)
             if (!values.TryAdd(header.Key, header.Value)) throw Invalid();
         if (!ExpectedHeaders.SetEquals(values.Keys)) throw Invalid();
@@ -309,7 +308,7 @@ internal static class RepositoryCiJobWireCodec
         RepositoryCiJobWireDocument document,
         string digest,
         string signature) =>
-        new(ExpectedHeaderCount, StringComparer.Ordinal)
+        new(HeaderCount, StringComparer.Ordinal)
         {
             [Schema] = "1",
             [Protocol] = "1",
