@@ -41,9 +41,7 @@ public sealed record DevelopmentTopology(
 
     public static DevelopmentTopology CreateThreeCellLean()
     {
-        var cells = new[] { "gru", "sfo", "fra" }
-            .Select((cell, ordinal) => CreateCell(cell, ordinal))
-            .ToArray();
+        var cells = CreateCells(controlOnly: false);
         var globalBase = BasePort + (cells.Length * CellStride);
         var global = new[]
         {
@@ -65,11 +63,16 @@ public sealed record DevelopmentTopology(
 
     public static DevelopmentTopology CreateThreeCellControlPlane()
     {
-        var cells = new[] { "gru", "sfo", "fra" }
-            .Select((cell, ordinal) => CreateCell(cell, ordinal, controlOnly: true))
-            .ToArray();
+        var cells = CreateCells(controlOnly: true);
         return new("dev-containers-control-three-cell-lean", cells, []);
     }
+
+    private static DevelopmentCellPlan[] CreateCells(bool controlOnly) =>
+    [
+        CreateCell("gru", 0, controlOnly),
+        CreateCell("sfo", 1, controlOnly),
+        CreateCell("fra", 2, controlOnly)
+    ];
 
     public DevelopmentResourcePlan GetRequired(
         string cell,
