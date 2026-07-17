@@ -93,8 +93,16 @@ public sealed class RepositoryCiPipelinePlannerTests
             7,
             10,
             100);
+        var differentEvidenceWindow = RepositoryCiPipelinePlanner.Plan(
+            trigger,
+            impact,
+            Sources(false),
+            7,
+            10,
+            101);
 
         await Assert.That(second.Digest).IsEqualTo(first.Digest);
+        await Assert.That(differentEvidenceWindow.Digest).IsNotEqualTo(first.Digest);
         await Assert.That(second.Jobs.Select(static job => job.Request.Job))
             .IsEquivalentTo(first.Jobs.Select(static job => job.Request.Job));
         var downstreamBuild = first.Jobs.Single(static job => job.Plan.Id == $"{Downstream}:build");

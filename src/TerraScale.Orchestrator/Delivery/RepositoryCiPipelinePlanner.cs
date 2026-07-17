@@ -64,7 +64,13 @@ public static class RepositoryCiPipelinePlanner
         if (expectedProfile == RepositoryCiProfile.Release && sourceArray.Any(static source => !source.SignatureVerified))
             throw new InvalidOperationException("Every release pipeline source requires a verified commit signature.");
 
-        var digest = PipelineDigest(trigger, impact, sourceArray, generation);
+        var digest = PipelineDigest(
+            trigger,
+            impact,
+            sourceArray,
+            generation,
+            minimumRunnerSequence,
+            maximumRunnerSequence);
         var pipeline = new PipelineId($"ci-{digest[..24]}");
         var jobIds = impact.Jobs.ToDictionary(
             static job => job.Id,
@@ -145,12 +151,18 @@ public static class RepositoryCiPipelinePlanner
         ForgejoCiTriggerPlan trigger,
         RepositoryCiImpactPlan impact,
         IReadOnlyList<ForgejoResolvedRevision> sources,
-        long generation)
+        long generation,
+        long minimumRunnerSequence,
+        long maximumRunnerSequence)
     {
         var value = new StringBuilder()
             .Append(trigger.Envelope.DedupeKey).Append('\n')
+            .Append(trigger.JobKind).Append(':').Append(trigger.TrustZone).Append(':')
+            .Append(trigger.MayPublishArtifacts ? '1' : '0').Append('\n')
+            .AppendJoin(',', trigger.Capabilities).Append('\n')
             .Append(impact.Digest).Append('\n')
-            .Append(generation).Append('\n');
+            .Append(generation).Append(':').Append(minimumRunnerSequence).Append(':')
+            .Append(maximumRunnerSequence).Append('\n');
         foreach (var source in sources.OrderBy(static source => source.Repository, StringComparer.Ordinal))
             value.Append(source.Repository).Append(':')
                 .Append(source.Commit.ToLowerInvariant()).Append(':')
