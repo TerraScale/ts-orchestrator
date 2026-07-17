@@ -249,6 +249,117 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
             .IsLessThanOrEqualTo(NativeGitOpsGlobalHandoffPublishJournal.MaximumRecordBytes);
     }
 
+    [Test]
+    public async Task DispatcherSkipsDurableCellsAndAnExactReplayPublishesNothing()
+    {
+        var prepared = await Prepared();
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+        await journal.RecordAsync(
+            prepared,
+            Publication(prepared.Cells[0], 91),
+            static () => true);
+        var transport = new TestTransport(
+            new NativeGitOpsGlobalHandoffTransportAck("GLOBAL_SPEC", 92, Duplicate: false));
+        var dispatcher = new NativeGitOpsGlobalHandoffDispatcher(
+            journal,
+            new NativeGitOpsGlobalHandoffPublisher(transport));
+
+        var completed = await dispatcher.DispatchAsync(prepared, static () => true);
+        var replayTransport = new TestTransport();
+        var replay = await new NativeGitOpsGlobalHandoffDispatcher(
+                journal,
+                new NativeGitOpsGlobalHandoffPublisher(replayTransport))
+            .DispatchAsync(prepared, static () => true);
+
+        await Assert.That(completed.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffDispatchDisposition.Completed);
+        await Assert.That(completed.IsComplete).IsTrue();
+        await Assert.That(completed.PublishedCells).IsEqualTo(1);
+        await Assert.That(transport.Published).HasSingleItem();
+        await Assert.That(transport.Published[0].Subject)
+            .IsEqualTo("ts.orch.v1.global.desired.gitops.sfo");
+        await Assert.That(replay.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffDispatchDisposition.AlreadyComplete);
+        await Assert.That(replay.PublishedCells).IsEqualTo(0);
+        await Assert.That(replayTransport.Published).IsEmpty();
+    }
+
+    [Test]
+    public async Task DispatcherRejectsStalePreparedStateBeforePublishing()
+    {
+        var current = await Prepared(generation: 2, sourceRevision: 5);
+        var stale = await Prepared(generation: 1, sourceRevision: 6);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+        await journal.RecordAsync(current, Publication(current.Cells[0], 101), static () => true);
+        var transport = new TestTransport(
+            new NativeGitOpsGlobalHandoffTransportAck("GLOBAL_SPEC", 102, Duplicate: false));
+
+        var receipt = await new NativeGitOpsGlobalHandoffDispatcher(
+                journal,
+                new NativeGitOpsGlobalHandoffPublisher(transport))
+            .DispatchAsync(stale, static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffDispatchDisposition.JournalRejected);
+        await Assert.That(receipt.JournalDisposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleGeneration);
+        await Assert.That(receipt.PublishedCells).IsEqualTo(0);
+        await Assert.That(transport.Published).IsEmpty();
+    }
+
+    [Test]
+    public async Task CrashBetweenStreamAckAndCasReplaysTheSameMessageThenConverges()
+    {
+        var prepared = await Prepared(cells: ["gru"]);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 1);
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+        var firstTransport = new TestTransport(
+            new NativeGitOpsGlobalHandoffTransportAck("GLOBAL_SPEC", 111, Duplicate: false));
+        var first = new NativeGitOpsGlobalHandoffDispatcher(
+            journal,
+            new NativeGitOpsGlobalHandoffPublisher(firstTransport));
+
+        await Assert.That(async () => await first.DispatchAsync(prepared, static () => true))
+            .Throws<IOException>();
+        var retryTransport = new TestTransport(
+            new NativeGitOpsGlobalHandoffTransportAck("GLOBAL_SPEC", 111, Duplicate: true));
+        var recovered = await new NativeGitOpsGlobalHandoffDispatcher(
+                journal,
+                new NativeGitOpsGlobalHandoffPublisher(retryTransport))
+            .DispatchAsync(prepared, static () => true);
+
+        await Assert.That(recovered.IsComplete).IsTrue();
+        await Assert.That(firstTransport.Published).HasSingleItem();
+        await Assert.That(retryTransport.Published).HasSingleItem();
+        await Assert.That(firstTransport.Published[0].MessageId)
+            .IsEqualTo(retryTransport.Published[0].MessageId);
+        await Assert.That(firstTransport.Published[0].Message.Payload.Span.SequenceEqual(
+            retryTransport.Published[0].Message.Payload.Span)).IsTrue();
+    }
+
+    [Test]
+    public async Task AuthorityLossAfterStreamAckButBeforeCasRemainsIncomplete()
+    {
+        var prepared = await Prepared(cells: ["gru"]);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var transport = new TestTransport(
+            new NativeGitOpsGlobalHandoffTransportAck("GLOBAL_SPEC", 121, Duplicate: false));
+        var checks = 0;
+        var receipt = await new NativeGitOpsGlobalHandoffDispatcher(
+                new NativeGitOpsGlobalHandoffPublishJournal(ledger),
+                new NativeGitOpsGlobalHandoffPublisher(transport))
+            .DispatchAsync(prepared, () => ++checks <= 2);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffDispatchDisposition.AuthorityLostBeforeJournal);
+        await Assert.That(receipt.IsComplete).IsFalse();
+        await Assert.That(receipt.PublishedCells).IsEqualTo(1);
+        await Assert.That(transport.Published).HasSingleItem();
+        await Assert.That(ledger.Mutations).IsEqualTo(0);
+    }
+
     private static async Task<NativeGitOpsPreparedHandoff> Prepared(
         IReadOnlyList<string>? cells = null,
         long generation = 4,

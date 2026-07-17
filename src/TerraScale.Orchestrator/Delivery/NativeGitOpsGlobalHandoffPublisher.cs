@@ -40,6 +40,10 @@ internal sealed record NativeGitOpsGlobalHandoffPublishReceipt(
         Cells.Count > 0 && Cells.All(static cell => cell.IsDurable);
 }
 
+internal sealed record NativeGitOpsGlobalCellPublishAttempt(
+    NativeGitOpsGlobalHandoffPublishDisposition Disposition,
+    NativeGitOpsGlobalCellPublishReceipt? Cell);
+
 internal sealed record NativeGitOpsGlobalHandoffTransportAck(
     string Stream,
     ulong Sequence,
@@ -106,37 +110,61 @@ internal sealed class NativeGitOpsGlobalHandoffPublisher(INativeGitOpsGlobalHand
         var receipts = new List<NativeGitOpsGlobalCellPublishReceipt>(handoff.Cells.Count);
         foreach (var cell in handoff.Cells)
         {
-            if (!authorityStillValid())
-                return Result(
-                    NativeGitOpsGlobalHandoffPublishDisposition.AuthorityLostBeforePublish,
-                    receipts);
-            var acknowledgement = await transport.PublishAsync(
-                $"{SubjectPrefix}.{cell.Cell}",
-                $"gitops-global:{handoff.Descriptor.HandoffDigest}:{cell.Cell}:{handoff.AuthorityEpoch}",
-                cell.Message,
-                cancellationToken);
-            if (acknowledgement.Stream != Stream || acknowledgement.Sequence == 0)
-                throw new InvalidDataException("The native GitOps global handoff acknowledgement is invalid.");
-            if (!authorityStillValid())
-            {
-                receipts.Add(new(
+            var attempt = await PublishCellCoreAsync(handoff, cell, authorityStillValid, cancellationToken);
+            if (attempt.Cell is not null) receipts.Add(attempt.Cell);
+            if (attempt.Disposition != NativeGitOpsGlobalHandoffPublishDisposition.Complete)
+                return Result(attempt.Disposition, receipts);
+        }
+        return Result(NativeGitOpsGlobalHandoffPublishDisposition.Complete, receipts);
+    }
+
+    internal async Task<NativeGitOpsGlobalCellPublishAttempt> PublishCellAsync(
+        NativeGitOpsPreparedHandoff handoff,
+        NativeGitOpsPreparedCellSpec cell,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(handoff);
+        ArgumentNullException.ThrowIfNull(cell);
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        Validate(handoff);
+        if (!handoff.Cells.Any(prepared => prepared == cell))
+            throw new InvalidDataException("The native GitOps global publication cell is not prepared.");
+        return await PublishCellCoreAsync(handoff, cell, authorityStillValid, cancellationToken);
+    }
+
+    private async Task<NativeGitOpsGlobalCellPublishAttempt> PublishCellCoreAsync(
+        NativeGitOpsPreparedHandoff handoff,
+        NativeGitOpsPreparedCellSpec cell,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
+        if (!authorityStillValid())
+            return new(NativeGitOpsGlobalHandoffPublishDisposition.AuthorityLostBeforePublish, null);
+        var acknowledgement = await transport.PublishAsync(
+            $"{SubjectPrefix}.{cell.Cell}",
+            $"gitops-global:{handoff.Descriptor.HandoffDigest}:{cell.Cell}:{handoff.AuthorityEpoch}",
+            cell.Message,
+            cancellationToken);
+        if (acknowledgement.Stream != Stream || acknowledgement.Sequence == 0)
+            throw new InvalidDataException("The native GitOps global handoff acknowledgement is invalid.");
+        if (!authorityStillValid())
+            return new(
+                NativeGitOpsGlobalHandoffPublishDisposition.AuthorityLostAfterPublish,
+                new(
                     NativeGitOpsGlobalCellPublishDisposition.AuthorityLostAfterPublish,
                     cell.Cell,
                     cell.WireSha256,
                     acknowledgement.Sequence));
-                return Result(
-                    NativeGitOpsGlobalHandoffPublishDisposition.AuthorityLostAfterPublish,
-                    receipts);
-            }
-            receipts.Add(new(
+        return new(
+            NativeGitOpsGlobalHandoffPublishDisposition.Complete,
+            new(
                 acknowledgement.Duplicate
                     ? NativeGitOpsGlobalCellPublishDisposition.Duplicate
                     : NativeGitOpsGlobalCellPublishDisposition.Published,
                 cell.Cell,
                 cell.WireSha256,
                 acknowledgement.Sequence));
-        }
-        return Result(NativeGitOpsGlobalHandoffPublishDisposition.Complete, receipts);
     }
 
     internal static void Validate(NativeGitOpsPreparedHandoff handoff)

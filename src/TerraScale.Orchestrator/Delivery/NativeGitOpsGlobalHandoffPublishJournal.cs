@@ -97,7 +97,7 @@ internal sealed class NativeGitOpsGlobalHandoffPublishJournal(IForgejoDeliveryLe
             var current = Deserialize(entry.Value);
             if (current.Repository != handoff.Repository || current.Branch != handoff.Branch)
                 throw new InvalidDataException("A native GitOps global publish journal changed source identity.");
-            var disposition = Compare(current, handoff);
+            var disposition = Compare(current.Snapshot(entry.Revision), handoff);
             if (disposition is not null)
                 return new(disposition.Value, current.Snapshot(entry.Revision));
             if (current.SamePreparedHandoff(handoff))
@@ -143,8 +143,8 @@ internal sealed class NativeGitOpsGlobalHandoffPublishJournal(IForgejoDeliveryLe
         }
     }
 
-    private static NativeGitOpsGlobalHandoffPublishJournalDisposition? Compare(
-        NativeGitOpsGlobalHandoffPublishDocument current,
+    internal static NativeGitOpsGlobalHandoffPublishJournalDisposition? Compare(
+        NativeGitOpsGlobalHandoffPublishSnapshot current,
         NativeGitOpsPreparedHandoff proposed)
     {
         if (proposed.AuthorityEpoch < current.AuthorityEpoch)
@@ -161,13 +161,27 @@ internal sealed class NativeGitOpsGlobalHandoffPublishJournal(IForgejoDeliveryLe
             return NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleSourceRevision;
         if (proposed.AuthorityEpoch == current.AuthorityEpoch &&
             proposed.Descriptor.Generation == current.Generation)
-            return current.SamePreparedHandoff(proposed)
+            return SamePreparedHandoff(current, proposed)
                 ? null
                 : NativeGitOpsGlobalHandoffPublishJournalDisposition.PreparedHandoffConflict;
         return proposed.JournalRevision > current.SignedHandoffJournalRevision
             ? null
             : NativeGitOpsGlobalHandoffPublishJournalDisposition.PreparedHandoffConflict;
     }
+
+    internal static bool SamePreparedHandoff(
+        NativeGitOpsGlobalHandoffPublishSnapshot current,
+        NativeGitOpsPreparedHandoff handoff) =>
+        current.Repository == handoff.Repository && current.Branch == handoff.Branch &&
+        current.SourceJournalRevision == handoff.SourceJournalRevision &&
+        current.AuthorityEpoch == handoff.AuthorityEpoch &&
+        current.Generation == handoff.Descriptor.Generation &&
+        current.GlobalPlanDigest == handoff.Descriptor.GlobalPlanDigest &&
+        current.HandoffDigest == handoff.Descriptor.HandoffDigest &&
+        current.SignedHandoffJournalRevision == handoff.JournalRevision &&
+        current.RequiredCellCount == handoff.Cells.Count &&
+        current.Cells.All(cell => handoff.Cells.Any(prepared =>
+            prepared.Cell == cell.Cell && prepared.WireSha256 == cell.WireSha256));
 
     private static string Serialize(NativeGitOpsGlobalHandoffPublishDocument document)
     {
