@@ -5,6 +5,7 @@ using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
 using System.Text.Json;
+using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Operations;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -24,15 +25,18 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
-        RegionalAuthorityCoordinator authority)
+        RegionalAuthorityCoordinator authority,
+        ForgejoWebhookJournal forgejoWebhooks)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
+        ForgejoWebhooks = forgejoWebhooks;
     }
 
     public Task Completion => authority.Completion;
+    public ForgejoWebhookJournal ForgejoWebhooks { get; }
 
     public static async Task<NatsRuntime> StartAsync(
         OrchestratorOptions options,
@@ -179,7 +183,7 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
-            return new(client, service, registration, authority);
+            return new(client, service, registration, authority, new(new NatsForgejoWebhookLedger(state.Delivery)));
         }
         catch
         {
@@ -337,6 +341,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         var keyValue = jetStream.CreateKeyValueStoreContext();
         var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
         var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
+        var delivery = await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
 
         var objects = jetStream.CreateObjectStoreContext();
         INatsObjStore bundles;
@@ -353,7 +358,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             "CELL_EVENTS",
             topology.StartupConsumer,
             cancellationToken);
-        return new(startupConsumer, leaders, runtime, bundles);
+        return new(startupConsumer, leaders, runtime, delivery, bundles);
     }
 
     private static async Task VerifyProtocolPackageAsync(
@@ -422,6 +427,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsJSConsumer StartupConsumer,
         INatsKVStore Leaders,
         INatsKVStore Runtime,
+        INatsKVStore Delivery,
         INatsObjStore Bundles);
 
     private sealed class RuntimeRegistration : IAsyncDisposable
