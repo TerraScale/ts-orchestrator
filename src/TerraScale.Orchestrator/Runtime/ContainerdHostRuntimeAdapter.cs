@@ -168,7 +168,8 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
             plan.Driver,
             plan.AllocationId,
             plan.ArtifactDigest,
-            plan.Architecture);
+            plan.Architecture,
+            plan.Resources);
         var actualOci = plan.Oci;
         var expectedOci = expected.Oci!;
         if (actualOci.ContainerId != expectedOci.ContainerId ||
@@ -201,8 +202,13 @@ internal static class CanonicalPlanFingerprint
         Add(hash, plan.ArtifactDigest.Value);
         Add(hash, plan.Architecture.ToString());
         Add(hash, plan.Resources.MemoryMaxBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(hash, plan.Resources.MemoryHighBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(hash, plan.Resources.MemorySwapMaxBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(hash, plan.Resources.TasksMax.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(hash, plan.Resources.CpuQuotaPercent.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(hash, plan.Resources.CpuWeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(hash, plan.Resources.IoWeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(hash, plan.Resources.Nice.ToString(System.Globalization.CultureInfo.InvariantCulture));
         if (plan.Oci is { } oci)
         {
             Add(hash, oci.ContainerId);

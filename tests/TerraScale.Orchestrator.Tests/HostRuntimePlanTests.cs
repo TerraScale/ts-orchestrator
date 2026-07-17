@@ -28,6 +28,12 @@ public sealed class HostRuntimePlanTests
             .Contains("EnvironmentFile=-/var/lib/terrascale-gru-terrabase-1/environment");
         await Assert.That(plan.Systemd.Properties)
             .Contains("LoadCredentialEncrypted=workload:/var/lib/terrascale-gru-terrabase-1/credentials/workload.cred");
+        await Assert.That(plan.Systemd.Properties).Contains($"MemoryMax={plan.Resources.MemoryMaxBytes}");
+        await Assert.That(plan.Systemd.Properties).Contains($"MemoryHigh={plan.Resources.MemoryHighBytes}");
+        await Assert.That(plan.Systemd.Properties).Contains("MemorySwapMax=0");
+        await Assert.That(plan.Systemd.Properties).Contains($"CPUWeight={plan.Resources.CpuWeight}");
+        await Assert.That(plan.Systemd.Properties).Contains($"IOWeight={plan.Resources.IoWeight}");
+        await Assert.That(plan.Systemd.Properties).Contains($"Nice={plan.Resources.Nice}");
     }
 
     [Test]
@@ -49,6 +55,54 @@ public sealed class HostRuntimePlanTests
         await Assert.That(plan.Oci.Security.NoNewPrivileges).IsTrue();
         await Assert.That(plan.Oci.Security.ReadOnlyRootFileSystem).IsTrue();
         await Assert.That(plan.Oci.Security.DroppedCapabilities).IsEquivalentTo(["ALL"]);
+        await Assert.That(plan.Oci.Security.CgroupParent).IsEqualTo("terrascale/sfo-api-1");
+        await Assert.That(plan.Resources.MemorySwapMaxBytes).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task RuntimeLimitsCanBeReducedWithinTheClosedRolePolicy()
+    {
+        var requested = new RuntimeResourceLimits(512L * 1024 * 1024, 128, 100, 100, 100, 5);
+
+        var plan = HostRuntimePlan.Create(
+            AdmittedRole.Api,
+            RuntimeDriver.OciContainer,
+            new RuntimeAllocationId("gru-api-limited"),
+            new ArtifactDigest(Digest),
+            HostArchitecture.Arm64,
+            requested);
+
+        await Assert.That(plan.SchemaVersion).IsEqualTo(2);
+        await Assert.That(plan.Resources).IsEqualTo(requested);
+        await Assert.That(plan.Resources.MemoryHighBytes).IsEqualTo(483_183_820);
+    }
+
+    [Test]
+    public async Task RuntimeLimitsCannotEscapeTheClosedRolePolicy()
+    {
+        var excessive = new RuntimeResourceLimits(2L * 1024 * 1024 * 1024, 128, 100, 100, 100, 5);
+
+        await Assert.That(() => HostRuntimePlan.Create(
+                AdmittedRole.Api,
+                RuntimeDriver.OciContainer,
+                new RuntimeAllocationId("gru-api-excessive"),
+                new ArtifactDigest(Digest),
+                HostArchitecture.Arm64,
+                excessive))
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    [Test]
+    public async Task RuntimeCliAcceptsExplicitContainerLimits()
+    {
+        var plan = HostRuntimeCli.ParsePlan([
+            "plan", "--role", "api", "--allocation", "gru-api-cli", "--digest", Digest,
+            "--memory-max-bytes", "536870912", "--tasks-max", "128",
+            "--cpu-quota-percent", "100", "--cpu-weight", "100", "--io-weight", "100", "--nice", "5"
+        ]);
+
+        await Assert.That(plan.Resources)
+            .IsEqualTo(new RuntimeResourceLimits(536870912, 128, 100, 100, 100, 5));
     }
 
     [Test]

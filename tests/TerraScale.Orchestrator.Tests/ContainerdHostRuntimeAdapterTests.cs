@@ -21,6 +21,8 @@ public sealed class ContainerdHostRuntimeAdapterTests
         await Assert.That(client.Created.Security.NoNewPrivileges).IsTrue();
         await Assert.That(client.Created.Security.ReadOnlyRootFileSystem).IsTrue();
         await Assert.That(client.Created.Security.DroppedCapabilities).IsEquivalentTo(["ALL"]);
+        await Assert.That(client.Created.Resources).IsEqualTo(plan.Resources);
+        await Assert.That(client.Created.Resources.MemorySwapMaxBytes).IsEqualTo(0);
         await Assert.That(client.Created.PlanFingerprint).Length().IsEqualTo(64);
     }
 

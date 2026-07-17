@@ -44,10 +44,18 @@ public sealed record ArtifactDigest
     public override string ToString() => Value;
 }
 
+/// <summary>Closed systemd/containerd cgroup-v2 envelope for REQ-O012 and INV-017.</summary>
 public sealed record RuntimeResourceLimits(
     long MemoryMaxBytes,
     int TasksMax,
-    int CpuQuotaPercent);
+    int CpuQuotaPercent,
+    int CpuWeight,
+    int IoWeight,
+    int Nice)
+{
+    public long MemoryHighBytes => MemoryMaxBytes * 9 / 10;
+    public long MemorySwapMaxBytes => 0;
+}
 
 public sealed record SystemdExecutionPlan(
     string UnitName,
@@ -87,14 +95,15 @@ public sealed record HostRuntimePlan(
         RuntimeDriver driver,
         RuntimeAllocationId allocationId,
         ArtifactDigest digest,
-        HostArchitecture architecture)
+        HostArchitecture architecture,
+        RuntimeResourceLimits? requestedResources = null)
     {
         var descriptor = AdmittedRoleCatalog.Admit(role, driver);
-        var resources = RuntimeResourceLimitPolicy.For(role);
+        var resources = RuntimeResourceLimitPolicy.For(role, requestedResources);
         return driver switch
         {
             RuntimeDriver.NativeSystemd => new(
-                1,
+                2,
                 role,
                 driver,
                 allocationId,
@@ -104,7 +113,7 @@ public sealed record HostRuntimePlan(
                 CreateSystemd(descriptor, allocationId, digest, resources),
                 null),
             RuntimeDriver.OciContainer => new(
-                1,
+                2,
                 role,
                 driver,
                 allocationId,
@@ -157,8 +166,13 @@ public sealed record HostRuntimePlan(
                 configurationProperty,
                 $"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred",
                 $"MemoryMax={resources.MemoryMaxBytes}",
+                $"MemoryHigh={resources.MemoryHighBytes}",
+                $"MemorySwapMax={resources.MemorySwapMaxBytes}",
                 $"TasksMax={resources.TasksMax}",
-                $"CPUQuota={resources.CpuQuotaPercent}%"
+                $"CPUQuota={resources.CpuQuotaPercent}%",
+                $"CPUWeight={resources.CpuWeight}",
+                $"IOWeight={resources.IoWeight}",
+                $"Nice={resources.Nice}"
             ]);
     }
 
@@ -185,12 +199,60 @@ public sealed record HostRuntimePlan(
 
 internal static class RuntimeResourceLimitPolicy
 {
-    public static RuntimeResourceLimits For(AdmittedRole role) => role switch
+    private const long MinimumMemoryBytes = 64L * 1024 * 1024;
+
+    public static RuntimeResourceLimits For(
+        AdmittedRole role,
+        RuntimeResourceLimits? requested = null)
     {
-        AdmittedRole.TerraBaseMember => new(8L * 1024 * 1024 * 1024, 2048, 400),
-        AdmittedRole.ControlNatsServer or AdmittedRole.ProductNatsServer => new(2L * 1024 * 1024 * 1024, 512, 200),
-        AdmittedRole.MetricsStore or AdmittedRole.Loki or AdmittedRole.Tempo => new(4L * 1024 * 1024 * 1024, 1024, 300),
-        AdmittedRole.CiRunner => new(8L * 1024 * 1024 * 1024, 4096, 800),
-        _ => new(1L * 1024 * 1024 * 1024, 512, 200)
-    };
+        RuntimeResourceLimits maximum = role switch
+        {
+            AdmittedRole.TerraBaseMember => new(8L * 1024 * 1024 * 1024, 2048, 400, 1000, 1000, 0),
+            AdmittedRole.ControlNatsServer or AdmittedRole.ProductNatsServer =>
+                new(2L * 1024 * 1024 * 1024, 512, 200, 800, 800, 0),
+            AdmittedRole.MetricsStore or AdmittedRole.Loki or AdmittedRole.Tempo =>
+                new(4L * 1024 * 1024 * 1024, 1024, 300, 300, 500, 0),
+            AdmittedRole.RegionalTelemetryAgent =>
+                new(1L * 1024 * 1024 * 1024, 512, 200, 200, 200, 5),
+            AdmittedRole.CiRunner => new(8L * 1024 * 1024 * 1024, 4096, 800, 100, 100, 10),
+            _ => new(1L * 1024 * 1024 * 1024, 512, 200, 500, 300, 0)
+        };
+        if (requested is null)
+        {
+            return maximum;
+        }
+        if (requested.MemoryMaxBytes is < MinimumMemoryBytes ||
+            requested.MemoryMaxBytes > maximum.MemoryMaxBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requested),
+                $"Memory limit must be between {MinimumMemoryBytes} and {maximum.MemoryMaxBytes} bytes for {role}.");
+        }
+        if (requested.TasksMax is < 16 || requested.TasksMax > maximum.TasksMax)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requested),
+                $"Task limit must be between 16 and {maximum.TasksMax} for {role}.");
+        }
+        if (requested.CpuQuotaPercent is < 10 || requested.CpuQuotaPercent > maximum.CpuQuotaPercent)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requested),
+                $"CPU quota must be between 10 and {maximum.CpuQuotaPercent} percent for {role}.");
+        }
+        if (requested.CpuWeight is < 1 || requested.CpuWeight > maximum.CpuWeight ||
+            requested.IoWeight is < 1 || requested.IoWeight > maximum.IoWeight)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requested),
+                $"CPU and I/O weights must be positive and cannot exceed the {role} catalog policy.");
+        }
+        if (requested.Nice < maximum.Nice || requested.Nice > 19)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requested),
+                $"Nice must be between {maximum.Nice} and 19 for {role}.");
+        }
+        return requested;
+    }
 }

@@ -211,7 +211,8 @@ internal sealed class SystemdHostRuntimeAdapter(
             plan.Driver,
             plan.AllocationId,
             plan.ArtifactDigest,
-            plan.Architecture);
+            plan.Architecture,
+            plan.Resources);
         if (plan.Systemd.UnitName != expected.Systemd!.UnitName ||
             plan.Systemd.Executable != expected.Systemd.Executable ||
             !plan.Systemd.Arguments.SequenceEqual(expected.Systemd.Arguments) ||

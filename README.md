@@ -159,12 +159,21 @@ repository, unit directive, host path, capability, privileged flag, or secret:
 terrascale-orchestrator runtime plan \
   --role api \
   --allocation gru-api-1 \
-  --digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  --digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --memory-max-bytes 536870912 \
+  --tasks-max 128 \
+  --cpu-quota-percent 100 \
+  --cpu-weight 100 \
+  --io-weight 100 \
+  --nice 5
 ```
 
 Native plans derive an immutable artifact path and hardened systemd
 properties. OCI plans derive a digest-pinned internal-registry reference,
 non-root identity, read-only root filesystem, no-new-privileges policy,
 drop-all capabilities, seccomp profile, cgroup, and resource ceiling. Plan
-generation is pure; applying it remains fail-closed until the selected
-systemd/containerd host adapter and its pinned runtime are qualified.
+limits may only reduce the role catalog's memory, PID, CPU, CPU-weight, and
+I/O-weight ceilings or increase its nice value. Both drivers disable swap and
+set a memory-high threshold at 90% of the hard limit. Plan generation is pure;
+applying it remains fail-closed until the selected systemd/containerd host
+adapter and its pinned runtime are qualified.

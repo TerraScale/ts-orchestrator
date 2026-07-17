@@ -13,6 +13,13 @@ internal static class HostRuntimeCli
 
     public static int Execute(IReadOnlyList<string> arguments)
     {
+        var plan = ParsePlan(arguments);
+        Console.WriteLine(JsonSerializer.Serialize(plan, SerializerOptions));
+        return 0;
+    }
+
+    internal static HostRuntimePlan ParsePlan(IReadOnlyList<string> arguments)
+    {
         if (arguments.FirstOrDefault() is not "plan")
         {
             throw new ArgumentException("Unknown runtime command. Use 'runtime plan'.");
@@ -26,14 +33,21 @@ internal static class HostRuntimeCli
         var architecture = values.TryGetValue("--architecture", out var architectureValue)
             ? ParseArchitecture(architectureValue)
             : HostArchitecture.Arm64;
-        var plan = HostRuntimePlan.Create(
+        var defaults = RuntimeResourceLimitPolicy.For(role);
+        var resources = new RuntimeResourceLimits(
+            Long(values, "--memory-max-bytes", defaults.MemoryMaxBytes),
+            Integer(values, "--tasks-max", defaults.TasksMax),
+            Integer(values, "--cpu-quota-percent", defaults.CpuQuotaPercent),
+            Integer(values, "--cpu-weight", defaults.CpuWeight),
+            Integer(values, "--io-weight", defaults.IoWeight),
+            Integer(values, "--nice", defaults.Nice));
+        return HostRuntimePlan.Create(
             role,
             driver,
             new RuntimeAllocationId(Required(values, "--allocation")),
             new ArtifactDigest(Required(values, "--digest")),
-            architecture);
-        Console.WriteLine(JsonSerializer.Serialize(plan, SerializerOptions));
-        return 0;
+            architecture,
+            resources);
     }
 
     internal static AdmittedRole ParseRole(string value) => value switch
@@ -88,7 +102,11 @@ internal static class HostRuntimeCli
             }
         }
         var unknown = values.Keys.Except(
-            ["--role", "--driver", "--allocation", "--digest", "--architecture"],
+            [
+                "--role", "--driver", "--allocation", "--digest", "--architecture",
+                "--memory-max-bytes", "--tasks-max", "--cpu-quota-percent", "--cpu-weight",
+                "--io-weight", "--nice"
+            ],
             StringComparer.Ordinal).FirstOrDefault();
         if (unknown is not null)
         {
@@ -101,4 +119,20 @@ internal static class HostRuntimeCli
         values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : throw new ArgumentException($"Runtime plan requires {key}.");
+
+    private static int Integer(IReadOnlyDictionary<string, string> values, string key, int fallback) =>
+        !values.TryGetValue(key, out var value)
+            ? fallback
+            : int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : throw new ArgumentException($"Runtime option {key} must be an integer.");
+
+    private static long Long(IReadOnlyDictionary<string, string> values, string key, long fallback) =>
+        !values.TryGetValue(key, out var value)
+            ? fallback
+            : long.TryParse(value, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : throw new ArgumentException($"Runtime option {key} must be an integer.");
 }

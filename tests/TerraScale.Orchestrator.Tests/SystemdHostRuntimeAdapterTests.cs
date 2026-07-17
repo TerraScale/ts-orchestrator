@@ -25,6 +25,10 @@ public sealed class SystemdHostRuntimeAdapterTests
         await Assert.That(command.Arguments).Contains("NoNewPrivileges=yes");
         await Assert.That(command.Arguments).Contains("ProtectSystem=strict");
         await Assert.That(command.Arguments).Contains("RestrictSUIDSGID=yes");
+        await Assert.That(command.Arguments).Contains($"MemoryMax={plan.Resources.MemoryMaxBytes}");
+        await Assert.That(command.Arguments).Contains($"CPUWeight={plan.Resources.CpuWeight}");
+        await Assert.That(command.Arguments).Contains($"IOWeight={plan.Resources.IoWeight}");
+        await Assert.That(command.Arguments).Contains($"Nice={plan.Resources.Nice}");
         await Assert.That(command.Arguments).DoesNotContain("--setenv");
         await Assert.That(command.Arguments).Contains(plan.Systemd.Executable);
     }
