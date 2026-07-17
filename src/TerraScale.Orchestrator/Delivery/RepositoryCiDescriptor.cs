@@ -41,6 +41,14 @@ public enum RepositoryCiPromotionStrategy
     NativeOrdered,
 }
 
+public enum RepositoryCiArchitecture
+{
+    Unspecified,
+    Any,
+    LinuxX64,
+    LinuxArm64,
+}
+
 public sealed record RepositoryCiDependency
 {
     internal RepositoryCiDependency(string repository, string reason)
@@ -60,6 +68,7 @@ public sealed record RepositoryCiNode
         RepositoryCiNodeKind kind,
         RepositoryCiResourceWeight resourceWeight,
         IReadOnlyList<RepositoryCiProfile> profiles,
+        IReadOnlyList<RepositoryCiArchitecture> architectures,
         IReadOnlyList<string> paths,
         IReadOnlyList<string> dependsOn)
     {
@@ -67,6 +76,7 @@ public sealed record RepositoryCiNode
         Kind = kind;
         ResourceWeight = resourceWeight;
         Profiles = profiles;
+        Architectures = architectures;
         Paths = paths;
         DependsOn = dependsOn;
     }
@@ -75,6 +85,7 @@ public sealed record RepositoryCiNode
     public RepositoryCiNodeKind Kind { get; }
     public RepositoryCiResourceWeight ResourceWeight { get; }
     public IReadOnlyList<RepositoryCiProfile> Profiles { get; }
+    public IReadOnlyList<RepositoryCiArchitecture> Architectures { get; }
     public IReadOnlyList<string> Paths { get; }
     public IReadOnlyList<string> DependsOn { get; }
 }
@@ -146,7 +157,7 @@ public static class RepositoryCiDescriptor
                 throw new InvalidDataException("The repository CI candidate policy is invalid.");
 
             var dependencies = ParseRepositoryDependencies(document);
-            var nodes = OrderAndValidate(ParseNodes(document));
+            var nodes = OrderAndValidate(ParseNodes(document, promotion));
             if (promotion != RepositoryCiPromotionStrategy.None &&
                 !nodes.Any(static node => node.Kind == RepositoryCiNodeKind.Artifact &&
                     node.Profiles.Contains(RepositoryCiProfile.Release)))
@@ -188,7 +199,9 @@ public static class RepositoryCiDescriptor
         return dependencies;
     }
 
-    private static List<RepositoryCiNode> ParseNodes(RepositoryCiDescriptorDocument document)
+    private static List<RepositoryCiNode> ParseNodes(
+        RepositoryCiDescriptorDocument document,
+        RepositoryCiPromotionStrategy promotion)
     {
         if (document.Nodes is not { Length: > 0 and <= MaximumNodes })
             throw new InvalidDataException("The repository CI node list must be bounded and non-empty.");
@@ -203,11 +216,12 @@ public static class RepositoryCiDescriptor
                 !ParseEnum(value.ResourceWeight, out RepositoryCiResourceWeight weight))
                 throw new InvalidDataException("A repository CI node identity or policy is invalid.");
             var profiles = ParseProfiles(value.Profiles, kind);
+            var architectures = ParseArchitectures(value.Architectures, kind, promotion);
             var paths = ParseStrings(value.Paths, IsSafePath, required: false);
             var dependencies = ParseStrings(value.DependsOn, IsToken, required: false);
             if (paths.Count == 0 && dependencies.Count == 0)
                 throw new InvalidDataException("Every repository CI node must have a direct path or dependency.");
-            nodes.Add(new(value.Id!, kind, weight, profiles, paths, dependencies));
+            nodes.Add(new(value.Id!, kind, weight, profiles, architectures, paths, dependencies));
         }
         return nodes;
     }
@@ -226,6 +240,31 @@ public static class RepositoryCiDescriptor
         }
         profiles.Sort();
         return ReadOnly(profiles);
+    }
+
+    private static IReadOnlyList<RepositoryCiArchitecture> ParseArchitectures(
+        string[]? values,
+        RepositoryCiNodeKind kind,
+        RepositoryCiPromotionStrategy promotion)
+    {
+        values ??= kind == RepositoryCiNodeKind.Artifact && IsNative(promotion)
+            ? [nameof(RepositoryCiArchitecture.LinuxX64), nameof(RepositoryCiArchitecture.LinuxArm64)]
+            : [nameof(RepositoryCiArchitecture.Any)];
+        if (values.Length is < 1 or > 2)
+            throw new InvalidDataException("A repository CI architecture list violates its technical bound.");
+        var architectures = new HashSet<RepositoryCiArchitecture>();
+        foreach (var value in values)
+            if (!ParseEnum(value, out RepositoryCiArchitecture architecture) || !architectures.Add(architecture))
+                throw new InvalidDataException("A repository CI architecture is invalid.");
+        var expected = kind != RepositoryCiNodeKind.Artifact || promotion is
+            RepositoryCiPromotionStrategy.Package or RepositoryCiPromotionStrategy.Pages
+                ? [RepositoryCiArchitecture.Any]
+                : IsNative(promotion)
+                    ? [RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]
+                    : architectures.ToArray();
+        if (!architectures.SetEquals(expected))
+            throw new InvalidDataException("A repository CI architecture list does not satisfy its promotion policy.");
+        return ReadOnly(architectures.Order().ToArray());
     }
 
     private static IReadOnlyList<string> ParseStrings(
@@ -323,6 +362,7 @@ public static class RepositoryCiDescriptor
                 writer.WriteString("kind", node.Kind.ToString());
                 writer.WriteString("resourceWeight", node.ResourceWeight.ToString());
                 WriteArray(writer, "profiles", node.Profiles.Select(static value => value.ToString()));
+                WriteArray(writer, "architectures", node.Architectures.Select(static value => value.ToString()));
                 WriteArray(writer, "paths", node.Paths);
                 WriteArray(writer, "dependsOn", node.DependsOn);
                 writer.WriteEndObject();
@@ -385,6 +425,10 @@ public static class RepositoryCiDescriptor
     private static bool IsReason(string? value) => value is { Length: >= 1 and <= 256 } &&
         value == value.Trim() && !value.Any(char.IsControl);
 
+    private static bool IsNative(RepositoryCiPromotionStrategy strategy) => strategy is
+        RepositoryCiPromotionStrategy.NativeRolling or RepositoryCiPromotionStrategy.NativeBlueGreen or
+        RepositoryCiPromotionStrategy.NativeOrdered;
+
     private static IReadOnlyList<T> ReadOnly<T>(T[] values) => new ReadOnlyCollection<T>(values);
     private static IReadOnlyList<T> ReadOnly<T>(List<T> values) => new ReadOnlyCollection<T>(values.ToArray());
 }
@@ -413,6 +457,7 @@ internal sealed class RepositoryCiNodeDocument
     public string? Kind { get; set; }
     public string? ResourceWeight { get; set; }
     public string[]? Profiles { get; set; }
+    public string[]? Architectures { get; set; }
     public string[]? Paths { get; set; }
     public string[]? DependsOn { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }

@@ -21,6 +21,8 @@ public sealed class RepositoryCiDescriptorTests
             .IsEqualTo("static,build,release-tests,candidate");
         await Assert.That(descriptor.Nodes.Single(static value => value.Id == "static").Paths)
             .IsEquivalentTo(["src/", "tests/"]);
+        await Assert.That(descriptor.Nodes.Single(static value => value.Id == "candidate").Architectures)
+            .IsEquivalentTo([RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]);
     }
 
     [Test]
@@ -75,6 +77,7 @@ public sealed class RepositoryCiDescriptorTests
             ValidDescriptor().Replace("\"candidateRetentionDays\":7", "\"candidateRetentionDays\":31", StringComparison.Ordinal),
             ValidDescriptor().Replace("\"apiVersion\":\"terrascale.ci/v2\"", "\"apiVersion\":\"terrascale.ci/v2\",\"apiVersion\":\"terrascale.ci/v2\"", StringComparison.Ordinal),
             ValidDescriptor().Replace("\"promotion\":\"NativeBlueGreen\"", "\"promotion\":\"FluxBlueGreen\"", StringComparison.Ordinal),
+            ValidDescriptor().Replace("\"profiles\":[\"Release\"]", "\"profiles\":[\"Release\"],\"architectures\":[\"Any\"]", StringComparison.Ordinal),
             ValidDescriptor().Replace("\"profiles\":[\"Release\"]", "\"profiles\":[\"Feature\"]", StringComparison.Ordinal),
         };
 
