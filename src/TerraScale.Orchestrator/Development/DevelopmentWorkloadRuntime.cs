@@ -248,8 +248,11 @@ internal static class DevelopmentWorkloadRuntime
         var productTls = isApi
             ? natsSecurity?.Cell(cell.Cell).Tls.Product.Clients[resource.Name]
             : null;
+        var serviceHome = Path.Combine(dataDirectory, "workloads", resource.Name, "home");
         var environment = new Dictionary<string, string?>
         {
+            ["HOME"] = serviceHome,
+            ["DOTNET_CLI_HOME"] = serviceHome,
             ["ASPNETCORE_ENVIRONMENT"] = "Development",
             ["DOTNET_ENVIRONMENT"] = "Development",
             ["Kestrel__EndpointDefaults__Protocols"] = "Http1AndHttp2",

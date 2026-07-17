@@ -72,6 +72,7 @@ public sealed class DevelopmentTopologyTests
         var topology = DevelopmentTopology.CreateThreeCellLean();
         var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
         var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
+        var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
 
         var environment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
@@ -79,7 +80,18 @@ public sealed class DevelopmentTopologyTests
             api,
             isApi: true,
             "/tmp/terrascale-orchestrator-tests");
+        var authenticationEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
+            topology,
+            cell,
+            authentication,
+            isApi: false,
+            "/tmp/terrascale-orchestrator-tests");
 
+        await Assert.That(environment["HOME"])
+            .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-api/home");
+        await Assert.That(environment["DOTNET_CLI_HOME"]).IsEqualTo(environment["HOME"]);
+        await Assert.That(authenticationEnvironment["HOME"])
+            .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-authentication/home");
         await Assert.That(environment["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"])
             .IsEqualTo("true");
         await Assert.That(environment["TerraScale__ServiceDatabases__ShardCount"]).IsEqualTo("1");
