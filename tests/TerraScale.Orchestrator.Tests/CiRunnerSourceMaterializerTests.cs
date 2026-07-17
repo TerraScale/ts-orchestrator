@@ -143,7 +143,7 @@ public sealed class CiRunnerSourceMaterializerTests
         await Assert.That(Directory.Exists(destination)).IsFalse();
     }
 
-    private static CiRunnerExecutionPlan Plan(byte[] archive)
+    internal static CiRunnerExecutionPlan Plan(byte[] archive)
     {
         var digest = Convert.ToHexStringLower(SHA256.HashData(archive));
         var source = new CiRunnerSourcePlan(

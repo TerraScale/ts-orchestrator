@@ -262,7 +262,12 @@ materializer verifies those signed bytes, admits one tar root containing only
 bounded regular files/directories, applies private owner-only modes in a fresh
 workspace, and rejects links, special files, traversal, duplicate paths,
 corruption, decompression excess, and missing fixed descriptor/recipe files.
-It does not invoke BuildKit.
+The next compiler emits one exact `/usr/bin/buildctl` argument vector against a
+rootless `/run/user/<uid>/buildkit/buildkitd.sock`: fixed frontend, source
+context, recipe and target; closed platform mapping; deterministic runtime-only
+output/metadata paths; no shell; and a six-variable environment without a
+Docker endpoint. Untrusted work disables cache reuse. The process adapter and
+output validator remain separate; this compiler does not invoke BuildKit.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
