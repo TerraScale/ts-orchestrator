@@ -278,9 +278,13 @@ combined log-byte ceiling, kill the whole process tree on cancellation, and
 classify exit/timeout/log overflow without retaining raw log content. Successful
 local exports are accepted only with bounded duplicate-free JSON metadata and a
 bounded, link/special-file-free regular file tree; private modes and a
-culture-invariant content digest are applied before returning evidence. The
-runner coordinator is still absent, so no BuildKit daemon is invoked by normal
-Orchestrator startup.
+culture-invariant content digest are applied before returning evidence. A
+runner-side coordinator now acquires and renews the exact execution fence,
+materializes that source, invokes the closed executor, requires an idempotent
+durable-result sink, and only then commits the terminal lease. Persistence
+failure leaves the lease recoverable; crash takeover fences a stale terminal
+write. The concrete result sink and runner process mode are still absent, so no
+BuildKit daemon is invoked by normal Orchestrator startup.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -333,9 +337,9 @@ only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
 evidence digest or typed failure. BuildKit daemon identity/startup, the runner
-coordinator, bounded redacted log/artifact persistence, and result publication
-are still separate missing gates; source materialization and the standalone
-executor are not wired into normal startup and do not claim that a workload ran.
+process mode, bounded redacted log/artifact persistence, and result publication
+are still separate missing gates. The standalone coordinator is not wired into
+normal startup and does not claim that a workload ran without a durable sink.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

@@ -180,6 +180,11 @@ public sealed class CiRunnerSourceMaterializerTests
             build);
     }
 
+    internal static byte[] ValidArchive() => Archive(
+        Entry(RepositoryCiImpactPlanner.DescriptorPath, "{}"),
+        Entry(CiRunnerExecutionPlanner.RecipePath, "FROM scratch\n"),
+        Entry("src/program.cs", "return 0;\n"));
+
     private static byte[] Archive(params TarEntry[] entries)
     {
         var payload = Tar(entries);

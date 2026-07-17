@@ -336,8 +336,11 @@ public sealed class RepositoryCiJobInboxTests
     }
 
     internal static async Task<RepositoryCiAcceptedJob> AcceptedAsync()
+        => await AcceptedAsync(null);
+
+    internal static async Task<RepositoryCiAcceptedJob> AcceptedAsync(byte[]? sourceBundle)
     {
-        var prepared = await PreparedAsync();
+        var prepared = await PreparedAsync(sourceBundle);
         var wire = Wire(prepared, [31]);
         var decoded = RepositoryCiJobWireCodec.Decode(wire.Payload, wire.Headers);
         var receipt = await new RepositoryCiJobAcceptanceJournal(
@@ -391,14 +394,36 @@ public sealed class RepositoryCiJobInboxTests
     private static RepositoryCiJobWireMessage Wire(PreparedJob prepared, byte[] signature) =>
         RepositoryCiJobWireCodec.Encode(prepared.Pipeline, prepared.Snapshot, new TestSigner(signature));
 
-    private static async Task<PreparedJob> PreparedAsync()
+    private static async Task<PreparedJob> PreparedAsync(byte[]? sourceBundle = null)
     {
         var clock = new AdjustableTimeProvider(Now);
         var journal = new RepositoryCiJobJournal(new ForgejoWebhookJournalTests.TestLedger(), clock);
         var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
         await journal.InitializeAsync(pipeline, 5, 9, static () => true);
         var job = (await journal.ReadAsync(pipeline)).Ready[0];
-        var prepared = await RepositoryCiJobJournalTests.PrepareAsync(journal, pipeline, job);
+        RepositoryCiJobJournalReceipt prepared;
+        if (sourceBundle is null)
+        {
+            prepared = await RepositoryCiJobJournalTests.PrepareAsync(journal, pipeline, job);
+        }
+        else
+        {
+            var digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(sourceBundle));
+            prepared = await journal.PrepareDispatchAsync(
+                pipeline,
+                job.Request.Job,
+                new(
+                    job.Source,
+                    RepositoryCiSourceBundlePublisher.ObjectName(digest),
+                    digest,
+                    sourceBundle.Length),
+                RepositoryCiJobJournalTests.Runner(job),
+                RepositoryCiJobJournalTests.Isolation(job),
+                "gru-controller-1",
+                5,
+                $"dispatch-{job.Request.Job.Value}-attempt-{job.Request.Attempt}",
+                static () => true);
+        }
         return new(journal, pipeline, prepared.Job!, clock);
     }
 

@@ -108,14 +108,14 @@ public sealed class CiRunnerExecutionPlannerTests
         }
     }
 
-    private static RunnerEvidence Runner(RepositoryCiJobWireDocument command) => new(
+    internal static RunnerEvidence Runner(RepositoryCiJobWireDocument command) => new(
         new(command.Runner),
         command.AllowedZones.Single(),
         command.RunnerSequence,
         true,
         command.RequiredCapabilities);
 
-    private static CiRunnerIsolationEvidence Isolation(RepositoryCiJobWireDocument command)
+    internal static CiRunnerIsolationEvidence Isolation(RepositoryCiJobWireDocument command)
     {
         var zone = command.AllowedZones.Single();
         var signing = command.RequiredCapabilities.Contains(RunnerCapability.Sign);
