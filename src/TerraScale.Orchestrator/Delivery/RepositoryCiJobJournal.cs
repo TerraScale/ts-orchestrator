@@ -15,6 +15,16 @@ internal enum RepositoryCiJobPhase
     Running,
     Succeeded,
     Failed,
+    RetryWaiting,
+}
+
+internal enum RepositoryCiJobFailureKind
+{
+    Unspecified,
+    RunnerLost,
+    InfrastructureTransient,
+    WorkloadFailed,
+    PolicyDenied,
 }
 
 internal enum RepositoryCiJobJournalDisposition
@@ -26,8 +36,12 @@ internal enum RepositoryCiJobJournalDisposition
     Resumed,
     TakenOver,
     Advanced,
+    RetryScheduled,
+    RetryOpened,
     NotReady,
     RunnerDenied,
+    RetryDenied,
+    AttemptsExhausted,
     PipelineFailed,
     LeaseHeld,
     StaleAuthority,
@@ -67,6 +81,11 @@ internal sealed class RepositoryCiJobSnapshot
     public string OperationId => Document.OperationId;
     public string EvidenceDigest => Document.EvidenceDigest;
     public int RequiredTestSkips => Document.RequiredTestSkips;
+    public int Attempt => Document.Attempt;
+    public RepositoryCiJobFailureKind FailureKind => Document.FailureKind;
+    public DateTimeOffset? RetryNotBefore => Document.RetryNotBeforeUnixMilliseconds == 0
+        ? null
+        : DateTimeOffset.FromUnixTimeMilliseconds(Document.RetryNotBeforeUnixMilliseconds);
     internal RepositoryCiJobDocument Document { get; }
     internal ulong Revision { get; }
 }
@@ -82,10 +101,18 @@ internal sealed record RepositoryCiPipelineRunSnapshot(
     IReadOnlyList<RepositoryCiJobResult> Results);
 
 /// <summary>Persists one fenced execution record per immutable affected-pipeline job.</summary>
-internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
+internal sealed class RepositoryCiJobJournal
 {
     private const int MaximumRecordBytes = 16 * 1024;
     private const int MaximumConflictRetries = 8;
+    private readonly IForgejoDeliveryLedger ledger;
+    private readonly TimeProvider timeProvider;
+
+    internal RepositoryCiJobJournal(IForgejoDeliveryLedger ledger, TimeProvider? timeProvider = null)
+    {
+        this.ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     internal async Task<RepositoryCiJobJournalDisposition> InitializeAsync(
         RepositoryCiPipelinePlan pipeline,
@@ -148,9 +175,10 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
                 ?? throw new InvalidDataException("A CI pipeline job record is missing.");
             var document = Deserialize(entry.Value);
             if (document.PipelineDigest != pipeline.Digest ||
-                document.JobDigest != JobDigest(pipeline, job) || document.Job != job.Request.Job.Value)
+                document.JobDigest != JobDigest(pipeline, job) || document.Job != job.Request.Job.Value ||
+                document.Attempt > job.Request.MaximumAttempts)
                 throw new InvalidDataException("A CI pipeline job record changed immutable identity.");
-            snapshots.Add(new(job, document, entry.Revision));
+            snapshots.Add(new(EffectiveJob(job, document.Attempt), document, entry.Revision));
         }
 
         var byId = snapshots.ToDictionary(static snapshot => snapshot.Job.Request.Job.Value, StringComparer.Ordinal);
@@ -169,7 +197,7 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
                 RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed)
             .Select(static snapshot => new RepositoryCiJobResult(
                 snapshot.Job.Request.Job,
-                snapshot.Job.Request.Attempt,
+                snapshot.Attempt,
                 snapshot.Phase == RepositoryCiJobPhase.Succeeded,
                 snapshot.RequiredTestSkips,
                 snapshot.EvidenceDigest))
@@ -200,10 +228,8 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
         ValidateIdentity(controllerId, nameof(controllerId));
         ValidateIdentity(operationId, nameof(operationId));
         if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
-        var planned = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
+        var plannedBase = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
             ?? throw new ArgumentException("The CI job is not part of the pipeline.", nameof(jobId));
-        var admission = CiRunnerIsolationPolicy.Evaluate(planned.Request, runner, isolation);
-        if (!admission.Accepted) return new(RepositoryCiJobJournalDisposition.RunnerDenied, null);
         var isolationDigest = IsolationDigest(isolation);
 
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
@@ -212,6 +238,12 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             if (run.State == RepositoryCiPipelineRunState.Failed)
                 return new(RepositoryCiJobJournalDisposition.PipelineFailed, null);
             var current = run.Jobs.Single(job => job.Job.Request.Job == jobId);
+            var planned = current.Job;
+            if (current.Document.JobDigest != JobDigest(pipeline, plannedBase) ||
+                current.Attempt > plannedBase.Request.MaximumAttempts)
+                throw new InvalidDataException("The CI job changed immutable retry identity.");
+            var admission = CiRunnerIsolationPolicy.Evaluate(planned.Request, runner, isolation);
+            if (!admission.Accepted) return new(RepositoryCiJobJournalDisposition.RunnerDenied, current);
             if (current.Phase == RepositoryCiJobPhase.DispatchPrepared)
             {
                 var exact = current.ControllerId == controllerId && current.AuthorityEpoch == authorityEpoch &&
@@ -226,25 +258,36 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             }
             if (current.Phase != RepositoryCiJobPhase.Pending)
                 return new(RepositoryCiJobJournalDisposition.PhaseConflict, current);
-            if (!run.Ready.Contains(planned))
+            if (authorityEpoch < current.AuthorityEpoch)
+                return new(RepositoryCiJobJournalDisposition.StaleAuthority, current);
+            if (!run.Ready.Any(job => job.Request.Job == jobId))
                 return new(RepositoryCiJobJournalDisposition.NotReady, current);
             if (!authorityStillValid())
                 return new(RepositoryCiJobJournalDisposition.StaleAuthority, current);
 
-            var prepared = current.Document with
+            RepositoryCiJobDocument prepared;
+            try
             {
-                PreviousPhase = RepositoryCiJobPhase.Pending,
-                Phase = RepositoryCiJobPhase.DispatchPrepared,
-                PhaseSequence = 1,
-                ControllerId = controllerId,
-                AuthorityEpoch = authorityEpoch,
-                FencingToken = 1,
-                RunnerId = runner.Runner.Value,
-                RunnerSequence = runner.Sequence,
-                IsolationDigest = isolationDigest,
-                OperationId = operationId,
-                EvidenceDigest = isolationDigest,
-            };
+                prepared = current.Document with
+                {
+                    SchemaVersion = 2,
+                    PreviousPhase = RepositoryCiJobPhase.Pending,
+                    Phase = RepositoryCiJobPhase.DispatchPrepared,
+                    PhaseSequence = 1,
+                    ControllerId = controllerId,
+                    AuthorityEpoch = authorityEpoch,
+                    FencingToken = checked(current.FencingToken + 1),
+                    RunnerId = runner.Runner.Value,
+                    RunnerSequence = runner.Sequence,
+                    IsolationDigest = isolationDigest,
+                    OperationId = operationId,
+                    EvidenceDigest = isolationDigest,
+                };
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidDataException("The CI job fencing token is exhausted.", exception);
+            }
             prepared.Validate();
             try
             {
@@ -275,7 +318,7 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
         ArgumentNullException.ThrowIfNull(authorityStillValid);
         ValidateIdentity(controllerId, nameof(controllerId));
         if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
-        var planned = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
+        var plannedBase = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
             ?? throw new ArgumentException("The CI job is not part of the pipeline.", nameof(jobId));
         var key = Index(pipeline.Digest, jobId.Value);
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
@@ -283,8 +326,10 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             var entry = await ledger.GetAsync(key, cancellationToken)
                 ?? throw new InvalidDataException("The CI job lease disappeared.");
             var document = Deserialize(entry.Value);
-            if (document.JobDigest != JobDigest(pipeline, planned))
+            if (document.JobDigest != JobDigest(pipeline, plannedBase) ||
+                document.Attempt > plannedBase.Request.MaximumAttempts)
                 throw new InvalidDataException("The CI job lease changed immutable identity.");
+            var planned = EffectiveJob(plannedBase, document.Attempt);
             var snapshot = new RepositoryCiJobSnapshot(planned, document, entry.Revision);
             if (document.Phase is not (RepositoryCiJobPhase.DispatchPrepared or
                     RepositoryCiJobPhase.Dispatched or RepositoryCiJobPhase.Running))
@@ -331,6 +376,7 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
         RepositoryCiJobPhase nextPhase,
         string evidenceDigest,
         int requiredTestSkips,
+        RepositoryCiJobFailureKind failureKind,
         Func<bool> authorityStillValid,
         CancellationToken cancellationToken = default)
     {
@@ -343,6 +389,10 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             throw new ArgumentOutOfRangeException(nameof(nextPhase));
         if (nextPhase is not (RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed) && requiredTestSkips != 0)
             throw new ArgumentException("Only a terminal CI job result can report required test skips.", nameof(requiredTestSkips));
+        if (nextPhase == RepositoryCiJobPhase.Failed && failureKind == RepositoryCiJobFailureKind.Unspecified ||
+            nextPhase != RepositoryCiJobPhase.Failed && failureKind != RepositoryCiJobFailureKind.Unspecified ||
+            !Enum.IsDefined(failureKind))
+            throw new ArgumentException("The CI job failure classification does not match its phase.", nameof(failureKind));
         var key = Index(lease.Document.PipelineDigest, lease.Document.Job);
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
         {
@@ -369,12 +419,196 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
                 PhaseSequence = checked(current.PhaseSequence + 1),
                 EvidenceDigest = evidenceDigest,
                 RequiredTestSkips = requiredTestSkips,
+                FailureKind = failureKind,
             };
             advanced.Validate();
             try
             {
                 var updated = await ledger.UpdateAsync(key, Serialize(advanced), entry.Revision, cancellationToken);
                 return new(RepositoryCiJobJournalDisposition.Advanced, new(lease.Job, advanced, updated.Revision));
+            }
+            catch (ForgejoDeliveryLedgerConflictException)
+            {
+            }
+        }
+        return new(RepositoryCiJobJournalDisposition.Contention, null);
+    }
+
+    internal async Task<RepositoryCiJobJournalReceipt> ScheduleRetryAsync(
+        RepositoryCiPipelinePlan pipeline,
+        JobId jobId,
+        string controllerId,
+        long authorityEpoch,
+        string operationId,
+        string authorizationDigest,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePlan(pipeline);
+        ArgumentNullException.ThrowIfNull(jobId);
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        ValidateIdentity(controllerId, nameof(controllerId));
+        ValidateIdentity(operationId, nameof(operationId));
+        if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
+        if (!Digest(authorizationDigest))
+            throw new ArgumentException("The CI retry authorization digest is invalid.", nameof(authorizationDigest));
+        var plannedBase = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
+            ?? throw new ArgumentException("The CI job is not part of the pipeline.", nameof(jobId));
+        var key = Index(pipeline.Digest, jobId.Value);
+
+        for (var conflict = 0; conflict < MaximumConflictRetries; conflict++)
+        {
+            var entry = await ledger.GetAsync(key, cancellationToken)
+                ?? throw new InvalidDataException("The failed CI job disappeared.");
+            var current = Deserialize(entry.Value);
+            if (current.JobDigest != JobDigest(pipeline, plannedBase) ||
+                current.Attempt > plannedBase.Request.MaximumAttempts)
+                throw new InvalidDataException("The failed CI job changed immutable identity.");
+            var planned = EffectiveJob(plannedBase, current.Attempt);
+            var snapshot = new RepositoryCiJobSnapshot(planned, current, entry.Revision);
+            if (current.Phase == RepositoryCiJobPhase.RetryWaiting)
+            {
+                var exact = current.ControllerId == controllerId && current.AuthorityEpoch == authorityEpoch &&
+                    current.OperationId == operationId && current.RetryAuthorizationDigest == authorizationDigest;
+                return new(exact
+                    ? authorityStillValid()
+                        ? RepositoryCiJobJournalDisposition.Duplicate
+                        : RepositoryCiJobJournalDisposition.StaleAuthority
+                    : RepositoryCiJobJournalDisposition.PhaseConflict, snapshot);
+            }
+            if (current.Phase != RepositoryCiJobPhase.Failed)
+                return new(RepositoryCiJobJournalDisposition.PhaseConflict, snapshot);
+            if (plannedBase.Request.Kind != JobKind.ProductValidation || !Retryable(current.FailureKind))
+                return new(RepositoryCiJobJournalDisposition.RetryDenied, snapshot);
+            if (current.Attempt >= plannedBase.Request.MaximumAttempts)
+                return new(RepositoryCiJobJournalDisposition.AttemptsExhausted, snapshot);
+            if (authorityEpoch < current.AuthorityEpoch)
+                return new(RepositoryCiJobJournalDisposition.StaleAuthority, snapshot);
+            if (authorityEpoch == current.AuthorityEpoch && controllerId != current.ControllerId)
+                return new(RepositoryCiJobJournalDisposition.LeaseHeld, snapshot);
+            if (!authorityStillValid())
+                return new(RepositoryCiJobJournalDisposition.StaleAuthority, snapshot);
+
+            RepositoryCiJobDocument waiting;
+            try
+            {
+                var retryNotBefore = timeProvider.GetUtcNow().Add(RetryDelay(current.Attempt));
+                waiting = current with
+                {
+                    SchemaVersion = 2,
+                    PreviousPhase = RepositoryCiJobPhase.Failed,
+                    Phase = RepositoryCiJobPhase.RetryWaiting,
+                    PhaseSequence = 5,
+                    ControllerId = controllerId,
+                    AuthorityEpoch = authorityEpoch,
+                    FencingToken = checked(current.FencingToken + 1),
+                    OperationId = operationId,
+                    AttemptChainDigest = AttemptChainDigest(current, authorizationDigest),
+                    RetryAuthorizationDigest = authorizationDigest,
+                    RetryNotBeforeUnixMilliseconds = retryNotBefore.ToUnixTimeMilliseconds(),
+                };
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                throw new InvalidDataException("The CI retry deadline exceeded the supported clock range.", exception);
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidDataException("The CI job fencing token is exhausted.", exception);
+            }
+            waiting.Validate();
+            try
+            {
+                var updated = await ledger.UpdateAsync(key, Serialize(waiting), entry.Revision, cancellationToken);
+                return new(
+                    RepositoryCiJobJournalDisposition.RetryScheduled,
+                    new(planned, waiting, updated.Revision));
+            }
+            catch (ForgejoDeliveryLedgerConflictException)
+            {
+            }
+        }
+        return new(RepositoryCiJobJournalDisposition.Contention, null);
+    }
+
+    internal async Task<RepositoryCiJobJournalReceipt> OpenRetryAsync(
+        RepositoryCiPipelinePlan pipeline,
+        JobId jobId,
+        string controllerId,
+        long authorityEpoch,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePlan(pipeline);
+        ArgumentNullException.ThrowIfNull(jobId);
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        ValidateIdentity(controllerId, nameof(controllerId));
+        if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
+        var plannedBase = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
+            ?? throw new ArgumentException("The CI job is not part of the pipeline.", nameof(jobId));
+        var key = Index(pipeline.Digest, jobId.Value);
+
+        for (var conflict = 0; conflict < MaximumConflictRetries; conflict++)
+        {
+            var entry = await ledger.GetAsync(key, cancellationToken)
+                ?? throw new InvalidDataException("The retrying CI job disappeared.");
+            var current = Deserialize(entry.Value);
+            if (current.JobDigest != JobDigest(pipeline, plannedBase) ||
+                current.Attempt > plannedBase.Request.MaximumAttempts)
+                throw new InvalidDataException("The retrying CI job changed immutable identity.");
+            var planned = EffectiveJob(plannedBase, current.Attempt);
+            var snapshot = new RepositoryCiJobSnapshot(planned, current, entry.Revision);
+            if (current.Phase == RepositoryCiJobPhase.Pending && current.Attempt > 1)
+                return new(authorityEpoch < current.AuthorityEpoch || !authorityStillValid()
+                    ? RepositoryCiJobJournalDisposition.StaleAuthority
+                    : RepositoryCiJobJournalDisposition.Duplicate, snapshot);
+            if (current.Phase != RepositoryCiJobPhase.RetryWaiting)
+                return new(RepositoryCiJobJournalDisposition.PhaseConflict, snapshot);
+            if (authorityEpoch < current.AuthorityEpoch)
+                return new(RepositoryCiJobJournalDisposition.StaleAuthority, snapshot);
+            if (authorityEpoch == current.AuthorityEpoch && controllerId != current.ControllerId)
+                return new(RepositoryCiJobJournalDisposition.LeaseHeld, snapshot);
+            if (!authorityStillValid())
+                return new(RepositoryCiJobJournalDisposition.StaleAuthority, snapshot);
+            if (timeProvider.GetUtcNow().ToUnixTimeMilliseconds() < current.RetryNotBeforeUnixMilliseconds)
+                return new(RepositoryCiJobJournalDisposition.NotReady, snapshot);
+
+            RepositoryCiJobDocument pending;
+            try
+            {
+                pending = current with
+                {
+                    SchemaVersion = 2,
+                    PreviousPhase = RepositoryCiJobPhase.RetryWaiting,
+                    Phase = RepositoryCiJobPhase.Pending,
+                    PhaseSequence = 0,
+                    Attempt = checked(current.Attempt + 1),
+                    ControllerId = string.Empty,
+                    AuthorityEpoch = authorityEpoch,
+                    FencingToken = authorityEpoch > current.AuthorityEpoch
+                        ? checked(current.FencingToken + 1)
+                        : current.FencingToken,
+                    RunnerId = string.Empty,
+                    RunnerSequence = 0,
+                    IsolationDigest = string.Empty,
+                    OperationId = string.Empty,
+                    EvidenceDigest = string.Empty,
+                    RequiredTestSkips = 0,
+                    RetryNotBeforeUnixMilliseconds = 0,
+                    FailureKind = RepositoryCiJobFailureKind.Unspecified,
+                };
+            }
+            catch (OverflowException exception)
+            {
+                throw new InvalidDataException("The CI retry identity is exhausted.", exception);
+            }
+            pending.Validate();
+            try
+            {
+                var updated = await ledger.UpdateAsync(key, Serialize(pending), entry.Revision, cancellationToken);
+                return new(
+                    RepositoryCiJobJournalDisposition.RetryOpened,
+                    new(EffectiveJob(plannedBase, pending.Attempt), pending, updated.Revision));
             }
             catch (ForgejoDeliveryLedgerConflictException)
             {
@@ -398,11 +632,61 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             pipeline.Pipeline?.Value != $"ci-{pipeline.Digest[..24]}" ||
             pipeline.Jobs is not { Count: > 0 and <= 16_384 } ||
             pipeline.Jobs.Any(job => job is null || job.Request?.Job?.Value is not { Length: > 0 } ||
-                job.Request.Pipeline != pipeline.Pipeline) ||
+                job.Request.Pipeline != pipeline.Pipeline || job.Request.Attempt != 1 ||
+                job.Request.MaximumAttempts != 3 || job.Request.RetryAuthorized) ||
             pipeline.Jobs.Select(static job => job.Request.Job.Value).Distinct(StringComparer.Ordinal).Count() !=
             pipeline.Jobs.Count)
             throw new InvalidDataException("The CI pipeline cannot initialize durable job state.");
     }
+
+    private static RepositoryCiPipelineJob EffectiveJob(RepositoryCiPipelineJob planned, int attempt)
+    {
+        if (attempt == planned.Request.Attempt) return planned;
+        if (attempt <= planned.Request.Attempt || attempt > planned.Request.MaximumAttempts)
+            throw new InvalidDataException("The CI job attempt is outside its immutable retry budget.");
+        var request = planned.Request;
+        return new(
+            planned.Plan,
+            planned.Source,
+            new(
+                request.Pipeline,
+                request.Job,
+                request.Kind,
+                request.Tree,
+                request.Generation,
+                attempt,
+                request.MaximumAttempts,
+                new($"ci-{Hash($"{request.Idempotency.Value}\n{attempt}")}"),
+                request.AllowedZones,
+                request.RequiredCapabilities,
+                request.MinimumRunnerSequence,
+                request.MaximumRunnerSequence,
+                retryAuthorized: true),
+            planned.DependsOn,
+            planned.MayPublishCandidateArtifact);
+    }
+
+    internal static bool Retryable(RepositoryCiJobFailureKind failure) => failure is
+        RepositoryCiJobFailureKind.RunnerLost or RepositoryCiJobFailureKind.InfrastructureTransient;
+
+    private static TimeSpan RetryDelay(int failedAttempt) => failedAttempt switch
+    {
+        1 => TimeSpan.FromSeconds(5),
+        2 => TimeSpan.FromSeconds(30),
+        _ => throw new InvalidDataException("The CI retry delay has no bounded policy."),
+    };
+
+    private static string AttemptChainDigest(
+        RepositoryCiJobDocument failed,
+        string authorizationDigest) => Hash(new StringBuilder()
+            .Append(failed.AttemptChainDigest).Append('\n')
+            .Append(failed.JobDigest).Append(':').Append(failed.Attempt).Append(':')
+            .Append(failed.EvidenceDigest).Append(':').Append(failed.FailureKind).Append('\n')
+            .Append(failed.ControllerId).Append(':').Append(failed.AuthorityEpoch).Append(':')
+            .Append(failed.FencingToken).Append(':').Append(failed.RunnerId).Append(':')
+            .Append(failed.OperationId).Append('\n')
+            .Append(authorizationDigest)
+            .ToString());
 
     private static string JobDigest(RepositoryCiPipelinePlan pipeline, RepositoryCiPipelineJob job)
     {
@@ -443,6 +727,23 @@ internal sealed class RepositoryCiJobJournal(IForgejoDeliveryLedger ledger)
             var document = JsonSerializer.Deserialize(
                 value,
                 RepositoryCiJobJournalJsonContext.Default.RepositoryCiJobDocument) ?? throw new JsonException();
+            if (document.SchemaVersion == 1)
+            {
+                if (document.Attempt != 0 || document.AttemptChainDigest is not null ||
+                    document.RetryAuthorizationDigest is not null || document.RetryNotBeforeUnixMilliseconds != 0 ||
+                    document.FailureKind != RepositoryCiJobFailureKind.Unspecified)
+                    throw new JsonException();
+                document = document with
+                {
+                    SchemaVersion = 2,
+                    Attempt = 1,
+                    AttemptChainDigest = string.Empty,
+                    RetryAuthorizationDigest = string.Empty,
+                    FailureKind = document.Phase == RepositoryCiJobPhase.Failed
+                        ? RepositoryCiJobFailureKind.WorkloadFailed
+                        : RepositoryCiJobFailureKind.Unspecified,
+                };
+            }
             document.Validate();
             return document;
         }
@@ -497,7 +798,12 @@ internal sealed record RepositoryCiJobDocument(
     string IsolationDigest,
     string OperationId,
     string EvidenceDigest,
-    int RequiredTestSkips)
+    int RequiredTestSkips,
+    int Attempt,
+    string AttemptChainDigest,
+    string RetryAuthorizationDigest,
+    long RetryNotBeforeUnixMilliseconds,
+    RepositoryCiJobFailureKind FailureKind)
 {
     internal static RepositoryCiJobDocument Pending(
         RepositoryCiPipelinePlan pipeline,
@@ -505,7 +811,7 @@ internal sealed record RepositoryCiJobDocument(
         string jobDigest,
         long authorityEpoch,
         long sequence) => new(
-            1,
+            2,
             pipeline.Pipeline.Value,
             pipeline.Digest,
             job.Request.Job.Value,
@@ -523,13 +829,19 @@ internal sealed record RepositoryCiJobDocument(
             string.Empty,
             string.Empty,
             string.Empty,
-            0);
+            0,
+            1,
+            string.Empty,
+            string.Empty,
+            0,
+            RepositoryCiJobFailureKind.Unspecified);
 
     internal bool SameJob(RepositoryCiJobDocument other) =>
         Pipeline == other.Pipeline && PipelineDigest == other.PipelineDigest && Job == other.Job &&
         JobDigest == other.JobDigest;
 
     internal bool SameLease(RepositoryCiJobDocument other) => SameJob(other) &&
+        Attempt == other.Attempt &&
         ControllerId == other.ControllerId && AuthorityEpoch == other.AuthorityEpoch &&
         FencingToken == other.FencingToken && RunnerId == other.RunnerId &&
         RunnerSequence == other.RunnerSequence && IsolationDigest == other.IsolationDigest &&
@@ -538,19 +850,40 @@ internal sealed record RepositoryCiJobDocument(
     internal void Validate()
     {
         var pending = Phase == RepositoryCiJobPhase.Pending;
-        var active = Phase is RepositoryCiJobPhase.DispatchPrepared or RepositoryCiJobPhase.Dispatched or
+        var retryWaiting = Phase == RepositoryCiJobPhase.RetryWaiting;
+        var leased = Phase is RepositoryCiJobPhase.DispatchPrepared or RepositoryCiJobPhase.Dispatched or
             RepositoryCiJobPhase.Running or RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed;
-        if (SchemaVersion != 1 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
+        var active = leased || retryWaiting;
+        var retryHistory = Attempt > 1 || retryWaiting;
+        if (SchemaVersion != 2 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
             !Digest(JobDigest) || CreatedAuthorityEpoch <= 0 || CreatedSequence <= 0 ||
+            Attempt is < 1 or > 100 || AttemptChainDigest is null || RetryAuthorizationDigest is null ||
+            !Enum.IsDefined(FailureKind) ||
             !Enum.IsDefined(PreviousPhase) || !Enum.IsDefined(Phase) || (!pending && !active) ||
-            pending && (PreviousPhase != RepositoryCiJobPhase.Unspecified || PhaseSequence != 0 ||
-                ControllerId.Length != 0 || AuthorityEpoch != 0 || FencingToken != 0 || RunnerId.Length != 0 ||
+            pending && (PreviousPhase != (Attempt == 1
+                    ? RepositoryCiJobPhase.Unspecified
+                    : RepositoryCiJobPhase.RetryWaiting) || PhaseSequence != 0 ||
+                ControllerId.Length != 0 ||
+                (Attempt == 1 ? AuthorityEpoch != 0 || FencingToken != 0 :
+                    AuthorityEpoch <= 0 || FencingToken <= 0) || RunnerId.Length != 0 ||
                 RunnerSequence != 0 || IsolationDigest.Length != 0 || OperationId.Length != 0 ||
-                EvidenceDigest.Length != 0 || RequiredTestSkips != 0) ||
-            active && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
+                EvidenceDigest.Length != 0 || RequiredTestSkips != 0 ||
+                FailureKind != RepositoryCiJobFailureKind.Unspecified) ||
+            leased && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
                 !Identity(RunnerId) || RunnerSequence <= 0 || !Digest(IsolationDigest) ||
                 !Identity(OperationId) || !Digest(EvidenceDigest) || RequiredTestSkips is < 0 or > 1_000_000 ||
                 !ValidPhaseEdge(PreviousPhase, Phase, PhaseSequence)) ||
+            retryWaiting && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
+                !Identity(RunnerId) || RunnerSequence <= 0 || !Digest(IsolationDigest) ||
+                !Identity(OperationId) || !Digest(EvidenceDigest) || RequiredTestSkips is < 0 or > 1_000_000 ||
+                PreviousPhase != RepositoryCiJobPhase.Failed || PhaseSequence != 5 ||
+                !RepositoryCiJobJournal.Retryable(FailureKind) || RetryNotBeforeUnixMilliseconds <= 0) ||
+            retryHistory && (!Digest(AttemptChainDigest) || !Digest(RetryAuthorizationDigest)) ||
+            !retryHistory && (AttemptChainDigest.Length != 0 || RetryAuthorizationDigest.Length != 0) ||
+            !retryWaiting && RetryNotBeforeUnixMilliseconds != 0 ||
+            Phase == RepositoryCiJobPhase.Failed && FailureKind == RepositoryCiJobFailureKind.Unspecified ||
+            Phase != RepositoryCiJobPhase.Failed && !retryWaiting &&
+                FailureKind != RepositoryCiJobFailureKind.Unspecified ||
             Phase is not (RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed) && RequiredTestSkips != 0)
             throw new InvalidDataException("A CI job journal record is invalid.");
     }

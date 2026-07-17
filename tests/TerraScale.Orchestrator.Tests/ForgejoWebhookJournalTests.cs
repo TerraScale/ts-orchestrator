@@ -265,6 +265,16 @@ public sealed class ForgejoWebhookJournalTests
             }
         }
 
+        internal void RewriteFirst(Func<string, string> rewrite)
+        {
+            ArgumentNullException.ThrowIfNull(rewrite);
+            lock (sync)
+            {
+                var first = entries.First();
+                entries[first.Key] = new(rewrite(first.Value.Value), ++revision);
+            }
+        }
+
         private void FailIfRequested()
         {
             Mutations++;

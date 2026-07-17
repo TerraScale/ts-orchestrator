@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Nodes;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
 
@@ -126,6 +127,163 @@ public sealed class RepositoryCiJobJournalTests
     }
 
     [Test]
+    public async Task TransientFeatureFailureWaitsThenOpensAFencedSecondAttempt()
+    {
+        var clock = new AdjustableTimeProvider(new(2026, 7, 17, 12, 0, 0, TimeSpan.Zero));
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new RepositoryCiJobJournal(ledger, clock);
+        var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
+        await journal.InitializeAsync(pipeline, 5, 9, static () => true);
+        var root = (await journal.ReadAsync(pipeline)).Ready[0];
+        var failed = await FailAsync(
+            journal,
+            pipeline,
+            root,
+            RepositoryCiJobFailureKind.RunnerLost);
+
+        var scheduled = await journal.ScheduleRetryAsync(
+            pipeline,
+            root.Request.Job,
+            "gru-controller-1",
+            5,
+            $"retry-{root.Request.Job.Value}-attempt-1",
+            Digest(900),
+            static () => true);
+        var early = await journal.OpenRetryAsync(
+            pipeline,
+            root.Request.Job,
+            "gru-controller-1",
+            5,
+            static () => true);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        var opened = await journal.OpenRetryAsync(
+            pipeline,
+            root.Request.Job,
+            "gru-controller-1",
+            5,
+            static () => true);
+        var stale = await AdvanceAsync(
+            journal,
+            failed.Job!,
+            RepositoryCiJobPhase.Failed,
+            4,
+            RepositoryCiJobFailureKind.RunnerLost);
+        var stalePrepare = await journal.PrepareDispatchAsync(
+            pipeline,
+            opened.Job!.Job.Request.Job,
+            Runner(opened.Job.Job),
+            Isolation(opened.Job.Job),
+            "gru-controller-stale",
+            4,
+            $"dispatch-{opened.Job.Job.Request.Job.Value}-stale",
+            static () => true);
+        var prepared = await PrepareAsync(journal, pipeline, opened.Job!.Job);
+        var dispatched = await AdvanceAsync(journal, prepared.Job!, RepositoryCiJobPhase.Dispatched, 5);
+        var running = await AdvanceAsync(journal, dispatched.Job!, RepositoryCiJobPhase.Running, 6);
+        await AdvanceAsync(journal, running.Job!, RepositoryCiJobPhase.Succeeded, 7);
+        var run = await journal.ReadAsync(pipeline);
+        var result = run.Results.Single(value => value.Job == root.Request.Job);
+
+        await Assert.That(scheduled.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.RetryScheduled);
+        await Assert.That(scheduled.Job!.RetryNotBefore).IsEqualTo(clock.GetUtcNow());
+        await Assert.That(scheduled.Job.FencingToken).IsEqualTo(2);
+        await Assert.That(early.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.NotReady);
+        await Assert.That(opened.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.RetryOpened);
+        await Assert.That(opened.Job.Attempt).IsEqualTo(2);
+        await Assert.That(opened.Job.Job.Request.RetryAuthorized).IsTrue();
+        await Assert.That(opened.Job.Job.Request.Idempotency).IsNotEqualTo(root.Request.Idempotency);
+        await Assert.That(stale.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleLease);
+        await Assert.That(stalePrepare.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleAuthority);
+        await Assert.That(prepared.Job!.FencingToken).IsEqualTo(3);
+        await Assert.That(result.Attempt).IsEqualTo(2);
+        await Assert.That(result.Succeeded).IsTrue();
+    }
+
+    [Test]
+    public async Task PermanentFailureCannotReceiveRetryAuthority()
+    {
+        var journal = await InitializedAsync();
+        var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
+        var root = (await journal.ReadAsync(pipeline)).Ready[0];
+        await FailAsync(journal, pipeline, root, RepositoryCiJobFailureKind.WorkloadFailed);
+
+        var denied = await journal.ScheduleRetryAsync(
+            pipeline,
+            root.Request.Job,
+            "gru-controller-1",
+            5,
+            $"retry-{root.Request.Job.Value}-attempt-1",
+            Digest(901),
+            static () => true);
+
+        await Assert.That(denied.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.RetryDenied);
+        await Assert.That((await journal.ReadAsync(pipeline)).State)
+            .IsEqualTo(RepositoryCiPipelineRunState.Failed);
+    }
+
+    [Test]
+    public async Task ThirdTransientFailureExhaustsTheClosedRetryBudget()
+    {
+        var clock = new AdjustableTimeProvider(new(2026, 7, 17, 12, 0, 0, TimeSpan.Zero));
+        var journal = new RepositoryCiJobJournal(new ForgejoWebhookJournalTests.TestLedger(), clock);
+        var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
+        await journal.InitializeAsync(pipeline, 5, 9, static () => true);
+        var job = (await journal.ReadAsync(pipeline)).Ready[0];
+        RepositoryCiJobJournalReceipt? exhausted = null;
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await FailAsync(journal, pipeline, job, RepositoryCiJobFailureKind.InfrastructureTransient);
+            var scheduled = await journal.ScheduleRetryAsync(
+                pipeline,
+                job.Request.Job,
+                "gru-controller-1",
+                5,
+                $"retry-{job.Request.Job.Value}-attempt-{attempt}",
+                Digest(910 + attempt),
+                static () => true);
+            if (attempt == 3)
+            {
+                exhausted = scheduled;
+                break;
+            }
+            await Assert.That(scheduled.Disposition)
+                .IsEqualTo(RepositoryCiJobJournalDisposition.RetryScheduled);
+            clock.Advance(attempt == 1 ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(30));
+            var opened = await journal.OpenRetryAsync(
+                pipeline,
+                job.Request.Job,
+                "gru-controller-1",
+                5,
+                static () => true);
+            job = opened.Job!.Job;
+        }
+
+        await Assert.That(exhausted).IsNotNull();
+        await Assert.That(exhausted!.Disposition)
+            .IsEqualTo(RepositoryCiJobJournalDisposition.AttemptsExhausted);
+        await Assert.That(exhausted.Job!.Attempt).IsEqualTo(3);
+        await Assert.That((await journal.ReadAsync(pipeline)).State)
+            .IsEqualTo(RepositoryCiPipelineRunState.Failed);
+    }
+
+    [Test]
+    public async Task SchemaOnePendingRecordsRemainReadableWithoutRetryAuthority()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new RepositoryCiJobJournal(ledger);
+        var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
+        await journal.InitializeAsync(pipeline, 5, 9, static () => true);
+        ledger.RewriteFirst(ToSchemaOne);
+
+        var run = await journal.ReadAsync(pipeline);
+
+        await Assert.That(run.Jobs.Count).IsEqualTo(pipeline.Jobs.Count);
+        await Assert.That(run.Jobs.All(static job => job.Attempt == 1)).IsTrue();
+        await Assert.That(run.Jobs.All(static job => !job.Job.Request.RetryAuthorized)).IsTrue();
+    }
+
+    [Test]
     public async Task ConcurrentPreparationConvergesAndCorruptStateFailsClosed()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -168,7 +326,7 @@ public sealed class RepositoryCiJobJournalTests
             Isolation(job),
             "gru-controller-1",
             5,
-            $"dispatch-{job.Request.Job.Value}",
+            $"dispatch-{job.Request.Job.Value}-attempt-{job.Request.Attempt}",
             authorityStillValid ?? (() => true));
 
     private static async Task CompleteAsync(
@@ -184,15 +342,31 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(completed.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.Advanced);
     }
 
+    private static async Task<RepositoryCiJobJournalReceipt> FailAsync(
+        RepositoryCiJobJournal journal,
+        RepositoryCiPipelinePlan pipeline,
+        RepositoryCiPipelineJob job,
+        RepositoryCiJobFailureKind failureKind)
+    {
+        var prepared = await PrepareAsync(journal, pipeline, job);
+        var dispatched = await AdvanceAsync(journal, prepared.Job!, RepositoryCiJobPhase.Dispatched, 1);
+        var running = await AdvanceAsync(journal, dispatched.Job!, RepositoryCiJobPhase.Running, 2);
+        return await AdvanceAsync(journal, running.Job!, RepositoryCiJobPhase.Failed, 3, failureKind);
+    }
+
     private static Task<RepositoryCiJobJournalReceipt> AdvanceAsync(
         RepositoryCiJobJournal journal,
         RepositoryCiJobSnapshot lease,
         RepositoryCiJobPhase phase,
-        int evidence) => journal.AdvanceAsync(
+        int evidence,
+        RepositoryCiJobFailureKind failureKind = RepositoryCiJobFailureKind.Unspecified) => journal.AdvanceAsync(
             lease,
             phase,
             Digest(evidence),
             0,
+            failureKind == RepositoryCiJobFailureKind.Unspecified && phase == RepositoryCiJobPhase.Failed
+                ? RepositoryCiJobFailureKind.WorkloadFailed
+                : failureKind,
             static () => true);
 
     private static RunnerEvidence Runner(RepositoryCiPipelineJob job) => new(
@@ -236,4 +410,25 @@ public sealed class RepositoryCiJobJournalTests
         16L * 1024 * 1024);
 
     private static string Digest(int value) => value.ToString("x64", CultureInfo.InvariantCulture);
+
+    private static string ToSchemaOne(string value)
+    {
+        var document = JsonNode.Parse(value)?.AsObject() ?? throw new InvalidDataException();
+        document["SchemaVersion"] = 1;
+        document.Remove("Attempt");
+        document.Remove("AttemptChainDigest");
+        document.Remove("RetryAuthorizationDigest");
+        document.Remove("RetryNotBeforeUnixMilliseconds");
+        document.Remove("FailureKind");
+        return document.ToJsonString();
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset initial) : TimeProvider
+    {
+        private DateTimeOffset value = initial;
+
+        public override DateTimeOffset GetUtcNow() => value;
+
+        internal void Advance(TimeSpan duration) => value = value.Add(duration);
+    }
 }

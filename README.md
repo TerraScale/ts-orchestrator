@@ -160,6 +160,11 @@ higher global authority epoch increments the job fence; an old controller can
 no longer advance it. Pipeline failure stops new dispatch, while successful
 dependency evidence unlocks the next deterministic DAG nodes. The NATS job
 publisher and real isolated runner executor remain separate unimplemented gates.
+Only explicitly authorized transient feature-validation failures can retry:
+attempts wait for the fixed 5-second then 30-second backoff, receive a new
+idempotency key and higher fence, and stop after attempt three. Workload/policy
+failures and trusted release builds remain terminal so candidate builds stay
+clean, immutable first-attempt evidence.
 
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
