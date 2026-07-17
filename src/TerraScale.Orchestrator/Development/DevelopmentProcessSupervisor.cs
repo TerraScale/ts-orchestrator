@@ -16,7 +16,6 @@ internal static class DevelopmentContainerImages
 internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 {
     internal static readonly string OwnershipLabel = "io.terrascale.owner=devhost-orchestrator";
-    internal const string ProfileLabel = "io.terrascale.profile=dev-containers-three-cell-lean";
     internal static readonly long PodMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
 
     private readonly Dictionary<string, Process> processes = new(StringComparer.Ordinal);
@@ -88,7 +87,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "pod", "create",
             "--name", podName,
             "--label", OwnershipLabel,
-            "--label", ProfileLabel,
+            "--label", $"io.terrascale.profile={topology.Profile}",
             "--label", "io.terrascale.schema=2",
             "--memory", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--memory-swap", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -187,7 +186,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--pod", podName,
             "--pull", "never",
             "--label", OwnershipLabel,
-            "--label", ProfileLabel,
+            "--label", $"io.terrascale.profile={topology.Profile}",
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "--pids-limit", "512",
