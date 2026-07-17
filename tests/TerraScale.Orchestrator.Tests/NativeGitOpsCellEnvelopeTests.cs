@@ -44,6 +44,47 @@ public sealed class NativeGitOpsCellEnvelopeTests
     }
 
     [Test]
+    public async Task RegionalValidationNeedsOnlyTheBoundedAggregateDigestDescriptor()
+    {
+        var handoff = CellHandoff();
+        var descriptor = NativeGitOpsCellEnvelope.Describe(handoff)!;
+        var envelope = NativeGitOpsCellEnvelope.Sign(
+            handoff,
+            "gru",
+            7,
+            Now.AddMinutes(-1),
+            Now.AddMinutes(1),
+            new TestSigner([4, 5, 6]));
+
+        var accepted = NativeGitOpsCellEnvelope.Validate(
+            envelope,
+            descriptor,
+            "gru",
+            7,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([4, 5, 6]));
+        var corruptDescriptor = descriptor with
+        {
+            HandoffDigest = "f123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        };
+        var rejected = NativeGitOpsCellEnvelope.Validate(
+            envelope,
+            corruptDescriptor,
+            "gru",
+            7,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([4, 5, 6]));
+
+        await Assert.That(accepted.IsAccepted).IsTrue();
+        await Assert.That(descriptor.Cells).HasSingleItem();
+        await Assert.That(descriptor.Cells.Single().PayloadSha256)
+            .IsEqualTo(handoff.Cells.Single().PayloadSha256);
+        await Assert.That(rejected.Error).IsEqualTo(NativeGitOpsCellEnvelopeError.InvalidInput);
+    }
+
+    [Test]
     public async Task CellGenerationEpochAndPayloadSubstitutionFailBeforeSignatureVerification()
     {
         var handoff = CellHandoff();

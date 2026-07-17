@@ -65,6 +65,14 @@ public sealed class NativeGitOpsCellHandoff
     public IReadOnlyList<NativeGitOpsCellSpec> Cells { get; }
 }
 
+internal sealed record NativeGitOpsCellDigest(string Cell, string PayloadSha256);
+
+internal sealed record NativeGitOpsCellHandoffDescriptor(
+    long Generation,
+    string GlobalPlanDigest,
+    string HandoffDigest,
+    IReadOnlyList<NativeGitOpsCellDigest> Cells);
+
 /// <summary>
 /// Compiles a verified global source plan into bounded deterministic per-cell payloads. Payload
 /// digests are ready for a later KMS-backed signer; this compiler grants no unsigned apply authority.
@@ -259,7 +267,15 @@ public static class NativeGitOpsCellSpecCompiler
     internal static string ComputeHandoffDigest(
         long generation,
         string globalPlanDigest,
-        IReadOnlyList<NativeGitOpsCellSpec> cells)
+        IReadOnlyList<NativeGitOpsCellSpec> cells) => ComputeHandoffDigest(
+        generation,
+        globalPlanDigest,
+        cells.Select(static cell => new NativeGitOpsCellDigest(cell.Cell, cell.PayloadSha256)).ToArray());
+
+    internal static string ComputeHandoffDigest(
+        long generation,
+        string globalPlanDigest,
+        IReadOnlyList<NativeGitOpsCellDigest> cells)
     {
         var bytes = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(bytes))

@@ -297,6 +297,10 @@ transport/consumer wiring and the owner-selected production KMS adapter remain.
 One compiled handoff targets at most 64 distinct cells, regardless of how cells
 are distributed across workloads, and the regional bundle store is capped at
 256 MiB so one maximally bounded handoff does not consume its entire capacity.
+Each region can validate from a compact descriptor containing the generation,
+global-plan digest, aggregate handoff digest, and sorted cell/payload-digest
+set; it recomputes the aggregate and checks its own closed payload identity, so
+transport does not need to copy every other region's full CellSpec.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
