@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Delivery;
@@ -357,7 +358,7 @@ internal sealed class RepositoryCiJobAcceptanceJournal
     }
 
     private static string Index(string runner, string pipelineDigest, string job) =>
-        $"ci.runner.{Hash(Encoding.UTF8.GetBytes(runner))}.job.{Hash(Encoding.UTF8.GetBytes($"{pipelineDigest}:{job}"))}";
+        $"{GlobalNatsTopology.CiRunnerJournalPrefix(runner)}.{Hash(Encoding.UTF8.GetBytes($"{pipelineDigest}:{job}"))}";
 
     private static void ValidateIdentity(string value, string parameter)
     {

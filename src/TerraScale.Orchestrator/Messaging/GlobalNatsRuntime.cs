@@ -125,15 +125,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 var releases = await keyValue.CreateOrUpdateStoreAsync(topology.Releases, cancellationToken);
                 var runnerJobs = await keyValue.CreateOrUpdateStoreAsync(topology.RunnerJobs, cancellationToken);
                 var objectStore = jetStream.CreateObjectStoreContext();
-                INatsObjStore bundles;
-                try
-                {
-                    bundles = await objectStore.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
-                }
-                catch (NatsJSApiException exception) when (exception.Error.Code == 404)
-                {
-                    bundles = await objectStore.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
-                }
+                var bundles = await GetOrCreateAsync(objectStore, topology.Bundles, cancellationToken);
+                _ = await GetOrCreateAsync(objectStore, topology.RunnerBundles, cancellationToken);
                 var ciConsumer = await jetStream.CreateOrUpdateConsumerAsync(
                     GlobalNatsTopology.CiStream,
                     topology.CiConsumer,
@@ -146,6 +139,21 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500 * attempt), cancellationToken);
             }
+        }
+    }
+
+    private static async Task<INatsObjStore> GetOrCreateAsync(
+        INatsObjContext context,
+        NatsObjConfig configuration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await context.GetObjectStoreAsync(configuration.Bucket, cancellationToken);
+        }
+        catch (NatsJSApiException exception) when (exception.Error.Code == 404)
+        {
+            return await context.CreateObjectStoreAsync(configuration, cancellationToken);
         }
     }
 

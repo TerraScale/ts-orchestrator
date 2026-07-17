@@ -12,6 +12,8 @@ public sealed class GlobalNatsTopology
     public const string CiStream = "GLOBAL_CI";
     public const string CiSubject = $"{Root}.ci.forgejo";
     public const string CiJobSubjectPrefix = $"{Root}.ci.job";
+    public const string RunnerJobsBucket = "CI_RUNNER_JOBS";
+    public const string RunnerBundlesBucket = "CI_RUNNER_BUNDLES";
 
     public GlobalNatsTopology(int replicas)
     {
@@ -66,7 +68,7 @@ public sealed class GlobalNatsTopology
         NumberOfReplicas = Replicas,
     };
 
-    public NatsKVConfig RunnerJobs => new("CI_RUNNER_JOBS")
+    public NatsKVConfig RunnerJobs => new(RunnerJobsBucket)
     {
         Description = "Fenced durable CI runner command acceptance pointers",
         History = 8,
@@ -78,8 +80,16 @@ public sealed class GlobalNatsTopology
 
     public NatsObjConfig Bundles => new("GLOBAL_BUNDLES")
     {
-        Description = "Content-addressed global candidate, handoff, and runner command records",
+        Description = "Content-addressed global candidate and handoff records",
         MaxBytes = 1024L * 1024 * 1024,
+        NumberOfReplicas = Replicas,
+    };
+
+    public NatsObjConfig RunnerBundles => new(RunnerBundlesBucket)
+    {
+        Description = "Content-addressed fenced CI runner command and signature records",
+        MaxAge = TimeSpan.FromDays(30),
+        MaxBytes = 512L * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };
 
@@ -129,10 +139,18 @@ public sealed class GlobalNatsTopology
     {
         if (zone is not ("untrusted-product" or "trusted-build"))
             throw new ArgumentException("The CI runner subject zone is invalid.", nameof(zone));
+        var hash = CiRunnerIdentityHash(runner);
+        return $"{CiJobSubjectPrefix}.{zone}.{hash[..24]}";
+    }
+
+    public static string CiRunnerJournalPrefix(string runner) =>
+        $"ci.runner.{CiRunnerIdentityHash(runner)}.job";
+
+    public static string CiRunnerIdentityHash(string runner)
+    {
         if (runner is not { Length: >= 1 and <= 512 } ||
             runner.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character)))
             throw new ArgumentException("The CI runner subject identity is invalid.", nameof(runner));
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(runner)));
-        return $"{CiJobSubjectPrefix}.{zone}.{hash[..24]}";
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(runner)));
     }
 }

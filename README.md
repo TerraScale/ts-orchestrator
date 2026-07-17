@@ -166,7 +166,8 @@ acknowledgement. Replay reuses the exact bytes and message ID plus the
 acknowledged stream sequence. The runner-side inbox rejects malformed,
 wrong-runner, expired, invalid-signature, stale-attempt, stale-authority, and
 stale-fence commands. It stores the canonical command and signature by digest
-in `GLOBAL_BUNDLES`, advances a compact monotonic pointer in `CI_RUNNER_JOBS`,
+in the isolated, 30-day `CI_RUNNER_BUNDLES` R3 bucket, advances a compact
+monotonic pointer in `CI_RUNNER_JOBS`,
 and acknowledges only after both objects survive readback and the pointer CAS
 succeeds. Exact redelivery after an acknowledgement failure resumes from that
 durable acceptance; higher fenced takeover and contiguous retry attempts can
@@ -185,10 +186,13 @@ a root key to the runtime. `TS_ORCH_COMMAND_SIGNING_KEY_FILE` and the
 path-separator-delimited `TS_ORCH_COMMAND_TRUST_KEY_FILES` (or their typed JSON
 configuration fields) are structurally validated with the rest of startup and
 opened before any NATS connection. The process retains the loaded identity for
-its lifetime and disposes it on shutdown. The live pipeline coordinator, scoped
-NATS identities, dynamic runner consumer reconciliation, runner process, and
-executor remain separate unimplemented gates; no unsigned runtime fallback is
-installed.
+its lifetime and disposes it on shutdown. A generated runner NATS permission
+plan is limited to its pre-created exact consumer, ACKs, own hashed KV journal
+prefix, the dedicated runner bundle bucket, and reply inboxes; it cannot publish
+jobs, use another runner's consumer or journal, mutate `GLOBAL_BUNDLES`, or call
+stream purge. JWT/NKey issuance, the live pipeline coordinator, dynamic runner
+consumer reconciliation, runner process, and executor remain separate
+unimplemented gates; no unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy
