@@ -382,8 +382,9 @@ bounded receipt binds the cell, global plan and handoff digests, generation,
 writer epoch, signed operation/idempotency identities, signature digest,
 acceptance time, and original stream sequence. Replays converge on the same
 receipt; stale writers/generations, same-generation equivocation, authority
-loss, corrupt payloads, and crash-before-pointer fail closed. `CELL_SPEC`
-transport/consumer wiring, runtime credential composition, and OCI KMS-backed
+loss, corrupt payloads, and crash-before-pointer fail closed. Exact global and
+regional publishers, bounded pull consumers, and the fenced relay boundary are
+implemented; runtime credential composition and OCI KMS-backed
 root/intermediate issuance remain.
 One compiled handoff targets at most 64 distinct cells, regardless of how cells
 are distributed across workloads, and the regional bundle store is capped at
@@ -432,6 +433,13 @@ and commits each new acknowledgement before attempting the next cell. A crash
 after stream storage but before CAS replays the same persisted bytes and message
 ID, then converges on the journal. Stale or conflicting durable state blocks the
 side effect, and a completed replay performs no publish.
+The handoff coordinator starts only from the restart-reconstructed durable
+source/base diff, persists its signed wires, and then invokes that resumable
+dispatch. Missing sources, legacy pointers without a recoverable diff, a source
+written by a newer authority, signing rejection, dispatch conflict, and every
+authority-loss edge are explicit non-success results. A crash anywhere after
+wire persistence resumes the same signature bytes, message identity, and
+per-cell acknowledgement progress rather than rebuilding from process memory.
 The global-to-regional relay decodes and validates one exact globally stored
 CellSpec against its destination cell, current global writer epoch, validity
 window, and injected signature trust policy before any regional side effect. It
