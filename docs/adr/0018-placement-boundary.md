@@ -3,7 +3,7 @@
 - Status: Proposed
 - Date: 2026-07-13
 - Owner lane: Integration/contract steward
-- Readiness entry: `docs/adr/readiness-index.yaml:215-224`, ADR 18 (`placement-boundary`)
+- Readiness entry: `docs/adr/readiness-index.yaml` entry for placement-boundary, ADR 18 (`placement-boundary`)
 - Depends on: ADR 10, ADR 13, ADR 15
 - Traces: `INV-005`, `INV-007`, `INV-008`, `INV-009`, `INV-013`, `INV-017`, `WRK-022`
 
@@ -26,7 +26,7 @@ The audited product snapshot at TerraScale.Internals commit `3643df207f9f1129c9f
 
 The target specification preserves this explicitly: the orchestrator provides regional TerraBase capacity and typed fenced machine operations but does not infer customer region selection from host load; monotonic generations, filtered-absence non-deletion, storage epochs, six directed replication paths, conflicts, and restore remain acceptance gates (`ORCHESTRATOR.md:1012-1039`, `ORCHESTRATOR.md:1659-1666`).
 
-ADR readiness identifies the still-missing evidence: golden placement compatibility fixtures, an explicit storage-epoch/filtered-absence ownership map, and cross-repository approval before any source-of-truth move (`docs/adr/readiness-index.yaml:215-224`). This record preserves the current owner; it does not move that authority.
+ADR readiness identifies the still-missing evidence: golden placement compatibility fixtures, an explicit storage-epoch/filtered-absence ownership map, and cross-repository approval before any source-of-truth move (`docs/adr/readiness-index.yaml` entry for placement-boundary). This record preserves the current owner; it does not move that authority.
 
 ## Proposed decision
 
@@ -80,7 +80,7 @@ Native GitOps may declare regional service roles, capacity bounds, routing/catal
 
 The dynamic region catalog defines which cells are available for new selection and supplies canonical metadata. It does not retroactively edit stored project placement. An unavailable or temporarily unknown stored region remains part of the existing placement until the product placement domain advances its generation.
 
-`WRK-022` requires catalog-aware selection to distinguish absent preference from invalid/unavailable input while preserving only an explicitly approved default. The orchestrator must not reproduce the historical behavior that silently maps invalid regions to GRU (`docs/retirement/workaround-ledger.yaml:581-605`). Catalog/default cleanup belongs to separate owning-repository work after golden compatibility fixtures and approval; no SDK or documentation file is changed by this ADR.
+`WRK-022` requires catalog-aware selection to distinguish absent preference from invalid/unavailable input while preserving only an explicitly approved default. The orchestrator must not reproduce the historical behavior that silently maps invalid regions to GRU (`historical workaround ledger WRK-022 in `docs/archive/docs-historical-full.tar.xz` (path `docs/retirement/workaround-ledger.yaml`); see also `docs/guides/architecture-boundaries.md``). Catalog/default cleanup belongs to separate owning-repository work after golden compatibility fixtures and approval; no SDK or documentation file is changed by this ADR.
 
 ## Boundary protocol
 

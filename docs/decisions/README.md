@@ -1,5 +1,7 @@
 # Phase 0 owner decision and SLO packet
 
+See also the consolidated documentation index in [`../README.md`](../README.md) and Phase 0 summary in [`../guides/phase0-evidence.md`](../guides/phase0-evidence.md).
+
 Status: owner choices 1A–10A accepted on 2026-07-16 with reliability first; measurable targets and later implementation selections remain pending.
 
 The machine-readable packet is `owner-decision-packet.json`. Its validator binds each decision to the exact table row in `ORCHESTRATOR.md`, including Markdown semantics, source line, and SHA-256 over the four cells joined by ASCII unit separator. The recorded `answer` must match the explicit owner response; the `recommended` field is historical decision context only.

@@ -1,20 +1,9 @@
 {
   "schemaVersion": 1,
   "contract": "ORCHESTRATOR.md proposed architecture dated 2026-07-13",
-  "generatedAt": "2026-07-13",
+  "generatedAt": "2026-07-17",
   "status": "readiness-map-not-decision-record",
-  "openOwnerQuestions": [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9,
-    10
-  ],
+  "openOwnerQuestions": [],
   "openPlanningInputs": [
     "team-size",
     "first-production-date",
@@ -43,8 +32,7 @@
       "status": "owner-input-required",
       "ownerLane": "Core",
       "controllingInputs": [
-        "owner-question-1",
-        "owner-question-2",
+        "owner-questions-1A-10A-accepted",
         "regional-rpo-rto"
       ],
       "availableEvidence": [
@@ -70,8 +58,7 @@
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
       "controllingInputs": [
-        "owner-question-1",
-        "owner-question-8",
+        "owner-questions-1A-10A-accepted",
         "storage-slo"
       ],
       "availableEvidence": [
@@ -194,10 +181,10 @@
       "id": 6,
       "slug": "workload-runtime-contract",
       "title": "Unified workload schema and systemd/containerd driver contract",
-      "status": "owner-input-required",
+      "status": "evidence-required",
       "ownerLane": "Runtime",
       "controllingInputs": [
-        "owner-question-4"
+        "owner-questions-1A-10A-accepted"
       ],
       "availableEvidence": [
         "ORCHESTRATOR.md:400-445",
@@ -260,7 +247,7 @@
       "status": "owner-input-required",
       "ownerLane": "Core",
       "controllingInputs": [
-        "owner-question-8",
+        "owner-questions-1A-10A-accepted",
         "maximum-three-region-pre-user-cost",
         "storage-slo",
         "memory-and-density-slo"
@@ -296,7 +283,7 @@
       "status": "owner-input-required",
       "ownerLane": "Storage",
       "controllingInputs": [
-        "owner-question-5",
+        "owner-questions-1A-10A-accepted",
         "storage-slo",
         "regional-rpo-rto"
       ],
@@ -330,9 +317,7 @@
       "status": "owner-input-required",
       "ownerLane": "TerraBase",
       "controllingInputs": [
-        "owner-question-4",
-        "owner-question-5",
-        "owner-question-10",
+        "owner-questions-1A-10A-accepted",
         "storage-slo",
         "regional-rpo-rto"
       ],
@@ -400,7 +385,7 @@
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
       "controllingInputs": [
-        "owner-question-3",
+        "owner-questions-1A-10A-accepted",
         "regional-rpo-rto",
         "maximum-survival-window"
       ],
@@ -459,10 +444,10 @@
       "id": 14,
       "slug": "ci-supply-chain",
       "title": "CI trust zones, release graph, bootstrap/recovery path, and artifact signing",
-      "status": "owner-input-required",
+      "status": "evidence-required",
       "ownerLane": "Delivery",
       "controllingInputs": [
-        "owner-question-7",
+        "owner-questions-1A-10A-accepted",
         "artifact-and-evidence-signing-selection"
       ],
       "availableEvidence": [
@@ -525,10 +510,10 @@
       "id": 16,
       "slug": "vpn-connectivity",
       "title": "VPN implementation and scalable twenty-region connectivity",
-      "status": "owner-input-required",
+      "status": "evidence-required",
       "ownerLane": "Operations",
       "controllingInputs": [
-        "owner-question-6",
+        "owner-questions-1A-10A-accepted",
         "vpn-implementation-selection"
       ],
       "availableEvidence": [
@@ -561,7 +546,7 @@
       "status": "owner-input-required",
       "ownerLane": "Operations",
       "controllingInputs": [
-        "owner-question-9",
+        "owner-questions-1A-10A-accepted",
         "operator-identity-provider-selection",
         "security-slo"
       ],
@@ -623,7 +608,7 @@
       "status": "owner-input-required",
       "ownerLane": "Core",
       "controllingInputs": [
-        "owner-question-6",
+        "owner-questions-1A-10A-accepted",
         "maximum-three-region-pre-user-cost",
         "storage-slo",
         "regional-rpo-rto",
@@ -692,8 +677,7 @@
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
       "controllingInputs": [
-        "owner-question-2",
-        "owner-question-3",
+        "owner-questions-1A-10A-accepted",
         "regional-rpo-rto",
         "maximum-survival-window",
         "regional-artifact-mirror-selection"
@@ -838,5 +822,6 @@
         "Separate reviewed cleanup PR evidence"
       ]
     }
-  ]
+  ],
+  "notes": "Owner choices 1A-10A accepted 2026-07-16 (reliability first). openOwnerQuestions cleared. Measurable qualification targets remain openPlanningInputs. Evidence anchors rewritten to ORCHESTRATOR.md and docs/guides after historical audit archival."
 }

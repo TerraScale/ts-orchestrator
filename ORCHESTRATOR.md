@@ -214,7 +214,7 @@ The workspace-level `CI_REFACTOR_PLAN.md` and repository-owned `.terrascale/depl
 
 ### Mandatory workaround-retirement ledger
 
-“Remove all workarounds” is a tracked greenfield cleanup deliverable, not a claim based on selected examples. Phase 0 scans every pre-existing repository and creates `docs/retirement/workaround-ledger.yaml`. Every entry has a stable `WRK-*` ID, repository/file/line or generated-resource evidence, original failure/constraint, semantic behavior that must be preserved, native replacement requirement/state machine, owning workstream, removal phase/PR, regression/L3S scenario, recovery boundary, and proof that obsolete code plus any cloud/IAM/DNS/secret remnant disappeared. CI fails if an identified entry has no disposition or if retired Kubernetes/Flux/Grafana glue returns.
+“Remove all workarounds” is a tracked greenfield cleanup deliverable, not a claim based on selected examples. Phase 0 scans every pre-existing repository and maintains the workaround ledger (living summary in `docs/guides/phase0-evidence.md`; full historical `docs/retirement/workaround-ledger.yaml` in `docs/archive/docs-historical-full.tar.xz`). Every entry has a stable `WRK-*` ID, repository/file/line or generated-resource evidence, original failure/constraint, semantic behavior that must be preserved, native replacement requirement/state machine, owning workstream, removal phase/PR, regression/L3S scenario, recovery boundary, and proof that obsolete code plus any cloud/IAM/DNS/secret remnant disappeared. CI fails if an identified entry has no disposition or if retired Kubernetes/Flux/Grafana glue returns.
 
 The initial seed ledger is:
 
@@ -1321,9 +1321,11 @@ TerraScale.Orchestrator/
   test-evidence/                            # schemas for trace/evidence/attestations, not CI outputs
   testlab/                                  # pinned Smolfiles/images, 9-node manifests, link fabric, block harness
   packaging/systemd/
-  docs/adr/
-  docs/work-packages/                       # sub-agent scopes/dependencies/handoffs
-  docs/retirement/workaround-ledger.yaml
+  docs/                                   # consolidated guides, ADRs, decisions, archives
+  docs/guides/                            # living Phase 0/1 maps and architecture boundaries
+  docs/adr/                               # readiness index + draft ADRs
+  docs/decisions/                         # owner decision packet
+  docs/archive/                           # compressed historical work-packages/audits/ledger
   docs/runbooks/
   .terrascale/deploy.json
   .forgejo/workflows/bootstrap.yml

@@ -2,6 +2,8 @@
 
 TerraScale.Orchestrator is the greenfield, TerraScale-specific control plane described in [ORCHESTRATOR.md](ORCHESTRATOR.md). The repository is executing Phase 0 evidence work and pure Phase 1 contract tranches in parallel, without deployment authority.
 
+Navigable documentation lives under [`docs/`](docs/README.md): architecture boundaries, Phase 0 evidence, Phase 1 pure-contract maps, ADRs, owner decisions, and compressed historical work packages/audits.
+
 Owner choices 1A–10A are accepted with reliability first. Numeric cost, database-storage, RPO, and RTO targets remain evidence-derived deployment gates; they do not justify weakening R3 state, single-node-failure tolerance, backups, storage integrity, or security. The repository must not start a system-under-test VM or mutate cloud infrastructure before exact-tree L0/L0C evidence authorizes it.
 
 ## Baseline validation

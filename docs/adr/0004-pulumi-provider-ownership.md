@@ -7,11 +7,11 @@
 
 ## Context
 
-TerraScale needs Pulumi to establish durable cloud foundation without leaving Pulumi and the regional orchestrator as competing reconcilers. The platform is greenfield: the new ownership graph may not adopt an OCID, identity root, data resource, or control resource from the deleted OKE estate (`REQ-O023`). The checked-in residual inventory does not weaken that rule: OCI discovery failed before scoped queries ran, so OKE absence and residual resource counts remain unproven, not empty ([OCI audit, lines 16-32](../audits/oci/phase0-residual-inventory.md#L16-L32)).
+TerraScale needs Pulumi to establish durable cloud foundation without leaving Pulumi and the regional orchestrator as competing reconcilers. The platform is greenfield: the new ownership graph may not adopt an OCID, identity root, data resource, or control resource from the deleted OKE estate (`REQ-O023`). The checked-in residual inventory does not weaken that rule: OCI discovery failed before scoped queries ran, so OKE absence and residual resource counts remain unproven, not empty ([Phase 0 evidence guide](../guides/phase0-evidence.md)).
 
 The specification already separates durable foundation from concrete regional resources. Pulumi creates and versions networking, IAM, root protection, image and launch templates, caps, bootstrap generations, initial seeds, initial dual-NATS stores, and the signed `BootstrapBundle`. After a deliberate handoff, the regional controller owns concrete nodes, workload backends, eligible attachments, and orchestrator-created volumes ([specification, lines 627-640](../../ORCHESTRATOR.md#L627-L640)). This is the boundary expressed by `REQ-O010` and `INV-014` ([requirement trace, lines 122 and 156](../../ORCHESTRATOR.md#L122-L156)).
 
-The historical estate is evidence only. Its Pulumi stack still contains OKE assumptions and concrete regional identifiers; `WRK-001` preserves the durable-foundation boundary while replacing OKE capacity, and `WRK-018` requires unknown resources to be quarantined rather than adopted or deleted ([WRK-001, lines 103-123](../retirement/workaround-ledger.yaml#L103-L123); [WRK-018, lines 481-505](../retirement/workaround-ledger.yaml#L481-L505)).
+The historical estate is evidence only. Its Pulumi stack still contains OKE assumptions and concrete regional identifiers; `WRK-001` preserves the durable-foundation boundary while replacing OKE capacity, and `WRK-018` requires unknown resources to be quarantined rather than adopted or deleted (historical WRK-001 / WRK-018 in `docs/archive/docs-historical-full.tar.xz`).
 
 ## Proposed decision
 

@@ -3,7 +3,7 @@
 - Status: Proposed
 - Date: 2026-07-13
 - Owner lane: Delivery
-- Readiness entry: `docs/adr/readiness-index.yaml:155-164`, ADR 13 (`native-gitops`)
+- Readiness entry: `docs/adr/readiness-index.yaml` entry for native-gitops, ADR 13 (`native-gitops`)
 - Depends on: ADR 1, ADR 6, ADR 14, ADR 18, ADR 24
 - Traces: `REQ-O014`, `REQ-O017`, `REQ-O023`, `INV-002`, `INV-004`, `INV-005`, `INV-011`, `INV-013`, `INV-015`, `INV-017`, `WRK-002`, `WRK-003`, `WRK-004`, `WRK-005`
 
@@ -11,18 +11,18 @@
 
 The owner decision is a clean break: GitOps is native to the orchestrator and Flux is removed rather than embedded, emulated, or retained as a runtime dependency (`ORCHESTRATOR.md:52-61`). The greenfield deployment adopts no Kubernetes or Flux resource, state, identity, secret, or API (`ORCHESTRATOR.md:54-60`, `ORCHESTRATOR.md:162-180`). Historical repositories remain read-only evidence of behavior and workarounds, not an input contract (`ORCHESTRATOR.md:182-220`).
 
-ADR readiness classifies this record as draft-ready but identifies three missing bodies of proof: the fresh schema and compatibility fixtures, complete historical behavior reconciliation, and cleanup-PR sequencing tied to native replacement gates (`docs/adr/readiness-index.yaml:155-164`). This proposal states the boundary and the evidence required to accept it; it does not claim those proofs exist.
+ADR readiness classifies this record as draft-ready but identifies three missing bodies of proof: the fresh schema and compatibility fixtures, complete historical behavior reconciliation, and cleanup-PR sequencing tied to native replacement gates (`docs/adr/readiness-index.yaml` entry for native-gitops). This proposal states the boundary and the evidence required to accept it; it does not claim those proofs exist.
 
 The retirement ledger records the behavior that must survive without preserving its implementation:
 
 | Ledger item | Historical constraint | Behavior to preserve | Native replacement evidence |
 |---|---|---|---|
-| `WRK-002` | Flux reconciliation could acknowledge before dependencies were healthy because readiness waiting was disabled. | Ordered dependencies, asynchronous progress, health gates, restart-safe acknowledgement. | Typed dependency and health state machines; a journaled receipt acknowledged only at the configured durable checkpoint; dependency failure and restart at every checkpoint in L0/L3S (`docs/retirement/workaround-ledger.yaml:125-145`). |
-| `WRK-003` | A webhook was followed by forced `kubectl` reconciliation and polling. | Prompt triggering, durable acceptance, safe replay, and a visible rejection/failure. | One signed, generation/deadline/idempotency/fence-bound reconcile command journaled before acknowledgement; webhook, NATS, controller, duplicate, and stale-writer failures in L0/L3S (`docs/retirement/workaround-ledger.yaml:147-171`). |
-| `WRK-004` | Suspended regional image writers and rollout-guard coordination approximated exclusive publication. | Build once, exact-digest promotion, one release writer, and safe rollback. | A fenced writer, promotion lease, and compare-and-swap generation over the immutable digest; concurrent-writer, lease-expiry, partial-promotion, and adversarial rollback proof (`docs/retirement/workaround-ledger.yaml:173-193`). |
-| `WRK-005` | Deployment progress was assembled through `kubectl`, context fan-out, polling, and shell recovery. | Cross-region progress, explicit failure, exact-digest convergence, timeout, and resumability. | Typed regional operations with durable checkpoints, idempotent resume, and a global same-digest barrier; crash, timeout, WAN-loss, partial-convergence, and retry proof (`docs/retirement/workaround-ledger.yaml:195-215`). |
+| `WRK-002` | Flux reconciliation could acknowledge before dependencies were healthy because readiness waiting was disabled. | Ordered dependencies, asynchronous progress, health gates, restart-safe acknowledgement. | Typed dependency and health state machines; a journaled receipt acknowledged only at the configured durable checkpoint; dependency failure and restart at every checkpoint in L0/L3S (`historical WRK-002 in archive `docs/retirement/workaround-ledger.yaml``). |
+| `WRK-003` | A webhook was followed by forced `kubectl` reconciliation and polling. | Prompt triggering, durable acceptance, safe replay, and a visible rejection/failure. | One signed, generation/deadline/idempotency/fence-bound reconcile command journaled before acknowledgement; webhook, NATS, controller, duplicate, and stale-writer failures in L0/L3S (`historical WRK-003 in archive `docs/retirement/workaround-ledger.yaml``). |
+| `WRK-004` | Suspended regional image writers and rollout-guard coordination approximated exclusive publication. | Build once, exact-digest promotion, one release writer, and safe rollback. | A fenced writer, promotion lease, and compare-and-swap generation over the immutable digest; concurrent-writer, lease-expiry, partial-promotion, and adversarial rollback proof (`historical WRK-004 in archive `docs/retirement/workaround-ledger.yaml``). |
+| `WRK-005` | Deployment progress was assembled through `kubectl`, context fan-out, polling, and shell recovery. | Cross-region progress, explicit failure, exact-digest convergence, timeout, and resumability. | Typed regional operations with durable checkpoints, idempotent resume, and a global same-digest barrier; crash, timeout, WAN-loss, partial-convergence, and retry proof (`historical WRK-005 in archive `docs/retirement/workaround-ledger.yaml``). |
 
-The audited release contract independently requires immutable candidates, a fenced promotion lease, resumable external-operation boundaries, and promotion without rebuilding. Existing `flux-*` strategy strings are rollout evidence only and are not compatibility contracts (`docs/audits/phase0-product-contract-source-audit.md:52-67`).
+The audited release contract independently requires immutable candidates, a fenced promotion lease, resumable external-operation boundaries, and promotion without rebuilding. Existing `flux-*` strategy strings are rollout evidence only and are not compatibility contracts (``docs/guides/phase0-evidence.md` and historical audit in `docs/archive/docs-historical-full.tar.xz``).
 
 ## Proposed decision
 
