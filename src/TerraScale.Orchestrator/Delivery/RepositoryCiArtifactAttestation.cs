@@ -107,6 +107,26 @@ internal static class RepositoryCiArtifactAttestation
         return new(signingIdentity, artifact.SignatureId, runtime.ObservedRuntimeDigest);
     }
 
+    internal static string SubjectDigest(RepositoryCiArtifactSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        if (!Valid(subject)) throw new ArgumentException("The artifact subject is invalid.", nameof(subject));
+        return Convert.ToHexStringLower(SHA256.HashData(Material(writer =>
+        {
+            writer.WriteString("domain", "terrascale.ci/artifact-subject/v1");
+            WriteSubject(writer, subject);
+        }).Span));
+    }
+
+    internal static bool StructurallyValid(RepositoryCiSignedArtifact? artifact) => artifact is not null &&
+        Valid(artifact.Subject) && Identity(artifact.SigningIdentity?.Value) &&
+        ValidSignature(artifact.SignatureId, artifact.Signature);
+
+    internal static bool StructurallyValid(RepositoryCiSignedRuntimeObservation? runtime) => runtime is not null &&
+        Valid(runtime.Subject) && runtime.Subject.Architecture != RepositoryCiArchitecture.Any &&
+        Identity(runtime.RunnerIdentity) && Digest(runtime.ObservedRuntimeDigest?.Value) &&
+        ValidSignature(runtime.SignatureId, runtime.Signature);
+
     private static ReadOnlyMemory<byte> ArtifactMaterial(
         RepositoryCiArtifactSubject subject,
         SigningIdentityId signingIdentity) => Material(writer =>
