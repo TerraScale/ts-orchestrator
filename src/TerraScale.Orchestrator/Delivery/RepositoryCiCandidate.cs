@@ -14,6 +14,7 @@ public sealed record RepositoryCiJobResult(
     string EvidenceDigest);
 
 public sealed record RepositoryCiArtifactResult(
+    string Repository,
     JobId Job,
     ArtifactId Artifact,
     RepositoryCiArchitecture Architecture,
@@ -123,6 +124,8 @@ public static class RepositoryCiCandidateAssembler
                 throw new InvalidOperationException("An artifact job lacks candidate publication authority.");
             var artifact = artifactByIdentity[(job.Request.Job.Value, architecture)];
             ValidateArtifact(artifact);
+            if (artifact.Repository != job.Plan.Repository)
+                throw new InvalidDataException("Candidate artifact ownership does not match its release job.");
             if (architecture == RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest is not null ||
                 architecture != RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest != artifact.Digest)
                 throw new InvalidDataException("Candidate runtime evidence does not match the exact native artifact digest.");
@@ -206,7 +209,8 @@ public static class RepositoryCiCandidateAssembler
             throw new InvalidDataException("Persisted candidate jobs are invalid.");
         var artifactByIdentity = UniqueArtifacts(artifactArray);
         if (artifactByIdentity.Count != artifactArray.Length ||
-            artifactArray.Any(artifact => !jobById.ContainsKey(artifact.Job.Value)))
+            artifactArray.Any(artifact => !jobById.ContainsKey(artifact.Job.Value) ||
+                !sourceArray.Any(source => source.Repository == artifact.Repository)))
             throw new InvalidDataException("Persisted candidate artifacts do not match its jobs.");
         foreach (var artifact in artifactArray)
         {
@@ -275,7 +279,8 @@ public static class RepositoryCiCandidateAssembler
 
     private static void ValidateArtifact(RepositoryCiArtifactResult artifact)
     {
-        if (!IsArtifactId(artifact.Artifact?.Value) || !IsDigest(artifact.Digest?.Value) ||
+        if (!ForgejoWebhookVerifier.IsRepository(artifact.Repository) ||
+            !IsArtifactId(artifact.Artifact?.Value) || !IsDigest(artifact.Digest?.Value) ||
             !RepositoryCiArtifactAttestation.TryEntrypointsDigest(
                 artifact.Architecture,
                 artifact.Entrypoints,
@@ -328,6 +333,7 @@ public static class RepositoryCiCandidateAssembler
             foreach (var artifact in artifacts)
             {
                 writer.WriteStartObject();
+                writer.WriteString("repository", artifact.Repository);
                 writer.WriteString("job", artifact.Job.Value);
                 writer.WriteString("artifact", artifact.Artifact.Value);
                 writer.WriteString("architecture", artifact.Architecture.ToString());

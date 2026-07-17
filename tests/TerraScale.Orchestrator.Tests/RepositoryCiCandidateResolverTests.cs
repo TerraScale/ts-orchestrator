@@ -120,6 +120,7 @@ public sealed class RepositoryCiCandidateResolverTests
         var artifacts = pipeline.Jobs
             .Where(static job => job.Plan.Node.Kind == RepositoryCiNodeKind.Artifact)
             .Select((job, index) => new RepositoryCiArtifactResult(
+                job.Plan.Repository,
                 job.Request.Job,
                 new($"artifact-{index}"),
                 RepositoryCiArchitecture.Any,

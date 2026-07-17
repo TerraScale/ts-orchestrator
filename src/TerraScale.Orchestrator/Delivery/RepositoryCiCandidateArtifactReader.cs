@@ -106,6 +106,7 @@ internal sealed class RepositoryCiCandidateArtifactReader(
                     architecture != RepositoryCiArchitecture.Any && verified.ObservedRuntimeDigest != subject.Digest)
                     throw new InvalidDataException("The verified artifact attestation does not match its exact subject.");
                 results.Add(new(
+                    planned.Plan.Repository,
                     subject.Job,
                     subject.Artifact,
                     subject.Architecture,

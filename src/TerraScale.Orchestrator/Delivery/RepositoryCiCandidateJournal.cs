@@ -733,7 +733,7 @@ internal sealed class RepositoryCiCandidateJournal
         }
         var content = await ReadContentAsync(pointer, cancellationToken);
         var document = DeserializeCandidate(content);
-        if (document.SchemaVersion != 2 || document.Digest != digest ||
+        if (document.SchemaVersion != 3 || document.Digest != digest ||
             document.CandidateDigest != pointer.CandidateDigest)
             throw new InvalidDataException("The candidate object differs from its durable pointer.");
         return RepositoryCiCandidateAssembler.Restore(
@@ -1115,7 +1115,7 @@ internal sealed record RepositoryCiCandidateObjectDocument(
     RepositoryCiArtifactResult[] Artifacts)
 {
     internal static RepositoryCiCandidateObjectDocument From(RepositoryCiCandidate candidate) => new(
-        2,
+        3,
         candidate.Digest,
         candidate.Digest,
         candidate.Pipeline.Value,
