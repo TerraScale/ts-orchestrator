@@ -136,6 +136,17 @@ public sealed class ForgejoWebhookJournalTests
 
         internal int Mutations { get; private set; }
 
+        internal IReadOnlyList<string> Values
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return entries.Values.Select(static entry => entry.Value).ToArray();
+                }
+            }
+        }
+
         internal IEnumerable<ForgejoWebhookJournalDocument> Documents
         {
             get
