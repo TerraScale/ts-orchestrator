@@ -6,6 +6,7 @@
     <SelfContained>true</SelfContained>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="OCI.DotNetSDK.Core" />
     <PackageReference Include="TUnit" />
     <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </ItemGroup>

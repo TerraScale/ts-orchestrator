@@ -2,6 +2,16 @@
   "version": 2,
   "dependencies": {
     "net10.0": {
+      "OCI.DotNetSDK.Core": {
+        "type": "Direct",
+        "requested": "[142.0.0, )",
+        "resolved": "142.0.0",
+        "contentHash": "1WGjnQDsjJ1ez/3ogE5nBpOWSeNdnNBjI28Lj+eN/dg+JGUxRgyxb0qtEd3TFna1nU8BKTJ58nLoLGkQGkS50Q==",
+        "dependencies": {
+          "OCI.DotNetSDK.Common": "142.0.0",
+          "OCI.DotNetSDK.Workrequests": "142.0.0"
+        }
+      },
       "TUnit": {
         "type": "Direct",
         "requested": "[1.56.18, )",
@@ -440,16 +450,6 @@
         "requested": "[13.0.4, )",
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
-      },
-      "OCI.DotNetSDK.Core": {
-        "type": "CentralTransitive",
-        "requested": "[142.0.0, )",
-        "resolved": "142.0.0",
-        "contentHash": "1WGjnQDsjJ1ez/3ogE5nBpOWSeNdnNBjI28Lj+eN/dg+JGUxRgyxb0qtEd3TFna1nU8BKTJ58nLoLGkQGkS50Q==",
-        "dependencies": {
-          "OCI.DotNetSDK.Common": "142.0.0",
-          "OCI.DotNetSDK.Workrequests": "142.0.0"
-        }
       },
       "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
         "type": "CentralTransitive",
