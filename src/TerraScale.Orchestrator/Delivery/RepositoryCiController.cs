@@ -131,12 +131,15 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         EnsureSafe(tick.Disposition);
         if (tick.Disposition is RepositoryCiPipelineRunCoordinationDisposition.Succeeded or
             RepositoryCiPipelineRunCoordinationDisposition.Failed)
-            return await DrainAsync(pipeline, tick.Disposition, cancellationToken);
+            return await DrainAsync(pipeline, tick.Disposition, StillValid, cancellationToken);
         var run = tick.Run ?? await jobs.ReadAsync(pipeline, cancellationToken);
 
         var assignments = Assign(run);
         foreach (var slot in assignments.Values.DistinctBy(static value => value.Demand.Runner))
+        {
+            if (!StillValid()) return Result(RepositoryCiControllerDisposition.AuthorityLost, pipeline);
             await reconcileConsumer(Zone(slot.Demand.Zone), slot.Demand.Runner, cancellationToken);
+        }
         var active = run.Jobs.Where(static value => value.Phase is
                 RepositoryCiJobPhase.DispatchPrepared or RepositoryCiJobPhase.Dispatched or
                 RepositoryCiJobPhase.Running)
@@ -146,7 +149,9 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         var desired = assignments.Values.Select(static value => value.Demand)
             .DistinctBy(static value => $"{value.Runner}:{value.Sequence}")
             .ToArray();
-        var observations = await ScaleAsync(desired, active, cancellationToken);
+        var observations = await ScaleAsync(desired, active, StillValid, cancellationToken);
+        if (observations is null)
+            return Result(RepositoryCiControllerDisposition.AuthorityLost, pipeline);
         var running = observations.Where(static value => value.State == OciCiRunnerNodeState.Running)
             .Select(static value => $"{value.Runner}:{value.Sequence}")
             .ToHashSet(StringComparer.Ordinal);
@@ -166,7 +171,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
             EnsureSafe(tick.Disposition);
             if (tick.Disposition is RepositoryCiPipelineRunCoordinationDisposition.Succeeded or
                 RepositoryCiPipelineRunCoordinationDisposition.Failed)
-                return await DrainAsync(pipeline, tick.Disposition, cancellationToken);
+                return await DrainAsync(pipeline, tick.Disposition, StillValid, cancellationToken);
         }
         return StillValid()
             ? Result(RepositoryCiControllerDisposition.Active, pipeline)
@@ -176,9 +181,16 @@ internal sealed class RepositoryCiController : IAsyncDisposable
     private async Task<RepositoryCiControllerReceipt> DrainAsync(
         RepositoryCiPipelinePlan pipeline,
         RepositoryCiPipelineRunCoordinationDisposition terminal,
+        Func<bool> authorityStillValid,
         CancellationToken cancellationToken)
     {
-        var observed = await ScaleAsync([], new HashSet<string>(StringComparer.Ordinal), cancellationToken);
+        var observed = await ScaleAsync(
+            [],
+            new HashSet<string>(StringComparer.Ordinal),
+            authorityStillValid,
+            cancellationToken);
+        if (observed is null)
+            return Result(RepositoryCiControllerDisposition.AuthorityLost, pipeline);
         if (observed.Any(static value => value.State != OciCiRunnerNodeState.Terminated))
             return Result(RepositoryCiControllerDisposition.Active, pipeline);
         return Result(
@@ -222,9 +234,10 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         return assignments;
     }
 
-    private async Task<IReadOnlyList<OciCiRunnerNodeObservation>> ScaleAsync(
+    private async Task<IReadOnlyList<OciCiRunnerNodeObservation>?> ScaleAsync(
         IReadOnlyList<OciCiRunnerDemand> desired,
         IReadOnlySet<string> active,
+        Func<bool> authorityStillValid,
         CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
@@ -245,13 +258,20 @@ internal sealed class RepositoryCiController : IAsyncDisposable
             pool.IdleTimeout,
             pool.Slots.Count,
             pool.Template,
+            pool.Slots.Select(static slot => slot.Demand),
             desired,
             current);
         foreach (var action in OciCiRunnerCapacityEngine.Decide(request))
+        {
+            if (!authorityStillValid()) return null;
             _ = await capacity.ExecuteAsync(action, cancellationToken);
+        }
+        if (!authorityStillValid()) return null;
         foreach (var node in current.Where(static value => value.State == OciCiRunnerNodeState.Terminated))
             activity.Remove(node.Runner);
-        return Array.AsReadOnly(current);
+        return Array.AsReadOnly(current.Where(node => pool.Slots.Any(slot =>
+            slot.Demand.Runner == node.Runner && slot.Demand.Sequence == node.Sequence &&
+            OciCiRunnerCapacityEngine.Matches(node, slot.Demand, pool.Template))).ToArray());
     }
 
     private OciCiRunnerPoolSlot Slot(string runner, long sequence) =>
@@ -274,7 +294,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
     private static bool Ready(RegionalAuthoritySnapshot value) =>
         value.Ready && value.IsLeader && value.Epoch > 0 && value.KvRevision > 0;
 
-    private static bool SameAuthority(RegionalAuthoritySnapshot expected, RegionalAuthoritySnapshot current) =>
+    internal static bool SameAuthority(RegionalAuthoritySnapshot expected, RegionalAuthoritySnapshot current) =>
         Ready(current) && current.Epoch == expected.Epoch && current.KvRevision >= expected.KvRevision;
 
     private static string Zone(TrustZone zone) => zone switch

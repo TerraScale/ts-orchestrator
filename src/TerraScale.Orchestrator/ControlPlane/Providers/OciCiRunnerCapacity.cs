@@ -126,6 +126,7 @@ internal sealed class OciCiRunnerCapacityRequest
         TimeSpan idleTimeout,
         int maximumNodes,
         OciCiRunnerLaunchTemplate launchTemplate,
+        IEnumerable<OciCiRunnerDemand> permitted,
         IEnumerable<OciCiRunnerDemand> desired,
         IEnumerable<OciCiRunnerNodeObservation> observed)
     {
@@ -137,11 +138,18 @@ internal sealed class OciCiRunnerCapacityRequest
         IdleTimeout = idleTimeout;
         MaximumNodes = maximumNodes;
         LaunchTemplate = launchTemplate ?? throw new ArgumentNullException(nameof(launchTemplate));
+        Permitted = Snapshot(permitted, maximumNodes, nameof(permitted));
         Desired = Snapshot(desired, maximumNodes, nameof(desired));
         Observed = Snapshot(observed, 512, nameof(observed));
-        if (Desired.Select(static item => $"{item.Runner}:{item.Sequence}").Distinct(StringComparer.Ordinal).Count() !=
-            Desired.Count || Observed.Select(static item => item.InstanceId).Distinct(StringComparer.Ordinal).Count() !=
-            Observed.Count)
+        var permittedByIdentity = Permitted.ToDictionary(
+            static item => $"{item.Runner}:{item.Sequence}",
+            StringComparer.Ordinal);
+        if (Permitted.Count == 0 || permittedByIdentity.Count != Permitted.Count ||
+            Desired.Select(static item => $"{item.Runner}:{item.Sequence}").Distinct(StringComparer.Ordinal).Count() !=
+                Desired.Count || Desired.Any(item => !permittedByIdentity.TryGetValue(
+                    $"{item.Runner}:{item.Sequence}", out var configured) ||
+                    configured.Zone != item.Zone || configured.BootstrapSha256 != item.BootstrapSha256) ||
+            Observed.Select(static item => item.InstanceId).Distinct(StringComparer.Ordinal).Count() != Observed.Count)
             throw new ArgumentException("OCI CI runner capacity evidence contains a duplicate identity.");
         foreach (var node in Observed)
         {
@@ -157,6 +165,7 @@ internal sealed class OciCiRunnerCapacityRequest
     internal TimeSpan IdleTimeout { get; }
     internal int MaximumNodes { get; }
     internal OciCiRunnerLaunchTemplate LaunchTemplate { get; }
+    internal IReadOnlyList<OciCiRunnerDemand> Permitted { get; }
     internal IReadOnlyList<OciCiRunnerDemand> Desired { get; }
     internal IReadOnlyList<OciCiRunnerNodeObservation> Observed { get; }
 
@@ -193,6 +202,9 @@ internal static class OciCiRunnerCapacityEngine
             static demand => $"{demand.Runner}:{demand.Sequence}",
             StringComparer.Ordinal);
         var live = request.Observed.Where(static node => node.State is not OciCiRunnerNodeState.Terminated).ToArray();
+        var managed = live.Where(node => request.Permitted.Any(demand =>
+            demand.Runner == node.Runner && demand.Sequence == node.Sequence &&
+            Matches(node, demand, request.LaunchTemplate))).ToArray();
         foreach (var demand in request.Desired)
         {
             var collisions = live.Where(node => node.Runner == demand.Runner && node.Sequence == demand.Sequence).ToArray();
@@ -201,7 +213,7 @@ internal static class OciCiRunnerCapacityEngine
         }
 
         var actions = new List<OciCiRunnerCapacityAction>();
-        foreach (var node in live.OrderBy(static node => node.InstanceId, StringComparer.Ordinal))
+        foreach (var node in managed.OrderBy(static node => node.InstanceId, StringComparer.Ordinal))
         {
             var stopped = node.State == OciCiRunnerNodeState.Stopped;
             if (!Owned(node) || node.State is not (OciCiRunnerNodeState.Running or OciCiRunnerNodeState.Stopped) ||
@@ -213,9 +225,10 @@ internal static class OciCiRunnerCapacityEngine
             actions.Add(new TerminateOciCiRunnerAction(node.InstanceId, node.ETag));
         }
 
-        var available = Math.Max(0, request.MaximumNodes - live.Length);
+        var available = Math.Max(0, request.MaximumNodes - managed.Length);
         foreach (var demand in request.Desired
-                     .Where(demand => live.All(node => node.Runner != demand.Runner || node.Sequence != demand.Sequence))
+                     .Where(demand => managed.All(node =>
+                         node.Runner != demand.Runner || node.Sequence != demand.Sequence))
                      .OrderBy(static demand => demand.Runner, StringComparer.Ordinal)
                      .ThenBy(static demand => demand.Sequence)
                      .Take(available))
@@ -243,7 +256,7 @@ internal static class OciCiRunnerCapacityEngine
         node.FreeformTags.TryGetValue(SequenceTag, out var sequence) &&
         sequence == node.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    private static bool Matches(
+    internal static bool Matches(
         OciCiRunnerNodeObservation node,
         OciCiRunnerDemand demand,
         OciCiRunnerLaunchTemplate template) =>

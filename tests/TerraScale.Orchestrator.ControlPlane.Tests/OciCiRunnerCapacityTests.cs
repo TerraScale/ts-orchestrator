@@ -39,7 +39,8 @@ public sealed class OciCiRunnerCapacityTests
     {
         var demand = Demand("runner-idle", 42);
         var idle = Node(demand, "idle", active: false, Now.AddSeconds(-61));
-        var active = Node(Demand("runner-active", 43), "active", active: true, Now.AddMinutes(-5));
+        var activeDemand = Demand("runner-active", 43);
+        var active = Node(activeDemand, "active", active: true, Now.AddMinutes(-5));
         var unownedDemand = Demand("runner-unowned", 44);
         var unownedTags = new Dictionary<string, string>(
             OciCiRunnerCapacityEngine.Tags(unownedDemand, 7),
@@ -49,7 +50,8 @@ public sealed class OciCiRunnerCapacityTests
         };
         var unowned = Node(unownedDemand, "unowned", active: false, Now.AddMinutes(-5), unownedTags);
 
-        var action = OciCiRunnerCapacityEngine.Decide(Request([], [idle, active, unowned])).Single();
+        var action = OciCiRunnerCapacityEngine.Decide(
+            Request([], [idle, active, unowned], permitted: [demand, activeDemand])).Single();
         var terminate = OciCiRunnerRequestCompiler.Terminate((TerminateOciCiRunnerAction)action);
 
         await Assert.That(terminate.InstanceId).IsEqualTo(idle.InstanceId);
@@ -66,7 +68,8 @@ public sealed class OciCiRunnerCapacityTests
         var full = Request(
             [wanted],
             [Node(obsolete, "obsolete", active: false, Now.AddMinutes(-5))],
-            maximumNodes: 1);
+            maximumNodes: 2,
+            permitted: [obsolete, wanted]);
         var actions = OciCiRunnerCapacityEngine.Decide(full);
         var collision = Node(
             wanted,
@@ -76,8 +79,9 @@ public sealed class OciCiRunnerCapacityTests
             new Dictionary<string, string>(StringComparer.Ordinal));
         var durable = Node(wanted, "durable", active: false, Now) with { Preemptible = false };
 
-        await Assert.That(actions).Count().IsEqualTo(1);
-        await Assert.That(actions.Single()).IsTypeOf<TerminateOciCiRunnerAction>();
+        await Assert.That(actions).Count().IsEqualTo(2);
+        await Assert.That(actions[0]).IsTypeOf<TerminateOciCiRunnerAction>();
+        await Assert.That(actions[1]).IsTypeOf<LaunchOciCiRunnerAction>();
         await Assert.That(() => OciCiRunnerCapacityEngine.Decide(Request([wanted], [collision])))
             .Throws<InvalidDataException>();
         await Assert.That(() => OciCiRunnerCapacityEngine.Decide(Request([wanted], [durable])))
@@ -101,23 +105,43 @@ public sealed class OciCiRunnerCapacityTests
         await Assert.That(((TerminateOciCiRunnerAction)action).InstanceId).IsEqualTo(stopped.InstanceId);
     }
 
+    [Test]
+    public async Task TagsAloneNeverAuthorizeIdleRunnerDeletion()
+    {
+        var tagged = Demand("runner-tag-only", 48);
+        var configured = Demand("runner-configured", 49);
+
+        var actions = OciCiRunnerCapacityEngine.Decide(Request(
+            [],
+            [Node(tagged, "tag-only", active: false, Now.AddMinutes(-5))],
+            permitted: [configured]));
+
+        await Assert.That(actions).IsEmpty();
+    }
+
     private static OciCiRunnerCapacityRequest Request(
         IEnumerable<OciCiRunnerDemand> desired,
         IEnumerable<OciCiRunnerNodeObservation> observed,
-        int maximumNodes = 8) => new(
-        Now,
-        TimeSpan.FromSeconds(60),
-        maximumNodes,
-        new(
-            "ocid1.compartment.oc1..ci",
-            "sa-saopaulo-1-ad-1",
-            "FAULT-DOMAIN-1",
-            "ocid1.subnet.oc1.sa-saopaulo-1.ci",
-            ["ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci"],
-            "ocid1.image.oc1.sa-saopaulo-1.runner",
-            7),
-        desired,
-        observed);
+        int maximumNodes = 8,
+        IEnumerable<OciCiRunnerDemand>? permitted = null)
+    {
+        var wanted = desired.ToArray();
+        return new(
+            Now,
+            TimeSpan.FromSeconds(60),
+            maximumNodes,
+            new(
+                "ocid1.compartment.oc1..ci",
+                "sa-saopaulo-1-ad-1",
+                "FAULT-DOMAIN-1",
+                "ocid1.subnet.oc1.sa-saopaulo-1.ci",
+                ["ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci"],
+                "ocid1.image.oc1.sa-saopaulo-1.runner",
+                7),
+            permitted ?? wanted,
+            wanted,
+            observed);
+    }
 
     private static OciCiRunnerDemand Demand(string runner, long sequence)
     {

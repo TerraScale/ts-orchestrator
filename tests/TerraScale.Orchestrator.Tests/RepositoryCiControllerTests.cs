@@ -16,6 +16,30 @@ public sealed class RepositoryCiControllerTests
     private const string Tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
 
     [Test]
+    public async Task CapacityMutationRequiresTheSameLiveAuthorityEpoch()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expected = new RegionalAuthoritySnapshot(
+            "leader",
+            true,
+            5,
+            9,
+            now.AddMinutes(1),
+            now,
+            null);
+
+        await Assert.That(RepositoryCiController.SameAuthority(
+            expected,
+            expected with { KvRevision = 10 })).IsTrue();
+        await Assert.That(RepositoryCiController.SameAuthority(
+            expected,
+            expected with { Epoch = 6 })).IsFalse();
+        await Assert.That(RepositoryCiController.SameAuthority(
+            expected,
+            expected with { IsLeader = false })).IsFalse();
+    }
+
+    [Test]
     public async Task DurableForgejoEventDispatchesToAnObservedPreemptibleRunner()
     {
         var root = Directory.CreateDirectory(Path.Combine(
