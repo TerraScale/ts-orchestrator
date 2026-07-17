@@ -159,4 +159,14 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(DevelopmentProcessSupervisor.OwnedPodRemovalArguments("lab", 10))
             .IsEquivalentTo(["pod", "rm", "--force", "--time", "10", "lab"]);
     }
+
+    [Test]
+    public async Task ProductArtifactBuildUsesOneMsBuildNode()
+    {
+        await Assert.That(DevelopmentArtifactBuilder.DotNetBuildArguments("product.csproj"))
+            .IsEquivalentTo([
+                "build", "product.csproj", "--configuration", "Release", "--no-restore", "--nologo",
+                "--maxcpucount:1", "--nodeReuse:false"
+            ]);
+    }
 }

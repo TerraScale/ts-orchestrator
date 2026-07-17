@@ -21,7 +21,7 @@ internal static class DevelopmentArtifactBuilder
             }
             await RunAsync(
                 "dotnet",
-                ["build", project, "--configuration", "Release", "--no-restore", "--nologo"],
+                DotNetBuildArguments(project),
                 Path.GetDirectoryName(project)!,
                 cancellationToken);
         }
@@ -34,6 +34,10 @@ internal static class DevelopmentArtifactBuilder
             "TerraScale.Dashboard.Next");
         await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
     }
+
+    internal static IReadOnlyList<string> DotNetBuildArguments(string project) =>
+        ["build", project, "--configuration", "Release", "--no-restore", "--nologo",
+            "--maxcpucount:1", "--nodeReuse:false"];
 
     private static async Task RunAsync(
         string executable,
