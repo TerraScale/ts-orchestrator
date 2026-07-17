@@ -230,7 +230,7 @@ public static class DevelopmentLab
         var workingDirectory = Path.Combine(workspaceRoot, "TerraScale.Orchestrator");
         foreach (var cell in topology.Cells)
         {
-            var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).First();
+            var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats)[0];
             foreach (var controller in cell.OfKind(DevelopmentResourceKind.ControllerAgent))
             {
                 var cellSecurity = natsSecurity.Cell(cell.Cell);
@@ -398,11 +398,12 @@ public static class DevelopmentLab
         DevelopmentTopology topology)
     {
         var gru = topology.Cells.Single(cell => cell.Cell == "gru");
-        if (gru.OfKind(DevelopmentResourceKind.ProductNats).Count == 0)
+        var productNats = gru.OfKind(DevelopmentResourceKind.ProductNats);
+        if (productNats.Count == 0)
         {
             return;
         }
-        endpoints["nats"] = endpoints[gru.OfKind(DevelopmentResourceKind.ProductNats).First().Name];
+        endpoints["nats"] = endpoints[productNats[0].Name];
         endpoints["api"] = endpoints[gru.OfKind(DevelopmentResourceKind.Api).Single().Name];
         endpoints["authentication"] = endpoints[gru.OfKind(DevelopmentResourceKind.Authentication).Single().Name];
         endpoints["dashboard"] = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];

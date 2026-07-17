@@ -230,7 +230,7 @@ internal static class DevelopmentWorkloadRuntime
         var stripe = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.StripeEmulator);
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
-        var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats).First();
+        var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats)[0];
         var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
         var productTls = isApi
             ? natsSecurity?.Cell(cell.Cell).Tls.Product.Clients[resource.Name]

@@ -107,7 +107,7 @@ internal static class DevelopmentHealthProbe
         CancellationToken cancellationToken)
     {
         var cell = topology.Cells.Single(candidate => candidate.Cell == resource.Cell);
-        var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).First();
+        var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats)[0];
         var options = new NatsOpts
         {
             Url = $"nats://127.0.0.1:{controlNats.Port}",
