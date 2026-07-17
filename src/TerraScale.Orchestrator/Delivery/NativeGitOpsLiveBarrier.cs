@@ -181,7 +181,7 @@ internal static class NativeGitOpsCellConvergenceReceipt
         return bytes.WrittenMemory.ToArray();
     }
 
-    private static bool StructurallyValid(NativeGitOpsCellConvergenceReceiptData receipt) =>
+    internal static bool StructurallyValid(NativeGitOpsCellConvergenceReceiptData receipt) =>
         receipt.ProtocolVersion == 1 && receipt.Generation > 0 && receipt.RegionalWriterEpoch > 0 &&
         receipt.AcceptanceStreamSequence > 0 && receipt.AcceptanceRevision > 0 &&
         receipt.CheckpointSequence > 0 && receipt.CheckpointJournalRevision > 0 &&

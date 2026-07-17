@@ -407,6 +407,14 @@ Missing cells remain explicitly pending with no barrier digest; duplicate,
 foreign, expired, signature-substituted, wrong-digest, and stale-writer
 receipts fail closed. Only the complete same-generation, same-global-plan,
 same-handoff live set produces the deterministic cross-cell barrier digest.
+Before a regional live receipt can be acknowledged, the global receiver stores
+its exact signed envelope in a bounded per-cell CAS journal. Restart readback
+therefore preserves the signature bytes needed to re-run the configured KMS
+trust policy rather than trusting a derived success flag. Checkpoint sequence,
+journal revision, acceptance sequence/revision, regional writer epoch,
+generation, handoff identity, and global authority epoch advance monotonically;
+crashes, authority loss, corrupt records, stale writers, and conflicting
+generations never become acknowledgeable.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
