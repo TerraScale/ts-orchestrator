@@ -354,8 +354,10 @@ control-NATS, or database networks. A signed command is now acknowledgeable
 only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
-evidence digest or typed failure. BuildKit daemon identity/startup, the runner
-process mode, controller-side result publication, and candidate artifact
+evidence digest or typed failure. The runner now compiles and owns one exact
+rootless BuildKit daemon, verifies its Unix-socket peer UID, executable, and
+closed arguments before use, and stops the process tree on cancellation. The
+runner process mode, controller-side result publication, and candidate artifact
 interpretation/publication are still separate missing gates. The standalone
 coordinator is not wired into normal startup and does not claim that a workload
 ran unless its exact durable sink completed first.
