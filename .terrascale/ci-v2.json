@@ -18,9 +18,7 @@
         "TerraScale.Orchestrator.slnx",
         "docs/",
         "global.json",
-        "requirements/",
         "src/",
-        "testlab/",
         "tests/",
         "tools/"
       ]
@@ -49,9 +47,7 @@
       "profiles": ["Feature", "Release"],
       "paths": [
         "docs/",
-        "requirements/",
         "src/",
-        "testlab/",
         "tests/",
         "tools/"
       ],

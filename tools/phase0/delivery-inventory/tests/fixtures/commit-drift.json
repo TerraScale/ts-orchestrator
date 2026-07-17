@@ -1,1 +1,0 @@
-{"name":"commit drift","operation":"set","path":["repositories",0,"commit"],"value":"0000000000000000000000000000000000000000","expected":"commit differs from the audit pin"}

@@ -1,1 +1,0 @@
-{"name":"missing descriptor","operation":"delete","path":["repositories",0,"descriptors",0],"expected":"descriptor inventory differs from the pinned tree"}

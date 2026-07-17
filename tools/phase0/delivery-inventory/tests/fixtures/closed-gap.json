@@ -1,1 +1,0 @@
-{"name":"closed unsupported gap","operation":"set","path":["coverageGaps",0,"status"],"value":"closed","expected":"all four coverage gaps must remain explicit and open"}

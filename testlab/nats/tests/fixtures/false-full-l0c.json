@@ -1,1 +1,0 @@
-{"name":"false full L0C claim","target":"pin","operation":"set","path":["readiness","fullL0CComplete"],"value":true,"expected":"readiness must fail closed"}

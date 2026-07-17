@@ -7,7 +7,6 @@
     <File Path="global.json" />
     <File Path="ORCHESTRATOR.md" />
     <File Path="README.md" />
-    <File Path="docs/audits/phase0-build-baseline.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />

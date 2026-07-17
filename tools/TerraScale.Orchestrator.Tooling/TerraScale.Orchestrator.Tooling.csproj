@@ -7,11 +7,5 @@
   <ItemGroup>
     <Compile Include="../../src/TerraScale.Orchestrator/Development/LocalValidationLease.cs"
              Link="Development/LocalValidationLease.cs" />
-    <Compile Include="../../docs/**/*.cs" Exclude="../../docs/**/bin/**;../../docs/**/obj/**" />
-    <Compile Include="../../testlab/**/*.cs" Exclude="../../testlab/**/bin/**;../../testlab/**/obj/**" />
-    <Compile Include="../mutation/**/*.cs" />
-    <Compile Include="../nats-l0c/**/*.cs" />
-    <Compile Include="../phase0/**/*.cs" />
-    <Compile Include="../traceability/**/*.cs" />
   </ItemGroup>
 </Project>

@@ -1,1 +1,0 @@
-{"name":"stale report after harness drift","target":"report","operation":"set","path":["harnessSha256"],"value":"0000000000000000000000000000000000000000000000000000000000000000","expected":"harness digest differs from the current smoke procedure"}

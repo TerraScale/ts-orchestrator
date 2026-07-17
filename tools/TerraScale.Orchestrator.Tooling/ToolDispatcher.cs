@@ -9,20 +9,7 @@ internal static class ToolDispatcher
         {
             ["adr-readiness"] = arguments => Task.FromResult(AdrReadinessCommand.Run(arguments)),
             ["owner-decisions"] = arguments => Task.FromResult(OwnerDecisionCommand.Run(arguments)),
-            ["registry-audit"] = arguments => Task.FromResult(RegistryAuditCommand.Run(arguments)),
-            ["nats-smoke"] = NatsSmokeCommand.RunAsync,
-            ["nats-readiness"] = arguments => Task.FromResult(NatsReadinessCommand.Run(arguments)),
-            ["mutation-evidence"] = arguments => Task.FromResult(MutationEvidenceCommand.Run(arguments)),
-            ["nats-l0c"] = arguments => Task.FromResult(NatsL0cCommand.Run(arguments)),
-            ["delivery-inventory-generate"] = arguments => Task.FromResult(DeliveryInventoryCommand.Generate(arguments)),
-            ["delivery-inventory-validate"] = arguments => Task.FromResult(DeliveryInventoryCommand.Validate(arguments)),
             ["development-attest"] = arguments => Task.FromResult(DevelopmentEvidenceCommand.Run(arguments)),
-            ["oci-inventory"] = arguments => Task.FromResult(OciInventoryCommand.Run(arguments)),
-            ["provider-qualification"] = arguments => Task.FromResult(ProviderQualificationCommand.Run(arguments)),
-            ["runtime-readiness"] = arguments => Task.FromResult(RuntimeReadinessCommand.Run(arguments)),
-            ["supply-chain"] = arguments => Task.FromResult(SupplyChainCommand.Run(arguments)),
-            ["traceability-generate"] = arguments => Task.FromResult(TraceabilityCommand.Generate(arguments)),
-            ["traceability-validate"] = arguments => Task.FromResult(TraceabilityCommand.Validate(arguments)),
             ["json-format"] = arguments => Task.FromResult(JsonFormatCommand.Run(arguments)),
             ["test"] = arguments => Task.FromResult(ToolingTests.Run(arguments)),
         };
@@ -64,7 +51,8 @@ internal static class JsonFormatCommand
     {
         if (arguments.Length != 1) throw new ToolValidationException(["json-format requires exactly one file"]);
         var path = Path.GetFullPath(arguments[0], ToolingSupport.Root);
-        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)) ?? throw new InvalidDataException("empty JSON document");
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))
+            ?? throw new InvalidDataException("empty JSON document");
         Console.Write(ToolingSupport.Serialize(node));
         return 0;
     }

@@ -1,1 +1,0 @@
-{"name":"accidental candidate selection","target":"pin","operation":"set","path":["serverCandidates",0,"selected"],"value":true,"expected":"selected must remain false"}

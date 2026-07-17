@@ -21,19 +21,18 @@ test count for every module and observed peak memory/process counts under a
 host. `lab up` rejects legacy or incomplete evidence that omits this bounded
 inventory.
 
-All repository validators, generators, audit utilities, conformance checks, and
-their tests are implemented in C#. The dependency-free tooling executable
-replaces the former Python scripts and exposes named commands for each domain:
+Living policy tooling is implemented in C#. The dependency-free tooling
+executable validates owner decisions and ADR readiness, issues development
+evidence, and runs the repository policy test suite:
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- nats-readiness
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- supply-chain
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-validate
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
-Run the executable without arguments to list every command. The translated
-test suite also fails if a Python source file is reintroduced.
+Run the executable without arguments to list every command. The tooling test
+suite also fails if a Python source file is reintroduced.
 
 The repository produces the operational Orchestrator/runner binary, a separate
 operator CLI, and the dependency-free policy/evidence tool. The `check` command
@@ -437,8 +436,8 @@ This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
 descriptor can select only the closed `static`, `build`, `test`, and `artifact`
 targets; it cannot inject an executable or argument. The recipe uses the
-multi-architecture .NET 10.0.301 SDK manifest pinned at
-`sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5`,
+multi-architecture .NET 10.0.302 SDK manifest pinned at
+`sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664`,
 runs all five TUnit modules sequentially with four tests at most, and publishes
 separate self-contained Orchestrator and CLI candidates for Linux x64 and
 ARM64.

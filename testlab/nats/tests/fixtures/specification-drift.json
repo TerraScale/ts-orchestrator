@@ -1,1 +1,0 @@
-{"name":"capability specification drift","target":"specification","operation":"replace","old":"| Core pub/sub |","new":"| Core publish only |","expected":"capability core-pub-sub: source semantics drifted"}
