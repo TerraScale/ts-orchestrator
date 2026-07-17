@@ -119,6 +119,61 @@ public sealed class OciCiRunnerCapacityTests
         await Assert.That(actions).IsEmpty();
     }
 
+    [Test]
+    public async Task ProviderReadbackMustMatchTheExactPrivateLaunchTemplate()
+    {
+        var template = Template();
+        var instance = new Instance
+        {
+            Id = "ocid1.instance.oc1.sa-saopaulo-1.exact",
+            CompartmentId = template.CompartmentId,
+            AvailabilityDomain = template.AvailabilityDomain,
+            FaultDomain = template.FaultDomain,
+            Shape = OciCiRunnerRequestCompiler.Shape,
+            ShapeConfig = new()
+            {
+                Ocpus = OciCiRunnerRequestCompiler.Ocpus,
+                MemoryInGBs = OciCiRunnerRequestCompiler.MemoryInGbs,
+            },
+            ImageId = template.ImageId,
+            SourceDetails = new InstanceSourceViaImageDetails
+            {
+                ImageId = template.ImageId,
+                BootVolumeSizeInGBs = 50,
+                BootVolumeVpusPerGB = 10,
+            },
+            LaunchOptions = new() { IsPvEncryptionInTransitEnabled = true },
+        };
+        var attachment = new VnicAttachment
+        {
+            InstanceId = instance.Id,
+            VnicId = "ocid1.vnic.oc1.sa-saopaulo-1.exact",
+            CompartmentId = template.CompartmentId,
+            AvailabilityDomain = template.AvailabilityDomain,
+            SubnetId = template.SubnetId,
+            NicIndex = 0,
+            LifecycleState = VnicAttachment.LifecycleStateEnum.Attached,
+        };
+        var vnic = new Vnic
+        {
+            Id = attachment.VnicId,
+            CompartmentId = template.CompartmentId,
+            AvailabilityDomain = template.AvailabilityDomain,
+            SubnetId = template.SubnetId,
+            IsPrimary = true,
+            LifecycleState = Vnic.LifecycleStateEnum.Available,
+            NsgIds = template.NetworkSecurityGroupIds.ToList(),
+            Ipv6Addresses = [],
+        };
+
+        OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template);
+        vnic.PublicIp = "203.0.113.10";
+
+        await Assert.That(() =>
+                OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template))
+            .Throws<InvalidDataException>();
+    }
+
     private static OciCiRunnerCapacityRequest Request(
         IEnumerable<OciCiRunnerDemand> desired,
         IEnumerable<OciCiRunnerNodeObservation> observed,
@@ -130,18 +185,20 @@ public sealed class OciCiRunnerCapacityTests
             Now,
             TimeSpan.FromSeconds(60),
             maximumNodes,
-            new(
-                "ocid1.compartment.oc1..ci",
-                "sa-saopaulo-1-ad-1",
-                "FAULT-DOMAIN-1",
-                "ocid1.subnet.oc1.sa-saopaulo-1.ci",
-                ["ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci"],
-                "ocid1.image.oc1.sa-saopaulo-1.runner",
-                7),
+            Template(),
             permitted ?? wanted,
             wanted,
             observed);
     }
+
+    private static OciCiRunnerLaunchTemplate Template() => new(
+        "ocid1.compartment.oc1..ci",
+        "sa-saopaulo-1-ad-1",
+        "FAULT-DOMAIN-1",
+        "ocid1.subnet.oc1.sa-saopaulo-1.ci",
+        ["ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci"],
+        "ocid1.image.oc1.sa-saopaulo-1.runner",
+        7);
 
     private static OciCiRunnerDemand Demand(string runner, long sequence)
     {

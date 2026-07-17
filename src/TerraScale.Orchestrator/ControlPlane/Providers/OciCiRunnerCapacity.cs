@@ -360,8 +360,13 @@ internal interface IOciCiRunnerCapacityAdapter : IDisposable
 internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
 {
     private readonly ComputeClient client;
+    private readonly VirtualNetworkClient network;
 
-    private OciCiRunnerComputeAdapter(ComputeClient client) => this.client = client;
+    private OciCiRunnerComputeAdapter(ComputeClient client, VirtualNetworkClient network)
+    {
+        this.client = client;
+        this.network = network;
+    }
 
     internal static OciCiRunnerComputeAdapter CreateForInstancePrincipal(string endpoint)
     {
@@ -371,7 +376,17 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
             throw new ArgumentException("The OCI Compute endpoint is invalid.", nameof(endpoint));
         var provider = new InstancePrincipalsAuthenticationDetailsProvider();
         var configuration = new ClientConfiguration { TimeoutMillis = 30_000 };
-        return new(new(provider, configuration, uri.ToString().TrimEnd('/')));
+        var endpointUri = uri.ToString().TrimEnd('/');
+        var compute = new ComputeClient(provider, configuration, endpointUri);
+        try
+        {
+            return new(compute, new(provider, configuration, endpointUri));
+        }
+        catch
+        {
+            compute.Dispose();
+            throw;
+        }
     }
 
     public async Task<IReadOnlyList<OciCiRunnerNodeObservation>> ObserveAsync(
@@ -420,6 +435,15 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
                 HttpCompletionOption.ResponseHeadersRead);
             var instance = response.Instance ??
                 throw new InvalidDataException("OCI returned an empty CI runner observation.");
+            var attachment = await ReadPrimaryVnicAttachmentAsync(template, instance.Id, cancellationToken);
+            var vnicResponse = await network.GetVnic(
+                new GetVnicRequest { VnicId = attachment.VnicId },
+                null,
+                cancellationToken,
+                HttpCompletionOption.ResponseHeadersRead);
+            var vnic = vnicResponse.Vnic ??
+                throw new InvalidDataException("OCI returned an empty CI runner VNIC observation.");
+            RequireLaunchTemplate(instance, attachment, vnic, template);
             var tags = instance.FreeformTags ??
                 throw new InvalidDataException("An owned OCI CI runner has no ownership tags.");
             if (!tags.TryGetValue("terrascale-runner", out var runner) ||
@@ -443,6 +467,72 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
                     new Dictionary<string, string>(tags, StringComparer.Ordinal))));
         }
         return Array.AsReadOnly(observed.ToArray());
+    }
+
+    private async Task<VnicAttachment> ReadPrimaryVnicAttachmentAsync(
+        OciCiRunnerLaunchTemplate template,
+        string instanceId,
+        CancellationToken cancellationToken)
+    {
+        var attachments = new List<VnicAttachment>();
+        string? page = null;
+        do
+        {
+            var response = await client.ListVnicAttachments(
+                new ListVnicAttachmentsRequest
+                {
+                    CompartmentId = template.CompartmentId,
+                    InstanceId = instanceId,
+                    Limit = 100,
+                    Page = page,
+                },
+                null,
+                cancellationToken,
+                HttpCompletionOption.ResponseHeadersRead);
+            attachments.AddRange(response.Items ?? []);
+            if (attachments.Count > 8)
+                throw new InvalidDataException("The OCI CI runner VNIC observation exceeded its bound.");
+            page = response.OpcNextPage;
+        } while (!string.IsNullOrEmpty(page));
+        return attachments.Count == 1
+            ? attachments[0]
+            : throw new InvalidDataException("An OCI CI runner must have exactly one VNIC attachment.");
+    }
+
+    internal static void RequireLaunchTemplate(
+        Instance instance,
+        VnicAttachment attachment,
+        Vnic vnic,
+        OciCiRunnerLaunchTemplate template)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        ArgumentNullException.ThrowIfNull(attachment);
+        ArgumentNullException.ThrowIfNull(vnic);
+        ArgumentNullException.ThrowIfNull(template);
+        var source = instance.SourceDetails as InstanceSourceViaImageDetails;
+        if (instance.CompartmentId != template.CompartmentId ||
+            instance.AvailabilityDomain != template.AvailabilityDomain ||
+            instance.FaultDomain != template.FaultDomain ||
+            instance.Shape != OciCiRunnerRequestCompiler.Shape ||
+            instance.ShapeConfig?.Ocpus != OciCiRunnerRequestCompiler.Ocpus ||
+            instance.ShapeConfig.MemoryInGBs != OciCiRunnerRequestCompiler.MemoryInGbs ||
+            instance.ImageId != template.ImageId || source?.ImageId != template.ImageId ||
+            source.BootVolumeSizeInGBs != 50 || source.BootVolumeVpusPerGB != 10 ||
+            instance.LaunchOptions?.IsPvEncryptionInTransitEnabled != true ||
+            !string.IsNullOrEmpty(instance.InstanceConfigurationId) ||
+            !string.IsNullOrEmpty(instance.CapacityReservationId) ||
+            attachment.InstanceId != instance.Id || attachment.CompartmentId != template.CompartmentId ||
+            attachment.AvailabilityDomain != template.AvailabilityDomain ||
+            attachment.SubnetId != template.SubnetId || attachment.NicIndex != 0 ||
+            attachment.LifecycleState != VnicAttachment.LifecycleStateEnum.Attached ||
+            attachment.VnicId != vnic.Id || vnic.CompartmentId != template.CompartmentId ||
+            vnic.AvailabilityDomain != template.AvailabilityDomain || vnic.SubnetId != template.SubnetId ||
+            vnic.IsPrimary != true || vnic.LifecycleState != Vnic.LifecycleStateEnum.Available ||
+            !string.IsNullOrEmpty(vnic.PublicIp) || vnic.Ipv6Addresses is { Count: > 0 } ||
+            vnic.SkipSourceDestCheck == true || vnic.NsgIds is null ||
+            !vnic.NsgIds.Order(StringComparer.Ordinal).SequenceEqual(
+                template.NetworkSecurityGroupIds.Order(StringComparer.Ordinal)))
+            throw new InvalidDataException("An OCI CI runner does not match its exact launch template.");
     }
 
     public async Task<OciCiRunnerMutationReceipt> ExecuteAsync(
@@ -494,5 +584,9 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         return OciCiRunnerNodeState.Launching;
     }
 
-    public void Dispose() => client.Dispose();
+    public void Dispose()
+    {
+        network.Dispose();
+        client.Dispose();
+    }
 }
