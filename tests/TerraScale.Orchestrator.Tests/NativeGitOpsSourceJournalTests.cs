@@ -40,8 +40,62 @@ public sealed class NativeGitOpsSourceJournalTests
         await Assert.That(current).IsNotNull();
         await Assert.That(current!.Plan.Generation).IsEqualTo(2);
         await Assert.That(current.Plan.Digest).IsEqualTo(updatedPlan.Proposed.Digest);
+        await Assert.That(current.Diff!.AcceptedGeneration).IsEqualTo(1);
+        await Assert.That(current.Diff.ProposedGeneration).IsEqualTo(2);
+        await Assert.That(current.Diff.Changes).HasSingleItem();
+        await Assert.That(current.Diff.Changes[0].Kind).IsEqualTo(NativeGitOpsChangeKind.Update);
         await Assert.That(current.SourceFile.Content.Span.SequenceEqual(updatedPlan.SourceFile.Content.Span)).IsTrue();
         await Assert.That(manifests.PutCount).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task RestartReconstructsGuardedRetirementFromTheDurableAcceptedBase()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var manifests = new TestManifestStore();
+        var journal = new NativeGitOpsSourceJournal(ledger, manifests);
+        await journal.RecordAsync("develop", SourcePlan(1, DigestV1), 7, 1, expected: null);
+        var accepted = await journal.ReadAsync(Repository, "develop");
+        var retirement = EmptySourcePlan(2, accepted!, Commit2, Tree2, Blob2);
+        await journal.RecordAsync("develop", retirement, 7, 2, accepted);
+
+        var recovered = await new NativeGitOpsSourceJournal(ledger, manifests)
+            .ReadAsync(Repository, "develop");
+        var source = new NativeGitOpsSourcePlan(
+            recovered!.Revision,
+            recovered.SourceFile,
+            recovered.Plan,
+            recovered.Diff!);
+        var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
+
+        await Assert.That(recovered.Diff!.AcceptedGeneration).IsEqualTo(1);
+        await Assert.That(recovered.Diff.Changes).HasSingleItem();
+        await Assert.That(recovered.Diff.Changes[0].Kind)
+            .IsEqualTo(NativeGitOpsChangeKind.GuardedRetirement);
+        await Assert.That(handoff.Cells).HasSingleItem();
+        await Assert.That(handoff.Cells[0].Changes[0].Kind)
+            .IsEqualTo(NativeGitOpsChangeKind.GuardedRetirement);
+    }
+
+    [Test]
+    public async Task CorruptAcceptedBaseFailsClosedAfterPointerAdvance()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var manifests = new TestManifestStore();
+        var journal = new NativeGitOpsSourceJournal(ledger, manifests);
+        var initial = SourcePlan(1, DigestV1);
+        await journal.RecordAsync("develop", initial, 7, 1, expected: null);
+        var accepted = await journal.ReadAsync(Repository, "develop");
+        await journal.RecordAsync(
+            "develop",
+            SourcePlan(2, DigestV2, accepted, Commit2, Tree2, Blob2),
+            7,
+            2,
+            accepted);
+        manifests.Corrupt(initial.SourceFile.ContentSha256);
+
+        await Assert.That(async () => await journal.ReadAsync(Repository, "develop"))
+            .Throws<InvalidDataException>();
     }
 
     [Test]
@@ -142,6 +196,30 @@ public sealed class NativeGitOpsSourceJournalTests
             contentDigest,
             content);
         return new(revision, file, plan, NativeGitOpsDiff.Compare(accepted?.Plan, plan));
+    }
+
+    private static NativeGitOpsSourcePlan EmptySourcePlan(
+        long generation,
+        NativeGitOpsAcceptedSource accepted,
+        string commit,
+        string tree,
+        string blob)
+    {
+        var content = Encoding.UTF8.GetBytes($$"""
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[]}
+            """);
+        var plan = NativeGitOpsManifest.Parse(content);
+        return new(
+            new(Repository, commit, tree, signatureVerified: true),
+            new(
+                Repository,
+                commit,
+                NativeGitOpsSourceLoader.ManifestPath,
+                blob,
+                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content)),
+                content),
+            plan,
+            NativeGitOpsDiff.Compare(accepted.Plan, plan));
     }
 
     internal sealed class TestManifestStore : IDeliveryObjectStore

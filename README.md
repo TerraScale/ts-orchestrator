@@ -529,13 +529,16 @@ generations fail closed before regional work is planned.
 The fenced global leader stores accepted manifest bytes under their content digest in
 `GLOBAL_BUNDLES` and advances a compact branch pointer in `GLOBAL_RELEASES` with
 exact compare-and-set. It reads the object back before moving that pointer and
-recompiles accepted bytes after restart, so a crash between the two writes
-leaves only harmless unreferenced content. A concurrent pointer winner forces
-the diff to be recomputed from the new accepted plan. Authority or poll-sequence
-rollback, one immutable commit/tree presenting different bytes, a corrupt
-stored object, and a stale-generation replay cannot advance accepted state. A
-repository without the native manifest is treated as not configured and does
-not disturb its last accepted plan.
+records the prior accepted manifest identity with the new pointer. Restart
+therefore read-verifies and recompiles both exact plans before reconstructing
+the typed update, suspension, or guarded-retirement diff; it never guesses a
+fresh-create diff from only the latest manifest. A crash between object and
+pointer writes leaves only harmless unreferenced content. A concurrent pointer
+winner forces the diff to be recomputed from its accepted base. Authority or
+poll-sequence rollback, one immutable commit/tree presenting different bytes,
+a corrupt current or base object, and a stale-generation replay cannot advance
+accepted state. A repository without the native manifest is treated as not
+configured and does not disturb its last accepted plan.
 
 The optional polling fallback runs only on the current fenced global leader.
 It reads protected `develop` and `main` refs every 30 seconds, resolves each

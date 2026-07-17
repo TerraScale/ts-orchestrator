@@ -26,6 +26,7 @@ internal sealed record NativeGitOpsAcceptedSource(
     ForgejoResolvedRevision Revision,
     ForgejoSourceFile SourceFile,
     NativeGitOpsPlan Plan,
+    NativeGitOpsDiffPlan? Diff,
     long AuthorityEpoch,
     long PollSequence,
     ulong JournalRevision);
@@ -86,6 +87,30 @@ internal sealed class NativeGitOpsSourceJournal
         var plan = NativeGitOpsManifest.Parse(content);
         if (plan.Generation != document.Generation || plan.Digest != document.PlanDigest)
             throw new InvalidDataException("The accepted native GitOps plan did not match its durable pointer.");
+        NativeGitOpsDiffPlan? diff = null;
+        if (document.SchemaVersion == 2)
+        {
+            NativeGitOpsPlan? accepted = null;
+            if (document.AcceptedManifestObject is not null)
+            {
+                var acceptedContent = await manifests.GetAsync(document.AcceptedManifestObject, cancellationToken);
+                if (acceptedContent.Length is < 1 or > NativeGitOpsManifest.MaximumBytes ||
+                    Convert.ToHexStringLower(SHA256.HashData(acceptedContent)) != document.AcceptedContentSha256)
+                    throw new InvalidDataException("The native GitOps accepted-base bytes failed integrity verification.");
+                accepted = NativeGitOpsManifest.Parse(acceptedContent);
+                if (accepted.Generation != document.AcceptedGeneration ||
+                    accepted.Digest != document.AcceptedPlanDigest)
+                    throw new InvalidDataException("The native GitOps accepted base did not match its durable pointer.");
+            }
+            try
+            {
+                diff = NativeGitOpsDiff.Compare(accepted, plan);
+            }
+            catch (NativeGitOpsDiffException exception)
+            {
+                throw new InvalidDataException("The durable native GitOps accepted-base diff is invalid.", exception);
+            }
+        }
 
         return new(
             document.Branch,
@@ -98,6 +123,7 @@ internal sealed class NativeGitOpsSourceJournal
                 document.ContentSha256,
                 content),
             plan,
+            diff,
             document.AuthorityEpoch,
             document.PollSequence,
             entry.Revision);
@@ -122,7 +148,8 @@ internal sealed class NativeGitOpsSourceJournal
             branch,
             source,
             authorityEpoch,
-            pollSequence);
+            pollSequence,
+            expected);
         proposed.Validate();
         if (expected is not null)
         {
@@ -256,6 +283,10 @@ internal sealed record NativeGitOpsSourceJournalDocument(
     string ManifestObject,
     long Generation,
     string PlanDigest,
+    string? AcceptedContentSha256,
+    string? AcceptedManifestObject,
+    long? AcceptedGeneration,
+    string? AcceptedPlanDigest,
     long AuthorityEpoch,
     long PollSequence)
 {
@@ -263,8 +294,9 @@ internal sealed record NativeGitOpsSourceJournalDocument(
         string branch,
         NativeGitOpsSourcePlan source,
         long authorityEpoch,
-        long pollSequence) => new(
-            1,
+        long pollSequence,
+        NativeGitOpsAcceptedSource? accepted) => new(
+            2,
             source.Revision.Repository,
             branch,
             source.Revision.Commit,
@@ -275,18 +307,30 @@ internal sealed record NativeGitOpsSourceJournalDocument(
             $"native-gitops-manifest-{source.SourceFile.ContentSha256}",
             source.Proposed.Generation,
             source.Proposed.Digest,
+            accepted?.SourceFile.ContentSha256,
+            accepted is null ? null : $"native-gitops-manifest-{accepted.SourceFile.ContentSha256}",
+            accepted?.Plan.Generation,
+            accepted?.Plan.Digest,
             authorityEpoch,
             pollSequence);
 
     internal void Validate()
     {
-        if (SchemaVersion != 1 || !ForgejoWebhookVerifier.IsRepository(Repository) ||
+        var noAcceptedBase = AcceptedContentSha256 is null && AcceptedManifestObject is null &&
+            AcceptedGeneration is null && AcceptedPlanDigest is null;
+        var validAcceptedBase = AcceptedContentSha256 is { } acceptedContentSha256 &&
+            AcceptedManifestObject == $"native-gitops-manifest-{acceptedContentSha256}" &&
+            AcceptedGeneration is > 0 && AcceptedPlanDigest is { } acceptedPlanDigest &&
+            IsDigest(acceptedContentSha256) && IsDigest(acceptedPlanDigest);
+        if (SchemaVersion is not (1 or 2) || !ForgejoWebhookVerifier.IsRepository(Repository) ||
             Branch is not ("develop" or "main") || !IsObjectId(Commit) || Commit.All(static value => value == '0') ||
             !IsObjectId(Tree) || Tree.All(static value => value == '0') ||
             FilePath != NativeGitOpsSourceLoader.ManifestPath ||
             !IsObjectId(Blob) || Blob.All(static value => value == '0') ||
             !IsDigest(ContentSha256) || !IsDigest(PlanDigest) || Generation <= 0 ||
             ManifestObject != $"native-gitops-manifest-{ContentSha256}" ||
+            SchemaVersion == 1 && !noAcceptedBase ||
+            SchemaVersion == 2 && !noAcceptedBase && !validAcceptedBase ||
             AuthorityEpoch <= 0 || PollSequence <= 0)
             throw new InvalidDataException("A native GitOps source journal record is invalid.");
     }
