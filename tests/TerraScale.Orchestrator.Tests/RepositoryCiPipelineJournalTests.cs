@@ -31,6 +31,7 @@ public sealed class RepositoryCiPipelineJournalTests
             .IsEquivalentTo([Repository, Downstream]);
         await Assert.That(recovered).IsNotNull();
         await Assert.That(recovered!.Digest).IsEqualTo(recorded.Plan.Digest);
+        await Assert.That(recovered.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(recovered.Jobs.Select(static job => job.Request.Job))
             .IsEquivalentTo(recorded.Plan.Jobs.Select(static job => job.Request.Job));
         await Assert.That(objects.Count).IsEqualTo(1);

@@ -29,6 +29,7 @@ public sealed class RepositoryCiCandidateTests
         await Assert.That(first.Pipeline).IsEqualTo(pipeline.Pipeline);
         await Assert.That(first.PipelineDigest).IsEqualTo(pipeline.Digest);
         await Assert.That(first.ImpactDigest).IsEqualTo(pipeline.ImpactDigest);
+        await Assert.That(first.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(first.Sources).HasSingleItem();
         await Assert.That(first.Sources[0].Tree).IsEqualTo(Tree);
         await Assert.That(first.Artifacts).HasSingleItem();

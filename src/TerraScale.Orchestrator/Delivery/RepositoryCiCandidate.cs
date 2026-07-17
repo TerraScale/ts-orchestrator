@@ -38,6 +38,7 @@ public sealed class RepositoryCiCandidate
         PipelineId pipeline,
         string pipelineDigest,
         string impactDigest,
+        int candidateRetentionDays,
         IReadOnlyList<RepositoryCiCandidateSource> sources,
         IReadOnlyList<RepositoryCiJobResult> jobs,
         IReadOnlyList<RepositoryCiArtifactResult> artifacts)
@@ -47,6 +48,7 @@ public sealed class RepositoryCiCandidate
         Pipeline = pipeline;
         PipelineDigest = pipelineDigest;
         ImpactDigest = impactDigest;
+        CandidateRetentionDays = candidateRetentionDays;
         Sources = sources;
         Jobs = jobs;
         Artifacts = artifacts;
@@ -57,6 +59,7 @@ public sealed class RepositoryCiCandidate
     public PipelineId Pipeline { get; }
     public string PipelineDigest { get; }
     public string ImpactDigest { get; }
+    public int CandidateRetentionDays { get; }
     public IReadOnlyList<RepositoryCiCandidateSource> Sources { get; }
     public IReadOnlyList<RepositoryCiJobResult> Jobs { get; }
     public IReadOnlyList<RepositoryCiArtifactResult> Artifacts { get; }
@@ -77,7 +80,8 @@ public static class RepositoryCiCandidateAssembler
         ArgumentNullException.ThrowIfNull(results);
         ArgumentNullException.ThrowIfNull(artifacts);
         if (pipeline.Profile != RepositoryCiProfile.Release || !IsDigest(pipeline.Digest) ||
-            !IsDigest(pipeline.ImpactDigest) || pipeline.Jobs is not { Count: > 0 and <= MaximumJobs } ||
+            !IsDigest(pipeline.ImpactDigest) || pipeline.CandidateRetentionDays is < 1 or > 30 ||
+            pipeline.Jobs is not { Count: > 0 and <= MaximumJobs } ||
             pipeline.Jobs.Any(static job => job.Request.Kind != JobKind.TrustedBuild ||
                 job.Request.AllowedZones.Count != 1 || job.Request.AllowedZones[0] != TrustZone.TrustedBuild ||
                 job.Request.RequiredCapabilities.Any(static capability => capability is not (
@@ -148,6 +152,7 @@ public static class RepositoryCiCandidateAssembler
             pipeline.Pipeline,
             pipeline.Digest,
             pipeline.ImpactDigest,
+            pipeline.CandidateRetentionDays,
             sources,
             orderedResults,
             orderedArtifacts);
@@ -157,6 +162,7 @@ public static class RepositoryCiCandidateAssembler
             pipeline.Pipeline,
             pipeline.Digest,
             pipeline.ImpactDigest,
+            pipeline.CandidateRetentionDays,
             ReadOnly(sources),
             ReadOnly(orderedResults),
             ReadOnly(orderedArtifacts));
@@ -167,6 +173,7 @@ public static class RepositoryCiCandidateAssembler
         string pipelineId,
         string pipelineDigest,
         string impactDigest,
+        int candidateRetentionDays,
         IEnumerable<RepositoryCiCandidateSource> sources,
         IEnumerable<RepositoryCiJobResult> jobs,
         IEnumerable<RepositoryCiArtifactResult> artifacts)
@@ -175,7 +182,7 @@ public static class RepositoryCiCandidateAssembler
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(artifacts);
         if (!IsDigest(expectedDigest) || !IsIdentity(pipelineId) ||
-            !IsDigest(pipelineDigest) || !IsDigest(impactDigest))
+            !IsDigest(pipelineDigest) || !IsDigest(impactDigest) || candidateRetentionDays is < 1 or > 30)
             throw new InvalidDataException("Persisted candidate identity is invalid.");
 
         var sourceArray = sources.Take(65).ToArray();
@@ -218,7 +225,14 @@ public static class RepositoryCiCandidateAssembler
         }).ToArray();
 
         var pipeline = new PipelineId(pipelineId);
-        var digest = Digest(pipeline, pipelineDigest, impactDigest, sourceArray, jobArray, artifactArray);
+        var digest = Digest(
+            pipeline,
+            pipelineDigest,
+            impactDigest,
+            candidateRetentionDays,
+            sourceArray,
+            jobArray,
+            artifactArray);
         if (digest != expectedDigest)
             throw new InvalidDataException("Persisted candidate content does not match its digest.");
         return new(
@@ -227,6 +241,7 @@ public static class RepositoryCiCandidateAssembler
             pipeline,
             pipelineDigest,
             impactDigest,
+            candidateRetentionDays,
             ReadOnly(sourceArray),
             ReadOnly(jobArray),
             ReadOnly(artifactArray));
@@ -275,6 +290,7 @@ public static class RepositoryCiCandidateAssembler
         PipelineId pipeline,
         string pipelineDigest,
         string impactDigest,
+        int candidateRetentionDays,
         IReadOnlyList<RepositoryCiCandidateSource> sources,
         IReadOnlyList<RepositoryCiJobResult> results,
         IReadOnlyList<RepositoryCiArtifactResult> artifacts)
@@ -286,6 +302,7 @@ public static class RepositoryCiCandidateAssembler
             writer.WriteString("pipeline", pipeline.Value);
             writer.WriteString("pipelineDigest", pipelineDigest);
             writer.WriteString("impactDigest", impactDigest);
+            writer.WriteNumber("candidateRetentionDays", candidateRetentionDays);
             writer.WriteStartArray("sources");
             foreach (var source in sources)
             {

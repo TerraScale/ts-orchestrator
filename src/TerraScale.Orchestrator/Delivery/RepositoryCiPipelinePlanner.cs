@@ -34,12 +34,14 @@ public sealed class RepositoryCiPipelinePlan
         PipelineId pipeline,
         string digest,
         string impactDigest,
+        int candidateRetentionDays,
         RepositoryCiProfile profile,
         IReadOnlyList<RepositoryCiPipelineJob> jobs)
     {
         Pipeline = pipeline;
         Digest = digest;
         ImpactDigest = impactDigest;
+        CandidateRetentionDays = candidateRetentionDays;
         Profile = profile;
         Jobs = jobs;
     }
@@ -47,6 +49,7 @@ public sealed class RepositoryCiPipelinePlan
     public PipelineId Pipeline { get; }
     public string Digest { get; }
     public string ImpactDigest { get; }
+    public int CandidateRetentionDays { get; }
     public RepositoryCiProfile Profile { get; }
     public IReadOnlyList<RepositoryCiPipelineJob> Jobs { get; }
 }
@@ -77,6 +80,7 @@ public static class RepositoryCiPipelinePlanner
             _ => throw new InvalidOperationException("The Forgejo trigger cannot create repository CI work."),
         };
         if (impact.Profile != expectedProfile || !IsDigest(impact.Digest) ||
+            impact.CandidateRetentionDays is < 1 or > 30 ||
             impact.Jobs is not { Count: > 0 and <= MaximumJobs })
             throw new ArgumentException("The CI impact plan does not match the trigger policy.", nameof(impact));
         if (generation <= 0 || minimumRunnerSequence <= 0 || maximumRunnerSequence < minimumRunnerSequence)
@@ -138,7 +142,13 @@ public static class RepositoryCiPipelinePlanner
                 ReadOnly(planned.DependsOn.Select(dependency => jobIds[dependency]).ToArray()),
                 planned.Node.Kind == RepositoryCiNodeKind.Artifact && trigger.MayPublishArtifacts));
         }
-        return new(pipeline, digest, impact.Digest, expectedProfile, ReadOnly(jobs));
+        return new(
+            pipeline,
+            digest,
+            impact.Digest,
+            impact.CandidateRetentionDays,
+            expectedProfile,
+            ReadOnly(jobs));
     }
 
     private static void ValidateImpact(RepositoryCiImpactPlan impact)
@@ -194,6 +204,7 @@ public static class RepositoryCiPipelinePlanner
             .Append(trigger.MayPublishArtifacts ? '1' : '0').Append('\n')
             .AppendJoin(',', trigger.Capabilities).Append('\n')
             .Append(impact.Digest).Append('\n')
+            .Append(impact.CandidateRetentionDays).Append('\n')
             .Append(generation).Append(':').Append(minimumRunnerSequence).Append(':')
             .Append(maximumRunnerSequence).Append('\n');
         foreach (var source in sources.OrderBy(static source => source.Repository, StringComparer.Ordinal))

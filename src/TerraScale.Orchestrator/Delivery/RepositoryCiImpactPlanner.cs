@@ -59,15 +59,18 @@ public sealed class RepositoryCiImpactPlan
     internal RepositoryCiImpactPlan(
         RepositoryCiProfile profile,
         string digest,
+        int candidateRetentionDays,
         IReadOnlyList<RepositoryCiPlannedJob> jobs)
     {
         Profile = profile;
         Digest = digest;
+        CandidateRetentionDays = candidateRetentionDays;
         Jobs = jobs;
     }
 
     public RepositoryCiProfile Profile { get; }
     public string Digest { get; }
+    public int CandidateRetentionDays { get; }
     public IReadOnlyList<RepositoryCiPlannedJob> Jobs { get; }
 }
 
@@ -137,7 +140,13 @@ public static class RepositoryCiImpactPlanner
         }
 
         var jobs = BuildJobs(byRepository, repositoryOrder, affectedRepositories, selected, reasons, profile);
-        return new(profile, Digest(profile, byRepository, changed, jobs), ReadOnly(jobs));
+        var candidateRetentionDays = affectedRepositories.Max(repository =>
+            byRepository[repository].CandidateRetentionDays);
+        return new(
+            profile,
+            Digest(profile, byRepository, changed, jobs),
+            candidateRetentionDays,
+            ReadOnly(jobs));
     }
 
     private static Dictionary<string, T> Unique<T>(

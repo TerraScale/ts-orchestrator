@@ -19,6 +19,7 @@ public sealed class RepositoryCiImpactPlannerTests
             RepositoryCiProfile.Feature);
 
         await Assert.That(plan.Digest.Length).IsEqualTo(64);
+        await Assert.That(plan.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(plan.Jobs.Count).IsEqualTo(4);
         await Assert.That(plan.Jobs.Any(static job => job.Node.Kind is RepositoryCiNodeKind.Test or RepositoryCiNodeKind.Artifact)).IsFalse();
         var upstreamBuild = plan.Jobs.Single(static job => job.Id == "TerraScale/Upstream:build");
@@ -49,6 +50,23 @@ public sealed class RepositoryCiImpactPlannerTests
             .IsEquivalentTo(["TerraScale/Product:build", "TerraScale/Product:release-tests"]);
         await Assert.That(candidate.Reasons).Contains("depends-on:build");
         await Assert.That(candidate.Reasons).Contains("depends-on:release-tests");
+    }
+
+    [Test]
+    public async Task CrossRepositoryPlanRetainsCandidatesForTheLongestAffectedPolicy()
+    {
+        var upstream = Descriptor("TerraScale/Upstream", retentionDays: 3);
+        var downstream = Descriptor(
+            "TerraScale/Downstream",
+            [("TerraScale/Upstream", "Public runtime changes require consumer validation")],
+            retentionDays: 21);
+
+        var plan = RepositoryCiImpactPlanner.Plan(
+            [upstream, downstream],
+            [new RepositoryCiChange("TerraScale/Upstream", ["src/core/file.cs"])],
+            RepositoryCiProfile.Release);
+
+        await Assert.That(plan.CandidateRetentionDays).IsEqualTo(21);
     }
 
     [Test]
@@ -115,7 +133,8 @@ public sealed class RepositoryCiImpactPlannerTests
 
     private static RepositoryCiDescriptorV2 Descriptor(
         string repository,
-        (string Repository, string Reason)[]? dependencies = null)
+        (string Repository, string Reason)[]? dependencies = null,
+        int retentionDays = 7)
     {
         dependencies ??= [];
         var dependencyJson = string.Join(',', dependencies.Select(static dependency =>
@@ -124,7 +143,7 @@ public sealed class RepositoryCiImpactPlannerTests
             {
               "apiVersion":"terrascale.ci/v2",
               "repository":"{{repository}}",
-              "candidateRetentionDays":7,
+              "candidateRetentionDays":{{retentionDays}},
               "promotion":"Package",
               "repositoryDependencies":[{{dependencyJson}}],
               "nodes":[

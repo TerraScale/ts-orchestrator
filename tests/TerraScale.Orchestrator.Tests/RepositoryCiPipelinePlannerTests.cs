@@ -29,6 +29,7 @@ public sealed class RepositoryCiPipelinePlannerTests
 
         await Assert.That(pipeline.Profile).IsEqualTo(RepositoryCiProfile.Feature);
         await Assert.That(pipeline.Digest.Length).IsEqualTo(64);
+        await Assert.That(pipeline.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(pipeline.Jobs.Count).IsEqualTo(4);
         await Assert.That(pipeline.Jobs.All(static job => job.Request.Kind == JobKind.ProductValidation)).IsTrue();
         await Assert.That(pipeline.Jobs.All(static job => job.Request.AllowedZones

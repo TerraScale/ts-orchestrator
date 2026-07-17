@@ -27,6 +27,7 @@ public sealed class RepositoryCiCandidateJournalTests
         await Assert.That(recovered).IsNotNull();
         await Assert.That(recovered!.Digest).IsEqualTo(qualified.Digest);
         await Assert.That(recovered.Candidate.Digest).IsEqualTo(qualified.Candidate.Digest);
+        await Assert.That(recovered.Candidate.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(recovered.Candidate.Artifacts).IsEquivalentTo(qualified.Candidate.Artifacts);
         await Assert.That(recovered.Sources).IsEquivalentTo(qualified.Sources);
     }

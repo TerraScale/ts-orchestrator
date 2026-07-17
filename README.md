@@ -407,8 +407,11 @@ coordinator consumes only a fully succeeded durable release run, loads exact
 signed artifact evidence through an injected reader, reuses the closed
 candidate assembler, and commits the immutable candidate and tree-set index
 under current authority. Feature-profile, active, failed, incomplete, unsigned,
-substituted, and authority-lost inputs produce no candidate. Retention cleanup
-remains unimplemented. The OCI CI terminal path now invokes that coordinator
+substituted, and authority-lost inputs produce no candidate. The longest
+candidate-retention policy among affected repositories is now bound into the
+impact plan, pipeline, candidate identity, and restart-safe candidate record;
+the deletion coordinator remains unimplemented. The OCI CI terminal path now
+invokes that coordinator
 after runner cleanup and reports Forgejo success only after the exact candidate
 is durable. Under the same fenced lease, the controller mints and readback-
 verifies a content-addressed P-256 artifact proof exactly once, then reads the

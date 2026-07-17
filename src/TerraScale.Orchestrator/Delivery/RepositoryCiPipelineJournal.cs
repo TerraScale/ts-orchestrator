@@ -315,6 +315,7 @@ internal sealed record RepositoryCiPipelineObjectDocument(
     string Pipeline,
     string PipelineDigest,
     string ImpactDigest,
+    int CandidateRetentionDays,
     int JobCount)
 {
     internal static RepositoryCiPipelineObjectDocument From(
@@ -326,7 +327,7 @@ internal sealed record RepositoryCiPipelineObjectDocument(
         long minimumRunnerSequence,
         long maximumRunnerSequence,
         RepositoryCiPipelinePlan plan) => new(
-            1,
+            2,
             ForgejoWebhookEventDocument.From(trigger.Envelope),
             descriptorFiles.OrderBy(static file => file.Repository, StringComparer.Ordinal)
                 .Select(RepositoryCiPipelineDescriptorDocument.From).ToArray(),
@@ -340,15 +341,16 @@ internal sealed record RepositoryCiPipelineObjectDocument(
             plan.Pipeline.Value,
             plan.Digest,
             plan.ImpactDigest,
+            plan.CandidateRetentionDays,
             plan.Jobs.Count);
 
     internal RepositoryCiPipelinePlan Restore(string expectedDedupeKey)
     {
-        if (SchemaVersion != 1 || Event is null || Event.DedupeKey != expectedDedupeKey ||
+        if (SchemaVersion != 2 || Event is null || Event.DedupeKey != expectedDedupeKey ||
             Descriptors is not { Length: > 0 and <= 64 } || Changes is not { Length: > 0 and <= 64 } ||
             Sources is not { Length: > 0 and <= 64 } || Generation <= 0 || MinimumRunnerSequence <= 0 ||
             MaximumRunnerSequence < MinimumRunnerSequence || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
-            Pipeline != $"ci-{PipelineDigest[..24]}" || JobCount <= 0)
+            Pipeline != $"ci-{PipelineDigest[..24]}" || CandidateRetentionDays is < 1 or > 30 || JobCount <= 0)
             throw new InvalidDataException("A persisted CI pipeline object is invalid.");
         var trigger = ForgejoCiTriggerPlanner.Plan(Event.ToEnvelope());
         var descriptorFiles = Descriptors.Select(static descriptor => descriptor.ToFile()).ToArray();
@@ -363,7 +365,8 @@ internal sealed record RepositoryCiPipelineObjectDocument(
             MinimumRunnerSequence,
             MaximumRunnerSequence);
         if (plan.Pipeline.Value != Pipeline || plan.Digest != PipelineDigest ||
-            plan.ImpactDigest != ImpactDigest || plan.Jobs.Count != JobCount)
+            plan.ImpactDigest != ImpactDigest || plan.CandidateRetentionDays != CandidateRetentionDays ||
+            plan.Jobs.Count != JobCount)
             throw new InvalidDataException("A persisted CI pipeline object changed its deterministic plan.");
         return plan;
     }
