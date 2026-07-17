@@ -143,6 +143,7 @@ public static class ObservabilityDecisionEngine
 
         var changes = new List<GrafanaChange>();
         var observedById = request.Observed.ToDictionary(r => r.Id);
+        var desiredIds = request.Desired.Select(r => r.Id).ToHashSet();
         foreach (var desired in request.Desired)
         {
             if (!observedById.TryGetValue(desired.Id, out var observed))
@@ -159,7 +160,7 @@ public static class ObservabilityDecisionEngine
                 observed.ManagedProvenance is not { } provenance || provenance.ReleaseId != desired.ReleaseId || provenance.Selection != desired.Selection)
                 changes.Add(new UpdateGrafanaResource(desired, observed, request.Inventory));
         }
-        foreach (var observed in request.Observed.Where(r => !request.Desired.Any(d => d.Id == r.Id)))
+        foreach (var observed in request.Observed.Where(r => !desiredIds.Contains(r.Id)))
             changes.Add(observed.Ownership == GrafanaOwnership.ManagedExact ? new DeleteGrafanaResource(observed, request.Inventory) : new ReportGrafanaDrift(observed, request.Inventory));
 
         var projectionCount = ObservabilityArithmetic.CheckedAdd((ulong)request.Desired.Count, (ulong)request.Observed.Count);
