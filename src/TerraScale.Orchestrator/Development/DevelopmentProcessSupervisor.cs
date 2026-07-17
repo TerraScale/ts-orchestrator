@@ -195,10 +195,13 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--stop-timeout", "15",
             "--env-file", environmentFile,
             "--volume", $"{workspaceRoot}:{workspaceRoot}:ro",
-            "--volume", $"{dataDirectory}:{dataDirectory}:rw",
-            "--workdir", specification.WorkingDirectory,
-            specification.Image
+            "--volume", $"{dataDirectory}:{dataDirectory}:rw"
         ]);
+        if (WritableRuntimeOverlay(topology, specification.Name, workspaceRoot) is { } overlay)
+        {
+            Add(process.StartInfo, ["--volume", overlay]);
+        }
+        Add(process.StartInfo, ["--workdir", specification.WorkingDirectory, specification.Image]);
         Add(process.StartInfo, specification.Arguments);
         process.Start();
         processes.Add(specification.Name, process);
@@ -305,6 +308,23 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     internal static IReadOnlyList<string> OwnedPodRemovalArguments(string podName, int timeoutSeconds) =>
         ["pod", "rm", "--force", "--time", timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture), podName];
+
+    internal static string? WritableRuntimeOverlay(
+        DevelopmentTopology topology,
+        string resourceName,
+        string workspaceRoot)
+    {
+        var resource = topology.Cells.SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources)
+            .Single(candidate => candidate.Name == resourceName);
+        if (resource.Kind != DevelopmentResourceKind.TerraBase)
+        {
+            return null;
+        }
+        var runtime = Path.GetFullPath(Path.Combine(
+            workspaceRoot, "TerraBase", "src", "TerraBase.Server", "bin", "Release", "net10.0"));
+        return $"{runtime}:{runtime}:O";
+    }
 
     internal static IReadOnlyList<string> PodCreationArguments(
         DevelopmentTopology topology,

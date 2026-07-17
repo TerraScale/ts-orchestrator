@@ -200,4 +200,23 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(arguments).Contains("sleep infinity");
         await Assert.That(arguments).Contains("pasta:--host-lo-to-ns-lo");
     }
+
+    [Test]
+    public async Task TerraBaseRuntimeUsesAPrivateWritableOverlay()
+    {
+        var topology = DevelopmentTopology.CreateThreeCellLean();
+
+        await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
+            topology,
+            "gru-terrabase-1",
+            "/workspace"))
+            .IsEqualTo(
+                "/workspace/TerraBase/src/TerraBase.Server/bin/Release/net10.0:" +
+                "/workspace/TerraBase/src/TerraBase.Server/bin/Release/net10.0:O");
+        await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
+            topology,
+            "gru-api",
+            "/workspace"))
+            .IsNull();
+    }
 }
