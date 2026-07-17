@@ -31,7 +31,7 @@ public sealed class ForgejoWebhookConfiguration
         if (!Uri.TryCreate(listenPrefix, UriKind.Absolute, out var prefix) ||
             prefix.Scheme is not ("http" or "https") ||
             !string.IsNullOrEmpty(prefix.UserInfo) || !string.IsNullOrEmpty(prefix.Query) ||
-            !string.IsNullOrEmpty(prefix.Fragment) || !prefix.AbsolutePath.EndsWith("/", StringComparison.Ordinal) ||
+            !string.IsNullOrEmpty(prefix.Fragment) || !prefix.AbsolutePath.EndsWith('/') ||
             prefix.Host is "*" or "+" || prefix.Port <= 0)
             throw new ArgumentException("The Forgejo webhook listen prefix is invalid.");
         if (prefix.Scheme == "http" && !IsLoopback(prefix.Host))
