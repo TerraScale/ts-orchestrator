@@ -57,6 +57,7 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(staleReplay.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleAuthority);
         await Assert.That(prepared.Job!.FencingToken).IsEqualTo(1);
         await Assert.That(prepared.Job.Phase).IsEqualTo(RepositoryCiJobPhase.DispatchPrepared);
+        await Assert.That(prepared.Job.ExpiresAt - prepared.Job.PreparedAt).IsEqualTo(TimeSpan.FromHours(2));
     }
 
     [Test]
@@ -284,6 +285,26 @@ public sealed class RepositoryCiJobJournalTests
     }
 
     [Test]
+    public async Task SchemaThreeDispatchIsMarkedWithoutFabricatingAnAcknowledgement()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new RepositoryCiJobJournal(ledger);
+        var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
+        await journal.InitializeAsync(pipeline, 5, 9, static () => true);
+        var root = (await journal.ReadAsync(pipeline)).Ready[0];
+        var prepared = await PrepareAsync(journal, pipeline, root);
+        await AdvanceAsync(journal, prepared.Job!, RepositoryCiJobPhase.Dispatched, 41);
+        ledger.RewriteFirst(ToSchemaThree);
+
+        var recovered = (await journal.ReadAsync(pipeline)).Jobs
+            .Single(job => job.Job.Request.Job == root.Request.Job);
+
+        await Assert.That(recovered.Phase).IsEqualTo(RepositoryCiJobPhase.Dispatched);
+        await Assert.That(recovered.DispatchStreamSequence).IsEqualTo(0UL);
+        await Assert.That(recovered.LegacyDispatchWithoutAcknowledgement).IsTrue();
+    }
+
+    [Test]
     public async Task ConcurrentPreparationConvergesAndCorruptStateFailsClosed()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -315,7 +336,7 @@ public sealed class RepositoryCiJobJournalTests
         return journal;
     }
 
-    private static Task<RepositoryCiJobJournalReceipt> PrepareAsync(
+    internal static Task<RepositoryCiJobJournalReceipt> PrepareAsync(
         RepositoryCiJobJournal journal,
         RepositoryCiPipelinePlan pipeline,
         RepositoryCiPipelineJob job,
@@ -367,16 +388,17 @@ public sealed class RepositoryCiJobJournalTests
             failureKind == RepositoryCiJobFailureKind.Unspecified && phase == RepositoryCiJobPhase.Failed
                 ? RepositoryCiJobFailureKind.WorkloadFailed
                 : failureKind,
+            phase == RepositoryCiJobPhase.Dispatched ? (ulong)evidence : 0,
             static () => true);
 
-    private static RunnerEvidence Runner(RepositoryCiPipelineJob job) => new(
+    internal static RunnerEvidence Runner(RepositoryCiPipelineJob job) => new(
         new($"runner-{job.Plan.Node.Id}"),
         TrustZone.UntrustedProduct,
         20,
         true,
         job.Request.RequiredCapabilities);
 
-    private static CiRunnerIsolationEvidence Isolation(RepositoryCiPipelineJob job) => new(
+    internal static CiRunnerIsolationEvidence Isolation(RepositoryCiPipelineJob job) => new(
         job.Request.Job,
         Runner(job).Runner,
         20,
@@ -420,6 +442,19 @@ public sealed class RepositoryCiJobJournalTests
         document.Remove("RetryAuthorizationDigest");
         document.Remove("RetryNotBeforeUnixMilliseconds");
         document.Remove("FailureKind");
+        document.Remove("PreparedAtUnixMilliseconds");
+        document.Remove("ExpiresAtUnixMilliseconds");
+        document.Remove("DispatchStreamSequence");
+        document.Remove("LegacyDispatchWithoutAcknowledgement");
+        return document.ToJsonString();
+    }
+
+    private static string ToSchemaThree(string value)
+    {
+        var document = JsonNode.Parse(value)?.AsObject() ?? throw new InvalidDataException();
+        document["SchemaVersion"] = 3;
+        document.Remove("DispatchStreamSequence");
+        document.Remove("LegacyDispatchWithoutAcknowledgement");
         return document.ToJsonString();
     }
 

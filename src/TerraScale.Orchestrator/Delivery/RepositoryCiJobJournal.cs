@@ -86,6 +86,14 @@ internal sealed class RepositoryCiJobSnapshot
     public DateTimeOffset? RetryNotBefore => Document.RetryNotBeforeUnixMilliseconds == 0
         ? null
         : DateTimeOffset.FromUnixTimeMilliseconds(Document.RetryNotBeforeUnixMilliseconds);
+    public DateTimeOffset? PreparedAt => Document.PreparedAtUnixMilliseconds == 0
+        ? null
+        : DateTimeOffset.FromUnixTimeMilliseconds(Document.PreparedAtUnixMilliseconds);
+    public DateTimeOffset? ExpiresAt => Document.ExpiresAtUnixMilliseconds == 0
+        ? null
+        : DateTimeOffset.FromUnixTimeMilliseconds(Document.ExpiresAtUnixMilliseconds);
+    public ulong DispatchStreamSequence => Document.DispatchStreamSequence;
+    public bool LegacyDispatchWithoutAcknowledgement => Document.LegacyDispatchWithoutAcknowledgement;
     internal RepositoryCiJobDocument Document { get; }
     internal ulong Revision { get; }
 }
@@ -105,6 +113,7 @@ internal sealed class RepositoryCiJobJournal
 {
     private const int MaximumRecordBytes = 16 * 1024;
     private const int MaximumConflictRetries = 8;
+    private static readonly TimeSpan DispatchLifetime = TimeSpan.FromHours(2);
     private readonly IForgejoDeliveryLedger ledger;
     private readonly TimeProvider timeProvider;
 
@@ -268,9 +277,10 @@ internal sealed class RepositoryCiJobJournal
             RepositoryCiJobDocument prepared;
             try
             {
+                var preparedAt = timeProvider.GetUtcNow();
                 prepared = current.Document with
                 {
-                    SchemaVersion = 2,
+                    SchemaVersion = 4,
                     PreviousPhase = RepositoryCiJobPhase.Pending,
                     Phase = RepositoryCiJobPhase.DispatchPrepared,
                     PhaseSequence = 1,
@@ -282,7 +292,13 @@ internal sealed class RepositoryCiJobJournal
                     IsolationDigest = isolationDigest,
                     OperationId = operationId,
                     EvidenceDigest = isolationDigest,
+                    PreparedAtUnixMilliseconds = preparedAt.ToUnixTimeMilliseconds(),
+                    ExpiresAtUnixMilliseconds = preparedAt.Add(DispatchLifetime).ToUnixTimeMilliseconds(),
                 };
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                throw new InvalidDataException("The CI job deadline exceeded the supported clock range.", exception);
             }
             catch (OverflowException exception)
             {
@@ -377,6 +393,7 @@ internal sealed class RepositoryCiJobJournal
         string evidenceDigest,
         int requiredTestSkips,
         RepositoryCiJobFailureKind failureKind,
+        ulong dispatchStreamSequence,
         Func<bool> authorityStillValid,
         CancellationToken cancellationToken = default)
     {
@@ -393,6 +410,9 @@ internal sealed class RepositoryCiJobJournal
             nextPhase != RepositoryCiJobPhase.Failed && failureKind != RepositoryCiJobFailureKind.Unspecified ||
             !Enum.IsDefined(failureKind))
             throw new ArgumentException("The CI job failure classification does not match its phase.", nameof(failureKind));
+        if (nextPhase == RepositoryCiJobPhase.Dispatched && dispatchStreamSequence == 0 ||
+            nextPhase != RepositoryCiJobPhase.Dispatched && dispatchStreamSequence != 0)
+            throw new ArgumentException("The CI job stream sequence does not match its phase.", nameof(dispatchStreamSequence));
         var key = Index(lease.Document.PipelineDigest, lease.Document.Job);
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
         {
@@ -403,7 +423,9 @@ internal sealed class RepositoryCiJobJournal
             if (!current.SameLease(lease.Document))
                 return new(RepositoryCiJobJournalDisposition.StaleLease, observed);
             if (current.Phase == nextPhase)
-                return new(current.EvidenceDigest == evidenceDigest && current.RequiredTestSkips == requiredTestSkips
+                return new(current.EvidenceDigest == evidenceDigest && current.RequiredTestSkips == requiredTestSkips &&
+                    (nextPhase != RepositoryCiJobPhase.Dispatched ||
+                        current.DispatchStreamSequence == dispatchStreamSequence)
                     ? authorityStillValid()
                         ? RepositoryCiJobJournalDisposition.Duplicate
                         : RepositoryCiJobJournalDisposition.StaleAuthority
@@ -420,6 +442,12 @@ internal sealed class RepositoryCiJobJournal
                 EvidenceDigest = evidenceDigest,
                 RequiredTestSkips = requiredTestSkips,
                 FailureKind = failureKind,
+                DispatchStreamSequence = nextPhase == RepositoryCiJobPhase.Dispatched
+                    ? dispatchStreamSequence
+                    : current.DispatchStreamSequence,
+                LegacyDispatchWithoutAcknowledgement = nextPhase == RepositoryCiJobPhase.Dispatched
+                    ? false
+                    : current.LegacyDispatchWithoutAcknowledgement,
             };
             advanced.Validate();
             try
@@ -495,7 +523,7 @@ internal sealed class RepositoryCiJobJournal
                 var retryNotBefore = timeProvider.GetUtcNow().Add(RetryDelay(current.Attempt));
                 waiting = current with
                 {
-                    SchemaVersion = 2,
+                    SchemaVersion = 4,
                     PreviousPhase = RepositoryCiJobPhase.Failed,
                     Phase = RepositoryCiJobPhase.RetryWaiting,
                     PhaseSequence = 5,
@@ -578,7 +606,7 @@ internal sealed class RepositoryCiJobJournal
             {
                 pending = current with
                 {
-                    SchemaVersion = 2,
+                    SchemaVersion = 4,
                     PreviousPhase = RepositoryCiJobPhase.RetryWaiting,
                     Phase = RepositoryCiJobPhase.Pending,
                     PhaseSequence = 0,
@@ -596,6 +624,10 @@ internal sealed class RepositoryCiJobJournal
                     RequiredTestSkips = 0,
                     RetryNotBeforeUnixMilliseconds = 0,
                     FailureKind = RepositoryCiJobFailureKind.Unspecified,
+                    PreparedAtUnixMilliseconds = 0,
+                    ExpiresAtUnixMilliseconds = 0,
+                    DispatchStreamSequence = 0,
+                    LegacyDispatchWithoutAcknowledgement = false,
                 };
             }
             catch (OverflowException exception)
@@ -688,7 +720,7 @@ internal sealed class RepositoryCiJobJournal
             .Append(authorizationDigest)
             .ToString());
 
-    private static string JobDigest(RepositoryCiPipelinePlan pipeline, RepositoryCiPipelineJob job)
+    internal static string JobDigest(RepositoryCiPipelinePlan pipeline, RepositoryCiPipelineJob job)
     {
         var request = job.Request;
         var value = new StringBuilder(pipeline.Digest).Append('\n')
@@ -731,7 +763,9 @@ internal sealed class RepositoryCiJobJournal
             {
                 if (document.Attempt != 0 || document.AttemptChainDigest is not null ||
                     document.RetryAuthorizationDigest is not null || document.RetryNotBeforeUnixMilliseconds != 0 ||
-                    document.FailureKind != RepositoryCiJobFailureKind.Unspecified)
+                    document.FailureKind != RepositoryCiJobFailureKind.Unspecified ||
+                    document.PreparedAtUnixMilliseconds != 0 || document.ExpiresAtUnixMilliseconds != 0 ||
+                    document.DispatchStreamSequence != 0 || document.LegacyDispatchWithoutAcknowledgement)
                     throw new JsonException();
                 document = document with
                 {
@@ -742,6 +776,31 @@ internal sealed class RepositoryCiJobJournal
                     FailureKind = document.Phase == RepositoryCiJobPhase.Failed
                         ? RepositoryCiJobFailureKind.WorkloadFailed
                         : RepositoryCiJobFailureKind.Unspecified,
+                };
+            }
+            if (document.SchemaVersion == 2)
+            {
+                if (document.PreparedAtUnixMilliseconds != 0 || document.ExpiresAtUnixMilliseconds != 0)
+                    throw new JsonException();
+                var active = document.Phase != RepositoryCiJobPhase.Pending;
+                document = document with
+                {
+                    SchemaVersion = 3,
+                    PreparedAtUnixMilliseconds = active ? 1 : 0,
+                    ExpiresAtUnixMilliseconds = active ? 2 : 0,
+                };
+            }
+            if (document.SchemaVersion == 3)
+            {
+                if (document.DispatchStreamSequence != 0 || document.LegacyDispatchWithoutAcknowledgement)
+                    throw new JsonException();
+                var legacyDispatch = document.Phase is RepositoryCiJobPhase.Dispatched or
+                    RepositoryCiJobPhase.Running or RepositoryCiJobPhase.Succeeded or
+                    RepositoryCiJobPhase.Failed or RepositoryCiJobPhase.RetryWaiting;
+                document = document with
+                {
+                    SchemaVersion = 4,
+                    LegacyDispatchWithoutAcknowledgement = legacyDispatch,
                 };
             }
             document.Validate();
@@ -803,15 +862,21 @@ internal sealed record RepositoryCiJobDocument(
     string AttemptChainDigest,
     string RetryAuthorizationDigest,
     long RetryNotBeforeUnixMilliseconds,
-    RepositoryCiJobFailureKind FailureKind)
+    RepositoryCiJobFailureKind FailureKind,
+    long PreparedAtUnixMilliseconds,
+    long ExpiresAtUnixMilliseconds,
+    ulong DispatchStreamSequence,
+    bool LegacyDispatchWithoutAcknowledgement)
 {
+    private const long MaximumUnixMilliseconds = 253_402_300_799_999;
+
     internal static RepositoryCiJobDocument Pending(
         RepositoryCiPipelinePlan pipeline,
         RepositoryCiPipelineJob job,
         string jobDigest,
         long authorityEpoch,
         long sequence) => new(
-            2,
+            4,
             pipeline.Pipeline.Value,
             pipeline.Digest,
             job.Request.Job.Value,
@@ -834,7 +899,11 @@ internal sealed record RepositoryCiJobDocument(
             string.Empty,
             string.Empty,
             0,
-            RepositoryCiJobFailureKind.Unspecified);
+            RepositoryCiJobFailureKind.Unspecified,
+            0,
+            0,
+            0,
+            false);
 
     internal bool SameJob(RepositoryCiJobDocument other) =>
         Pipeline == other.Pipeline && PipelineDigest == other.PipelineDigest && Job == other.Job &&
@@ -855,7 +924,7 @@ internal sealed record RepositoryCiJobDocument(
             RepositoryCiJobPhase.Running or RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed;
         var active = leased || retryWaiting;
         var retryHistory = Attempt > 1 || retryWaiting;
-        if (SchemaVersion != 2 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
+        if (SchemaVersion != 4 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
             !Digest(JobDigest) || CreatedAuthorityEpoch <= 0 || CreatedSequence <= 0 ||
             Attempt is < 1 or > 100 || AttemptChainDigest is null || RetryAuthorizationDigest is null ||
             !Enum.IsDefined(FailureKind) ||
@@ -868,22 +937,35 @@ internal sealed record RepositoryCiJobDocument(
                     AuthorityEpoch <= 0 || FencingToken <= 0) || RunnerId.Length != 0 ||
                 RunnerSequence != 0 || IsolationDigest.Length != 0 || OperationId.Length != 0 ||
                 EvidenceDigest.Length != 0 || RequiredTestSkips != 0 ||
-                FailureKind != RepositoryCiJobFailureKind.Unspecified) ||
+                FailureKind != RepositoryCiJobFailureKind.Unspecified ||
+                PreparedAtUnixMilliseconds != 0 || ExpiresAtUnixMilliseconds != 0 ||
+                DispatchStreamSequence != 0 || LegacyDispatchWithoutAcknowledgement) ||
             leased && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
                 !Identity(RunnerId) || RunnerSequence <= 0 || !Digest(IsolationDigest) ||
                 !Identity(OperationId) || !Digest(EvidenceDigest) || RequiredTestSkips is < 0 or > 1_000_000 ||
-                !ValidPhaseEdge(PreviousPhase, Phase, PhaseSequence)) ||
+                !ValidPhaseEdge(PreviousPhase, Phase, PhaseSequence) || PreparedAtUnixMilliseconds <= 0 ||
+                ExpiresAtUnixMilliseconds <= PreparedAtUnixMilliseconds) ||
             retryWaiting && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
                 !Identity(RunnerId) || RunnerSequence <= 0 || !Digest(IsolationDigest) ||
                 !Identity(OperationId) || !Digest(EvidenceDigest) || RequiredTestSkips is < 0 or > 1_000_000 ||
                 PreviousPhase != RepositoryCiJobPhase.Failed || PhaseSequence != 5 ||
-                !RepositoryCiJobJournal.Retryable(FailureKind) || RetryNotBeforeUnixMilliseconds <= 0) ||
+                !RepositoryCiJobJournal.Retryable(FailureKind) || RetryNotBeforeUnixMilliseconds <= 0 ||
+                RetryNotBeforeUnixMilliseconds > MaximumUnixMilliseconds ||
+                PreparedAtUnixMilliseconds <= 0 || ExpiresAtUnixMilliseconds <= PreparedAtUnixMilliseconds) ||
             retryHistory && (!Digest(AttemptChainDigest) || !Digest(RetryAuthorizationDigest)) ||
             !retryHistory && (AttemptChainDigest.Length != 0 || RetryAuthorizationDigest.Length != 0) ||
             !retryWaiting && RetryNotBeforeUnixMilliseconds != 0 ||
             Phase == RepositoryCiJobPhase.Failed && FailureKind == RepositoryCiJobFailureKind.Unspecified ||
             Phase != RepositoryCiJobPhase.Failed && !retryWaiting &&
                 FailureKind != RepositoryCiJobFailureKind.Unspecified ||
+            PreparedAtUnixMilliseconds > MaximumUnixMilliseconds ||
+            ExpiresAtUnixMilliseconds > MaximumUnixMilliseconds ||
+            Phase == RepositoryCiJobPhase.DispatchPrepared &&
+                (DispatchStreamSequence != 0 || LegacyDispatchWithoutAcknowledgement) ||
+            Phase is (RepositoryCiJobPhase.Dispatched or RepositoryCiJobPhase.Running or
+                    RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed or
+                    RepositoryCiJobPhase.RetryWaiting) &&
+                (DispatchStreamSequence == 0) != LegacyDispatchWithoutAcknowledgement ||
             Phase is not (RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed) && RequiredTestSkips != 0)
             throw new InvalidDataException("A CI job journal record is invalid.");
     }
