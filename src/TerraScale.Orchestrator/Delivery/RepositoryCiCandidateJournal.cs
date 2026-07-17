@@ -23,11 +23,11 @@ internal sealed class RepositoryCiCandidateJournal
     private const int MaximumPointerBytes = 8 * 1024;
     private const int MaximumCandidateBytes = 64 * 1024 * 1024;
     private readonly IForgejoDeliveryLedger ledger;
-    private readonly INativeGitOpsManifestStore objects;
+    private readonly IDeliveryObjectStore objects;
 
     internal RepositoryCiCandidateJournal(
         IForgejoDeliveryLedger ledger,
-        INativeGitOpsManifestStore objects)
+        IDeliveryObjectStore objects)
     {
         this.ledger = ledger;
         this.objects = objects;

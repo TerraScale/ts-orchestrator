@@ -60,11 +60,11 @@ internal sealed class NativeGitOpsCellAcceptanceJournal
     private const int MaximumRecordBytes = 8 * 1024;
     private const int MaximumConflictRetries = 4;
     private readonly IForgejoDeliveryLedger ledger;
-    private readonly INativeGitOpsManifestStore payloads;
+    private readonly IDeliveryObjectStore payloads;
 
     internal NativeGitOpsCellAcceptanceJournal(
         IForgejoDeliveryLedger ledger,
-        INativeGitOpsManifestStore payloads)
+        IDeliveryObjectStore payloads)
     {
         this.ledger = ledger;
         this.payloads = payloads;

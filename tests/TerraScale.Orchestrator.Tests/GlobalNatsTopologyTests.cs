@@ -32,6 +32,11 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.Releases.History).IsEqualTo(64);
         await Assert.That(topology.Releases.MaxAge).IsEqualTo(TimeSpan.FromDays(365));
         await Assert.That(topology.Releases.MaxValueSize).IsEqualTo(16 * 1024);
+        await Assert.That(topology.RunnerJobs.Bucket).IsEqualTo("CI_RUNNER_JOBS");
+        await Assert.That(topology.RunnerJobs.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(topology.RunnerJobs.History).IsEqualTo(8);
+        await Assert.That(topology.RunnerJobs.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
+        await Assert.That(topology.RunnerJobs.MaxValueSize).IsEqualTo(16 * 1024);
         await Assert.That(() => new GlobalNatsTopology(1)).Throws<ArgumentOutOfRangeException>();
     }
 

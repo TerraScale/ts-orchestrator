@@ -220,7 +220,7 @@ public sealed class NativeGitOpsCellAcceptanceJournalTests
             candidate.Bytes.SequenceEqual(signature) ? VerificationOutcome.Valid : VerificationOutcome.Invalid;
     }
 
-    private sealed class TestPayloadStore : INativeGitOpsManifestStore
+    private sealed class TestPayloadStore : IDeliveryObjectStore
     {
         private readonly ConcurrentDictionary<string, byte[]> values = new(StringComparer.Ordinal);
 

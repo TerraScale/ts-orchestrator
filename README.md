@@ -163,8 +163,15 @@ also persist an exact two-hour deadline, encode a canonical bounded command for
 the selected runner, require the configured command signer, and advance to
 dispatched only after `GLOBAL_CI` returns a durable expected-stream
 acknowledgement. Replay reuses the exact bytes and message ID plus the
-acknowledged stream sequence. The live pipeline coordinator, CI signer wiring,
-and isolated runner inbox/executor remain separate unimplemented gates; no
+acknowledged stream sequence. The runner-side inbox rejects malformed,
+wrong-runner, expired, invalid-signature, stale-attempt, stale-authority, and
+stale-fence commands. It stores the canonical command and signature by digest
+in `GLOBAL_BUNDLES`, advances a compact monotonic pointer in `CI_RUNNER_JOBS`,
+and acknowledges only after both objects survive readback and the pointer CAS
+succeeds. Exact redelivery after an acknowledgement failure resumes from that
+durable acceptance; higher fenced takeover and contiguous retry attempts can
+replace it. The live pipeline coordinator, CI signer/identity wiring, bounded
+runner pull consumer, and executor remain separate unimplemented gates; no
 unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new

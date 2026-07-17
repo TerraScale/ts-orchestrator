@@ -64,9 +64,19 @@ public sealed class GlobalNatsTopology
         NumberOfReplicas = Replicas,
     };
 
+    public NatsKVConfig RunnerJobs => new("CI_RUNNER_JOBS")
+    {
+        Description = "Fenced durable CI runner command acceptance pointers",
+        History = 8,
+        MaxAge = TimeSpan.FromDays(30),
+        MaxValueSize = 16 * 1024,
+        MaxBytes = 512L * 1024 * 1024,
+        NumberOfReplicas = Replicas,
+    };
+
     public NatsObjConfig Bundles => new("GLOBAL_BUNDLES")
     {
-        Description = "Content-addressed global candidate and handoff records",
+        Description = "Content-addressed global candidate, handoff, and runner command records",
         MaxBytes = 1024L * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };

@@ -82,7 +82,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             if (!authority.Snapshot.Ready)
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
-            var objects = new NatsNativeGitOpsManifestStore(state.Bundles);
+            var objects = new NatsDeliveryObjectStore(state.Bundles);
             var triggerJournal = new ForgejoCiTriggerJournal(ledger);
             var ciEvents = ForgejoCiEventConsumer.Start(
                 state.CiConsumer,
@@ -123,6 +123,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 var keyValue = jetStream.CreateKeyValueStoreContext();
                 var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
                 var releases = await keyValue.CreateOrUpdateStoreAsync(topology.Releases, cancellationToken);
+                var runnerJobs = await keyValue.CreateOrUpdateStoreAsync(topology.RunnerJobs, cancellationToken);
                 var objectStore = jetStream.CreateObjectStoreContext();
                 INatsObjStore bundles;
                 try
@@ -137,7 +138,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     GlobalNatsTopology.CiStream,
                     topology.CiConsumer,
                     cancellationToken);
-                return new(leaders, releases, bundles, ciConsumer);
+                return new(leaders, releases, runnerJobs, bundles, ciConsumer);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -170,6 +171,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private sealed record GlobalState(
         INatsKVStore Leaders,
         INatsKVStore Releases,
+        INatsKVStore RunnerJobs,
         INatsObjStore Bundles,
         INatsJSConsumer CiConsumer);
 }

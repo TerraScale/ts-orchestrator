@@ -185,7 +185,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             await VerifyServiceAsync(client, topology, cancellationToken);
 
             var deliveryLedger = new NatsForgejoDeliveryLedger(state.Delivery);
-            var bundles = new NatsNativeGitOpsManifestStore(state.Bundles);
+            var bundles = new NatsDeliveryObjectStore(state.Bundles);
             return new(
                 client,
                 service,

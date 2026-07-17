@@ -21,7 +21,7 @@ internal sealed record RepositoryCiPipelineJournalReceipt(
 /// <summary>Stores exact affected CI inputs by content and CAS-indexes one immutable pipeline per event.</summary>
 internal sealed class RepositoryCiPipelineJournal(
     IForgejoDeliveryLedger ledger,
-    INativeGitOpsManifestStore objects)
+    IDeliveryObjectStore objects)
 {
     private const int MaximumPointerBytes = 8 * 1024;
     private const int MaximumObjectBytes = 32 * 1024 * 1024;

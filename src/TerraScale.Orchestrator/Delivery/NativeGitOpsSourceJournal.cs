@@ -30,13 +30,13 @@ internal sealed record NativeGitOpsAcceptedSource(
     long PollSequence,
     ulong JournalRevision);
 
-internal interface INativeGitOpsManifestStore
+internal interface IDeliveryObjectStore
 {
     Task PutAsync(string name, ReadOnlyMemory<byte> content, CancellationToken cancellationToken);
     Task<byte[]> GetAsync(string name, CancellationToken cancellationToken);
 }
 
-internal sealed class NatsNativeGitOpsManifestStore(INatsObjStore store) : INativeGitOpsManifestStore
+internal sealed class NatsDeliveryObjectStore(INatsObjStore store) : IDeliveryObjectStore
 {
     public async Task PutAsync(
         string name,
@@ -57,11 +57,11 @@ internal sealed class NativeGitOpsSourceJournal
 {
     private const int MaximumRecordBytes = 8 * 1024;
     private readonly IForgejoDeliveryLedger ledger;
-    private readonly INativeGitOpsManifestStore manifests;
+    private readonly IDeliveryObjectStore manifests;
 
     internal NativeGitOpsSourceJournal(
         IForgejoDeliveryLedger ledger,
-        INativeGitOpsManifestStore manifests)
+        IDeliveryObjectStore manifests)
     {
         this.ledger = ledger;
         this.manifests = manifests;

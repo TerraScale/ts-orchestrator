@@ -194,7 +194,7 @@ public sealed class RepositoryCiPipelineJournalTests
             content);
     }
 
-    private sealed class TestObjectStore : INativeGitOpsManifestStore
+    private sealed class TestObjectStore : IDeliveryObjectStore
     {
         private readonly Dictionary<string, byte[]> values = new(StringComparer.Ordinal);
         private readonly object sync = new();

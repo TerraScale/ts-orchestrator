@@ -144,7 +144,7 @@ public sealed class NativeGitOpsSourceJournalTests
         return new(revision, file, plan, NativeGitOpsDiff.Compare(accepted?.Plan, plan));
     }
 
-    internal sealed class TestManifestStore : INativeGitOpsManifestStore
+    internal sealed class TestManifestStore : IDeliveryObjectStore
     {
         private readonly Dictionary<string, byte[]> values = new(StringComparer.Ordinal);
 

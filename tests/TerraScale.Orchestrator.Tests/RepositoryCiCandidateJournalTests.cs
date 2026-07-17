@@ -213,7 +213,7 @@ public sealed class RepositoryCiCandidateJournalTests
             new(source.Repository, source.MainCommit, source.Tree, true)))
         .ToArray();
 
-    private sealed class TestObjectStore : INativeGitOpsManifestStore
+    private sealed class TestObjectStore : IDeliveryObjectStore
     {
         private readonly Dictionary<string, byte[]> values = new(StringComparer.Ordinal);
         private readonly object sync = new();
