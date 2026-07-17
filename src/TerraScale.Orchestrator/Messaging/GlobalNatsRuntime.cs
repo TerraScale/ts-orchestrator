@@ -103,7 +103,9 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             var triggerJournal = new ForgejoCiTriggerJournal(ledger);
             var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
             var jobs = new RepositoryCiJobJournal(ledger);
+            var candidates = new RepositoryCiCandidateJournal(ledger, objects);
             var runnerConsumers = new CiRunnerConsumerReconciler(client.CreateJetStreamContext(), topology);
+            RepositoryCiQualificationController? qualificationController = null;
             if (ciPool is not null)
             {
                 if (ciSource is null || ciJobSigner is null)
@@ -162,6 +164,21 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         () => authority.Snapshot,
                         instance,
                         ownedSource: source);
+                    var qualificationCoordinator = new RepositoryCiQualificationCoordinator(
+                        triggerJournal,
+                        candidates,
+                        async (trigger, token) =>
+                        {
+                            var observation = await source.PollBranchAsync("main", token);
+                            if (observation.Revision.Repository != trigger.Envelope.Repository)
+                                throw new InvalidDataException(
+                                    "The protected-main source does not match the qualification trigger.");
+                            return [observation];
+                        });
+                    qualificationController = new(
+                        qualificationCoordinator.CoordinateAsync,
+                        () => authority.Snapshot,
+                        source.ReportCommitStatusAsync);
                 }
                 catch
                 {
@@ -174,7 +191,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 state.CiConsumer,
                 new(triggerJournal, () => authority.Snapshot),
                 () => authority.Snapshot,
-                ciController is null ? null : ciController.RunToCompletionAsync);
+                ciController is null || qualificationController is null
+                    ? null
+                    : (trigger, token) => trigger.RequiresQualifiedCandidate
+                        ? qualificationController.RunToCompletionAsync(trigger, token)
+                        : ciController.RunToCompletionAsync(trigger, token));
             return new(
                 client,
                 authority,
@@ -188,7 +209,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 new(ledger, objects),
                 new(ledger),
                 new(ledger),
-                new(ledger, objects));
+                candidates);
         }
         catch
         {

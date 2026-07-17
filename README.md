@@ -405,7 +405,14 @@ admitted protected-`main` trigger, snapshots injected signed protected-main
 observations once, locates the immutable candidate by exact tree-set index, and
 records the resolved qualification under current authority. Missing triggers,
 non-qualification events, missing candidates, changed trees or webhook commits,
-and authority loss cannot create a qualification.
+and authority loss cannot create a qualification. With the OCI CI controller
+enabled, protected-`main` deliveries enter that coordinator instead of being
+acknowledged after classification. The current single-repository source adapter
+re-reads signed protected `main`; a missing candidate or lost authority leaves
+the JetStream delivery pending, while exact qualification and its verified
+Forgejo success status must both complete before acknowledgement. Cross-repository
+main-source selection remains the explicit injected policy boundary described
+above.
 
 Runner admission remains a pure policy contract. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,

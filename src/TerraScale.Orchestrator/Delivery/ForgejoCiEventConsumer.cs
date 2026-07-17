@@ -70,8 +70,7 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
             if (receipt.Disposition is ForgejoCiTriggerJournalDisposition.Recorded or
                 ForgejoCiTriggerJournalDisposition.Duplicate)
             {
-                if (process is not null && receipt.Plan.Disposition == ForgejoCiTriggerDisposition.Dispatch &&
-                    !receipt.Plan.RequiresQualifiedCandidate)
+                if (process is not null && RequiresProcessing(receipt.Plan))
                 {
                     var handled = await ProcessWithProgressAsync(
                         token => process(receipt.Plan, token),
@@ -114,4 +113,8 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
         }
         return await work;
     }
+
+    internal static bool RequiresProcessing(ForgejoCiTriggerPlan plan) =>
+        (plan ?? throw new ArgumentNullException(nameof(plan))).Disposition ==
+        ForgejoCiTriggerDisposition.Dispatch;
 }
