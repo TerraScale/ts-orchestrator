@@ -154,7 +154,7 @@ public static class NativeGitOpsCellEnvelope
     {
         if (envelope is null || expectedHandoff is null ||
             expectedWriterEpoch <= 0 || allowedClockSkew < TimeSpan.Zero || signatureVerifier is null ||
-            !ValidDescriptor(expectedHandoff))
+            !IsValidDescriptor(expectedHandoff))
             return new(
                 NativeGitOpsCellEnvelopeError.InvalidInput,
                 CommandValidationError.InvalidValidationContext,
@@ -261,7 +261,7 @@ public static class NativeGitOpsCellEnvelope
         return new(protocol, cell, aggregate, generation, epoch, operation, idempotency, attempt);
     }
 
-    private static bool ValidDescriptor(NativeGitOpsCellHandoffDescriptor handoff) =>
+    internal static bool IsValidDescriptor(NativeGitOpsCellHandoffDescriptor handoff) =>
         handoff.Generation > 0 && IsDigest(handoff.GlobalPlanDigest) && IsDigest(handoff.HandoffDigest) &&
         handoff.Cells is { Count: > 0 and <= NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff } &&
         handoff.Cells.All(static item => ValidCell(item.Cell) && IsDigest(item.PayloadSha256)) &&

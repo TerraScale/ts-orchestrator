@@ -350,6 +350,15 @@ count within the configured five-attempt bound. Its per-instance consumer has a
 bounded backoff, and double acknowledgements. Repeated NATS header values are
 preserved so the strict wire decoder can reject duplicates instead of silently
 choosing one.
+An acceptance barrier evaluates at most one durable receipt per required cell
+against the exact generation, global-plan/handoff/payload digests, signed
+operation identity, writer epoch, regional stream sequence, journal revision,
+and signature digest. Missing cells remain explicit and produce no barrier
+digest; duplicate, foreign, stale, or mismatched receipts fail closed. A
+complete barrier digest is deterministic across receipt arrival order and
+changes across a fenced takeover. This proves only regional CellSpec
+acceptance—it is not apply, health, live-convergence, or deployment-success
+evidence.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
