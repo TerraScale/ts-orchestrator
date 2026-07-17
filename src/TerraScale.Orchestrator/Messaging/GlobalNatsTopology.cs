@@ -88,9 +88,9 @@ public sealed class GlobalNatsTopology
 
     public NatsObjConfig RunnerBundles => new(RunnerBundlesBucket)
     {
-        Description = "Content-addressed fenced CI runner command and signature records",
+        Description = "Content-addressed CI runner source, log, evidence, and artifact records",
         MaxAge = TimeSpan.FromDays(30),
-        MaxBytes = 512L * 1024 * 1024,
+        MaxBytes = 64L * 1024 * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };
 

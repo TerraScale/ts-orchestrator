@@ -274,8 +274,9 @@ internal sealed record CiRunnerBuildKitExecutionResult(
 [SupportedOSPlatform("linux")]
 internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
 {
+    internal const int MaximumOutputFiles = 10_000;
+    internal const long ArtifactArchiveOverheadBytes = 64L * 1024 * 1024;
     private const int MaximumMetadataBytes = 64 * 1024;
-    private const int MaximumOutputFiles = 100_000;
     private const long MaximumOutputFileBytes = 512L * 1024 * 1024;
     private static readonly UnixFileMode DirectoryMode = UnixFileMode.UserRead |
         UnixFileMode.UserWrite | UnixFileMode.UserExecute;
@@ -328,7 +329,9 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             var metadata = await ReadMetadataAsync(invocation.MetadataFile, cancellationToken);
             var output = await HashOutputAsync(
                 invocation.ExportDirectory,
-                Math.Min(CiRunnerSourceMaterializer.MaximumExpandedBytes, plan.Build.EphemeralDiskBytes / 2),
+                Math.Min(
+                    CiRunnerSourceMaterializer.MaximumExpandedBytes,
+                    plan.Build.EphemeralDiskBytes / 2 - ArtifactArchiveOverheadBytes),
                 cancellationToken);
             return new(
                 disposition,
@@ -439,9 +442,9 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
                 if (result.Count == MaximumOutputFiles)
                     throw new InvalidDataException("The CI BuildKit output exceeded its entry bound.");
                 var kind = FileKind(entry.FullName);
-                if (kind == UnixFileKind.Directory && entry is DirectoryInfo child)
+                if (kind == CiRunnerOutputFileKind.Directory && entry is DirectoryInfo child)
                     pending.Push(child);
-                else if (kind != UnixFileKind.Regular || entry is not FileInfo)
+                else if (kind != CiRunnerOutputFileKind.Regular || entry is not FileInfo)
                     throw new InvalidDataException("The CI BuildKit output contains a link or special file.");
                 result.Add((entry, Path.GetRelativePath(root, entry.FullName)));
             }
@@ -449,7 +452,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         return result;
     }
 
-    private static UnixFileKind FileKind(string path)
+    internal static CiRunnerOutputFileKind FileKind(string path)
     {
         if (NativeMethods.Statx(
                 NativeMethods.AtCurrentWorkingDirectory,
@@ -460,9 +463,9 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             throw new IOException("The CI BuildKit output file type could not be inspected.");
         return (status.Mode & NativeMethods.FileTypeMask) switch
         {
-            NativeMethods.RegularFile => UnixFileKind.Regular,
-            NativeMethods.Directory => UnixFileKind.Directory,
-            _ => UnixFileKind.Other,
+            NativeMethods.RegularFile => CiRunnerOutputFileKind.Regular,
+            NativeMethods.Directory => CiRunnerOutputFileKind.Directory,
+            _ => CiRunnerOutputFileKind.Other,
         };
     }
 
@@ -504,13 +507,6 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         }
     }
 
-    private enum UnixFileKind
-    {
-        Other,
-        Regular,
-        Directory,
-    }
-
     private static class NativeMethods
     {
         internal const int AtCurrentWorkingDirectory = -100;
@@ -541,4 +537,11 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             private ushort spare;
         }
     }
+}
+
+internal enum CiRunnerOutputFileKind
+{
+    Other,
+    Regular,
+    Directory,
 }

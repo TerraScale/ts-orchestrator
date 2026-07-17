@@ -53,7 +53,8 @@ internal sealed record CiRunnerWorkloadEvidence(
 
 internal sealed record CiRunnerDurableWorkloadResult(
     string EvidenceDigest,
-    int RequiredTestSkips);
+    int RequiredTestSkips,
+    RepositoryCiJobFailureKind FailureKind);
 
 internal interface ICiRunnerWorkloadResultSink
 {
@@ -191,13 +192,13 @@ internal sealed class CiRunnerExecutionCoordinator
                 lease.Snapshot,
                 string.Empty);
         var evidence = durable.EvidenceDigest;
-        var workload = lease.Evidence!;
+        var succeeded = durable.FailureKind == RepositoryCiJobFailureKind.Unspecified;
         var completed = await journal.CompleteAsync(
             lease.Snapshot,
-            workload.Succeeded,
+            succeeded,
             evidence,
             durable.RequiredTestSkips,
-            workload.FailureKind,
+            durable.FailureKind,
             timeProvider.GetUtcNow(),
             cancellationToken);
         return completed.Disposition is RepositoryCiJobExecutionDisposition.Completed or
@@ -400,7 +401,8 @@ internal sealed class CiRunnerExecutionCoordinator
     {
         ArgumentNullException.ThrowIfNull(value);
         if (!RepositoryCiJobExecutionDocument.IsDigest(value.EvidenceDigest) ||
-            value.RequiredTestSkips is < 0 or > 1_000_000)
+            value.RequiredTestSkips is < 0 or > 1_000_000 || !Enum.IsDefined(value.FailureKind) ||
+            value.FailureKind != RepositoryCiJobFailureKind.Unspecified && value.RequiredTestSkips != 0)
             throw new InvalidDataException("The durable CI workload result is invalid.");
     }
 

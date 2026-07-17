@@ -285,8 +285,14 @@ runner-side coordinator now acquires and renews the exact execution fence,
 materializes that source, invokes the closed executor, requires an idempotent
 durable-result sink, and only then commits the terminal lease. Persistence
 failure leaves the lease recoverable; crash takeover fences a stale terminal
-write. The concrete result sink and runner process mode are still absent, so no
-BuildKit daemon is invoked by normal Orchestrator startup.
+write. The concrete sink stores the verified redacted log, a deterministic
+owner-private tar/gzip archive re-hashed against the accepted output tree, and
+canonical evidence under content addresses with full readback verification and
+30-day object retention. A strict result manifest carries the required-test
+skip count. Source bytes are removed before artifact capture and archive
+overhead is reserved inside the signed ephemeral-disk budget. The runner
+process mode is still absent, so no BuildKit daemon is invoked by normal
+Orchestrator startup.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -349,9 +355,10 @@ only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
 evidence digest or typed failure. BuildKit daemon identity/startup, the runner
-process mode, bounded redacted log/artifact persistence, and result publication
-are still separate missing gates. The standalone coordinator is not wired into
-normal startup and does not claim that a workload ran without a durable sink.
+process mode, controller-side result publication, and candidate artifact
+interpretation/publication are still separate missing gates. The standalone
+coordinator is not wired into normal startup and does not claim that a workload
+ran unless its exact durable sink completed first.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

@@ -35,6 +35,19 @@ internal interface IDeliveryObjectStore
 {
     Task PutAsync(string name, ReadOnlyMemory<byte> content, CancellationToken cancellationToken);
     Task<byte[]> GetAsync(string name, CancellationToken cancellationToken);
+
+    async Task PutAsync(string name, Stream content, CancellationToken cancellationToken)
+    {
+        using var buffered = new MemoryStream();
+        await content.CopyToAsync(buffered, cancellationToken);
+        await PutAsync(name, buffered.ToArray(), cancellationToken);
+    }
+
+    async Task CopyToAsync(string name, Stream destination, CancellationToken cancellationToken)
+    {
+        var content = await GetAsync(name, cancellationToken);
+        await destination.WriteAsync(content, cancellationToken);
+    }
 }
 
 internal sealed class NatsDeliveryObjectStore(INatsObjStore store) : IDeliveryObjectStore
@@ -47,6 +60,12 @@ internal sealed class NatsDeliveryObjectStore(INatsObjStore store) : IDeliveryOb
 
     public Task<byte[]> GetAsync(string name, CancellationToken cancellationToken) =>
         store.GetBytesAsync(name, cancellationToken).AsTask();
+
+    public async Task PutAsync(string name, Stream content, CancellationToken cancellationToken) =>
+        _ = await store.PutAsync(name, content, leaveOpen: true, cancellationToken);
+
+    public async Task CopyToAsync(string name, Stream destination, CancellationToken cancellationToken) =>
+        _ = await store.GetAsync(name, destination, leaveOpen: true, cancellationToken);
 }
 
 /// <summary>

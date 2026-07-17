@@ -41,7 +41,7 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.RunnerBundles.Bucket).IsEqualTo("CI_RUNNER_BUNDLES");
         await Assert.That(topology.RunnerBundles.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.RunnerBundles.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
-        await Assert.That(topology.RunnerBundles.MaxBytes).IsEqualTo(512L * 1024 * 1024);
+        await Assert.That(topology.RunnerBundles.MaxBytes).IsEqualTo(64L * 1024 * 1024 * 1024);
         await Assert.That(runner.Name).StartsWith("ci_runner_untrusted_product_");
         await Assert.That(runner.DurableName).IsEqualTo(runner.Name);
         await Assert.That(runner.FilterSubject)

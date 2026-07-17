@@ -1,4 +1,7 @@
 using System.Runtime.Versioning;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
 
@@ -16,7 +19,8 @@ public sealed class CiRunnerExecutionCoordinatorTests
         var sink = new RecordingSink((evidence, _, export, _) =>
         {
             if (!Directory.Exists(export)) throw new InvalidOperationException("Missing validated export.");
-            return Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('a'), 0));
+            return Task.FromResult(new CiRunnerDurableWorkloadResult(
+                Digest('a'), 0, RepositoryCiJobFailureKind.Unspecified));
         });
 
         var receipt = await fixture.Coordinator(sink).ExecuteAsync(
@@ -49,7 +53,8 @@ public sealed class CiRunnerExecutionCoordinatorTests
         using (var processFailure = await Fixture.CreateAsync(exitCode: 17))
         {
             var sink = new RecordingSink((_, _, _, _) =>
-                Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('b'), 2)));
+                Task.FromResult(new CiRunnerDurableWorkloadResult(
+                    Digest('b'), 0, RepositoryCiJobFailureKind.WorkloadFailed)));
             var receipt = await processFailure.Coordinator(sink).ExecuteAsync(
                 processFailure.Accepted,
                 processFailure.Runner,
@@ -60,7 +65,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
 
             await Assert.That(receipt.Execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Failed);
             await Assert.That(receipt.Execution.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
-            await Assert.That(receipt.Execution.RequiredTestSkips).IsEqualTo(2);
+            await Assert.That(receipt.Execution.RequiredTestSkips).IsEqualTo(0);
             await Assert.That(sink.Evidences.Single().FailureCode)
                 .IsEqualTo(CiRunnerWorkloadFailureCode.ProcessFailed);
             await Assert.That(sink.ExportDirectories.Single()).IsNull();
@@ -70,7 +75,8 @@ public sealed class CiRunnerExecutionCoordinatorTests
         using (var sourceFailure = await Fixture.CreateAsync(archive, archive[..^1]))
         {
             var sink = new RecordingSink((_, _, _, _) =>
-                Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('c'), 0)));
+                Task.FromResult(new CiRunnerDurableWorkloadResult(
+                    Digest('c'), 0, RepositoryCiJobFailureKind.PolicyDenied)));
             var receipt = await sourceFailure.Coordinator(sink).ExecuteAsync(
                 sourceFailure.Accepted,
                 sourceFailure.Runner,
@@ -126,7 +132,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
                 cancellationToken);
             if (takeover.Disposition != RepositoryCiJobExecutionDisposition.TakenOver)
                 throw new InvalidOperationException("The test takeover did not acquire the expired lease.");
-            return new(Digest('d'), 0);
+            return new(Digest('d'), 0, RepositoryCiJobFailureKind.Unspecified);
         });
 
         var receipt = await fixture.Coordinator(sink).ExecuteAsync(
@@ -141,6 +147,30 @@ public sealed class CiRunnerExecutionCoordinatorTests
         await Assert.That(receipt.ExecutionDisposition).IsEqualTo(RepositoryCiJobExecutionDisposition.StaleLease);
         await Assert.That(receipt.Execution!.LeaseId).IsEqualTo("runner-operation-takeover");
         await Assert.That(receipt.Execution.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Running);
+    }
+
+    [Test]
+    public async Task ConcreteDurableSinkCompletesOnlyAfterAllResultObjectsExist()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var plan = CiRunnerExecutionPlanner.Create(fixture.Accepted, fixture.Runner, fixture.Isolation);
+        var results = new ResultStore();
+
+        var receipt = await fixture.Coordinator(
+            new CiRunnerDurableResultSink(results),
+            new ManifestProcess(plan)).ExecuteAsync(
+                fixture.Accepted,
+                fixture.Runner,
+                fixture.Isolation,
+                fixture.Runtime,
+                fixture.Workspace,
+                "runner-operation-durable-result");
+
+        await Assert.That(receipt.Disposition).IsEqualTo(CiRunnerExecutionCoordinatorDisposition.Completed);
+        await Assert.That(receipt.Execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Succeeded);
+        await Assert.That(results.Values.Keys.Any(static name => name.StartsWith("ci-result-log-"))).IsTrue();
+        await Assert.That(results.Values.Keys.Any(static name => name.StartsWith("ci-result-artifact-"))).IsTrue();
+        await Assert.That(results.Values.ContainsKey($"ci-result-evidence-{receipt.EvidenceDigest}")).IsTrue();
     }
 
     private static string Digest(char value) => new(value, 64);
@@ -191,6 +221,31 @@ public sealed class CiRunnerExecutionCoordinatorTests
         }
     }
 
+    private sealed class ManifestProcess(CiRunnerExecutionPlan plan) : ICiRunnerBuildKitProcess
+    {
+        public Task<CiRunnerBuildKitProcessResult> RunAsync(
+            CiRunnerBuildKitInvocation invocation,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(invocation.ExportDirectory);
+            File.WriteAllText(Path.Combine(invocation.ExportDirectory, "result.txt"), "passed");
+            File.WriteAllBytes(
+                Path.Combine(invocation.ExportDirectory, CiRunnerDurableResultSink.ResultManifestPath),
+                JsonSerializer.SerializeToUtf8Bytes(
+                    new CiRunnerResultManifest(1, plan.Job, plan.Digest, true, 0),
+                    CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
+            File.WriteAllText(invocation.MetadataFile, "{\"result\":\"ok\"}");
+            var log = Array.Empty<byte>();
+            return Task.FromResult(new CiRunnerBuildKitProcessResult(
+                CiRunnerBuildKitProcessDisposition.Exited,
+                0,
+                Convert.ToHexStringLower(SHA256.HashData(log)),
+                0,
+                log));
+        }
+    }
+
     private sealed class ObjectStore(byte[] content) : IDeliveryObjectStore
     {
         public Task PutAsync(string name, ReadOnlyMemory<byte> value, CancellationToken cancellationToken) =>
@@ -200,6 +255,25 @@ public sealed class CiRunnerExecutionCoordinatorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(content.ToArray());
+        }
+    }
+
+    private sealed class ResultStore : IDeliveryObjectStore
+    {
+        private readonly ConcurrentDictionary<string, byte[]> values = new(StringComparer.Ordinal);
+        internal IReadOnlyDictionary<string, byte[]> Values => values;
+
+        public Task PutAsync(string name, ReadOnlyMemory<byte> value, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            values[name] = value.ToArray();
+            return Task.CompletedTask;
+        }
+
+        public Task<byte[]> GetAsync(string name, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(values[name].ToArray());
         }
     }
 
@@ -245,10 +319,12 @@ public sealed class CiRunnerExecutionCoordinatorTests
         internal CiRunnerSourceMaterializer Materializer { get; }
         internal RecordingProcess Process { get; }
 
-        internal CiRunnerExecutionCoordinator Coordinator(ICiRunnerWorkloadResultSink sink) => new(
+        internal CiRunnerExecutionCoordinator Coordinator(
+            ICiRunnerWorkloadResultSink sink,
+            ICiRunnerBuildKitProcess? process = null) => new(
             Journal,
             Materializer,
-            new(Process),
+            new(process ?? Process),
             sink,
             new FixedTimeProvider());
 

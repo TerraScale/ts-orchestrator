@@ -1,0 +1,546 @@
+using System.Formats.Tar;
+using System.Globalization;
+using System.IO.Compression;
+using System.Runtime.Versioning;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace TerraScale.Orchestrator.Delivery;
+
+internal sealed record CiRunnerResultManifest(
+    int SchemaVersion,
+    string Job,
+    string PlanDigest,
+    bool Succeeded,
+    int RequiredTestSkips);
+
+internal sealed record CiRunnerStoredWorkloadEvidence(
+    int SchemaVersion,
+    CiRunnerWorkloadEvidence Workload,
+    string LogObject,
+    string LogSha256,
+    long LogBytes,
+    string ArtifactObject,
+    string ArtifactSha256,
+    long ArtifactBytes,
+    int RequiredTestSkips,
+    int RetentionDays);
+
+/// <summary>
+/// Stores redacted logs, a deterministic validated output archive, and canonical evidence under
+/// content identities. The execution journal remains the only winner pointer for crash takeover.
+/// </summary>
+[SupportedOSPlatform("linux")]
+internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : ICiRunnerWorkloadResultSink
+{
+    internal const string ResultManifestPath = "terrascale-ci-result-v1.json";
+    internal const int RetentionDays = 30;
+    private const int MaximumEvidenceBytes = 64 * 1024;
+    private const int MaximumManifestBytes = 16 * 1024;
+    private readonly IDeliveryObjectStore objects = objects ?? throw new ArgumentNullException(nameof(objects));
+
+    public async Task<CiRunnerDurableWorkloadResult> PersistAsync(
+        CiRunnerWorkloadEvidence evidence,
+        ReadOnlyMemory<byte> redactedLog,
+        string? exportDirectory,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        ValidateEvidence(evidence, redactedLog, exportDirectory);
+
+        var logObject = string.Empty;
+        if (evidence.LogSha256.Length != 0)
+        {
+            logObject = $"ci-result-log-{evidence.LogSha256}";
+            await PutVerifiedAsync(logObject, redactedLog, cancellationToken);
+        }
+
+        var requiredTestSkips = 0;
+        var artifactObject = string.Empty;
+        var artifactSha256 = string.Empty;
+        long artifactBytes = 0;
+        if (evidence.Succeeded)
+        {
+            string? archivePath = null;
+            (string Sha256, long Bytes) archive;
+            try
+            {
+                var root = Path.GetFullPath(exportDirectory!);
+                var manifest = await ReadManifestAsync(root, evidence, cancellationToken);
+                requiredTestSkips = manifest.RequiredTestSkips;
+                archivePath = Path.Combine(
+                    Directory.GetParent(root)?.FullName ?? throw new InvalidDataException(
+                        "The CI result export has no private output parent."),
+                    "artifact.tar.gz");
+                archive = await CreateArchiveAsync(root, archivePath, evidence, cancellationToken);
+            }
+            catch (InvalidDataException)
+            {
+                Delete(archivePath);
+                var rejected = evidence with
+                {
+                    BuildDisposition = CiRunnerBuildKitExecutionDisposition.Unspecified,
+                    ExitCode = -1,
+                    MetadataSha256 = string.Empty,
+                    OutputSha256 = string.Empty,
+                    OutputFiles = 0,
+                    OutputBytes = 0,
+                    Succeeded = false,
+                    FailureKind = RepositoryCiJobFailureKind.WorkloadFailed,
+                    FailureCode = CiRunnerWorkloadFailureCode.OutputRejected,
+                };
+                ValidateEvidence(rejected, redactedLog, null);
+                return await PersistEvidenceAsync(
+                    rejected,
+                    logObject,
+                    string.Empty,
+                    string.Empty,
+                    0,
+                    0,
+                    cancellationToken);
+            }
+
+            try
+            {
+                artifactObject = $"ci-result-artifact-{evidence.OutputSha256}";
+                await using (var archiveContent = new FileStream(
+                    archivePath!,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    64 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan))
+                    await objects.PutAsync(artifactObject, archiveContent, cancellationToken);
+                using var readback = new HashingWriteStream(Stream.Null, archive.Bytes);
+                await objects.CopyToAsync(artifactObject, readback, cancellationToken);
+                var observed = readback.Complete();
+                if (observed.Bytes != archive.Bytes || observed.Sha256 != archive.Sha256)
+                    throw new InvalidDataException("The durable CI artifact archive failed readback verification.");
+                artifactSha256 = archive.Sha256;
+                artifactBytes = archive.Bytes;
+            }
+            finally
+            {
+                Delete(archivePath);
+            }
+        }
+
+        return await PersistEvidenceAsync(
+            evidence,
+            logObject,
+            artifactObject,
+            artifactSha256,
+            artifactBytes,
+            requiredTestSkips,
+            cancellationToken);
+    }
+
+    private async Task<CiRunnerDurableWorkloadResult> PersistEvidenceAsync(
+        CiRunnerWorkloadEvidence evidence,
+        string logObject,
+        string artifactObject,
+        string artifactSha256,
+        long artifactBytes,
+        int requiredTestSkips,
+        CancellationToken cancellationToken)
+    {
+        var document = new CiRunnerStoredWorkloadEvidence(
+            1,
+            evidence,
+            logObject,
+            evidence.LogSha256,
+            evidence.LogBytes,
+            artifactObject,
+            artifactSha256,
+            artifactBytes,
+            requiredTestSkips,
+            RetentionDays);
+        var evidenceContent = JsonSerializer.SerializeToUtf8Bytes(
+            document,
+            CiRunnerDurableResultJsonContext.Default.CiRunnerStoredWorkloadEvidence);
+        if (evidenceContent.Length is < 1 or > MaximumEvidenceBytes)
+            throw new InvalidDataException("The canonical CI workload evidence exceeded its bound.");
+        var digest = Hash(evidenceContent);
+        await PutVerifiedAsync($"ci-result-evidence-{digest}", evidenceContent, cancellationToken);
+        return new(digest, requiredTestSkips, evidence.FailureKind);
+    }
+
+    private static void Delete(string? path)
+    {
+        if (path is null) return;
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task<CiRunnerResultManifest> ReadManifestAsync(
+        string root,
+        CiRunnerWorkloadEvidence evidence,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(root, ResultManifestPath);
+        var info = new FileInfo(path);
+        if (!info.Exists || info.LinkTarget is not null ||
+            CiRunnerBuildKitExecutor.FileKind(path) != CiRunnerOutputFileKind.Regular ||
+            info.Length is < 2 or > MaximumManifestBytes)
+            throw new InvalidDataException("The CI result manifest is missing, linked, or oversized.");
+        var content = await File.ReadAllBytesAsync(path, cancellationToken);
+        try
+        {
+            if (HasDuplicateProperties(content)) throw new JsonException();
+            var value = JsonSerializer.Deserialize(
+                content,
+                CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest)
+                ?? throw new JsonException();
+            if (value.SchemaVersion != 1 || value.Job != evidence.Job ||
+                value.PlanDigest != evidence.PlanDigest || !value.Succeeded ||
+                value.RequiredTestSkips is < 0 or > 1_000_000)
+                throw new JsonException();
+            return value;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("The CI result manifest is invalid.", exception);
+        }
+    }
+
+    private static async Task<(string Sha256, long Bytes)> CreateArchiveAsync(
+        string root,
+        string archivePath,
+        CiRunnerWorkloadEvidence evidence,
+        CancellationToken cancellationToken)
+    {
+        var directory = new DirectoryInfo(root);
+        if (!directory.Exists || directory.LinkTarget is not null || File.Exists(archivePath))
+            throw new InvalidDataException("The CI artifact export or archive path is invalid.");
+        var entries = Enumerate(root)
+            .OrderBy(static value => value.Relative, StringComparer.Ordinal)
+            .ToArray();
+        if (entries.Length is < 1 or > CiRunnerBuildKitExecutor.MaximumOutputFiles)
+            throw new InvalidDataException("The CI artifact export exceeded its entry bound.");
+
+        var maximumArchiveBytes = checked(evidence.OutputBytes +
+            CiRunnerBuildKitExecutor.ArtifactArchiveOverheadBytes);
+        await using var file = new FileStream(
+            archivePath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        File.SetUnixFileMode(archivePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        using var output = new HashingWriteStream(file, maximumArchiveBytes);
+        var canonical = new StringBuilder();
+        var files = 0;
+        long bytes = 0;
+        await using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        await using (var writer = new TarWriter(gzip, TarEntryFormat.Pax, leaveOpen: true))
+        {
+            foreach (var (entry, relative) in entries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var normalized = relative.Replace(Path.DirectorySeparatorChar, '/');
+                if (entry is DirectoryInfo)
+                {
+                    canonical.Append("d:").Append(normalized).Append('\n');
+                    await writer.WriteEntryAsync(TarEntry(
+                        TarEntryType.Directory,
+                        normalized + '/',
+                        executable: true), cancellationToken);
+                    continue;
+                }
+                if (entry is not FileInfo source)
+                    throw new InvalidDataException("The CI artifact export contains an invalid entry.");
+                var length = source.Length;
+                var executable = (File.GetUnixFileMode(source.FullName) & (UnixFileMode.UserExecute |
+                    UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0;
+                await using var input = new FileStream(
+                    source.FullName,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    64 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                using var hashed = new HashingReadStream(input);
+                var tar = TarEntry(TarEntryType.RegularFile, normalized, executable);
+                tar.DataStream = hashed;
+                await writer.WriteEntryAsync(tar, cancellationToken);
+                var content = hashed.Complete();
+                source.Refresh();
+                if (content.Bytes != length || source.Length != length ||
+                    CiRunnerBuildKitExecutor.FileKind(source.FullName) != CiRunnerOutputFileKind.Regular)
+                    throw new InvalidDataException("A CI artifact file changed during durable capture.");
+                canonical.Append("f:").Append(normalized).Append(':')
+                    .Append(length.ToString(CultureInfo.InvariantCulture)).Append(':')
+                    .Append(executable ? '1' : '0').Append(':').Append(content.Sha256).Append('\n');
+                bytes += length;
+                files++;
+            }
+        }
+        await output.FlushAsync(cancellationToken);
+        var archive = output.Complete();
+        var outputDigest = Hash(Encoding.UTF8.GetBytes(canonical.ToString()));
+        if (files != evidence.OutputFiles || bytes != evidence.OutputBytes ||
+            outputDigest != evidence.OutputSha256)
+            throw new InvalidDataException("The CI artifact export changed after BuildKit validation.");
+        return archive;
+    }
+
+    private static PaxTarEntry TarEntry(TarEntryType type, string name, bool executable) => new(type, name)
+    {
+        Gid = 0,
+        GroupName = string.Empty,
+        Mode = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+            (executable ? UnixFileMode.UserExecute : 0),
+        ModificationTime = DateTimeOffset.UnixEpoch,
+        Uid = 0,
+        UserName = string.Empty,
+    };
+
+    private static IReadOnlyList<(FileSystemInfo Entry, string Relative)> Enumerate(string root)
+    {
+        var values = new List<(FileSystemInfo, string)>();
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new(root));
+        while (pending.TryPop(out var directory))
+        {
+            foreach (var entry in directory.EnumerateFileSystemInfos())
+            {
+                if (values.Count == CiRunnerBuildKitExecutor.MaximumOutputFiles)
+                    throw new InvalidDataException("The CI artifact export exceeded its entry bound.");
+                var kind = CiRunnerBuildKitExecutor.FileKind(entry.FullName);
+                if (kind == CiRunnerOutputFileKind.Directory && entry is DirectoryInfo child)
+                    pending.Push(child);
+                else if (kind != CiRunnerOutputFileKind.Regular || entry is not FileInfo)
+                    throw new InvalidDataException("The CI artifact export contains a link or special file.");
+                var relative = Path.GetRelativePath(root, entry.FullName);
+                if (relative.Length is < 1 or > 4 * 1024 || relative.Split(Path.DirectorySeparatorChar)
+                    .Any(static segment => segment is "" or "." or ".." || segment.Any(char.IsControl)))
+                    throw new InvalidDataException("The CI artifact export contains an unsafe path.");
+                values.Add((entry, relative));
+            }
+        }
+        return values;
+    }
+
+    private async Task PutVerifiedAsync(
+        string name,
+        ReadOnlyMemory<byte> content,
+        CancellationToken cancellationToken)
+    {
+        await objects.PutAsync(name, content, cancellationToken);
+        var observed = await objects.GetAsync(name, cancellationToken);
+        if (!observed.AsSpan().SequenceEqual(content.Span))
+            throw new InvalidDataException("A durable CI result object failed readback verification.");
+    }
+
+    private static void ValidateEvidence(
+        CiRunnerWorkloadEvidence value,
+        ReadOnlyMemory<byte> log,
+        string? exportDirectory)
+    {
+        var succeeded = value.Succeeded;
+        var failure = !succeeded;
+        if (value.SchemaVersion != 1 || !Identity(value.Runner) || !Digest(value.PipelineDigest) ||
+            !Identity(value.Job) || !Digest(value.JobDigest) || !Digest(value.ExecutionIdentityDigest) ||
+            !Digest(value.PayloadDigest) || !Digest(value.SignatureDigest) || value.StreamSequence == 0 ||
+            value.AcceptanceRevision == 0 || value.Attempt is < 1 or > 3 || value.LeaseSequence <= 0 ||
+            !Digest(value.SourceBundleSha256) || value.LogBytes is < 0 or > 64L * 1024 * 1024 ||
+            value.LogBytes != log.Length ||
+            value.LogSha256.Length != 0 && (!Digest(value.LogSha256) ||
+                Hash(log.Span) != value.LogSha256 || !CiRunnerLogRedactor.IsSafe(log.Span)) ||
+            value.LogSha256.Length == 0 && !log.IsEmpty ||
+            succeeded && (!Digest(value.PlanDigest) || !Digest(value.DescriptorSha256) ||
+                !Digest(value.RecipeSha256) || value.BuildDisposition != CiRunnerBuildKitExecutionDisposition.Succeeded ||
+                value.ExitCode != 0 || !Digest(value.LogSha256) || !Digest(value.MetadataSha256) ||
+                !Digest(value.OutputSha256) || value.OutputFiles is < 1 or > CiRunnerBuildKitExecutor.MaximumOutputFiles ||
+                value.OutputBytes < 1 || value.FailureKind != RepositoryCiJobFailureKind.Unspecified ||
+                value.FailureCode != CiRunnerWorkloadFailureCode.Unspecified ||
+                exportDirectory is null || !Path.IsPathFullyQualified(exportDirectory)) ||
+            failure && (value.FailureKind == RepositoryCiJobFailureKind.Unspecified ||
+                !Enum.IsDefined(value.FailureKind) || value.FailureCode == CiRunnerWorkloadFailureCode.Unspecified ||
+                !Enum.IsDefined(value.FailureCode) || value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.Succeeded ||
+                value.MetadataSha256.Length != 0 || value.OutputSha256.Length != 0 || value.OutputFiles != 0 ||
+                value.OutputBytes != 0 || exportDirectory is not null || !ValidFailure(value)))
+            throw new InvalidDataException("The CI workload evidence is internally inconsistent.");
+    }
+
+    private static bool ValidFailure(CiRunnerWorkloadEvidence value) => value.FailureCode switch
+    {
+        CiRunnerWorkloadFailureCode.PolicyRejected or CiRunnerWorkloadFailureCode.SourceRejected =>
+            value.FailureKind == RepositoryCiJobFailureKind.PolicyDenied &&
+            value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.Unspecified && value.ExitCode == -1 &&
+            value.LogSha256.Length == 0 && value.LogBytes == 0,
+        CiRunnerWorkloadFailureCode.OutputRejected =>
+            value.FailureKind == RepositoryCiJobFailureKind.WorkloadFailed &&
+            value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.Unspecified && value.ExitCode == -1 &&
+            (value.LogSha256.Length == 0 && value.LogBytes == 0 || Digest(value.LogSha256)),
+        CiRunnerWorkloadFailureCode.ProcessFailed =>
+            value.FailureKind == RepositoryCiJobFailureKind.WorkloadFailed &&
+            value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.ProcessFailed && value.ExitCode > 0 &&
+            Digest(value.LogSha256),
+        CiRunnerWorkloadFailureCode.TimedOut =>
+            value.FailureKind == RepositoryCiJobFailureKind.WorkloadFailed &&
+            value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.TimedOut && value.ExitCode == -1 &&
+            Digest(value.LogSha256),
+        CiRunnerWorkloadFailureCode.LogLimitExceeded =>
+            value.FailureKind == RepositoryCiJobFailureKind.WorkloadFailed &&
+            value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.LogLimitExceeded && value.ExitCode == -1 &&
+            Digest(value.LogSha256),
+        _ => false,
+    };
+
+    private static bool HasDuplicateProperties(byte[] payload)
+    {
+        var reader = new Utf8JsonReader(payload, new JsonReaderOptions
+        {
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = 16,
+        });
+        var fields = new Stack<HashSet<string>>();
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.StartObject) fields.Push(new(StringComparer.Ordinal));
+            else if (reader.TokenType == JsonTokenType.EndObject) fields.Pop();
+            else if (reader.TokenType == JsonTokenType.PropertyName && !fields.Peek().Add(reader.GetString()!))
+                return true;
+        }
+        return fields.Count != 0;
+    }
+
+    private static bool Identity(string? value) => value is { Length: >= 1 and <= 512 } &&
+        !value.Any(static character => char.IsWhiteSpace(character) || char.IsControl(character));
+
+    private static bool Digest(string? value) => RepositoryCiJobExecutionDocument.IsDigest(value);
+
+    private static string Hash(ReadOnlySpan<byte> value) =>
+        Convert.ToHexStringLower(SHA256.HashData(value));
+
+    private sealed class HashingReadStream(Stream inner) : Stream
+    {
+        private readonly IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private long bytes;
+        private bool completed;
+
+        internal (string Sha256, long Bytes) Complete()
+        {
+            if (completed) throw new InvalidOperationException("The stream digest was already completed.");
+            completed = true;
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), bytes);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = inner.Read(buffer, offset, count);
+            Capture(buffer.AsSpan(offset, read));
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var read = inner.Read(buffer);
+            Capture(buffer[..read]);
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            var read = await inner.ReadAsync(buffer, cancellationToken);
+            Capture(buffer.Span[..read]);
+            return read;
+        }
+
+        private void Capture(ReadOnlySpan<byte> value)
+        {
+            hash.AppendData(value);
+            bytes += value.Length;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) hash.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() => inner.Flush();
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class HashingWriteStream(Stream inner, long maximumBytes) : Stream
+    {
+        private readonly IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private long bytes;
+        private bool completed;
+
+        internal (string Sha256, long Bytes) Complete()
+        {
+            if (completed) throw new InvalidOperationException("The stream digest was already completed.");
+            completed = true;
+            return (Convert.ToHexStringLower(hash.GetHashAndReset()), bytes);
+        }
+
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Capture(buffer);
+            inner.Write(buffer);
+        }
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            Capture(buffer.Span);
+            await inner.WriteAsync(buffer, cancellationToken);
+        }
+
+        private void Capture(ReadOnlySpan<byte> value)
+        {
+            if (value.Length > maximumBytes - bytes)
+                throw new InvalidDataException("The CI artifact archive exceeded its disk budget.");
+            hash.AppendData(value);
+            bytes += value.Length;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) hash.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => bytes;
+        public override long Position { get => bytes; set => throw new NotSupportedException(); }
+        public override void Flush() => inner.Flush();
+        public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+    }
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(CiRunnerResultManifest))]
+[JsonSerializable(typeof(CiRunnerStoredWorkloadEvidence))]
+internal sealed partial class CiRunnerDurableResultJsonContext : JsonSerializerContext;
