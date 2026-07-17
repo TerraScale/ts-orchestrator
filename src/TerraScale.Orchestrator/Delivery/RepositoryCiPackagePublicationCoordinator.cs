@@ -31,11 +31,19 @@ internal sealed record RepositoryCiPackagePublicationReceipt(
     string EvidenceDigest,
     IReadOnlyList<RepositoryCiPublishedPackage> Packages);
 
+internal interface IRepositoryCiPackagePublicationCoordinator
+{
+    Task<RepositoryCiPackagePublicationReceipt> PublishAsync(
+        RepositoryCiQualifiedCandidate qualified,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>Publishes exact package and native archives from one qualified candidate.</summary>
 internal sealed class RepositoryCiPackagePublicationCoordinator(
     CiRunnerDurableEvidenceVerifier evidence,
     IDeliveryObjectStore objects,
-    IForgejoGenericPackagePublisher publisher)
+    IForgejoGenericPackagePublisher publisher) : IRepositoryCiPackagePublicationCoordinator
 {
     private readonly CiRunnerDurableEvidenceVerifier evidence = evidence ??
         throw new ArgumentNullException(nameof(evidence));
@@ -43,7 +51,7 @@ internal sealed class RepositoryCiPackagePublicationCoordinator(
     private readonly IForgejoGenericPackagePublisher publisher = publisher ??
         throw new ArgumentNullException(nameof(publisher));
 
-    internal async Task<RepositoryCiPackagePublicationReceipt> PublishAsync(
+    public async Task<RepositoryCiPackagePublicationReceipt> PublishAsync(
         RepositoryCiQualifiedCandidate qualified,
         Func<bool> authorityStillValid,
         CancellationToken cancellationToken = default)

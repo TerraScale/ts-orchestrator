@@ -24,6 +24,7 @@ internal interface IRepositoryCiPromotionActuator
         RepositoryCiPromotionAuthorization authorization,
         RepositoryCiPromotionLease lease,
         string operationId,
+        Func<bool> authorityStillValid,
         CancellationToken cancellationToken);
 }
 
@@ -243,6 +244,7 @@ internal sealed class RepositoryCiPromotionCoordinator(
             authorization,
             lease,
             operationId,
+            authorityStillValid,
             cancellationToken) ?? throw new InvalidDataException("The promotion actuator returned no result.");
         if (!authorityStillValid()) return new(null, AuthorityLost(lease));
         if (!executed.Succeeded)
@@ -413,6 +415,7 @@ internal sealed class RepositoryCiPromotionCoordinator(
             authorization,
             lease,
             operationId,
+            authorityStillValid,
             cancellationToken) ?? throw new InvalidDataException("The promotion actuator returned no result.");
         if (!authorityStillValid()) return new(null, AuthorityLost(lease, failedOperation));
         if (!executed.Succeeded)

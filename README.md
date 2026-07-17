@@ -389,13 +389,15 @@ and GRU in order; any failed forward phase enters the journal's exact reverse
 rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
 new fence. Package and native-strategy candidates now retain their per-
-repository promotion policy and can be published through the Forgejo generic-package API under the
-exact candidate version. That coordinator reopens and verifies every content-
+repository promotion policy and can be published through the Forgejo generic-
+package API under the exact candidate version. That coordinator reopens and verifies every content-
 addressed runner archive before the first upload, streams only the matching
 durable object under current authority, reconciles immutable retries by exact
 digest and length readback, and emits stable publication evidence. OCI registry
-and Pages publishers, regional actuator composition, and live-verification
-implementations remain separate gates.
+and Pages publishers, the live regional actuator implementation, runtime
+wiring, and live-verification implementations remain separate gates. The
+promotion adapter already composes Forgejo publication before SFO and retains
+immutable archives during rollback.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
@@ -468,7 +470,7 @@ roots and runner identity/resource values are supplied through `HOME`,
 configurable from 30 to 900 seconds. Controller-side runner-result projection
 and candidate recording are part of the production loop when an artifact-
 attestation verifier is supplied. Package publication is implemented behind its
-qualified-candidate boundary; live actuator wiring, non-package publishers, and
+qualified-candidate boundary; live runtime wiring, non-package publishers, and
 the artifact-attestation verifier implementation remain separate release gates.
 No result is acknowledged unless its exact durable sink completed first.
 

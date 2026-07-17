@@ -200,6 +200,76 @@ public sealed class RepositoryCiPromotionCoordinatorTests
         await Assert.That(actuator.Calls.All(static call => call.FencingToken == 2)).IsTrue();
     }
 
+    [Test]
+    public async Task ActuatorRechecksAuthorityAtTheExternalSideEffectBoundary()
+    {
+        var authority = true;
+        var actuator = new BoundaryActuator(() => authority = false);
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            actuator);
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            () => authority);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.AuthorityLost);
+        await Assert.That(receipt.Lease!.Phase).IsEqualTo(RepositoryCiPromotionPhase.PublishStarted);
+        await Assert.That(actuator.ExternalMutations).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task ForgejoPublicationComposesBeforeRegionalRollout()
+    {
+        var publications = new TestPackagePublications(RepositoryCiPackagePublicationDisposition.Published);
+        var regions = new TestActuator();
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            new RepositoryCiForgejoPromotionActuator(publications, regions));
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.Completed);
+        await Assert.That(publications.Calls).IsEqualTo(1);
+        await Assert.That(regions.Calls.Select(static call => call.Operation).SequenceEqual(new[]
+        {
+            RepositoryCiPromotionOperation.DeploySfo,
+            RepositoryCiPromotionOperation.DeployFra,
+            RepositoryCiPromotionOperation.DeployGru,
+        })).IsTrue();
+    }
+
+    [Test]
+    public async Task FailedForgejoPublicationRollsBackWithoutDeletingImmutableArchive()
+    {
+        var publications = new TestPackagePublications(
+            RepositoryCiPackagePublicationDisposition.IdentityConflict);
+        var regions = new TestActuator();
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            new RepositoryCiForgejoPromotionActuator(publications, regions));
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.RolledBack);
+        await Assert.That(receipt.FailedOperation).IsEqualTo(RepositoryCiPromotionOperation.Publish);
+        await Assert.That(publications.Calls).IsEqualTo(1);
+        await Assert.That(regions.Calls).IsEmpty();
+    }
+
     private static RepositoryCiPromotionAuthorization Authorization()
     {
         var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
@@ -247,6 +317,7 @@ public sealed class RepositoryCiPromotionCoordinatorTests
             RepositoryCiPromotionAuthorization authorization,
             RepositoryCiPromotionLease lease,
             string operationId,
+            Func<bool> authorityStillValid,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -265,4 +336,47 @@ public sealed class RepositoryCiPromotionCoordinatorTests
         string OperationId,
         long FencingToken,
         bool Succeeded);
+
+    private sealed class BoundaryActuator(Action beforeBoundary) : IRepositoryCiPromotionActuator
+    {
+        internal int ExternalMutations { get; private set; }
+
+        public Task<RepositoryCiPromotionOperationReceipt> ExecuteAsync(
+            RepositoryCiPromotionOperation operation,
+            RepositoryCiPromotionAuthorization authorization,
+            RepositoryCiPromotionLease lease,
+            string operationId,
+            Func<bool> authorityStillValid,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            beforeBoundary();
+            if (authorityStillValid()) ExternalMutations++;
+            return Task.FromResult(new RepositoryCiPromotionOperationReceipt(
+                authorityStillValid(),
+                Digest(999)));
+        }
+    }
+
+    private sealed class TestPackagePublications(RepositoryCiPackagePublicationDisposition disposition)
+        : IRepositoryCiPackagePublicationCoordinator
+    {
+        internal int Calls { get; private set; }
+
+        public Task<RepositoryCiPackagePublicationReceipt> PublishAsync(
+            RepositoryCiQualifiedCandidate qualified,
+            Func<bool> authorityStillValid,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls++;
+            return Task.FromResult(new RepositoryCiPackagePublicationReceipt(
+                disposition,
+                disposition is RepositoryCiPackagePublicationDisposition.Published or
+                    RepositoryCiPackagePublicationDisposition.Duplicate
+                        ? Digest(998)
+                        : string.Empty,
+                []));
+        }
+    }
 }
