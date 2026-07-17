@@ -90,6 +90,8 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["HOME"])
             .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-platform/home");
         await Assert.That(environment["DOTNET_CLI_HOME"]).IsEqualTo(environment["HOME"]);
+        await Assert.That(environment["Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks.DefaultHealthCheckService"])
+            .IsEqualTo("Critical");
         await Assert.That(authenticationEnvironment["HOME"])
             .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-authentication/home");
         await Assert.That(environment["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"])

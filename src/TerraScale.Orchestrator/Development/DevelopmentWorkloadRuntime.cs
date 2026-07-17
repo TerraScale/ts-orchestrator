@@ -249,6 +249,10 @@ internal static class DevelopmentWorkloadRuntime
             ["ProjectAuthStorage__Mode"] = "Project",
             ["Logging__LogLevel__Default"] = "Warning",
             ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning",
+            // Readiness is polled while the product bootstrap is still converging.
+            // DefaultHealthCheckService logs every expected Unhealthy response at
+            // Error, even though the Orchestrator correctly treats it as pending.
+            ["Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks.DefaultHealthCheckService"] = "Critical",
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
             ["Email__Cloudflare__AccountId"] = "test-account",
