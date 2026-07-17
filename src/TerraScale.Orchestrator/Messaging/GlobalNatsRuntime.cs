@@ -64,7 +64,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         CancellationToken cancellationToken,
         ForgejoSourceConfiguration? ciSource = null,
         OciCiRunnerPoolConfiguration? ciPool = null,
-        IRepositoryCiJobSigner? ciJobSigner = null)
+        IRepositoryCiJobSigner? ciJobSigner = null,
+        IRepositoryCiArtifactAttestationVerifier? ciArtifactAttestations = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var topology = new GlobalNatsTopology(3);
@@ -144,6 +145,41 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                             return Task.FromResult(slot.Isolation(job));
                         });
                     var availability = new OciCiRunnerAvailability();
+                    Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null;
+                    if (ciArtifactAttestations is not null)
+                    {
+                        var executions = new RepositoryCiJobExecutionJournal(runnerLedger);
+                        var artifacts = new RepositoryCiCandidateArtifactReader(
+                            (job, token) => executions.ReadAsync(
+                                job.RunnerId,
+                                job.Document.PipelineDigest,
+                                job.Job.Request.Job.Value,
+                                token),
+                            new(runnerObjects),
+                            ciArtifactAttestations);
+                        var candidateCoordinator = new RepositoryCiCandidateCoordinator(
+                            candidates,
+                            jobs.ReadAsync,
+                            artifacts.ReadAsync);
+                        recordCandidate = async (pipeline, token) =>
+                        {
+                            var lease = authority.Snapshot;
+                            if (!lease.Ready || !lease.IsLeader || lease.Epoch <= 0 || lease.KvRevision <= 0)
+                                return false;
+                            bool StillValid() => RepositoryCiController.SameAuthority(lease, authority.Snapshot);
+                            var receipt = await candidateCoordinator.CoordinateAsync(
+                                pipeline,
+                                lease.Epoch,
+                                lease.KvRevision,
+                                StillValid,
+                                token);
+                            if (receipt.IsRecorded) return true;
+                            if (receipt.Disposition == RepositoryCiCandidateCoordinationDisposition.AuthorityLost)
+                                return false;
+                            throw new InvalidDataException(
+                                $"Repository CI candidate recording failed closed: {receipt.Disposition}.");
+                        };
+                    }
                     ciController = new(
                         pipelines,
                         coordinator,
@@ -163,7 +199,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         capacity,
                         () => authority.Snapshot,
                         instance,
-                        ownedSource: source);
+                        ownedSource: source,
+                        recordCandidate: recordCandidate);
                     var qualificationCoordinator = new RepositoryCiQualificationCoordinator(
                         triggerJournal,
                         candidates,

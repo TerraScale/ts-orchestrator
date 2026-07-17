@@ -31,6 +31,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
     private readonly OciCiRunnerAvailability availability;
     private readonly Func<string, string, CancellationToken, Task> reconcileConsumer;
     private readonly Func<string, ForgejoCommitStatusState, CancellationToken, Task> reportStatus;
+    private readonly Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate;
     private readonly OciCiRunnerPoolConfiguration pool;
     private readonly IOciCiRunnerCapacityAdapter capacity;
     private readonly Func<RegionalAuthoritySnapshot> authority;
@@ -52,7 +53,8 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         Func<RegionalAuthoritySnapshot> authority,
         string controllerId,
         TimeProvider? timeProvider = null,
-        IAsyncDisposable? ownedSource = null)
+        IAsyncDisposable? ownedSource = null,
+        Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null)
     {
         this.pipelines = pipelines ?? throw new ArgumentNullException(nameof(pipelines));
         this.pipelineCoordinator = pipelineCoordinator ?? throw new ArgumentNullException(nameof(pipelineCoordinator));
@@ -70,6 +72,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         this.controllerId = controllerId;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.ownedSource = ownedSource;
+        this.recordCandidate = recordCandidate;
     }
 
     internal async Task<bool> RunToCompletionAsync(
@@ -84,6 +87,8 @@ internal sealed class RepositoryCiController : IAsyncDisposable
                 RepositoryCiControllerDisposition.Failed or
                 RepositoryCiControllerDisposition.NotDispatchable)
             {
+                if (!await CanAcknowledgeAsync(receipt, recordCandidate, cancellationToken))
+                    return false;
                 await reportStatus(
                     trigger.Envelope.Revision,
                     receipt.Disposition switch
@@ -101,6 +106,21 @@ internal sealed class RepositoryCiController : IAsyncDisposable
                 throw new InvalidDataException("The repository CI controller returned an unspecified state.");
             await Task.Delay(pool.PollInterval, cancellationToken);
         }
+    }
+
+    internal static Task<bool> CanAcknowledgeAsync(
+        RepositoryCiControllerReceipt receipt,
+        Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (receipt.Disposition != RepositoryCiControllerDisposition.Succeeded)
+            return Task.FromResult(true);
+        var pipeline = receipt.Pipeline ??
+            throw new InvalidDataException("A successful CI controller receipt has no pipeline.");
+        return pipeline.Profile == RepositoryCiProfile.Release
+            ? recordCandidate?.Invoke(pipeline, cancellationToken) ?? Task.FromResult(false)
+            : Task.FromResult(true);
     }
 
     internal async Task<RepositoryCiControllerReceipt> ProcessOnceAsync(

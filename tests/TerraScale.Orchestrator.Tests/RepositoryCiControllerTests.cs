@@ -243,6 +243,47 @@ public sealed class RepositoryCiControllerTests
         }
     }
 
+    [Test]
+    public async Task SuccessfulReleaseRequiresDurableCandidateBeforeAcknowledgement()
+    {
+        var release = RepositoryCiCandidateCoordinatorTests.ReleasePipeline();
+        var receipt = new RepositoryCiControllerReceipt(
+            RepositoryCiControllerDisposition.Succeeded,
+            release);
+        var calls = 0;
+
+        var missingVerifier = await RepositoryCiController.CanAcknowledgeAsync(receipt, null);
+        var held = await RepositoryCiController.CanAcknowledgeAsync(
+            receipt,
+            (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                calls++;
+                return Task.FromResult(false);
+            });
+        var recorded = await RepositoryCiController.CanAcknowledgeAsync(
+            receipt,
+            (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                calls++;
+                return Task.FromResult(true);
+            });
+        var failed = await RepositoryCiController.CanAcknowledgeAsync(
+            receipt with { Disposition = RepositoryCiControllerDisposition.Failed },
+            (_, _) => throw new InvalidOperationException("A failed pipeline tried to record a candidate."));
+        var feature = await RepositoryCiController.CanAcknowledgeAsync(
+            receipt with { Pipeline = RepositoryCiPipelineJournalTests.Pipeline() },
+            (_, _) => throw new InvalidOperationException("A feature pipeline tried to record a candidate."));
+
+        await Assert.That(missingVerifier).IsFalse();
+        await Assert.That(held).IsFalse();
+        await Assert.That(recorded).IsTrue();
+        await Assert.That(failed).IsTrue();
+        await Assert.That(feature).IsTrue();
+        await Assert.That(calls).IsEqualTo(2);
+    }
+
     private static async Task<OciCiRunnerPoolConfiguration> PoolAsync(string root)
     {
         await File.WriteAllTextAsync(

@@ -406,7 +406,12 @@ signed artifact evidence through an injected reader, reuses the closed
 candidate assembler, and commits the immutable candidate and tree-set index
 under current authority. Feature-profile, active, failed, incomplete, unsigned,
 substituted, and authority-lost inputs produce no candidate. Retention cleanup
-remains unimplemented. The qualification coordinator starts only from a durable
+remains unimplemented. The OCI CI terminal path now invokes that coordinator
+after runner cleanup and reports Forgejo success only after the exact candidate
+is durable. Without an injected artifact-attestation verifier, a successful
+release delivery remains pending; selecting and configuring that external
+signature/runtime verifier remains a separate production gate. The qualification
+coordinator starts only from a durable
 admitted protected-`main` trigger, snapshots injected signed protected-main
 observations once, locates the immutable candidate by exact tree-set index, and
 records the resolved qualification under current authority. Missing triggers,
@@ -441,9 +446,10 @@ the durable coordinator, and exits after 60 idle seconds by default. Runtime
 roots and runner identity/resource values are supplied through `HOME`,
 `XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
 configurable from 30 to 900 seconds. Controller-side runner-result projection
-is part of the production loop; candidate artifact interpretation/publication
-remains a separate release gate. No result is acknowledged unless its exact
-durable sink completed first.
+and candidate recording are part of the production loop when an artifact-
+attestation verifier is supplied; artifact publication and the verifier
+implementation remain separate release gates. No result is acknowledged unless
+its exact durable sink completed first.
 
 Before any NATS connection, the runner now reads its own Linux process status,
 root mount, unified cgroup, resource ceilings, workspace filesystem, and Docker
