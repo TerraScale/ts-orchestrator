@@ -123,6 +123,7 @@ public sealed class OciCiRunnerCapacityTests
     public async Task ProviderReadbackMustMatchTheExactPrivateLaunchTemplate()
     {
         var template = Template();
+        var demand = Demand("runner-exact", 50);
         var instance = new Instance
         {
             Id = "ocid1.instance.oc1.sa-saopaulo-1.exact",
@@ -143,6 +144,12 @@ public sealed class OciCiRunnerCapacityTests
                 BootVolumeVpusPerGB = 10,
             },
             LaunchOptions = new() { IsPvEncryptionInTransitEnabled = true },
+            Metadata = new(StringComparer.Ordinal)
+            {
+                ["user_data"] = demand.BootstrapCloudInitBase64,
+            },
+            FreeformTags = new(OciCiRunnerCapacityEngine.Tags(demand, template.Generation),
+                StringComparer.Ordinal),
         };
         var attachment = new VnicAttachment
         {
@@ -168,6 +175,12 @@ public sealed class OciCiRunnerCapacityTests
 
         OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template);
         vnic.PublicIp = "203.0.113.10";
+
+        await Assert.That(() =>
+                OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template))
+            .Throws<InvalidDataException>();
+        vnic.PublicIp = null;
+        instance.Metadata["user_data"] = Convert.ToBase64String("changed bootstrap"u8);
 
         await Assert.That(() =>
                 OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template))

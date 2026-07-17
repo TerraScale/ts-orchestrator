@@ -359,6 +359,7 @@ internal interface IOciCiRunnerCapacityAdapter : IDisposable
 /// <summary>Executes already-decided OCI CI capacity actions with instance-principal authentication.</summary>
 internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
 {
+    private const int MaximumBootstrapBytes = 32 * 1024;
     private readonly ComputeClient client;
     private readonly VirtualNetworkClient network;
 
@@ -509,6 +510,7 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         ArgumentNullException.ThrowIfNull(attachment);
         ArgumentNullException.ThrowIfNull(vnic);
         ArgumentNullException.ThrowIfNull(template);
+        RequireBootstrap(instance);
         var source = instance.SourceDetails as InstanceSourceViaImageDetails;
         if (instance.CompartmentId != template.CompartmentId ||
             instance.AvailabilityDomain != template.AvailabilityDomain ||
@@ -533,6 +535,22 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
             !vnic.NsgIds.Order(StringComparer.Ordinal).SequenceEqual(
                 template.NetworkSecurityGroupIds.Order(StringComparer.Ordinal)))
             throw new InvalidDataException("An OCI CI runner does not match its exact launch template.");
+    }
+
+    private static void RequireBootstrap(Instance instance)
+    {
+        if (instance.Metadata is not { Count: 1 } metadata ||
+            !metadata.TryGetValue("user_data", out var encoded) ||
+            encoded.Length is < 1 or > ((MaximumBootstrapBytes + 2) / 3) * 4 ||
+            instance.FreeformTags is not { } tags ||
+            !tags.TryGetValue("terrascale-bootstrap-sha256", out var expected))
+            throw new InvalidDataException("An OCI CI runner has no exact bootstrap metadata.");
+        var decoded = new byte[MaximumBootstrapBytes + 1];
+        if (!Convert.TryFromBase64String(encoded, decoded, out var bytes) ||
+            bytes is < 1 or > MaximumBootstrapBytes ||
+            Convert.ToBase64String(decoded, 0, bytes) != encoded ||
+            Convert.ToHexStringLower(SHA256.HashData(decoded.AsSpan(0, bytes))) != expected)
+            throw new InvalidDataException("An OCI CI runner bootstrap differs from its ownership digest.");
     }
 
     public async Task<OciCiRunnerMutationReceipt> ExecuteAsync(
