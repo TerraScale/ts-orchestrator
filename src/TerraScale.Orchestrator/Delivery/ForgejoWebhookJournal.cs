@@ -266,6 +266,10 @@ internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) :
         {
             return null;
         }
+        catch (NatsKVKeyDeletedException)
+        {
+            return null;
+        }
     }
 
     public async Task<ForgejoDeliveryLedgerEntry> CreateAsync(
