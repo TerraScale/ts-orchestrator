@@ -363,6 +363,17 @@ complete barrier digest is deterministic across receipt arrival order and
 changes across a fenced takeover. This proves only regional CellSpec
 acceptance—it is not apply, health, live-convergence, or deployment-success
 evidence.
+Regional convergence rehydrates that immutable payload, requires its accepted
+base plan to match local accepted history, and emits at most one action per
+evaluation. Active workload drift uses the shared dependency-safe
+reconciliation engine; missing or in-progress state is observed before another
+mutation. Suspension and retirement remain dependent-first. Retirement can
+advance only with exact ownership, safety, retention, dependency, and domain
+authorization proof digests bound to the current writer epoch. Failed health
+requests a new generation referencing a previously qualified global plan; it
+never rewinds a local artifact in place. Only exact live workload/absence
+observations produce a regional convergence digest, and cross-cell success is
+still a separate global barrier.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
