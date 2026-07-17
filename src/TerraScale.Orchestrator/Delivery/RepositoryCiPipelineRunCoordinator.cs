@@ -20,7 +20,8 @@ internal sealed record RepositoryCiPipelineRunCoordinationReceipt(
     RepositoryCiPipelineRunCoordinationDisposition Disposition,
     RepositoryCiPipelineRunSnapshot? Run,
     IReadOnlyList<RepositoryCiJobDispatchCoordinationReceipt> Dispatches,
-    IReadOnlyList<RepositoryCiJobResultReconcileReceipt> Results);
+    IReadOnlyList<RepositoryCiJobResultReconcileReceipt> Results,
+    IReadOnlyList<RepositoryCiJobRetryCoordinationReceipt> Retries);
 
 /// <summary>
 /// Advances one durable pipeline tick: observe runner results, resume prepared commands, then
@@ -30,7 +31,8 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
     RepositoryCiJobJournal jobs,
     RepositoryCiJobDispatchCoordinator dispatch,
     RepositoryCiJobResultReconciler results,
-    Func<RepositoryCiPipelineJob, CancellationToken, Task<IReadOnlyList<RunnerEvidence>>> readRunners)
+    Func<RepositoryCiPipelineJob, CancellationToken, Task<IReadOnlyList<RunnerEvidence>>> readRunners,
+    RepositoryCiJobRetryCoordinator? retries = null)
 {
     private readonly RepositoryCiJobJournal jobs = jobs ?? throw new ArgumentNullException(nameof(jobs));
     private readonly RepositoryCiJobDispatchCoordinator dispatch =
@@ -39,6 +41,7 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
         results ?? throw new ArgumentNullException(nameof(results));
     private readonly Func<RepositoryCiPipelineJob, CancellationToken, Task<IReadOnlyList<RunnerEvidence>>>
         readRunners = readRunners ?? throw new ArgumentNullException(nameof(readRunners));
+    private readonly RepositoryCiJobRetryCoordinator? retries = retries;
 
     internal async Task<RepositoryCiPipelineRunCoordinationReceipt> CoordinateAsync(
         RepositoryCiPipelinePlan pipeline,
@@ -57,6 +60,7 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
         if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
         var dispatches = new List<RepositoryCiJobDispatchCoordinationReceipt>();
         var reconciled = new List<RepositoryCiJobResultReconcileReceipt>();
+        var retried = new List<RepositoryCiJobRetryCoordinationReceipt>();
 
         var initialized = await jobs.InitializeAsync(
             pipeline,
@@ -66,7 +70,7 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
             cancellationToken);
         if (initialized is not (RepositoryCiJobJournalDisposition.Recorded or
                 RepositoryCiJobJournalDisposition.Duplicate))
-            return Receipt(Map(initialized), null, dispatches, reconciled);
+            return Receipt(Map(initialized), null, dispatches, reconciled, retried);
 
         var run = await jobs.ReadAsync(pipeline, cancellationToken);
         foreach (var job in run.Jobs.Where(static value => value.Phase is
@@ -81,12 +85,60 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
                 cancellationToken);
             reconciled.Add(receipt);
             if (Terminal(receipt.Disposition) is { } terminal)
-                return await FinishAsync(terminal, pipeline, dispatches, reconciled, cancellationToken);
+                return await FinishAsync(
+                    terminal,
+                    pipeline,
+                    dispatches,
+                    reconciled,
+                    retried,
+                    cancellationToken);
         }
 
         run = await jobs.ReadAsync(pipeline, cancellationToken);
+        if (retries is not null)
+        {
+            var permanent = false;
+            foreach (var job in run.Jobs.Where(static value => value.Phase is
+                         RepositoryCiJobPhase.Failed or RepositoryCiJobPhase.RetryWaiting))
+            {
+                var receipt = await retries.CoordinateAsync(
+                    pipeline,
+                    job.Job.Request.Job,
+                    controllerId,
+                    authorityEpoch,
+                    authorityStillValid,
+                    cancellationToken);
+                retried.Add(receipt);
+                if (Terminal(receipt.Disposition) is { } terminal)
+                    return await FinishAsync(
+                        terminal,
+                        pipeline,
+                        dispatches,
+                        reconciled,
+                        retried,
+                        cancellationToken);
+                permanent |= receipt.Disposition is
+                    RepositoryCiJobRetryCoordinationDisposition.NotRetryable or
+                    RepositoryCiJobRetryCoordinationDisposition.AttemptsExhausted;
+            }
+            run = await jobs.ReadAsync(pipeline, cancellationToken);
+            if (permanent)
+                return Receipt(
+                    RepositoryCiPipelineRunCoordinationDisposition.Failed,
+                    run,
+                    dispatches,
+                    reconciled,
+                    retried);
+            if (run.State == RepositoryCiPipelineRunState.Failed)
+                return Receipt(
+                    RepositoryCiPipelineRunCoordinationDisposition.Waiting,
+                    run,
+                    dispatches,
+                    reconciled,
+                    retried);
+        }
         if (run.State != RepositoryCiPipelineRunState.Active)
-            return Receipt(State(run.State), run, dispatches, reconciled);
+            return Receipt(State(run.State), run, dispatches, reconciled, retried);
 
         foreach (var job in run.Jobs.Where(static value =>
                      value.Phase == RepositoryCiJobPhase.DispatchPrepared))
@@ -101,12 +153,18 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
                 cancellationToken);
             dispatches.Add(receipt);
             if (Terminal(receipt.Disposition) is { } terminal)
-                return await FinishAsync(terminal, pipeline, dispatches, reconciled, cancellationToken);
+                return await FinishAsync(
+                    terminal,
+                    pipeline,
+                    dispatches,
+                    reconciled,
+                    retried,
+                    cancellationToken);
         }
 
         run = await jobs.ReadAsync(pipeline, cancellationToken);
         if (run.State != RepositoryCiPipelineRunState.Active)
-            return Receipt(State(run.State), run, dispatches, reconciled);
+            return Receipt(State(run.State), run, dispatches, reconciled, retried);
         foreach (var job in run.Ready)
         {
             var runners = await readRunners(job, cancellationToken)
@@ -121,7 +179,13 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
                 cancellationToken);
             dispatches.Add(receipt);
             if (Terminal(receipt.Disposition) is { } terminal)
-                return await FinishAsync(terminal, pipeline, dispatches, reconciled, cancellationToken);
+                return await FinishAsync(
+                    terminal,
+                    pipeline,
+                    dispatches,
+                    reconciled,
+                    retried,
+                    cancellationToken);
         }
 
         run = await jobs.ReadAsync(pipeline, cancellationToken);
@@ -129,7 +193,10 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
                 RepositoryCiJobResultReconcileDisposition.Running or
                 RepositoryCiJobResultReconcileDisposition.Completed) ||
             dispatches.Any(static value =>
-                value.Disposition == RepositoryCiJobDispatchCoordinationDisposition.Dispatched);
+                value.Disposition == RepositoryCiJobDispatchCoordinationDisposition.Dispatched) ||
+            retried.Any(static value => value.Disposition is
+                RepositoryCiJobRetryCoordinationDisposition.Scheduled or
+                RepositoryCiJobRetryCoordinationDisposition.Opened);
         return Receipt(
             run.State == RepositoryCiPipelineRunState.Active
                 ? progressed
@@ -138,7 +205,8 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
                 : State(run.State),
             run,
             dispatches,
-            reconciled);
+            reconciled,
+            retried);
     }
 
     private async Task<RepositoryCiPipelineRunCoordinationReceipt> FinishAsync(
@@ -146,11 +214,13 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
         RepositoryCiPipelinePlan pipeline,
         List<RepositoryCiJobDispatchCoordinationReceipt> dispatches,
         List<RepositoryCiJobResultReconcileReceipt> results,
+        List<RepositoryCiJobRetryCoordinationReceipt> retries,
         CancellationToken cancellationToken) => Receipt(
             disposition,
             await jobs.ReadAsync(pipeline, cancellationToken),
             dispatches,
-            results);
+            results,
+            retries);
 
     private static RepositoryCiPipelineRunCoordinationDisposition? Terminal(
         RepositoryCiJobResultReconcileDisposition disposition) => disposition switch
@@ -182,6 +252,20 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
         _ => null,
     };
 
+    private static RepositoryCiPipelineRunCoordinationDisposition? Terminal(
+        RepositoryCiJobRetryCoordinationDisposition disposition) => disposition switch
+    {
+        RepositoryCiJobRetryCoordinationDisposition.AuthorityLost =>
+            RepositoryCiPipelineRunCoordinationDisposition.AuthorityLost,
+        RepositoryCiJobRetryCoordinationDisposition.LeaseHeld =>
+            RepositoryCiPipelineRunCoordinationDisposition.LeaseHeld,
+        RepositoryCiJobRetryCoordinationDisposition.IdentityConflict =>
+            RepositoryCiPipelineRunCoordinationDisposition.IdentityConflict,
+        RepositoryCiJobRetryCoordinationDisposition.Contention =>
+            RepositoryCiPipelineRunCoordinationDisposition.Contention,
+        _ => null,
+    };
+
     private static RepositoryCiPipelineRunCoordinationDisposition Map(
         RepositoryCiJobJournalDisposition disposition) => disposition switch
     {
@@ -206,9 +290,11 @@ internal sealed class RepositoryCiPipelineRunCoordinator(
         RepositoryCiPipelineRunCoordinationDisposition disposition,
         RepositoryCiPipelineRunSnapshot? run,
         List<RepositoryCiJobDispatchCoordinationReceipt> dispatches,
-        List<RepositoryCiJobResultReconcileReceipt> results) => new(
+        List<RepositoryCiJobResultReconcileReceipt> results,
+        List<RepositoryCiJobRetryCoordinationReceipt> retries) => new(
             disposition,
             run,
             Array.AsReadOnly(dispatches.ToArray()),
-            Array.AsReadOnly(results.ToArray()));
+            Array.AsReadOnly(results.ToArray()),
+            Array.AsReadOnly(retries.ToArray()));
 }

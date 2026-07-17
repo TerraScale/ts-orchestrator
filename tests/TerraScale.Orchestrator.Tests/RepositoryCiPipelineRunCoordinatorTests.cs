@@ -53,7 +53,7 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
     [Test]
     public async Task PermanentRunnerFailureStopsDispatchBeyondTheInitialReadyFrontier()
     {
-        var fixture = Fixture.Create(failure: position => position == 0
+        var fixture = Fixture.Create(failure: (_, position) => position == 0
             ? RepositoryCiJobFailureKind.WorkloadFailed
             : RepositoryCiJobFailureKind.Unspecified);
         var initialReady = fixture.Pipeline.Jobs.Count(static job => job.DependsOn.Count == 0);
@@ -66,6 +66,31 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
         await Assert.That(receipt.Run!.State).IsEqualTo(RepositoryCiPipelineRunState.Failed);
         await Assert.That(fixture.Transport.Jobs.Count).IsEqualTo(initialReady);
         await Assert.That(receipt.Run.Results.Any(static value => !value.Succeeded)).IsTrue();
+    }
+
+    [Test]
+    public async Task AuthorizedTransientFailureRetriesThroughTheSameSignedDag()
+    {
+        var fixture = Fixture.Create(
+            failure: static (command, position) => position == 0 && command.Attempt == 1
+                ? RepositoryCiJobFailureKind.RunnerLost
+                : RepositoryCiJobFailureKind.Unspecified,
+            retry: true);
+        RepositoryCiPipelineRunCoordinationReceipt? receipt = null;
+
+        for (var tick = 0; tick <= fixture.Pipeline.Jobs.Count + 4; tick++)
+        {
+            receipt = await fixture.CoordinateAsync();
+            if (receipt.Disposition == RepositoryCiPipelineRunCoordinationDisposition.Succeeded) break;
+            if (receipt.Disposition == RepositoryCiPipelineRunCoordinationDisposition.Waiting)
+                fixture.Clock.Advance(TimeSpan.FromSeconds(5));
+        }
+
+        await Assert.That(receipt!.Disposition)
+            .IsEqualTo(RepositoryCiPipelineRunCoordinationDisposition.Succeeded);
+        await Assert.That(receipt.Run!.Results.All(static value => value.Succeeded)).IsTrue();
+        await Assert.That(receipt.Run.Results.Any(static value => value.Attempt == 2)).IsTrue();
+        await Assert.That(fixture.Transport.Jobs.Count).IsEqualTo(fixture.Pipeline.Jobs.Count + 1);
     }
 
     [Test]
@@ -88,34 +113,39 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
         private Fixture(
             RepositoryCiPipelinePlan pipeline,
             RepositoryCiPipelineRunCoordinator coordinator,
-            AutoRunnerTransport transport)
+            AutoRunnerTransport transport,
+            AdjustableTimeProvider clock)
         {
             Pipeline = pipeline;
             this.coordinator = coordinator;
             Transport = transport;
+            Clock = clock;
         }
 
         internal RepositoryCiPipelinePlan Pipeline { get; }
         internal AutoRunnerTransport Transport { get; }
+        internal AdjustableTimeProvider Clock { get; }
 
         internal static Fixture Create(
             Func<RepositoryCiPipelineJob, IReadOnlyList<RunnerEvidence>>? runners = null,
-            Func<int, RepositoryCiJobFailureKind>? failure = null)
+            Func<RepositoryCiJobWireDocument, int, RepositoryCiJobFailureKind>? failure = null,
+            bool retry = false)
         {
             var pipeline = RepositoryCiPipelineJournalTests.Pipeline();
             var controllerLedger = new ForgejoWebhookJournalTests.TestLedger();
             var runnerLedger = new ForgejoWebhookJournalTests.TestLedger();
             var objects = new TestObjectStore();
-            var jobs = new RepositoryCiJobJournal(controllerLedger, new FixedTimeProvider());
+            var clock = new AdjustableTimeProvider(Now);
+            var jobs = new RepositoryCiJobJournal(controllerLedger, clock);
             var executions = new RepositoryCiJobExecutionJournal(runnerLedger);
             var inbox = new RepositoryCiJobInbox(
                 new(runnerLedger, objects),
                 executions);
-            var transport = new AutoRunnerTransport(inbox, executions, failure);
+            var transport = new AutoRunnerTransport(inbox, executions, clock, failure);
             var dispatch = new RepositoryCiJobDispatchCoordinator(
                 jobs,
                 new(objects),
-                new(jobs, new(transport, new TestSigner(), new FixedTimeProvider())),
+                new(jobs, new(transport, new TestSigner(), clock)),
                 static (source, cancellationToken) =>
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -127,6 +157,17 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
                     return Task.FromResult(RepositoryCiJobJournalTests.Isolation(job));
                 });
             runners ??= static job => [RepositoryCiJobJournalTests.Runner(job)];
+            var retryCoordinator = retry
+                ? new RepositoryCiJobRetryCoordinator(
+                    jobs,
+                    static (job, cancellationToken) =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return Task.FromResult<RepositoryCiJobRetryAuthorization?>(new(
+                            $"retry-{job.Job.Request.Job.Value}-attempt-{job.Attempt}",
+                            new string('a', 64)));
+                    })
+                : null;
             return new(
                 pipeline,
                 new(
@@ -137,8 +178,10 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         return Task.FromResult(runners(job));
-                    }),
-                transport);
+                    },
+                    retryCoordinator),
+                transport,
+                clock);
         }
 
         internal Task<RepositoryCiPipelineRunCoordinationReceipt> CoordinateAsync(
@@ -153,7 +196,8 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
     private sealed class AutoRunnerTransport(
         RepositoryCiJobInbox inbox,
         RepositoryCiJobExecutionJournal executions,
-        Func<int, RepositoryCiJobFailureKind>? failure) : IRepositoryCiJobTransport
+        TimeProvider clock,
+        Func<RepositoryCiJobWireDocument, int, RepositoryCiJobFailureKind>? failure) : IRepositoryCiJobTransport
     {
         private ulong sequence = 40;
         internal List<string> Jobs { get; } = [];
@@ -167,13 +211,14 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
             _ = subject;
             _ = messageId;
             var next = ++sequence;
+            var now = clock.GetUtcNow();
             var command = RepositoryCiJobWireCodec.Decode(message.Payload, message.Headers).Document;
             var prepared = await inbox.PrepareAsync(
                 message.Payload,
                 message.Headers,
                 next,
                 command.Runner,
-                Now,
+                now,
                 TimeSpan.Zero,
                 new TestVerifier(),
                 cancellationToken);
@@ -182,19 +227,19 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
             var lease = await executions.AcquireAsync(
                 prepared.Acceptance!,
                 command.Operation,
-                Now.AddSeconds(1),
+                now.AddSeconds(1),
                 TimeSpan.FromMinutes(5),
                 cancellationToken);
             if (lease.Disposition != RepositoryCiJobExecutionDisposition.Acquired || lease.Execution is null)
                 throw new InvalidDataException("The in-memory runner could not acquire its CI execution.");
-            var failureKind = failure?.Invoke(Jobs.Count) ?? RepositoryCiJobFailureKind.Unspecified;
+            var failureKind = failure?.Invoke(command, Jobs.Count) ?? RepositoryCiJobFailureKind.Unspecified;
             var completed = await executions.CompleteAsync(
                 lease.Execution,
                 failureKind == RepositoryCiJobFailureKind.Unspecified,
                 next.ToString("x64", CultureInfo.InvariantCulture),
                 0,
                 failureKind,
-                Now.AddSeconds(2),
+                now.AddSeconds(2),
                 cancellationToken);
             if (completed.Disposition != RepositoryCiJobExecutionDisposition.Completed)
                 throw new InvalidDataException("The in-memory runner could not complete its CI execution.");
@@ -248,8 +293,10 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
         }
     }
 
-    private sealed class FixedTimeProvider : TimeProvider
+    internal sealed class AdjustableTimeProvider(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => Now;
+        private DateTimeOffset now = now;
+        public override DateTimeOffset GetUtcNow() => now;
+        internal void Advance(TimeSpan duration) => now = now.Add(duration);
     }
 }
