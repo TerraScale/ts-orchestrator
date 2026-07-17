@@ -16,6 +16,12 @@ public sealed class RepositoryCiCandidateResolverTests
     private const string MainCommit = "cffe000000000000000000000000000000000003";
     private const string DownstreamMainCommit = "dffe000000000000000000000000000000000004";
 
+    internal static RepositoryCiQualifiedCandidate QualifiedCandidate() =>
+        RepositoryCiCandidateResolver.Resolve(
+            ForgejoCiTriggerPlanner.Plan(Push(MainCommit)),
+            Candidate(),
+            CurrentMain());
+
     [Test]
     public async Task DifferentMergeCommitsQualifyOnlyWhenEveryTestedTreeIsExact()
     {

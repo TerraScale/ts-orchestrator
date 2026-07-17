@@ -148,9 +148,14 @@ content-addressed evidence, signed artifacts for every declared architecture,
 and exact runtime-digest proof for native artifacts. A later `main` push
 qualifies that candidate only when protected `main` observations for the whole
 release set have the same tested trees; Forgejo may use different merge commit
-IDs. This still creates no production job or credential: signed deployment
-evidence, approval, promotion journaling, and the real runner executor remain
-separate gates.
+IDs. A pure authorization gate can then create production-release work only
+when signed deployment evidence, dependency and generated-schema locks, pinned
+toolchain evidence, explicit approval, and all three compatibility directions
+verify against that exact qualified release-set digest. The request identity is
+also bound to its controller generation and runner evidence window. This still
+uses no credential and executes no deployment: durable promotion leases and
+journaling, registry publication, staged regional verification, and the real
+runner executor remain separate gates.
 
 Runner admission is likewise a pure contract today. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
