@@ -130,6 +130,45 @@ qualified candidate before promotion. Forks and lookalike branches targeting
 `main`, protected-branch deletions, metadata-only actions, tags, and unsupported
 refs cannot widen those trust or capability sets.
 
+Native GitOps desired state is a fresh TerraScale document rather than a
+Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
+compiler accepts only closed catalog roles, catalog-approved runtimes,
+lowercase SHA-256 artifact digests, replica counts, cells, dependencies, and a
+suspension flag. Defaults are visible in its canonical plan. Dependencies are
+validated and topologically ordered, every consuming cell must contain its
+dependencies, and the compiler produces deterministic per-cell plans plus a
+SHA-256 plan digest:
+
+```json
+{
+  "apiVersion": "terrascale.io/v1",
+  "kind": "TerraScaleDesiredState",
+  "generation": 7,
+  "workloads": [
+    {
+      "id": "authentication",
+      "role": "Authentication",
+      "artifactDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "cells": ["gru", "sfo", "fra"]
+    },
+    {
+      "id": "api",
+      "role": "Api",
+      "artifactDigest": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "cells": ["gru", "sfo", "fra"],
+      "dependsOn": ["authentication"]
+    }
+  ]
+}
+```
+
+Concrete instances, allocations, attachments, and expanded volumes remain
+regional-journal children. A Git parent removal can only request guarded
+retirement; it never grants direct prune or deletion authority. Unknown and
+duplicate fields, arbitrary roles/runtimes, paths, image names, unit text,
+capabilities, invalid digests, missing/cross-cell dependencies, cycles, and
+replica counts below a role's production floor all fail before a plan exists.
+
 The three regional controller candidates share one NATS service queue group
 and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
 revisions. The production authority state machine advances the fencing epoch,
