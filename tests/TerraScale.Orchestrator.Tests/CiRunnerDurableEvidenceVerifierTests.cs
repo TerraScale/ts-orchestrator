@@ -19,6 +19,16 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
     }
 
     [Test]
+    public async Task CanonicalArchitectureRootEvidenceSurvivesControllerReadback()
+    {
+        var fixture = await Fixture.CreateAsync(withArtifacts: true);
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsTrue();
+    }
+
+    [Test]
     public async Task ContentCorruptionFailsTheTerminalEvidenceDigest()
     {
         var fixture = await Fixture.CreateAsync();
@@ -102,7 +112,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
             bool changeLeaseSequence = false,
             bool unsafeLog = false,
             int artifactBytesAdjustment = 0,
-            bool invalidArtifact = false)
+            bool invalidArtifact = false,
+            bool withArtifacts = false)
         {
             var accepted = await RepositoryCiJobInboxTests.AcceptedAsync();
             var journal = new RepositoryCiJobExecutionJournal(
@@ -155,11 +166,17 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 artifactObject,
                 Hash(artifact),
                 artifact.LongLength + artifactBytesAdjustment,
-                [new(
-                    "TerraScale/TerraScale.Orchestrator",
-                    invalidArtifact ? RepositoryCiArchitecture.Unspecified : RepositoryCiArchitecture.LinuxX64,
-                    "linux-x64",
-                    Digest('2'))],
+                invalidArtifact || withArtifacts
+                    ? [new(
+                        "TerraScale/TerraScale.Orchestrator",
+                        invalidArtifact
+                            ? RepositoryCiArchitecture.Unspecified
+                            : RepositoryCiArchitecture.LinuxX64,
+                        "linux-x64",
+                        Digest('2'),
+                        1,
+                        100)]
+                    : [],
                 0,
                 30);
             var content = JsonSerializer.SerializeToUtf8Bytes(

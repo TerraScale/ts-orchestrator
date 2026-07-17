@@ -66,6 +66,7 @@ internal interface ICiRunnerWorkloadResultSink
         CiRunnerWorkloadEvidence evidence,
         ReadOnlyMemory<byte> redactedLog,
         string? exportDirectory,
+        CiRunnerExecutionPlan? plan,
         CancellationToken cancellationToken);
 }
 
@@ -158,6 +159,7 @@ internal sealed class CiRunnerExecutionCoordinator
                 execution.Evidence,
                 execution.RedactedLog,
                 outputPath,
+                execution.Plan,
                 work.Token);
             ValidateDurableResult(durable);
         }
@@ -238,7 +240,7 @@ internal sealed class CiRunnerExecutionCoordinator
                     RepositoryCiJobFailureKind.PolicyDenied,
                     CiRunnerWorkloadFailureCode.PolicyRejected);
                 lease.Evidence = rejected;
-                return new(rejected, ReadOnlyMemory<byte>.Empty, null);
+                return new(rejected, ReadOnlyMemory<byte>.Empty, null, null);
             }
 
             CiRunnerMaterializedSource source;
@@ -257,7 +259,7 @@ internal sealed class CiRunnerExecutionCoordinator
                     RepositoryCiJobFailureKind.PolicyDenied,
                     CiRunnerWorkloadFailureCode.SourceRejected);
                 lease.Evidence = rejected;
-                return new(rejected, ReadOnlyMemory<byte>.Empty, null);
+                return new(rejected, ReadOnlyMemory<byte>.Empty, null, plan);
             }
 
             CiRunnerBuildKitExecutionResult build;
@@ -276,7 +278,7 @@ internal sealed class CiRunnerExecutionCoordinator
                     RepositoryCiJobFailureKind.WorkloadFailed,
                     CiRunnerWorkloadFailureCode.OutputRejected);
                 lease.Evidence = rejected;
-                return new(rejected, ReadOnlyMemory<byte>.Empty, null);
+                return new(rejected, ReadOnlyMemory<byte>.Empty, null, plan);
             }
 
             var succeeded = build.Disposition == CiRunnerBuildKitExecutionDisposition.Succeeded;
@@ -301,7 +303,7 @@ internal sealed class CiRunnerExecutionCoordinator
             var export = succeeded
                 ? CiRunnerBuildKitInvocationCompiler.Create(plan, source, buildKitRuntime).ExportDirectory
                 : null;
-            return new(evidence, build.RedactedLog, export);
+            return new(evidence, build.RedactedLog, export, plan);
         }
     }
 
@@ -420,7 +422,8 @@ internal sealed class CiRunnerExecutionCoordinator
     private sealed record ExecutedWorkload(
         CiRunnerWorkloadEvidence Evidence,
         ReadOnlyMemory<byte> RedactedLog,
-        string? ExportDirectory);
+        string? ExportDirectory,
+        CiRunnerExecutionPlan? Plan);
 
     private sealed class RenewableLease(RepositoryCiJobExecutionSnapshot snapshot)
     {

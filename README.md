@@ -353,7 +353,13 @@ canonical evidence under content addresses with full readback verification and
 30-day object retention. The repository recipe emits the strict result manifest
 for every fixed target; test targets derive its required-test skip count from
 five successful, bounded TRX reports through the dependency-free C# tooling
-command. Source bytes are removed before artifact capture and archive
+command. Artifact targets additionally declare one non-overlapping output root
+for every architecture in the signed execution plan. The runner rejects missing,
+substituted, overlapping, or undeclared roots, computes a canonical content
+digest for each architecture, and retains that bounded root evidence in the
+read-verified workload record. This is content evidence, not an artifact
+signature; candidate admission still requires the separate signing gate below.
+Source bytes are removed before artifact capture and archive
 overhead is reserved inside the signed ephemeral-disk budget. The isolated
 `runner` process mode owns that BuildKit daemon and exits when its bounded idle
 window expires; normal controller startup never invokes BuildKit.

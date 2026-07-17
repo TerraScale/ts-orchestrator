@@ -187,6 +187,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
             CiRunnerWorkloadEvidence evidence,
             ReadOnlyMemory<byte> redactedLog,
             string? exportDirectory,
+            CiRunnerExecutionPlan? plan,
             CancellationToken cancellationToken)
         {
             Evidences.Add(evidence);

@@ -19,14 +19,16 @@ internal sealed record CiRunnerResultManifest(
 
 internal sealed record CiRunnerResultArtifact(
     string Artifact,
-    RepositoryCiArchitecture Architecture,
+    string Architecture,
     string Path);
 
 internal sealed record CiRunnerStoredArtifactEvidence(
     string Artifact,
     RepositoryCiArchitecture Architecture,
     string Path,
-    string Digest);
+    string Digest,
+    int Files,
+    long Bytes);
 
 internal sealed record CiRunnerStoredWorkloadEvidence(
     int SchemaVersion,
@@ -58,10 +60,11 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         CiRunnerWorkloadEvidence evidence,
         ReadOnlyMemory<byte> redactedLog,
         string? exportDirectory,
+        CiRunnerExecutionPlan? plan,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(evidence);
-        ValidateEvidence(evidence, redactedLog, exportDirectory);
+        ValidateEvidence(evidence, redactedLog, exportDirectory, plan);
 
         var logObject = string.Empty;
         if (evidence.LogSha256.Length != 0)
@@ -84,6 +87,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 var root = Path.GetFullPath(exportDirectory!);
                 var manifest = await ReadManifestAsync(root, evidence, cancellationToken);
                 requiredTestSkips = manifest.RequiredTestSkips;
+                manifest = manifest with { Artifacts = ValidateArtifacts(plan!, manifest.Artifacts) };
                 archivePath = Path.Combine(
                     Directory.GetParent(root)?.FullName ?? throw new InvalidDataException(
                         "The CI result export has no private output parent."),
@@ -106,7 +110,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     FailureKind = RepositoryCiJobFailureKind.WorkloadFailed,
                     FailureCode = CiRunnerWorkloadFailureCode.OutputRejected,
                 };
-                ValidateEvidence(rejected, redactedLog, null);
+                ValidateEvidence(rejected, redactedLog, null, plan);
                 return await PersistEvidenceAsync(
                     rejected,
                     logObject,
@@ -221,12 +225,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 value.PlanDigest != evidence.PlanDigest || !value.Succeeded ||
                 value.RequiredTestSkips is < 0 or > 1_000_000 || !ValidArtifacts(value.Artifacts))
                 throw new JsonException();
-            return value with
-            {
-                Artifacts = (value.Artifacts ?? [])
-                    .OrderBy(static artifact => artifact.Architecture)
-                    .ToArray(),
-            };
+            return value;
         }
         catch (JsonException exception)
         {
@@ -272,6 +271,9 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var normalized = relative.Replace(Path.DirectorySeparatorChar, '/');
+                if (artifacts.Length != 0 && normalized != ResultManifestPath &&
+                    !artifacts.Any(artifact => artifact.Covers(normalized, entry is DirectoryInfo)))
+                    throw new InvalidDataException("The CI artifact export contains an undeclared path.");
                 if (entry is DirectoryInfo)
                 {
                     canonical.Append("d:").Append(normalized).Append('\n');
@@ -332,13 +334,27 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
     {
         artifacts ??= [];
         if (artifacts.Length > 2 || artifacts.Any(static value => value is null ||
-                !ArtifactId(value.Artifact) || !Enum.IsDefined(value.Architecture) ||
-                value.Architecture == RepositoryCiArchitecture.Unspecified || !RelativePath(value.Path)) ||
+                !ArtifactId(value.Artifact) || !Architecture(value.Architecture) || !RelativePath(value.Path)) ||
             artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
             artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length)
             return false;
         return !artifacts.Any(left => artifacts.Any(right => left != right &&
             right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal)));
+    }
+
+    private static CiRunnerResultArtifact[] ValidateArtifacts(
+        CiRunnerExecutionPlan plan,
+        CiRunnerResultArtifact[]? artifacts)
+    {
+        var values = artifacts ?? [];
+        IReadOnlyList<RepositoryCiArchitecture> expected =
+            plan.Build.Output == CiRunnerExecutionOutputKind.CandidateArtifacts
+                ? plan.Build.Architectures
+                : [];
+        if (values.Length != expected.Count ||
+            values.Where((value, index) => value.Architecture != expected[index].ToString()).Any())
+            throw new InvalidDataException("The CI result manifest does not match the signed artifact plan.");
+        return values;
     }
 
     private static bool ArtifactId(string? value) => value is { Length: >= 1 and <= 256 } &&
@@ -353,12 +369,23 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
         value.Split('/').All(static segment => segment is not ("" or "." or ".."));
 
+    private static bool Architecture(string? value) => value is
+        nameof(RepositoryCiArchitecture.Any) or nameof(RepositoryCiArchitecture.LinuxX64) or
+        nameof(RepositoryCiArchitecture.LinuxArm64);
+
     private sealed class ArtifactTracker(CiRunnerResultArtifact artifact)
     {
         private readonly StringBuilder canonical = new();
+        private readonly RepositoryCiArchitecture architecture =
+            Enum.Parse<RepositoryCiArchitecture>(artifact.Architecture);
         private bool rootFound;
         private int files;
         private int executables;
+        private long bytes;
+
+        internal bool Covers(string path, bool directory) =>
+            path == artifact.Path || path.StartsWith(artifact.Path + '/', StringComparison.Ordinal) ||
+            directory && artifact.Path.StartsWith(path + '/', StringComparison.Ordinal);
 
         internal void Directory(string path)
         {
@@ -381,25 +408,28 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             if (Relative(path) is not { } relative) return;
             if (executable)
             {
-                RequireElfArchitecture(header, artifact.Architecture);
+                RequireElfArchitecture(header, architecture);
                 executables++;
             }
             canonical.Append("f:").Append(relative).Append(':')
                 .Append(bytes.ToString(CultureInfo.InvariantCulture)).Append(':')
                 .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
             files++;
+            this.bytes += bytes;
         }
 
         internal CiRunnerStoredArtifactEvidence Complete()
         {
             if (!rootFound || files == 0 ||
-                artifact.Architecture != RepositoryCiArchitecture.Any && executables == 0)
+                architecture != RepositoryCiArchitecture.Any && executables == 0)
                 throw new InvalidDataException("A declared CI artifact root is missing or empty.");
             return new(
                 artifact.Artifact,
-                artifact.Architecture,
+                architecture,
                 artifact.Path,
-                Hash(Encoding.UTF8.GetBytes(canonical.ToString())));
+                Hash(Encoding.UTF8.GetBytes(canonical.ToString())),
+                files,
+                bytes);
         }
 
         private string? Relative(string path) => path.StartsWith(artifact.Path + '/', StringComparison.Ordinal)
@@ -480,7 +510,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
     private static void ValidateEvidence(
         CiRunnerWorkloadEvidence value,
         ReadOnlyMemory<byte> log,
-        string? exportDirectory)
+        string? exportDirectory,
+        CiRunnerExecutionPlan? plan)
     {
         var succeeded = value.Succeeded;
         var failure = !succeeded;
@@ -493,13 +524,15 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             value.LogSha256.Length != 0 && (!Digest(value.LogSha256) ||
                 Hash(log.Span) != value.LogSha256 || !CiRunnerLogRedactor.IsSafe(log.Span)) ||
             value.LogSha256.Length == 0 && !log.IsEmpty ||
+            plan is not null && (plan.Digest != value.PlanDigest || plan.Job != value.Job ||
+                plan.Attempt != value.Attempt) ||
             succeeded && (!Digest(value.PlanDigest) || !Digest(value.DescriptorSha256) ||
                 !Digest(value.RecipeSha256) || value.BuildDisposition != CiRunnerBuildKitExecutionDisposition.Succeeded ||
                 value.ExitCode != 0 || !Digest(value.LogSha256) || !Digest(value.MetadataSha256) ||
                 !Digest(value.OutputSha256) || value.OutputFiles is < 1 or > CiRunnerBuildKitExecutor.MaximumOutputFiles ||
                 value.OutputBytes < 1 || value.FailureKind != RepositoryCiJobFailureKind.Unspecified ||
                 value.FailureCode != CiRunnerWorkloadFailureCode.Unspecified ||
-                exportDirectory is null || !Path.IsPathFullyQualified(exportDirectory)) ||
+                exportDirectory is null || !Path.IsPathFullyQualified(exportDirectory) || plan is null) ||
             failure && (value.FailureKind == RepositoryCiJobFailureKind.Unspecified ||
                 !Enum.IsDefined(value.FailureKind) || value.FailureCode == CiRunnerWorkloadFailureCode.Unspecified ||
                 !Enum.IsDefined(value.FailureCode) || value.BuildDisposition == CiRunnerBuildKitExecutionDisposition.Succeeded ||

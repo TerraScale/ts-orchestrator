@@ -91,8 +91,8 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
         var workload = stored.Workload;
         if (stored.SchemaVersion != 1 || stored.RetentionDays != CiRunnerDurableResultSink.RetentionDays ||
             stored.LogObject is null || stored.LogSha256 is null || stored.ArtifactObject is null ||
-            stored.ArtifactSha256 is null || !ValidArtifacts(stored.Artifacts) ||
-            workload is null || workload.SchemaVersion != 1 || workload.Runner != expected.Runner ||
+            stored.ArtifactSha256 is null || workload is null || workload.SchemaVersion != 1 ||
+            workload.Runner != expected.Runner ||
             workload.PipelineDigest != expected.PipelineDigest || workload.Job != expected.Job ||
             workload.JobDigest != expected.JobDigest ||
             workload.ExecutionIdentityDigest != expected.ExecutionIdentityDigest ||
@@ -113,26 +113,42 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
         var artifactMatches = workload.Succeeded
             ? stored.ArtifactObject == $"ci-result-artifact-{workload.OutputSha256}" &&
                 Digest(stored.ArtifactSha256) && stored.ArtifactBytes > 0 &&
-                stored.ArtifactBytes <= workload.OutputBytes + ArtifactArchiveOverheadBytes
+                stored.ArtifactBytes <= workload.OutputBytes + ArtifactArchiveOverheadBytes &&
+                ValidArtifacts(stored.Artifacts ?? [], workload)
             : stored.ArtifactObject.Length == 0 && stored.ArtifactSha256.Length == 0 &&
-                stored.ArtifactBytes == 0 && stored.Artifacts is null or { Length: 0 } &&
-                stored.RequiredTestSkips == 0;
+                stored.ArtifactBytes == 0 && stored.RequiredTestSkips == 0 &&
+                (stored.Artifacts?.Length ?? 0) == 0;
         return logMatches && artifactMatches;
     }
 
-    private static bool ValidArtifacts(CiRunnerStoredArtifactEvidence[]? artifacts)
+    private static bool ValidArtifacts(
+        CiRunnerStoredArtifactEvidence[] artifacts,
+        CiRunnerWorkloadEvidence workload)
     {
-        artifacts ??= [];
-        if (artifacts.Length > 2 || artifacts.Any(static value => value is null ||
-                !ArtifactId(value.Artifact) || !Enum.IsDefined(value.Architecture) ||
-                value.Architecture == RepositoryCiArchitecture.Unspecified ||
-                !RelativePath(value.Path) || !Digest(value.Digest)) ||
-            artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
-            artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length ||
+        if (artifacts.Length > 2 || artifacts.Any(static value => value is null) ||
             !artifacts.SequenceEqual(artifacts.OrderBy(static value => value.Architecture)))
             return false;
-        return !artifacts.Any(left => artifacts.Any(right => left != right &&
-            right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal)));
+        if (artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
+            artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length ||
+            artifacts.Any(left => artifacts.Any(right => left != right &&
+                right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal))))
+            return false;
+        long bytes = 0;
+        var files = 0;
+        foreach (var artifact in artifacts)
+        {
+            if (!ArtifactId(artifact.Artifact) || artifact.Architecture is not (
+                    RepositoryCiArchitecture.Any or RepositoryCiArchitecture.LinuxX64 or
+                    RepositoryCiArchitecture.LinuxArm64) || !RelativePath(artifact.Path) ||
+                !Digest(artifact.Digest) || artifact.Files is < 1 or > MaximumOutputFiles ||
+                artifact.Bytes is < 1 or > MaximumOutputBytes ||
+                bytes > workload.OutputBytes - artifact.Bytes ||
+                files > workload.OutputFiles - artifact.Files)
+                return false;
+            bytes += artifact.Bytes;
+            files += artifact.Files;
+        }
+        return bytes <= workload.OutputBytes && files <= workload.OutputFiles;
     }
 
     private static bool ArtifactId(string? value) => value is { Length: >= 1 and <= 256 } &&

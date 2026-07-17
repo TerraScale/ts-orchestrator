@@ -382,7 +382,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         return content;
     }
 
-    private static async Task<(string Digest, int Files, long Bytes)> HashOutputAsync(
+    internal static async Task<(string Digest, int Files, long Bytes)> HashOutputAsync(
         string root,
         long maximumBytes,
         CancellationToken cancellationToken)

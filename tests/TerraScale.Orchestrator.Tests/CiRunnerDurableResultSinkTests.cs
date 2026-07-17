@@ -3,7 +3,6 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using TerraScale.Orchestrator.Delivery;
 
@@ -19,10 +18,10 @@ public sealed class CiRunnerDurableResultSinkTests
         var store = new ObjectStore();
         var sink = new CiRunnerDurableResultSink(store);
 
-        var first = await sink.PersistAsync(fixture.Evidence, fixture.Log, fixture.Export, default);
+        var first = await sink.PersistAsync(fixture.Evidence, fixture.Log, fixture.Export, fixture.Plan, default);
         var artifactName = $"ci-result-artifact-{fixture.Evidence.OutputSha256}";
         var firstArtifact = store.Values[artifactName].ToArray();
-        var replay = await sink.PersistAsync(fixture.Evidence, fixture.Log, fixture.Export, default);
+        var replay = await sink.PersistAsync(fixture.Evidence, fixture.Log, fixture.Export, fixture.Plan, default);
         var stored = JsonSerializer.Deserialize(
             store.Values[$"ci-result-evidence-{first.EvidenceDigest}"],
             CiRunnerDurableResultJsonContext.Default.CiRunnerStoredWorkloadEvidence);
@@ -38,20 +37,138 @@ public sealed class CiRunnerDurableResultSinkTests
         await Assert.That(stored.RetentionDays).IsEqualTo(30);
         await Assert.That(stored.ArtifactSha256)
             .IsEqualTo(Convert.ToHexStringLower(SHA256.HashData(firstArtifact)));
-        var native = stored.Artifacts!.Single();
-        var nativeContent = X64Elf();
-        var nativeCanonical = Encoding.UTF8.GetBytes(
-            $"f:orchestrator:{nativeContent.Length}:1:{Convert.ToHexStringLower(SHA256.HashData(nativeContent))}\n");
-        await Assert.That(native.Artifact).IsEqualTo("TerraScale/TerraScale.Orchestrator");
-        await Assert.That(native.Architecture).IsEqualTo(RepositoryCiArchitecture.LinuxX64);
-        await Assert.That(native.Path).IsEqualTo("linux-x64");
-        await Assert.That(native.Digest)
-            .IsEqualTo(Convert.ToHexStringLower(SHA256.HashData(nativeCanonical)));
+        await Assert.That(stored.Artifacts).IsEmpty();
         await Assert.That(ArchiveEntries(firstArtifact)).IsEquivalentTo([
             CiRunnerDurableResultSink.ResultManifestPath,
-            "linux-x64/orchestrator",
             "result.txt",
         ]);
+    }
+
+    [Test]
+    public async Task CandidateRootsMatchSignedArchitecturesAndBecomeDurableContentEvidence()
+    {
+        using var fixture = await CandidateFixture.CreateAsync();
+        var store = new ObjectStore();
+
+        var result = await new CiRunnerDurableResultSink(store).PersistAsync(
+            fixture.Evidence,
+            fixture.Log,
+            fixture.Export,
+            fixture.Plan,
+            default);
+        var stored = JsonSerializer.Deserialize(
+            store.Values[$"ci-result-evidence-{result.EvidenceDigest}"],
+            CiRunnerDurableResultJsonContext.Default.CiRunnerStoredWorkloadEvidence)!;
+
+        await Assert.That(stored.Artifacts!.Select(static value => value.Architecture))
+            .IsEquivalentTo([RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]);
+        await Assert.That(stored.Artifacts!.Select(static value => value.Path))
+            .IsEquivalentTo(["linux-x64", "linux-arm64"]);
+        await Assert.That(stored.Artifacts!.All(static value => value.Files == 1 && value.Bytes > 0 &&
+            value.Digest.Length == 64)).IsTrue();
+        await Assert.That(ArchiveEntries(store.Values[stored.ArtifactObject])).IsEquivalentTo([
+            CiRunnerDurableResultSink.ResultManifestPath,
+            "linux-x64/app",
+            "linux-arm64/app",
+        ]);
+    }
+
+    [Test]
+    public async Task GenericOutputAcceptsRollingManifestWithoutArtifactDeclarations()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Export, CiRunnerDurableResultSink.ResultManifestPath),
+            $$"""
+            {"schemaVersion":1,"job":"{{fixture.Evidence.Job}}","planDigest":"{{fixture.Evidence.PlanDigest}}","succeeded":true,"requiredTestSkips":0}
+            """);
+        var output = await CiRunnerBuildKitExecutor.HashOutputAsync(fixture.Export, 1024 * 1024, default);
+        var evidence = fixture.Evidence with
+        {
+            OutputSha256 = output.Digest,
+            OutputFiles = output.Files,
+            OutputBytes = output.Bytes,
+        };
+        var store = new ObjectStore();
+
+        var result = await new CiRunnerDurableResultSink(store).PersistAsync(
+            evidence,
+            fixture.Log,
+            fixture.Export,
+            fixture.Plan,
+            default);
+        var stored = JsonSerializer.Deserialize(
+            store.Values[$"ci-result-evidence-{result.EvidenceDigest}"],
+            CiRunnerDurableResultJsonContext.Default.CiRunnerStoredWorkloadEvidence)!;
+
+        await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.Unspecified);
+        await Assert.That(stored.Artifacts).IsEmpty();
+    }
+
+    [Test]
+    public async Task SubstitutedArchitectureAndUndeclaredOutputAreRejectedBeforeArtifactEvidence()
+    {
+        using (var substituted = await CandidateFixture.CreateAsync())
+        {
+            substituted.WriteManifest([
+                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-x64"),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-arm64"),
+            ]);
+            var result = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
+                substituted.Evidence,
+                substituted.Log,
+                substituted.Export,
+                substituted.Plan,
+                default);
+            await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
+        }
+
+        using (var undeclared = await CandidateFixture.CreateAsync())
+        {
+            await File.WriteAllTextAsync(Path.Combine(undeclared.Export, "extra.txt"), "substituted");
+            var output = await CiRunnerBuildKitExecutor.HashOutputAsync(
+                undeclared.Export,
+                1024 * 1024,
+                default);
+            var evidence = undeclared.Evidence with
+            {
+                OutputSha256 = output.Digest,
+                OutputFiles = output.Files,
+                OutputBytes = output.Bytes,
+            };
+            var result = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
+                evidence,
+                undeclared.Log,
+                undeclared.Export,
+                undeclared.Plan,
+                default);
+            await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
+        }
+
+        using (var mislabeled = await CandidateFixture.CreateAsync())
+        {
+            var arm64 = Path.Combine(mislabeled.Export, "linux-arm64", "app");
+            await File.WriteAllBytesAsync(arm64, Elf(62));
+            File.SetUnixFileMode(arm64, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+            var output = await CiRunnerBuildKitExecutor.HashOutputAsync(
+                mislabeled.Export,
+                1024 * 1024,
+                default);
+            var evidence = mislabeled.Evidence with
+            {
+                OutputSha256 = output.Digest,
+                OutputFiles = output.Files,
+                OutputBytes = output.Bytes,
+            };
+            var result = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
+                evidence,
+                mislabeled.Log,
+                mislabeled.Export,
+                mislabeled.Plan,
+                default);
+            await Assert.That(result.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
+        }
     }
 
     [Test]
@@ -76,6 +193,7 @@ public sealed class CiRunnerDurableResultSinkTests
             failure,
             fixture.Log,
             null,
+            fixture.Plan,
             default);
 
         await Assert.That(result.RequiredTestSkips).IsEqualTo(0);
@@ -98,6 +216,7 @@ public sealed class CiRunnerDurableResultSinkTests
                 fixture.Evidence,
                 substituted,
                 fixture.Export,
+                fixture.Plan,
                 default))
             .Throws<InvalidDataException>();
         await Assert.That(async () => await new CiRunnerDurableResultSink(
@@ -105,6 +224,7 @@ public sealed class CiRunnerDurableResultSinkTests
                 fixture.Evidence,
                 fixture.Log,
                 fixture.Export,
+                fixture.Plan,
                 default))
             .Throws<InvalidDataException>();
     }
@@ -119,6 +239,7 @@ public sealed class CiRunnerDurableResultSinkTests
                 linked.Evidence,
                 linked.Log,
                 linked.Export,
+                linked.Plan,
                 default);
             await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
         }
@@ -134,6 +255,7 @@ public sealed class CiRunnerDurableResultSinkTests
                 duplicate.Evidence,
                 duplicate.Log,
                 duplicate.Export,
+                duplicate.Plan,
                 default);
             await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
         }
@@ -146,7 +268,7 @@ public sealed class CiRunnerDurableResultSinkTests
                 missing.Evidence.PlanDigest,
                 true,
                 0,
-                [new("TerraScale/TerraScale.Orchestrator", RepositoryCiArchitecture.LinuxX64, "missing")]);
+                [new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "missing")]);
             await File.WriteAllBytesAsync(
                 Path.Combine(missing.Export, CiRunnerDurableResultSink.ResultManifestPath),
                 JsonSerializer.SerializeToUtf8Bytes(
@@ -156,34 +278,11 @@ public sealed class CiRunnerDurableResultSinkTests
                 missing.Evidence,
                 missing.Log,
                 missing.Export,
+                missing.Plan,
                 default);
             await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
         }
 
-        using (var wrongArchitecture = await Fixture.CreateAsync())
-        {
-            var manifest = new CiRunnerResultManifest(
-                1,
-                wrongArchitecture.Evidence.Job,
-                wrongArchitecture.Evidence.PlanDigest,
-                true,
-                0,
-                [new(
-                    "TerraScale/TerraScale.Orchestrator",
-                    RepositoryCiArchitecture.LinuxArm64,
-                    "linux-x64")]);
-            await File.WriteAllBytesAsync(
-                Path.Combine(wrongArchitecture.Export, CiRunnerDurableResultSink.ResultManifestPath),
-                JsonSerializer.SerializeToUtf8Bytes(
-                    manifest,
-                    CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
-            var rejected = await new CiRunnerDurableResultSink(new ObjectStore()).PersistAsync(
-                wrongArchitecture.Evidence,
-                wrongArchitecture.Log,
-                wrongArchitecture.Export,
-                default);
-            await Assert.That(rejected.FailureKind).IsEqualTo(RepositoryCiJobFailureKind.WorkloadFailed);
-        }
     }
 
     private static string[] ArchiveEntries(byte[] content)
@@ -232,21 +331,13 @@ public sealed class CiRunnerDurableResultSinkTests
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(invocation.ExportDirectory);
             File.WriteAllText(Path.Combine(invocation.ExportDirectory, "result.txt"), "passed");
-            var artifactRoot = Directory.CreateDirectory(Path.Combine(invocation.ExportDirectory, "linux-x64"));
-            var executable = Path.Combine(artifactRoot.FullName, "orchestrator");
-            File.WriteAllBytes(executable, X64Elf());
-            File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                UnixFileMode.UserExecute);
             var manifest = new CiRunnerResultManifest(
                 1,
                 "ci-job",
                 CiRunnerSourceMaterializerTests.Plan([0x1f, 0x8b, 0x08, 1]).Digest,
                 true,
                 0,
-                [new(
-                    "TerraScale/TerraScale.Orchestrator",
-                    RepositoryCiArchitecture.LinuxX64,
-                    "linux-x64")]);
+                []);
             File.WriteAllBytes(
                 Path.Combine(invocation.ExportDirectory, CiRunnerDurableResultSink.ResultManifestPath),
                 JsonSerializer.SerializeToUtf8Bytes(
@@ -281,6 +372,7 @@ public sealed class CiRunnerDurableResultSinkTests
         internal string Export { get; }
         internal byte[] Log { get; }
         internal CiRunnerWorkloadEvidence Evidence { get; }
+        internal CiRunnerExecutionPlan Plan => fixture.Plan;
 
         internal static async Task<Fixture> CreateAsync()
         {
@@ -331,14 +423,137 @@ public sealed class CiRunnerDurableResultSinkTests
         public void Dispose() => fixture.Dispose();
     }
 
-    private static byte[] X64Elf()
+    private sealed class CandidateFixture : IDisposable
+    {
+        private readonly CiRunnerBuildKitInvocationTests.InvocationFixture fixture;
+
+        private CandidateFixture(
+            CiRunnerBuildKitInvocationTests.InvocationFixture fixture,
+            CiRunnerExecutionPlan plan,
+            string export,
+            byte[] log,
+            CiRunnerWorkloadEvidence evidence)
+        {
+            this.fixture = fixture;
+            Plan = plan;
+            Export = export;
+            Log = log;
+            Evidence = evidence;
+        }
+
+        internal CiRunnerExecutionPlan Plan { get; }
+        internal string Export { get; }
+        internal byte[] Log { get; }
+        internal CiRunnerWorkloadEvidence Evidence { get; }
+
+        internal static async Task<CandidateFixture> CreateAsync()
+        {
+            var fixture = CiRunnerBuildKitInvocationTests.Fixture();
+            var original = fixture.Plan;
+            var plan = new CiRunnerExecutionPlan(
+                original.PipelineDigest,
+                original.Job,
+                original.JobDigest,
+                original.ExecutionIdentityDigest,
+                original.Attempt,
+                original.Source,
+                new(
+                    CiRunnerExecutionPlanner.Frontend,
+                    "ci-artifact",
+                    [RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64],
+                    CiRunnerExecutionOutputKind.CandidateArtifacts,
+                    original.Build.Network,
+                    original.Build.Credentials,
+                    original.Build.Cache,
+                    original.Build.CacheNamespace,
+                    original.Build.CpuMilliCores,
+                    original.Build.MemoryBytes,
+                    original.Build.EphemeralDiskBytes,
+                    original.Build.Pids,
+                    original.Build.MaximumLogBytes,
+                    original.Build.Timeout));
+            var export = Path.Combine(fixture.Root, "candidate");
+            Directory.CreateDirectory(Path.Combine(export, "linux-x64"));
+            Directory.CreateDirectory(Path.Combine(export, "linux-arm64"));
+            var x64 = Path.Combine(export, "linux-x64", "app");
+            var arm64 = Path.Combine(export, "linux-arm64", "app");
+            await File.WriteAllBytesAsync(x64, Elf(62));
+            await File.WriteAllBytesAsync(arm64, Elf(183));
+            File.SetUnixFileMode(x64, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+            File.SetUnixFileMode(arm64, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+            var log = "candidate built safely\n"u8.ToArray();
+            WriteManifest(export, plan, [
+                new("TerraScale/TerraScale.Orchestrator", "LinuxX64", "linux-x64"),
+                new("TerraScale/TerraScale.Orchestrator", "LinuxArm64", "linux-arm64"),
+            ]);
+            var output = await CiRunnerBuildKitExecutor.HashOutputAsync(export, 1024 * 1024, default);
+            return new(
+                fixture,
+                plan,
+                export,
+                log,
+                CreateEvidence(plan, fixture.Source, log, output));
+        }
+
+        internal void WriteManifest(CiRunnerResultArtifact[] artifacts) =>
+            WriteManifest(Export, Plan, artifacts);
+
+        private static void WriteManifest(
+            string export,
+            CiRunnerExecutionPlan plan,
+            CiRunnerResultArtifact[] artifacts) =>
+            File.WriteAllBytes(
+                Path.Combine(export, CiRunnerDurableResultSink.ResultManifestPath),
+                JsonSerializer.SerializeToUtf8Bytes(
+                    new CiRunnerResultManifest(1, plan.Job, plan.Digest, true, 0, artifacts),
+                    CiRunnerDurableResultJsonContext.Default.CiRunnerResultManifest));
+
+        private static CiRunnerWorkloadEvidence CreateEvidence(
+            CiRunnerExecutionPlan plan,
+            CiRunnerMaterializedSource source,
+            byte[] log,
+            (string Digest, int Files, long Bytes) output) => new(
+                1,
+                "runner-artifact",
+                plan.PipelineDigest,
+                plan.Job,
+                plan.JobDigest,
+                plan.ExecutionIdentityDigest,
+                new string('d', 64),
+                new string('e', 64),
+                1,
+                1,
+                plan.Attempt,
+                1,
+                plan.Digest,
+                plan.Source.BundleSha256,
+                source.DescriptorSha256,
+                source.RecipeSha256,
+                CiRunnerBuildKitExecutionDisposition.Succeeded,
+                0,
+                Convert.ToHexStringLower(SHA256.HashData(log)),
+                log.LongLength,
+                new string('f', 64),
+                output.Digest,
+                output.Files,
+                output.Bytes,
+                true,
+                RepositoryCiJobFailureKind.Unspecified,
+                CiRunnerWorkloadFailureCode.Unspecified);
+
+        public void Dispose() => fixture.Dispose();
+    }
+
+    private static byte[] Elf(byte machine)
     {
         var header = new byte[20];
         "\x7fELF"u8.CopyTo(header);
         header[4] = 2;
         header[5] = 1;
         header[6] = 1;
-        header[18] = 62;
+        header[18] = machine;
         return header;
     }
 }

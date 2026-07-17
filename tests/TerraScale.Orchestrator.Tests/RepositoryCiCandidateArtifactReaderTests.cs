@@ -95,14 +95,18 @@ public sealed class RepositoryCiCandidateArtifactReaderTests
                     "TerraScale/TerraScale.Orchestrator",
                     RepositoryCiArchitecture.LinuxX64,
                     "linux-x64",
-                    Digest(903)),
+                    Digest(903),
+                    1,
+                    256),
             };
             if (!omitArm64)
                 declarations.Add(new(
                     "TerraScale/TerraScale.Orchestrator",
                     RepositoryCiArchitecture.LinuxArm64,
                     "linux-arm64",
-                    Digest(904)));
+                    Digest(904),
+                    1,
+                    256));
             var workload = new CiRunnerWorkloadEvidence(
                 1,
                 runner,
