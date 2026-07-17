@@ -8,7 +8,6 @@
     <File Path="ORCHESTRATOR.md" />
     <File Path="README.md" />
     <File Path="docs/audits/phase0-build-baseline.md" />
-    <File Path="requirements/registry.yaml" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />

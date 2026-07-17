@@ -19,7 +19,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 ## Ownership and dependency rules
 
-- The integration steward exclusively owns the solution/build/package files, `requirements/registry.yaml`, global schemas/generators, composition root, `ORCHESTRATOR.md`, and shared test primitives.
+- The integration steward exclusively owns the solution/build/package files, global schemas/generators, composition root, `ORCHESTRATOR.md`, and shared test primitives.
 - A sub-agent must have a checked-in work package under `docs/work-packages/`, an explicit allowed-path list, and isolation only when the user requests a branch/worktree pair (otherwise work on `develop`).
 - Production dependencies flow from contracts to pure decisions to coordinators to adapters. Contracts and pure decisions must not reference NATS, OCI, D-Bus, containerd, filesystems, sockets, environment variables, or wall-clock APIs.
 - Adapters translate persisted intents and typed observations. Do not hide business rules in infrastructure adapters.

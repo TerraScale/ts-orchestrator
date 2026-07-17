@@ -1,19 +1,9 @@
 # Structured traceability foundation
 
-The `traceability-validate` C# command validates `requirements/trace-links.yaml`, a strict
-JSON-compatible YAML manifest. Every canonical registry ID must occur exactly
-once with the registry owner and ordered acceptance layers copied exactly. An
-entry is either an explicit `gap` with no links, or `linked` with bounded,
-unique production-symbol, test-identifier, and typed evidence links.
-
-Linked paths must be canonical repository-relative regular files. Traversal,
-absolute paths, symbolic links, missing files, ambiguous identifiers, comment-
-or string-only C# occurrences, evidence kind/layer substitutions, partial link
-sets, unknown fields, and acceptance claims fail closed. The canonical report
-always has `claimsAcceptanceEvidence: false` and `acceptanceSatisfied: 0` in
-this tranche; structured links are trace associations, not acceptance proof.
-Report generation/checking is confined to one regular JSON file directly below
-`docs/audits/traceability`; existing symlinked parents or outputs are rejected.
+The `traceability-validate` C# command validates the checked-in structured
+traceability artifacts under `docs/audits/traceability`. The former
+`requirements/trace-links.yaml` manifest was removed; validation no longer
+depends on a requirements registry tree.
 
 Generate and verify the structured report:
 

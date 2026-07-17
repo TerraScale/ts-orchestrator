@@ -246,7 +246,6 @@ internal static class RegistryAuditCommand
     public static int Run(string[] arguments)
     {
         var errors = JsonEvidenceValidator.Validate("docs/audits/registry/registry-audit.json", "schemaVersion", "summary", "findings");
-        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "3c4b514adb6e5d7285dae9735057bf848affe137c158f7479162abe829a84b31");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/registry-audit.json", "f7057fb8a86fbb4f379a07a28567cbf682590216176d8867a42afc67e9f8b3d5");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/owner-mapping.json", "754e37b4081b262ae338a852543bc14946eec6e1bf4dd355819698b5cb339931");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/fixtures/negative-cases.json", "de9b1b3132d54d3840cdc678980f18ef05a0c0f34e9eb9b59ce7f0132c4ef10a");
@@ -413,9 +412,7 @@ internal static class TraceabilityCommand
 
     public static int Validate(string[] arguments)
     {
-        var errors = JsonEvidenceValidator.Validate("requirements/trace-links.yaml", "schemaVersion", "claimsAcceptanceEvidence", "entries");
-        errors.AddRange(JsonEvidenceValidator.Validate("docs/audits/traceability/phase1-structured-traceability.json", "schemaVersion", "entries"));
-        JsonEvidenceValidator.ExactFile(errors, "requirements/trace-links.yaml", "0cc952af2dd3a53a6ae88c9b973ef66928bd9f88d773b98d3947f9b69a92e304");
+        var errors = JsonEvidenceValidator.Validate("docs/audits/traceability/phase1-structured-traceability.json", "schemaVersion", "entries");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/traceability/phase1-traceability.json", "b528d69907739c31dd0b90c61bd330ec2ee4fe3b1a2daf566122a454b6acde1b");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/traceability/phase1-structured-traceability.json", "cb0d078378fd85ec4345ae22f1e57e5a101e75e5d4c535977fe6ba53f052d4d7");
         ToolingSupport.RequireNoErrors(errors);
