@@ -95,14 +95,19 @@ internal static class DevelopmentWorkloadRuntime
                 DevelopmentContainerImages.AspNet,
                 ["dotnet", assembly, mode],
                 Path.GetDirectoryName(project)!,
-                new Dictionary<string, string?>
-                {
-                    ["PORT"] = resource.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    ["Logging__LogLevel__Default"] = "Warning",
-                    ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning"
-                });
+                CreateEmulatorEnvironment(resource));
         }
     }
+
+    internal static IReadOnlyDictionary<string, string?> CreateEmulatorEnvironment(
+        DevelopmentResourcePlan resource) =>
+        new Dictionary<string, string?>
+        {
+            ["PORT"] = resource.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["ASPNETCORE_URLS"] = $"http://0.0.0.0:{resource.Port}",
+            ["Logging__LogLevel__Default"] = "Warning",
+            ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning"
+        };
 
     private static void StartTerraBase(
         DevelopmentProcessSupervisor supervisor,

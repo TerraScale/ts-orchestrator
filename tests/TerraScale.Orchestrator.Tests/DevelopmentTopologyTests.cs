@@ -103,6 +103,18 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task EmulatorsListenBeyondContainerLoopback()
+    {
+        var emulator = DevelopmentTopology.CreateThreeCellLean().GlobalResources
+            .Single(resource => resource.Kind == DevelopmentResourceKind.EmailEmulator);
+
+        var environment = DevelopmentWorkloadRuntime.CreateEmulatorEnvironment(emulator);
+
+        await Assert.That(environment["ASPNETCORE_URLS"])
+            .IsEqualTo($"http://0.0.0.0:{emulator.Port}");
+    }
+
+    [Test]
     public async Task SingleNatsMemberHasNoSelfRoute()
     {
         var member = DevelopmentTopology.CreateThreeCellLean().Cells
