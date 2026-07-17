@@ -182,7 +182,7 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(DevelopmentArtifactBuilder.DotNetBuildArguments("product.csproj"))
             .IsEquivalentTo([
                 "build", "product.csproj", "--configuration", "Release", "--no-restore", "--nologo",
-                "--maxcpucount:1", "--nodeReuse:false"
+                "--no-incremental", "--maxcpucount:1", "--nodeReuse:false"
             ]);
     }
 
