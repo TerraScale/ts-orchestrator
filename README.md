@@ -433,6 +433,16 @@ contains bootstrap code or an encrypted reference only—never a plaintext runne
 credential—and the admitted runner obtains its scoped NATS/mTLS identity after
 bootstrap. Preemption and idle termination both delete the boot volume.
 
+This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
+the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
+descriptor can select only the closed `static`, `build`, `test`, and `artifact`
+targets; it cannot inject an executable or argument. The recipe uses the
+multi-architecture .NET 10.0.301 SDK manifest pinned at
+`sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5`,
+runs all five TUnit modules sequentially with four tests at most, and publishes
+separate self-contained Orchestrator and CLI candidates for Linux x64 and
+ARM64.
+
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
 compiler accepts only closed catalog roles, catalog-approved runtimes,

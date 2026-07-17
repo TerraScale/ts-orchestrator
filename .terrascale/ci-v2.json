@@ -1,0 +1,77 @@
+{
+  "apiVersion": "terrascale.ci/v2",
+  "repository": "TerraScale/TerraScale.Orchestrator",
+  "candidateRetentionDays": 7,
+  "promotion": "NativeOrdered",
+  "repositoryDependencies": [],
+  "nodes": [
+    {
+      "id": "static",
+      "kind": "Static",
+      "resourceWeight": "Light",
+      "profiles": ["Feature", "Release"],
+      "paths": [
+        ".editorconfig",
+        ".terrascale/",
+        "Directory.Build.props",
+        "Directory.Packages.props",
+        "TerraScale.Orchestrator.slnx",
+        "docs/",
+        "global.json",
+        "requirements/",
+        "src/",
+        "testlab/",
+        "tests/",
+        "tools/"
+      ]
+    },
+    {
+      "id": "build",
+      "kind": "Build",
+      "resourceWeight": "Medium",
+      "profiles": ["Feature", "Release"],
+      "paths": [
+        ".terrascale/",
+        "Directory.Build.props",
+        "Directory.Packages.props",
+        "TerraScale.Orchestrator.slnx",
+        "global.json",
+        "src/",
+        "tests/",
+        "tools/"
+      ],
+      "dependsOn": ["static"]
+    },
+    {
+      "id": "test",
+      "kind": "Test",
+      "resourceWeight": "Heavy",
+      "profiles": ["Feature", "Release"],
+      "paths": [
+        "docs/",
+        "requirements/",
+        "src/",
+        "testlab/",
+        "tests/",
+        "tools/"
+      ],
+      "dependsOn": ["build"]
+    },
+    {
+      "id": "artifact",
+      "kind": "Artifact",
+      "resourceWeight": "Heavy",
+      "profiles": ["Release"],
+      "architectures": ["LinuxX64", "LinuxArm64"],
+      "paths": [
+        ".terrascale/",
+        "Directory.Build.props",
+        "Directory.Packages.props",
+        "TerraScale.Orchestrator.slnx",
+        "global.json",
+        "src/"
+      ],
+      "dependsOn": ["test"]
+    }
+  ]
+}

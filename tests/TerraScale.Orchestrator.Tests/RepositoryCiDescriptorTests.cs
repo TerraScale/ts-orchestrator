@@ -6,6 +6,28 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class RepositoryCiDescriptorTests
 {
     [Test]
+    public async Task CheckedInPolicyHasOneClosedPinnedRecipeTargetPerNode()
+    {
+        var root = FindRepositoryRoot();
+        var descriptor = RepositoryCiDescriptor.Parse(
+            await File.ReadAllBytesAsync(Path.Combine(root, RepositoryCiImpactPlanner.DescriptorPath)));
+        var recipe = await File.ReadAllTextAsync(Path.Combine(root, CiRunnerExecutionPlanner.RecipePath));
+
+        await Assert.That(descriptor.Repository).IsEqualTo("TerraScale/TerraScale.Orchestrator");
+        await Assert.That(descriptor.Nodes.Select(static node => node.Id))
+            .IsEquivalentTo(["static", "build", "test", "artifact"]);
+        await Assert.That(descriptor.Nodes.Single(static node => node.Id == "artifact").Architectures)
+            .IsEquivalentTo([RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]);
+        await Assert.That(recipe).Contains(
+            "mcr.microsoft.com/dotnet/sdk@sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5");
+        await Assert.That(recipe.Split("--results-directory /evidence/tests/", StringSplitOptions.None).Length - 1)
+            .IsEqualTo(5);
+        await Assert.That(recipe).DoesNotContain("COPY --from=test /source/tests/");
+        foreach (var node in descriptor.Nodes)
+            await Assert.That(recipe).Contains($"AS ci-{node.Id}");
+    }
+
+    [Test]
     public async Task V2PolicyCompilesIntoAClosedDeterministicDag()
     {
         var descriptor = Parse(ValidDescriptor());
@@ -103,6 +125,14 @@ public sealed class RepositoryCiDescriptorTests
 
     private static RepositoryCiDescriptorV2 Parse(string value) =>
         RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes(value));
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "ORCHESTRATOR.md")))
+            directory = directory.Parent;
+        return directory?.FullName ?? throw new InvalidOperationException("Could not locate the repository root.");
+    }
 
     private static string ValidDescriptor() => """
         {
