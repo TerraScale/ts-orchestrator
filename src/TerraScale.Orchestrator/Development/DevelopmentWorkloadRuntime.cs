@@ -364,22 +364,57 @@ internal static class DevelopmentWorkloadRuntime
             Timeout = TimeSpan.FromSeconds(15)
         };
         var topology = await ReadTopologyAsync(client, cancellationToken);
-        if (members.All(member => topology.ContainsKey(((char)('A' + member.Replica - 1)).ToString())))
+        if (!members.All(member => topology.ContainsKey(((char)('A' + member.Replica - 1)).ToString())))
         {
-            return;
+            await SendUntilAppliedAsync(
+                client,
+                HttpMethod.Post,
+                "/admin/cluster/bootstrap?tag=A",
+                members[0],
+                cancellationToken);
+            foreach (var member in members.Skip(1))
+            {
+                var tag = ((char)('A' + member.Replica - 1)).ToString();
+                var path = $"/admin/cluster/node?url={Uri.EscapeDataString(Http(member.Port))}&tag={tag}";
+                await SendUntilAppliedAsync(client, HttpMethod.Put, path, member, cancellationToken);
+            }
         }
 
-        await SendUntilAppliedAsync(
-            client,
-            HttpMethod.Post,
-            "/admin/cluster/bootstrap?tag=A",
-            members[0],
-            cancellationToken);
-        foreach (var member in members.Skip(1))
+        await WaitForPlacementSupportAsync(client, supervisor, cancellationToken);
+    }
+
+    private static async Task WaitForPlacementSupportAsync(
+        HttpClient client,
+        DevelopmentProcessSupervisor supervisor,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+        while (true)
         {
-            var tag = ((char)('A' + member.Replica - 1)).ToString();
-            var path = $"/admin/cluster/node?url={Uri.EscapeDataString(Http(member.Port))}&tag={tag}";
-            await SendUntilAppliedAsync(client, HttpMethod.Put, path, member, cancellationToken);
+            supervisor.ThrowIfAnyExited();
+            try
+            {
+                using var response = await client.GetAsync(
+                    "/databases?start=0&pageSize=1&placementOnly=true",
+                    timeout.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+                    using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
+                    if (TryGetProperty(document.RootElement, "DatabasePlacementSupported", out var supported) &&
+                        supported.ValueKind == JsonValueKind.True)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException or JsonException or TaskCanceledException &&
+                !timeout.IsCancellationRequested)
+            {
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(500), timeout.Token);
         }
     }
 
