@@ -274,10 +274,13 @@ output/metadata paths; no shell; and a six-variable environment without a
 Docker endpoint. Untrusted work disables cache reuse. The process adapter and
 output validator then clear inherited environment, enforce timeout and a
 combined log-byte ceiling, kill the whole process tree on cancellation, and
-classify exit/timeout/log overflow without retaining raw log content. Successful
-local exports are accepted only with bounded duplicate-free JSON metadata and a
-bounded, link/special-file-free regular file tree; private modes and a
-culture-invariant content digest are applied before returning evidence. A
+classify exit/timeout/log overflow. Raw output never crosses the process
+adapter: only bounded UTF-8 lines that pass conservative password, token, key,
+JWT, credential, URI-userinfo, and high-entropy redaction are returned with a
+verified content digest. Successful local exports are accepted only with
+bounded duplicate-free JSON metadata and a bounded, link/special-file-free
+regular file tree; private modes and a culture-invariant content digest are
+applied before returning evidence. A
 runner-side coordinator now acquires and renews the exact execution fence,
 materializes that source, invokes the closed executor, requires an idempotent
 durable-result sink, and only then commits the terminal lease. Persistence

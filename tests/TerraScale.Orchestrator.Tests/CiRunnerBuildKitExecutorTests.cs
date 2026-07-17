@@ -39,10 +39,8 @@ public sealed class CiRunnerBuildKitExecutorTests
         foreach (var processResult in new[]
         {
             Exited(7),
-            new CiRunnerBuildKitProcessResult(
-                CiRunnerBuildKitProcessDisposition.TimedOut, -1, new string('a', 64), 0),
-            new CiRunnerBuildKitProcessResult(
-                CiRunnerBuildKitProcessDisposition.LogLimitExceeded, -1, new string('a', 64), 16),
+            Result(CiRunnerBuildKitProcessDisposition.TimedOut, -1, ""),
+            Result(CiRunnerBuildKitProcessDisposition.LogLimitExceeded, -1, "0123456789abcdef"),
         })
         {
             using var fixture = CiRunnerBuildKitInvocationTests.Fixture();
@@ -134,6 +132,19 @@ public sealed class CiRunnerBuildKitExecutorTests
             var environmentResult = await new ProcessCiRunnerBuildKitProcess().RunAsync(environment, default);
             await Assert.That(environmentResult.ExitCode).IsEqualTo(0);
 
+            var redaction = Invocation(
+                root,
+                "printf 'safe line\\npassword=hunter2\\neyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuvwxyz012345\\n'",
+                TimeSpan.FromSeconds(5),
+                1024);
+            var redactionResult = await new ProcessCiRunnerBuildKitProcess().RunAsync(redaction, default);
+            var retained = System.Text.Encoding.UTF8.GetString(redactionResult.RedactedLog);
+            await Assert.That(retained).Contains("safe line");
+            await Assert.That(retained).DoesNotContain("hunter2");
+            await Assert.That(retained).DoesNotContain("eyJhbGci");
+            await Assert.That(retained.Split("[REDACTED]").Length).IsEqualTo(3);
+            await Assert.That(CiRunnerLogRedactor.IsSafe(redactionResult.RedactedLog)).IsTrue();
+
             var timeout = Invocation(root, "sleep 60", TimeSpan.FromMilliseconds(100), 1024);
             var timeoutResult = await new ProcessCiRunnerBuildKitProcess().RunAsync(timeout, default);
             await Assert.That(timeoutResult.Disposition).IsEqualTo(CiRunnerBuildKitProcessDisposition.TimedOut);
@@ -163,11 +174,22 @@ public sealed class CiRunnerBuildKitExecutorTests
             timeout,
             maximumLogBytes);
 
-    private static CiRunnerBuildKitProcessResult Exited(int exitCode) => new(
-        CiRunnerBuildKitProcessDisposition.Exited,
-        exitCode,
-        new string('a', 64),
-        0);
+    private static CiRunnerBuildKitProcessResult Exited(int exitCode) =>
+        Result(CiRunnerBuildKitProcessDisposition.Exited, exitCode, "");
+
+    private static CiRunnerBuildKitProcessResult Result(
+        CiRunnerBuildKitProcessDisposition disposition,
+        int exitCode,
+        string log)
+    {
+        var content = System.Text.Encoding.UTF8.GetBytes(log);
+        return new(
+            disposition,
+            exitCode,
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content)),
+            content.LongLength,
+            content);
+    }
 
     [DllImport("libc", EntryPoint = "mkfifo", SetLastError = true, CharSet = CharSet.Ansi)]
     private static extern int MkFifo(string path, uint mode);

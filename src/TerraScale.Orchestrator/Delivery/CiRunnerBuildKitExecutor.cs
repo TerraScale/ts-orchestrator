@@ -20,7 +20,8 @@ internal sealed record CiRunnerBuildKitProcessResult(
     CiRunnerBuildKitProcessDisposition Disposition,
     int ExitCode,
     string LogSha256,
-    long LogBytes);
+    long LogBytes,
+    byte[] RedactedLog);
 
 internal interface ICiRunnerBuildKitProcess
 {
@@ -58,9 +59,9 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
         foreach (var variable in invocation.Environment) process.StartInfo.Environment.Add(variable.Key, variable.Value);
 
         process.Start();
-        using var log = new BoundedLog(invocation.MaximumLogBytes, overflow);
-        var standardOutput = CaptureAsync(process.StandardOutput, log);
-        var standardError = CaptureAsync(process.StandardError, log);
+        using var log = new BoundedRedactedLog(invocation.MaximumLogBytes, overflow);
+        var standardOutput = CaptureAsync(process.StandardOutput, log, 0);
+        var standardError = CaptureAsync(process.StandardError, log, 1);
         var disposition = CiRunnerBuildKitProcessDisposition.Exited;
         var exitCode = -1;
         try
@@ -82,63 +83,170 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
             disposition = CiRunnerBuildKitProcessDisposition.TimedOut;
         }
         await Task.WhenAll(standardOutput, standardError);
+        log.Complete();
         if (overflow.IsCancellationRequested)
         {
             disposition = CiRunnerBuildKitProcessDisposition.LogLimitExceeded;
             exitCode = -1;
         }
-        return new(disposition, exitCode, log.Digest(), log.Bytes);
+        var content = log.Content();
+        return new(
+            disposition,
+            exitCode,
+            Convert.ToHexStringLower(SHA256.HashData(content)),
+            content.LongLength,
+            content);
     }
 
-    private static async Task CaptureAsync(StreamReader reader, BoundedLog log)
+    private static async Task CaptureAsync(StreamReader reader, BoundedRedactedLog log, int channel)
     {
         var buffer = new char[4 * 1024];
         while (await reader.ReadAsync(buffer) is var read && read > 0)
-            log.Append(buffer.AsSpan(0, read));
+            log.Append(channel, buffer.AsSpan(0, read));
     }
 
-    private sealed class BoundedLog(long maximumBytes, CancellationTokenSource overflow) : IDisposable
+    private sealed class BoundedRedactedLog(long maximumBytes, CancellationTokenSource overflow) : IDisposable
     {
+        private const int MaximumPendingLineCharacters = 16 * 1024;
         private readonly object gate = new();
-        private readonly IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        private long bytes;
+        private readonly MemoryStream retained = new();
+        private readonly StringBuilder[] pending = [new(), new()];
+        private long observedBytes;
         private bool exceeded;
 
-        internal long Bytes
+        internal void Append(int channel, ReadOnlySpan<char> characters)
         {
-            get
-            {
-                lock (gate) return bytes;
-            }
-        }
-
-        internal void Append(ReadOnlySpan<char> characters)
-        {
-            var content = Encoding.UTF8.GetBytes(characters.ToString());
             var signal = false;
             lock (gate)
             {
                 if (exceeded) return;
-                var accepted = (int)Math.Min(content.Length, Math.Max(0, maximumBytes - bytes));
+                var remaining = Math.Max(0, maximumBytes - observedBytes);
+                var accepted = characters.Length;
+                while (accepted > 0 && Encoding.UTF8.GetByteCount(characters[..accepted]) > remaining)
+                    accepted--;
                 if (accepted > 0)
                 {
-                    hash.AppendData(content.AsSpan(0, accepted));
-                    bytes += accepted;
+                    observedBytes += Encoding.UTF8.GetByteCount(characters[..accepted]);
+                    pending[channel].Append(characters[..accepted]);
+                    FlushLines(pending[channel]);
                 }
-                if (accepted != content.Length)
-                {
+                if (accepted != characters.Length)
                     exceeded = signal = true;
-                }
             }
             if (signal) overflow.Cancel();
         }
 
-        internal string Digest()
+        internal void Complete()
         {
-            lock (gate) return Convert.ToHexStringLower(hash.GetHashAndReset());
+            lock (gate)
+            {
+                foreach (var channel in pending)
+                {
+                    if (channel.Length == 0) continue;
+                    WriteLine(channel.ToString());
+                    channel.Clear();
+                }
+            }
         }
 
-        public void Dispose() => hash.Dispose();
+        internal byte[] Content()
+        {
+            lock (gate) return retained.ToArray();
+        }
+
+        private void FlushLines(StringBuilder channel)
+        {
+            var value = channel.ToString();
+            var start = 0;
+            while (value.IndexOf('\n', start) is var newline && newline >= 0)
+            {
+                WriteLine(value[start..(newline + 1)]);
+                start = newline + 1;
+            }
+            channel.Clear();
+            if (start < value.Length) channel.Append(value.AsSpan(start));
+            if (channel.Length <= MaximumPendingLineCharacters) return;
+            retained.Write("[REDACTED]\n"u8);
+            channel.Clear();
+        }
+
+        private void WriteLine(string line)
+        {
+            var content = Encoding.UTF8.GetBytes(CiRunnerLogRedactor.IsSensitive(line)
+                ? line.EndsWith('\n') ? "[REDACTED]\n" : "[REDACTED]"
+                : line);
+            retained.Write(content);
+        }
+
+        public void Dispose() => retained.Dispose();
+    }
+}
+
+internal static class CiRunnerLogRedactor
+{
+    private static readonly string[] Markers =
+    [
+        "authorization", "bearer ", "password", "passwd", "secret", "token",
+        "credential", "private key", "api key", "api_key", "access key", "nkey", "jwt",
+    ];
+
+    internal static bool IsSafe(ReadOnlySpan<byte> content)
+    {
+        string text;
+        try
+        {
+            text = new UTF8Encoding(false, true).GetString(content);
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
+        return text.Split('\n').All(static line => !IsSensitive(line));
+    }
+
+    internal static bool IsSensitive(string line)
+    {
+        if (Markers.Any(marker => line.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
+            line.Contains("-----BEGIN ", StringComparison.Ordinal) ||
+            line.Contains("://", StringComparison.Ordinal) && line.Contains('@'))
+            return true;
+        var run = new StringBuilder();
+        foreach (var character in line)
+        {
+            if (char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '+' or '/' or '=')
+            {
+                run.Append(character);
+                continue;
+            }
+            if (LooksSecret(run)) return true;
+            run.Clear();
+        }
+        return LooksSecret(run) || LooksLikeJwt(line);
+    }
+
+    private static bool LooksSecret(StringBuilder value)
+    {
+        if (value.Length < 40) return false;
+        var text = value.ToString();
+        if (text.All(static character => char.IsAsciiHexDigit(character))) return false;
+        var upper = text.Any(char.IsAsciiLetterUpper);
+        var lower = text.Any(char.IsAsciiLetterLower);
+        var digit = text.Any(char.IsAsciiDigit);
+        var symbol = text.Any(static character => character is '-' or '_' or '+' or '/' or '=');
+        return (upper ? 1 : 0) + (lower ? 1 : 0) + (digit ? 1 : 0) + (symbol ? 1 : 0) >= 2;
+    }
+
+    private static bool LooksLikeJwt(string value)
+    {
+        foreach (var token in value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = token.Split('.');
+            if (parts.Length == 3 && parts[0].Length >= 8 && parts[1].Length >= 8 && parts[2].Length >= 16 &&
+                parts.All(static part => part.All(static character =>
+                    char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
+                return true;
+        }
+        return false;
     }
 }
 
@@ -156,6 +264,7 @@ internal sealed record CiRunnerBuildKitExecutionResult(
     int ExitCode,
     string LogSha256,
     long LogBytes,
+    byte[] RedactedLog,
     string MetadataSha256,
     string OutputSha256,
     int OutputFiles,
@@ -191,6 +300,9 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             var result = await process.RunAsync(invocation, cancellationToken);
             if (!Digest(result.LogSha256) || result.LogBytes < 0 ||
                 result.LogBytes > invocation.MaximumLogBytes ||
+                result.RedactedLog.LongLength != result.LogBytes ||
+                Convert.ToHexStringLower(SHA256.HashData(result.RedactedLog)) != result.LogSha256 ||
+                !CiRunnerLogRedactor.IsSafe(result.RedactedLog) ||
                 result.Disposition == CiRunnerBuildKitProcessDisposition.Exited && result.ExitCode < 0 ||
                 result.Disposition is CiRunnerBuildKitProcessDisposition.TimedOut or
                     CiRunnerBuildKitProcessDisposition.LogLimitExceeded && result.ExitCode != -1)
@@ -209,7 +321,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             if (disposition != CiRunnerBuildKitExecutionDisposition.Succeeded)
             {
                 Delete(invocation.OutputDirectory);
-                return new(disposition, result.ExitCode, result.LogSha256, result.LogBytes,
+                return new(disposition, result.ExitCode, result.LogSha256, result.LogBytes, result.RedactedLog,
                     string.Empty, string.Empty, 0, 0);
             }
 
@@ -223,6 +335,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
                 result.ExitCode,
                 result.LogSha256,
                 result.LogBytes,
+                result.RedactedLog,
                 Convert.ToHexStringLower(SHA256.HashData(metadata)),
                 output.Digest,
                 output.Files,

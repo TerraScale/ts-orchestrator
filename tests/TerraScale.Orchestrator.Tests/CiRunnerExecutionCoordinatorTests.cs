@@ -13,7 +13,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
     public async Task DurableSuccessCompletesTheLeaseAndRemovesPrivateWorkspaces()
     {
         using var fixture = await Fixture.CreateAsync();
-        var sink = new RecordingSink((evidence, export, _) =>
+        var sink = new RecordingSink((evidence, _, export, _) =>
         {
             if (!Directory.Exists(export)) throw new InvalidOperationException("Missing validated export.");
             return Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('a'), 0));
@@ -48,7 +48,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
     {
         using (var processFailure = await Fixture.CreateAsync(exitCode: 17))
         {
-            var sink = new RecordingSink((_, _, _) =>
+            var sink = new RecordingSink((_, _, _, _) =>
                 Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('b'), 2)));
             var receipt = await processFailure.Coordinator(sink).ExecuteAsync(
                 processFailure.Accepted,
@@ -69,7 +69,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
         var archive = CiRunnerSourceMaterializerTests.ValidArchive();
         using (var sourceFailure = await Fixture.CreateAsync(archive, archive[..^1]))
         {
-            var sink = new RecordingSink((_, _, _) =>
+            var sink = new RecordingSink((_, _, _, _) =>
                 Task.FromResult(new CiRunnerDurableWorkloadResult(Digest('c'), 0)));
             var receipt = await sourceFailure.Coordinator(sink).ExecuteAsync(
                 sourceFailure.Accepted,
@@ -91,7 +91,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
     public async Task ResultPersistenceFailureLeavesTheLeaseRecoverableAndCleansLocalState()
     {
         using var fixture = await Fixture.CreateAsync();
-        var sink = new RecordingSink((_, _, _) => throw new IOException("simulated result store outage"));
+        var sink = new RecordingSink((_, _, _, _) => throw new IOException("simulated result store outage"));
 
         await Assert.That(async () => await fixture.Coordinator(sink).ExecuteAsync(
                 fixture.Accepted,
@@ -116,7 +116,7 @@ public sealed class CiRunnerExecutionCoordinatorTests
     public async Task TakeoverFencesTerminalCommitAfterDurablePersistence()
     {
         using var fixture = await Fixture.CreateAsync();
-        var sink = new RecordingSink(async (_, _, cancellationToken) =>
+        var sink = new RecordingSink(async (_, _, _, cancellationToken) =>
         {
             var takeover = await fixture.Journal.AcquireAsync(
                 fixture.Accepted,
@@ -146,7 +146,8 @@ public sealed class CiRunnerExecutionCoordinatorTests
     private static string Digest(char value) => new(value, 64);
 
     private sealed class RecordingSink(
-        Func<CiRunnerWorkloadEvidence, string?, CancellationToken, Task<CiRunnerDurableWorkloadResult>> persist)
+        Func<CiRunnerWorkloadEvidence, ReadOnlyMemory<byte>, string?, CancellationToken,
+            Task<CiRunnerDurableWorkloadResult>> persist)
         : ICiRunnerWorkloadResultSink
     {
         internal List<CiRunnerWorkloadEvidence> Evidences { get; } = [];
@@ -154,12 +155,13 @@ public sealed class CiRunnerExecutionCoordinatorTests
 
         public Task<CiRunnerDurableWorkloadResult> PersistAsync(
             CiRunnerWorkloadEvidence evidence,
+            ReadOnlyMemory<byte> redactedLog,
             string? exportDirectory,
             CancellationToken cancellationToken)
         {
             Evidences.Add(evidence);
             ExportDirectories.Add(exportDirectory);
-            return persist(evidence, exportDirectory, cancellationToken);
+            return persist(evidence, redactedLog, exportDirectory, cancellationToken);
         }
     }
 
@@ -179,11 +181,13 @@ public sealed class CiRunnerExecutionCoordinatorTests
                 File.WriteAllText(Path.Combine(invocation.ExportDirectory, "result.txt"), "passed");
                 File.WriteAllText(invocation.MetadataFile, "{\"result\":\"ok\"}");
             }
+            var log = Array.Empty<byte>();
             return Task.FromResult(new CiRunnerBuildKitProcessResult(
                 CiRunnerBuildKitProcessDisposition.Exited,
                 exitCode,
-                Digest('e'),
-                0));
+                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(log)),
+                0,
+                log));
         }
     }
 
