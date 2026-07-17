@@ -25,7 +25,7 @@ public sealed class InfisicalConfiguration
         string? organizationSlug)
     {
         Server = server;
-        ProjectId = projectId;
+        VaultProject = projectId;
         Environment = environment;
         SecretPath = secretPath;
         ClientIdFile = clientIdFile;
@@ -34,7 +34,7 @@ public sealed class InfisicalConfiguration
     }
 
     public Uri Server { get; }
-    public string ProjectId { get; }
+    public string VaultProject { get; }
     public string Environment { get; }
     public string SecretPath { get; }
     public string ClientIdFile { get; }
@@ -242,7 +242,7 @@ public sealed class InfisicalSecretStore : IAsyncDisposable
             HttpMethod.Post,
             $"api/v4/secrets/{Uri.EscapeDataString(name)}",
             new SecretWriteRequest(
-                configuration.ProjectId,
+                configuration.VaultProject,
                 configuration.Environment,
                 value,
                 configuration.SecretPath,
@@ -262,7 +262,7 @@ public sealed class InfisicalSecretStore : IAsyncDisposable
             HttpMethod.Patch,
             $"api/v4/secrets/{Uri.EscapeDataString(name)}",
             new SecretWriteRequest(
-                configuration.ProjectId,
+                configuration.VaultProject,
                 configuration.Environment,
                 value,
                 configuration.SecretPath,
@@ -280,7 +280,7 @@ public sealed class InfisicalSecretStore : IAsyncDisposable
             HttpMethod.Delete,
             $"api/v4/secrets/{Uri.EscapeDataString(name)}",
             new SecretDeleteRequest(
-                configuration.ProjectId,
+                configuration.VaultProject,
                 configuration.Environment,
                 configuration.SecretPath,
                 "shared"),
@@ -399,7 +399,7 @@ public sealed class InfisicalSecretStore : IAsyncDisposable
     }
 
     private string ScopeQuery() => string.Join('&',
-        Pair("projectId", configuration.ProjectId),
+        Pair("projectId", configuration.VaultProject),
         Pair("environment", configuration.Environment),
         Pair("secretPath", configuration.SecretPath));
 

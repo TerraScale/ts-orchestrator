@@ -17,7 +17,7 @@ public sealed class InfisicalSecretStoreTests
         var configuration = fixture.Configuration();
 
         await Assert.That(configuration!.Server).IsEqualTo(new Uri("http://127.0.0.1:8080/"));
-        await Assert.That(configuration.ProjectId).IsEqualTo("project-1");
+        await Assert.That(configuration.VaultProject).IsEqualTo("project-1");
         await Assert.That(configuration.Environment).IsEqualTo("prod");
         await Assert.That(configuration.SecretPath).IsEqualTo("/orchestrator");
         await Assert.That(InfisicalConfiguration.Resolve(
