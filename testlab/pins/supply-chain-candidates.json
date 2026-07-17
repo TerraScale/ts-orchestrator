@@ -38,12 +38,12 @@
       }
     ],
     "lockProvenance": [
-      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "b534318aeead1e20e0c0dbf2b994c019174171070af00a533bbbb468622c1c6d"},
-      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "c9ff30554121d9dd1a1804133084fee981219ec056ae6e65167d1761916e33bf"},
-      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "c9ff30554121d9dd1a1804133084fee981219ec056ae6e65167d1761916e33bf"},
-      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "c9ff30554121d9dd1a1804133084fee981219ec056ae6e65167d1761916e33bf"},
-      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "c9ff30554121d9dd1a1804133084fee981219ec056ae6e65167d1761916e33bf"},
-      {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "c9ff30554121d9dd1a1804133084fee981219ec056ae6e65167d1761916e33bf"},
+      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "22ac11ada2b9f7a8c4483110d83018f622a64f70c1ecbcd36cfd5f33574c2d2a"},
+      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
+      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
+      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
+      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
+      {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "08cc04f04dccf5135bf5dfa0cdb5137f80797c8aa31f7df37c3c80f77b1d7ed6"},
       {"path": "tools/TerraScale.Orchestrator.Tooling/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"}
     ],
     "lockProvenanceStatus": "checked-in-lock-files-bound-by-sha256-but-not-yet-qualified-against-an-internal-mirror"
