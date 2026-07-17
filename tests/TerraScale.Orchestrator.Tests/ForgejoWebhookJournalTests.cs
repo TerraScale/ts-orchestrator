@@ -127,9 +127,9 @@ public sealed class ForgejoWebhookJournalTests
             "push").Envelope!;
     }
 
-    internal sealed class TestLedger(int failOnMutation = 0) : IForgejoWebhookLedger
+    internal sealed class TestLedger(int failOnMutation = 0) : IForgejoDeliveryLedger
     {
-        private readonly Dictionary<string, ForgejoWebhookLedgerEntry> entries = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ForgejoDeliveryLedgerEntry> entries = new(StringComparer.Ordinal);
         private readonly object sync = new();
         private ulong revision;
         private bool failed;
@@ -149,7 +149,7 @@ public sealed class ForgejoWebhookJournalTests
             }
         }
 
-        public Task<ForgejoWebhookLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             lock (sync)
@@ -158,7 +158,7 @@ public sealed class ForgejoWebhookJournalTests
             }
         }
 
-        public Task<ForgejoWebhookLedgerEntry> CreateAsync(
+        public Task<ForgejoDeliveryLedgerEntry> CreateAsync(
             string key,
             string value,
             CancellationToken cancellationToken)
@@ -168,13 +168,13 @@ public sealed class ForgejoWebhookJournalTests
             {
                 FailIfRequested();
                 if (entries.ContainsKey(key)) throw Conflict();
-                var entry = new ForgejoWebhookLedgerEntry(value, ++revision);
+                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
                 entries.Add(key, entry);
                 return Task.FromResult(entry);
             }
         }
 
-        public Task<ForgejoWebhookLedgerEntry> UpdateAsync(
+        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
             string key,
             string value,
             ulong expectedRevision,
@@ -185,7 +185,7 @@ public sealed class ForgejoWebhookJournalTests
             {
                 FailIfRequested();
                 if (!entries.TryGetValue(key, out var current) || current.Revision != expectedRevision) throw Conflict();
-                var entry = new ForgejoWebhookLedgerEntry(value, ++revision);
+                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
                 entries[key] = entry;
                 return Task.FromResult(entry);
             }
@@ -210,7 +210,7 @@ public sealed class ForgejoWebhookJournalTests
             }
         }
 
-        private static ForgejoWebhookLedgerConflictException Conflict() =>
+        private static ForgejoDeliveryLedgerConflictException Conflict() =>
             new(new InvalidOperationException("simulated conflict"));
     }
 }

@@ -27,9 +27,9 @@ public sealed class ForgejoWebhookJournalReceipt
 public sealed class ForgejoWebhookJournal
 {
     private const int MaximumConflictRetries = 8;
-    private readonly IForgejoWebhookLedger ledger;
+    private readonly IForgejoDeliveryLedger ledger;
 
-    internal ForgejoWebhookJournal(IForgejoWebhookLedger ledger) => this.ledger = ledger;
+    internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger) => this.ledger = ledger;
 
     public async Task<ForgejoWebhookJournalReceipt> AcceptAsync(
         ForgejoWebhookEnvelope envelope,
@@ -69,7 +69,7 @@ public sealed class ForgejoWebhookJournal
                     cancellationToken);
                 return new(true, proposed, created.Revision);
             }
-            catch (ForgejoWebhookLedgerConflictException)
+            catch (ForgejoDeliveryLedgerConflictException)
             {
             }
         }
@@ -94,7 +94,7 @@ public sealed class ForgejoWebhookJournal
                     cancellationToken);
                 return;
             }
-            catch (ForgejoWebhookLedgerConflictException)
+            catch (ForgejoDeliveryLedgerConflictException)
             {
                 var observed = await ledger.GetAsync(key, cancellationToken)
                     ?? throw new InvalidDataException("A reserved Forgejo webhook journal index disappeared.");
@@ -107,7 +107,7 @@ public sealed class ForgejoWebhookJournal
     }
 
     private static IndexReservation Read(
-        ForgejoWebhookLedgerEntry entry,
+        ForgejoDeliveryLedgerEntry entry,
         ForgejoWebhookJournalDocument expected)
     {
         ForgejoWebhookJournalDocument document;
@@ -207,21 +207,21 @@ internal sealed record ForgejoWebhookJournalDocument(
     }
 }
 
-internal sealed record ForgejoWebhookLedgerEntry(string Value, ulong Revision);
+internal sealed record ForgejoDeliveryLedgerEntry(string Value, ulong Revision);
 
-internal interface IForgejoWebhookLedger
+internal interface IForgejoDeliveryLedger
 {
-    Task<ForgejoWebhookLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken);
-    Task<ForgejoWebhookLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken);
-    Task<ForgejoWebhookLedgerEntry> UpdateAsync(string key, string value, ulong revision, CancellationToken cancellationToken);
+    Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken);
+    Task<ForgejoDeliveryLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken);
+    Task<ForgejoDeliveryLedgerEntry> UpdateAsync(string key, string value, ulong revision, CancellationToken cancellationToken);
 }
 
-internal sealed class ForgejoWebhookLedgerConflictException(Exception innerException)
-    : Exception("The Forgejo webhook journal index changed concurrently.", innerException);
+internal sealed class ForgejoDeliveryLedgerConflictException(Exception innerException)
+    : Exception("The Forgejo delivery ledger changed concurrently.", innerException);
 
-internal sealed class NatsForgejoWebhookLedger(INatsKVStore store) : IForgejoWebhookLedger
+internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) : IForgejoDeliveryLedger
 {
-    public async Task<ForgejoWebhookLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
+    public async Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
     {
         try
         {
@@ -237,7 +237,7 @@ internal sealed class NatsForgejoWebhookLedger(INatsKVStore store) : IForgejoWeb
         }
     }
 
-    public async Task<ForgejoWebhookLedgerEntry> CreateAsync(
+    public async Task<ForgejoDeliveryLedgerEntry> CreateAsync(
         string key,
         string value,
         CancellationToken cancellationToken)
@@ -249,11 +249,11 @@ internal sealed class NatsForgejoWebhookLedger(INatsKVStore store) : IForgejoWeb
         }
         catch (NatsKVCreateException exception)
         {
-            throw new ForgejoWebhookLedgerConflictException(exception);
+            throw new ForgejoDeliveryLedgerConflictException(exception);
         }
     }
 
-    public async Task<ForgejoWebhookLedgerEntry> UpdateAsync(
+    public async Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
         string key,
         string value,
         ulong revision,
@@ -266,7 +266,7 @@ internal sealed class NatsForgejoWebhookLedger(INatsKVStore store) : IForgejoWeb
         }
         catch (NatsKVWrongLastRevisionException exception)
         {
-            throw new ForgejoWebhookLedgerConflictException(exception);
+            throw new ForgejoDeliveryLedgerConflictException(exception);
         }
     }
 }

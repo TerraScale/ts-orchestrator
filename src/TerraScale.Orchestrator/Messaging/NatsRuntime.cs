@@ -183,7 +183,7 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
-            return new(client, service, registration, authority, new(new NatsForgejoWebhookLedger(state.Delivery)));
+            return new(client, service, registration, authority, new(new NatsForgejoDeliveryLedger(state.Delivery)));
         }
         catch
         {
