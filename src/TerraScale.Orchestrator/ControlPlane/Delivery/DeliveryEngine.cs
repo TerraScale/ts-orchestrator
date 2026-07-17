@@ -74,17 +74,47 @@ public static class DeliveryEngine
             return Held(DeliveryErrorCode.InvalidInput, job.Job);
         if (runnerSnapshot.Select(static runner => runner.Runner).Distinct().Count() != runnerSnapshot.Count)
             return Held(DeliveryErrorCode.DuplicateEvidence, job.Job);
-        var fresh = runnerSnapshot.Where(runner => runner.Sequence >= job.MinimumRunnerSequence &&
-            runner.Sequence <= job.MaximumRunnerSequence && runner.Available).ToArray();
-        if (fresh.Length == 0) return Held(DeliveryErrorCode.RunnerStale, job.Job);
-        var zoned = fresh.Where(runner => job.AllowedZones.Contains(runner.Zone)).ToArray();
-        if (zoned.Length == 0) return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
-        var trusted = zoned.Where(RunnerTrustPolicyAllows).ToArray();
-        if (trusted.Length == 0) return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
-        var compatible = trusted.Where(runner => job.RequiredCapabilities.All(runner.Capabilities.Contains))
-            .OrderBy(static runner => runner.Runner.Value, Ordinal).ToArray();
-        if (compatible.Length == 0) return Held(DeliveryErrorCode.CapabilityMissing, job.Job);
-        var selected = compatible[0];
+
+        var hasFreshRunner = false;
+        var hasZonedRunner = false;
+        var hasTrustedRunner = false;
+        RunnerEvidence? selected = null;
+        foreach (var runner in runnerSnapshot)
+        {
+            if (runner.Sequence < job.MinimumRunnerSequence ||
+                runner.Sequence > job.MaximumRunnerSequence ||
+                !runner.Available)
+            {
+                continue;
+            }
+
+            hasFreshRunner = true;
+            if (!job.AllowedZones.Contains(runner.Zone))
+            {
+                continue;
+            }
+
+            hasZonedRunner = true;
+            if (!RunnerTrustPolicyAllows(runner))
+            {
+                continue;
+            }
+
+            hasTrustedRunner = true;
+            if (!job.RequiredCapabilities.All(runner.Capabilities.Contains))
+            {
+                continue;
+            }
+
+            if (selected is null || Ordinal.Compare(runner.Runner.Value, selected.Runner.Value) < 0)
+            {
+                selected = runner;
+            }
+        }
+
+        if (!hasFreshRunner) return Held(DeliveryErrorCode.RunnerStale, job.Job);
+        if (!hasZonedRunner || !hasTrustedRunner) return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
+        if (selected is null) return Held(DeliveryErrorCode.CapabilityMissing, job.Job);
         var dispatch = new DispatchJobIntent(job, selected, maximumIdentityLength);
         return One(dispatch, DeliveryTraceCode.RunnerSelected);
     }
