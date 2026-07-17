@@ -169,4 +169,18 @@ public sealed class DevelopmentTopologyTests
                 "--maxcpucount:1", "--nodeReuse:false"
             ]);
     }
+
+    [Test]
+    public async Task PodCreationUsesOneNameAndPinnedInfraWithoutHostHelpers()
+    {
+        var arguments = DevelopmentProcessSupervisor.PodCreationArguments(
+            DevelopmentTopology.CreateThreeCellControlPlane(),
+            "control-lab");
+
+        await Assert.That(arguments.Count(argument => argument == "control-lab")).IsEqualTo(1);
+        await Assert.That(arguments).Contains("--infra-image");
+        await Assert.That(arguments).Contains(DevelopmentContainerImages.RuntimeDependencies);
+        await Assert.That(arguments).Contains("--infra-command");
+        await Assert.That(arguments).Contains("sleep infinity");
+    }
 }

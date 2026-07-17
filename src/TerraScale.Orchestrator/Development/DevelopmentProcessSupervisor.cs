@@ -99,23 +99,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
         Directory.CreateDirectory(dataDirectory);
         Directory.CreateDirectory(Path.Combine(dataDirectory, "container-environment"));
-        var arguments = new List<string>
-        {
-            "pod", "create",
-            "--name", podName,
-            "--label", OwnershipLabel,
-            "--label", $"io.terrascale.profile={topology.Profile}",
-            "--label", "io.terrascale.schema=2",
-            "--memory", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--memory-swap", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--exit-policy", "continue"
-        };
-        foreach (var port in PublishedPorts(topology))
-        {
-            arguments.Add("--publish");
-            arguments.Add($"127.0.0.1:{port}:{port}");
-        }
-        await RequireSuccessAsync(arguments, cancellationToken);
+        await RequireSuccessAsync(PodCreationArguments(topology, podName), cancellationToken);
         initialized = true;
     }
 
@@ -321,6 +305,31 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     internal static IReadOnlyList<string> OwnedPodRemovalArguments(string podName, int timeoutSeconds) =>
         ["pod", "rm", "--force", "--time", timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture), podName];
+
+    internal static IReadOnlyList<string> PodCreationArguments(
+        DevelopmentTopology topology,
+        string podName)
+    {
+        var arguments = new List<string>
+        {
+            "pod", "create",
+            "--name", podName,
+            "--infra-image", DevelopmentContainerImages.RuntimeDependencies,
+            "--infra-command", "sleep infinity",
+            "--label", OwnershipLabel,
+            "--label", $"io.terrascale.profile={topology.Profile}",
+            "--label", "io.terrascale.schema=2",
+            "--memory", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--memory-swap", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "--exit-policy", "continue"
+        };
+        foreach (var port in PublishedPorts(topology))
+        {
+            arguments.Add("--publish");
+            arguments.Add($"127.0.0.1:{port}:{port}");
+        }
+        return arguments;
+    }
 
     private static string MemoryLimit(DevelopmentTopology topology, string name)
     {
