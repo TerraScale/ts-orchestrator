@@ -166,6 +166,8 @@ public static class NativeGitOpsManifest
                     throw new InvalidDataException("Every workload dependency must identify another declared workload.");
                 if (workload.Cells.Except(dependency.Cells, StringComparer.Ordinal).Any())
                     throw new InvalidDataException("A workload dependency must be present in every consuming cell.");
+                if (!workload.Suspended && dependency.Suspended)
+                    throw new InvalidDataException("An active workload cannot depend on a suspended workload.");
                 dependents[dependencyId].Add(workload.Id);
             }
         }
