@@ -2,7 +2,7 @@ namespace TerraScale.Orchestrator.Contracts.Resources;
 
 public enum RoleKind
 {
-    Api = 1,
+    Platform = 1,
     Authentication = 2,
     CustomerDashboard = 3,
     TerraBaseMember = 4,
@@ -62,7 +62,7 @@ public abstract class AdmittedRole
     internal virtual string Projection => Kind.ToString();
 }
 
-public sealed class ApiRole : AdmittedRole { public ApiRole() : base(RoleKind.Api) { } }
+public sealed class PlatformRole : AdmittedRole { public PlatformRole() : base(RoleKind.Platform) { } }
 public sealed class AuthenticationRole : AdmittedRole { public AuthenticationRole() : base(RoleKind.Authentication) { } }
 public sealed class CustomerDashboardRole : AdmittedRole { public CustomerDashboardRole() : base(RoleKind.CustomerDashboard) { } }
 public sealed class TerraBaseMemberRole : AdmittedRole { public TerraBaseMemberRole() : base(RoleKind.TerraBaseMember) { } }

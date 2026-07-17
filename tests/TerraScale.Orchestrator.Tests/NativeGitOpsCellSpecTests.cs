@@ -11,8 +11,8 @@ public sealed class NativeGitOpsCellSpecTests
     private const string Commit = "bffeb74224043ba2feb48d137756c8a9331c449a";
     private const string Tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
     private const string Blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Auth = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Control = "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -20,7 +20,7 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task ExactSourceCompilesDeterministicSameDigestCellPayloads()
     {
         var source = SourcePlan(null, Plan(1,
-            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
 
         var first = NativeGitOpsCellSpecCompiler.Compile(source);
@@ -35,9 +35,9 @@ public sealed class NativeGitOpsCellSpecTests
             await Assert.That(Convert.ToHexStringLower(SHA256.HashData(cell.Payload.Span)))
                 .IsEqualTo(cell.PayloadSha256);
             await Assert.That(string.Join(',', cell.DesiredWorkloads.Select(workload => workload.Id)))
-                .IsEqualTo("auth,api");
+                .IsEqualTo("auth,platform");
             await Assert.That(string.Join(',', cell.Changes.Select(change => change.WorkloadId)))
-                .IsEqualTo("auth,api");
+                .IsEqualTo("auth,platform");
             await Assert.That(cell.Changes.All(change => change.Kind == NativeGitOpsChangeKind.Create)).IsTrue();
             await Assert.That(cell.Payload.Span.SequenceEqual(
                 second.Cells.Single(other => other.Cell == cell.Cell).Payload.Span)).IsTrue();
@@ -48,10 +48,10 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task CellRemovalRetiresDependentsWhileOtherCellsCreateOrUpdate()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("api", "Api", ApiV1, ["gru"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru"]),
             Workload("control", "Orchestrator", Control, ["fra"], replicas: 3)));
 
@@ -64,10 +64,10 @@ public sealed class NativeGitOpsCellSpecTests
         await Assert.That(string.Join(',', fra.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
             .IsEqualTo("Create:control");
         await Assert.That(string.Join(',', gru.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("Update:auth,Update:api");
+            .IsEqualTo("Update:auth,Update:platform");
         await Assert.That(sfo.DesiredWorkloads).IsEmpty();
         await Assert.That(string.Join(',', sfo.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("GuardedRetirement:api,GuardedRetirement:auth");
+            .IsEqualTo("GuardedRetirement:platform,GuardedRetirement:auth");
         await Assert.That(sfo.Changes.All(change =>
             change.Proposed is null && change.Accepted is not null &&
             change.ChildOwnership == GitOpsChildOwnership.RegionalJournal &&
@@ -78,10 +78,10 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task PayloadBindsAcceptedPlanAndBeforeAfterWorkloadIdentities()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("api", "Api", ApiV2, ["gru"], ["auth"]),
+            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru"])));
         var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
 
@@ -105,7 +105,7 @@ public sealed class NativeGitOpsCellSpecTests
         }
 
         var first = NativeGitOpsCellSpecCompiler.Compile(SourcePlan(null, Plan(1,
-            Workload("api", "Api", ApiV1, ["gru"])))).Cells.Single();
+            Workload("platform", "Platform", PlatformV1, ["gru"])))).Cells.Single();
         using var initial = JsonDocument.Parse(first.Payload);
         await Assert.That(initial.RootElement.GetProperty("acceptedGeneration").ValueKind)
             .IsEqualTo(JsonValueKind.Null);
@@ -117,23 +117,23 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task CombinedContentAndSuspensionChangeStopsDependentsFirst()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("api", "Api", ApiV1, ["gru"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("api", "Api", ApiV2, ["gru"], ["auth"], suspended: true),
+            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"], suspended: true),
             Workload("auth", "Authentication", Auth, ["gru"], suspended: true)));
 
         var cell = NativeGitOpsCellSpecCompiler.Compile(source).Cells.Single();
 
         await Assert.That(string.Join(',', cell.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("Suspend:api,Suspend:auth");
+            .IsEqualTo("Suspend:platform,Suspend:auth");
     }
 
     [Test]
     public async Task EmptyProposedSetStillHandsRetirementToEveryAcceptedCell()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2));
 
@@ -145,7 +145,7 @@ public sealed class NativeGitOpsCellSpecTests
             await Assert.That(cell.DesiredWorkloads).IsEmpty();
             await Assert.That(string.Join(',', cell.Changes.Select(change =>
                 $"{change.Kind}:{change.WorkloadId}")))
-                .IsEqualTo("GuardedRetirement:api,GuardedRetirement:auth");
+                .IsEqualTo("GuardedRetirement:platform,GuardedRetirement:auth");
         }
     }
 
@@ -154,9 +154,9 @@ public sealed class NativeGitOpsCellSpecTests
     {
         var workloads = Enumerable.Range(0, NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff + 1)
             .Select(index => Workload(
-                $"api-{index}",
-                "Api",
-                ApiV1,
+                $"platform-{index}",
+                "Platform",
+                PlatformV1,
                 [$"cell-{index}"]))
             .ToArray();
         var source = SourcePlan(null, Plan(1, workloads));

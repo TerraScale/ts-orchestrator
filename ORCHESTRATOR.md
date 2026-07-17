@@ -395,7 +395,7 @@ The internal control schema is versioned, validated, and provider-neutral. It is
 Admission accepts only these first-party role families:
 
 ```text
-TerraScale.Api
+TerraScale.Platform
 TerraScale.Authentication
 TerraScale.Dashboard
 TerraScale.TerraBase
@@ -434,7 +434,7 @@ Admission uses a closed, versioned C# discriminated role catalog, not an arbitra
 
 | Class | Admitted roles |
 |---|---|
-| TerraScale product | `Api`, `Authentication`, `CustomerDashboard`, `TerraBaseMember` |
+| TerraScale product | `Platform`, `Authentication`, `CustomerDashboard`, `TerraBaseMember` |
 | Control and messaging | `Orchestrator`, `ControlNatsServer`, `ProductNatsServer` |
 | Observability in GRU | Immutable/read-only `Grafana` replicas, the selected Prometheus-compatible store, `Loki`, `Tempo`, `Alertmanager`, `OtlpIngest`, and approved synthetic checks |
 | Regional observability | `OtelCollector`/`Alloy` from the selected standard descriptor |
@@ -443,7 +443,7 @@ Admission uses a closed, versioned C# discriminated role catalog, not an arbitra
 
 Each role maps to a built-in descriptor schema, permitted runtimes, artifacts, ports, identities, secrets, capabilities, mounts, probes, network policy, and resource bounds. A manifest may choose only permitted parameters; it cannot supply an arbitrary executable, privileged container, host path, systemd directive, Linux capability, or NATS permission. Adding a role is an owner-approved specification/ADR change with threat-model, resource, ARM64, HA, first-deployment, and test updates.
 
-Email/Stripe emulators are test-fixture dependencies, not production roles. Billing/email/background responsibilities already hosted within `Api` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
+Email/Stripe emulators are test-fixture dependencies, not production roles. Billing/email/background responsibilities already hosted within `Platform` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
 
 ## NATS and state correctness
 
@@ -1637,7 +1637,7 @@ Order:
 - Project placement and storage epoch semantics have one source of truth.
 - Immutable candidate promotion traverses SFO, FRA, GRU with required soaks and exact digest; gate failure stops and records evidence.
 - Git/NATS/controller outage never rolls a healthy workload to an unrequested version.
-- Customer Dashboard remains separate; operator allocation, exec, secret, and host APIs do not enter public SDKs.
+- Customer Dashboard remains a separate full-stack product and an ordinary external user of TerraScale.Platform. It owns Dashboard-specific endpoints and orchestration, reaches TerraScale only through typed public TypeScript SDK methods under normal customer authentication/authorization and tenant boundaries, and receives no operator allocation, exec, secret, host, private, or Dashboard-special API surface.
 
 ## Risks and controls
 

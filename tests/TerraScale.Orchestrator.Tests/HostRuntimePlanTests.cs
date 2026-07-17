@@ -40,22 +40,22 @@ public sealed class HostRuntimePlanTests
     public async Task OciPlanIsDigestPinnedRootlessAndCapabilityFree()
     {
         var plan = HostRuntimePlan.Create(
-            AdmittedRole.Api,
+            AdmittedRole.Platform,
             RuntimeDriver.OciContainer,
-            new RuntimeAllocationId("sfo-api-1"),
+            new RuntimeAllocationId("sfo-platform-1"),
             new ArtifactDigest(Digest),
             HostArchitecture.Arm64);
 
         await Assert.That(plan.Oci).IsNotNull();
         await Assert.That(plan.Systemd).IsNull();
         await Assert.That(plan.Oci!.ImageReference)
-            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-api@sha256:{Digest}");
+            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-platform@sha256:{Digest}");
         await Assert.That(plan.Oci.Platform).IsEqualTo("linux/arm64");
         await Assert.That(plan.Oci.Security.RunAsUser).IsEqualTo(65532U);
         await Assert.That(plan.Oci.Security.NoNewPrivileges).IsTrue();
         await Assert.That(plan.Oci.Security.ReadOnlyRootFileSystem).IsTrue();
         await Assert.That(plan.Oci.Security.DroppedCapabilities).IsEquivalentTo(["ALL"]);
-        await Assert.That(plan.Oci.Security.CgroupParent).IsEqualTo("terrascale/sfo-api-1");
+        await Assert.That(plan.Oci.Security.CgroupParent).IsEqualTo("terrascale/sfo-platform-1");
         await Assert.That(plan.Resources.MemorySwapMaxBytes).IsEqualTo(0);
     }
 
@@ -65,9 +65,9 @@ public sealed class HostRuntimePlanTests
         var requested = new RuntimeResourceLimits(512L * 1024 * 1024, 128, 100, 100, 100, 5);
 
         var plan = HostRuntimePlan.Create(
-            AdmittedRole.Api,
+            AdmittedRole.Platform,
             RuntimeDriver.OciContainer,
-            new RuntimeAllocationId("gru-api-limited"),
+            new RuntimeAllocationId("gru-platform-limited"),
             new ArtifactDigest(Digest),
             HostArchitecture.Arm64,
             requested);
@@ -83,9 +83,9 @@ public sealed class HostRuntimePlanTests
         var excessive = new RuntimeResourceLimits(2L * 1024 * 1024 * 1024, 128, 100, 100, 100, 5);
 
         await Assert.That(() => HostRuntimePlan.Create(
-                AdmittedRole.Api,
+                AdmittedRole.Platform,
                 RuntimeDriver.OciContainer,
-                new RuntimeAllocationId("gru-api-excessive"),
+                new RuntimeAllocationId("gru-platform-excessive"),
                 new ArtifactDigest(Digest),
                 HostArchitecture.Arm64,
                 excessive))
@@ -96,7 +96,7 @@ public sealed class HostRuntimePlanTests
     public async Task RuntimeCliAcceptsExplicitContainerLimits()
     {
         var plan = HostRuntimeCli.ParsePlan([
-            "plan", "--role", "api", "--allocation", "gru-api-cli", "--digest", Digest,
+            "plan", "--role", "platform", "--allocation", "gru-platform-cli", "--digest", Digest,
             "--memory-max-bytes", "536870912", "--tasks-max", "128",
             "--cpu-quota-percent", "100", "--cpu-weight", "100", "--io-weight", "100", "--nice", "5"
         ]);

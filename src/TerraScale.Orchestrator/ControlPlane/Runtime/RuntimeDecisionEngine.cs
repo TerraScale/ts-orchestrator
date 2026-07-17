@@ -206,7 +206,7 @@ public static class RuntimeDecisionEngine
         (RuntimeRole.TerraBase, NativeRuntimePayload { Descriptor: NativeUnitDescriptor.TerraBase }) => true,
         (RuntimeRole.NatsServer, NativeRuntimePayload { Descriptor: NativeUnitDescriptor.NatsServer }) => true,
         (RuntimeRole.Telemetry, NativeRuntimePayload { Descriptor: NativeUnitDescriptor.Telemetry }) => true,
-        (RuntimeRole.Api, OciRuntimePayload { Descriptor: OciRuntimeDescriptor.Api }) => true,
+        (RuntimeRole.Platform, OciRuntimePayload { Descriptor: OciRuntimeDescriptor.Platform }) => true,
         (RuntimeRole.Authentication, OciRuntimePayload { Descriptor: OciRuntimeDescriptor.Authentication }) => true,
         (RuntimeRole.Dashboard, OciRuntimePayload { Descriptor: OciRuntimeDescriptor.Dashboard }) => true,
         (RuntimeRole.TerraBase, OciRuntimePayload { Descriptor: OciRuntimeDescriptor.TerraBase }) => true,

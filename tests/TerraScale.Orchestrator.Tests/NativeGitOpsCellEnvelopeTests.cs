@@ -115,7 +115,7 @@ public sealed class NativeGitOpsCellEnvelopeTests
             verifier);
         var wrongPayload = NativeGitOpsCellEnvelope.Validate(
             envelope,
-            CellHandoff(ApiV2),
+            CellHandoff(PlatformV2),
             "gru",
             7,
             Now,
@@ -185,17 +185,17 @@ public sealed class NativeGitOpsCellEnvelopeTests
             .Throws<InvalidDataException>();
     }
 
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-    private static NativeGitOpsCellHandoff CellHandoff(string digest = ApiV1)
+    private static NativeGitOpsCellHandoff CellHandoff(string digest = PlatformV1)
     {
         const string repository = "TerraScale/TerraScale.Orchestrator";
         const string commit = "bffeb74224043ba2feb48d137756c8a9331c449a";
         const string tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"api","role":"Api","artifactDigest":"{{digest}}","cells":["gru"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{digest}}","cells":["gru"]}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         var revision = new ForgejoResolvedRevision(repository, commit, tree, signatureVerified: true);

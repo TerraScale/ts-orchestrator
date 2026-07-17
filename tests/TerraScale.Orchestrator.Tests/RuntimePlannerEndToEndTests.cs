@@ -12,9 +12,9 @@ public sealed class RuntimePlannerEndToEndTests
     {
         var accepted = await RunAsync(
             "runtime", "plan",
-            "--role", "api",
+            "--role", "platform",
             "--driver", "oci",
-            "--allocation", "gru-api-1",
+            "--allocation", "gru-platform-1",
             "--digest", Digest,
             "--architecture", "arm64");
 
@@ -22,17 +22,17 @@ public sealed class RuntimePlannerEndToEndTests
         await Assert.That(accepted.StandardError).IsEmpty();
         using var document = JsonDocument.Parse(accepted.StandardOutput);
         var root = document.RootElement;
-        await Assert.That(root.GetProperty("role").GetString()).IsEqualTo("api");
+        await Assert.That(root.GetProperty("role").GetString()).IsEqualTo("platform");
         await Assert.That(root.GetProperty("driver").GetString()).IsEqualTo("ociContainer");
         await Assert.That(root.GetProperty("oci").GetProperty("imageReference").GetString())
-            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-api@sha256:{Digest}");
+            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-platform@sha256:{Digest}");
         await Assert.That(root.GetProperty("oci").GetProperty("security")
             .GetProperty("noNewPrivileges").GetBoolean()).IsTrue();
 
         var rejected = await RunAsync(
             "runtime", "plan",
             "--role", "arbitrary-container",
-            "--allocation", "gru-api-1",
+            "--allocation", "gru-platform-1",
             "--digest", Digest);
 
         await Assert.That(rejected.ExitCode).IsEqualTo(1);

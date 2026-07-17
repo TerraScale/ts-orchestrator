@@ -214,7 +214,7 @@ public sealed class NativeGitOpsGlobalHandoffCoordinatorTests
     {
         var workload = cells.Count == 0
             ? "[]"
-            : $"[{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{new string('0', 64)}\",\"cells\":{JsonSerializer.Serialize(cells)}}}]";
+            : $"[{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{new string('0', 64)}\",\"cells\":{JsonSerializer.Serialize(cells)}}}]";
         var content = Encoding.UTF8.GetBytes(
             $"{{\"apiVersion\":\"terrascale.io/v1\",\"kind\":\"TerraScaleDesiredState\",\"generation\":{generation},\"workloads\":{workload}}}");
         var proposed = NativeGitOpsManifest.Parse(content);

@@ -6,18 +6,18 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class NativeGitOpsCellPayloadTests
 {
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Auth = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
     public async Task DurablePayloadRehydratesExactBaseDesiredAndRetirementIdentities()
     {
         var accepted = Plan(1,
-            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru", "sfo"]));
         var handoff = Handoff(accepted, Plan(2,
-            Workload("api", "Api", ApiV2, ["gru"], ["auth"]),
+            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"]),
             Workload("auth", "Authentication", Auth, ["gru"])));
 
         var gru = handoff.Cells.Single(static cell => cell.Cell == "gru");
@@ -26,7 +26,7 @@ public sealed class NativeGitOpsCellPayloadTests
         await Assert.That(parsedGru.AcceptedGlobalPlanDigest)
             .IsEqualTo(NativeGitOpsManifest.Parse(accepted).Digest);
         await Assert.That(string.Join(',', parsedGru.DesiredWorkloads.Select(static value => value.Id)))
-            .IsEqualTo("auth,api");
+            .IsEqualTo("auth,platform");
         await Assert.That(parsedGru.Changes.All(static value =>
             value.AcceptedWorkloadSha256 is not null && value.ProposedWorkloadSha256 is not null))
             .IsTrue();
@@ -35,7 +35,7 @@ public sealed class NativeGitOpsCellPayloadTests
         var parsedSfo = NativeGitOpsCellPayload.Parse(Accepted(handoff, sfo));
         await Assert.That(parsedSfo.DesiredWorkloads).IsEmpty();
         await Assert.That(string.Join(',', parsedSfo.Changes.Select(static value => value.WorkloadId)))
-            .IsEqualTo("api,auth");
+            .IsEqualTo("platform,auth");
         await Assert.That(parsedSfo.Changes.All(change =>
             change.Kind == NativeGitOpsChangeKind.GuardedRetirement &&
             change.RetiredWorkload is not null &&
@@ -47,14 +47,14 @@ public sealed class NativeGitOpsCellPayloadTests
     [Test]
     public async Task UnknownDuplicateAndContradictoryChangeFieldsFailClosed()
     {
-        var handoff = Handoff(null, Plan(1, Workload("api", "Api", ApiV1, ["gru"])));
+        var handoff = Handoff(null, Plan(1, Workload("platform", "Platform", PlatformV1, ["gru"])));
         var cell = handoff.Cells.Single();
         var json = Encoding.UTF8.GetString(cell.Payload.Span);
         var unknown = json.Replace("\"changes\":", "\"unknown\":true,\"changes\":", StringComparison.Ordinal);
         var duplicate = json.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1", StringComparison.Ordinal);
         var contradictory = json.Replace(
             "\"acceptedWorkloadSha256\":null",
-            $"\"acceptedWorkloadSha256\":\"{ApiV2}\"",
+            $"\"acceptedWorkloadSha256\":\"{PlatformV2}\"",
             StringComparison.Ordinal);
 
         foreach (var invalid in new[] { unknown, duplicate, contradictory })
@@ -68,7 +68,7 @@ public sealed class NativeGitOpsCellPayloadTests
     [Test]
     public async Task PayloadMustRetainItsDurableCellGenerationPlanAndDigestIdentity()
     {
-        var handoff = Handoff(null, Plan(1, Workload("api", "Api", ApiV1, ["gru"])));
+        var handoff = Handoff(null, Plan(1, Workload("platform", "Platform", PlatformV1, ["gru"])));
         var cell = handoff.Cells.Single();
         var accepted = Accepted(handoff, cell);
 
@@ -76,8 +76,8 @@ public sealed class NativeGitOpsCellPayloadTests
         {
             accepted with { Cell = "sfo" },
             accepted with { Generation = 2 },
-            accepted with { GlobalPlanDigest = ApiV2 },
-            accepted with { PayloadSha256 = ApiV2 },
+            accepted with { GlobalPlanDigest = PlatformV2 },
+            accepted with { PayloadSha256 = PlatformV2 },
         })
             await Assert.That(() => NativeGitOpsCellPayload.Parse(mismatch)).Throws<InvalidDataException>();
     }

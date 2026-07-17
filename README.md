@@ -538,8 +538,8 @@ SHA-256 plan digest:
       "cells": ["gru", "sfo", "fra"]
     },
     {
-      "id": "api",
-      "role": "Api",
+      "id": "platform",
+      "role": "Platform",
       "artifactDigest": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "cells": ["gru", "sfo", "fra"],
       "dependsOn": ["authentication"]
@@ -878,8 +878,8 @@ repository, unit directive, host path, capability, privileged flag, or secret:
 
 ```bash
 terrascale-orchestrator runtime plan \
-  --role api \
-  --allocation gru-api-1 \
+  --role platform \
+  --allocation gru-platform-1 \
   --digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --memory-max-bytes 536870912 \
   --tasks-max 128 \

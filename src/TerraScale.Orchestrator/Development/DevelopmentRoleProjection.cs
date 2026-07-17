@@ -11,7 +11,7 @@ internal static class DevelopmentRoleProjection
         DevelopmentResourceKind.ProductNats => AdmittedRoleCatalog.Get(AdmittedRole.ProductNatsServer),
         DevelopmentResourceKind.TerraBase => AdmittedRoleCatalog.Get(AdmittedRole.TerraBaseMember),
         DevelopmentResourceKind.Authentication => AdmittedRoleCatalog.Get(AdmittedRole.Authentication),
-        DevelopmentResourceKind.Api => AdmittedRoleCatalog.Get(AdmittedRole.Api),
+        DevelopmentResourceKind.Platform => AdmittedRoleCatalog.Get(AdmittedRole.Platform),
         DevelopmentResourceKind.Dashboard => AdmittedRoleCatalog.Get(AdmittedRole.CustomerDashboard),
         DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => null,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))

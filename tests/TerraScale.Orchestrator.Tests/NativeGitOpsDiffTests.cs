@@ -5,8 +5,8 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class NativeGitOpsDiffTests
 {
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Auth = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Control = "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -14,13 +14,13 @@ public sealed class NativeGitOpsDiffTests
     public async Task InitialPlanCreatesInDependencyOrderWithGuardedChildOwnership()
     {
         var proposed = Plan(1,
-            Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+            Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"]),
             Workload("auth", "Authentication", Auth));
 
         var diff = NativeGitOpsDiff.Compare(null, proposed);
 
         await Assert.That(string.Join(',', diff.Changes.Select(change => change.WorkloadId)))
-            .IsEqualTo("auth,api");
+            .IsEqualTo("auth,platform");
         await Assert.That(diff.Changes.All(change => change.Kind == NativeGitOpsChangeKind.Create)).IsTrue();
         await Assert.That(diff.Changes.All(change =>
             change.ChildOwnership == GitOpsChildOwnership.RegionalJournal &&
@@ -31,14 +31,14 @@ public sealed class NativeGitOpsDiffTests
     public async Task UpdatesPrecedeDependentFirstGuardedRetirement()
     {
         var accepted = Plan(1,
-            Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+            Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"]),
             Workload("auth", "Authentication", Auth));
         var proposed = Plan(2, Workload("control", "Orchestrator", Control));
 
         var diff = NativeGitOpsDiff.Compare(accepted, proposed);
 
         await Assert.That(string.Join(',', diff.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("Create:control,GuardedRetirement:api,GuardedRetirement:auth");
+            .IsEqualTo("Create:control,GuardedRetirement:platform,GuardedRetirement:auth");
         await Assert.That(diff.Changes.Where(change => change.Kind == NativeGitOpsChangeKind.GuardedRetirement)
             .All(change => change.Proposed is null && change.Accepted is not null)).IsTrue();
         await Assert.That(Enum.GetNames<NativeGitOpsChangeKind>()).DoesNotContain("Delete");
@@ -48,18 +48,18 @@ public sealed class NativeGitOpsDiffTests
     public async Task ContentAndSuspensionChangesHaveDistinctTypedActions()
     {
         var accepted = Plan(1,
-            Workload("api", "Api", ApiV1),
+            Workload("platform", "Platform", PlatformV1),
             Workload("auth", "Authentication", Auth, suspended: true),
             Workload("control", "Orchestrator", Control));
         var proposed = Plan(2,
-            Workload("api", "Api", ApiV2),
+            Workload("platform", "Platform", PlatformV2),
             Workload("auth", "Authentication", Auth),
             Workload("control", "Orchestrator", Control, suspended: true));
 
         var diff = NativeGitOpsDiff.Compare(accepted, proposed);
 
         await Assert.That(string.Join(',', diff.Changes.Select(change => $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("Update:api,Resume:auth,Suspend:control");
+            .IsEqualTo("Resume:auth,Update:platform,Suspend:control");
         await Assert.That(diff.IsNoOp).IsFalse();
     }
 
@@ -67,41 +67,41 @@ public sealed class NativeGitOpsDiffTests
     public async Task SuspensionIsDependentFirstAndResumeIsDependencyFirst()
     {
         var active = Plan(1,
-            Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+            Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"]),
             Workload("auth", "Authentication", Auth));
         var suspended = Plan(2,
-            Workload("api", "Api", ApiV1, dependsOn: ["auth"], suspended: true),
+            Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"], suspended: true),
             Workload("auth", "Authentication", Auth, suspended: true));
 
         var stop = NativeGitOpsDiff.Compare(active, suspended);
         var start = NativeGitOpsDiff.Compare(
             suspended,
             Plan(3,
-                Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+                Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"]),
                 Workload("auth", "Authentication", Auth)));
 
         await Assert.That(string.Join(',', stop.Changes.Select(change => change.WorkloadId)))
-            .IsEqualTo("api,auth");
+            .IsEqualTo("platform,auth");
         await Assert.That(stop.Changes.All(change => change.Kind == NativeGitOpsChangeKind.Suspend)).IsTrue();
         await Assert.That(string.Join(',', start.Changes.Select(change => change.WorkloadId)))
-            .IsEqualTo("auth,api");
+            .IsEqualTo("auth,platform");
         await Assert.That(start.Changes.All(change => change.Kind == NativeGitOpsChangeKind.Resume)).IsTrue();
     }
 
     [Test]
     public async Task GenerationsAreMonotonicIdempotentAndConflictFree()
     {
-        var accepted = Plan(4, Workload("api", "Api", ApiV1));
+        var accepted = Plan(4, Workload("platform", "Platform", PlatformV1));
         var exactRetry = NativeGitOpsDiff.Compare(accepted, accepted);
         var noContentChange = NativeGitOpsDiff.Compare(
             accepted,
-            Plan(5, Workload("api", "Api", ApiV1)));
+            Plan(5, Workload("platform", "Platform", PlatformV1)));
         var stale = Capture(() => NativeGitOpsDiff.Compare(
             accepted,
-            Plan(3, Workload("api", "Api", ApiV1))));
+            Plan(3, Workload("platform", "Platform", PlatformV1))));
         var conflict = Capture(() => NativeGitOpsDiff.Compare(
             accepted,
-            Plan(4, Workload("api", "Api", ApiV2))));
+            Plan(4, Workload("platform", "Platform", PlatformV2))));
 
         await Assert.That(exactRetry.IsNoOp).IsTrue();
         await Assert.That(noContentChange.IsNoOp).IsTrue();
@@ -112,7 +112,7 @@ public sealed class NativeGitOpsDiffTests
     [Test]
     public async Task StableWorkloadIdentityCannotChangeItsRole()
     {
-        var accepted = Plan(1, Workload("service", "Api", ApiV1));
+        var accepted = Plan(1, Workload("service", "Platform", PlatformV1));
         var changed = Plan(2, Workload("service", "Authentication", Auth));
 
         var error = Capture(() => NativeGitOpsDiff.Compare(accepted, changed));
@@ -124,7 +124,7 @@ public sealed class NativeGitOpsDiffTests
     public async Task EmptyDesiredSetRetiresEveryWorkloadDependentFirst()
     {
         var accepted = Plan(1,
-            Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+            Workload("platform", "Platform", PlatformV1, dependsOn: ["auth"]),
             Workload("auth", "Authentication", Auth));
         var proposed = Plan(2);
 
@@ -133,7 +133,7 @@ public sealed class NativeGitOpsDiffTests
 
         await Assert.That(string.Join(',', diff.Changes.Select(change =>
             $"{change.Kind}:{change.WorkloadId}")))
-            .IsEqualTo("GuardedRetirement:api,GuardedRetirement:auth");
+            .IsEqualTo("GuardedRetirement:platform,GuardedRetirement:auth");
         await Assert.That(initial.IsNoOp).IsTrue();
     }
 

@@ -134,7 +134,7 @@ public sealed class NativeGitOpsCellBarrierTests
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         const string digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"api","role":"Api","artifactDigest":"{{digest}}","cells":["gru","sfo","fra"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{digest}}","cells":["gru","sfo","fra"]}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         return NativeGitOpsCellSpecCompiler.Compile(new(

@@ -310,7 +310,7 @@ public sealed class NativeGitOpsSourceLoaderTests
     }
 
     private static byte[] Manifest(long generation, string digest) => Encoding.UTF8.GetBytes($$"""
-        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"api","role":"Api","artifactDigest":"{{digest}}","cells":["gru"]}]}
+        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{digest}}","cells":["gru"]}]}
         """);
 
     private static HttpResponseMessage FileResponse(

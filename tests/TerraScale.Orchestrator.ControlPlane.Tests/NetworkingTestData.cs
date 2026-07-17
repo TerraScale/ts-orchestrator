@@ -7,7 +7,7 @@ internal static class NetworkingTestData
     private const int M=64;
     public static NetworkCellId Cell(string v="gru"){NetworkCellId.TryCreate(v,M,out var x);return x!;}public static NetworkId Net(string v="net"){NetworkId.TryCreate(v,M,out var x);return x!;}
     public static NetworkSubnetId Subnet(string v="subnet"){NetworkSubnetId.TryCreate(v,M,out var x);return x!;}public static NetworkNodeId Node(string v="node"){NetworkNodeId.TryCreate(v,M,out var x);return x!;}
-    public static NetworkWorkloadId Workload(string v="api"){NetworkWorkloadId.TryCreate(v,M,out var x);return x!;}public static NetworkServiceId Service(string v="service"){NetworkServiceId.TryCreate(v,M,out var x);return x!;}
+    public static NetworkWorkloadId Workload(string v="platform"){NetworkWorkloadId.TryCreate(v,M,out var x);return x!;}public static NetworkServiceId Service(string v="service"){NetworkServiceId.TryCreate(v,M,out var x);return x!;}
     public static NetworkEndpointId Endpoint(string v="endpoint"){NetworkEndpointId.TryCreate(v,M,out var x);return x!;}public static NetworkRouteId Route(string v="route"){NetworkRouteId.TryCreate(v,M,out var x);return x!;}
     public static NetworkPeerId Peer(string v="peer"){NetworkPeerId.TryCreate(v,M,out var x);return x!;}public static NetworkTunnelId Tunnel(string v="tunnel"){NetworkTunnelId.TryCreate(v,M,out var x);return x!;}
     public static NetworkDnsId Dns(string v="dns"){NetworkDnsId.TryCreate(v,M,out var x);return x!;}public static NetworkLoadBalancerId Lb(string v="lb"){NetworkLoadBalancerId.TryCreate(v,M,out var x);return x!;}

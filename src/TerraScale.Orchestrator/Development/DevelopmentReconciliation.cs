@@ -123,9 +123,9 @@ internal static class DevelopmentReconciliation
                 cell,
                 DevelopmentResourceKind.ProductNats,
                 DevelopmentResourceKind.TerraBase),
-            DevelopmentResourceKind.Api => Names(cell, DevelopmentResourceKind.Authentication)
+            DevelopmentResourceKind.Platform => Names(cell, DevelopmentResourceKind.Authentication)
                 .Concat(topology.GlobalResources.Select(item => item.Name)).ToArray(),
-            DevelopmentResourceKind.Dashboard => Names(cell, DevelopmentResourceKind.Api),
+            DevelopmentResourceKind.Dashboard => Names(cell, DevelopmentResourceKind.Platform),
             _ => []
         };
     }

@@ -39,7 +39,7 @@ public sealed class DevelopmentStateStoreTests
                 new DevelopmentEndpointMap(
                     1,
                     7,
-                    new Dictionary<string, string> { ["api"] = "http://127.0.0.1:1" }),
+                    new Dictionary<string, string> { ["platform"] = "http://127.0.0.1:1" }),
                 CancellationToken.None);
             await Assert.That(File.Exists(endpointsFile)).IsTrue();
         }

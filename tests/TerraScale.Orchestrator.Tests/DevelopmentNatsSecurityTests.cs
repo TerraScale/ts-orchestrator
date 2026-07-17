@@ -39,7 +39,7 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(gru.Operator.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
             await Assert.That(gru.Product.Password).IsNotEqualTo(sfo.Product.Password);
             await Assert.That(File.ReadAllText(gru.Tls.Control.Clients["operator-read"].CaFile))
-                .IsNotEqualTo(File.ReadAllText(gru.Tls.Product.Clients["gru-api"].CaFile));
+                .IsNotEqualTo(File.ReadAllText(gru.Tls.Product.Clients["gru-platform"].CaFile));
 
             foreach (var identity in gru.Controllers.Values.Append(gru.Operator))
             {
@@ -98,7 +98,7 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(controlProbe.TlsOpts.CertFile).IsEqualTo(operatorTls.CertificateFile);
             await Assert.That(productProbe.AuthOpts.Username).IsEqualTo(gru.Product.Username);
             await Assert.That(productProbe.TlsOpts.CertFile)
-                .IsEqualTo(gru.Tls.Product.Clients["gru-api"].CertificateFile);
+                .IsEqualTo(gru.Tls.Product.Clients["gru-platform"].CertificateFile);
         }
         finally
         {

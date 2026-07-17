@@ -7,7 +7,6 @@ namespace TerraScale.Orchestrator.Development;
 internal static class DevelopmentWorkloadRuntime
 {
     private const string ProductProjectId = "01C00000000000000000000002";
-    private const string DashboardClientId = "terrascale-dashboard";
 
     public static async Task StartAsync(
         DevelopmentProcessSupervisor supervisor,
@@ -48,21 +47,21 @@ internal static class DevelopmentWorkloadRuntime
                 authentication,
                 Path.Combine(internalsRoot, "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, authentication, isApi: false, dataDirectory, natsSecurity));
+                    topology, cell, authentication, isPlatform: false, dataDirectory, natsSecurity));
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
 
-            var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
+            var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
             StartDotNetService(
                 supervisor,
-                api,
+                platform,
                 Path.Combine(internalsRoot, "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, api, isApi: true, dataDirectory, natsSecurity));
-            await WaitHttpAsync(api.Port, "/health/ready", supervisor, cancellationToken);
+                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity));
+            await WaitHttpAsync(platform.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
             StartDashboard(supervisor, topology, cell, dashboard, internalsRoot, dataDirectory, natsSecurity);
-            await WaitHttpAsync(dashboard.Port, "/api/stack", supervisor, cancellationToken);
+            await WaitHttpAsync(dashboard.Port, "/health/ready", supervisor, cancellationToken);
         }
     }
 
@@ -153,7 +152,7 @@ internal static class DevelopmentWorkloadRuntime
     {
         RequireFile(project, $"{resource.Kind} project");
         var directory = Path.GetDirectoryName(project)!;
-        var assemblyName = resource.Kind == DevelopmentResourceKind.Api
+        var assemblyName = resource.Kind == DevelopmentResourceKind.Platform
             ? "TerraScale.Platform.dll"
             : "TerraScale.Authentication.dll";
         var assembly = Path.Combine(directory, "bin", "Release", "net10.0", assemblyName);
@@ -182,9 +181,9 @@ internal static class DevelopmentWorkloadRuntime
         {
             vp = "vp";
         }
-        var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
+        var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
-        var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[api.Name].CaFile;
+        var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[platform.Name].CaFile;
         var cache = Path.Combine(dataDirectory, "workloads", dashboard.Name, "vite-task-cache");
         Directory.CreateDirectory(cache);
         supervisor.Start(
@@ -192,12 +191,12 @@ internal static class DevelopmentWorkloadRuntime
             DevelopmentContainerImages.Node,
             [vp, .. CreateDashboardArguments(dashboard)],
             directory,
-            CreateDashboardEnvironment(topology, api, authentication, dashboard, certificateBundle, cache));
+            CreateDashboardEnvironment(topology, platform, authentication, dashboard, certificateBundle, cache));
     }
 
     internal static IReadOnlyDictionary<string, string?> CreateDashboardEnvironment(
         DevelopmentTopology topology,
-        DevelopmentResourcePlan api,
+        DevelopmentResourcePlan platform,
         DevelopmentResourcePlan authentication,
         DevelopmentResourcePlan dashboard,
         string certificateBundle,
@@ -211,13 +210,9 @@ internal static class DevelopmentWorkloadRuntime
             ["VITE_CACHE_PATH"] = cache,
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
-            ["TERRASCALE_API_BASE_URL"] = Http(api.Port),
+            ["TERRASCALE_API_BASE_URL"] = Http(platform.Port),
             ["TERRASCALE_AUTH_API_BASE_URL"] = Http(authentication.Port),
             ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = Http(dashboard.Port),
-            ["TERRASCALE_DASHBOARD_CLIENT_ID"] = DashboardClientId,
-            ["TERRASCALE_DASHBOARD_PROJECT_ID"] = ProductProjectId,
-            ["TERRASCALE_DASHBOARD_TENANT_ID"] = string.Empty,
-            ["TERRASCALE_DASHBOARD_DATABASE_IDS"] = string.Empty,
             ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
         };
 
@@ -235,17 +230,16 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentTopology topology,
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan resource,
-        bool isApi,
+        bool isPlatform,
         string dataDirectory,
         DevelopmentNatsSecurity? natsSecurity = null)
     {
         var email = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.EmailEmulator);
         var stripe = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.StripeEmulator);
-        var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats)[0];
         var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
-        var productTls = isApi
+        var productTls = isPlatform
             ? natsSecurity?.Cell(cell.Cell).Tls.Product.Clients[resource.Name]
             : null;
         var serviceHome = Path.Combine(dataDirectory, "workloads", resource.Name, "home");
@@ -274,7 +268,7 @@ internal static class DevelopmentWorkloadRuntime
             ["Email__Cloudflare__BaseUrl"] = Http(email.Port, "/client/v4/"),
             ["Routing__CurrentRegion"] = cell.Cell,
             ["TerraScale__Kestrel__Urls"] = $"http://0.0.0.0:{resource.Port}",
-            ["TerraScale__ServiceDatabases__Dashboard"] = "TerraScale.Dashboard",
+            ["TerraScale__ServiceDatabases__Platform"] = "TerraScale.Platform",
             ["TerraScale__ServiceDatabases__Authentication"] = "TerraScale.Authentication",
             ["TerraScale__ServiceDatabases__Payments"] = "TerraScale.Payments",
             ["TerraScale__ServiceDatabases__Queue"] = "TerraScale.Queue",
@@ -297,30 +291,29 @@ internal static class DevelopmentWorkloadRuntime
             environment[$"Routing__AllowedRegions__{index}"] = topology.Cells[index].Cell;
             environment[$"TerraScale__ServiceDatabases__Regions__{index}"] = topology.Cells[index].Cell;
             environment[$"Routing__RegionApiBaseUrls__{topology.Cells[index].Cell}"] =
-                Http(topology.Cells[index].OfKind(DevelopmentResourceKind.Api).Single().Port);
+                Http(topology.Cells[index].OfKind(DevelopmentResourceKind.Platform).Single().Port);
         }
 
-        if (!isApi)
+        if (!isPlatform)
         {
             environment["OpenIddict__Issuer"] = $"https://{cell.Cell}-auth.terrascale.local";
             environment["Auth__UseRealProviders"] = "true";
             environment["Auth__TestOAuthProvider__Enabled"] = "true";
             environment["Auth__AutoVerifyEmail"] = "true";
-            environment["DashboardExternalLogins__Providers__google__ClientId"] = "google-client-id";
-            environment["DashboardExternalLogins__Providers__google__ClientSecret"] = "google-client-secret";
+            environment["ExternalLogins__Providers__google__ClientId"] = "google-client-id";
+            environment["ExternalLogins__Providers__google__ClientSecret"] = "google-client-secret";
             return environment;
         }
 
         environment["TERRASCALE_DASHBOARD_TESTS"] = "true";
-        environment["TerraScale__Billing__DashboardBillingUrl"] = "https://dashboard.terrascale.test/settings/billing";
+        environment["TerraScale__Billing__BillingManagementUrl"] = "https://dashboard.terrascale.test/settings/billing";
         environment["InternalAuth__ApiKey"] = "test_internal_auth_api_key";
         environment["Fido2__ServerDomain"] = "localhost";
         environment["Fido2__Origins__0"] = "http://localhost";
         environment["Fido2__Origins__1"] = Http(resource.Port);
         environment["Fido2__Origins__2"] = Http(dashboard.Port);
-        environment["Cors__DashboardOrigins__0"] = "http://localhost";
-        environment["Cors__DashboardOrigins__1"] = Http(dashboard.Port);
-        environment["Services__Dashboard__BaseUrl"] = Http(dashboard.Port);
+        environment["Cors__AllowedOrigins__0"] = "http://localhost";
+        environment["Cors__AllowedOrigins__1"] = Http(dashboard.Port);
         environment["Routing__ForwardUnplacedRequests"] = "true";
         environment["QueueReplication__SharedSecret"] = "test_project_queue_replication_key";
         environment["QueueReplication__RequestTimeoutMilliseconds"] = "900";
@@ -328,7 +321,6 @@ internal static class DevelopmentWorkloadRuntime
         environment["Payments__Stripe__SecretKey"] = "sk_test_devhost_local";
         environment["Payments__Stripe__ApiBaseUrl"] = Http(stripe.Port);
         environment["Idempotency__RequireForInternalCalls"] = "true";
-        environment["AuthenticationService__BaseUrl"] = Http(authentication.Port);
         environment["TerraScale__Queue__Provider"] = "Nats";
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";
         environment["TerraScale__Queue__NatsUsername"] = productIdentity?.Username;
@@ -343,7 +335,6 @@ internal static class DevelopmentWorkloadRuntime
         environment["TerraScale__Backups__Provider"] = "LocalFolder";
         environment["TerraScale__Backups__LocalFolderPath"] = Path.Combine(dataDirectory, "backups", cell.Cell);
         environment["TerraScale__Backups__OperationPollSeconds"] = "1";
-        environment["DashboardAdmin__OwnerEmails__0"] = "mariogk@terrascale.tech";
         return environment;
     }
 

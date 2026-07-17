@@ -388,7 +388,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     private static long MemoryLimitBytes(DevelopmentResourceKind kind) => kind switch
     {
         DevelopmentResourceKind.TerraBase => 2048L * 1024 * 1024,
-        DevelopmentResourceKind.Api => 640L * 1024 * 1024,
+        DevelopmentResourceKind.Platform => 640L * 1024 * 1024,
         DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 384L * 1024 * 1024,
         DevelopmentResourceKind.ControllerAgent => 320L * 1024 * 1024,
         DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => 256L * 1024 * 1024,

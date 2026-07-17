@@ -13,7 +13,7 @@ public sealed class ResourceContractTests
     {
         var first = Metadata();
         var second = Metadata();
-        const string expected = "apiVersion=terrascale.io/orchestrator/v1|id=workload-api|generation=2|" +
+        const string expected = "apiVersion=terrascale.io/orchestrator/v1|id=workload-platform|generation=2|" +
                                 "resourceVersion=9|owner=RegionalController:gru-controller|" +
                                 "createdBy=GitOps:release-controller|audit=reconcile-12345678";
 
@@ -303,9 +303,9 @@ public sealed class ResourceContractTests
     {
         const string secretValue = "p@ss word\nprivate-key-bytes";
         await Assert.That(Throws<ArgumentException>(() => new ResourceId(secretValue))).IsTrue();
-        var descriptor = Descriptor(secrets: [new(new("api-identity-profile"))]);
+        var descriptor = Descriptor(secrets: [new(new("platform-identity-profile"))]);
 
-        await Assert.That(descriptor.ToCanonicalString()).Contains("secrets=api-identity-profile");
+        await Assert.That(descriptor.ToCanonicalString()).Contains("secrets=platform-identity-profile");
         await Assert.That(descriptor.ToCanonicalString()).DoesNotContain(secretValue);
         await Assert.That(typeof(SecretProfileReference).GetConstructors().SelectMany(constructor => constructor.GetParameters())
             .Any(parameter => parameter.ParameterType == typeof(string) || parameter.ParameterType == typeof(byte[]))).IsFalse();
@@ -313,7 +313,7 @@ public sealed class ResourceContractTests
 
     private static ResourceMetadata Metadata() => new(
         ApiVersion.V1,
-        new("workload-api"),
+        new("workload-platform"),
         new(2),
         new(9),
         new(AuthorityKind.RegionalController, new("gru-controller")),
@@ -322,7 +322,7 @@ public sealed class ResourceContractTests
 
     private static List<AdmittedRole> AllRoles() =>
     [
-        new ApiRole(), new AuthenticationRole(), new CustomerDashboardRole(), new TerraBaseMemberRole(),
+        new PlatformRole(), new AuthenticationRole(), new CustomerDashboardRole(), new TerraBaseMemberRole(),
         new OrchestratorRole(), new ControlNatsServerRole(), new ProductNatsServerRole(), new GrafanaRole(),
         new MetricsStoreRole(new(ImplementationDomain.MetricsStore, new("owner-selected-metrics"))),
         new LokiRole(), new TempoRole(), new AlertmanagerRole(), new OtlpIngestRole(), new SyntheticCheckRole(),
@@ -340,12 +340,12 @@ public sealed class ResourceContractTests
         IEnumerable<HealthSignal>? health = null,
         ScalingControllerOwner scaling = ScalingControllerOwner.Stateless) => new(
         ApiVersion.V1,
-        new ApiRole(),
+        new PlatformRole(),
         runtimes ?? [RuntimeDriver.OciContainer],
         ports ?? [new(TransportProtocol.Tcp, 443)],
         capabilities ?? [RoleCapability.PublicHttp],
         volumes ?? [],
-        secrets ?? [new(new("api-identity"))],
+        secrets ?? [new(new("platform-identity"))],
         new HealthContract(health ?? [HealthSignal.ApplicationLiveness, HealthSignal.Readiness]),
         new PlacementConstraints(new("compact"), FailureDomainSpread.PreferDistinct, false),
         scaling,

@@ -52,7 +52,7 @@ internal static class HostRuntimeCli
 
     internal static AdmittedRole ParseRole(string value) => value switch
     {
-        "api" => AdmittedRole.Api,
+        "platform" => AdmittedRole.Platform,
         "authentication" => AdmittedRole.Authentication,
         "customer-dashboard" => AdmittedRole.CustomerDashboard,
         "terrabase-member" => AdmittedRole.TerraBaseMember,

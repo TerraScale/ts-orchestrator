@@ -6,15 +6,15 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class NativeGitOpsCellConvergenceJournalTests
 {
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV3 = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV3 = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
     public async Task DecisionIsDurableBeforeDispatchAndExactRetriesRecoverIt()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var accepted = Accepted(null, Plan(1, ApiV1));
+        var accepted = Accepted(null, Plan(1, PlatformV1));
         var journal = new NativeGitOpsCellConvergenceJournal(ledger);
 
         var first = await Advance(journal, accepted, [], watermark: 1);
@@ -51,7 +51,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
     [Test]
     public async Task MutationCrashAndAuthorityLossNeverCreateDispatchAuthority()
     {
-        var accepted = Accepted(null, Plan(1, ApiV1));
+        var accepted = Accepted(null, Plan(1, PlatformV1));
         var crashingLedger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 1);
         var crashing = new NativeGitOpsCellConvergenceJournal(crashingLedger);
 
@@ -79,7 +79,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var journal = new NativeGitOpsCellConvergenceJournal(ledger);
-        var generation1Content = Plan(1, ApiV1);
+        var generation1Content = Plan(1, PlatformV1);
         var generation1 = Accepted(null, generation1Content);
         var first = await Advance(
             journal,
@@ -88,7 +88,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
             watermark: 10);
         await Assert.That(first.CanAdvanceGlobal).IsTrue();
 
-        var generation2 = Accepted(generation1Content, Plan(2, ApiV2)) with
+        var generation2 = Accepted(generation1Content, Plan(2, PlatformV2)) with
         {
             StreamSequence = 2,
             SignatureSha256 = Hash("signature-generation-2"),
@@ -102,7 +102,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
         await Assert.That(second.Checkpoint!.Decision.Intent!.Kind)
             .IsEqualTo(NativeGitOpsCellConvergenceIntentKind.Apply);
 
-        var wrongBase = Accepted(generation1Content, Plan(3, ApiV3)) with
+        var wrongBase = Accepted(generation1Content, Plan(3, PlatformV3)) with
         {
             StreamSequence = 3,
             SignatureSha256 = Hash("signature-generation-3"),
@@ -115,7 +115,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
         await Assert.That(staleGeneration.Disposition)
             .IsEqualTo(NativeGitOpsCellConvergenceJournalDisposition.StaleGeneration);
 
-        var conflicting = Accepted(generation1Content, Plan(2, ApiV3));
+        var conflicting = Accepted(generation1Content, Plan(2, PlatformV3));
         var conflict = await Advance(journal, conflicting, [], watermark: 12);
         await Assert.That(conflict.Disposition)
             .IsEqualTo(NativeGitOpsCellConvergenceJournalDisposition.GenerationConflict);
@@ -154,7 +154,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
     public async Task OnlyDurableExactLiveCheckpointCanAdvanceAndCorruptionFailsClosed()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var accepted = Accepted(null, Plan(1, ApiV1));
+        var accepted = Accepted(null, Plan(1, PlatformV1));
         var journal = new NativeGitOpsCellConvergenceJournal(ledger);
         var complete = await Advance(
             journal,
@@ -193,7 +193,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
         () => authorityStillValid);
 
     private static NativeGitOpsWorkloadObservation Absent(long sequence) => new(
-        "api",
+        "platform",
         0,
         null,
         NativeGitOpsWorkloadState.Absent,
@@ -216,13 +216,13 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
         string workloadDigest,
         NativeGitOpsWorkloadState state,
         long sequence) => new(
-        "api",
+        "platform",
         generation,
         workloadDigest,
         state,
         NativeGitOpsWorkloadOwnership.NativeGitOpsParent,
         sequence,
-        Hash($"api-{generation}-{workloadDigest}-{state}-{sequence}"));
+        Hash($"platform-{generation}-{workloadDigest}-{state}-{sequence}"));
 
     private static NativeGitOpsAcceptedCellSpec Accepted(byte[]? prior, byte[] proposed)
     {
@@ -270,7 +270,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
     }
 
     private static byte[] Plan(long generation, string artifactDigest) => Encoding.UTF8.GetBytes($$"""
-        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"api","role":"Api","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
+        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
         """);
 
     private static string Hash(string value) => Convert.ToHexStringLower(

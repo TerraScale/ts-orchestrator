@@ -18,7 +18,7 @@ public sealed class ReconciliationEngineTests
 
         await Assert.That(Signature(first)).IsEqualTo(Signature(second));
         await Assert.That(first.Steps.Select(static step => step.Desired.Identity.Value)
-            .SequenceEqual(new[] { "database", "api", "dashboard" }, StringComparer.Ordinal)).IsTrue();
+            .SequenceEqual(new[] { "database", "platform", "dashboard" }, StringComparer.Ordinal)).IsTrue();
         await Assert.That(first.Steps.All(static step => step.Output is ConvergedResource)).IsTrue();
         await Assert.That(first.Trace.Select(static item => item.Sequence))
             .IsEquivalentTo(new[] { 1, 2, 3 });
@@ -31,19 +31,19 @@ public sealed class ReconciliationEngineTests
         var observed = new[]
         {
             Exact(desired[0]) with { Generation = 1, Digest = "old-db" },
-            Exact(desired[1]) with { Generation = 1, Digest = "old-api" },
+            Exact(desired[1]) with { Generation = 1, Digest = "old-platform" },
             Exact(desired[2]) with { Generation = 1, Digest = "old-dashboard" },
         };
 
         var plan = Plan(desired, observed);
 
         var database = plan.Steps.Single(static step => step.Desired.Identity.Value == "database");
-        var api = plan.Steps.Single(static step => step.Desired.Identity.Value == "api");
+        var platform = plan.Steps.Single(static step => step.Desired.Identity.Value == "platform");
         var dashboard = plan.Steps.Single(static step => step.Desired.Identity.Value == "dashboard");
         await Assert.That(database.Output).IsTypeOf<ReconcileResourceIntent>();
-        await Assert.That(api.Output).IsTypeOf<HoldResource>();
-        await Assert.That(((HoldResource)api.Output).Reason).IsEqualTo(ReconciliationReasonCode.DependencyNotConverged);
-        await Assert.That(((HoldResource)api.Output).RootResource.Value).IsEqualTo("database");
+        await Assert.That(platform.Output).IsTypeOf<HoldResource>();
+        await Assert.That(((HoldResource)platform.Output).Reason).IsEqualTo(ReconciliationReasonCode.DependencyNotConverged);
+        await Assert.That(((HoldResource)platform.Output).RootResource.Value).IsEqualTo("database");
         await Assert.That(((HoldResource)dashboard.Output).RootResource.Value).IsEqualTo("database");
 
         var databaseIntent = (ReconcileResourceIntent)database.Output;
@@ -55,22 +55,22 @@ public sealed class ReconciliationEngineTests
     {
         var desired = Graph();
         var observations = desired.Select(Exact).ToArray();
-        var apiIndex = Array.FindIndex(observations, static observation => observation.Identity.Value == "api");
-        observations[apiIndex] = observations[apiIndex] with { Generation = 1, Digest = "old-api" };
+        var apiIndex = Array.FindIndex(observations, static observation => observation.Identity.Value == "platform");
+        observations[apiIndex] = observations[apiIndex] with { Generation = 1, Digest = "old-platform" };
 
         var plan = Plan(desired, observations);
         var intent = (ReconcileResourceIntent)plan.Steps
-            .Single(static step => step.Desired.Identity.Value == "api").Output;
+            .Single(static step => step.Desired.Identity.Value == "platform").Output;
 
-        await Assert.That(intent.Identity.Value).IsEqualTo("api");
+        await Assert.That(intent.Identity.Value).IsEqualTo("platform");
         await Assert.That(intent.Kind).IsEqualTo("service");
         await Assert.That(intent.Generation).IsEqualTo(2);
-        await Assert.That(intent.Digest).IsEqualTo("digest-api");
-        await Assert.That(intent.ObservationProof.Identity.Value).IsEqualTo("api");
+        await Assert.That(intent.Digest).IsEqualTo("digest-platform");
+        await Assert.That(intent.ObservationProof.Identity.Value).IsEqualTo("platform");
         await Assert.That(intent.ObservationProof.Kind).IsEqualTo("service");
         await Assert.That(intent.ObservationProof.Generation).IsEqualTo(1);
-        await Assert.That(intent.ObservationProof.Digest).IsEqualTo("old-api");
-        await Assert.That(intent.ObservationProof.ObservationId).IsEqualTo("observation-api");
+        await Assert.That(intent.ObservationProof.Digest).IsEqualTo("old-platform");
+        await Assert.That(intent.ObservationProof.ObservationId).IsEqualTo("observation-platform");
         await Assert.That(intent.ObservationProof.FreshnessSequence).IsEqualTo(10);
         await Assert.That(intent.ObservationProof.Condition).IsEqualTo(ObservedCondition.Ready);
         await Assert.That(intent.DependencyProofs).HasSingleItem();
@@ -88,8 +88,8 @@ public sealed class ReconciliationEngineTests
     public async Task DependencyProofBindsExactObservationIdentityAndFreshness()
     {
         var dependency = Desired("database");
-        var target = Desired("api", "database");
-        var targetObservation = Exact(target) with { Generation = 1, Digest = "old-api" };
+        var target = Desired("platform", "database");
+        var targetObservation = Exact(target) with { Generation = 1, Digest = "old-platform" };
         var firstDependency = Exact(dependency) with
         {
             ObservationId = "dependency-observation-a",
@@ -379,9 +379,9 @@ public sealed class ReconciliationEngineTests
 
     private static DesiredResource[] Graph() =>
     [
-        Desired("dashboard", "database", "api"),
+        Desired("dashboard", "database", "platform"),
         Desired("database"),
-        Desired("api", "database"),
+        Desired("platform", "database"),
     ];
 
     private static DesiredResource Desired(string identity, params string[] dependencies) => new(

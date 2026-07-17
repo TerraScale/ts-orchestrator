@@ -23,7 +23,7 @@ public sealed class RuntimeDecisionTests
     [Test]
     public async Task RuntimeAdmissionRejectsRoleDescriptorDriverAndArchitectureReplay()
     {
-        var wrongRole = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(payload: NativePayload(), role: RuntimeRole.Api));
+        var wrongRole = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(payload: NativePayload(), role: RuntimeRole.Platform));
         var wrongDriver = RuntimeDecisionEngine.EvaluateLifecycle(Lifecycle(
             payload: NativePayload(), role: RuntimeRole.TerraBase,
             admission: new(RuntimeRole.TerraBase, RuntimeDriver.OciContainer, RuntimeArchitecture.LinuxArm64, new(2))));
@@ -542,7 +542,7 @@ public sealed class RuntimeDecisionTests
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new RuntimeGeneration(0))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new RuntimeDigest("mutable-tag"))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new RuntimeWorkloadId("bad/path"))).IsTrue();
-        await Assert.That(Throws<ArgumentOutOfRangeException>(() => new RuntimeAdmission(RuntimeRole.Api, (RuntimeDriver)0, RuntimeArchitecture.LinuxArm64, new(1)))).IsTrue();
+        await Assert.That(Throws<ArgumentOutOfRangeException>(() => new RuntimeAdmission(RuntimeRole.Platform, (RuntimeDriver)0, RuntimeArchitecture.LinuxArm64, new(1)))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => Spec(NativePayload(), RuntimeRole.TerraBase, ports: [new(8080), new(8080)]))).IsTrue();
         await Assert.That(Throws<ArgumentNullException>(() => new UpdateSoakEvidence(
             null!, Node, Allocation, new(5), new(6), UpdateSlot.B, new(600)))).IsTrue();

@@ -56,7 +56,7 @@ internal static class DevelopmentPki
                 "product",
                 productRoot,
                 productIntermediate,
-                cell.OfKind(DevelopmentResourceKind.Api)
+                cell.OfKind(DevelopmentResourceKind.Platform)
                     .ToDictionary(
                         resource => resource.Name,
                         resource => (Role: "workload", Identity: resource.Name),

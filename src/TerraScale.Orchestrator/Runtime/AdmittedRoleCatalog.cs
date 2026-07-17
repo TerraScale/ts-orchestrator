@@ -2,7 +2,7 @@ namespace TerraScale.Orchestrator.Runtime;
 
 public enum AdmittedRole
 {
-    Api,
+    Platform,
     Authentication,
     CustomerDashboard,
     TerraBaseMember,
@@ -79,7 +79,7 @@ public static class AdmittedRoleCatalog
 
     private static IEnumerable<AdmittedRoleDescriptor> CreateDescriptors()
     {
-        yield return Oci(AdmittedRole.Api, "terrascale-api", RoleCapability.PublicHttp);
+        yield return Oci(AdmittedRole.Platform, "terrascale-platform", RoleCapability.PublicHttp);
         yield return Oci(AdmittedRole.Authentication, "terrascale-authentication", RoleCapability.PublicHttp);
         yield return Oci(AdmittedRole.CustomerDashboard, "terrascale-dashboard", RoleCapability.PublicHttp);
         yield return Both(

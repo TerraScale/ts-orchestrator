@@ -47,9 +47,9 @@ public sealed record RuntimePort { public RuntimePort(ushort value) => Value = v
 
 public enum RuntimeDriver { NativeSystemd = 1, OciContainer = 2 }
 public enum RuntimeArchitecture { LinuxArm64 = 1, LinuxX64 = 2 }
-public enum RuntimeRole { Orchestrator = 1, TerraBase = 2, Api = 3, Authentication = 4, Dashboard = 5, NatsServer = 6, Telemetry = 7, Grafana = 8, TrustedCi = 9 }
+public enum RuntimeRole { Orchestrator = 1, TerraBase = 2, Platform = 3, Authentication = 4, Dashboard = 5, NatsServer = 6, Telemetry = 7, Grafana = 8, TrustedCi = 9 }
 public enum NativeUnitDescriptor { Orchestrator = 1, TerraBase = 2, NatsServer = 3, Telemetry = 4 }
-public enum OciRuntimeDescriptor { Api = 1, Authentication = 2, Dashboard = 3, TerraBase = 4, Telemetry = 5, Grafana = 6, TrustedCi = 7 }
+public enum OciRuntimeDescriptor { Platform = 1, Authentication = 2, Dashboard = 3, TerraBase = 4, Telemetry = 5, Grafana = 6, TrustedCi = 7 }
 public enum VolumeRetention { Retained = 1, Ephemeral = 2 }
 public enum HealthDimension { Startup = 1, Liveness = 2, LocalReadiness = 3, DependencyReadiness = 4, DrainReadiness = 5, RolloutVerification = 6 }
 public enum HealthStatus { Ready = 1, NotReady = 2, Failed = 3, Unknown = 4 }

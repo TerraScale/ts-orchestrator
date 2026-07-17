@@ -29,10 +29,10 @@ internal static class DevelopmentHealthProbe
     {
         DevelopmentResourceKind.TerraBase => "/build/version",
         DevelopmentResourceKind.Authentication or
-        DevelopmentResourceKind.Api or
+        DevelopmentResourceKind.Platform or
         DevelopmentResourceKind.EmailEmulator or
         DevelopmentResourceKind.StripeEmulator => "/health/ready",
-        DevelopmentResourceKind.Dashboard => "/api/stack",
+        DevelopmentResourceKind.Dashboard => "/health/ready",
         _ => null
     };
 

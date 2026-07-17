@@ -6,28 +6,28 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class NativeGitOpsCellConvergenceTests
 {
-    private const string ApiV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-    private const string ApiV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformV2 = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string Auth = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
     public async Task OneDependencyOrderedActionAdvancesFromObservationToLiveConvergence()
     {
         var accepted = Accepted(null, Plan(1,
-            Workload("api", "Api", ApiV1, ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["auth"]),
             Workload("auth", "Authentication", Auth)));
         var authDigest = DesiredDigest(accepted, "auth");
-        var apiDigest = DesiredDigest(accepted, "api");
+        var platformDigest = DesiredDigest(accepted, "platform");
 
         await AssertIntent(Decide(accepted, null, []), NativeGitOpsCellConvergenceIntentKind.Observe, "auth");
         await AssertIntent(Decide(accepted, null, [Absent("auth")]), NativeGitOpsCellConvergenceIntentKind.Apply, "auth");
         await AssertIntent(Decide(accepted, null, [Present("auth", 1, authDigest, NativeGitOpsWorkloadState.Applying)]),
             NativeGitOpsCellConvergenceIntentKind.Observe, "auth");
         await AssertIntent(Decide(accepted, null,
-                [Healthy("auth", 1, authDigest), Absent("api")]),
-            NativeGitOpsCellConvergenceIntentKind.Apply, "api");
+                [Healthy("auth", 1, authDigest), Absent("platform")]),
+            NativeGitOpsCellConvergenceIntentKind.Apply, "platform");
 
-        var observations = new[] { Healthy("api", 1, apiDigest), Healthy("auth", 1, authDigest) };
+        var observations = new[] { Healthy("platform", 1, platformDigest), Healthy("auth", 1, authDigest) };
         var first = Decide(accepted, null, observations);
         var reordered = Decide(accepted, null, observations.Reverse());
         await Assert.That(first.IsConverged).IsTrue();
@@ -38,25 +38,25 @@ public sealed class NativeGitOpsCellConvergenceTests
     [Test]
     public async Task StaleDriftForeignAndConflictingObservationsFailOrRepairSafely()
     {
-        var acceptedPlan = Plan(1, Workload("api", "Api", ApiV1));
+        var acceptedPlan = Plan(1, Workload("platform", "Platform", PlatformV1));
         var acceptedManifest = NativeGitOpsManifest.Parse(acceptedPlan);
-        var accepted = Accepted(acceptedPlan, Plan(2, Workload("api", "Api", ApiV2)));
+        var accepted = Accepted(acceptedPlan, Plan(2, Workload("platform", "Platform", PlatformV2)));
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, acceptedManifest.Digest);
-        var desired = DesiredDigest(accepted, "api");
+        var desired = DesiredDigest(accepted, "platform");
         var previous = NativeGitOpsCellSpecCompiler.WorkloadDigest(acceptedManifest.Workloads.Single());
 
-        await AssertIntent(Decide(accepted, baseline, [Healthy("api", 1, previous)]),
-            NativeGitOpsCellConvergenceIntentKind.Apply, "api");
-        await AssertIntent(Decide(accepted, baseline, [Healthy("api", 1, previous, sequence: 4)], minimumSequence: 5),
-            NativeGitOpsCellConvergenceIntentKind.Observe, "api");
+        await AssertIntent(Decide(accepted, baseline, [Healthy("platform", 1, previous)]),
+            NativeGitOpsCellConvergenceIntentKind.Apply, "platform");
+        await AssertIntent(Decide(accepted, baseline, [Healthy("platform", 1, previous, sequence: 4)], minimumSequence: 5),
+            NativeGitOpsCellConvergenceIntentKind.Observe, "platform");
         await AssertHold(Decide(accepted, baseline,
-            [Present("api", 2, ApiV1, NativeGitOpsWorkloadState.Healthy)]),
+            [Present("platform", 2, PlatformV1, NativeGitOpsWorkloadState.Healthy)]),
             NativeGitOpsCellConvergenceHoldReason.SameGenerationConflict);
         await AssertHold(Decide(accepted, baseline,
-            [Present("api", 3, desired, NativeGitOpsWorkloadState.Healthy)]),
+            [Present("platform", 3, desired, NativeGitOpsWorkloadState.Healthy)]),
             NativeGitOpsCellConvergenceHoldReason.FutureGeneration);
         await AssertHold(Decide(accepted, baseline,
-            [Present("api", 2, desired, NativeGitOpsWorkloadState.Healthy,
+            [Present("platform", 2, desired, NativeGitOpsWorkloadState.Healthy,
                 NativeGitOpsWorkloadOwnership.RegionalJournalChild)]),
             NativeGitOpsCellConvergenceHoldReason.ForeignOwnership);
         await AssertHold(Decide(accepted, baseline, [Healthy("unknown", 2, desired)]),
@@ -66,21 +66,21 @@ public sealed class NativeGitOpsCellConvergenceTests
     [Test]
     public async Task FailedHealthRequestsANewQualifiedGenerationInsteadOfLocalRewind()
     {
-        var prior = Plan(1, Workload("api", "Api", ApiV1));
+        var prior = Plan(1, Workload("platform", "Platform", PlatformV1));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
-        var accepted = Accepted(prior, Plan(2, Workload("api", "Api", ApiV2)));
+        var accepted = Accepted(prior, Plan(2, Workload("platform", "Platform", PlatformV2)));
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, priorPlan.Digest);
         var failed = Present(
-            "api",
+            "platform",
             2,
-            DesiredDigest(accepted, "api"),
+            DesiredDigest(accepted, "platform"),
             NativeGitOpsWorkloadState.Unhealthy);
 
         await AssertHold(Decide(accepted, baseline, [failed]),
             NativeGitOpsCellConvergenceHoldReason.FailedHealthWithoutRollback);
         var target = new NativeGitOpsRollbackTarget(1, priorPlan.Digest, Hash("qualified-generation-1"));
         var rollback = Decide(accepted, baseline, [failed], rollbackTarget: target);
-        await AssertIntent(rollback, NativeGitOpsCellConvergenceIntentKind.RequestRollbackGeneration, "api");
+        await AssertIntent(rollback, NativeGitOpsCellConvergenceIntentKind.RequestRollbackGeneration, "platform");
         await Assert.That(rollback.Intent!.RollbackTarget).IsEqualTo(target);
         await Assert.That(rollback.Intent.Generation).IsEqualTo(2);
 
@@ -94,7 +94,7 @@ public sealed class NativeGitOpsCellConvergenceTests
     public async Task RetirementIsDependentFirstAndRequiresEveryBoundProofBeforeMutation()
     {
         var prior = Plan(1,
-            Workload("api", "Api", ApiV1, ["auth"]),
+            Workload("platform", "Platform", PlatformV1, ["auth"]),
             Workload("auth", "Authentication", Auth));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
         var accepted = Accepted(prior, Plan(2,
@@ -102,45 +102,45 @@ public sealed class NativeGitOpsCellConvergenceTests
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, priorPlan.Digest);
         var parsed = NativeGitOpsCellPayload.Parse(accepted);
         var retirement = parsed.Changes.Single(static value => value.Kind == NativeGitOpsChangeKind.GuardedRetirement);
-        var api = Healthy("api", 1, retirement.AcceptedWorkloadSha256!);
+        var platform = Healthy("platform", 1, retirement.AcceptedWorkloadSha256!);
         var auth = Healthy(
             "auth",
             1,
             NativeGitOpsCellSpecCompiler.WorkloadDigest(priorPlan.Workloads.Single(static value => value.Id == "auth")));
 
-        await AssertIntent(Decide(accepted, baseline, [auth, api]),
-            NativeGitOpsCellConvergenceIntentKind.AuthorizeRetirement, "api");
+        await AssertIntent(Decide(accepted, baseline, [auth, platform]),
+            NativeGitOpsCellConvergenceIntentKind.AuthorizeRetirement, "platform");
         var proof = RetirementProof(accepted, parsed, retirement);
-        await AssertIntent(Decide(accepted, baseline, [auth, api], [proof]),
-            NativeGitOpsCellConvergenceIntentKind.Retire, "api");
-        await AssertHold(Decide(accepted, baseline, [auth, api], [proof with { WriterEpoch = 8 }]),
+        await AssertIntent(Decide(accepted, baseline, [auth, platform], [proof]),
+            NativeGitOpsCellConvergenceIntentKind.Retire, "platform");
+        await AssertHold(Decide(accepted, baseline, [auth, platform], [proof with { WriterEpoch = 8 }]),
             NativeGitOpsCellConvergenceHoldReason.RetirementProofMismatch);
 
-        var apiAbsent = Absent("api");
-        await AssertIntent(Decide(accepted, baseline, [auth, apiAbsent], [proof]),
+        var platformAbsent = Absent("platform");
+        await AssertIntent(Decide(accepted, baseline, [auth, platformAbsent], [proof]),
             NativeGitOpsCellConvergenceIntentKind.Suspend, "auth");
         var suspended = Present(
             "auth",
             2,
             DesiredDigest(accepted, "auth"),
             NativeGitOpsWorkloadState.Suspended);
-        var complete = Decide(accepted, baseline, [suspended, apiAbsent], [proof]);
+        var complete = Decide(accepted, baseline, [suspended, platformAbsent], [proof]);
         await Assert.That(complete.IsConverged).IsTrue();
     }
 
     [Test]
     public async Task AcceptedBaseContinuityIsMandatoryBeforeAnyRegionalAction()
     {
-        var prior = Plan(4, Workload("api", "Api", ApiV1));
+        var prior = Plan(4, Workload("platform", "Platform", PlatformV1));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
-        var accepted = Accepted(prior, Plan(5, Workload("api", "Api", ApiV2)));
+        var accepted = Accepted(prior, Plan(5, Workload("platform", "Platform", PlatformV2)));
 
         await AssertHold(Decide(accepted, null, []),
             NativeGitOpsCellConvergenceHoldReason.AcceptedBaseMismatch);
-        await AssertHold(Decide(accepted, new("gru", 4, ApiV1), []),
+        await AssertHold(Decide(accepted, new("gru", 4, PlatformV1), []),
             NativeGitOpsCellConvergenceHoldReason.AcceptedBaseMismatch);
         await AssertIntent(Decide(accepted, new("gru", 4, priorPlan.Digest), []),
-            NativeGitOpsCellConvergenceIntentKind.Observe, "api");
+            NativeGitOpsCellConvergenceIntentKind.Observe, "platform");
     }
 
     private static NativeGitOpsCellConvergenceDecision Decide(

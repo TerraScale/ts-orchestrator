@@ -49,8 +49,8 @@ public sealed class DevelopmentReconciliationTests
         await Assert.That(order.IndexOf("gru-control-nats-1"))
             .IsLessThan(order.IndexOf("gru-controller-1"));
         await Assert.That(order.IndexOf("gru-authentication"))
-            .IsLessThan(order.IndexOf("gru-api"));
-        await Assert.That(order.IndexOf("gru-api"))
+            .IsLessThan(order.IndexOf("gru-platform"));
+        await Assert.That(order.IndexOf("gru-platform"))
             .IsLessThan(order.IndexOf("gru-dashboard"));
     }
 
@@ -61,7 +61,7 @@ public sealed class DevelopmentReconciliationTests
         var foreign = new DevelopmentResourceObservation(
             "foreign",
             "gru",
-            DevelopmentResourceKind.Api,
+            DevelopmentResourceKind.Platform,
             1,
             DevelopmentResourceState.Ready,
             true,
@@ -86,12 +86,12 @@ public sealed class DevelopmentReconciliationTests
                 resource.Cell,
                 resource.Kind,
                 resource.Replica,
-                resource.Name == "sfo-api" ? DevelopmentResourceState.Failed : DevelopmentResourceState.Ready,
-                resource.Name != "sfo-api",
+                resource.Name == "sfo-platform" ? DevelopmentResourceState.Failed : DevelopmentResourceState.Ready,
+                resource.Name != "sfo-platform",
                 20_000 + index,
                 $"container-{index}",
                 null,
-                resource.Name == "sfo-api" ? "failed" : "ready",
+                resource.Name == "sfo-platform" ? "failed" : "ready",
                 DateTimeOffset.UtcNow))
             .ToArray();
 

@@ -225,7 +225,7 @@ internal static class NatsDevelopmentCluster
                     Password = security.Product.Password
                 },
                 TlsOpts = DevelopmentHealthProbe.TlsOptions(
-                    security.Tls.Product.Clients[$"{security.Cell}-api"])
+                    security.Tls.Product.Clients[$"{security.Cell}-platform"])
             },
             _ => throw new ArgumentOutOfRangeException(
                 nameof(resource),

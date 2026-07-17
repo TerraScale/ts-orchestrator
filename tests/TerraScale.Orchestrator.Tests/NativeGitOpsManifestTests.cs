@@ -6,7 +6,7 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class NativeGitOpsManifestTests
 {
-    private const string ApiDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private const string PlatformDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string AuthDigest = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string ControlDigest = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -19,7 +19,7 @@ public sealed class NativeGitOpsManifestTests
               "kind":"TerraScaleDesiredState",
               "generation":7,
               "workloads":[
-                {"id":"api","role":"Api","artifactDigest":"{{ApiDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
+                {"id":"platform","role":"Platform","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
                 {"id":"control","role":"Orchestrator","artifactDigest":"{{ControlDigest}}","cells":["gru"]},
                 {"id":"auth","role":"Authentication","artifactDigest":"{{AuthDigest}}","cells":["gru","sfo"]}
               ]
@@ -31,21 +31,21 @@ public sealed class NativeGitOpsManifestTests
         await Assert.That(plan.Generation).IsEqualTo(7);
         await Assert.That(plan.Digest.Length).IsEqualTo(64);
         await Assert.That(string.Join(',', plan.Workloads.Select(static value => value.Id)))
-            .IsEqualTo("auth,api,control");
-        var api = plan.Workloads.Single(static value => value.Id == "api");
-        await Assert.That(api.Runtime).IsEqualTo(RuntimeDriver.OciContainer);
-        await Assert.That(api.Replicas).IsEqualTo(1);
-        await Assert.That(api.Cells).IsEquivalentTo(["gru", "sfo"]);
-        await Assert.That(api.ChildOwnership).IsEqualTo(GitOpsChildOwnership.RegionalJournal);
-        await Assert.That(api.RemovalPolicy).IsEqualTo(GitOpsRemovalPolicy.GuardedRetirement);
+            .IsEqualTo("auth,control,platform");
+        var platform = plan.Workloads.Single(static value => value.Id == "platform");
+        await Assert.That(platform.Runtime).IsEqualTo(RuntimeDriver.OciContainer);
+        await Assert.That(platform.Replicas).IsEqualTo(1);
+        await Assert.That(platform.Cells).IsEquivalentTo(["gru", "sfo"]);
+        await Assert.That(platform.ChildOwnership).IsEqualTo(GitOpsChildOwnership.RegionalJournal);
+        await Assert.That(platform.RemovalPolicy).IsEqualTo(GitOpsRemovalPolicy.GuardedRetirement);
         var control = plan.Workloads.Single(static value => value.Id == "control");
         await Assert.That(control.Runtime).IsEqualTo(RuntimeDriver.NativeSystemd);
         await Assert.That(control.Replicas).IsEqualTo(3);
         await Assert.That(string.Join(',', plan.Cells.Select(static value => value.Cell))).IsEqualTo("gru,sfo");
         await Assert.That(string.Join(',', plan.Cells.Single(static value => value.Cell == "gru").Workloads
-            .Select(static value => value.Id))).IsEqualTo("auth,api,control");
+            .Select(static value => value.Id))).IsEqualTo("auth,control,platform");
         await Assert.That(string.Join(',', plan.Cells.Single(static value => value.Cell == "sfo").Workloads
-            .Select(static value => value.Id))).IsEqualTo("auth,api");
+            .Select(static value => value.Id))).IsEqualTo("auth,platform");
     }
 
     [Test]
@@ -53,14 +53,14 @@ public sealed class NativeGitOpsManifestTests
     {
         var first = Parse($$"""
             {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":1,"workloads":[
-              {"id":"api","role":"Api","artifactDigest":"{{ApiDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
+              {"id":"platform","role":"Platform","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
               {"id":"auth","role":"Authentication","artifactDigest":"{{AuthDigest}}","cells":["sfo","gru"]}
             ]}
             """);
         var second = Parse($$"""
             {"workloads":[
               {"cells":["gru","sfo"],"artifactDigest":"{{AuthDigest}}","role":"Authentication","id":"auth","suspended":false,"replicas":1,"runtime":"OciContainer"},
-              {"dependsOn":["auth"],"cells":["gru","sfo"],"artifactDigest":"{{ApiDigest}}","role":"Api","id":"api"}
+              {"dependsOn":["auth"],"cells":["gru","sfo"],"artifactDigest":"{{PlatformDigest}}","role":"Platform","id":"platform"}
             ],"generation":1,"kind":"TerraScaleDesiredState","apiVersion":"terrascale.io/v1"}
             """);
 
@@ -73,11 +73,11 @@ public sealed class NativeGitOpsManifestTests
     {
         var cases = new[]
         {
-            Workload($"\"id\":\"api\",\"role\":\"ArbitraryContainer\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"]"),
-            Workload($"\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"runtime\":\"NativeSystemd\""),
-            Workload($"\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"command\":\"/bin/sh\""),
-            Workload($"\"id\":\"../../api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"]"),
-            Workload("\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"latest\",\"cells\":[\"gru\"]"),
+            Workload($"\"id\":\"platform\",\"role\":\"ArbitraryContainer\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"]"),
+            Workload($"\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"runtime\":\"NativeSystemd\""),
+            Workload($"\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"command\":\"/bin/sh\""),
+            Workload($"\"id\":\"../../platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"]"),
+            Workload("\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"latest\",\"cells\":[\"gru\"]"),
         };
 
         foreach (var value in cases)
@@ -90,8 +90,8 @@ public sealed class NativeGitOpsManifestTests
         var cases = new[]
         {
             Workload($"\"id\":\"control\",\"role\":\"Orchestrator\",\"artifactDigest\":\"{ControlDigest}\",\"cells\":[\"gru\"],\"replicas\":1"),
-            Workload($"\"id\":\"api\",\"id\":\"other\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"]"),
-            Workload($"\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\",\"gru\"]"),
+            Workload($"\"id\":\"platform\",\"id\":\"other\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"]"),
+            Workload($"\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\",\"gru\"]"),
             "{\"apiVersion\":\"terrascale.io/v2\",\"kind\":\"TerraScaleDesiredState\",\"generation\":1,\"workloads\":[]}",
             "{\"apiVersion\":\"terrascale.io/v1\",\"kind\":\"TerraScaleDesiredState\",\"generation\":0,\"workloads\":[]}",
         };
@@ -104,22 +104,22 @@ public sealed class NativeGitOpsManifestTests
     public async Task DependencyGraphRejectsMissingCrossCellSelfAndCycles()
     {
         var missing = Manifest([
-            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}"
+            $"{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}"
         ]);
         var crossCell = Manifest([
-            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\",\"sfo\"],\"dependsOn\":[\"auth\"]}}",
+            $"{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\",\"sfo\"],\"dependsOn\":[\"auth\"]}}",
             $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"]}}"
         ]);
         var self = Manifest([
-            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"api\"]}}"
+            $"{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"platform\"]}}"
         ]);
         var cycle = Manifest([
-            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}",
-            $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"api\"]}}"
+            $"{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}",
+            $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"platform\"]}}"
         ]);
 
         var suspendedDependency = Manifest([
-            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}",
+            $"{{\"id\":\"platform\",\"role\":\"Platform\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}",
             $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"],\"suspended\":true}}"
         ]);
 

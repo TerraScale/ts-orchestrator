@@ -7,7 +7,7 @@ public enum DevelopmentResourceKind
     ProductNats,
     TerraBase,
     Authentication,
-    Api,
+    Platform,
     Dashboard,
     EmailEmulator,
     StripeEmulator
@@ -131,9 +131,9 @@ public sealed record DevelopmentTopology(
             1,
             start + 70));
         resources.Add(new(
-            $"{cell}-api",
+            $"{cell}-platform",
             cell,
-            DevelopmentResourceKind.Api,
+            DevelopmentResourceKind.Platform,
             1,
             start + 71));
         resources.Add(new(

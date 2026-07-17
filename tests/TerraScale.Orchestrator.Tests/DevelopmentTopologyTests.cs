@@ -43,7 +43,7 @@ public sealed class DevelopmentTopologyTests
                 DevelopmentResourceKind.ControlNats,
                 DevelopmentResourceKind.ProductNats,
                 DevelopmentResourceKind.TerraBase,
-                DevelopmentResourceKind.Api,
+                DevelopmentResourceKind.Platform,
                 DevelopmentResourceKind.Authentication,
                 DevelopmentResourceKind.Dashboard
             })
@@ -71,24 +71,24 @@ public sealed class DevelopmentTopologyTests
     {
         var topology = DevelopmentTopology.CreateThreeCellLean();
         var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
-        var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
+        var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
 
         var environment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
             cell,
-            api,
-            isApi: true,
+            platform,
+            isPlatform: true,
             "/tmp/terrascale-orchestrator-tests");
         var authenticationEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
             cell,
             authentication,
-            isApi: false,
+            isPlatform: false,
             "/tmp/terrascale-orchestrator-tests");
 
         await Assert.That(environment["HOME"])
-            .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-api/home");
+            .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-platform/home");
         await Assert.That(environment["DOTNET_CLI_HOME"]).IsEqualTo(environment["HOME"]);
         await Assert.That(authenticationEnvironment["HOME"])
             .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-authentication/home");
@@ -98,6 +98,9 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("1");
         await Assert.That(environment["TerraScale__Queue__StreamReplicas"]).IsEqualTo("1");
         await Assert.That(environment["TerraScale__Queue__ConsumerReplicas"]).IsEqualTo("1");
+        await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
+        await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
+        await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
         await Assert.That(environment.Keys.Count(key => key.StartsWith("TerraBase__Urls__", StringComparison.Ordinal)))
             .IsEqualTo(1);
     }
@@ -110,7 +113,7 @@ public sealed class DevelopmentTopologyTests
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
             topology,
-            cell.OfKind(DevelopmentResourceKind.Api).Single(),
+            cell.OfKind(DevelopmentResourceKind.Platform).Single(),
             cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
             dashboard,
             "/runtime/product-ca.pem",
@@ -122,6 +125,10 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["SSL_CERT_FILE"]).IsEqualTo("/runtime/product-ca.pem");
         await Assert.That(environment["VITE_CACHE_PATH"])
             .IsEqualTo("/runtime/gru-dashboard/vite-task-cache");
+        await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_CLIENT_ID")).IsFalse();
+        await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_PROJECT_ID")).IsFalse();
+        await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_TENANT_ID")).IsFalse();
+        await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_DATABASE_IDS")).IsFalse();
     }
 
     [Test]
@@ -252,7 +259,7 @@ public sealed class DevelopmentTopologyTests
                 "/workspace/TerraBase/src/TerraBase.Server/bin/Release/net10.0:O");
         await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
             topology,
-            "gru-api",
+            "gru-platform",
             "/workspace"))
             .IsNull();
     }

@@ -336,15 +336,15 @@ public sealed class ObservabilityDecisionTests
     [Test]
     public async Task EveryCallerControlledCollectionRejectsBoundaryPlusOne()
     {
-        var labels = new[] { new TelemetryLabel(new("region"), new("gru")), new TelemetryLabel(new("service"), new("api")) };
-        await Assert.That(Throws<ArgumentException>(() => new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("api"), new("signal-1"), new("metric"), TelemetrySignalKind.Metric, new(5), Digest(), new(1), labels))).IsTrue();
+        var labels = new[] { new TelemetryLabel(new("region"), new("gru")), new TelemetryLabel(new("service"), new("platform")) };
+        await Assert.That(Throws<ArgumentException>(() => new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("platform"), new("signal-1"), new("metric"), TelemetrySignalKind.Metric, new(5), Digest(), new(1), labels))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new TelemetryLabelCatalogEntry(new("region"), LabelClassification.BoundedPublic, new(1), [new ObservabilityLabelValue("gru"), new ObservabilityLabelValue("sfo")]))).IsTrue();
 
-        var spec = new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("api"), new("signal-1"), new("metric"), TelemetrySignalKind.Metric, new(5), Digest(), new(1), [labels[0]]);
+        var spec = new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("platform"), new("signal-1"), new("metric"), TelemetrySignalKind.Metric, new(5), Digest(), new(1), [labels[0]]);
         var catalogs = new[]
         {
             new TelemetryLabelCatalogEntry(new("region"), LabelClassification.BoundedPublic, new(1), [new ObservabilityLabelValue("gru")]),
-            new TelemetryLabelCatalogEntry(new("service"), LabelClassification.BoundedPublic, new(1), [new ObservabilityLabelValue("api")]),
+            new TelemetryLabelCatalogEntry(new("service"), LabelClassification.BoundedPublic, new(1), [new ObservabilityLabelValue("platform")]),
         };
         await Assert.That(Throws<ArgumentException>(() => new TelemetryAdmissionRequest(spec, Tenant, Cell, new(5), Digest(), new(9), new(100), new(1), catalogs, Cardinality()))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new RegionalHealthRequest(Operation, Cell, new(5), new(9), Digest(), new(3), [Policy(TelemetrySignalKind.Metric), Policy(TelemetrySignalKind.Log), Policy(TelemetrySignalKind.Trace)], Observations().Append(Observation(TelemetrySignalKind.Metric))))).IsTrue();
@@ -372,7 +372,7 @@ public sealed class ObservabilityDecisionTests
         ObservabilityTenantId? authorizedTenant = null, ObservabilityCellId? authorizedCell = null,
         CardinalityEvidence? cardinality = null, ulong specGeneration = 5, ulong budget = 100)
     {
-        var spec = new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("api"), new("signal-1"), new("request-count"), TelemetrySignalKind.Metric,
+        var spec = new TelemetryAdmissionSpec(Operation, Tenant, Cell, new("platform"), new("signal-1"), new("request-count"), TelemetrySignalKind.Metric,
             new(specGeneration), Digest(), new(10), labels ?? [new TelemetryLabel(new("region"), new("gru"))]);
         return new(spec, authorizedTenant ?? Tenant, authorizedCell ?? Cell, new(5), Digest(), new(9), new(budget), new(10),
             catalog ?? [new TelemetryLabelCatalogEntry(new("region"), LabelClassification.BoundedPublic, new(10), [new ObservabilityLabelValue("gru"), new ObservabilityLabelValue("sfo")])], cardinality ?? Cardinality());

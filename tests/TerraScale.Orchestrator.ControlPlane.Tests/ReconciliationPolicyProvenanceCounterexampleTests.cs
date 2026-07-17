@@ -10,7 +10,7 @@ public sealed class ReconciliationPolicyProvenanceCounterexampleTests
     [Test]
     public async Task Distinct_policies_authorizing_the_same_reconcile_must_not_collapse_to_one_mutation_output()
     {
-        var desired = Desired("api");
+        var desired = Desired("platform");
         var observation = Drift(desired);
         var firstPolicy = Policy(["service"], new Dictionary<ResourceIdentity, long>(), 100, 8, 10);
         var secondPolicy = Policy(["service", "database"],
@@ -66,7 +66,7 @@ public sealed class ReconciliationPolicyProvenanceCounterexampleTests
     [Test]
     public async Task Every_policy_scalar_and_collection_count_or_item_changes_the_accepted_policy_independently()
     {
-        var desired = Desired("api");
+        var desired = Desired("platform");
         var observation = Drift(desired);
         var baseline = Policy(["service", "database"],
             new Dictionary<ResourceIdentity, long> { [desired.Identity] = 1 }, 100, 8, 10);

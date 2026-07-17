@@ -385,7 +385,7 @@ public static class DevelopmentLab
             $"nats://127.0.0.1:{resource.Port}",
         DevelopmentResourceKind.TerraBase or
         DevelopmentResourceKind.Authentication or
-        DevelopmentResourceKind.Api or
+        DevelopmentResourceKind.Platform or
         DevelopmentResourceKind.Dashboard or
         DevelopmentResourceKind.EmailEmulator or
         DevelopmentResourceKind.StripeEmulator =>
@@ -404,7 +404,7 @@ public static class DevelopmentLab
             return;
         }
         endpoints["nats"] = endpoints[productNats[0].Name];
-        endpoints["api"] = endpoints[gru.OfKind(DevelopmentResourceKind.Api).Single().Name];
+        endpoints["platform"] = endpoints[gru.OfKind(DevelopmentResourceKind.Platform).Single().Name];
         endpoints["authentication"] = endpoints[gru.OfKind(DevelopmentResourceKind.Authentication).Single().Name];
         endpoints["dashboard"] = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];
         var terraBase = gru.OfKind(DevelopmentResourceKind.TerraBase);

@@ -13,7 +13,7 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo(AdmittedRoleCatalog.All.Count);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.TerraBaseMember).DefaultDriver)
             .IsEqualTo(RuntimeDriver.NativeSystemd);
-        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Api).DefaultDriver)
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Platform).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
@@ -26,7 +26,7 @@ public sealed class AdmittedRoleCatalogTests
     [Test]
     public async Task DriverAdmissionRejectsAnUnapprovedRuntime()
     {
-        await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Api, RuntimeDriver.NativeSystemd))
+        await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Platform, RuntimeDriver.NativeSystemd))
             .Throws<InvalidOperationException>();
         await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Orchestrator, RuntimeDriver.OciContainer))
             .Throws<InvalidOperationException>();

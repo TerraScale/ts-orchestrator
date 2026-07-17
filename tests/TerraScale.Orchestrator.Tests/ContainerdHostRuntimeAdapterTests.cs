@@ -82,9 +82,9 @@ public sealed class ContainerdHostRuntimeAdapterTests
     }
 
     private static HostRuntimePlan OciPlan() => HostRuntimePlan.Create(
-        AdmittedRole.Api,
+        AdmittedRole.Platform,
         RuntimeDriver.OciContainer,
-        new RuntimeAllocationId("gru-api-1"),
+        new RuntimeAllocationId("gru-platform-1"),
         new ArtifactDigest(Digest),
         HostArchitecture.Arm64);
 
@@ -94,7 +94,7 @@ public sealed class ContainerdHostRuntimeAdapterTests
         public string PulledDigest { get; init; } = Digest;
         public ContainerdCreateRequest? Created { get; private set; }
         public ContainerdAllocationObservation Observation { get; init; } =
-            new("terrascale-gru-api-1", ContainerdAllocationState.Absent, null, null, null, null, "absent");
+            new("terrascale-gru-platform-1", ContainerdAllocationState.Absent, null, null, null, null, "absent");
 
         public Task<ContainerdAllocationObservation> ObserveAsync(
             string @namespace,

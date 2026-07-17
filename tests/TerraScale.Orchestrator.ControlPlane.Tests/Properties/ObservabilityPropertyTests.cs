@@ -295,9 +295,9 @@ internal static class ObservabilityData
     internal static TelemetryAdmissionRequest Admission(ulong seed, int variant, bool reverse = false)
     {
         var operation = new ObservabilityOperationId($"operation-{seed}"); var tenant = new ObservabilityTenantId($"tenant-{seed}"); var cell = new ObservabilityCellId($"cell-{seed}"); var generation = 1000 + seed;
-        var labels = new[] { new TelemetryLabel(new("region"), new("gru")), new TelemetryLabel(new("service"), new("api")) }; var catalog = new[] {
+        var labels = new[] { new TelemetryLabel(new("region"), new("gru")), new TelemetryLabel(new("service"), new("platform")) }; var catalog = new[] {
             new TelemetryLabelCatalogEntry(new("region"), variant == 4 ? LabelClassification.SecretBearingForbidden : LabelClassification.BoundedPublic, new(2), [new ObservabilityLabelValue("gru")]),
-            new TelemetryLabelCatalogEntry(new("service"), LabelClassification.BoundedPublic, new(2), [new ObservabilityLabelValue("api")]) };
+            new TelemetryLabelCatalogEntry(new("service"), LabelClassification.BoundedPublic, new(2), [new ObservabilityLabelValue("platform")]) };
         if (reverse) { Array.Reverse(labels); Array.Reverse(catalog); }
         var observedGeneration = variant == 2 ? generation - 1 : variant == 3 ? generation + 1 : generation;
         var spec = new TelemetryAdmissionSpec(operation, tenant, cell, new($"service-{seed}"), new($"signal-{seed}"), new($"metric-{seed}"), TelemetrySignalKind.Metric, new(observedGeneration), Digest(), new(2), labels);
