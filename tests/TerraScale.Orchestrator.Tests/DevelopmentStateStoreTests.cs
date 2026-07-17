@@ -13,12 +13,12 @@ public sealed class DevelopmentStateStoreTests
         var now = DateTimeOffset.UtcNow;
         var state = new DevelopmentRuntimeState(
             2,
-            "devhost-three-cell-r3",
+            "dev-containers-three-cell-lean",
             7,
             now,
             now,
             [],
-            new DevelopmentReconciliationState(47, 0, 0, 0, 47, 0, [], []));
+            new DevelopmentReconciliationState(23, 0, 0, 0, 23, 0, [], []));
 
         try
         {

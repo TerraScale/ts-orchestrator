@@ -28,14 +28,14 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-nats-security-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellR3();
+            var topology = DevelopmentTopology.CreateThreeCellLean();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var gru = security.Cell("gru");
             var sfo = security.Cell("sfo");
 
-            await Assert.That(gru.Controllers.Count).IsEqualTo(3);
+            await Assert.That(gru.Controllers.Count).IsEqualTo(1);
             await Assert.That(gru.Controllers.Values.Select(value => value.PublicKey).Distinct().Count())
-                .IsEqualTo(3);
+                .IsEqualTo(1);
             await Assert.That(gru.Operator.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
             await Assert.That(gru.Product.Password).IsNotEqualTo(sfo.Product.Password);
             await Assert.That(File.ReadAllText(gru.Tls.Control.Clients["operator-read"].CaFile))

@@ -5,25 +5,33 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentTopologyTests
 {
     [Test]
-    public async Task ThreeCellProfileHasProductionReplicaCountsAndUniquePorts()
+    public async Task ThreeCellContainerProfileHasOneReplicaPerRoleAndUniquePorts()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
 
+        await Assert.That(topology.Profile).IsEqualTo("dev-containers-three-cell-lean");
         await Assert.That(topology.Cells.Select(cell => cell.Cell)).IsEquivalentTo(["gru", "sfo", "fra"]);
         foreach (var cell in topology.Cells)
         {
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.ControllerAgent).Count).IsEqualTo(3);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.ControlNats).Count).IsEqualTo(3);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.ProductNats).Count).IsEqualTo(3);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.TerraBase).Count).IsEqualTo(3);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.Api).Count).IsEqualTo(1);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.Authentication).Count).IsEqualTo(1);
-            await Assert.That(cell.OfKind(DevelopmentResourceKind.Dashboard).Count).IsEqualTo(1);
+            foreach (var kind in new[]
+            {
+                DevelopmentResourceKind.ControllerAgent,
+                DevelopmentResourceKind.ControlNats,
+                DevelopmentResourceKind.ProductNats,
+                DevelopmentResourceKind.TerraBase,
+                DevelopmentResourceKind.Api,
+                DevelopmentResourceKind.Authentication,
+                DevelopmentResourceKind.Dashboard
+            })
+            {
+                await Assert.That(cell.OfKind(kind).Count).IsEqualTo(1);
+            }
         }
 
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .ToArray();
+        await Assert.That(resources.Length).IsEqualTo(23);
         var ports = resources.Select(resource => resource.Port)
             .Concat(resources.Where(resource => resource.ClusterPort is not null)
                 .Select(resource => resource.ClusterPort!.Value))
@@ -35,108 +43,63 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task BuiltInProfileCannotResolveAnUnknownCellOrReplica()
+    public async Task RegionalServicesUseReducedDatabaseAndQueueReplication()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
-
-        await Assert.That(() => topology.GetRequired("unknown", DevelopmentResourceKind.Api))
-            .Throws<InvalidOperationException>();
-        await Assert.That(() => topology.GetRequired("gru", DevelopmentResourceKind.Api, replica: 2))
-            .Throws<InvalidOperationException>();
-    }
-
-    [Test]
-    public async Task ControllerMessagingProbesAreIsolatedByStableInstance()
-    {
-        var first = new Messaging.NatsTopology("gru", 3, "1");
-        var second = new Messaging.NatsTopology("gru", 3, "2");
-
-        await Assert.That(first.StartupSubject).IsNotEqualTo(second.StartupSubject);
-        await Assert.That(first.StartupConsumer.Name).IsNotEqualTo(second.StartupConsumer.Name);
-        await Assert.That(first.InstanceHealthSubject).IsNotEqualTo(second.InstanceHealthSubject);
-        await Assert.That(first.ServiceName).IsEqualTo(second.ServiceName);
-        await Assert.That(first.ServiceQueueGroup).IsEqualTo(second.ServiceQueueGroup);
-        await Assert.That(first.StatusSubject).IsEqualTo("ts.orch.v1.gru.query.status");
-    }
-
-    [Test]
-    public async Task RegionalServicesUseTheProductionDatabaseTopologyFloor()
-    {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
         var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
-        var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
+        var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
 
         var environment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
             cell,
-            authentication,
-            isApi: false,
+            api,
+            isApi: true,
             "/tmp/terrascale-orchestrator-tests");
 
         await Assert.That(environment["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"])
-            .IsEqualTo("false");
-        await Assert.That(environment["TerraScale__ServiceDatabases__ShardCount"]).IsEqualTo("3");
-        await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("3");
-        await Assert.That(environment["TerraScale__ServiceDatabases__DynamicNodesDistribution"]).IsEqualTo("true");
-        await Assert.That(environment.Keys.Count(key => key.StartsWith(
-                "TerraBase__Urls__",
-                StringComparison.Ordinal)))
-            .IsEqualTo(3);
+            .IsEqualTo("true");
+        await Assert.That(environment["TerraScale__ServiceDatabases__ShardCount"]).IsEqualTo("1");
+        await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("1");
+        await Assert.That(environment["TerraScale__Queue__StreamReplicas"]).IsEqualTo("1");
+        await Assert.That(environment["TerraScale__Queue__ConsumerReplicas"]).IsEqualTo("1");
+        await Assert.That(environment.Keys.Count(key => key.StartsWith("TerraBase__Urls__", StringComparison.Ordinal)))
+            .IsEqualTo(1);
     }
 
     [Test]
-    public async Task DashboardUsesItsRegionalPortInsteadOfVinextDefault()
+    public async Task DashboardRunsPublishedBuildOnAllInterfacesInsideThePod()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
-        var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
-        var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
+        var dashboard = DevelopmentTopology.CreateThreeCellLean()
+            .Cells.Single(cell => cell.Cell == "gru")
+            .OfKind(DevelopmentResourceKind.Dashboard).Single();
 
-        var arguments = DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard, watch: true);
-        var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
-            topology,
-            cell.OfKind(DevelopmentResourceKind.Api).Single(),
-            cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
-            dashboard,
-            watch: true);
-
-        await Assert.That(arguments).IsEquivalentTo([
-            "run",
-            "vinext:dev",
-            "--hostname",
-            "127.0.0.1",
-            "--port",
-            dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        await Assert.That(DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard)).IsEquivalentTo([
+            "run", "vinext:start", "--hostname", "0.0.0.0", "--port", dashboard.Port.ToString()
         ]);
-        await Assert.That(environment["VINEXT_NO_DEV_LOCK"]).IsEqualTo("1");
-        await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"])
-            .IsEqualTo($"http://127.0.0.1:{dashboard.Port}");
     }
 
     [Test]
-    public async Task NatsMembersUseAStableBootstrapRingWithoutAllToAllRouteStorms()
+    public async Task SingleNatsMemberHasNoSelfRoute()
     {
-        var members = DevelopmentTopology.CreateThreeCellR3().Cells
+        var member = DevelopmentTopology.CreateThreeCellLean().Cells
             .Single(cell => cell.Cell == "fra")
-            .OfKind(DevelopmentResourceKind.ControlNats);
+            .OfKind(DevelopmentResourceKind.ControlNats).Single();
 
-        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[0]))
-            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[1].ClusterPort}"]);
-        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[1]))
-            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[2].ClusterPort}"]);
-        await Assert.That(NatsDevelopmentCluster.CreateRoutes(members, members[2]))
-            .IsEquivalentTo([$"nats-route://127.0.0.1:{members[0].ClusterPort}"]);
+        await Assert.That(NatsDevelopmentCluster.CreateRoutes([member], member)).IsEmpty();
     }
 
     [Test]
-    public async Task ContinuousHealthUsesRoleSpecificProductionSurfaces()
+    public async Task ContainerImagesAndPodBudgetAreClosed()
     {
-        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.TerraBase))
-            .IsEqualTo("/build/version");
-        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.Api))
-            .IsEqualTo("/health/ready");
-        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.Dashboard))
-            .IsEqualTo("/api/stack");
-        await Assert.That(DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.ControlNats))
-            .IsNull();
+        await Assert.That(DevelopmentContainerImages.All).IsEquivalentTo([
+            DevelopmentContainerImages.AspNet,
+            DevelopmentContainerImages.RuntimeDependencies,
+            DevelopmentContainerImages.Node,
+            DevelopmentContainerImages.Nats
+        ]);
+        await Assert.That(DevelopmentProcessSupervisor.PodMemoryLimitBytes)
+            .IsEqualTo(16L * 1024 * 1024 * 1024);
+        await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
+            .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
     }
 }

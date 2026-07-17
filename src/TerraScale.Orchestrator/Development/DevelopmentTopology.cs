@@ -39,7 +39,7 @@ public sealed record DevelopmentTopology(
     private const int CellStride = 200;
     private const int BasePort = 18600;
 
-    public static DevelopmentTopology CreateThreeCellR3()
+    public static DevelopmentTopology CreateThreeCellLean()
     {
         var cells = new[] { "gru", "sfo", "fra" }
             .Select((cell, ordinal) => CreateCell(cell, ordinal))
@@ -60,7 +60,7 @@ public sealed record DevelopmentTopology(
                 1,
                 globalBase + 1)
         };
-        return new("devhost-three-cell-r3", cells, global);
+        return new("dev-containers-three-cell-lean", cells, global);
     }
 
     public DevelopmentResourcePlan GetRequired(
@@ -74,36 +74,34 @@ public sealed record DevelopmentTopology(
     {
         var start = BasePort + (ordinal * CellStride);
         var resources = new List<DevelopmentResourcePlan>();
-        for (var replica = 1; replica <= 3; replica++)
-        {
-            resources.Add(new(
-                $"{cell}-control-nats-{replica}",
-                cell,
-                DevelopmentResourceKind.ControlNats,
-                replica,
-                start + replica - 1,
-                start + 10 + replica - 1));
-            resources.Add(new(
-                $"{cell}-product-nats-{replica}",
-                cell,
-                DevelopmentResourceKind.ProductNats,
-                replica,
-                start + 20 + replica - 1,
-                start + 30 + replica - 1));
-            resources.Add(new(
-                $"{cell}-controller-{replica}",
-                cell,
-                DevelopmentResourceKind.ControllerAgent,
-                replica,
-                start + 40 + replica - 1));
-            resources.Add(new(
-                $"{cell}-terrabase-{replica}",
-                cell,
-                DevelopmentResourceKind.TerraBase,
-                replica,
-                start + 50 + replica - 1,
-                SecondaryPort: start + 60 + replica - 1));
-        }
+        const int replica = 1;
+        resources.Add(new(
+            $"{cell}-control-nats-{replica}",
+            cell,
+            DevelopmentResourceKind.ControlNats,
+            replica,
+            start,
+            start + 10));
+        resources.Add(new(
+            $"{cell}-product-nats-{replica}",
+            cell,
+            DevelopmentResourceKind.ProductNats,
+            replica,
+            start + 20,
+            start + 30));
+        resources.Add(new(
+            $"{cell}-controller-{replica}",
+            cell,
+            DevelopmentResourceKind.ControllerAgent,
+            replica,
+            start + 40));
+        resources.Add(new(
+            $"{cell}-terrabase-{replica}",
+            cell,
+            DevelopmentResourceKind.TerraBase,
+            replica,
+            start + 50,
+            SecondaryPort: start + 60));
 
         resources.Add(new(
             $"{cell}-authentication",

@@ -37,7 +37,7 @@ public sealed class AdmittedRoleCatalogTests
     [Test]
     public async Task EveryProductionShapedDevelopmentResourceProjectsToTheClosedCatalog()
     {
-        var resources = DevelopmentTopology.CreateThreeCellR3().Cells.SelectMany(cell => cell.Resources).ToArray();
+        var resources = DevelopmentTopology.CreateThreeCellLean().Cells.SelectMany(cell => cell.Resources).ToArray();
 
         await Assert.That(resources.All(resource => DevelopmentRoleProjection.Get(resource.Kind) is not null)).IsTrue();
         foreach (var resource in resources)

@@ -462,18 +462,3 @@ internal static class DeliveryInventoryCommand
         return 0;
     }
 }
-
-internal static class SmolVmHostCommand
-{
-    public static int Run(string[] arguments)
-    {
-        var pin = ToolingSupport.ReadObject("testlab/pins/smolvm-v1.5.0.json");
-        var result = ToolingSupport.RunProcess("smolvm", ["--version"]);
-        var errors = new List<string>();
-        if (result.ExitCode != 0) errors.Add("smolvm runtime is unavailable");
-        if (!result.StandardOutput.Contains(pin["version"]?.GetValue<string>() ?? "1.5.0", StringComparison.Ordinal)) errors.Add("smolvm runtime version drift");
-        ToolingSupport.RequireNoErrors(errors);
-        Console.WriteLine(File.ReadAllText(Path.Combine(ToolingSupport.Root, "testlab/conformance/smolvm-host-report.json"), Encoding.UTF8));
-        return 0;
-    }
-}

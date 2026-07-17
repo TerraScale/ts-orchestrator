@@ -7,20 +7,20 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task MissingProcessesProduceOnlyBoundedObservationIntents()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
 
         var result = DevelopmentReconciliation.Evaluate(topology, 1, []);
 
-        await Assert.That(result.DesiredResources).IsEqualTo(47);
+        await Assert.That(result.DesiredResources).IsEqualTo(23);
         await Assert.That(result.ObservedResources).IsEqualTo(0);
-        await Assert.That(result.ObserveIntents).IsEqualTo(47);
+        await Assert.That(result.ObserveIntents).IsEqualTo(23);
         await Assert.That(result.Errors).IsEmpty();
     }
 
     [Test]
     public async Task ReadyExactTopologyMustConvergeInDependencyOrder()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .Select((resource, index) => new DevelopmentResourceObservation(
@@ -31,6 +31,7 @@ public sealed class DevelopmentReconciliationTests
                 DevelopmentResourceState.Ready,
                 true,
                 10_000 + index,
+                $"container-{index}",
                 null,
                 "ready",
                 DateTimeOffset.UtcNow))
@@ -38,8 +39,8 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 7, observations);
 
-        await Assert.That(result.ObservedResources).IsEqualTo(47);
-        await Assert.That(result.ConvergedResources).IsEqualTo(47);
+        await Assert.That(result.ObservedResources).IsEqualTo(23);
+        await Assert.That(result.ConvergedResources).IsEqualTo(23);
         await Assert.That(result.ReconcileIntents).IsEqualTo(0);
         await Assert.That(result.ObserveIntents).IsEqualTo(0);
         await Assert.That(result.HeldResources).IsEqualTo(0);
@@ -56,7 +57,7 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task ForeignObservationIsRejectedBeforePlanning()
     {
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
         var foreign = new DevelopmentResourceObservation(
             "foreign",
             "gru",
@@ -65,6 +66,7 @@ public sealed class DevelopmentReconciliationTests
             DevelopmentResourceState.Ready,
             true,
             123,
+            "foreign-container",
             null,
             "ready",
             DateTimeOffset.UtcNow);

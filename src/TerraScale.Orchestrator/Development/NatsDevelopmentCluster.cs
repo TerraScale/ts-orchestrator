@@ -19,9 +19,9 @@ internal static class NatsDevelopmentCluster
         }
 
         var resources = cell.OfKind(kind);
-        if (resources.Count != 3)
+        if (resources.Count != 1)
         {
-            throw new InvalidOperationException($"{cell.Cell} {kind} must have exactly three replicas.");
+            throw new InvalidOperationException($"{cell.Cell} {kind} must have exactly one development replica.");
         }
 
         var clusterName = kind == DevelopmentResourceKind.ControlNats
@@ -30,7 +30,6 @@ internal static class NatsDevelopmentCluster
         var domain = kind == DevelopmentResourceKind.ControlNats
             ? $"ORCH_{cell.Cell.ToUpperInvariant()}"
             : $"PRODUCT_{cell.Cell.ToUpperInvariant()}";
-        var natsServer = ResolveNatsServer();
         foreach (var resource in resources)
         {
             var routes = CreateRoutes(resources, resource);
@@ -49,7 +48,7 @@ internal static class NatsDevelopmentCluster
             var tls = planeTls.Servers[resource.Name];
             File.WriteAllText(config, $$"""
                 server_name: "{{resource.Name}}"
-                host: "127.0.0.1"
+                host: "0.0.0.0"
                 port: {{resource.Port}}
                 {{authorization}}
                 {{TlsConfiguration(tls.Client)}}
@@ -70,7 +69,11 @@ internal static class NatsDevelopmentCluster
                 throw new PlatformNotSupportedException("The Orchestrator development runtime requires Linux.");
             }
             File.SetUnixFileMode(config, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            supervisor.Start(resource.Name, natsServer, ["--config", config], root);
+            supervisor.Start(
+                resource.Name,
+                DevelopmentContainerImages.Nats,
+                ["--config", config],
+                root);
         }
         return resources;
     }
@@ -79,9 +82,9 @@ internal static class NatsDevelopmentCluster
         DevelopmentCellPlan cell,
         DevelopmentNatsCellSecurity security)
     {
-        if (security.Cell != cell.Cell || security.Controllers.Count != 3)
+        if (security.Cell != cell.Cell || security.Controllers.Count != 1)
         {
-            throw new InvalidOperationException("Control NATS security must match the exact regional R3 topology.");
+            throw new InvalidOperationException("Control NATS security must match the exact lean regional topology.");
         }
         var root = $"ts.orch.v1.{cell.Cell}.>";
         var controllerUsers = string.Join(
@@ -135,6 +138,10 @@ internal static class NatsDevelopmentCluster
         if (index < 0)
         {
             throw new ArgumentException("The NATS member is not part of the cluster.", nameof(resource));
+        }
+        if (ordered.Length == 1)
+        {
+            return [];
         }
         var next = ordered[(index + 1) % ordered.Length];
         return [$"nats-route://127.0.0.1:{next.ClusterPort}"];
@@ -210,18 +217,4 @@ internal static class NatsDevelopmentCluster
         };
     }
 
-    private static string ResolveNatsServer()
-    {
-        var configured = Environment.GetEnvironmentVariable("TERRASCALE_NATS_SERVER");
-        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
-        {
-            return configured;
-        }
-        var local = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".local",
-            "bin",
-            "nats-server");
-        return File.Exists(local) ? local : "nats-server";
-    }
 }

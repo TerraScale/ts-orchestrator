@@ -10,7 +10,6 @@ internal static class ToolDispatcher
             ["adr-readiness"] = arguments => Task.FromResult(AdrReadinessCommand.Run(arguments)),
             ["owner-decisions"] = arguments => Task.FromResult(OwnerDecisionCommand.Run(arguments)),
             ["registry-audit"] = arguments => Task.FromResult(RegistryAuditCommand.Run(arguments)),
-            ["smolvm-host"] = arguments => Task.FromResult(SmolVmHostCommand.Run(arguments)),
             ["nats-smoke"] = NatsSmokeCommand.RunAsync,
             ["nats-readiness"] = arguments => Task.FromResult(NatsReadinessCommand.Run(arguments)),
             ["mutation-evidence"] = arguments => Task.FromResult(MutationEvidenceCommand.Run(arguments)),

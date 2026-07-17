@@ -21,6 +21,7 @@ public sealed record DevelopmentResourceObservation(
     DevelopmentResourceState State,
     bool Healthy,
     int? ProcessId,
+    string? ContainerId,
     string? Endpoint,
     string Detail,
     DateTimeOffset ObservedAt);

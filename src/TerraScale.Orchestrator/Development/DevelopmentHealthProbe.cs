@@ -128,7 +128,7 @@ internal static class DevelopmentHealthProbe
         var response = await client.RequestAsync<string, string>(
             new NatsTopology(
                 resource.Cell,
-                3,
+                1,
                 resource.Replica.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 .InstanceHealthSubject,
             "health",

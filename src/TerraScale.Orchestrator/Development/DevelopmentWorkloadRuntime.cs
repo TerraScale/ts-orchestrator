@@ -15,7 +15,6 @@ internal static class DevelopmentWorkloadRuntime
         string workspaceRoot,
         string dataDirectory,
         DevelopmentNatsSecurity natsSecurity,
-        bool watch,
         CancellationToken cancellationToken)
     {
         var internalsRoot = Path.Combine(workspaceRoot, "TerraScale.Internals");
@@ -48,7 +47,6 @@ internal static class DevelopmentWorkloadRuntime
                 supervisor,
                 authentication,
                 Path.Combine(internalsRoot, "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
-                watch,
                 CreateServiceEnvironment(
                     topology, cell, authentication, isApi: false, dataDirectory, natsSecurity));
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
@@ -58,13 +56,12 @@ internal static class DevelopmentWorkloadRuntime
                 supervisor,
                 api,
                 Path.Combine(internalsRoot, "src", "API", "TerraScale.API", "TerraScale.API.csproj"),
-                watch,
                 CreateServiceEnvironment(
                     topology, cell, api, isApi: true, dataDirectory, natsSecurity));
             await WaitHttpAsync(api.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
-            StartDashboard(supervisor, topology, cell, dashboard, internalsRoot, watch);
+            StartDashboard(supervisor, topology, cell, dashboard, internalsRoot);
             await WaitHttpAsync(dashboard.Port, "/api/stack", supervisor, cancellationToken);
         }
     }
@@ -81,6 +78,10 @@ internal static class DevelopmentWorkloadRuntime
             "TerraScale.LocalEmulators",
             "TerraScale.LocalEmulators.csproj");
         RequireFile(project, "local emulator project");
+        var assembly = Path.Combine(
+            Path.GetDirectoryName(project)!,
+            "bin", "Release", "net10.0", "TerraScale.LocalEmulators.dll");
+        RequireFile(assembly, "published local emulator assembly");
         foreach (var resource in topology.GlobalResources)
         {
             var mode = resource.Kind switch
@@ -91,8 +92,8 @@ internal static class DevelopmentWorkloadRuntime
             };
             supervisor.Start(
                 resource.Name,
-                "dotnet",
-                ["run", "--no-launch-profile", "--project", project, "--", mode],
+                DevelopmentContainerImages.AspNet,
+                ["dotnet", assembly, mode],
                 Path.GetDirectoryName(project)!,
                 new Dictionary<string, string?>
                 {
@@ -129,17 +130,12 @@ internal static class DevelopmentWorkloadRuntime
             "--Security.UnsecuredAccessAllowed=PublicNetwork",
             "--Features.Availability=Experimental"
         };
-        var assembly = new[]
-        {
-            Path.Combine(projectDirectory, "bin", "Debug", "net10.0", "TerraBase.Server.dll"),
-            Path.Combine(projectDirectory, "bin", "Release", "net10.0", "TerraBase.Server.dll")
-        }.FirstOrDefault(File.Exists);
-        var arguments = assembly is null
-            ? new[] { "run", "--no-launch-profile", "--project", project, "--" }.Concat(serverArguments).ToArray()
-            : new[] { "exec", assembly }.Concat(serverArguments).ToArray();
+        var assembly = Path.Combine(projectDirectory, "bin", "Release", "net10.0", "TerraBase.Server.dll");
+        RequireFile(assembly, "published TerraBase assembly");
+        var arguments = new[] { "dotnet", assembly }.Concat(serverArguments).ToArray();
         supervisor.Start(
             resource.Name,
-            "dotnet",
+            DevelopmentContainerImages.AspNet,
             arguments,
             projectDirectory,
             new Dictionary<string, string?> { ["TERRABASE_NODE_TAG"] = tag });
@@ -149,14 +145,21 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentProcessSupervisor supervisor,
         DevelopmentResourcePlan resource,
         string project,
-        bool watch,
         IReadOnlyDictionary<string, string?> environment)
     {
         RequireFile(project, $"{resource.Kind} project");
-        var arguments = watch
-            ? new[] { "watch", "--quiet", "--non-interactive", "run", "--no-launch-profile", "--project", project }
-            : new[] { "run", "--no-launch-profile", "--project", project };
-        supervisor.Start(resource.Name, "dotnet", arguments, Path.GetDirectoryName(project)!, environment);
+        var directory = Path.GetDirectoryName(project)!;
+        var assemblyName = resource.Kind == DevelopmentResourceKind.Api
+            ? "TerraScale.API.dll"
+            : "TerraScale.Authentication.dll";
+        var assembly = Path.Combine(directory, "bin", "Release", "net10.0", assemblyName);
+        RequireFile(assembly, $"published {resource.Kind} assembly");
+        supervisor.Start(
+            resource.Name,
+            DevelopmentContainerImages.AspNet,
+            ["dotnet", assembly],
+            directory,
+            environment);
     }
 
     private static void StartDashboard(
@@ -164,8 +167,7 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentTopology topology,
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan dashboard,
-        string internalsRoot,
-        bool watch)
+        string internalsRoot)
     {
         var directory = Path.Combine(internalsRoot, "src", "Dashboard", "TerraScale.Dashboard.Next");
         RequireDirectory(directory, "Dashboard project");
@@ -178,27 +180,22 @@ internal static class DevelopmentWorkloadRuntime
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
         supervisor.Start(
             dashboard.Name,
-            vp,
-            CreateDashboardArguments(dashboard, watch),
+            DevelopmentContainerImages.Node,
+            [vp, .. CreateDashboardArguments(dashboard)],
             directory,
-            CreateDashboardEnvironment(topology, api, authentication, dashboard, watch));
+            CreateDashboardEnvironment(topology, api, authentication, dashboard));
     }
 
     internal static IReadOnlyDictionary<string, string?> CreateDashboardEnvironment(
         DevelopmentTopology topology,
         DevelopmentResourcePlan api,
         DevelopmentResourcePlan authentication,
-        DevelopmentResourcePlan dashboard,
-        bool watch) =>
+        DevelopmentResourcePlan dashboard) =>
         new Dictionary<string, string?>
         {
             ["HOST"] = "127.0.0.1",
             ["PORT"] = dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["NODE_ENV"] = watch ? "development" : "production",
-            // A production deployment has an isolated filesystem per dashboard. DevHost runs
-            // all regional replicas from one checkout, so the project-local Vinext PID lock
-            // must not collapse those independent cell processes into a single server.
-            ["VINEXT_NO_DEV_LOCK"] = watch ? "1" : null,
+            ["NODE_ENV"] = "production",
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
             ["TERRASCALE_API_BASE_URL"] = Http(api.Port),
@@ -211,14 +208,12 @@ internal static class DevelopmentWorkloadRuntime
             ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
         };
 
-    internal static IReadOnlyList<string> CreateDashboardArguments(
-        DevelopmentResourcePlan dashboard,
-        bool watch) =>
+    internal static IReadOnlyList<string> CreateDashboardArguments(DevelopmentResourcePlan dashboard) =>
     [
         "run",
-        watch ? "vinext:dev" : "vinext:start",
+        "vinext:start",
         "--hostname",
-        "127.0.0.1",
+        "0.0.0.0",
         "--port",
         dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
     ];
@@ -271,9 +266,9 @@ internal static class DevelopmentWorkloadRuntime
             ["TerraScale__ServiceDatabases__OrganizationName"] = "TerraScale",
             ["TerraScale__ServiceDatabases__ProjectName"] = "TerraScale",
             ["TerraScale__ServiceDatabases__ProjectId"] = ProductProjectId,
-            ["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"] = "false",
-            ["TerraScale__ServiceDatabases__ShardCount"] = "3",
-            ["TerraScale__ServiceDatabases__ReplicationFactor"] = "3",
+            ["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"] = "true",
+            ["TerraScale__ServiceDatabases__ShardCount"] = "1",
+            ["TerraScale__ServiceDatabases__ReplicationFactor"] = "1",
             ["TerraScale__ServiceDatabases__DynamicNodesDistribution"] = "true"
         };
         var members = cell.OfKind(DevelopmentResourceKind.TerraBase);
@@ -327,8 +322,8 @@ internal static class DevelopmentWorkloadRuntime
         environment["TerraScale__Queue__TlsCertificateFile"] = productTls?.CertificateFile;
         environment["TerraScale__Queue__TlsKeyFile"] = productTls?.KeyFile;
         environment["TerraScale__Queue__SubjectPrefix"] = $"terrascale.devhost.{cell.Cell}";
-        environment["TerraScale__Queue__StreamReplicas"] = "3";
-        environment["TerraScale__Queue__ConsumerReplicas"] = "3";
+        environment["TerraScale__Queue__StreamReplicas"] = "1";
+        environment["TerraScale__Queue__ConsumerReplicas"] = "1";
         environment["TerraScale__Backups__Provider"] = "LocalFolder";
         environment["TerraScale__Backups__LocalFolderPath"] = Path.Combine(dataDirectory, "backups", cell.Cell);
         environment["TerraScale__Backups__OperationPollSeconds"] = "1";

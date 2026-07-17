@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using TerraScale.Orchestrator.Lab.SmolVm;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -20,12 +19,7 @@ public static class DevelopmentLab
         {
             throw new InvalidOperationException("DevelopmentLab requires a lab command.");
         }
-        if (options.LabProfile == OrchestratorLabProfile.RegionsSmol)
-        {
-            return await SmolVmLab.ExecuteAsync(options, cancellationToken);
-        }
-
-        var topology = DevelopmentTopology.CreateThreeCellR3();
+        var topology = DevelopmentTopology.CreateThreeCellLean();
         return options.LabCommand switch
         {
             OrchestratorLabCommand.Plan => PrintPlan(topology),
@@ -68,12 +62,18 @@ public static class DevelopmentLab
             topology.Profile,
             cancellationToken);
         Directory.CreateDirectory(options.DataDirectory!);
+        await DevelopmentArtifactBuilder.BuildAsync(options.WorkspaceRoot!, cancellationToken);
         var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;
         var startedAt = DateTimeOffset.UtcNow;
         File.Delete(options.EndpointsFile!);
 
-        await using var supervisor = new DevelopmentProcessSupervisor();
+        await using var supervisor = new DevelopmentProcessSupervisor(
+            topology,
+            options.WorkspaceRoot!,
+            options.DataDirectory!,
+            options.Instance);
+        await supervisor.InitializeAsync(cancellationToken);
         var natsSecurity = DevelopmentNatsSecurity.Create(topology, options.DataDirectory!);
         await PersistAsync(
             options,
@@ -115,7 +115,6 @@ public static class DevelopmentLab
             options.WorkspaceRoot!,
             options.DataDirectory!,
             natsSecurity,
-            options.Watch,
             cancellationToken);
         supervisor.ThrowIfAnyExited();
 
@@ -199,14 +198,14 @@ public static class DevelopmentLab
                 var tls = cellSecurity.Tls.Control.Clients[controller.Name];
                 supervisor.Start(
                     controller.Name,
-                    executable,
-                    ["run"],
+                    DevelopmentContainerImages.RuntimeDependencies,
+                    [executable, "run"],
                     workingDirectory,
                     new Dictionary<string, string?>
                     {
                         ["TS_ORCH_CELL"] = cell.Cell,
                         ["TS_ORCH_NATS_URL"] = $"nats://127.0.0.1:{controlNats.Port}",
-                        ["TS_ORCH_REPLICAS"] = "3",
+                        ["TS_ORCH_REPLICAS"] = "1",
                         ["TS_ORCH_NATS_NKEY_FILE"] = cellSecurity.Controllers[controller.Replica].SeedFile,
                         ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.CaFile,
                         ["TS_ORCH_NATS_TLS_CERT_FILE"] = tls.CertificateFile,
@@ -332,7 +331,8 @@ public static class DevelopmentLab
             resource.Replica,
             state,
             healthy,
-            process is not null && !exited ? process.Id : null,
+            process is not null && !exited ? supervisor.GetContainerProcessId(resource.Name) : null,
+            process is not null ? supervisor.GetContainerId(resource.Name) : null,
             Endpoint(resource),
             exited
                 ? $"Exited with code {process!.ExitCode}."
@@ -365,7 +365,7 @@ public static class DevelopmentLab
         endpoints["dashboard"] = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];
         var terraBase = gru.OfKind(DevelopmentResourceKind.TerraBase);
         endpoints["terrabase"] = endpoints[terraBase[0].Name];
-        endpoints["terrabase-b"] = endpoints[terraBase[1].Name];
-        endpoints["terrabase-c"] = endpoints[terraBase[2].Name];
+        endpoints["terrabase-b"] = endpoints[terraBase[0].Name];
+        endpoints["terrabase-c"] = endpoints[terraBase[0].Name];
     }
 }
