@@ -87,7 +87,10 @@ try
                 options.GlobalNats,
                 options.Instance,
                 ciRunnerNatsIdentity,
-                shutdown.Token);
+                shutdown.Token,
+                options.ForgejoSource,
+                options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
+                commandIdentity?.Signer);
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
     {

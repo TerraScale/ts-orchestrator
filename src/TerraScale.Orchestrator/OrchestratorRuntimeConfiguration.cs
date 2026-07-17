@@ -41,7 +41,8 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? CiRunnerNatsCredentialsFile = null,
     string? CiRunnerNatsTlsCaFile = null,
     string? CiRunnerNatsTlsCertificateFile = null,
-    string? CiRunnerNatsTlsKeyFile = null)
+    string? CiRunnerNatsTlsKeyFile = null,
+    string? OciCiRunnerPoolConfigurationFile = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -107,6 +108,7 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_CI_RUNNER_NATS_TLS_CA_FILE" => CiRunnerNatsTlsCaFile,
         "TS_ORCH_CI_RUNNER_NATS_TLS_CERT_FILE" => CiRunnerNatsTlsCertificateFile,
         "TS_ORCH_CI_RUNNER_NATS_TLS_KEY_FILE" => CiRunnerNatsTlsKeyFile,
+        "TS_ORCH_CI_OCI_CONFIG" => OciCiRunnerPoolConfigurationFile,
         _ => null
     };
 

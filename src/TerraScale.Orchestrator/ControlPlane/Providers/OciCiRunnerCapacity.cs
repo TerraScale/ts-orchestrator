@@ -195,7 +195,7 @@ internal static class OciCiRunnerCapacityEngine
         foreach (var demand in request.Desired)
         {
             var collisions = live.Where(node => node.Runner == demand.Runner && node.Sequence == demand.Sequence).ToArray();
-            if (collisions.Length > 1 || collisions.Any(node => !Owned(node)))
+            if (collisions.Length > 1 || collisions.Any(node => !Matches(node, demand, request.LaunchTemplate)))
                 throw new InvalidDataException("An OCI CI runner identity has ambiguous provider ownership.");
         }
 
@@ -240,6 +240,17 @@ internal static class OciCiRunnerCapacityEngine
         node.FreeformTags.TryGetValue(RunnerTag, out var runner) && runner == node.Runner &&
         node.FreeformTags.TryGetValue(SequenceTag, out var sequence) &&
         sequence == node.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static bool Matches(
+        OciCiRunnerNodeObservation node,
+        OciCiRunnerDemand demand,
+        OciCiRunnerLaunchTemplate template) =>
+        Owned(node) && node.FreeformTags.TryGetValue("terrascale-zone", out var zone) &&
+        zone == (demand.Zone == TrustZone.UntrustedProduct ? "untrusted-product" : "trusted-build") &&
+        node.FreeformTags.TryGetValue("terrascale-generation", out var generation) &&
+        generation == template.Generation.ToString(System.Globalization.CultureInfo.InvariantCulture) &&
+        node.FreeformTags.TryGetValue("terrascale-bootstrap-sha256", out var bootstrap) &&
+        bootstrap == demand.BootstrapSha256;
 }
 
 internal static class OciCiRunnerRequestCompiler
@@ -319,8 +330,19 @@ internal sealed record OciCiRunnerMutationReceipt(
     string OpcRequestId,
     string OpcWorkRequestId);
 
+internal interface IOciCiRunnerCapacityAdapter : IDisposable
+{
+    Task<IReadOnlyList<OciCiRunnerNodeObservation>> ObserveAsync(
+        OciCiRunnerLaunchTemplate template,
+        CancellationToken cancellationToken);
+
+    Task<OciCiRunnerMutationReceipt> ExecuteAsync(
+        OciCiRunnerCapacityAction action,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>Executes already-decided OCI CI capacity actions with instance-principal authentication.</summary>
-internal sealed class OciCiRunnerComputeAdapter : IDisposable
+internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
 {
     private readonly ComputeClient client;
 
@@ -337,7 +359,78 @@ internal sealed class OciCiRunnerComputeAdapter : IDisposable
         return new(new(provider, configuration, uri.ToString().TrimEnd('/')));
     }
 
-    internal async Task<OciCiRunnerMutationReceipt> ExecuteAsync(
+    public async Task<IReadOnlyList<OciCiRunnerNodeObservation>> ObserveAsync(
+        OciCiRunnerLaunchTemplate template,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        var instances = new List<Instance>();
+        string? page = null;
+        do
+        {
+            var response = await client.ListInstances(
+                new ListInstancesRequest
+                {
+                    CompartmentId = template.CompartmentId,
+                    AvailabilityDomain = template.AvailabilityDomain,
+                    Limit = 100,
+                    Page = page,
+                    SortBy = ListInstancesRequest.SortByEnum.Timecreated,
+                    SortOrder = ListInstancesRequest.SortOrderEnum.Asc,
+                },
+                null,
+                cancellationToken,
+                HttpCompletionOption.ResponseHeadersRead);
+            foreach (var instance in response.Items ?? [])
+            {
+                var tags = instance.FreeformTags;
+                if (tags is null || !tags.TryGetValue("terrascale-owner", out var owner) ||
+                    owner != "orchestrator" || !tags.TryGetValue("terrascale-role", out var role) ||
+                    role != "ci-runner")
+                    continue;
+                instances.Add(instance);
+                if (instances.Count > 512)
+                    throw new InvalidDataException("The OCI CI runner observation exceeded its bound.");
+            }
+            page = response.OpcNextPage;
+        } while (!string.IsNullOrEmpty(page));
+
+        var observed = new List<OciCiRunnerNodeObservation>(instances.Count);
+        foreach (var listed in instances)
+        {
+            var response = await client.GetInstance(
+                new GetInstanceRequest { InstanceId = listed.Id },
+                null,
+                cancellationToken,
+                HttpCompletionOption.ResponseHeadersRead);
+            var instance = response.Instance ??
+                throw new InvalidDataException("OCI returned an empty CI runner observation.");
+            var tags = instance.FreeformTags ??
+                throw new InvalidDataException("An owned OCI CI runner has no ownership tags.");
+            if (!tags.TryGetValue("terrascale-runner", out var runner) ||
+                !tags.TryGetValue("terrascale-runner-sequence", out var sequenceText) ||
+                !long.TryParse(sequenceText, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var sequence) || sequence <= 0 ||
+                instance.TimeCreated is not { } created)
+                throw new InvalidDataException("An owned OCI CI runner has invalid identity tags.");
+            var termination = instance.PreemptibleInstanceConfig?.PreemptionAction as TerminatePreemptionAction;
+            observed.Add(new(
+                instance.Id,
+                response.Etag ?? string.Empty,
+                runner,
+                sequence,
+                State(instance.LifecycleState),
+                ActiveJob: false,
+                new DateTimeOffset(DateTime.SpecifyKind(created, DateTimeKind.Utc)),
+                Preemptible: termination is not null,
+                PreserveBootVolume: termination?.PreserveBootVolume ?? true,
+                new ReadOnlyDictionary<string, string>(
+                    new Dictionary<string, string>(tags, StringComparer.Ordinal))));
+        }
+        return Array.AsReadOnly(observed.ToArray());
+    }
+
+    public async Task<OciCiRunnerMutationReceipt> ExecuteAsync(
         OciCiRunnerCapacityAction action,
         CancellationToken cancellationToken)
     {
@@ -375,6 +468,15 @@ internal sealed class OciCiRunnerComputeAdapter : IDisposable
             default:
                 throw new ArgumentOutOfRangeException(nameof(action));
         }
+    }
+
+    private static OciCiRunnerNodeState State(Instance.LifecycleStateEnum? state)
+    {
+        if (state == Instance.LifecycleStateEnum.Terminated) return OciCiRunnerNodeState.Terminated;
+        if (state == Instance.LifecycleStateEnum.Terminating) return OciCiRunnerNodeState.Terminating;
+        if (state == Instance.LifecycleStateEnum.Running || state == Instance.LifecycleStateEnum.Stopped)
+            return OciCiRunnerNodeState.Running;
+        return OciCiRunnerNodeState.Launching;
     }
 
     public void Dispose() => client.Dispose();

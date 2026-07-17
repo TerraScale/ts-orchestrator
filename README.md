@@ -183,7 +183,9 @@ capabilities, artifact-publication flag, qualified-candidate requirement, and
 authority observation into `GLOBAL_RELEASES` before acknowledging the message.
 Ignored and held events are durable decisions too. Followers, authority loss,
 decision conflicts, corrupt events, and journal failure do not acknowledge.
-This stage classifies input only; it cannot dispatch runner work.
+Without an OCI CI pool this stage remains classification-only. With the pool
+configured, the same leader-held delivery stays alive through pipeline
+completion and idle-runner deletion.
 
 Every accepted push or pull-request event also retains the exact base and head
 Git object IDs. The authenticated Forgejo source adapter reads the bounded
@@ -367,7 +369,7 @@ and GRU in order; any failed forward phase enters the journal's exact reverse
 rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
 new fence. Registry publication, regional actuator, live-verification
-implementations, and controller-side CI orchestration remain separate gates.
+implementations remain separate gates.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
@@ -413,9 +415,10 @@ the exact signed isolation profile, executes
 the durable coordinator, and exits after 60 idle seconds by default. Runtime
 roots and runner identity/resource values are supplied through `HOME`,
 `XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
-configurable from 30 to 900 seconds. Controller-side result publication and
-candidate artifact interpretation/publication remain separate gates. No result
-is acknowledged unless its exact durable sink completed first.
+configurable from 30 to 900 seconds. Controller-side runner-result projection
+is part of the production loop; candidate artifact interpretation/publication
+remains a separate release gate. No result is acknowledged unless its exact
+durable sink completed first.
 
 Before any NATS connection, the runner now reads its own Linux process status,
 root mount, unified cgroup, resource ceilings, workspace filesystem, and Docker
@@ -439,6 +442,66 @@ identity, foreign ownership, or an incomplete fence fail closed. OCI `user_data`
 contains bootstrap code or an encrypted reference only—never a plaintext runner
 credential—and the admitted runner obtains its scoped NATS/mTLS identity after
 bootstrap. Preemption and idle termination both delete the boot volume.
+
+Production OCI CI is enabled by `TS_ORCH_CI_OCI_CONFIG`. The bounded JSON file
+declares placement plus one to 32 fixed runner slots. A slot is launched only
+while durable work needs its trust zone, and the controller reconciles its exact
+JetStream consumer before launch. It observes owned instances through OCI,
+dispatches only to a running exact runner/sequence/bootstrap generation, keeps
+the Forgejo delivery alive with progress acknowledgements, releases dependent
+jobs from durable runner results, and ETag-terminates every pool node after its
+30–900 second idle bound. Forgejo Actions is not in this path.
+
+```json
+{
+  "schemaVersion": 1,
+  "endpoint": "https://iaas.sa-saopaulo-1.oraclecloud.com/",
+  "compartmentId": "ocid1.compartment.oc1..example",
+  "availabilityDomain": "example:SA-SAOPAULO-1-AD-1",
+  "faultDomain": "FAULT-DOMAIN-1",
+  "subnetId": "ocid1.subnet.oc1.sa-saopaulo-1.example",
+  "networkSecurityGroupIds": [
+    "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.example"
+  ],
+  "imageId": "ocid1.image.oc1.sa-saopaulo-1.example",
+  "generation": 1,
+  "idleSeconds": 60,
+  "pollSeconds": 5,
+  "runners": [
+    {
+      "runner": "ci-untrusted-1",
+      "zone": "untrusted-product",
+      "sequence": 1,
+      "bootstrapFile": "bootstrap/ci-untrusted-1.cloud-init"
+    },
+    {
+      "runner": "ci-trusted-1",
+      "zone": "trusted-build",
+      "sequence": 1,
+      "bootstrapFile": "bootstrap/ci-trusted-1.cloud-init"
+    }
+  ]
+}
+```
+
+Bootstrap paths are relative to the pool file. Their bounded cloud-init/script
+content is the only value placed in OCI `user_data`; the loader rejects embedded
+NATS JWTs, NKey seeds, and private keys. Each image/bootstrap obtains its
+runner-scoped NATS credentials and distinct mTLS identity from OCI Vault using
+instance principal, then starts `terrascale-orchestrator runner` with the exact
+declared runner, zone, sequence, command trust key, private runtime roots, and
+the default 4 OCPU / 8 GiB / 50 GiB / 4096 PID isolation profile. Configure the
+pool together with global NATS, Forgejo source access, and the controller command
+signer:
+
+```bash
+TS_ORCH_CI_OCI_CONFIG=/etc/terrascale/oci-ci-pool.json \
+TS_ORCH_COMMAND_SIGNING_KEY_FILE=/run/credentials/command-signing.pem \
+TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
+TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
+TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-read-token \
+terrascale-orchestrator run
+```
 
 This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The

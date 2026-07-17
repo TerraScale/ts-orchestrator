@@ -3,6 +3,7 @@ using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using NATS.Net;
+using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -12,11 +13,13 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly NatsClient client;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly ForgejoCiEventConsumer ciEvents;
+    private readonly RepositoryCiController? ciController;
 
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
+        RepositoryCiController? ciController,
         CiRunnerConsumerReconciler ciRunners,
         CiRunnerNatsCredentialIssuer? ciRunnerCredentials,
         ForgejoWebhookJournal forgejoWebhooks,
@@ -30,6 +33,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.client = client;
         this.authority = authority;
         this.ciEvents = ciEvents;
+        this.ciController = ciController;
         CiRunners = ciRunners;
         CiRunnerCredentials = ciRunnerCredentials;
         ForgejoWebhooks = forgejoWebhooks;
@@ -57,7 +61,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         GlobalNatsConfiguration configuration,
         string instance,
         INatsAccountJwtSigner? ciRunnerNatsSigner,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ForgejoSourceConfiguration? ciSource = null,
+        OciCiRunnerPoolConfiguration? ciPool = null,
+        IRepositoryCiJobSigner? ciJobSigner = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var topology = new GlobalNatsTopology(3);
@@ -77,6 +84,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         });
 
         RegionalAuthorityCoordinator? authority = null;
+        RepositoryCiController? ciController = null;
         try
         {
             await client.ConnectAsync();
@@ -90,16 +98,88 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
             var objects = new NatsDeliveryObjectStore(state.Bundles);
+            var runnerLedger = new NatsForgejoDeliveryLedger(state.RunnerJobs);
+            var runnerObjects = new NatsDeliveryObjectStore(state.RunnerBundles);
             var triggerJournal = new ForgejoCiTriggerJournal(ledger);
+            var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
+            var jobs = new RepositoryCiJobJournal(ledger);
+            var runnerConsumers = new CiRunnerConsumerReconciler(client.CreateJetStreamContext(), topology);
+            if (ciPool is not null)
+            {
+                if (ciSource is null || ciJobSigner is null)
+                    throw new ArgumentException("OCI CI requires Forgejo source access and a command signer.");
+                var source = ForgejoSourceClient.Create(ciSource);
+                var capacity = OciCiRunnerComputeAdapter.CreateForInstancePrincipal(ciPool.Endpoint.ToString());
+                try
+                {
+                    var coordinator = new RepositoryCiPipelineCoordinator(
+                        triggerJournal,
+                        pipelines,
+                        source.ReadChangedPathsAsync,
+                        async (trigger, token) =>
+                        {
+                            var revision = await source.ResolveAsync(trigger.Envelope.Revision, token);
+                            var descriptor = await source.ReadFileAsync(
+                                revision.Commit,
+                                RepositoryCiImpactPlanner.DescriptorPath,
+                                ForgejoSourceClient.MaximumFileBytes,
+                                token);
+                            return new([descriptor], [revision]);
+                        });
+                    var dispatcher = new RepositoryCiJobDispatchCoordinator(
+                        jobs,
+                        new(runnerObjects),
+                        new(jobs, new(new NatsRepositoryCiJobTransport(client), ciJobSigner)),
+                        source.ReadArchiveAsync,
+                        (job, runner, token) =>
+                        {
+                            token.ThrowIfCancellationRequested();
+                            var slot = ciPool.Slots.SingleOrDefault(value =>
+                                value.Demand.Runner == runner.Runner.Value &&
+                                value.Demand.Sequence == runner.Sequence)
+                                ?? throw new InvalidDataException(
+                                    "The selected CI runner is outside its configured OCI pool.");
+                            return Task.FromResult(slot.Isolation(job));
+                        });
+                    var availability = new OciCiRunnerAvailability();
+                    ciController = new(
+                        pipelines,
+                        coordinator,
+                        jobs,
+                        new(
+                            jobs,
+                            dispatcher,
+                            new(jobs, new(runnerLedger), new CiRunnerDurableEvidenceVerifier(runnerObjects)),
+                            availability.ReadAsync),
+                        availability,
+                        async (zone, runner, token) =>
+                        {
+                            _ = await runnerConsumers.ReconcileAsync(zone, runner, token);
+                        },
+                        ciPool,
+                        capacity,
+                        () => authority.Snapshot,
+                        instance,
+                        ownedSource: source);
+                }
+                catch
+                {
+                    capacity.Dispose();
+                    await source.DisposeAsync();
+                    throw;
+                }
+            }
             var ciEvents = ForgejoCiEventConsumer.Start(
                 state.CiConsumer,
                 new(triggerJournal, () => authority.Snapshot),
-                () => authority.Snapshot);
+                () => authority.Snapshot,
+                ciController is null ? null : ciController.RunToCompletionAsync);
             return new(
                 client,
                 authority,
                 ciEvents,
-                new(client.CreateJetStreamContext(), topology),
+                ciController,
+                runnerConsumers,
                 ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
@@ -111,6 +191,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         }
         catch
         {
+            if (ciController is not null) await ciController.DisposeAsync();
             if (authority is not null) await authority.DisposeAsync();
             await client.DisposeAsync();
             throw;
@@ -135,12 +216,12 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 var runnerJobs = await keyValue.CreateOrUpdateStoreAsync(topology.RunnerJobs, cancellationToken);
                 var objectStore = jetStream.CreateObjectStoreContext();
                 var bundles = await GetOrCreateAsync(objectStore, topology.Bundles, cancellationToken);
-                _ = await GetOrCreateAsync(objectStore, topology.RunnerBundles, cancellationToken);
+                var runnerBundles = await GetOrCreateAsync(objectStore, topology.RunnerBundles, cancellationToken);
                 var ciConsumer = await jetStream.CreateOrUpdateConsumerAsync(
                     GlobalNatsTopology.CiStream,
                     topology.CiConsumer,
                     cancellationToken);
-                return new(leaders, releases, runnerJobs, bundles, ciConsumer);
+                return new(leaders, releases, runnerJobs, bundles, runnerBundles, ciConsumer);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -176,11 +257,18 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         {
             try
             {
-                await authority.DisposeAsync();
+                if (ciController is not null) await ciController.DisposeAsync();
             }
             finally
             {
-                await client.DisposeAsync();
+                try
+                {
+                    await authority.DisposeAsync();
+                }
+                finally
+                {
+                    await client.DisposeAsync();
+                }
             }
         }
     }
@@ -190,5 +278,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INatsKVStore Releases,
         INatsKVStore RunnerJobs,
         INatsObjStore Bundles,
+        INatsObjStore RunnerBundles,
         INatsJSConsumer CiConsumer);
 }

@@ -40,7 +40,8 @@ public sealed record OrchestratorOptions(
     Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
     Delivery.ForgejoSourceConfiguration? ForgejoSource = null,
     Delivery.CommandIdentityConfiguration? CommandIdentity = null,
-    Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null)
+    Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null,
+    ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -131,10 +132,18 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"),
                     environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
                 : null;
+            var ociCiRunnerPool = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? ControlPlane.Providers.OciCiRunnerPoolConfiguration.Load(
+                    environment("TS_ORCH_CI_OCI_CONFIG"))
+                : null;
             if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
                 throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
             if (ciRunnerNatsIdentity is not null && globalNats is null)
                 throw new ArgumentException("CI runner NATS identity issuance requires configured global control authority.");
+            if (ociCiRunnerPool is not null &&
+                (globalNats is null || forgejoSource is null || commandIdentity?.SigningKeyFile is null))
+                throw new ArgumentException(
+                    "OCI CI requires global control authority, Forgejo source access, and a command signer.");
             return new(
                 command,
                 cell,
@@ -147,7 +156,8 @@ public sealed record OrchestratorOptions(
                 ForgejoWebhook: forgejoWebhook,
                 ForgejoSource: forgejoSource,
                 CommandIdentity: commandIdentity,
-                CiRunnerNatsIdentity: ciRunnerNatsIdentity);
+                CiRunnerNatsIdentity: ciRunnerNatsIdentity,
+                OciCiRunnerPool: ociCiRunnerPool);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

@@ -90,7 +90,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 ciRunnerNatsCredentialsFile = "/run/credentials/ci-runner.creds",
                 ciRunnerNatsTlsCaFile = "/run/credentials/global-ca.pem",
                 ciRunnerNatsTlsCertificateFile = "/run/credentials/ci-runner.pem",
-                ciRunnerNatsTlsKeyFile = "/run/credentials/ci-runner-key.pem"
+                ciRunnerNatsTlsKeyFile = "/run/credentials/ci-runner-key.pem",
+                ociCiRunnerPoolConfigurationFile = "/etc/terrascale/oci-ci-pool.json"
             }));
 
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
@@ -122,6 +123,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 .IsEqualTo("/run/credentials/ci-runner.creds");
             await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_CI_RUNNER_NATS_TLS_CA_FILE"))
                 .IsEqualTo("/run/credentials/global-ca.pem");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_CI_OCI_CONFIG"))
+                .IsEqualTo("/etc/terrascale/oci-ci-pool.json");
         }
         finally
         {
