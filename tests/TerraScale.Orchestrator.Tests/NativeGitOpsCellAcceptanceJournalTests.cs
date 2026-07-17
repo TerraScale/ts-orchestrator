@@ -20,9 +20,10 @@ public sealed class NativeGitOpsCellAcceptanceJournalTests
         var payloads = new TestPayloadStore();
         var handoff = Handoff(1, DigestV1);
         var envelope = Envelope(handoff, 7, [1, 2, 3]);
+        var descriptor = NativeGitOpsCellEnvelope.Describe(handoff)!;
 
         var recorded = await new NativeGitOpsCellAcceptanceJournal(ledger, payloads).AcceptAsync(
-            envelope, handoff, "gru", 7, 41, Now, TimeSpan.Zero,
+            envelope, descriptor, "gru", 7, 41, Now, TimeSpan.Zero,
             new TestVerifier([1, 2, 3]), () => true);
         var recovered = await new NativeGitOpsCellAcceptanceJournal(ledger, payloads).ReadAsync("gru");
 

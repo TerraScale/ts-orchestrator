@@ -79,7 +79,7 @@ internal sealed record NativeGitOpsCellHandoffDescriptor(
 /// </summary>
 public static class NativeGitOpsCellSpecCompiler
 {
-    public const int MaximumCellSpecBytes = 1024 * 1024;
+    public const int MaximumCellSpecBytes = 896 * 1024;
     public const int MaximumCellsPerHandoff = 64;
 
     public static NativeGitOpsCellHandoff Compile(NativeGitOpsSourcePlan source)

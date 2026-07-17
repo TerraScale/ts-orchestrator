@@ -79,9 +79,37 @@ internal sealed class NativeGitOpsCellAcceptanceJournal
         return entry is null ? null : await ReadAsync(cell, entry, cancellationToken);
     }
 
-    internal async Task<NativeGitOpsCellAcceptanceReceipt> AcceptAsync(
+    internal Task<NativeGitOpsCellAcceptanceReceipt> AcceptAsync(
         CommandEnvelope envelope,
         NativeGitOpsCellHandoff handoff,
+        string cell,
+        long expectedWriterEpoch,
+        ulong streamSequence,
+        DateTimeOffset now,
+        TimeSpan allowedClockSkew,
+        ICommandSignatureVerifier signatureVerifier,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(handoff);
+        var descriptor = NativeGitOpsCellEnvelope.Describe(handoff)
+            ?? throw new InvalidDataException("The native GitOps cell handoff is invalid.");
+        return AcceptAsync(
+            envelope,
+            descriptor,
+            cell,
+            expectedWriterEpoch,
+            streamSequence,
+            now,
+            allowedClockSkew,
+            signatureVerifier,
+            authorityStillValid,
+            cancellationToken);
+    }
+
+    internal async Task<NativeGitOpsCellAcceptanceReceipt> AcceptAsync(
+        CommandEnvelope envelope,
+        NativeGitOpsCellHandoffDescriptor handoff,
         string cell,
         long expectedWriterEpoch,
         ulong streamSequence,
@@ -331,14 +359,14 @@ internal sealed record NativeGitOpsCellAcceptanceDocument(
 {
     internal static NativeGitOpsCellAcceptanceDocument From(
         CommandEnvelope envelope,
-        NativeGitOpsCellHandoff handoff,
-        NativeGitOpsCellSpec spec,
+        NativeGitOpsCellHandoffDescriptor handoff,
+        NativeGitOpsCellDigest spec,
         ulong streamSequence,
         DateTimeOffset acceptedAt) => new(
         1,
         spec.Cell,
-        spec.Generation,
-        spec.GlobalPlanDigest,
+        handoff.Generation,
+        handoff.GlobalPlanDigest,
         handoff.HandoffDigest,
         spec.PayloadSha256,
         $"native-gitops-cell-spec-{spec.PayloadSha256}",
