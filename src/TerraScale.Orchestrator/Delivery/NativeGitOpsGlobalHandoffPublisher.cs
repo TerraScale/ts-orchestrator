@@ -139,7 +139,7 @@ internal sealed class NativeGitOpsGlobalHandoffPublisher(INativeGitOpsGlobalHand
         return Result(NativeGitOpsGlobalHandoffPublishDisposition.Complete, receipts);
     }
 
-    private static void Validate(NativeGitOpsPreparedHandoff handoff)
+    internal static void Validate(NativeGitOpsPreparedHandoff handoff)
     {
         if (handoff.SourceJournalRevision == 0 || handoff.AuthorityEpoch <= 0 ||
             !NativeGitOpsCellEnvelope.IsValidDescriptor(handoff.Descriptor) ||

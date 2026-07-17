@@ -393,6 +393,14 @@ same message identity and bytes. Authority loss before a later cell or after a
 storage acknowledgement returns explicit partial durable evidence and can
 never report a complete handoff; regional `CELL_SPEC` publication and acceptance
 remain separate fenced boundaries.
+Each current per-cell `GLOBAL_SPEC` acknowledgement is then CAS-journaled with
+the signed-handoff pointer revision, source revision, authority, generation,
+plan/handoff identity, exact wire digest, and stream sequence. Restart readback
+distinguishes an incomplete set from all required cells and can skip already
+journaled cells. A different sequence cannot relabel an existing cell; a newer
+generation or fenced writer starts a new proof set instead of inheriting stale
+acknowledgements. Authority-lost publications never advance this journal, whose
+worst-case 64-cell record also remains within the 16 KiB global KV limit.
 The JetStream publisher sends one signed command to
 `ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
 uses handoff/cell/writer-epoch message identity so exact retries deduplicate but

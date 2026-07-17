@@ -107,16 +107,163 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
         await Assert.That(transport.Published).IsEmpty();
     }
 
-    private static async Task<NativeGitOpsPreparedHandoff> Prepared()
+    [Test]
+    public async Task DurableCellAcknowledgementsResumeToOneCompleteSnapshot()
+    {
+        var prepared = await Prepared();
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+
+        var first = await journal.RecordAsync(
+            prepared,
+            Publication(prepared.Cells[0], 61),
+            static () => true);
+        var duplicate = await new NativeGitOpsGlobalHandoffPublishJournal(ledger).RecordAsync(
+            prepared,
+            Publication(prepared.Cells[0], 61),
+            static () => true);
+        var completed = await journal.RecordAsync(
+            prepared,
+            Publication(prepared.Cells[1], 62, duplicate: true),
+            static () => true);
+        var recovered = await new NativeGitOpsGlobalHandoffPublishJournal(ledger)
+            .ReadAsync(prepared.Repository, prepared.Branch);
+
+        await Assert.That(first.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.Recorded);
+        await Assert.That(first.Snapshot!.IsComplete).IsFalse();
+        await Assert.That(duplicate.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.Duplicate);
+        await Assert.That(completed.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.Recorded);
+        await Assert.That(completed.Snapshot!.IsComplete).IsTrue();
+        await Assert.That(recovered!.HandoffDigest).IsEqualTo(completed.Snapshot.HandoffDigest);
+        await Assert.That(recovered.Cells).IsEquivalentTo(completed.Snapshot.Cells);
+        await Assert.That(ledger.Mutations).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task PublishJournalFencesAuthorityGenerationSourceAndSequenceRelabeling()
+    {
+        var current = await Prepared(generation: 2, sourceRevision: 5, authorityEpoch: 7);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+        await journal.RecordAsync(current, Publication(current.Cells[0], 71), static () => true);
+
+        var staleAuthority = await Prepared(generation: 3, sourceRevision: 6, authorityEpoch: 6);
+        var staleGeneration = await Prepared(generation: 1, sourceRevision: 6, authorityEpoch: 7);
+        var conflict = await Prepared(
+            generation: 2,
+            sourceRevision: 6,
+            authorityEpoch: 7,
+            artifact: new string('9', 64));
+        var staleSource = await Prepared(generation: 3, sourceRevision: 5, authorityEpoch: 7);
+        var next = (await Prepared(generation: 3, sourceRevision: 6, authorityEpoch: 7)) with
+        {
+            JournalRevision = checked(current.JournalRevision + 1),
+        };
+
+        var authorityResult = await journal.RecordAsync(
+            staleAuthority,
+            Publication(staleAuthority.Cells[0], 72),
+            static () => true);
+        var generationResult = await journal.RecordAsync(
+            staleGeneration,
+            Publication(staleGeneration.Cells[0], 73),
+            static () => true);
+        var conflictResult = await journal.RecordAsync(
+            conflict,
+            Publication(conflict.Cells[0], 74),
+            static () => true);
+        var sourceResult = await journal.RecordAsync(
+            staleSource,
+            Publication(staleSource.Cells[0], 75),
+            static () => true);
+        var sequenceConflict = await journal.RecordAsync(
+            current,
+            Publication(current.Cells[0], 76),
+            static () => true);
+        var advanced = await journal.RecordAsync(
+            next,
+            Publication(next.Cells[0], 77),
+            static () => true);
+
+        await Assert.That(authorityResult.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleAuthority);
+        await Assert.That(generationResult.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleGeneration);
+        await Assert.That(conflictResult.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.HandoffConflict);
+        await Assert.That(sourceResult.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleSourceRevision);
+        await Assert.That(sequenceConflict.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StreamSequenceConflict);
+        await Assert.That(advanced.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.Recorded);
+        await Assert.That(advanced.Snapshot!.Generation).IsEqualTo(3);
+        await Assert.That(advanced.Snapshot.Cells).HasSingleItem();
+    }
+
+    [Test]
+    public async Task LostAuthorityAndNonCurrentPublicationNeverAdvanceAckJournal()
+    {
+        var prepared = await Prepared();
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+        var lost = await journal.RecordAsync(
+            prepared,
+            Publication(prepared.Cells[0], 81),
+            static () => false);
+        var afterLoss = Publication(prepared.Cells[0], 82) with
+        {
+            Disposition = NativeGitOpsGlobalCellPublishDisposition.AuthorityLostAfterPublish,
+        };
+
+        await Assert.That(lost.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffPublishJournalDisposition.StaleAuthority);
+        await Assert.That(lost.Snapshot).IsNull();
+        await Assert.That(async () => await journal.RecordAsync(prepared, afterLoss, static () => true))
+            .Throws<InvalidDataException>();
+        await Assert.That(ledger.Mutations).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task MaximumCellAckJournalFitsGlobalKvValueLimit()
+    {
+        var cells = Enumerable.Range(0, NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff)
+            .Select(static index => $"cell-{index:00}-" + new string((char)('a' + index % 26), 55))
+            .ToArray();
+        var prepared = await Prepared(cells: cells);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsGlobalHandoffPublishJournal(ledger);
+
+        for (var index = 0; index < prepared.Cells.Count; index++)
+            await journal.RecordAsync(
+                prepared,
+                Publication(prepared.Cells[index], checked((ulong)index + 1)),
+                static () => true);
+
+        var recovered = await journal.ReadAsync(prepared.Repository, prepared.Branch);
+        await Assert.That(recovered!.IsComplete).IsTrue();
+        await Assert.That(Encoding.UTF8.GetByteCount(ledger.Values.Single()))
+            .IsLessThanOrEqualTo(NativeGitOpsGlobalHandoffPublishJournal.MaximumRecordBytes);
+    }
+
+    private static async Task<NativeGitOpsPreparedHandoff> Prepared(
+        IReadOnlyList<string>? cells = null,
+        long generation = 4,
+        ulong sourceRevision = 11,
+        long authorityEpoch = 7,
+        string? artifact = null)
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var objects = new TestObjectStore();
-        var source = Source();
+        var source = Source(cells ?? ["gru", "sfo"], generation, artifact ?? new string('0', 64));
         var receipt = await new NativeGitOpsSignedHandoffJournal(ledger, objects).PrepareAsync(
             "develop",
             source,
-            11,
-            7,
+            sourceRevision,
+            authorityEpoch,
             new(2026, 7, 17, 12, 0, 0, TimeSpan.Zero),
             new(2026, 7, 17, 14, 0, 0, TimeSpan.Zero),
             new TestSigner(),
@@ -124,15 +271,28 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
         return receipt.Handoff!;
     }
 
-    private static NativeGitOpsSourcePlan Source()
+    private static NativeGitOpsGlobalCellPublishReceipt Publication(
+        NativeGitOpsPreparedCellSpec cell,
+        ulong streamSequence,
+        bool duplicate = false) => new(
+        duplicate
+            ? NativeGitOpsGlobalCellPublishDisposition.Duplicate
+            : NativeGitOpsGlobalCellPublishDisposition.Published,
+        cell.Cell,
+        cell.WireSha256,
+        streamSequence);
+
+    private static NativeGitOpsSourcePlan Source(
+        IReadOnlyList<string> cells,
+        long generation,
+        string artifact)
     {
         const string repository = "TerraScale/TerraScale.Orchestrator";
         const string commit = "bffeb74224043ba2feb48d137756c8a9331c449a";
         const string tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
-        var artifact = new string('0', 64);
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"api","role":"Api","artifactDigest":"{{artifact}}","cells":["gru","sfo"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"api","role":"Api","artifactDigest":"{{artifact}}","cells":{{System.Text.Json.JsonSerializer.Serialize(cells)}}}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         return new(
