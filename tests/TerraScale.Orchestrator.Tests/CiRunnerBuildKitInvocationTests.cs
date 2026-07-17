@@ -136,7 +136,7 @@ public sealed class CiRunnerBuildKitInvocationTests
         }
     }
 
-    private static InvocationFixture Fixture()
+    internal static InvocationFixture Fixture()
     {
         var root = Path.Combine(Path.GetTempPath(), $"ci-buildkit-{Guid.NewGuid():N}");
         var sourceRoot = Path.Combine(root, "source");
@@ -168,7 +168,7 @@ public sealed class CiRunnerBuildKitInvocationTests
             CiRunnerBuildKitRuntime.Create("/run/user/1000", home, output, dockerConfig));
     }
 
-    private sealed record InvocationFixture(
+    internal sealed record InvocationFixture(
         string Root,
         string Home,
         string Output,

@@ -273,7 +273,14 @@ rootless `/run/user/<uid>/buildkit/buildkitd.sock`: fixed frontend, source
 context, recipe and target; closed platform mapping; deterministic runtime-only
 output/metadata paths; no shell; and a six-variable environment without a
 Docker endpoint. Untrusted work disables cache reuse. The process adapter and
-output validator remain separate; this compiler does not invoke BuildKit.
+output validator then clear inherited environment, enforce timeout and a
+combined log-byte ceiling, kill the whole process tree on cancellation, and
+classify exit/timeout/log overflow without retaining raw log content. Successful
+local exports are accepted only with bounded duplicate-free JSON metadata and a
+bounded, link/special-file-free regular file tree; private modes and a
+culture-invariant content digest are applied before returning evidence. The
+runner coordinator is still absent, so no BuildKit daemon is invoked by normal
+Orchestrator startup.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -320,10 +327,10 @@ control-NATS, or database networks. A signed command is now acknowledgeable
 only after both its canonical payload/signature pointer and a runner execution
 record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
-evidence digest or typed failure. The rootless BuildKit adapter, bounded
-log/artifact evidence writer, and result coordinator are still separate missing
-gates; source materialization, the archive publisher, journal, and plan do not
-claim that a workload ran.
+evidence digest or typed failure. BuildKit daemon identity/startup, the runner
+coordinator, bounded redacted log/artifact persistence, and result publication
+are still separate missing gates; source materialization and the standalone
+executor are not wired into normal startup and do not claim that a workload ran.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
