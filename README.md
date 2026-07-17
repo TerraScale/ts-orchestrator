@@ -257,9 +257,14 @@ create actions; cells removed from an otherwise retained workload receive
 guarded retirement. Retirement-only cells remain in the required-cell barrier
 even when the proposed workload set is empty. Each payload has its own SHA-256,
 and an aggregate handoff digest binds the sorted cell/digest set. These payloads
-are signable material only: the compiler does not grant unsigned apply authority;
-durable cell acceptance still requires the KMS-backed signing policy and
-regional handoff journal.
+are signable material only: the compiler does not grant unsigned apply authority.
+The cell-envelope adapter reuses the shared algorithm-neutral command protocol
+and requires a caller-provided KMS signer/verifier. Its signed material binds the
+aggregate handoff digest, exact cell, generation, global writer epoch, payload
+SHA-256, deterministic operation/idempotency identities, delivery attempt, and
+validity window. Cell, generation, epoch, payload, aggregate-barrier, expired,
+and signature substitution fail before acceptance. Durable regional acceptance
+still requires the handoff journal and a production KMS adapter.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a

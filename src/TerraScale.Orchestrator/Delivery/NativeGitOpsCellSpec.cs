@@ -13,21 +13,57 @@ public sealed record NativeGitOpsCellChange(
     GitOpsChildOwnership ChildOwnership,
     GitOpsRemovalPolicy RemovalPolicy);
 
-public sealed record NativeGitOpsCellSpec(
-    string Cell,
-    long Generation,
-    string GlobalPlanDigest,
-    string PayloadSha256,
-    ReadOnlyMemory<byte> Payload,
-    IReadOnlyList<NativeGitOpsWorkloadPlan> DesiredWorkloads,
-    IReadOnlyList<NativeGitOpsCellChange> Changes);
+public sealed class NativeGitOpsCellSpec
+{
+    internal NativeGitOpsCellSpec(
+        string cell,
+        long generation,
+        string globalPlanDigest,
+        string payloadSha256,
+        ReadOnlyMemory<byte> payload,
+        IReadOnlyList<NativeGitOpsWorkloadPlan> desiredWorkloads,
+        IReadOnlyList<NativeGitOpsCellChange> changes)
+    {
+        Cell = cell;
+        Generation = generation;
+        GlobalPlanDigest = globalPlanDigest;
+        PayloadSha256 = payloadSha256;
+        Payload = payload;
+        DesiredWorkloads = desiredWorkloads;
+        Changes = changes;
+    }
 
-public sealed record NativeGitOpsCellHandoff(
-    long Generation,
-    string GlobalPlanDigest,
-    string HandoffDigest,
-    IReadOnlyList<string> RequiredCells,
-    IReadOnlyList<NativeGitOpsCellSpec> Cells);
+    public string Cell { get; }
+    public long Generation { get; }
+    public string GlobalPlanDigest { get; }
+    public string PayloadSha256 { get; }
+    public ReadOnlyMemory<byte> Payload { get; }
+    public IReadOnlyList<NativeGitOpsWorkloadPlan> DesiredWorkloads { get; }
+    public IReadOnlyList<NativeGitOpsCellChange> Changes { get; }
+}
+
+public sealed class NativeGitOpsCellHandoff
+{
+    internal NativeGitOpsCellHandoff(
+        long generation,
+        string globalPlanDigest,
+        string handoffDigest,
+        IReadOnlyList<string> requiredCells,
+        IReadOnlyList<NativeGitOpsCellSpec> cells)
+    {
+        Generation = generation;
+        GlobalPlanDigest = globalPlanDigest;
+        HandoffDigest = handoffDigest;
+        RequiredCells = requiredCells;
+        Cells = cells;
+    }
+
+    public long Generation { get; }
+    public string GlobalPlanDigest { get; }
+    public string HandoffDigest { get; }
+    public IReadOnlyList<string> RequiredCells { get; }
+    public IReadOnlyList<NativeGitOpsCellSpec> Cells { get; }
+}
 
 /// <summary>
 /// Compiles a verified global source plan into bounded deterministic per-cell payloads. Payload
@@ -50,7 +86,7 @@ public static class NativeGitOpsCellSpecCompiler
         return new(
             source.Proposed.Generation,
             source.Proposed.Digest,
-            HandoffDigest(source.Proposed.Generation, source.Proposed.Digest, specs),
+            ComputeHandoffDigest(source.Proposed.Generation, source.Proposed.Digest, specs),
             ReadOnly(cells),
             ReadOnly(specs));
     }
@@ -217,7 +253,7 @@ public static class NativeGitOpsCellSpecCompiler
     private static IEnumerable<string> ChangeCells(NativeGitOpsChange change) =>
         (change.Accepted?.Cells ?? []).Concat(change.Proposed?.Cells ?? []);
 
-    private static string HandoffDigest(
+    internal static string ComputeHandoffDigest(
         long generation,
         string globalPlanDigest,
         IReadOnlyList<NativeGitOpsCellSpec> cells)
