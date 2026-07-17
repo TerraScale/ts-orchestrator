@@ -17,8 +17,22 @@ internal enum ForgejoGenericPackagePublicationDisposition
 internal sealed record ForgejoGenericPackagePublicationReceipt(
     ForgejoGenericPackagePublicationDisposition Disposition);
 
+internal interface IForgejoGenericPackagePublisher
+{
+    Task<ForgejoGenericPackagePublicationReceipt> PublishAsync(
+        string repository,
+        string package,
+        string version,
+        string fileName,
+        string sha256,
+        long bytes,
+        Func<Stream, CancellationToken, Task> copyContent,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>Publishes one immutable generic package file and verifies its exact readback.</summary>
-internal sealed class ForgejoGenericPackagePublisher : IAsyncDisposable
+internal sealed class ForgejoGenericPackagePublisher : IForgejoGenericPackagePublisher, IAsyncDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(5);
     private const long MaximumPackageBytes = 2L * 1024 * 1024 * 1024 + 64L * 1024 * 1024;
@@ -53,7 +67,7 @@ internal sealed class ForgejoGenericPackagePublisher : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    internal async Task<ForgejoGenericPackagePublicationReceipt> PublishAsync(
+    public async Task<ForgejoGenericPackagePublicationReceipt> PublishAsync(
         string repository,
         string package,
         string version,
