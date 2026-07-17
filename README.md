@@ -322,8 +322,13 @@ collisions, corrupt or missing objects, interrupted writes, and a lost global
 authority fail closed. Recording also commits a canonical repository/tree-set
 index. Signed protected-main observations find the same candidate in any input
 order; an interrupted index write is repaired by exact retry, while a second
-candidate claiming the same tree set is an identity conflict. Retention cleanup
-and a coordinator that consumes these records remain unimplemented.
+candidate claiming the same tree set is an identity conflict. The candidate
+coordinator consumes only a fully succeeded durable release run, loads exact
+signed artifact evidence through an injected reader, reuses the closed
+candidate assembler, and commits the immutable candidate and tree-set index
+under current authority. Feature-profile, active, failed, incomplete, unsigned,
+substituted, and authority-lost inputs produce no candidate. Retention cleanup
+and protected-main qualification coordination remain unimplemented.
 
 Runner admission remains a pure policy contract. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
