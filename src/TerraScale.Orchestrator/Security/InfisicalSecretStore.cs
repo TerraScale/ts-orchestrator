@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 
 namespace TerraScale.Orchestrator.Security;
 
-public sealed class InfisicalConfiguration
+internal sealed class InfisicalConfiguration
 {
     private const UnixFileMode ForbiddenCredentialMode =
         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
@@ -149,7 +149,7 @@ public sealed class InfisicalConfiguration
         IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
 }
 
-public sealed class InfisicalSecret
+internal sealed class InfisicalSecret
 {
     internal InfisicalSecret(string name, string value, int version, string path)
     {
@@ -167,10 +167,10 @@ public sealed class InfisicalSecret
     public override string ToString() => $"{Path}:{Name}@{Version}";
 }
 
-public sealed record InfisicalSecretMetadata(string Name, int Version, string Path);
+internal sealed record InfisicalSecretMetadata(string Name, int Version, string Path);
 
 /// <summary>Direct Universal Auth and v4 Secrets API adapter. Secret values never appear in its errors.</summary>
-public sealed class InfisicalSecretStore : IAsyncDisposable
+internal sealed class InfisicalSecretStore : IAsyncDisposable
 {
     private const int MaximumResponseBytes = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
