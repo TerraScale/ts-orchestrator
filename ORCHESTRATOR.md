@@ -61,7 +61,7 @@ For NATS, mTLS proves the machine/workload transport identity. NKeys, operator/a
 - Grafana is the operator web console for status, health, capacity, failure, storage, deployments, NATS, cost, and regional state. The orchestrator does not build a second dashboard UI.
 - Decision 1A resolves “quorum of three in at least three regions” as three controller candidates backed by a local three-server control-NATS cluster in every region, with no WAN-spanning control quorum.
 - OCI is the first production provider and A1 Ampere ARM64 is the primary compute target. The region catalog and provider contract cannot hard-code GRU/SFO/FRA and must support a cloud footprint with at least twenty production regions. Hetzner is excluded by owner decision.
-- Local integration uses digest-pinned, rootless Podman containers with a closed image catalog, private pod networking, dropped capabilities, `no-new-privileges`, explicit resource limits, owner labels, and deterministic cleanup. A complete GRU/FRA/SFO qualification topology uses nine isolated node containers on every deployment-bound revision.
+- Local integration uses digest-pinned, rootless Podman containers with a closed image catalog, private pod networking, dropped capabilities, `no-new-privileges`, explicit resource limits, owner labels, and deterministic cleanup. The bounded GRU/FRA/SFO development topology uses one instance per regional role (RF=1); production-shaped multi-host qualification is never recreated locally.
 - Real systemd-as-PID-1 and OCI A1/IAM/block-volume/storage-performance boundary tests are mandatory in addition to the full container topology; containers cannot qualify systemd, ARM64, cloud autoscaling, or database-storage behavior.
 
 ### Requirement reconciliation
@@ -127,10 +127,10 @@ These IDs seed the implementation registry and prove that every request in the d
 | `REQ-O015` | Built-in vault, CI and CD | Vault/PKI/policy service with OCI Vault/KMS root protection and immutable promotion/isolated runners with the decision 7A recovery exception |
 | `REQ-O016` | Web console without rebuilding Grafana | Read-only immutable/provisioned Grafana replicas plus exact sanitized state projection and audited API/CLI |
 | `REQ-O017` | Robust business-logic tests before the first deployment test | Literal whole-product pure Phase 1, requirement trace, exhaustive/model/fuzz/mutation tests, real-NATS L0C, signed evidence gate |
-| `REQ-O018` | New repository and reproducible test environment | This repository plan, solution layout, mandatory rootless-container logic/single/cell/full-region labs, and real systemd/OCI gates |
+| `REQ-O018` | New repository and reproducible test environment | Bounded in-process suites, targeted component fixtures, a three-region RF1 container lab, one-region R3 quorum tests, and real systemd/OCI gates |
 | `REQ-O019` | Cloud global reach of at least 20 regions; not Hetzner | Decision 6A: OCI-first dynamic region/provider contract, initial three active cells, no hard-coded trio, and another adapter only when needed |
 | `REQ-O020` | Database/storage performance is a primary constraint | Dedicated TerraBase volumes, IOPS/throughput/latency-aware scheduling/scaling, co-location rejection, destructive performance gates |
-| `REQ-O021` | Run complete GRU/FRA/SFO tests in isolated containers | Digest-pinned nine-node container topology, all-server inventory, regional links/faults, progressive full-region gates, and separate production-boundary evidence |
+| `REQ-O021` | Run complete GRU/FRA/SFO tests in isolated containers | Digest-pinned three-region RF1 topology, sequential regional faults, targeted R3 quorum tests, and separate production-boundary evidence |
 | `REQ-O022` | Implement the orchestrator in parallel with multiple sub-agents | Dependency DAG, exclusive workstream/path ownership, dedicated branches/worktrees, work-package manifests, independent verification, serialized merge train, and exact-tree integration evidence |
 | `REQ-O023` | OKE is already deleted; treat deployment as full greenfield and do not plan a migration | New Pulumi/resource/data/identity state, no prior-resource adoption, separate residual-account audit, and first-production gates with no Kubernetes fallback |
 
@@ -220,7 +220,7 @@ The initial seed ledger is:
 
 | ID | Historical workaround/source | Native disposition and proof |
 |---|---|---|
-| `WRK-001` | OKE control plane, managed pools, pod/CNI/CSI limits and duplicated controllers in `TerraScale.Infrastructure` | Direct A1 instances, one host agent, measured admission/no pod cap; memory/density/cost and L3S/L4 proof |
+| `WRK-001` | OKE control plane, managed pools, pod/CNI/CSI limits and duplicated controllers in `TerraScale.Infrastructure` | Direct A1 instances, one host agent, measured admission/no pod cap; bounded local admission plus real L4 memory/density/cost proof |
 | `WRK-002` | Multiple Flux Kustomizations with `wait: false` in regional `reconciliation.yaml` | Typed dependency/health state machines and durable operation acknowledgement; failure/restart replay test |
 | `WRK-003` | Flux Receivers/webhook tokens followed by forced `kubectl` reconcile in `TerraScale.Deploy/ServiceReleasePipeline.cs` | One native signed reconcile command journaled before acknowledgement; webhook/NATS/controller-loss tests |
 | `WRK-004` | ImageUpdateAutomation writer suspension and `terrascale-rollout-guard` shell/controller coordination | One fenced release writer, immutable candidate and promotion lease; concurrent-publisher/adversarial rollback tests |
@@ -229,7 +229,7 @@ The initial seed ledger is:
 | `WRK-007` | cert-manager/cainjector and shared edge OTLP client certificate | Regional PKI, unique workload identity, dual-bundle rotation/revocation; captured-output and mTLS identity tests |
 | `WRK-008` | external-secrets and broad instance-principal secret access | Closed vault policy/lease delivery and compartment/workload-scoped identities; denial and stolen-node tests |
 | `WRK-009` | Kyverno/admission policies used to constrain generic Kubernetes objects | Closed C# role catalog/schema/compiler; invalid role/capability/host-path manifests fail before persistence |
-| `WRK-010` | PVC/CSI storage expansion promise without end-to-end cloud/device/filesystem/TerraBase resize | Journaled expand-only provider/device/filesystem/application state machine; crash at every checkpoint in L3S/L4 |
+| `WRK-010` | PVC/CSI storage expansion promise without end-to-end cloud/device/filesystem/TerraBase resize | Journaled expand-only provider/device/filesystem/application state machine; pure checkpoint crashes plus real L1R/L4 boundaries |
 | `WRK-011` | HPA plus Cluster Autoscaler and contradictory pool/replica minima | One scheduler/provider autoscaler with resource/SLO/budget inputs and explicit R3 floors; oscillation/orphan/cost tests |
 | `WRK-012` | ServiceMonitor/PodMonitor/kube-state/pod-label discovery and Kubernetes observability glue | Host agent + OTel discovery, stable TerraScale labels, generated targets/dashboards/alerts; full server inventory/cardinality tests |
 | `WRK-013` | Kubernetes-local Grafana provisioning/persistence assumptions and dashboard state inferred only from metrics | Immutable replicated Grafana provisioning plus mandatory exact read-only operator projection/data source; one-node-loss and stale-state tests |
@@ -680,7 +680,7 @@ Before regional autonomy is marked ready, each cell durably verifies a signed, e
 - regionally available, digest-pinned current and rollback orchestrator/native/container artifacts; a GRU-only Forgejo or registry endpoint is insufficient;
 - local control/product NATS snapshots, operation journal position, backup locations, runbook generation, and expiry/renewal limits.
 
-The bundle is content-addressed and never contains plaintext secrets or offline root keys. Regional readiness continuously reports freshness, missing artifacts, earliest certificate/secret expiry, and how long the cell can survive disconnected. A release is not accepted by a cell until both its forward and rollback artifacts/secrets are locally available. L3S exercises disconnected replacement with an isolated container and fake provider; L4 repeats the production boundary on A1. Both disconnect GRU, Git, central Vault endpoints, and central registry access, destroy one node, and require that region to create a replacement, enroll it, restore the appropriate NATS/TerraBase member identity, restart allowed workloads, and restore redundancy inside the approved RTO.
+The bundle is content-addressed and never contains plaintext secrets or offline root keys. Regional readiness continuously reports freshness, missing artifacts, earliest certificate/secret expiry, and how long the cell can survive disconnected. A release is not accepted by a cell until both its forward and rollback artifacts/secrets are locally available. L3S exercises disconnected decision/reconciliation behavior with RF1 services and a fake provider. Only L4 disconnects GRU, Git, central Vault endpoints, and central registry access, destroys a real A1 node, and requires that region to create a replacement, enroll it, restore the appropriate NATS/TerraBase member identity, restart allowed workloads, and restore production redundancy inside the approved RTO.
 
 Disaster re-bootstrap is a separate, explicit Pulumi mode with a higher `bootstrapGeneration`. It first proves that no viable regional quorum exists and requires recovery authorization; it must never seed a competing cluster beside a merely partitioned one.
 
@@ -1182,61 +1182,60 @@ CI wraps `pre-deployment-evidence.json` in a signed DSSE/in-toto-style attestati
 
 | Layer | Environment | Purpose | Release authority |
 |---|---|---|---|
-| L0 | digest-pinned rootless toolchain container; in-process suite and deterministic simulator | all business rules/state machines plus unit/property/model/concurrency/fuzz/mutation/replay tests | mandatory before dependency conformance |
-| L0C | same unprivileged toolchain container, no systemd/server-container/cloud mutation | real pinned NATS/JWT/JetStream/gateway behavior and generated configuration | mandatory with L0 before evidence is signed or a server lab starts |
-| L1S | one isolated node container | real Linux process/network/filesystem behavior and one-node server/executor contracts, excluding systemd semantics | component integration gate |
-| L2S | three isolated node containers, one complete cell | real control-NATS R3 plus product-NATS R3, controller election, node loss, TerraBase `a/b/c`, workloads and rolling operations | regional functional gate |
-| L3S | **nine isolated node containers: GRU/FRA/SFO, three each** | all six NATS clusters, three TerraBase groups, all implemented product/platform servers, mTLS, WAN fault fabric, fake provider/storage, HA/chaos | mandatory full-region gate for every deployment-bound integration candidate |
+| L0 | in-process suite and deterministic simulator | all business rules/state machines plus unit/property/model/concurrency/fuzz/mutation/replay tests | mandatory before dependency conformance |
+| L0C | targeted unprivileged dependency fixture, no systemd/cloud mutation | real pinned NATS/JWT/JetStream/gateway behavior and generated configuration; one fixture at a time | mandatory with L0 before evidence is signed or a server lab starts |
+| L1S | one isolated resource container | real Linux process/network/filesystem behavior for one server or executor contract, excluding systemd semantics | component integration gate |
+| L2S | one-region R3 component topology | real quorum behavior for only the NATS or TerraBase component under test; never a complete production cell | quorum component gate |
+| L3S | **GRU/FRA/SFO with one instance per regional role (RF=1)** | regional composition, routing, identity, messaging, persistence, health, restart, reconciliation, and sequential regional faults | mandatory regional-development gate; no production HA authority |
 | L1R | full Linux host with systemd as PID 1 | real systemd D-Bus/credentials/cgroups/journald, containerd, loop ext4/XFS | production-runtime boundary gate |
 | L4 | disposable OCI A1 Ampere SUT, driven by an isolated rootless-container test coordinator | real ARM64 binary/images and instance/volume/LB/KMS/Vault/IAM/work-request APIs; targeted 1/3-node tests and final multi-region boundary smoke | mandatory provider/ARM/destructive gate |
 | L5 | staged first-production deployment and canary | actual telemetry/cost/storage, SFO then FRA then GRU | production gate |
 
-`terrascale-orchestrator lab` creates hermetic test runners and topologies through rootless Podman using digest-pinned images; it never uses Kubernetes. Profiles:
+`terrascale-orchestrator lab` creates bounded test topologies through rootless Podman using digest-pinned images; it never uses Kubernetes. Local fidelity routes are:
 
-- `logic`: one toolchain container for L0/L0C and deterministic millions-of-event model/replay.
-- `single-container`: one isolated node container for fast server/executor development.
-- `cell-containers`: three isolated node containers with a complete R3 regional cell.
-- `regions-containers`: the mandatory nine-node-container GRU/FRA/SFO topology and injected WAN behavior.
+- In-process test executables: L0 behavior without a container.
+- Targeted dependency/runtime fixture: one L0C or L1S boundary at a time.
+- One-region R3 component fixture: L2S quorum semantics without unrelated product roles.
+- `dev-containers-control-three-cell-lean`: six-container RF1 regional control slice.
+- `dev-containers-three-cell-lean`: 23-container GRU/SFO/FRA RF1 regional product slice plus two shared emulators.
 - `oci-cell`: disposable three-node OCI region.
-- `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region boundary smoke, not a duplicate of the full L3S functional matrix.
+- `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region production boundary.
 
-The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and profile labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking.
+The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and profile labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 16 GiB: 14 GiB for the active validation process or owned pod and 2 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 14 GiB; the 23-container profile plans 13,184 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
 
-Phase 0 records the Podman version, image manifest digests, host kernel/cgroup capabilities, rootless status, network backend, storage driver, and conformance result. Upgrades require a reviewed pin change and a cold L0/L0C/L3S run. Matching-host containers cannot qualify `linux-arm64`; real A1 remains the mandatory ARM boundary.
+Phase 0 records the Podman version, image manifest digests, host kernel/cgroup capabilities, rootless status, network backend, storage driver, and conformance result. Upgrades require a reviewed pin change and a cold sequential L0/L0C/L3S run. Matching-host containers cannot qualify `linux-arm64`; real A1 remains the mandatory ARM boundary.
 
 Container namespaces and overlay storage are deliberate limitations in the evidence model. L3S proves processes, protocols, identities, topology, persistence, restart, and failure logic, but never claims to prove systemd unit semantics, OCI attachment/online expansion, block durability/performance, or A1 behavior. Those claims belong only to L1R/L4.
 
 The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, email and Stripe emulators, with the current dependency and health ordering. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
 
-### Mandatory nine-container regional topology
+### Bounded three-region RF1 topology
 
 ```text
-GRU: gru-0  gru-1  gru-2     full regional cell + global authority/CI/Grafana/OTel/VPN roles
-FRA: fra-0  fra-1  fra-2     regional API/Auth/Dashboard/TerraBase/NATS + OTel export
-SFO: sfo-0  sfo-1  sfo-2     regional API/Auth/Dashboard/TerraBase/NATS + OTel export
-
-GRU <-> FRA     GRU <-> SFO     FRA <-> SFO
-        deterministic host-side TCP/UDP link fabric and fault proxy
+GRU: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
+SFO: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
+FRA: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
+Shared: email emulator + Stripe emulator
 ```
 
-Every VM starts from the same checksummed `.smolmachine`/OCI-derived base created **before** enrollment, then receives a unique node ID, keys, certificates, overlay/workspace, port map, controller epoch, failure domain, and independent control-NATS/product-NATS/TerraBase data directories. Never snapshot/fork an enrolled node because that duplicates identity. Immutable artifacts are staged before the run; outbound internet is then disabled.
+Every resource receives a deterministic name and port, unique credentials and certificates, and independent control-NATS/product-NATS/TerraBase data directories. Images and built artifacts are staged before startup. The topology deliberately uses one member per regional stateful role: it tests three-region behavior and reduced-development RF=1 configuration, not production quorum or host-failure tolerance.
 
-The lab uses a dedicated rootless Podman network only after conformance proves its DNS, isolation, port, and cleanup behavior for the pinned version. A TerraScale link fabric assigns deterministic logical DNS/endpoints and proxies inter-node/inter-region TCP/UDP paths so the suite can inject latency, loss, reset, bandwidth, reordering where supported, one-way/two-way partitions, and restoration by node/cell/link. Container connectivity alone is not evidence of production addressing.
+The lab uses a rootless Podman pod only after conformance proves isolation, ports, limits, and cleanup behavior for the pinned version. Regional failure scenarios stop, restart, or degrade only allowlisted owned resources and run sequentially against one healthy lab when clean bootstrap is not the subject. A test that needs real quorum starts a separate one-region R3 component fixture after the RF1 lab has stopped. Container connectivity alone is not evidence of production addressing.
 
-At the final L3S gate, all production roles that fit the closed catalog run concurrently: orchestrator controller/agent on every seed, both NATS servers and one TerraBase member per seed, API/Auth/Dashboard in every cell, SFO/FRA collectors exporting all OTel signals to GRU, and the GRU global/operator/CI/Grafana/metrics/log/trace/alert/VPN coordination roles with their required replica counts. The server inventory is generated from the role catalog; the gate fails if a declared production role is absent, uses a stub, lacks a health/readiness check, has the wrong digest/architecture/config generation, or cannot serve its protocol.
+The L3S inventory is exact and closed: one controller, control NATS, product NATS, TerraBase, Auth, API, and Dashboard in each of GRU/SFO/FRA, plus shared email and Stripe emulators. A declared resource fails the gate if it is absent, uses an unpinned image, lacks its implemented health/readiness check, has the wrong configuration generation, or cannot serve its protocol. Production-only roles are tested in-process until their targeted boundary lane exists; they are not added speculatively to make the local lab resemble production.
 
-Every phase-integration candidate runs L3S with every capability implemented through that phase. Phase 2 proves seed/identity/dual-NATS/self-upgrade; later phases progressively add executors/workloads, fake-provider autoscaling, TerraBase/storage logic, GitOps/CI, Grafana/OTel/VPN, and greenfield provisioning/recovery. Phase 9 is the complete matrix. Each scenario starts from a fresh nine-node topology; constrained hosts run shards sequentially, while capable hosts may run independent nine-node labs concurrently.
+Every integration candidate runs all implemented pure suites first, then only the affected targeted fixtures, then the applicable RF1 regional scenarios. No local validation workloads run concurrently. A healthy L3S lab is reused across sequential faults; it is recreated only when bootstrap, persistence recovery, or cleanup isolation is the behavior under test. Production systemd, containerd, block storage, ARM, OCI, destructive operations, multi-host clocks, and HA remain L1R/L4/L5 evidence.
 
 Mandatory scenario groups are:
 
-1. clean nine-node bootstrap, identity/mTLS/authorization, all-server inventory/readiness, dual-NATS R3 and backups;
-2. sequential stop/delete/recreate of every one of the nine VMs, with GRU availability and each regional quorum contract checked continuously;
-3. every WAN link and whole-cell partition, GRU loss, reconnect/backlog recovery, regional autonomy, and telemetry spool/exhaustion policy;
-4. scheduling, exact-digest rollout/rollback, N/N-1/A-B self-update, process crashes, controller/NATS leadership, stale command, unauthorized stale-deployment, and generation-replay attacks;
-5. TerraBase `a/b/c`, six replication directions, backup/restore, logical expansion/fencing, 3->4->3 using temporary elastic node containers under decision 10A, and convergence back to three seeds/cell;
+1. clean RF1 bootstrap, identity/mTLS/authorization, exact 23-resource inventory/readiness, reduced-replication configuration, and persisted data-directory separation;
+2. sequential stop/restart/recreate of representative owned resources in every region, with dependent health and reconciliation checked continuously;
+3. regional endpoint loss and restoration, GRU unavailability, reconnect/backlog behavior, regional autonomy, and telemetry degradation policy where implemented;
+4. scheduling, exact-digest rollout/rollback, N/N-1/A-B self-update, process crashes, controller lifecycle, stale command, unauthorized stale-deployment, and generation-replay attacks; controller/NATS leadership belongs to the one-region R3 lane;
+5. RF1 TerraBase persistence and cross-region product routing in L3S; TerraBase `a/b/c`, NATS leader loss, quorum degradation, and catch-up only in sequential one-region R3 component fixtures;
 6. GitOps/CI/release, provider fake timeouts/duplicates/quota/cost, node scale-out/replacement/in, Grafana exact-state/alerts, OTel export, and VPN policy behavior.
 
-L3S evidence contains exact tree/artifact/image-manifest/Podman/host-kernel digests, topology and port maps, randomized seed, virtual time, server inventory, health timeline, every injected fault, NATS/TerraBase positions, telemetry loss/spool counters, resource peaks, logs/traces, and cleanup/orphan proof. Failed container diagnostics are retained by policy; successful labs are destroyed and a cleanup audit proves no owned pod, container, network, port, or directory remains.
+Pre-lab evidence contains the exact tree/artifact digest, authorized profile, all five test-module inventories, policy-tooling result, concurrency policy, and observed peak memory/process counts. L3S adds image-manifest/Podman/host-kernel identity, topology and port maps, server inventory, health timeline, injected faults, resource peaks, logs/traces, and cleanup/orphan proof. Failed container diagnostics are retained by policy; successful labs are destroyed and cleanup proves no owned pod or container remains. None of this evidence upgrades RF1 observations into a quorum, systemd, cloud, ARM, storage-performance, or destructive-operation claim.
 
 ### Required test doubles
 
@@ -1246,7 +1245,7 @@ L3S evidence contains exact tree/artifact/image-manifest/Podman/host-kernel dige
 - fake executor and real containerd/systemd contract suites;
 - fake KMS/Vault plus real OCI integration lane;
 - filesystem/block-device harness with loop devices, ext4, XFS, read-only, full disk, latency, detach, and wrong-volume injection;
-- TerraBase admin fake for model tests plus real three-member integration and nine-host release gates;
+- TerraBase admin fake for model tests plus a targeted one-region three-member integration lane and real production-boundary release gates;
 - fake repository/provider remnant inventory for deleted OKE/Flux resources, including stale IAM, DNS, secret, load-balancer, volume, public-IP, webhook-token, and configuration findings; cleanup dry-run/apply/retry proves idempotent absence for positively identified approved remnants and proves unrelated, retained, or unknown-ownership resources are never removed, without becoming a runtime compatibility adapter.
 
 ### Chaos and recovery matrix
@@ -1385,7 +1384,7 @@ P2–P5 runtime/NATS/OCI/storage       container supervisor/network/scenarios
         v                                  v
 P6–P8 GitOps/CI                  Grafana/OTel/VPN/operator API
         \                                  /
-         +--------- full L3S/L4 -----------+
+         +------ bounded L3S + real L4 ----+
                        |
                        v
        P9 qualification -> P10 greenfield regional bring-up
@@ -1403,7 +1402,7 @@ P6–P8 GitOps/CI                  Grafana/OTel/VPN/operator API
 | Runtime | agent, closed role admission, systemd/containerd adapters, bootstrap/self-upgrade | fake executor plus lifecycle, A/B rollback, L1S/L1R contract tests |
 | Cloud | provider abstractions, OCI/Pulumi handoff, actuator, compute autoscaler | provider model/fake, fencing race suite, L4 adapter evidence |
 | Storage | generic volume lifecycle/expansion/fencing and filesystem adapters | block model/harness, irreversible-step recovery, L4 destructive evidence |
-| TerraBase | TerraBase topology, upgrade, replication, backup/restore/autoscaling | independent admin fake plus real 3-member/L3S/L4 scenarios |
+| TerraBase | TerraBase topology, upgrade, replication, backup/restore/autoscaling | independent admin fake plus real three-member L2S and L4 scenarios |
 | Delivery | native GitOps, CI/CD, release and artifact promotion | source/reconcile/pipeline models, trust-zone and interruption tests |
 | Operations | operator API, exact Grafana projection/plugin, OTel, networking/VPN, stale-resource audit tooling | cardinality/security, link/outage, orphan-cleanup and browser-read tests |
 | Cross-repository cleanup | one `WRK-*`-scoped branch/worktree/PR in one existing repository at a time, only after the native replacement gate | repository compatibility suite, linked orchestrator regression/L3S scenario, deleted-path/remnant proof; never edits the current dirty worktrees |
@@ -1431,23 +1430,23 @@ Every lane uses its own Git feature branch and dedicated worktree. Agents never 
 2. Up to three domain/verification agents branch/worktree from that exact digest and work on disjoint paths.
 3. Each feature PR runs its owned L0 shard, saved corpus, architecture checks, and relevant L0C slice inside a rootless container.
 4. The serialized merge train rebases compatible PRs, creates one exact candidate tree, and runs all impacted shards plus cross-domain models.
-5. A deployment-bound candidate runs the full right-hand evidence budget, cold L0C when required, signs the aggregate pre-VM attestation, then creates fresh L1S/L2S/L3S labs.
-6. `develop` advances only to the exact commit that passed the required progressive L3S gate. A failed seed becomes a checked-in regression before a fix merges.
+5. A deployment-bound candidate runs the full right-hand evidence budget, cold L0C when required, signs the aggregate pre-VM attestation, then runs required L1S/L2S/L3S lanes sequentially.
+6. `develop` advances only to the exact commit that passed the required bounded regional gate. A failed seed becomes a checked-in regression before a fix merges.
 7. Content-addressed shard evidence is reusable only under the strict dependency-closure rule above. The first server lab, shared-contract/security changes, and every release are cold full runs.
 
 Test sharding follows domain boundaries:
 
 - L0: contracts/requirements; core/scheduler; NATS/security; cloud/storage; TerraBase; delivery/deployment; operations; cross-domain model/concurrency.
 - L0C: control-NATS/gateways; product-NATS/isolation; N/N-1 and peer/snapshot recovery.
-- L3S: bootstrap/NATS/mTLS; runtime/rollout/node failure; TerraBase/storage/replication; GitOps/CI/Grafana/OTel/greenfield deployment.
+- L3S: RF1 bootstrap/NATS/mTLS; regional routing/health/restart/reconciliation; product composition and persistence; implemented GitOps/CI/Grafana/OTel behavior.
 
-An L3S scenario shard always receives a fresh complete nine-seed topology; it does not delete unrelated regional roles to reduce runtime. Shards may run concurrently only as independent nine-VM labs with separate port/directory ranges. This avoids cross-scenario state while still allowing multiple verification sub-agents to operate in parallel.
+L3S scenarios share one exclusive healthy 23-container RF1 topology and execute sequentially. A scenario requests a fresh topology only when bootstrap, persisted recovery, or cleanup isolation is part of its assertion. L0/L0C/L1S/L2S and L3S never overlap on the same validation host.
 
 ## Delivery plan
 
-No phase creates a throwaway alternative architecture. Early phases exercise the same protocols, state machines, binary, and R3 topology that production will use.
+No phase creates a throwaway alternative architecture. Early phases exercise the same protocols, state machines, and binary; local RF1 composition and targeted R3 component tests are explicitly weaker than production topology evidence.
 
-Phases are integration gates, not instructions for one agent to work serially. After the steward freezes each compatible contract tranche, the workstreams above execute in parallel on independent worktrees and join only through the merge train. Phase 1 parallelizes pure domains and independent adversarial tests; Phases 2–8 parallelize adapters, domain integration, and the next rootless container scenario tranche. From Phase 2 onward, an integration candidate cannot close a phase until the mandatory progressive nine-node L3S topology passes with every role implemented so far.
+Phases are integration gates, not instructions for one agent to work serially. After the steward freezes each compatible contract tranche, the workstreams above execute in parallel on independent worktrees and join only through the merge train. Phase 1 parallelizes pure domains and independent adversarial tests; Phases 2–8 parallelize adapters and domain implementation, but the shared validation host serializes bounded fixtures and the RF1 regional lab. From Phase 2 onward, an integration candidate cannot close a phase until its implemented pure, targeted-boundary, and RF1 regional coverage passes.
 
 ### Phase 0 — decisions, threat model, and measurable baseline
 
@@ -1457,7 +1456,7 @@ Deliver:
 - inventory live OCI instances, volumes, attachments, backups, buckets, LBs, public IPs, IAM, Vault, NATS streams/consumers, certificates, workloads, and seven-day utilization/cost; establish the actual post-OKE-deletion residual bill, explicitly prove OKE clusters/node pools are absent, and identify any stale Kubernetes/Flux IAM, DNS, secret, volume, public-IP, load-balancer, webhook, or configuration remnants;
 - run the normalized eligible-provider TCO/ARM64/block-storage/TerraBase benchmark and record why OCI remains first or which second adapter is prioritized;
 - generate the >=20-row OCI eligible-region matrix and exhaustive cross-repository `WRK-*` retirement ledger with owners/tests/removal phases;
-- pin Podman and every image by immutable manifest digest; run nine-container concurrent start, persistence, DNS/link-fabric, port, resource-limit, process-crash, cleanup, storage-limit, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
+- pin Podman and every image by immutable manifest digest; run bounded 23-container RF1 start, persistence, port, resource-admission, process-crash, cleanup, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
 - define storage, availability, RPO/RTO, security, memory, scale, and cost SLOs;
 - ADRs for authority, NATS isolation/topology, provider ownership, runtime drivers, Vault scope, compact profile, networking/VPN, and project-placement boundary;
 - select and pin the ARM64 LTS host image/kernel/glibc, production filesystem candidates, NATS server/client and N/N-1 policy, test toolchain, artifact/evidence signing, A1-capacity fallback, VPN, DNS, immutable Grafana provisioning plus metrics/log/trace HA persistence, and regional artifact-mirror design;
@@ -1485,11 +1484,11 @@ Exit gate: the hard pre-deployment thresholds pass for the exact binary; every r
 Deliver:
 
 - pinned host/bootstrap image, signed artifact verification, A/B orchestrator install, rollback timer, and N/N-1 protocol/schema compatibility;
-- rootless container supervisor, digest-pinned image catalog, deterministic link fabric, cleanup journal, and progressive nine-seed L3S harness;
+- rootless container supervisor, digest-pinned image catalog, cleanup journal, exclusive validation lease, and bounded three-region RF1 L3S harness;
 - KMS/Vault backend abstractions with a deterministic lab backend, envelope encryption, policy, leases/audit, regional intermediates, node/workload/operator identities, trust/revocation, and protected credential delivery;
 - one offline control operator trust root with regional signing/accounts and a distinct product trust root, generated least-privilege permissions, selective mTLS, monitoring isolation, and both three-server NATS planes;
 - typed NATS server/store membership, replacement, peer-removal, durability/sync, snapshot/restore, one-at-a-time upgrade, and rollback adapters;
-- regional survival-bundle creation/verification and the first evidence-gated L1S test followed by the L2S seed/NATS/identity cell and progressive nine-node L3S topology.
+- regional survival-bundle creation/verification and the first evidence-gated L1S test followed by targeted one-region R3 L2S and bounded three-region RF1 L3S.
 
 Exit gate: bootstrap, enrollment, renewal, rotation, revocation, issuer rotation, self-upgrade rollback, one-NATS-server loss/replacement in each plane, backup/restore, regional survival material, and captured-output secret scans pass. No long-lived shared edge identity remains and one failed seed host does not lose either NATS quorum.
 
@@ -1567,17 +1566,17 @@ Exit gate: sequential loss of either of two Grafana instances and every observab
 
 Deliver:
 
-- full GRU/SFO/FRA nine-node L3S and targeted disposable OCI A1 L4 environments with six NATS clusters, three TerraBase R3 groups, real endpoints, survival bundles, and selected HA backends;
+- full GRU/SFO/FRA RF1 L3S composition, targeted one-region R3 component lanes, and disposable OCI A1 L4 environments with the real multi-host NATS/TerraBase topology, endpoints, survival bundles, and selected HA backends;
 - a from-zero rehearsal of Pulumi foundation creation, nine-seed bootstrap, signed regional handoff, native desired state, product-data initialization, regional replication, staged release, rebuild, and orchestrator-generation rollback without any Kubernetes endpoint or credential;
-- nine-node chaos, GRU/WAN/Git/Vault/registry outages, every-GRU-node sequential failure, capacity/volume autoscaling, backup/restore, cost and storage performance qualification;
+- sequential RF1 regional fault coverage locally, followed by GRU/WAN/Git/Vault/registry outages, every-GRU-node sequential failure, capacity/volume autoscaling, backup/restore, cost, and storage performance qualification at the real L4 boundary;
 - a provider/repository audit rehearsal that treats any OKE/Flux remnant as an orphan requiring explicit disposition, never as a source to adopt;
 - signed go/no-go evidence and per-cell first-deployment, rebuild, rollback, and disaster-recovery runbooks.
 
-Exit gate: the clean-room deployment is reproducible; the nine-node chaos matrix, real A1/provider/storage destructive gates, GRU and edge-disconnection survival, greenfield ownership/fencing, telemetry/VPN outage, alert/runbook drills, security review, cost/storage SLO, and multi-region product compatibility suite all pass.
+Exit gate: the clean-room deployment is reproducible; the real multi-host chaos matrix, A1/provider/storage destructive gates, GRU and edge-disconnection survival, greenfield ownership/fencing, telemetry/VPN outage, alert/runbook drills, security review, cost/storage SLO, and multi-region product compatibility suite all pass.
 
-The nine-node matrix includes sequential failure of every GRU host while the full global and regional workload is active. Phase 9 cannot pass if any critical GRU service is singleton, loses its only durable state, requires manual promotion, or lacks one-node-equivalent capacity headroom.
+The L4 production-shaped matrix includes sequential failure of every GRU host while the full global and regional workload is active. Phase 9 cannot pass if any critical GRU service is singleton, loses its only durable state, requires manual promotion, or lacks one-node-equivalent capacity headroom.
 
-The complete functional/HA/chaos topology is L3S in nine isolated node containers; mandatory L1R/L4 provide real systemd and targeted OCI A1/IAM/storage plus multi-region boundary evidence. To avoid paying for a duplicate full cloud estate, the exact nine-node, three-region OCI topology is first assembled in Phase 10 with public ingress disabled. Those resources remain an unexposed qualification environment until the full cloud soak and production gates pass. A boundary failure tears down or repairs the affected new generation and repeats the gate before exposure; it never weakens the container matrix or turns untested resources public.
+L3S remains the bounded three-region RF1 development topology. Production HA/chaos authority comes only from mandatory L1R/L4 systemd and OCI A1/IAM/storage plus multi-region evidence. The exact nine-node, three-region OCI topology is first assembled in Phase 10 with public ingress disabled and is not duplicated locally. Those resources remain an unexposed qualification environment until the full cloud soak and production gates pass. A boundary failure tears down or repairs the affected new generation and repeats the gate before exposure; it never turns untested resources public.
 
 ### Phase 10 — greenfield three-region production bring-up
 
@@ -1607,7 +1606,7 @@ Order:
 - Three controllers/cell, R3 critical state, independent cell operation, signed snapshot/restore, no split writer.
 - Every resource in the new platform was created by the greenfield Pulumi/orchestrator flow, has exactly one mutation owner and a signed ownership generation, and is traceable to the new stack. No pre-existing resource may enter that graph; an unknown or stale account resource stays outside it and is quarantined rather than adopted or deleted.
 - Failure/restart at every first-creation and Pulumi-handoff checkpoint resumes idempotently, including independent partial success by region, without duplicate resources, trust roots, NATS identities, streams, volumes, or ownership epochs.
-- Two consecutive clean-room L3S deployments from the same signed contracts/artifacts converge to equivalent declared state, and the closed-ingress Phase 10 cloud assembly matches that contract. A fresh environment depends on no historical OCID, certificate root, Kubernetes secret, NATS cluster/server identity, stream position, or hidden manual state.
+- Two consecutive clean RF1 L3S bootstraps from the same signed contracts/artifacts converge to equivalent declared state, and the closed-ingress Phase 10 cloud assembly separately matches that contract. A fresh environment depends on no historical OCID, certificate root, Kubernetes secret, NATS cluster/server identity, stream position, or hidden manual state.
 - Public DNS and ingress are default-deny until the signed enablement action after all gates; premature enablement is rejected, and tested emergency withdrawal closes traffic without destroying state.
 - The exact `linux-arm64` release and every selected platform image pass real A1 Ampere execution, failure, storage, and performance gates; no x64-only production dependency remains.
 - GRU passes one-at-a-time failure of every node with global control, regional product traffic, both NATS planes, TerraBase, vault/PKI, GitOps, operator API, Grafana/query/ingest/alerting, and VPN coordination still usable; the failed capacity is recreated automatically.
@@ -1716,7 +1715,7 @@ The orchestrator is ready for its first production deployment only when:
 - mTLS identities, NATS authorization, secret policy/delivery, rotation, revocation, and audit pass security review;
 - GitOps and CI/CD preserve build-once, immutable promotion, staged regional verification, rollback, and interruption recovery;
 - the operator API/CLI, Grafana, OTel, VPN, alerts, and runbooks support normal and emergency operation;
-- two consecutive from-zero L3S deployments and the closed-ingress OCI assembly reproducibly converge from the same contracts/artifacts, recover every partial-bootstrap checkpoint, and depend on no historical OCID, identity root, Kubernetes secret, NATS ID/position, or hidden manual state;
+- two consecutive from-zero RF1 L3S bootstraps and the separate closed-ingress OCI assembly reproducibly converge from the same contracts/artifacts, recover every applicable partial-bootstrap checkpoint, and depend on no historical OCID, identity root, Kubernetes secret, NATS ID/position, or hidden manual state;
 - public DNS/ingress remains closed until a signed post-soak owner action, and emergency traffic withdrawal is proven before enablement;
 - all production gates pass on real Linux and OCI, not only mocks;
 - the measured three-region cost meets the approved target while database performance meets the approved SLO;

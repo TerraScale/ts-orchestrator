@@ -1,10 +1,26 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using TerraScale.Orchestrator.Development;
 
 namespace TerraScale.Orchestrator.Tooling;
 
 internal static class DevelopmentEvidenceCommand
 {
-    private const string DefaultProfile = "dev-containers-three-cell-lean";
+    internal const string DefaultProfile = "dev-containers-three-cell-lean";
+    internal const int MaximumParallelTestModules = 1;
+    internal const int MaximumParallelTests = 4;
+    internal const int MaximumValidationProcesses = 512;
+    internal const long AggregateMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
+    internal const long ExecutionMemoryLimitBytes = 14L * 1024 * 1024 * 1024;
+    internal const long ReservedHeadroomBytes = AggregateMemoryLimitBytes - ExecutionMemoryLimitBytes;
+    internal static readonly IReadOnlyList<TestModule> TestModules =
+    [
+        new("TerraScale.Orchestrator.ControlPlane.Tests", "tests/TerraScale.Orchestrator.ControlPlane.Tests"),
+        new("TerraScale.Orchestrator.ModelTests", "tests/TerraScale.Orchestrator.ModelTests"),
+        new("TerraScale.Orchestrator.Protocol.Tests", "tests/TerraScale.Orchestrator.Protocol.Tests"),
+        new("TerraScale.Orchestrator.Scheduler.Tests", "tests/TerraScale.Orchestrator.Scheduler.Tests"),
+        new("TerraScale.Orchestrator.Tests", "tests/TerraScale.Orchestrator.Tests")
+    ];
     private static readonly HashSet<string> AllowedProfiles =
     [
         DefaultProfile,
@@ -14,6 +30,7 @@ internal static class DevelopmentEvidenceCommand
     public static int Run(string[] arguments)
     {
         var options = Parse(arguments);
+        using var validationLease = LocalValidationLease.Acquire();
         var root = ToolingSupport.Root;
         var output = Path.GetFullPath(options.Output);
         var binary = Path.GetFullPath(options.Binary ?? Path.Combine(
@@ -34,17 +51,44 @@ internal static class DevelopmentEvidenceCommand
         }
 
         RequireClean(root);
-        RunRequired(
+        var observations = new List<(string Name, ProcessObservation Value)>();
+        observations.Add(("solution-build", RunRequired(
             "dotnet",
-            ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "-m:1", "-nr:false"],
+            ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "--nologo", "--maxcpucount:1", "--nodeReuse:false"],
             root,
-            TimeSpan.FromMinutes(5));
-        RunRequired(
-            "dotnet",
-            ["test", "TerraScale.Orchestrator.slnx", "--no-build", "--no-restore"],
+            TimeSpan.FromMinutes(5)).Observation));
+        var inventory = new JsonArray();
+        foreach (var module in TestModules)
+        {
+            var executable = Path.Combine(root, module.RelativeDirectory, "bin", "Debug", "net10.0", "linux-x64", module.Name);
+            var result = RunRequired(
+                executable,
+                ["--maximum-parallel-tests", MaximumParallelTests.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "--no-ansi", "--disable-logo", "--no-progress"],
+                root,
+                TimeSpan.FromMinutes(5));
+            var total = ParseTestTotal(module.Name, result.StandardOutput);
+            observations.Add((module.Name, result.Observation));
+            inventory.Add(new JsonObject
+            {
+                ["module"] = module.Name,
+                ["tests"] = total,
+                ["maximumParallelTests"] = MaximumParallelTests
+            });
+        }
+        var toolingExecutable = Path.Combine(
             root,
-            TimeSpan.FromMinutes(5));
-        _ = ToolingTests.Run([]);
+            "tools",
+            "TerraScale.Orchestrator.Tooling",
+            "bin",
+            "Debug",
+            "net10.0",
+            "terrascale-orchestrator-tooling");
+        observations.Add(("orchestrator-policy-tooling-tests", RunRequired(
+            toolingExecutable,
+            ["test"],
+            root,
+            TimeSpan.FromMinutes(5)).Observation));
         RequireClean(root);
 
         if (!File.Exists(binary))
@@ -63,8 +107,27 @@ internal static class DevelopmentEvidenceCommand
             ["issuedAt"] = now,
             ["expiresAt"] = now.AddHours(options.ValidHours),
             ["checks"] = new JsonArray(
-                "orchestrator-solution-tests",
-                "orchestrator-policy-tooling-tests")
+                "orchestrator-solution-build",
+                "orchestrator-test-modules-sequential",
+                "orchestrator-policy-tooling-tests"),
+            ["resourcePolicy"] = new JsonObject
+            {
+                ["aggregateMemoryLimitBytes"] = AggregateMemoryLimitBytes,
+                ["executionMemoryLimitBytes"] = ExecutionMemoryLimitBytes,
+                ["reservedHeadroomBytes"] = ReservedHeadroomBytes,
+                ["maximumParallelTestModules"] = MaximumParallelTestModules,
+                ["maximumParallelTests"] = MaximumParallelTests,
+                ["maximumValidationProcesses"] = MaximumValidationProcesses
+            },
+            ["testInventory"] = inventory,
+            ["processObservations"] = new JsonArray(observations.Select(item => (JsonNode)new JsonObject
+            {
+                ["name"] = item.Name,
+                ["processId"] = item.Value.ProcessId,
+                ["peakMemoryBytes"] = item.Value.PeakMemoryBytes,
+                ["peakProcessCount"] = item.Value.PeakProcessCount,
+                ["durationMilliseconds"] = item.Value.DurationMilliseconds
+            }).ToArray())
         };
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var temporary = $"{output}.{Environment.ProcessId}.tmp";
@@ -75,7 +138,7 @@ internal static class DevelopmentEvidenceCommand
         return 0;
     }
 
-    private static Options Parse(string[] arguments)
+    internal static Options Parse(string[] arguments)
     {
         string? output = null;
         string? binary = null;
@@ -123,17 +186,19 @@ internal static class DevelopmentEvidenceCommand
         }
     }
 
-    private static void RunRequired(
+    private static ObservedProcessResult RunRequired(
         string fileName,
         IEnumerable<string> arguments,
         string workingDirectory,
         TimeSpan timeout)
     {
-        var result = ToolingSupport.RunProcess(
+        var result = BoundedProcessRunner.Run(
             fileName,
             arguments,
             workingDirectory,
-            checked((int)timeout.TotalMilliseconds));
+            timeout,
+            ExecutionMemoryLimitBytes,
+            MaximumValidationProcesses);
         if (result.ExitCode != 0)
         {
             throw new ToolValidationException([
@@ -142,6 +207,15 @@ internal static class DevelopmentEvidenceCommand
                 result.StandardError.Trim()
             ]);
         }
+        return result;
+    }
+
+    internal static int ParseTestTotal(string module, string output)
+    {
+        var match = Regex.Match(output, @"(?m)^\s*total:\s*(\d+)\s*$", RegexOptions.CultureInvariant);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var total) && total > 0
+            ? total
+            : throw new ToolValidationException([$"{module} did not report a nonzero test inventory"]);
     }
 
     private static bool IsWithin(string path, string directory)
@@ -162,5 +236,6 @@ internal static class DevelopmentEvidenceCommand
         "development-attest requires --output <outside-repository-path> [--binary <path>] [--valid-hours 1..24] [--profile dev-containers-three-cell-lean|dev-containers-control-three-cell-lean]"
     ]);
 
-    private sealed record Options(string Output, string? Binary, int ValidHours, string Profile);
+    internal sealed record Options(string Output, string? Binary, int ValidHours, string Profile);
+    internal sealed record TestModule(string Name, string RelativeDirectory);
 }

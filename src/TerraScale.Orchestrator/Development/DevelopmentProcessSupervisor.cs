@@ -29,7 +29,10 @@ internal static class DevelopmentContainerImages
 internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 {
     internal static readonly string OwnershipLabel = "io.terrascale.owner=devhost-orchestrator";
-    internal static readonly long PodMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
+    internal const long AggregateLocalMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
+    internal const long PodMemoryLimitBytes = 14L * 1024 * 1024 * 1024;
+    internal const long HostHeadroomBytes = 2L * 1024 * 1024 * 1024;
+    internal const int ContainerProcessLimit = 512;
 
     private readonly Dictionary<string, Process> processes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DevelopmentProcessSpec> specifications = new(StringComparer.Ordinal);
@@ -47,6 +50,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         string dataDirectory,
         string instance = "local")
     {
+        RequireResourceBudget(topology);
         this.topology = topology;
         this.workspaceRoot = Path.GetFullPath(workspaceRoot);
         this.dataDirectory = Path.GetFullPath(dataDirectory);
@@ -77,11 +81,11 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             cancellationToken);
         if (owner.ExitCode == 0)
         {
-            if (!string.Equals(owner.Output.Trim(), "devhost-orchestrator", StringComparison.Ordinal))
+            if (!IsOwnedPod(owner.Output))
             {
                 throw new InvalidOperationException($"Podman pod '{podName}' exists but is not owned by TerraScale DevHost.");
             }
-            await RequireSuccessAsync(["pod", "rm", "--force", "--time", "10", podName], cancellationToken);
+            await RequireSuccessAsync(OwnedPodRemovalArguments(podName, 10), cancellationToken);
         }
 
         foreach (var image in DevelopmentContainerImages.RequiredBy(topology))
@@ -201,7 +205,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--label", $"io.terrascale.profile={topology.Profile}",
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
-            "--pids-limit", "512",
+            "--pids-limit", ContainerProcessLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--memory", memory,
             "--memory-swap", memory,
             "--stop-timeout", "15",
@@ -241,7 +245,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         specifications.Clear();
         if (initialized)
         {
-            _ = await RunAsync(["pod", "rm", "--force", "--time", "15", podName], CancellationToken.None);
+            _ = await RunAsync(OwnedPodRemovalArguments(podName, 15), CancellationToken.None);
         }
         stopping.Dispose();
     }
@@ -294,22 +298,48 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         return path;
     }
 
+    internal static long PlannedMemoryLimitBytes(DevelopmentTopology topology) => checked(
+        topology.Cells.SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources)
+            .Sum(resource => MemoryLimitBytes(resource.Kind)));
+
+    internal static void RequireResourceBudget(DevelopmentTopology topology)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        var planned = PlannedMemoryLimitBytes(topology);
+        if (planned > PodMemoryLimitBytes ||
+            PodMemoryLimitBytes + HostHeadroomBytes > AggregateLocalMemoryLimitBytes)
+        {
+            throw new InvalidOperationException(
+                $"Development topology '{topology.Profile}' plans {planned} bytes, exceeding the " +
+                $"{PodMemoryLimitBytes}-byte lab budget inside the {AggregateLocalMemoryLimitBytes}-byte local limit.");
+        }
+    }
+
+    internal static bool IsOwnedPod(string? owner) =>
+        string.Equals(owner?.Trim(), "devhost-orchestrator", StringComparison.Ordinal);
+
+    internal static IReadOnlyList<string> OwnedPodRemovalArguments(string podName, int timeoutSeconds) =>
+        ["pod", "rm", "--force", "--time", timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture), podName];
+
     private static string MemoryLimit(DevelopmentTopology topology, string name)
     {
         var resource = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .Single(candidate => candidate.Name == name);
-        return resource.Kind switch
-        {
-            DevelopmentResourceKind.TerraBase => "1536m",
-            DevelopmentResourceKind.Api => "768m",
-            DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => "512m",
-            DevelopmentResourceKind.ControllerAgent => "384m",
-            DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => "256m",
-            DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => "256m",
-            _ => throw new ArgumentOutOfRangeException(nameof(name))
-        };
+        return MemoryLimitBytes(resource.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private static long MemoryLimitBytes(DevelopmentResourceKind kind) => kind switch
+    {
+        DevelopmentResourceKind.TerraBase => 1536L * 1024 * 1024,
+        DevelopmentResourceKind.Api => 768L * 1024 * 1024,
+        DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 512L * 1024 * 1024,
+        DevelopmentResourceKind.ControllerAgent => 384L * 1024 * 1024,
+        DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => 256L * 1024 * 1024,
+        DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => 256L * 1024 * 1024,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind))
+    };
 
     private static IReadOnlyList<int> PublishedPorts(DevelopmentTopology topology) => topology.Cells
         .SelectMany(cell => cell.Resources)

@@ -9,6 +9,11 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Never start a system-under-test VM, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
 - Keep the aggregate local container and test workload at or below 16 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
 - Do not reproduce the full production topology locally. Use three regions with replication factor 1; validating regional behavior is more important than simulating quorum locally.
+- Reserve 2 GiB for the host and tooling. An owned Podman lab or bounded validation process may use at most 14 GiB, and topology admission must fail before startup when the sum of declared limits exceeds that budget.
+- Run the five test executables sequentially and pass `--maximum-parallel-tests 4` to TUnit. Never run multiple test modules, a test run and a lab, or two labs concurrently in this checkout; use the repository validation lease.
+- Test at the lowest sufficient fidelity: pure business behavior in process; routing, identity, messaging, persistence, health, restart, and reconciliation in the three-region RF=1 lab; quorum only in a targeted one-region R3 component lane; systemd, containerd, storage, and provider boundaries one fixture at a time.
+- Reuse one healthy regional lab for sequential fault scenarios when isolation is not itself under test. Do not start a fresh full topology per test, and do not add a second local production-shaped topology system.
+- A three-region RF=1 result is regional-development evidence only. It must never be reported as production quorum, host-failure tolerance, systemd, cloud, destructive-storage, or ARM qualification.
 - Never edit sibling repositories from this checkout. Cross-repository cleanup must be done inside each owning product repo on `develop` (or on a user-requested branch/worktree pair), then committed and pushed to that repo's `develop` after the native replacement gate exists.
 
 ## Ownership and dependency rules

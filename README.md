@@ -7,10 +7,18 @@ Owner choices 1A–10A are accepted with reliability first. Numeric cost, databa
 ## Baseline validation
 
 ```bash
-dotnet restore TerraScale.Orchestrator.slnx --locked-mode
-dotnet build TerraScale.Orchestrator.slnx --no-restore
+dotnet restore TerraScale.Orchestrator.slnx --locked-mode --disable-parallel
+dotnet build TerraScale.Orchestrator.slnx --no-restore --maxcpucount:1
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
+
+The exact-tree `development-attest` command is the canonical complete local
+run. It builds once, runs all five TUnit executables sequentially with at most
+four tests active in a module, then runs policy tooling. A repository-wide
+lease prevents it from overlapping a Podman lab. Its evidence records the
+test count for every module and observed peak memory/process counts under a
+14 GiB execution ceiling, leaving 2 GiB of the 16 GiB local budget for the
+host.
 
 All repository validators, generators, audit utilities, conformance checks, and
 their tests are implemented in C#. The dependency-free tooling executable
@@ -92,9 +100,11 @@ binds the lease identity, and grants a mutation permit only to the exact CAS
 winner. Followers remain available for read-only operator traffic. The winner
 renews every three seconds with a fifteen-second lease; a renewal conflict or
 uncertain authority result fences the candidate and terminates it for an
-external supervisor restart. DevHost exercises this election on each real R3
-cell, but its single-host clock/loopback transport is development evidence and
-does not replace the real multi-host clock, partition, mTLS, and NATS-JWT gates.
+external supervisor restart. The three-region DevHost profile runs one
+controller and RF=1 NATS per cell, so it exercises regional wiring but does
+not claim election or quorum. Those semantics use a separate targeted
+one-region R3 component lane and still do not replace the real multi-host
+clock, partition, mTLS, and NATS-JWT gates.
 
 ## DevHost three-cell container profile
 
@@ -108,7 +118,7 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the full solution and policy suites before writing evidence outside the repository. Startup then verifies rootless Podman availability, creates an owner-labelled pod with a fixed memory budget, and starts only digest-pinned images. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 14 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 14 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,184 MiB. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
@@ -126,6 +136,13 @@ src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator 
 ```
 
 The adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Stopping the foreground Orchestrator removes every owned container and its pod; persisted data remains for the next generation. Startup removes an existing pod only when its ownership label matches exactly and refuses to touch foreign resources.
+
+Run regional fault scenarios sequentially against one healthy lab and reuse it
+when clean bootstrap is not the behavior under test. Pure decision logic stays
+in-process; real quorum uses a separate one-region R3 component lane; and
+systemd, containerd, storage, ARM, and OCI/provider qualification run as
+targeted real-boundary fixtures one at a time. The RF=1 lab proves regional
+composition, not production HA or destructive-operation safety.
 
 DevHost creates stable, owner-private credentials beneath its Orchestrator data
 directory. Every controller has a distinct NKey identity, and each cell has a

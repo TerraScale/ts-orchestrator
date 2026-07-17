@@ -121,9 +121,42 @@ public sealed class DevelopmentTopologyTests
             DevelopmentContainerImages.Node,
             DevelopmentContainerImages.Nats
         ]);
-        await Assert.That(DevelopmentProcessSupervisor.PodMemoryLimitBytes)
-            .IsEqualTo(16L * 1024 * 1024 * 1024);
+        await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
+            DevelopmentTopology.CreateThreeCellLean()))
+            .IsEqualTo(13_184L * 1024 * 1024);
+        await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
+            DevelopmentTopology.CreateThreeCellControlPlane()))
+            .IsEqualTo(1_920L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
+    }
+
+    [Test]
+    public async Task OverBudgetTopologyFailsBeforeRuntimeStartup()
+    {
+        var resources = Enumerable.Range(1, 10)
+            .Select(replica => new DevelopmentResourcePlan(
+                $"gru-terrabase-{replica}",
+                "gru",
+                DevelopmentResourceKind.TerraBase,
+                replica,
+                20_000 + replica))
+            .ToArray();
+        var topology = new DevelopmentTopology(
+            "over-budget",
+            [new DevelopmentCellPlan("gru", 0, resources)],
+            []);
+
+        await Assert.That(() => DevelopmentProcessSupervisor.RequireResourceBudget(topology))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task CleanupOnlyTargetsExactlyOwnedPod()
+    {
+        await Assert.That(DevelopmentProcessSupervisor.IsOwnedPod("devhost-orchestrator\n")).IsTrue();
+        await Assert.That(DevelopmentProcessSupervisor.IsOwnedPod("foreign-owner")).IsFalse();
+        await Assert.That(DevelopmentProcessSupervisor.OwnedPodRemovalArguments("lab", 10))
+            .IsEquivalentTo(["pod", "rm", "--force", "--time", "10", "lab"]);
     }
 }

@@ -74,4 +74,32 @@ public sealed class DevelopmentReconciliationTests
         await Assert.That(() => DevelopmentReconciliation.Evaluate(topology, 1, [foreign]))
             .Throws<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task FailedRegionalApiAndItsDashboardAreHeldWithoutCrossRegionImpact()
+    {
+        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var observations = topology.Cells.SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources)
+            .Select((resource, index) => new DevelopmentResourceObservation(
+                resource.Name,
+                resource.Cell,
+                resource.Kind,
+                resource.Replica,
+                resource.Name == "sfo-api" ? DevelopmentResourceState.Failed : DevelopmentResourceState.Ready,
+                resource.Name != "sfo-api",
+                20_000 + index,
+                $"container-{index}",
+                null,
+                resource.Name == "sfo-api" ? "failed" : "ready",
+                DateTimeOffset.UtcNow))
+            .ToArray();
+
+        var result = DevelopmentReconciliation.Evaluate(topology, 11, observations);
+
+        await Assert.That(result.ConvergedResources).IsEqualTo(21);
+        await Assert.That(result.ReconcileIntents).IsEqualTo(0);
+        await Assert.That(result.HeldResources).IsEqualTo(2);
+        await Assert.That(result.Errors).IsEmpty();
+    }
 }

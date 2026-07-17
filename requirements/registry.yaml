@@ -355,12 +355,12 @@ entries:
     contractStatus: proposed
     owner: Verification
     coReviewers: []
-    normativeStatement: "This repository plan, solution layout, mandatory rootless-container logic/single/cell/full-region labs, and real systemd/OCI gates"
+    normativeStatement: "Bounded in-process suites, targeted component fixtures, a three-region RF1 container lab, one-region R3 quorum tests, and real systemd/OCI gates"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 130
     normativeEndLine: 130
     normativeContains: "reproducible test environment"
-    normativeSha256: f05fcf6ae99f162db89dd16eee111861d39462bb27083da6690e8111dadd544e
+    normativeSha256: b460df10dfb2f4ae114e1a5d61490dc0fdad98b6386c0c005e9d10abdb393945
     acceptanceLayers:
       - L0
       - L1S
@@ -421,12 +421,12 @@ entries:
     contractStatus: proposed
     owner: Verification
     coReviewers: []
-    normativeStatement: "Digest-pinned nine-node rootless-container topology, all-server inventory, regional links/faults, progressive full-region gates, and separate production-boundary evidence"
+    normativeStatement: "Digest-pinned three-region RF1 topology, sequential regional faults, targeted R3 quorum tests, and separate production-boundary evidence"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 133
     normativeEndLine: 133
     normativeContains: "complete GRU/FRA/SFO tests"
-    normativeSha256: 325344e4833acddeb935245198a8c1b829ce865595244382daf36a61a77eef0e
+    normativeSha256: 48ca9e080059718ffca6bd6a31e929a3173cc8795c3c736eec9e685f5e7665e2
     acceptanceLayers:
       - L3S
     evidenceState: missing

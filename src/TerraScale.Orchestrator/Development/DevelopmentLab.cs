@@ -62,6 +62,7 @@ public static class DevelopmentLab
         DevelopmentTopology topology,
         CancellationToken cancellationToken)
     {
+        using var validationLease = LocalValidationLease.Acquire();
         await PreDeploymentEvidence.RequireAsync(
             options.EvidenceFile,
             options.WorkspaceRoot!,

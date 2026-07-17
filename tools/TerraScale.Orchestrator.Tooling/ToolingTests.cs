@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using TerraScale.Orchestrator.Development;
 
 namespace TerraScale.Orchestrator.Tooling;
 
@@ -41,6 +42,10 @@ internal static class ToolingTests
             ("OCI authorization classification", () => AssertEqual(("permission-denied", "authorization"), OciInventoryCommand.ClassifyFailure("status: 403 Forbidden"))),
             ("OCI plan", () => AssertExitZero(() => OciInventoryCommand.Run(["--plan"]))),
             ("translated script inventory", TranslatedInventory),
+            ("development evidence profile authorization", DevelopmentEvidenceProfiles),
+            ("development evidence bounded execution", DevelopmentEvidenceBounds),
+            ("development bounded process observation", DevelopmentBoundedProcessObservation),
+            ("development validation lease", DevelopmentValidationLease),
         };
 
         var failures = new List<string>();
@@ -100,6 +105,53 @@ internal static class ToolingTests
         if (python.Length != 0) throw new InvalidOperationException($"Python sources remain: {string.Join(',', python)}");
     }
 
+    private static void DevelopmentEvidenceProfiles()
+    {
+        var lean = DevelopmentEvidenceCommand.Parse(["--output", "/tmp/evidence.json"]);
+        var control = DevelopmentEvidenceCommand.Parse([
+            "--output", "/tmp/evidence.json",
+            "--profile", "dev-containers-control-three-cell-lean"]);
+        AssertEqual("dev-containers-three-cell-lean", lean.Profile);
+        AssertEqual("dev-containers-control-three-cell-lean", control.Profile);
+        var retiredProfile = string.Concat("dev-", "smol", "vm", "-three-cell-r3");
+        AssertThrows<ToolValidationException>(() => DevelopmentEvidenceCommand.Parse([
+            "--output", "/tmp/evidence.json",
+            "--profile", retiredProfile]));
+    }
+
+    private static void DevelopmentEvidenceBounds()
+    {
+        AssertEqual(1, DevelopmentEvidenceCommand.MaximumParallelTestModules);
+        AssertEqual(4, DevelopmentEvidenceCommand.MaximumParallelTests);
+        AssertEqual(5, DevelopmentEvidenceCommand.TestModules.Count);
+        AssertEqual(16L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.AggregateMemoryLimitBytes);
+        AssertEqual(14L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ExecutionMemoryLimitBytes);
+        AssertEqual(46, DevelopmentEvidenceCommand.ParseTestTotal("sample", "total: 46\n"));
+    }
+
+    private static void DevelopmentValidationLease()
+    {
+        var scope = $"tooling-test-{Guid.NewGuid():N}";
+        using var lease = LocalValidationLease.Acquire(scope);
+        AssertThrows<InvalidOperationException>(() => LocalValidationLease.Acquire(scope));
+    }
+
+    private static void DevelopmentBoundedProcessObservation()
+    {
+        var result = BoundedProcessRunner.Run(
+            "dotnet",
+            ["--version"],
+            ToolingSupport.Root,
+            TimeSpan.FromSeconds(30),
+            256L * 1024 * 1024,
+            4);
+        AssertEqual(0, result.ExitCode);
+        if (result.Observation.PeakMemoryBytes <= 0 || result.Observation.PeakProcessCount <= 0)
+        {
+            throw new InvalidOperationException("bounded process observation did not capture resource use");
+        }
+    }
+
     private static JsonObject Mutate(string path, object[] segments, object? value)
     {
         var document = Clone(ToolingSupport.ReadObject(path));
@@ -136,4 +188,10 @@ internal static class ToolingTests
     private static void AssertInvalid(JsonObject document, Func<JsonObject, List<string>> validate) => AssertInvalid(validate(document));
     private static void AssertExitZero(Func<int> action) { if (action() != 0) throw new InvalidOperationException("command returned nonzero"); }
     private static void AssertEqual<T>(T expected, T actual) where T : notnull { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"expected {expected}, observed {actual}"); }
+    private static void AssertThrows<TException>(Action action) where TException : Exception
+    {
+        try { action(); }
+        catch (TException) { return; }
+        throw new InvalidOperationException($"expected {typeof(TException).Name}");
+    }
 }

@@ -246,7 +246,7 @@ internal static class RegistryAuditCommand
     public static int Run(string[] arguments)
     {
         var errors = JsonEvidenceValidator.Validate("docs/audits/registry/registry-audit.json", "schemaVersion", "summary", "findings");
-        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "06d3d32a2b99d7ed9cf51cb1ceedd363123da8d17f0d12819a936cfc3bc3045b");
+        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "3c4b514adb6e5d7285dae9735057bf848affe137c158f7479162abe829a84b31");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/registry-audit.json", "f7057fb8a86fbb4f379a07a28567cbf682590216176d8867a42afc67e9f8b3d5");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/owner-mapping.json", "754e37b4081b262ae338a852543bc14946eec6e1bf4dd355819698b5cb339931");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/fixtures/negative-cases.json", "de9b1b3132d54d3840cdc678980f18ef05a0c0f34e9eb9b59ce7f0132c4ef10a");
