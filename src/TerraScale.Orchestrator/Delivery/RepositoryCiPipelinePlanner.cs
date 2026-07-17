@@ -5,18 +5,51 @@ using TerraScale.Orchestrator.ControlPlane.Delivery;
 
 namespace TerraScale.Orchestrator.Delivery;
 
-public sealed record RepositoryCiPipelineJob(
-    RepositoryCiPlannedJob Plan,
-    ForgejoResolvedRevision Source,
-    JobRequest Request,
-    IReadOnlyList<JobId> DependsOn,
-    bool MayPublishCandidateArtifact);
+public sealed record RepositoryCiPipelineJob
+{
+    internal RepositoryCiPipelineJob(
+        RepositoryCiPlannedJob plan,
+        ForgejoResolvedRevision source,
+        JobRequest request,
+        IReadOnlyList<JobId> dependsOn,
+        bool mayPublishCandidateArtifact)
+    {
+        Plan = plan;
+        Source = source;
+        Request = request;
+        DependsOn = dependsOn;
+        MayPublishCandidateArtifact = mayPublishCandidateArtifact;
+    }
 
-public sealed record RepositoryCiPipelinePlan(
-    PipelineId Pipeline,
-    string Digest,
-    RepositoryCiProfile Profile,
-    IReadOnlyList<RepositoryCiPipelineJob> Jobs);
+    public RepositoryCiPlannedJob Plan { get; }
+    public ForgejoResolvedRevision Source { get; }
+    public JobRequest Request { get; }
+    public IReadOnlyList<JobId> DependsOn { get; }
+    public bool MayPublishCandidateArtifact { get; }
+}
+
+public sealed class RepositoryCiPipelinePlan
+{
+    internal RepositoryCiPipelinePlan(
+        PipelineId pipeline,
+        string digest,
+        string impactDigest,
+        RepositoryCiProfile profile,
+        IReadOnlyList<RepositoryCiPipelineJob> jobs)
+    {
+        Pipeline = pipeline;
+        Digest = digest;
+        ImpactDigest = impactDigest;
+        Profile = profile;
+        Jobs = jobs;
+    }
+
+    public PipelineId Pipeline { get; }
+    public string Digest { get; }
+    public string ImpactDigest { get; }
+    public RepositoryCiProfile Profile { get; }
+    public IReadOnlyList<RepositoryCiPipelineJob> Jobs { get; }
+}
 
 /// <summary>Binds an affected DAG to immutable Git objects and least-privilege runner work.</summary>
 public static class RepositoryCiPipelinePlanner
@@ -105,7 +138,7 @@ public static class RepositoryCiPipelinePlanner
                 ReadOnly(planned.DependsOn.Select(dependency => jobIds[dependency]).ToArray()),
                 planned.Node.Kind == RepositoryCiNodeKind.Artifact && trigger.MayPublishArtifacts));
         }
-        return new(pipeline, digest, expectedProfile, ReadOnly(jobs));
+        return new(pipeline, digest, impact.Digest, expectedProfile, ReadOnly(jobs));
     }
 
     private static void ValidateImpact(RepositoryCiImpactPlan impact)
