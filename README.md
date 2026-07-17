@@ -511,9 +511,14 @@ TS_ORCH_CI_OCI_CONFIG=/etc/terrascale/oci-ci-pool.json \
 TS_ORCH_COMMAND_SIGNING_KEY_FILE=/run/credentials/command-signing.pem \
 TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
 TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
-TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-read-token \
+TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-ci-token \
 terrascale-orchestrator run
 ```
+
+The OCI CI controller token must be restricted to that one repository and have
+Forgejo `write:repository` scope because it reads exact source objects and posts
+terminal commit statuses. A polling-only controller can keep the narrower
+`read:repository` token described below.
 
 This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
