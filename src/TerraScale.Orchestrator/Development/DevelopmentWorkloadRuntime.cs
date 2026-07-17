@@ -103,6 +103,7 @@ internal static class DevelopmentWorkloadRuntime
         new Dictionary<string, string?>
         {
             ["PORT"] = resource.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["ASPNETCORE_HTTP_PORTS"] = string.Empty,
             ["Logging__LogLevel__Default"] = "Warning",
             ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning"
         };
@@ -234,6 +235,7 @@ internal static class DevelopmentWorkloadRuntime
         var serviceHome = Path.Combine(dataDirectory, "workloads", resource.Name, "home");
         var environment = new Dictionary<string, string?>
         {
+            ["ASPNETCORE_HTTP_PORTS"] = string.Empty,
             ["HOME"] = serviceHome,
             ["DOTNET_CLI_HOME"] = serviceHome,
             ["ASPNETCORE_ENVIRONMENT"] = "Development",
