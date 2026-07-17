@@ -270,7 +270,7 @@ internal static class NativeGitOpsLiveBarrierEvaluator
                 null);
     }
 
-    private static string Digest(
+    internal static string Digest(
         NativeGitOpsCellHandoffDescriptor handoff,
         IReadOnlyList<NativeGitOpsVerifiedCellConvergence> receipts)
     {
