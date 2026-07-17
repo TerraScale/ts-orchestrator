@@ -5,6 +5,7 @@ using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using TerraScale.Orchestrator.Operations;
 using TerraScale.Orchestrator.Observability;
+using TerraScale.Orchestrator.Security;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -30,9 +31,26 @@ try
     }
     var runtimeConfiguration = OrchestratorRuntimeConfiguration.Load(
         Environment.GetEnvironmentVariable("TS_ORCH_CONFIG"));
+    string? LocalEnvironment(string key) =>
+        runtimeConfiguration?.GetEnvironmentValue(key) ?? Environment.GetEnvironmentVariable(key);
+    if (args.FirstOrDefault() is "infisical")
+    {
+        return await InfisicalCli.ExecuteAsync(
+            args.Skip(1).ToArray(),
+            LocalEnvironment,
+            shutdown.Token);
+    }
+    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check"
+        ? InfisicalConfiguration.Resolve(LocalEnvironment)
+        : null;
+    using var infisicalEnvironment = infisicalConfiguration is null
+        ? null
+        : await InfisicalSecretEnvironment.LoadAsync(infisicalConfiguration, shutdown.Token);
+    string? ResolvedEnvironment(string key) =>
+        LocalEnvironment(key) ?? infisicalEnvironment?.GetValue(key);
     var options = OrchestratorOptions.Parse(
         args,
-        key => runtimeConfiguration?.GetEnvironmentValue(key) ?? Environment.GetEnvironmentVariable(key));
+        ResolvedEnvironment);
     if (options.Command is OrchestratorCommand.Lab)
     {
         return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);
@@ -50,7 +68,7 @@ try
 
     using var commandIdentity = options.CommandIdentity?.Open();
     using var ciRunnerNatsIdentity = options.CiRunnerNatsIdentity?.Open();
-    using var telemetry = OrchestratorTelemetry.Start(options, Environment.GetEnvironmentVariable);
+    using var telemetry = OrchestratorTelemetry.Start(options, ResolvedEnvironment);
     using var startupActivity = telemetry.StartRuntime();
     var startupTimestamp = Stopwatch.GetTimestamp();
     NatsRuntime? runtime = null;

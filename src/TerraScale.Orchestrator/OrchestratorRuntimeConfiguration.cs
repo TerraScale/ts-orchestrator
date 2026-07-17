@@ -17,7 +17,14 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? CommandSigningKeyFile = null,
     string[]? CommandTrustKeyFiles = null,
     string? CiRunnerNatsAccountSigningKeyFile = null,
-    string? CiRunnerNatsAccountPublicKey = null)
+    string? CiRunnerNatsAccountPublicKey = null,
+    string? InfisicalUrl = null,
+    string? InfisicalProjectId = null,
+    string? InfisicalEnvironment = null,
+    string? InfisicalSecretPath = null,
+    string? InfisicalClientIdFile = null,
+    string? InfisicalClientSecretFile = null,
+    string? InfisicalOrganizationSlug = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -59,6 +66,13 @@ internal sealed record OrchestratorRuntimeConfiguration(
             : null,
         "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE" => CiRunnerNatsAccountSigningKeyFile,
         "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY" => CiRunnerNatsAccountPublicKey,
+        "TS_ORCH_INFISICAL_URL" => InfisicalUrl,
+        "TS_ORCH_INFISICAL_PROJECT_ID" => InfisicalProjectId,
+        "TS_ORCH_INFISICAL_ENVIRONMENT" => InfisicalEnvironment,
+        "TS_ORCH_INFISICAL_SECRET_PATH" => InfisicalSecretPath,
+        "TS_ORCH_INFISICAL_CLIENT_ID_FILE" => InfisicalClientIdFile,
+        "TS_ORCH_INFISICAL_CLIENT_SECRET_FILE" => InfisicalClientSecretFile,
+        "TS_ORCH_INFISICAL_ORGANIZATION_SLUG" => InfisicalOrganizationSlug,
         _ => null
     };
 }

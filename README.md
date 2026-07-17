@@ -57,6 +57,49 @@ dotnet run --project src/TerraScale.Orchestrator -- \
   --tls-key-file /run/credentials/terrascale/operator.key.pem
 ```
 
+### Infisical secrets
+
+`run` and `check` can load missing configuration directly from an Infisical
+project through a Universal Auth machine identity and the current v4 Secrets
+API. Explicit typed configuration or process environment variables always win.
+Infisical keys named like existing `TS_ORCH_*_FILE` settings are treated as the
+file contents, materialized into owner-private temporary files, and removed on
+shutdown; other keys are used as ordinary configuration values.
+
+```bash
+TS_ORCH_INFISICAL_URL=https://app.infisical.com \
+TS_ORCH_INFISICAL_PROJECT_ID=00000000-0000-0000-0000-000000000000 \
+TS_ORCH_INFISICAL_ENVIRONMENT=prod \
+TS_ORCH_INFISICAL_SECRET_PATH=/orchestrator/gru \
+TS_ORCH_INFISICAL_CLIENT_ID_FILE=/run/credentials/infisical-client-id \
+TS_ORCH_INFISICAL_CLIENT_SECRET_FILE=/run/credentials/infisical-client-secret \
+terrascale-orchestrator check
+```
+
+The URL defaults to `https://app.infisical.com` and the secret path defaults to
+`/`. `TS_ORCH_INFISICAL_ORGANIZATION_SLUG` selects a sub-organization when
+needed. Both Universal Auth files must contain exact UTF-8 credentials without
+a trailing newline and must be owner-private. Plain HTTP is accepted only for a
+loopback self-hosted development endpoint.
+
+The same configuration enables value-safe CRUD commands. `list` prints only
+path, name, and version; `get` writes an owner-private file; create/update values
+must come from an owner-private file; deletion requires the name twice.
+
+```bash
+terrascale-orchestrator infisical list
+terrascale-orchestrator infisical get API_TOKEN --output /run/user/1000/api-token
+terrascale-orchestrator infisical create API_TOKEN --value-file /run/user/1000/new-api-token
+terrascale-orchestrator infisical update API_TOKEN --value-file /run/user/1000/rotated-api-token
+terrascale-orchestrator infisical delete API_TOKEN --confirm API_TOKEN
+```
+
+Grant the machine identity only the project/environment/path permissions needed
+by its command. See Infisical's
+[Universal Auth](https://infisical.com/docs/documentation/platform/identities/universal-auth)
+and [v4 Secrets API](https://infisical.com/docs/api-reference/endpoints/secrets/list)
+documentation.
+
 `operator status` is a read-only NATS request/reply operation. The regional
 service validates and returns its cell, controller instance, R3 configuration,
 exact build, start/observation times, and implemented capability inventory.
