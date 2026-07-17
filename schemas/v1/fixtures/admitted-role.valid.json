@@ -1,8 +1,0 @@
-{
-  "apiVersion": "terrascale.io/orchestrator/v1",
-  "kind": "MetricsStore",
-  "implementation": {
-    "domain": "MetricsStore",
-    "catalogEntryId": "owner-selected-metrics"
-  }
-}
