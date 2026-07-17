@@ -169,6 +169,12 @@ duplicate fields, arbitrary roles/runtimes, paths, image names, unit text,
 capabilities, invalid digests, missing/cross-cell dependencies, cycles, and
 replica counts below a role's production floor all fail before a plan exists.
 
+Accepted/proposed diffs require monotonically increasing generations and one
+digest per generation. Create, update, and resume changes are dependency-first;
+suspension and guarded retirement are dependent-first. A stable workload ID
+cannot change its admitted role, and an active workload cannot depend on a
+suspended role.
+
 The optional polling fallback runs only on the current fenced regional leader.
 It reads protected `develop` and `main` refs every 30 seconds, resolves each
 observed commit to its exact Git tree, then records the observation in
