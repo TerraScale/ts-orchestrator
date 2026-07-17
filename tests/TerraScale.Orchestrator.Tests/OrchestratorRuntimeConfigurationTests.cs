@@ -63,4 +63,36 @@ public sealed class OrchestratorRuntimeConfigurationTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public async Task TypedConfigurationCarriesCiRunnerAccountSignerReferences()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"orchestrator-config-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                cell = "gru",
+                natsUrl = "nats://127.0.0.1:4222",
+                replicas = 3,
+                instance = "1",
+                ciRunnerNatsAccountSigningKeyFile = "/run/credentials/orchestrator/runner-account.nk",
+                ciRunnerNatsAccountPublicKey = "AEXAMPLE"
+            }));
+
+            var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
+
+            await Assert.That(configuration.GetEnvironmentValue(
+                    "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"))
+                .IsEqualTo("/run/credentials/orchestrator/runner-account.nk");
+            await Assert.That(configuration.GetEnvironmentValue(
+                    "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
+                .IsEqualTo("AEXAMPLE");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

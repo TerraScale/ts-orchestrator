@@ -9,6 +9,23 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class CiRunnerNatsCredentialIssuerTests
 {
     [Test]
+    public async Task TypedIdentityConfigurationIsAllOrNothing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "runner-account.nk");
+        var configuration = CiRunnerNatsIdentityConfiguration.Resolve(path, null);
+
+        await Assert.That(configuration!.SigningKeyFile).IsEqualTo(path);
+        await Assert.That(configuration.AccountPublicKey).IsNull();
+        await Assert.That(CiRunnerNatsIdentityConfiguration.Resolve(null, null)).IsNull();
+        await Assert.That(() => CiRunnerNatsIdentityConfiguration.Resolve(null, "ACCOUNT"))
+            .Throws<ArgumentException>();
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["check"],
+                name => name == "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE" ? path : null))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task IssuedJwtIsShortLivedAccountSignedAndExactlyScoped()
     {
         if (!OperatingSystem.IsLinux()) return;

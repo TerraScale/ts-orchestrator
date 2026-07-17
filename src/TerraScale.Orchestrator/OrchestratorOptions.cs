@@ -39,7 +39,8 @@ public sealed record OrchestratorOptions(
     Messaging.GlobalNatsConfiguration? GlobalNats = null,
     Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
     Delivery.ForgejoSourceConfiguration? ForgejoSource = null,
-    Delivery.CommandIdentityConfiguration? CommandIdentity = null)
+    Delivery.CommandIdentityConfiguration? CommandIdentity = null,
+    Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -125,8 +126,15 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_COMMAND_SIGNING_KEY_FILE"),
                     environment("TS_ORCH_COMMAND_TRUST_KEY_FILES"))
                 : null;
+            var ciRunnerNatsIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? Messaging.CiRunnerNatsIdentityConfiguration.Resolve(
+                    environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"),
+                    environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
+                : null;
             if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
                 throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
+            if (ciRunnerNatsIdentity is not null && globalNats is null)
+                throw new ArgumentException("CI runner NATS identity issuance requires configured global control authority.");
             return new(
                 command,
                 cell,
@@ -138,7 +146,8 @@ public sealed record OrchestratorOptions(
                 GlobalNats: globalNats,
                 ForgejoWebhook: forgejoWebhook,
                 ForgejoSource: forgejoSource,
-                CommandIdentity: commandIdentity);
+                CommandIdentity: commandIdentity,
+                CiRunnerNatsIdentity: ciRunnerNatsIdentity);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

@@ -49,6 +49,7 @@ try
     }
 
     using var commandIdentity = options.CommandIdentity?.Open();
+    using var ciRunnerNatsIdentity = options.CiRunnerNatsIdentity?.Open();
     using var telemetry = OrchestratorTelemetry.Start(options, Environment.GetEnvironmentVariable);
     using var startupActivity = telemetry.StartRuntime();
     var startupTimestamp = Stopwatch.GetTimestamp();
@@ -61,6 +62,7 @@ try
             globalRuntime = await GlobalNatsRuntime.StartAsync(
                 options.GlobalNats,
                 options.Instance,
+                ciRunnerNatsIdentity,
                 shutdown.Token);
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)

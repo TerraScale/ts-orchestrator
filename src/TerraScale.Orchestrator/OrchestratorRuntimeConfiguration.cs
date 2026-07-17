@@ -15,7 +15,9 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? GlobalNatsTlsCertificateFile = null,
     string? GlobalNatsTlsKeyFile = null,
     string? CommandSigningKeyFile = null,
-    string[]? CommandTrustKeyFiles = null)
+    string[]? CommandTrustKeyFiles = null,
+    string? CiRunnerNatsAccountSigningKeyFile = null,
+    string? CiRunnerNatsAccountPublicKey = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -55,6 +57,8 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_COMMAND_TRUST_KEY_FILES" => CommandTrustKeyFiles is { Length: > 0 }
             ? string.Join(Path.PathSeparator, CommandTrustKeyFiles)
             : null,
+        "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE" => CiRunnerNatsAccountSigningKeyFile,
+        "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY" => CiRunnerNatsAccountPublicKey,
         _ => null
     };
 }

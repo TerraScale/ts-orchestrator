@@ -195,6 +195,11 @@ consumer and fail closed on altered server readback. A bounded issuer can mint a
 STANDARD-only, 1–15 minute NATS user JWT/NKey lease from a private account or
 scoped account-signing credential after that readback; it embeds only the exact
 runner subject plan and zeroes retained seed buffers on disposal. Live credential
+issuance is enabled only with global authority plus
+`TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE`; an optional
+`TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY` identifies the parent account when
+the credential is a scoped signing key. Typed JSON carries the same fields and
+startup opens and retains the signer before any NATS connection. Live credential
 delivery, the pipeline coordinator, runner process, and executor remain separate
 unimplemented gates; no unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:

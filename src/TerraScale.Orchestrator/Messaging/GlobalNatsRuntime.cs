@@ -18,6 +18,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
         CiRunnerConsumerReconciler ciRunners,
+        CiRunnerNatsCredentialIssuer? ciRunnerCredentials,
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
         NativeGitOpsSourceJournal nativeGitOpsSources,
@@ -30,6 +31,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.authority = authority;
         this.ciEvents = ciEvents;
         CiRunners = ciRunners;
+        CiRunnerCredentials = ciRunnerCredentials;
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
@@ -42,6 +44,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public Task Completion => Task.WhenAny(authority.Completion, ciEvents.Completion).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public CiRunnerConsumerReconciler CiRunners { get; }
+    public CiRunnerNatsCredentialIssuer? CiRunnerCredentials { get; }
     public ForgejoSourceJournal ForgejoSources { get; }
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     public RepositoryCiPipelineJournal Pipelines { get; }
@@ -53,6 +56,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public static async Task<GlobalNatsRuntime> StartAsync(
         GlobalNatsConfiguration configuration,
         string instance,
+        INatsAccountJwtSigner? ciRunnerNatsSigner,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -96,6 +100,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 authority,
                 ciEvents,
                 new(client.CreateJetStreamContext(), topology),
+                ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
                 new(ledger, objects),

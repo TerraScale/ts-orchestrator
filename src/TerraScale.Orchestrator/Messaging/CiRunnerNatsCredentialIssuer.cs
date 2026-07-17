@@ -6,6 +6,39 @@ using NATS.Client.Core;
 
 namespace TerraScale.Orchestrator.Messaging;
 
+public sealed class CiRunnerNatsIdentityConfiguration
+{
+    private CiRunnerNatsIdentityConfiguration(string signingKeyFile, string? accountPublicKey)
+    {
+        SigningKeyFile = signingKeyFile;
+        AccountPublicKey = accountPublicKey;
+    }
+
+    public string SigningKeyFile { get; }
+    public string? AccountPublicKey { get; }
+
+    internal static CiRunnerNatsIdentityConfiguration? Resolve(
+        string? signingKeyFile,
+        string? accountPublicKey)
+    {
+        if (string.IsNullOrWhiteSpace(signingKeyFile))
+        {
+            if (!string.IsNullOrWhiteSpace(accountPublicKey))
+                throw new ArgumentException(
+                    "A CI runner NATS issuer account requires its account signing credential.",
+                    nameof(accountPublicKey));
+            return null;
+        }
+
+        return new(
+            Path.GetFullPath(signingKeyFile.Trim()),
+            string.IsNullOrWhiteSpace(accountPublicKey) ? null : accountPublicKey.Trim());
+    }
+
+    internal NatsAccountJwtSigner Open() =>
+        NatsAccountJwtSigner.Open(SigningKeyFile, AccountPublicKey);
+}
+
 internal interface INatsAccountJwtSigner
 {
     string IssuerPublicKey { get; }
