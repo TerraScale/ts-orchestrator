@@ -96,15 +96,22 @@ internal static class RepositoryCiArtifactAttestation
             return runtime is null
                 ? new(signingIdentity, artifact.SignatureId, null)
                 : null;
-        if (runtime is null || runtime.Subject != expected || !Identity(runtime.RunnerIdentity) ||
-            runtime.ObservedRuntimeDigest != expected.Digest ||
-            !ValidSignature(runtime.SignatureId, runtime.Signature) ||
-            runtimeVerifier.Verify(
-                runtime.RunnerIdentity,
-                RuntimeMaterial(expected, runtime.RunnerIdentity, runtime.ObservedRuntimeDigest),
-                runtime.Signature) != VerificationOutcome.Valid)
+        if (runtime is null || runtime.Subject != expected ||
+            !ValidateRuntime(runtime, runtimeVerifier))
             return null;
         return new(signingIdentity, artifact.SignatureId, runtime.ObservedRuntimeDigest);
+    }
+
+    internal static bool ValidateRuntime(
+        RepositoryCiSignedRuntimeObservation? runtime,
+        IRepositoryCiArtifactSignatureVerifier verifier)
+    {
+        ArgumentNullException.ThrowIfNull(verifier);
+        return StructurallyValid(runtime) && runtime!.ObservedRuntimeDigest == runtime.Subject.Digest &&
+            verifier.Verify(
+                runtime.RunnerIdentity,
+                RuntimeMaterial(runtime.Subject, runtime.RunnerIdentity, runtime.ObservedRuntimeDigest),
+                runtime.Signature) == VerificationOutcome.Valid;
     }
 
     internal static string SubjectDigest(RepositoryCiArtifactSubject subject)

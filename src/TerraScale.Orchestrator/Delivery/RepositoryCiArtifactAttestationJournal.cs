@@ -175,7 +175,7 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
                 : RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict;
     }
 
-    private static byte[] Serialize(RepositoryCiArtifactProofDocument document) =>
+    internal static byte[] Serialize(RepositoryCiArtifactProofDocument document) =>
         JsonSerializer.SerializeToUtf8Bytes(
             document,
             RepositoryCiArtifactAttestationJournalJsonContext.Default.RepositoryCiArtifactProofDocument);
@@ -190,7 +190,7 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
         return value;
     }
 
-    private static RepositoryCiArtifactProofDocument DeserializeProof(byte[] content)
+    internal static RepositoryCiArtifactProofDocument DeserializeProof(byte[] content)
     {
         try
         {
@@ -233,6 +233,40 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
 
     private static string Hash(ReadOnlySpan<byte> content) =>
         Convert.ToHexStringLower(SHA256.HashData(content));
+}
+
+/// <summary>Canonical bounded wire representation for one independently signed native observation.</summary>
+internal static class RepositoryCiRuntimeObservationWireCodec
+{
+    internal const int MaximumWireBytes = 64 * 1024;
+
+    internal static byte[] Encode(RepositoryCiSignedRuntimeObservation runtime)
+    {
+        if (!RepositoryCiArtifactAttestation.StructurallyValid(runtime) ||
+            runtime.ObservedRuntimeDigest != runtime.Subject.Digest)
+            throw new ArgumentException("The native runtime observation is invalid.", nameof(runtime));
+        var content = RepositoryCiArtifactAttestationJournal.Serialize(
+            RepositoryCiArtifactProofDocument.From(runtime));
+        if (content.Length is < 2 or > MaximumWireBytes)
+            throw new InvalidDataException("The native runtime observation exceeds its wire bound.");
+        return content;
+    }
+
+    internal static RepositoryCiSignedRuntimeObservation Decode(ReadOnlySpan<byte> content)
+    {
+        if (content.Length is < 2 or > MaximumWireBytes)
+            throw new InvalidDataException("The native runtime observation wire payload is invalid.");
+        var bytes = content.ToArray();
+        var document = RepositoryCiArtifactAttestationJournal.DeserializeProof(bytes);
+        if (document.Kind != RepositoryCiArtifactProofKind.RuntimeObservation ||
+            !bytes.AsSpan().SequenceEqual(RepositoryCiArtifactAttestationJournal.Serialize(document)))
+            throw new InvalidDataException("The native runtime observation wire payload is not canonical.");
+        return document.Runtime();
+    }
+
+    internal static string MessageId(RepositoryCiSignedRuntimeObservation runtime) =>
+        $"ci-runtime-proof:{RepositoryCiArtifactAttestation.SubjectDigest(runtime.Subject)}:" +
+        runtime.SignatureId.Value;
 }
 
 internal sealed record RepositoryCiArtifactProofSubjectDocument(

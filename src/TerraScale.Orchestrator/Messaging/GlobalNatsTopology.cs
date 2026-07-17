@@ -13,6 +13,7 @@ public sealed class GlobalNatsTopology
     public const string CiStream = "GLOBAL_CI";
     public const string CiSubject = $"{Root}.ci.forgejo";
     public const string CiJobSubjectPrefix = $"{Root}.ci.job";
+    public const string CiRuntimeProofSubject = $"{Root}.ci.runtime-proof";
     public const string RunnerJobsBucket = "CI_RUNNER_JOBS";
     public const string RunnerBundlesBucket = "CI_RUNNER_BUNDLES";
 
