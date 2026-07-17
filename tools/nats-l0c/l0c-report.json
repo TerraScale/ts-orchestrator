@@ -16,7 +16,7 @@
     "jwt-nkey-toolchain-not-selected",
     "n-minus-one-policy-unset",
     "snapshot-signing-identity-and-key-unselected",
-    "hermetic-smolvm-test-toolchain-unqualified",
+    "hermetic-toolchain-container-unqualified",
     "internal-mirror-and-verification-receipts-missing",
     "generated-credential-and-configuration-contracts-missing",
     "sync-rpo-values-unset"

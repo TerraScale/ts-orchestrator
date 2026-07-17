@@ -21,4 +21,4 @@
 
 ## Non-claims
 
-This is Phase 1 pure-policy evidence only. It does not qualify provider, block-device, ext4/XFS, TerraBase, systemd, OCI, SmolVM, or destructive-storage behavior and does not mint deployment authority.
+This is Phase 1 pure-policy evidence only. It does not qualify provider, block-device, ext4/XFS, TerraBase, systemd, OCI, rootless container, or destructive-storage behavior and does not mint deployment authority.

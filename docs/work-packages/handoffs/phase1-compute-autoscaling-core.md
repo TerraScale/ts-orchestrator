@@ -101,5 +101,5 @@ ControlPlane 209, Model 17, Protocol 42, and Scheduler 41.
   expiry, and approval policy are mandatory caller inputs; no default is
   selected here.
 - Provider idempotency/work-request semantics, real regional capacity and quota
-  conformance, billing evidence, disconnected SmolVM recovery, and OCI A1
+  conformance, billing evidence, disconnected rootless container recovery, and OCI A1
   replacement remain later integration/deployment evidence.

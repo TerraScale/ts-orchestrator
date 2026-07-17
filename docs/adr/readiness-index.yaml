@@ -26,7 +26,7 @@
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
       "controllingInputs": ["owner-question-1", "owner-question-8", "storage-slo"],
-      "availableEvidence": ["ORCHESTRATOR.md:492-517", "ORCHESTRATOR.md:519-536", "testlab/pins/smolvm-v1.5.0.json:1-37"],
+      "availableEvidence": ["ORCHESTRATOR.md:492-517", "ORCHESTRATOR.md:519-536"],
       "missingEvidence": ["Host co-location decision", "Pinned NATS server/client N/N-1 policy", "Two-plane cgroup and storage isolation benchmark", "Bootstrap/peer replacement conformance"],
       "dependencies": [1,3,8,11],
       "exitEvidence": ["Owner decisions 1 and 8", "Pinned NATS versions and compatibility window", "L0C permissions/gateway/peer/snapshot recovery report", "L3S one-server-loss and rolling-upgrade evidence for both planes", "Storage benchmark proving selected physical layout"]
@@ -123,7 +123,7 @@
       "ownerLane": "TerraBase",
       "controllingInputs": ["owner-question-4", "owner-question-5", "owner-question-10", "storage-slo", "regional-rpo-rto"],
       "availableEvidence": ["ORCHESTRATOR.md:1012-1039", "docs/audits/phase0-product-contract-source-audit.md:30-42"],
-      "missingEvidence": ["Runtime, elastic cleanup, and SmolVM scale-out choices", "Approved RPO/RTO and storage SLO", "Typed TerraBase admin contract", "Real backup/restore and 3-to-4-to-3 evidence"],
+      "missingEvidence": ["Runtime, elastic cleanup, and rootless container scale-out choices", "Approved RPO/RTO and storage SLO", "Typed TerraBase admin contract", "Real backup/restore and 3-to-4-to-3 evidence"],
       "dependencies": [1,6,9,11,21],
       "exitEvidence": ["Owner decisions 4, 5, and 10 plus approved SLOs", "Typed topology/backup/replication contract and L0 state models", "L3S six-direction replication, upgrade/rollback, backup/restore and 3-to-4-to-3", "L4 retained-volume host replacement and storage performance"]
     },
@@ -278,8 +278,8 @@
       "status": "evidence-required",
       "ownerLane": "Verification",
       "controllingInputs": ["artifact-and-evidence-signing-selection"],
-      "availableEvidence": ["ORCHESTRATOR.md:1114-1179", "requirements/registry.yaml:1-48", "Directory.Packages.props:1-9", "global.json:1-9", "testlab/pins/smolvm-v1.5.0.json:1-37", "docs/audits/toolchain/local-toolchain-audit.md:12-29"],
-      "missingEvidence": ["Complete canonical registry and generated trace", "Property/model/fuzz/mutation/analyzer pins", "Signing/SBOM selection and tools", "Forgejo/IAM credential enforcement design", "Internally mirrored/signed SmolVM artifacts"],
+      "availableEvidence": ["ORCHESTRATOR.md:1114-1179", "requirements/registry.yaml:1-48", "Directory.Packages.props:1-9", "global.json:1-9", "docs/audits/toolchain/local-toolchain-audit.md:12-29"],
+      "missingEvidence": ["Complete canonical registry and generated trace", "Property/model/fuzz/mutation/analyzer pins", "Signing/SBOM selection and tools", "Forgejo/IAM credential enforcement design", "Pinned Podman and image-manifest evidence"],
       "dependencies": [14,22],
       "exitEvidence": ["Complete stable-ID registry and architecture graph", "Fully pinned hermetic test and signing toolchain", "Negative tests for missing trace and dependency reversal", "Cold full L0/L0C thresholds", "Signed exact-tree DSSE/in-toto evidence rejected after any input change", "Credential issuance impossible without valid evidence"]
     },

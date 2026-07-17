@@ -18,4 +18,4 @@ The evidence contract now retains the exact public immutable `ProviderOperationC
 
 ## Evidence boundary
 
-This is pure policy and deterministic test evidence only. It closes the demonstrated stale bootstrap-handoff packet replay in this decision core; it does not establish journal persistence or adapter correctness. No provider, OCI, Pulumi runtime, cloud inventory, network, process, filesystem, NATS L0/L0C, SmolVM, ARM64, L3S, L4, deployment, acceptance, mutation, or cost evidence was executed or claimed.
+This is pure policy and deterministic test evidence only. It closes the demonstrated stale bootstrap-handoff packet replay in this decision core; it does not establish journal persistence or adapter correctness. No provider, OCI, Pulumi runtime, cloud inventory, network, process, filesystem, NATS L0/L0C, rootless container, ARM64, L3S, L4, deployment, acceptance, mutation, or cost evidence was executed or claimed.

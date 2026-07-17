@@ -54,5 +54,5 @@ that immutable input plus pure decision output be sufficient for deterministic
 adapter execution and replay. It does not select an unresolved owner answer,
 cost/storage/RPO/RTO target, provider policy, or destructive-operation policy.
 
-This audit does not claim OCI, Pulumi, provider work-request, VM, SmolVM, NATS,
+This audit does not claim OCI, Pulumi, provider work-request, VM, rootless container, NATS,
 L0C, ARM64, deployment, or full pre-deployment evidence acceptance.

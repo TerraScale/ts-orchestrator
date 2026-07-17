@@ -12,4 +12,4 @@ Audit existing example and property coverage, then add generated independent-ora
 
 ## Evidence boundary
 
-Focused in-process tests are evidence for pure policy behavior only. They do not qualify OCI, NATS, systemd, SmolVM, regional failover, or any deployment acceptance level.
+Focused in-process tests are evidence for pure policy behavior only. They do not qualify OCI, NATS, systemd, rootless container, regional failover, or any deployment acceptance level.

@@ -355,12 +355,12 @@ entries:
     contractStatus: proposed
     owner: Verification
     coReviewers: []
-    normativeStatement: "This repository plan, solution layout, and mandatory SmolVM sim/single/cell/full-nine-region labs plus real OCI gates"
+    normativeStatement: "This repository plan, solution layout, mandatory rootless-container logic/single/cell/full-region labs, and real systemd/OCI gates"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 130
     normativeEndLine: 130
     normativeContains: "reproducible test environment"
-    normativeSha256: 90fb6862adc3f24dccfbb7af41209543eeeb8337e66e5670860ec7f4cb230bf4
+    normativeSha256: f05fcf6ae99f162db89dd16eee111861d39462bb27083da6690e8111dadd544e
     acceptanceLayers:
       - L0
       - L1S
@@ -421,12 +421,12 @@ entries:
     contractStatus: proposed
     owner: Verification
     coReviewers: []
-    normativeStatement: "Pinned smol-machines/libkrun nine-SmolVM topology, all-server inventory, regional links/faults, progressive full-region gates, and separate honest production-boundary evidence"
+    normativeStatement: "Digest-pinned nine-node rootless-container topology, all-server inventory, regional links/faults, progressive full-region gates, and separate production-boundary evidence"
     normativeSource: ORCHESTRATOR.md
     normativeStartLine: 133
     normativeEndLine: 133
     normativeContains: "complete GRU/FRA/SFO tests"
-    normativeSha256: 16920285ff2a501760f2e7cb543a378885bc08f55039a0e5161c8064cef1eefd
+    normativeSha256: 325344e4833acddeb935245198a8c1b829ce865595244382daf36a61a77eef0e
     acceptanceLayers:
       - L3S
     evidenceState: missing

@@ -15,6 +15,6 @@ The property shard pins the exact purpose inventory, all nine budget dimensions,
 
 ## Boundaries
 
-This shard selects no owner cost target, price, currency, unit, SLO, provider, or emergency default. Price evidence remains an explicit caller-supplied current/unknown/stale identity; the shard performs no price lookup or estimation. It uses no provider/cloud API, billing export, NATS, filesystem, network, process, VM, systemd, containerd, SmolVM, deployment, or sibling-repository operation.
+This shard selects no owner cost target, price, currency, unit, SLO, provider, or emergency default. Price evidence remains an explicit caller-supplied current/unknown/stale identity; the shard performs no price lookup or estimation. It uses no provider/cloud API, billing export, NATS, filesystem, network, process, VM, systemd, containerd, rootless container, deployment, or sibling-repository operation.
 
 The result is L0 pure-policy evidence only. It does not claim mutation completeness, NATS L0C, real billing reconciliation, a measured cost gate, deployment qualification, or deployment authority.

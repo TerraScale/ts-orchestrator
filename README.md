@@ -26,7 +26,7 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-valid
 Run the executable without arguments to list every command. The translated
 test suite also fails if a Python source file is reintroduced.
 
-The repository produces one operational Orchestrator binary, a dependency-free policy/evidence tool, and a test executable. The `check` command exercises the production controller startup path against a real JetStream-enabled NATS server, then exits cleanly. The `lab` command is the native development adapter used by DevHost; it does not weaken or replace the SmolVM production-parity lab.
+The repository produces one operational Orchestrator binary, a dependency-free policy/evidence tool, and a test executable. The `check` command exercises the production controller startup path against a real JetStream-enabled NATS server, then exits cleanly. The `lab` command runs the pinned, rootless-container development adapter used by DevHost. Real systemd and OCI A1 qualification remain separate production-boundary gates.
 
 ## Run
 
@@ -75,9 +75,9 @@ external supervisor restart. DevHost exercises this election on each real R3
 cell, but its single-host clock/loopback transport is development evidence and
 does not replace the real multi-host clock, partition, mTLS, and NATS-JWT gates.
 
-## DevHost three-cell profile
+## DevHost three-cell container profile
 
-`lab plan` is a pure operation and prints the fixed `devhost-three-cell-r3` topology. It contains GRU, SFO, and FRA cells. Every cell has three Orchestrator controllers, three control-plane NATS members, three product-plane NATS members, three TerraBase members, Authentication, API, and Dashboard. Email and Stripe emulators are shared development fixtures.
+`lab plan` is a pure operation and prints the fixed `dev-containers-three-cell-lean` topology. It contains GRU, SFO, and FRA cells. Every cell has one Orchestrator controller, one control-plane NATS server, one product-plane NATS server, one TerraBase server, Authentication, API, and Dashboard. Email and Stripe emulators are shared development fixtures. This 23-container profile is fast local integration evidence; it does not claim production R3 failure tolerance.
 
 ```bash
 dotnet run --project src/TerraScale.Orchestrator -- lab plan
@@ -85,23 +85,16 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is intentionally fail-closed. DevHost first invokes `development-attest`, which requires a clean Orchestrator checkout, runs the solution and policy test suites, and writes short-lived evidence outside the repository for the exact source commit and executable assembly. Only then can the Orchestrator start workload processes or mutate persistent lab state.
+`lab up` builds the required release artifacts, verifies rootless Podman availability, creates an owner-labelled pod with a fixed memory budget, and starts only digest-pinned images. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write.
 
 ```bash
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
-  development-attest \
-  --output /tmp/terrascale-orchestrator-evidence.json \
-  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator
-
-src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
-  lab up \
+dotnet run --project src/TerraScale.Orchestrator -- lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
-  --evidence /tmp/terrascale-orchestrator-evidence.json \
-  --watch
+  --profile dev-containers
 ```
 
-The native adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Killing the foreground Orchestrator tears down its entire child process tree; persisted data remains for the next generation.
+The adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Stopping the foreground Orchestrator removes every owned container and its pod; persisted data remains for the next generation. Startup removes an existing pod only when its ownership label matches exactly and refuses to touch foreign resources.
 
 DevHost creates stable, owner-private credentials beneath its Orchestrator data
 directory. Every controller has a distinct NKey identity, and each cell has a
@@ -126,44 +119,13 @@ consecutive unhealthy observations fail the foreground generation so DevHost
 can re-attest and recover the graph.
 
 Every DevHost state projection is also evaluated by the production typed
-reconciliation engine. The graph is not accepted as ready unless all 47
+reconciliation engine. The graph is not accepted as ready unless all 23
 allowlisted resources have exact generation/digest observations and converge
 in dependency order. Startup progress is written to the resource-state file,
 but the endpoint map used for DevHost cutover is withheld until one complete
 health pass—including each controller's instance-specific authority endpoint—
-and 47/47 typed convergence succeed. This prevents a starting generation from
+and 23/23 typed convergence succeed. This prevents a starting generation from
 being mistaken for a deployable candidate.
-
-## Nine-machine SmolVM profile
-
-The deployment-shaped `regions-smol` profile owns exactly three persistent
-seed machines in each of GRU, SFO, and FRA. It requires commit-bound evidence,
-the verified v1.5.0 installation closure, an immutable base artifact and digest,
-an explicit egress scope, and a short private runtime data root. Each reconcile
-executes `/bin/true` inside every guest before reporting it ready.
-
-When the lab is hosted by systemd, `KillMode=mixed` is required so the stop
-signal reaches the Orchestrator first while its child SmolVM API remains alive
-for deterministic machine deletion. The remaining cgroup is reaped after the
-Orchestrator exits:
-
-```bash
-systemd-run --user --unit=terrascale-regions-smol --collect \
-  --property=Type=exec --property=KillMode=mixed \
-  --property=KillSignal=SIGINT --property=TimeoutStopSec=180s \
-  --property=Restart=no -- \
-  terrascale-orchestrator lab up --profile regions-smol \
-  --workspace /workspaces/TerraScale --data-directory /var/tmp/ts-smol-state \
-  --smolvm-installation /opt/terrascale/smolvm/v1.5.0 \
-  --base-artifact /opt/terrascale/testlab/base.smolmachine \
-  --base-digest <sha256> --socket /run/user/1000/ts-regions-smol.sock \
-  --smolvm-data-root /var/tmp/ts-smol-regions \
-  --allowed-cidrs 10.0.0.0/8 --evidence /var/tmp/regions-smol-evidence.json
-```
-
-Landlock enforcement is the qualifying default. Disabling it requires the
-explicit `--allow-unqualified-smolvm-host` acknowledgement and is recorded as
-a host-hardening gap rather than production-parity evidence.
 
 ## Closed production role catalog
 

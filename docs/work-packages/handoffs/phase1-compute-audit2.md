@@ -57,4 +57,4 @@ Final all-suite and diff checks are recorded by the integration handoff.
 
 This is pure decision-core evidence only. It does not claim provider adapter,
 OCI, Pulumi, disconnected replacement, destructive termination, VM, L0C,
-SmolVM, ARM64, or deployment acceptance.
+rootless container, ARM64, or deployment acceptance.

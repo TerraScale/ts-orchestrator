@@ -9,7 +9,6 @@ internal static class TranslatedScriptCatalog
         ["docs/audits/registry/check_registry_audit"] = "registry-audit",
         ["docs/decisions/validate_owner_decision_packet"] = "owner-decisions",
         ["docs/decisions/tests/test_owner_decision_packet"] = "test",
-        ["testlab/conformance/check_smolvm_host"] = "smolvm-host",
         ["testlab/nats/run_local_l0c_smoke"] = "nats-smoke",
         ["testlab/nats/validate_nats_readiness"] = "nats-readiness",
         ["testlab/nats/tests/test_validate_nats_readiness"] = "test",

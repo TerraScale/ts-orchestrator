@@ -17,7 +17,7 @@ The machine-readable packet is `owner-decision-packet.json`. Its validator binds
 | 7 | CI/CD bootstrap exception | Keep one minimal independent Forgejo workflow/runner solely to build and recover the orchestrator; all product CI/CD is orchestrator-native | Require even orchestrator recovery CI to run inside the orchestrator, accepting the circular outage dependency |
 | 8 | “Dedicated NATS” meaning | Dedicated means independent clusters/processes/security/cgroups/stores; both planes may share benchmarked compact-profile hosts | “Dedicated” meant separate physical compute nodes for control NATS and product NATS, increasing the regional floor |
 | 9 | Telemetry during long GRU outage | Export all three OTel signals, spool to a fixed encrypted disk budget, then drop oldest/sample with explicit data-loss alerts; product traffic never blocks | Never drop telemetry, requiring another durable regional telemetry store and an explicit maximum outage/cost design |
-| 10 | SmolVM count during autoscaling tests | Nine seed VMs is the exact steady-state topology; explicit tests may add temporary `*-elastic-*` SmolVMs and must converge back to 3/cell | Nine is a hard ceiling; replacement can be tested, but real scale-out beyond three cannot be demonstrated in the full-region lab |
+| 10 | Container count during autoscaling tests | Nine seed node containers are the exact steady-state topology; explicit tests may add temporary `*-elastic-*` containers and must converge back to 3/cell | Nine is a hard ceiling; replacement can be tested, but real scale-out beyond three cannot be demonstrated in the full-region lab |
 
 ## Readiness boundary
 

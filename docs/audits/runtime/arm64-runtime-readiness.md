@@ -25,7 +25,7 @@ The words in this audit have deliberately narrow meanings:
 | L4 evidence | Signed results from an explicitly authorized disposable OCI A1 environment using immutable image identifiers, real IAM/network/block-volume boundaries, and cleanup proof. |
 
 The architecture requires real systemd-as-PID-1 and OCI A1 qualification in
-addition to SmolVM (`ORCHESTRATOR.md:63-65`). A cross-publish, an x64 run, a
+addition to rootless-container integration (`ORCHESTRATOR.md:63-65`). A cross-publish, an x64 run, a
 container pretending to be an ARM host, or a package catalog entry is not ARM64
 qualification (`ORCHESTRATOR.md:333-368`, `ORCHESTRATOR.md:1734-1751`).
 

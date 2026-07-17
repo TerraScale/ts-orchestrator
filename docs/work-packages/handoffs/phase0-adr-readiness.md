@@ -20,7 +20,7 @@ Numbered owner questions 1 through 10 all control at least one mapped ADR. The a
 
 ## Local audit summary
 
-Observed locally: .NET SDK 10.0.301, `nats-server` 2.14.3, systemd 261, SmolVM 1.5.0 with accessible KVM, OCI CLI 3.89.1, Pulumi 3.251.0, ext4 tooling, util-linux block discovery, and LVM with insufficient device-mapper permission for a valid version/usability claim.
+Observed locally: .NET SDK 10.0.301, `nats-server` 2.14.3, systemd 261, OCI CLI 3.89.1, Pulumi 3.251.0, ext4 tooling, util-linux block discovery, and LVM with insufficient device-mapper permission for a valid version/usability claim. Rootless Podman qualification replaces the retired hypervisor lane and requires fresh evidence.
 
 Absent locally: NATS CLI, containerd, runc, BuildKit, XFS tools, growpart, parted, cosign, notation, oras, syft, trivy, grype, qemu-aarch64, and an AArch64 compiler. Observed versions are not approved pins unless a checked-in pin says so. ARM64, systemd-as-PID-1, OCI, filesystem, and destructive-operation qualification remain assigned to their required real-system layers.
 
@@ -30,14 +30,12 @@ Absent locally: NATS CLI, containerd, runc, BuildKit, XFS tools, growpart, parte
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/adr/readiness-index.yaml
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- smolvm-host > /tmp/orch-adr-smolvm-host-report.json
-cmp /tmp/orch-adr-smolvm-host-report.json testlab/conformance/smolvm-host-report.json
 git diff --check
 ```
 
 The validator derives and checks the exact owner lane names and ADR titles against `ORCHESTRATOR.md`. It resolves every local evidence `path:start-end` anchor, rejects missing/out-of-bounds/blank ranges, and requires each `draft-ready` item to cite both the specification and an audit or retirement-ledger range. Adversarial fixtures prove rejection of a missing ADR, stale line anchor, accepted/open-owner conflict, unknown lane, and unknown dependency.
 
-The tool audit additionally used bounded local `command -v` and version queries, host/kernel/architecture reads, `/dev/kvm` metadata, and checked-in pin/report reads. It did not start a service, VM, container, or cloud operation.
+The original tool audit additionally used bounded local `command -v` and version queries plus host/kernel/architecture reads. Its retired hypervisor evidence has been removed and cannot qualify the rootless-container lane. It did not start a service, container, or cloud operation.
 
 ## Suggested next work packages
 

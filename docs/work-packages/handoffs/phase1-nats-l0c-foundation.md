@@ -15,7 +15,7 @@ The checked candidate manifest has exact version/artifact metadata for two serve
 - `nMinusOnePolicy` is null and the candidate pair is unexecuted;
 - no JWT/NKey generation/administration toolchain is selected or pinned;
 - the snapshot signing identity/key technology is unselected;
-- the pinned SmolVM host observation is not a qualified hermetic L0C test-toolchain environment;
+- no pinned rootless-container toolchain observation currently qualifies the hermetic L0C environment;
 - internal mirror and independent verification receipts are absent;
 - generated credential, permission, account, stream, KV, gateway, and certificate inputs do not yet exist;
 - critical sync/RPO values remain owner inputs.

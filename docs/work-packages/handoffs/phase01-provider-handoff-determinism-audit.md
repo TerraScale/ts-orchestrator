@@ -24,7 +24,7 @@ This correction does not make the draft registry or product complete.
 - Owner questions 1–10 and the cost, storage-performance, RPO, and RTO targets remain unresolved.
 - The canonical structured trace report remains at 43 gaps, zero linked requirements, and zero acceptance-satisfied requirements; registry and contract promotion are integration-steward work.
 - Action-specific cancellation/compensation recovery and broader native GitOps retry/suspend/prune remain future pure-contract tranches rather than policies invented by this audit.
-- NATS L0C generated credentials/configuration and real-server conformance, signing technology and protected keys, Pulumi retain/unmanage qualification, OCI/A1/IAM/storage adapters, SmolVM/systemd/containerd labs, deployment, measured cost, and storage-performance evidence require external or later-layer work.
+- NATS L0C generated credentials/configuration and real-server conformance, signing technology and protected keys, Pulumi retain/unmanage qualification, OCI/A1/IAM/storage adapters, rootless container/systemd/containerd labs, deployment, measured cost, and storage-performance evidence require external or later-layer work.
 - Networking policy and compute scale-out were explicitly excluded because separate active audits own them.
 
 ## Honest boundary
