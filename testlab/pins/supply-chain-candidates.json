@@ -54,6 +54,7 @@
       }
     ],
     "lockProvenance": [
+      {"path": "src/TerraScale.Orchestrator.CLI/packages.lock.json", "sha256": "1e1f8a5aa9fe65bcf83a8e0bccbaee69b163f0695eed58d084de3f7071b09e38"},
       {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "76a4abb558aedf5fbfebcd8bb59fc31bb7ad3354f876386aad091be18cbfce8a"},
       {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},
       {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},

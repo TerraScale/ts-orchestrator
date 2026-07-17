@@ -378,7 +378,7 @@ internal static class SupplyChainCommand
     {
         var document = ToolingSupport.ReadObject("testlab/pins/supply-chain-candidates.json");
         var errors = Validation.JsonDocument(document, "manifest", "schemaVersion", "productionQualified", "existingBaselinePins", "entries", "gaps");
-        JsonEvidenceValidator.ExactFile(errors, "testlab/pins/supply-chain-candidates.json", "04ae52a52775288997be4ec54338d7fe0cbbba0340b692af078e3702c9d8be1c");
+        JsonEvidenceValidator.ExactFile(errors, "testlab/pins/supply-chain-candidates.json", "4ef75d20b154caab6215a47a3b25be34d0779faaf42382364bcd8e914bdbb902");
         JsonEvidenceValidator.ExactFile(errors, "tools/phase0/supply-chain/fixtures/negative-cases.json", "fdc1175fd4b257cca88b32bc3503febb24c61ffb81ae642e9fb82f3e1f3ef845");
         if (document["productionQualified"]?.GetValue<bool>() != false) errors.Add("manifest.productionQualified: must be false");
         if (document["existingBaselinePins"]?["lockProvenance"] is JsonArray provenance)

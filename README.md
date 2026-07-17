@@ -35,7 +35,12 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- traceability-valid
 Run the executable without arguments to list every command. The translated
 test suite also fails if a Python source file is reintroduced.
 
-The repository produces one operational Orchestrator binary, a dependency-free policy/evidence tool, and a test executable. The `check` command exercises the production controller startup path against a real JetStream-enabled NATS server, then exits cleanly. The `lab` command runs the pinned, rootless-container development adapter used by DevHost. Real systemd and OCI A1 qualification remain separate production-boundary gates.
+The repository produces the operational Orchestrator/runner binary, a separate
+operator CLI, and the dependency-free policy/evidence tool. The `check` command
+exercises the production controller startup path against a real
+JetStream-enabled NATS server, then exits cleanly. The `lab` command runs the
+pinned, rootless-container development adapter used by DevHost. Real systemd
+and OCI A1 qualification remain separate production-boundary gates.
 
 ## Run
 
@@ -49,8 +54,8 @@ dotnet run --project src/TerraScale.Orchestrator -- check
 
 dotnet run --project src/TerraScale.Orchestrator -- run
 
-dotnet run --project src/TerraScale.Orchestrator -- \
-  operator status --cell gru --nats-url nats://127.0.0.1:4222 \
+dotnet run --project src/TerraScale.Orchestrator.CLI -- \
+  status --cell gru --nats-url nats://127.0.0.1:4222 \
   --nkey-file /run/credentials/terrascale/operator-read.nk \
   --tls-ca-file /run/credentials/terrascale/ca.pem \
   --tls-cert-file /run/credentials/terrascale/operator.pem \

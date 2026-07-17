@@ -5,7 +5,7 @@ using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Operations;
 
-internal static class OperatorCli
+public static class OperatorCli
 {
     private static readonly JsonSerializerOptions OutputOptions = new(JsonSerializerDefaults.Web)
     {

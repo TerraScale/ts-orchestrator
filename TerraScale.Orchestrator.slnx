@@ -11,6 +11,7 @@
     <File Path="requirements/registry.yaml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </Folder>
   <Folder Name="/tests/">
