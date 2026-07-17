@@ -15,9 +15,9 @@ internal static class DevelopmentContainerImages
 
 internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 {
-    internal const string OwnershipLabel = "io.terrascale.owner=devhost-orchestrator";
+    internal static readonly string OwnershipLabel = "io.terrascale.owner=devhost-orchestrator";
     internal const string ProfileLabel = "io.terrascale.profile=dev-containers-three-cell-lean";
-    internal const long PodMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
+    internal static readonly long PodMemoryLimitBytes = 16L * 1024 * 1024 * 1024;
 
     private readonly Dictionary<string, Process> processes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DevelopmentProcessSpec> specifications = new(StringComparer.Ordinal);
