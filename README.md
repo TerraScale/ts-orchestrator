@@ -380,6 +380,14 @@ requests a new generation referencing a previously qualified global plan; it
 never rewinds a local artifact in place. Only exact live workload/absence
 observations produce a regional convergence digest, and cross-cell success is
 still a separate global barrier.
+Every convergence decision is CAS-journaled before it can authorize dispatch
+or global advancement. The checkpoint chain binds the accepted CELL_SPEC
+stream sequence, signature digest, acceptance revision, writer epoch,
+observation watermark, exact intent or hold, and prior checkpoint digest.
+Exact retries recover the same dispatch identity; changed observations require
+a strictly newer watermark. A new generation or fenced takeover must also
+advance both the acceptance revision and regional stream sequence, preventing
+an old accepted receipt from being relabeled as fresh authority.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
