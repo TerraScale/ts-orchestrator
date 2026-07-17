@@ -136,6 +136,13 @@ Ignored and held events are durable decisions too. Followers, authority loss,
 decision conflicts, corrupt events, and journal failure do not acknowledge.
 This stage classifies input only; it cannot dispatch runner work.
 
+Every accepted push or pull-request event also retains the exact base and head
+Git object IDs. The authenticated Forgejo source adapter reads the bounded
+`base...head` comparison, rejects empty, duplicate, unsafe, or oversized path
+sets, and conservatively selects the whole repository policy for rename/copy
+results whose old path is not present in the comparison response. The affected
+pipeline coordinator that consumes this exact change set remains unimplemented.
+
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
 (no automatic newline trimming), must be 32–4096 bytes, and must be private to

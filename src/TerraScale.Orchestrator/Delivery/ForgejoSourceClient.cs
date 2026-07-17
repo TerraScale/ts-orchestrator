@@ -152,7 +152,9 @@ public sealed class ForgejoSourceNotFoundException : Exception
 public sealed class ForgejoSourceClient : IAsyncDisposable
 {
     private const int MaximumMetadataResponseBytes = 64 * 1024;
+    private const int MaximumChangedPathsResponseBytes = 8 * 1024 * 1024;
     public const int MaximumFileBytes = 1024 * 1024;
+    public const int MaximumChangedPaths = 16_384;
     private const int MaximumJsonDepth = 12;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
     private readonly ForgejoSourceConfiguration configuration;
@@ -228,6 +230,40 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
             throw new InvalidDataException("The Forgejo branch response did not contain a bounded exact commit identity.");
         var revision = await ResolveAsync(commit, cancellationToken);
         return new(branch, isProtected, revision);
+    }
+
+    public async Task<IReadOnlyList<string>> ReadChangedPathsAsync(
+        ForgejoWebhookEnvelope envelope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        if (envelope.Repository != configuration.Repository)
+            throw new ArgumentException("The Forgejo event belongs to another repository.", nameof(envelope));
+        if (!IsObjectId(envelope.BaseRevision) || !IsObjectId(envelope.Revision) ||
+            envelope.Revision.All(static value => value == '0') || envelope.IsDeletion)
+            throw new ArgumentException("The Forgejo event does not identify an exact comparable revision range.", nameof(envelope));
+        if (envelope.BaseRevision.All(static value => value == '0'))
+            return Array.AsReadOnly([RepositoryCiImpactPlanner.DescriptorPath]);
+
+        var (owner, repository) = SplitRepository(configuration.Repository);
+        var range = Uri.EscapeDataString($"{envelope.BaseRevision.ToLowerInvariant()}...{envelope.Revision.ToLowerInvariant()}");
+        var path = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/compare/{range}";
+        using var document = await GetJsonAsync(path, MaximumChangedPathsResponseBytes, cancellationToken);
+        if (!TryArray(document.RootElement, "files", out var files) ||
+            files.GetArrayLength() is < 1 or > MaximumChangedPaths)
+            throw new InvalidDataException("The Forgejo comparison did not contain a bounded changed-path set.");
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in files.EnumerateArray())
+        {
+            if (!TryString(file, "filename", out var filename) || !IsSafePath(filename) ||
+                !TryString(file, "status", out var status) || !IsChangeStatus(status) || !seen.Add(filename))
+                throw new InvalidDataException("The Forgejo comparison contained an invalid or ambiguous changed path.");
+            paths.Add(filename);
+            if (status is "renamed" or "copied") paths.Add(RepositoryCiImpactPlanner.DescriptorPath);
+        }
+        return Array.AsReadOnly(paths.Order(StringComparer.Ordinal).ToArray());
     }
 
     public async Task<ForgejoSourceFile> ReadFileAsync(
@@ -369,6 +405,13 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
                value.ValueKind == JsonValueKind.Object;
     }
 
+    private static bool TryArray(JsonElement owner, string name, out JsonElement value)
+    {
+        value = default;
+        return owner.ValueKind == JsonValueKind.Object && owner.TryGetProperty(name, out value) &&
+               value.ValueKind == JsonValueKind.Array;
+    }
+
     private static bool TryString(JsonElement owner, string name, out string value)
     {
         value = string.Empty;
@@ -408,4 +451,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         value.Split('/').All(static segment => segment is not ("" or "." or "..")) &&
         value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
             >= '0' and <= '9' or '.' or '_' or '-' or '/');
+
+    private static bool IsChangeStatus(string value) => value is { Length: >= 1 and <= 32 } &&
+        value.All(static character => character is >= 'a' and <= 'z' or '-');
 }

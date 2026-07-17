@@ -169,7 +169,7 @@ public sealed class ForgejoWebhookJournalTests
     private static ForgejoWebhookEnvelope Envelope(string reference, string delivery)
     {
         var payload = Encoding.UTF8.GetBytes($$$"""
-            {"ref":"{{{reference}}}","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+            {"ref":"{{{reference}}}","before":"affe000000000000000000000000000000000001","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
             """);
         return ForgejoWebhookVerifier.Verify(
             payload,

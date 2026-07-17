@@ -52,6 +52,7 @@ internal sealed record ForgejoWebhookEventDocument(
     string Action,
     string Repository,
     string SourceRepository,
+    string BaseRevision,
     string Revision,
     string SourceRef,
     string? TargetRef,
@@ -67,6 +68,7 @@ internal sealed record ForgejoWebhookEventDocument(
         envelope.Action,
         envelope.Repository,
         envelope.SourceRepository,
+        envelope.BaseRevision,
         envelope.Revision,
         envelope.SourceRef,
         envelope.TargetRef,
@@ -101,6 +103,7 @@ internal sealed record ForgejoWebhookEventDocument(
             Action,
             Repository,
             SourceRepository,
+            BaseRevision,
             Revision,
             SourceRef,
             TargetRef,
@@ -114,7 +117,8 @@ internal sealed record ForgejoWebhookEventDocument(
         if (SchemaVersion != 1 || DeliveryId == Guid.Empty ||
             Kind is not (ForgejoWebhookKind.Push or ForgejoWebhookKind.PullRequest) ||
             string.IsNullOrWhiteSpace(Action) || !ForgejoWebhookVerifier.IsRepository(Repository) ||
-            !ForgejoWebhookVerifier.IsRepository(SourceRepository) || !ObjectId(Revision) ||
+            !ForgejoWebhookVerifier.IsRepository(SourceRepository) || !ObjectId(BaseRevision) ||
+            !ObjectId(Revision) ||
             IsDeletion != Revision.All(static character => character == '0') ||
             string.IsNullOrWhiteSpace(SourceRef) || !Digest(PayloadSha256) ||
             DedupeKey != $"forgejo-payload:{Repository}:{PayloadSha256}" ||

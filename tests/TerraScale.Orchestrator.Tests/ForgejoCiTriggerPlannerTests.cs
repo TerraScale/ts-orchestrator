@@ -217,7 +217,7 @@ public sealed class ForgejoCiTriggerPlannerTests
         bool signatureVerified = true) => new(repository, commit, tree, signatureVerified);
 
     private static byte[] PushPayload(string reference, string revision) => Encoding.UTF8.GetBytes($$$"""
-        {"ref":"{{{reference}}}","after":"{{{revision}}}","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+        {"ref":"{{{reference}}}","before":"affe000000000000000000000000000000000001","after":"{{{revision}}}","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
         """);
 
     private static ForgejoWebhookEnvelope PullRequest(
@@ -233,7 +233,7 @@ public sealed class ForgejoCiTriggerPlannerTests
               "repository":{"full_name":"TerraScale/TerraScale.Orchestrator"},
               "pull_request":{
                 "head":{"ref":"{{{sourceRef}}}","sha":"{{{Commit}}}","repo":{"full_name":"{{{sourceRepository}}}"}},
-                "base":{"ref":"{{{targetRef}}}","repo":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+                "base":{"ref":"{{{targetRef}}}","sha":"affe000000000000000000000000000000000001","repo":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
               }
             }
             """);

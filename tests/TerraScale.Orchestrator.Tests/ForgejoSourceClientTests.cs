@@ -9,6 +9,7 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class ForgejoSourceClientTests
 {
     private const string Repository = "TerraScale/TerraScale.Orchestrator";
+    private const string BaseCommit = "affe000000000000000000000000000000000001";
     private const string Commit = "bffeb74224043ba2feb48d137756c8a9331c449a";
     private const string Tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
     private const string Token = "0123456789abcdef0123456789abcdef01234567";
@@ -130,6 +131,71 @@ public sealed class ForgejoSourceClientTests
     }
 
     [Test]
+    public async Task ExactRevisionRangeReturnsBoundedChangedPaths()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var handler = new RecordingHandler(_ => Json("""
+                {"total_commits":2,"files":[
+                  {"filename":"src/z.cs","status":"modified"},
+                  {"filename":"src/a.cs","status":"renamed"}
+                ]}
+                """));
+            await using var client = Client(tokenFile, handler);
+
+            var paths = await client.ReadChangedPathsAsync(Push());
+
+            await Assert.That(paths).IsEquivalentTo([
+                RepositoryCiImpactPlanner.DescriptorPath,
+                "src/a.cs",
+                "src/z.cs",
+            ]);
+            await Assert.That(paths.SequenceEqual([
+                RepositoryCiImpactPlanner.DescriptorPath,
+                "src/a.cs",
+                "src/z.cs",
+            ], StringComparer.Ordinal)).IsTrue();
+            await Assert.That(handler.Requests).HasSingleItem();
+            await Assert.That(handler.Requests[0].Path).EndsWith($"/compare/{BaseCommit}...{Commit}");
+            await Assert.That(handler.Requests[0].Query).IsEmpty();
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Test]
+    public async Task AmbiguousOrUnsafeComparisonPathsFailClosed()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var duplicate = new RecordingHandler(_ => Json("""
+                {"files":[
+                  {"filename":"src/a.cs","status":"modified"},
+                  {"filename":"src/a.cs","status":"added"}
+                ]}
+                """));
+            await using var duplicateClient = Client(tokenFile, duplicate);
+            await Assert.That(async () => await duplicateClient.ReadChangedPathsAsync(Push()))
+                .Throws<InvalidDataException>();
+
+            var unsafePath = new RecordingHandler(_ => Json("""
+                {"files":[{"filename":"../secret","status":"modified"}]}
+                """));
+            await using var unsafeClient = Client(tokenFile, unsafePath);
+            await Assert.That(async () => await unsafeClient.ReadChangedPathsAsync(Push()))
+                .Throws<InvalidDataException>();
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Test]
     public async Task AmbiguousOrSubstitutedGitObjectsFailClosed()
     {
         var tokenFile = await CreateTokenFileAsync();
@@ -192,6 +258,20 @@ public sealed class ForgejoSourceClientTests
             tokenFile)!;
         return new(configuration, new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan });
     }
+
+    private static ForgejoWebhookEnvelope Push() => new(
+        Guid.Parse("f6266f16-1bf3-46a5-9ea4-602e06ead473"),
+        ForgejoWebhookKind.Push,
+        "push",
+        Repository,
+        Repository,
+        BaseCommit,
+        Commit,
+        "refs/heads/develop",
+        null,
+        null,
+        false,
+        new string('a', 64));
 
     private static HttpResponseMessage Json(string value) => new(HttpStatusCode.OK)
     {

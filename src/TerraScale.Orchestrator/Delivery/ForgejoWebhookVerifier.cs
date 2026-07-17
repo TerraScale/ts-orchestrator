@@ -23,6 +23,7 @@ public enum ForgejoWebhookError
     UnsupportedEvent,
     MalformedPayload,
     RepositoryMismatch,
+    InvalidBaseRevision,
     InvalidRevision,
     InvalidReference,
     UnsupportedAction,
@@ -36,6 +37,7 @@ public sealed class ForgejoWebhookEnvelope
         string action,
         string repository,
         string sourceRepository,
+        string baseRevision,
         string revision,
         string sourceRef,
         string? targetRef,
@@ -48,6 +50,7 @@ public sealed class ForgejoWebhookEnvelope
         Action = action;
         Repository = repository;
         SourceRepository = sourceRepository;
+        BaseRevision = baseRevision;
         Revision = revision;
         SourceRef = sourceRef;
         TargetRef = targetRef;
@@ -61,6 +64,7 @@ public sealed class ForgejoWebhookEnvelope
     public string Action { get; }
     public string Repository { get; }
     public string SourceRepository { get; }
+    public string BaseRevision { get; }
     public string Revision { get; }
     public string SourceRef { get; }
     public string? TargetRef { get; }
@@ -153,18 +157,24 @@ public static class ForgejoWebhookVerifier
     {
         if (!TryRepository(root, "repository", out var repository)) return Reject(ForgejoWebhookError.MalformedPayload);
         if (!StringComparer.Ordinal.Equals(repository, expectedRepository)) return Reject(ForgejoWebhookError.RepositoryMismatch);
+        if (!TryString(root, "before", out var baseRevision) || !IsRevision(baseRevision))
+            return Reject(ForgejoWebhookError.InvalidBaseRevision);
         if (!TryString(root, "after", out var revision) || !IsRevision(revision))
             return Reject(ForgejoWebhookError.InvalidRevision);
         if (!TryString(root, "ref", out var sourceRef) || !IsFullRef(sourceRef))
             return Reject(ForgejoWebhookError.InvalidReference);
 
+        baseRevision = baseRevision.ToLowerInvariant();
         revision = revision.ToLowerInvariant();
+        if (revision.All(static value => value == '0') && baseRevision.All(static value => value == '0'))
+            return Reject(ForgejoWebhookError.InvalidBaseRevision);
         return ForgejoWebhookVerification.Accept(new(
             deliveryId,
             ForgejoWebhookKind.Push,
             "push",
             repository,
             repository,
+            baseRevision,
             revision,
             sourceRef,
             null,
@@ -193,6 +203,9 @@ public static class ForgejoWebhookVerifier
             !StringComparer.Ordinal.Equals(targetRepository, expectedRepository))
             return Reject(ForgejoWebhookError.RepositoryMismatch);
         if (!IsPullRequestAction(action)) return Reject(ForgejoWebhookError.UnsupportedAction);
+        if (!TryString(@base, "sha", out var baseRevision) || !IsRevision(baseRevision) ||
+            baseRevision.All(static value => value == '0'))
+            return Reject(ForgejoWebhookError.InvalidBaseRevision);
         if (!TryString(head, "sha", out var revision) || !IsRevision(revision) || revision.All(static value => value == '0'))
             return Reject(ForgejoWebhookError.InvalidRevision);
         if (!TryString(head, "ref", out var sourceRef) || !IsBranchRef(sourceRef) ||
@@ -205,6 +218,7 @@ public static class ForgejoWebhookVerifier
             action,
             repository,
             sourceRepository,
+            baseRevision.ToLowerInvariant(),
             revision.ToLowerInvariant(),
             sourceRef,
             targetRef,

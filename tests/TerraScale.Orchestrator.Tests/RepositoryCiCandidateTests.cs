@@ -146,6 +146,7 @@ public sealed class RepositoryCiCandidateTests
             "synchronized",
             Repository,
             Repository,
+            new string('d', 40),
             Commit,
             "develop",
             "main",

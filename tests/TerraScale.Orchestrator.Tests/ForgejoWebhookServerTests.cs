@@ -187,7 +187,7 @@ public sealed class ForgejoWebhookServerTests
     }
 
     private static byte[] PushPayload() => Encoding.UTF8.GetBytes("""
-        {"ref":"refs/heads/develop","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+        {"ref":"refs/heads/develop","before":"affe000000000000000000000000000000000001","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
         """);
 
     private static string Signature(byte[] payload) => Convert.ToHexStringLower(HMACSHA256.HashData(Secret, payload));

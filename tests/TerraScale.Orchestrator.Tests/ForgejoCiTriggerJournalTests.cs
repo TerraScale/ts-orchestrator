@@ -115,6 +115,7 @@ public sealed class ForgejoCiTriggerJournalTests
         "push",
         "TerraScale/TerraScale.Orchestrator",
         "TerraScale/TerraScale.Orchestrator",
+        "affe000000000000000000000000000000000001",
         deletion ? new string('0', 40) : "bffeb74224043ba2feb48d137756c8a9331c449a",
         reference,
         null,

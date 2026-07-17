@@ -176,6 +176,7 @@ internal sealed record ForgejoWebhookJournalDocument(
     string Action,
     string Repository,
     string SourceRepository,
+    string BaseRevision,
     string Revision,
     string SourceRef,
     string? TargetRef,
@@ -193,6 +194,7 @@ internal sealed record ForgejoWebhookJournalDocument(
         envelope.Action,
         envelope.Repository,
         envelope.SourceRepository,
+        envelope.BaseRevision,
         envelope.Revision,
         envelope.SourceRef,
         envelope.TargetRef,
@@ -210,7 +212,9 @@ internal sealed record ForgejoWebhookJournalDocument(
         if (SchemaVersion != 1 || State is not (ForgejoWebhookJournalState.Pending or ForgejoWebhookJournalState.Accepted) ||
             DeliveryId == Guid.Empty || Kind is not (ForgejoWebhookKind.Push or ForgejoWebhookKind.PullRequest) ||
             string.IsNullOrWhiteSpace(Action) || string.IsNullOrWhiteSpace(Repository) ||
-            string.IsNullOrWhiteSpace(SourceRepository) || Revision.Length is not (40 or 64) ||
+            string.IsNullOrWhiteSpace(SourceRepository) || BaseRevision.Length is not (40 or 64) ||
+            Revision.Length is not (40 or 64) ||
+            !BaseRevision.All(IsHex) || !Revision.All(IsHex) ||
             string.IsNullOrWhiteSpace(SourceRef) || PayloadSha256.Length != 64 ||
             !PayloadSha256.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') ||
             DeliveryKey != $"forgejo-delivery:{Repository}:{DeliveryId:D}" ||
@@ -221,6 +225,9 @@ internal sealed record ForgejoWebhookJournalDocument(
             (string.IsNullOrWhiteSpace(TargetRef) || PullRequestNumber is null or <= 0 || IsDeletion))
             throw new InvalidDataException("A Forgejo webhook journal record is invalid.");
     }
+
+    private static bool IsHex(char value) => value is
+        >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
 }
 
 internal sealed record ForgejoDeliveryLedgerEntry(string Value, ulong Revision);

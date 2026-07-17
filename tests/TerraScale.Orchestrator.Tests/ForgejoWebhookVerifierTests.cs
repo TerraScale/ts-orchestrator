@@ -16,6 +16,7 @@ public sealed class ForgejoWebhookVerifierTests
         var payload = Bytes("""
             {
               "ref": "refs/heads/develop",
+              "before": "affe000000000000000000000000000000000001",
               "after": "bffeb74224043ba2feb48d137756c8a9331c449a",
               "repository": { "full_name": "TerraScale/TerraScale.Orchestrator" }
             }
@@ -27,6 +28,7 @@ public sealed class ForgejoWebhookVerifierTests
         await Assert.That(result.Error).IsEqualTo(ForgejoWebhookError.None);
         await Assert.That(result.Envelope!.Kind).IsEqualTo(ForgejoWebhookKind.Push);
         await Assert.That(result.Envelope.Repository).IsEqualTo(Repository);
+        await Assert.That(result.Envelope.BaseRevision).IsEqualTo("affe000000000000000000000000000000000001");
         await Assert.That(result.Envelope.Revision).IsEqualTo("bffeb74224043ba2feb48d137756c8a9331c449a");
         await Assert.That(result.Envelope.SourceRef).IsEqualTo("refs/heads/develop");
         await Assert.That(result.Envelope.IsFork).IsFalse();
@@ -51,6 +53,7 @@ public sealed class ForgejoWebhookVerifierTests
                 },
                 "base": {
                   "ref": "develop",
+                  "sha": "B123456789ABCDEF0123456789ABCDEF01234567",
                   "repo": { "full_name": "TerraScale/TerraScale.Orchestrator" }
                 }
               }
@@ -62,6 +65,7 @@ public sealed class ForgejoWebhookVerifierTests
         await Assert.That(result.Accepted).IsTrue();
         await Assert.That(result.Envelope!.Action).IsEqualTo("synchronized");
         await Assert.That(result.Envelope.SourceRepository).IsEqualTo("contributor/TerraScale.Orchestrator");
+        await Assert.That(result.Envelope.BaseRevision).IsEqualTo("b123456789abcdef0123456789abcdef01234567");
         await Assert.That(result.Envelope.Revision).IsEqualTo("a123456789abcdef0123456789abcdef01234567");
         await Assert.That(result.Envelope.SourceRef).IsEqualTo("feature/native-ci");
         await Assert.That(result.Envelope.TargetRef).IsEqualTo("develop");
@@ -91,10 +95,10 @@ public sealed class ForgejoWebhookVerifierTests
     public async Task SignedPayloadCannotCrossRepositoryBoundaryOrUseAmbiguousFields()
     {
         var otherRepository = Bytes("""
-            {"ref":"refs/heads/develop","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"other/repo"}}
+            {"ref":"refs/heads/develop","before":"affe000000000000000000000000000000000001","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"other/repo"}}
             """);
         var duplicateRevision = Bytes("""
-            {"ref":"refs/heads/develop","after":"bffeb74224043ba2feb48d137756c8a9331c449a","after":"0000000000000000000000000000000000000000","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+            {"ref":"refs/heads/develop","before":"affe000000000000000000000000000000000001","after":"bffeb74224043ba2feb48d137756c8a9331c449a","after":"0000000000000000000000000000000000000000","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
             """);
 
         await Assert.That(Verify(otherRepository, "push").Error).IsEqualTo(ForgejoWebhookError.RepositoryMismatch);
@@ -144,7 +148,7 @@ public sealed class ForgejoWebhookVerifierTests
         ForgejoWebhookVerifier.Verify(payload, Secret, Repository, "application/json; charset=utf-8", Signature(payload), Delivery, eventName);
 
     private static byte[] PushPayload(string reference) => Bytes($$$"""
-        {"ref":"{{{reference}}}","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
+        {"ref":"{{{reference}}}","before":"affe000000000000000000000000000000000001","after":"bffeb74224043ba2feb48d137756c8a9331c449a","repository":{"full_name":"TerraScale/TerraScale.Orchestrator"}}
         """);
 
     private static string Signature(byte[] payload) => Convert.ToHexStringLower(HMACSHA256.HashData(Secret, payload));
