@@ -23,35 +23,62 @@ internal static class CiRunnerBuildKitDaemonInvocationCompiler
     internal static CiRunnerBuildKitDaemonInvocation Create(CiRunnerBuildKitRuntime runtime)
     {
         ArgumentNullException.ThrowIfNull(runtime);
+        var roots = new[]
+        {
+            runtime.RuntimeDirectory,
+            runtime.HomeDirectory,
+            runtime.OutputRoot,
+            runtime.DockerConfigDirectory,
+        };
+        for (var left = 0; left < roots.Length; left++)
+        for (var right = left + 1; right < roots.Length; right++)
+            if (Within(roots[left], roots[right]) || Within(roots[right], roots[left]))
+                throw new InvalidDataException("The CI BuildKit daemon paths overlap an unsafe runtime path.");
         var socket = Path.Combine(runtime.RuntimeDirectory, "buildkit", "buildkitd.sock");
         var state = Path.Combine(runtime.HomeDirectory, "rootlesskit-state");
         var root = Path.Combine(runtime.HomeDirectory, "buildkit-state");
-        if (Within(runtime.HomeDirectory, runtime.RuntimeDirectory) ||
-            Within(runtime.RuntimeDirectory, runtime.HomeDirectory) ||
-            Within(runtime.OutputRoot, runtime.HomeDirectory) ||
-            Within(runtime.DockerConfigDirectory, runtime.HomeDirectory))
-            throw new InvalidDataException("The CI BuildKit daemon paths overlap an unsafe runtime path.");
-        var arguments = new[]
-        {
-            "--net=slirp4netns",
-            "--copy-up=/etc",
-            "--disable-host-loopback",
-            $"--state-dir={state}",
-            BuildKitExecutable,
-            "--rootless",
-            "--addr", $"unix://{socket}",
-            "--root", root,
-        };
-        var environment = new ReadOnlyDictionary<string, string>(
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["PATH"] = "/usr/bin:/bin",
-                ["HOME"] = runtime.HomeDirectory,
-                ["XDG_RUNTIME_DIR"] = runtime.RuntimeDirectory,
-                ["NO_COLOR"] = "1",
-            });
+        var arguments = Arguments(socket, state, root);
+        var environment = Environment(runtime.HomeDirectory, runtime.RuntimeDirectory);
         return new(RootlessKitExecutable, Array.AsReadOnly(arguments), environment, socket, state, root);
     }
+
+    internal static void Validate(CiRunnerBuildKitDaemonInvocation invocation)
+    {
+        ArgumentNullException.ThrowIfNull(invocation);
+        if (invocation.Executable != RootlessKitExecutable || invocation.Environment.Count != 4 ||
+            !invocation.Environment.TryGetValue("HOME", out var home) ||
+            !invocation.Environment.TryGetValue("XDG_RUNTIME_DIR", out var runtime) ||
+            invocation.SocketPath != Path.Combine(runtime, "buildkit", "buildkitd.sock") ||
+            invocation.StateDirectory != Path.Combine(home, "rootlesskit-state") ||
+            invocation.BuildKitRoot != Path.Combine(home, "buildkit-state") ||
+            !invocation.Arguments.SequenceEqual(Arguments(
+                invocation.SocketPath,
+                invocation.StateDirectory,
+                invocation.BuildKitRoot)) ||
+            !invocation.Environment.SequenceEqual(Environment(home, runtime)))
+            throw new InvalidDataException("The CI BuildKit daemon invocation changed from the closed profile.");
+    }
+
+    private static string[] Arguments(string socket, string state, string root) =>
+    [
+        "--net=slirp4netns",
+        "--copy-up=/etc",
+        "--disable-host-loopback",
+        $"--state-dir={state}",
+        BuildKitExecutable,
+        "--rootless",
+        "--addr", $"unix://{socket}",
+        "--root", root,
+    ];
+
+    private static ReadOnlyDictionary<string, string> Environment(string home, string runtime) =>
+        new(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["PATH"] = "/usr/bin:/bin",
+            ["HOME"] = home,
+            ["XDG_RUNTIME_DIR"] = runtime,
+            ["NO_COLOR"] = "1",
+        });
 
     private static bool Within(string value, string parent)
     {
@@ -89,6 +116,7 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(invocation);
+        CiRunnerBuildKitDaemonInvocationCompiler.Validate(invocation);
         var userId = NativeMethods.GetEffectiveUserId();
         if (userId == 0) throw new InvalidOperationException("The CI BuildKit daemon cannot run as root.");
         RequireExecutable(invocation.Executable);
@@ -99,11 +127,12 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
             throw new InvalidDataException("The CI BuildKit runtime does not match the effective user.");
         var socketDirectory = Directory.GetParent(invocation.SocketPath)
             ?? throw new InvalidDataException("The CI BuildKit socket has no parent directory.");
+        if (Directory.Exists(socketDirectory.FullName) || Path.Exists(invocation.SocketPath) ||
+            Directory.Exists(invocation.StateDirectory) || Directory.Exists(invocation.BuildKitRoot))
+            throw new IOException("The CI BuildKit daemon runtime is not fresh.");
         Directory.CreateDirectory(socketDirectory.FullName, PrivateDirectoryMode);
         File.SetUnixFileMode(socketDirectory.FullName, PrivateDirectoryMode);
-        if (Path.Exists(invocation.SocketPath) || Directory.Exists(invocation.StateDirectory) ||
-            Directory.Exists(invocation.BuildKitRoot))
-            throw new IOException("The CI BuildKit daemon runtime is not fresh.");
+        RequirePrivateDirectory(socketDirectory.FullName);
 
         var start = new ProcessStartInfo(invocation.Executable)
         {
@@ -244,9 +273,11 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
     private static void RequireExecutable(string path)
     {
         var file = new FileInfo(path);
+        var mode = file.Exists ? File.GetUnixFileMode(path) : UnixFileMode.None;
         if (!file.Exists || file.LinkTarget is not null ||
             CiRunnerBuildKitExecutor.FileKind(path) != CiRunnerOutputFileKind.Regular ||
-            (File.GetUnixFileMode(path) & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
+            (mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) == 0 ||
+            (mode & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
             throw new InvalidDataException("A CI BuildKit daemon executable is missing, linked, or writable.");
     }
 

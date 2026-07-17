@@ -40,13 +40,39 @@ public sealed class CiRunnerBuildKitDaemonTests
     public async Task HomeOutputOverlapIsRejectedBeforeProcessStartup()
     {
         using var fixture = new Fixture();
-        var overlapping = CiRunnerBuildKitRuntime.Create(
-            "/run/user/1000",
-            fixture.Home,
-            Path.Combine(fixture.Home, "output"),
-            fixture.DockerConfig);
+        var overlapping = new[]
+        {
+            CiRunnerBuildKitRuntime.Create(
+                "/run/user/1000",
+                fixture.Home,
+                Path.Combine(fixture.Home, "output"),
+                fixture.DockerConfig),
+            CiRunnerBuildKitRuntime.Create(
+                "/run/user/1000",
+                fixture.Home,
+                fixture.Root,
+                fixture.DockerConfig),
+            CiRunnerBuildKitRuntime.Create(
+                "/run/user/1000",
+                fixture.Home,
+                fixture.Output,
+                fixture.Output),
+        };
 
-        await Assert.That(() => CiRunnerBuildKitDaemonInvocationCompiler.Create(overlapping))
+        foreach (var runtime in overlapping)
+            await Assert.That(() => CiRunnerBuildKitDaemonInvocationCompiler.Create(runtime))
+                .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task MutatedInvocationIsRejectedBeforeProcessStartup()
+    {
+        using var fixture = new Fixture();
+        var invocation = CiRunnerBuildKitDaemonInvocationCompiler.Create(fixture.Runtime);
+        var arguments = invocation.Arguments.Concat(["--oci-worker-no-process-sandbox"]).ToArray();
+
+        await Assert.That(() => CiRunnerBuildKitDaemonInvocationCompiler.Validate(
+                invocation with { Arguments = Array.AsReadOnly(arguments) }))
             .Throws<InvalidDataException>();
     }
 
