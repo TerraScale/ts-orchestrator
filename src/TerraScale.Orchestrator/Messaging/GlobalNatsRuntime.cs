@@ -13,12 +13,14 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly NatsClient client;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly ForgejoCiEventConsumer ciEvents;
+    private readonly RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs;
     private readonly RepositoryCiController? ciController;
 
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
+        RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs,
         RepositoryCiController? ciController,
         CiRunnerConsumerReconciler ciRunners,
         CiRunnerNatsCredentialIssuer? ciRunnerCredentials,
@@ -33,6 +35,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.client = client;
         this.authority = authority;
         this.ciEvents = ciEvents;
+        this.runtimeProofs = runtimeProofs;
         this.ciController = ciController;
         CiRunners = ciRunners;
         CiRunnerCredentials = ciRunnerCredentials;
@@ -45,7 +48,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         Candidates = candidates;
     }
 
-    public Task Completion => Task.WhenAny(authority.Completion, ciEvents.Completion).Unwrap();
+    public Task Completion => Task.WhenAny(
+        authority.Completion,
+        ciEvents.Completion,
+        runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan)).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public CiRunnerConsumerReconciler CiRunners { get; }
     public CiRunnerNatsCredentialIssuer? CiRunnerCredentials { get; }
@@ -262,10 +268,18 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     : (trigger, token) => trigger.RequiresQualifiedCandidate
                         ? qualificationController.RunToCompletionAsync(trigger, token)
                         : ciController.RunToCompletionAsync(trigger, token));
+            var runtimeProofs = ciRuntimeSignatures is null
+                ? null
+                : RepositoryCiRuntimeObservationNatsConsumer.Start(
+                    state.CiRuntimeProofConsumer,
+                    new(new(runnerLedger, runnerObjects), ciRuntimeSignatures),
+                    () => authority.Snapshot,
+                    topology);
             return new(
                 client,
                 authority,
                 ciEvents,
+                runtimeProofs,
                 ciController,
                 runnerConsumers,
                 ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
@@ -309,7 +323,18 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     GlobalNatsTopology.CiStream,
                     topology.CiConsumer,
                     cancellationToken);
-                return new(leaders, releases, runnerJobs, bundles, runnerBundles, ciConsumer);
+                var ciRuntimeProofConsumer = await jetStream.CreateOrUpdateConsumerAsync(
+                    GlobalNatsTopology.CiStream,
+                    topology.CiRuntimeProofConsumer,
+                    cancellationToken);
+                return new(
+                    leaders,
+                    releases,
+                    runnerJobs,
+                    bundles,
+                    runnerBundles,
+                    ciConsumer,
+                    ciRuntimeProofConsumer);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -339,23 +364,30 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         try
         {
-            await ciEvents.DisposeAsync();
+            if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
         }
         finally
         {
             try
             {
-                if (ciController is not null) await ciController.DisposeAsync();
+                await ciEvents.DisposeAsync();
             }
             finally
             {
                 try
                 {
-                    await authority.DisposeAsync();
+                    if (ciController is not null) await ciController.DisposeAsync();
                 }
                 finally
                 {
-                    await client.DisposeAsync();
+                    try
+                    {
+                        await authority.DisposeAsync();
+                    }
+                    finally
+                    {
+                        await client.DisposeAsync();
+                    }
                 }
             }
         }
@@ -367,5 +399,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INatsKVStore RunnerJobs,
         INatsObjStore Bundles,
         INatsObjStore RunnerBundles,
-        INatsJSConsumer CiConsumer);
+        INatsJSConsumer CiConsumer,
+        INatsJSConsumer CiRuntimeProofConsumer);
 }

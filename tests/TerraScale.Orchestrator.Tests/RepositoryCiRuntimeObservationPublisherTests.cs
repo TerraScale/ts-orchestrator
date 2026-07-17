@@ -88,6 +88,35 @@ public sealed class RepositoryCiRuntimeObservationPublisherTests
             .Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task RuntimeProofConsumerMetadataIsExactAndBounded()
+    {
+        var configuration = new GlobalNatsTopology(3).CiRuntimeProofConsumer;
+        var valid = new RepositoryCiRuntimeObservationMessageMetadata(
+            GlobalNatsTopology.CiRuntimeProofSubject,
+            GlobalNatsTopology.CiStream,
+            configuration.Name!,
+            41,
+            1,
+            1,
+            RepositoryCiRuntimeObservationWireCodec.MaximumWireBytes);
+
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(valid, configuration)).IsTrue();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { Subject = GlobalNatsTopology.CiSubject }, configuration)).IsFalse();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { Stream = GlobalNatsTopology.CellSpecStream }, configuration)).IsFalse();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { Consumer = "other" }, configuration)).IsFalse();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { StreamSequence = 0 }, configuration)).IsFalse();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { DeliveryCount = 6 }, configuration)).IsFalse();
+        await Assert.That(RepositoryCiRuntimeObservationNatsConsumer.ValidMetadata(
+            valid with { MessageSize = RepositoryCiRuntimeObservationWireCodec.MaximumWireBytes + 1 },
+            configuration)).IsFalse();
+    }
+
     private static RepositoryCiSignedRuntimeObservation Runtime(HashSignature signer)
     {
         var subject = new RepositoryCiArtifactSubject(

@@ -13,6 +13,7 @@ public sealed class GlobalNatsTopologyTests
         var specification = topology.Streams.Single(stream => stream.Name == "GLOBAL_SPEC");
         var ci = topology.Streams.Single(stream => stream.Name == GlobalNatsTopology.CiStream);
         var runner = topology.CiJobConsumer("untrusted-product", "runner-static");
+        var runtimeProof = topology.CiRuntimeProofConsumer;
 
         await Assert.That(specification.Name).IsEqualTo("GLOBAL_SPEC");
         await Assert.That(specification.Subjects).IsEquivalentTo(["ts.orch.v1.global.desired.>"]);
@@ -26,6 +27,16 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.CiConsumer.FilterSubject).IsEqualTo(GlobalNatsTopology.CiSubject);
         await Assert.That(topology.CiConsumer.MaxDeliver).IsEqualTo(5);
         await Assert.That(topology.CiConsumer.MaxAckPending).IsEqualTo(32);
+        await Assert.That(runtimeProof.Name).IsEqualTo("global_ci_runtime_proof");
+        await Assert.That(runtimeProof.DurableName).IsEqualTo(runtimeProof.Name);
+        await Assert.That(runtimeProof.FilterSubject).IsEqualTo(GlobalNatsTopology.CiRuntimeProofSubject);
+        await Assert.That(runtimeProof.DeliverPolicy).IsEqualTo(ConsumerConfigDeliverPolicy.All);
+        await Assert.That(runtimeProof.AckPolicy).IsEqualTo(ConsumerConfigAckPolicy.Explicit);
+        await Assert.That(runtimeProof.ReplayPolicy).IsEqualTo(ConsumerConfigReplayPolicy.Instant);
+        await Assert.That(runtimeProof.MaxDeliver).IsEqualTo(5);
+        await Assert.That(runtimeProof.MaxAckPending).IsEqualTo(32);
+        await Assert.That(runtimeProof.MaxBatch).IsEqualTo(1);
+        await Assert.That(runtimeProof.NumReplicas).IsEqualTo(3);
         await Assert.That(topology.Leaders.Bucket).IsEqualTo("ORCH_LEADERS");
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");

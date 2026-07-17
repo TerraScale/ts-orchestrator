@@ -113,6 +113,29 @@ public sealed class GlobalNatsTopology
         NumReplicas = Replicas,
     };
 
+    public ConsumerConfig CiRuntimeProofConsumer => new("global_ci_runtime_proof")
+    {
+        Description = "Leader-verified native CI runtime observations",
+        DeliverPolicy = ConsumerConfigDeliverPolicy.All,
+        AckPolicy = ConsumerConfigAckPolicy.Explicit,
+        FilterSubject = CiRuntimeProofSubject,
+        ReplayPolicy = ConsumerConfigReplayPolicy.Instant,
+        AckWait = TimeSpan.FromSeconds(15),
+        MaxDeliver = 5,
+        MaxAckPending = 32,
+        MaxWaiting = 16,
+        MaxBatch = 1,
+        MaxExpires = TimeSpan.FromSeconds(30),
+        Backoff =
+        [
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(30),
+        ],
+        NumReplicas = Replicas,
+    };
+
     public ConsumerConfig CellSpecConsumer(string cell)
     {
         var subject = CellSpecSubject(cell);
