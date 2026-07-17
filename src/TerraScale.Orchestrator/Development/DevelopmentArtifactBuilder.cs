@@ -11,7 +11,7 @@ internal static class DevelopmentArtifactBuilder
             Path.Combine(workspaceRoot, "TerraBase", "src", "TerraBase.Server", "TerraBase.Server.csproj"),
             Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Hosting", "TerraScale.LocalEmulators", "TerraScale.LocalEmulators.csproj"),
             Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
-            Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "API", "TerraScale.API", "TerraScale.API.csproj")
+            Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj")
         };
         foreach (var project in projects)
         {

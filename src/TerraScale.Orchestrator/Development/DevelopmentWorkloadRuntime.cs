@@ -55,7 +55,7 @@ internal static class DevelopmentWorkloadRuntime
             StartDotNetService(
                 supervisor,
                 api,
-                Path.Combine(internalsRoot, "src", "API", "TerraScale.API", "TerraScale.API.csproj"),
+                Path.Combine(internalsRoot, "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"),
                 CreateServiceEnvironment(
                     topology, cell, api, isApi: true, dataDirectory, natsSecurity));
             await WaitHttpAsync(api.Port, "/health/ready", supervisor, cancellationToken);
@@ -154,7 +154,7 @@ internal static class DevelopmentWorkloadRuntime
         RequireFile(project, $"{resource.Kind} project");
         var directory = Path.GetDirectoryName(project)!;
         var assemblyName = resource.Kind == DevelopmentResourceKind.Api
-            ? "TerraScale.API.dll"
+            ? "TerraScale.Platform.dll"
             : "TerraScale.Authentication.dll";
         var assembly = Path.Combine(directory, "bin", "Release", "net10.0", assemblyName);
         RequireFile(assembly, $"published {resource.Kind} assembly");
