@@ -181,10 +181,14 @@ key is read only from a user-private systemd credential file, while runners load
 one to four public-only trust keys and select overlap-rotation keys by their
 SHA-256 SPKI fingerprint carried in the bounded signature envelope. OCI KMS
 can therefore remain at the offline/root issuance boundary rather than exposing
-a root key to the runtime. The live pipeline coordinator, signer/trust
-credential composition, scoped NATS identities, dynamic runner consumer
-reconciliation, runner process, and executor remain separate unimplemented
-gates; no unsigned runtime fallback is installed.
+a root key to the runtime. `TS_ORCH_COMMAND_SIGNING_KEY_FILE` and the
+path-separator-delimited `TS_ORCH_COMMAND_TRUST_KEY_FILES` (or their typed JSON
+configuration fields) are structurally validated with the rest of startup and
+opened before any NATS connection. The process retains the loaded identity for
+its lifetime and disposes it on shutdown. The live pipeline coordinator, scoped
+NATS identities, dynamic runner consumer reconciliation, runner process, and
+executor remain separate unimplemented gates; no unsigned runtime fallback is
+installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy

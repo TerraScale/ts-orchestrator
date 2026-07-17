@@ -4,6 +4,90 @@ using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Delivery;
 
+/// <summary>Bounded credential references opened before any command-capable runtime connects.</summary>
+public sealed class CommandIdentityConfiguration
+{
+    private CommandIdentityConfiguration(string? signingKeyFile, string[] trustKeyFiles)
+    {
+        SigningKeyFile = signingKeyFile;
+        TrustKeyFiles = Array.AsReadOnly(trustKeyFiles);
+    }
+
+    public string? SigningKeyFile { get; }
+    public IReadOnlyList<string> TrustKeyFiles { get; }
+
+    internal static CommandIdentityConfiguration? Resolve(
+        string? signingKeyFile,
+        string? trustKeyFiles)
+    {
+        var signing = string.IsNullOrWhiteSpace(signingKeyFile)
+            ? null
+            : Path.GetFullPath(signingKeyFile.Trim());
+        var trust = Paths(trustKeyFiles);
+        return signing is null && trust.Length == 0 ? null : new(signing, trust);
+    }
+
+    internal CommandIdentityRuntime Open() => CommandIdentityRuntime.Open(this);
+
+    private static string[] Paths(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        var values = value.Split(Path.PathSeparator, StringSplitOptions.TrimEntries);
+        if (values.Length is < 1 or > 4 || values.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException(
+                "TS_ORCH_COMMAND_TRUST_KEY_FILES must contain one to four complete paths.",
+                nameof(value));
+        var paths = values.Select(Path.GetFullPath).ToArray();
+        if (paths.Distinct(StringComparer.Ordinal).Count() != paths.Length)
+            throw new ArgumentException(
+                "TS_ORCH_COMMAND_TRUST_KEY_FILES must not contain duplicate paths.",
+                nameof(value));
+        return paths;
+    }
+}
+
+/// <summary>Owns the loaded command signer and verifier for one process lifetime.</summary>
+internal sealed class CommandIdentityRuntime : IDisposable
+{
+    private CommandIdentityRuntime(
+        EcdsaCommandSigner? signer,
+        EcdsaCommandSignatureVerifier? verifier)
+    {
+        Signer = signer;
+        Verifier = verifier;
+    }
+
+    internal EcdsaCommandSigner? Signer { get; }
+    internal EcdsaCommandSignatureVerifier? Verifier { get; }
+
+    internal static CommandIdentityRuntime Open(CommandIdentityConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        EcdsaCommandSigner? signer = null;
+        try
+        {
+            signer = configuration.SigningKeyFile is null
+                ? null
+                : EcdsaCommandSigner.LoadPrivatePem(configuration.SigningKeyFile);
+            var verifier = configuration.TrustKeyFiles.Count == 0
+                ? null
+                : EcdsaCommandSignatureVerifier.LoadPublicPem(configuration.TrustKeyFiles);
+            return new(signer, verifier);
+        }
+        catch
+        {
+            signer?.Dispose();
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        Verifier?.Dispose();
+        Signer?.Dispose();
+    }
+}
+
 /// <summary>
 /// Signs canonical command digests with one P-256 intermediate supplied as a private systemd
 /// credential. Production root protection and intermediate issuance remain at the OCI KMS boundary.

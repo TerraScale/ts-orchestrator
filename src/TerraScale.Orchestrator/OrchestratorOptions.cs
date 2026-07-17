@@ -38,7 +38,8 @@ public sealed record OrchestratorOptions(
     Messaging.NatsTlsFiles? NatsTls = null,
     Messaging.GlobalNatsConfiguration? GlobalNats = null,
     Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
-    Delivery.ForgejoSourceConfiguration? ForgejoSource = null)
+    Delivery.ForgejoSourceConfiguration? ForgejoSource = null,
+    Delivery.CommandIdentityConfiguration? CommandIdentity = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -119,6 +120,11 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_FORGEJO_REPOSITORY"),
                     environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
                 : null;
+            var commandIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? Delivery.CommandIdentityConfiguration.Resolve(
+                    environment("TS_ORCH_COMMAND_SIGNING_KEY_FILE"),
+                    environment("TS_ORCH_COMMAND_TRUST_KEY_FILES"))
+                : null;
             if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
                 throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
             return new(
@@ -131,7 +137,8 @@ public sealed record OrchestratorOptions(
                 NatsTls: natsTls,
                 GlobalNats: globalNats,
                 ForgejoWebhook: forgejoWebhook,
-                ForgejoSource: forgejoSource);
+                ForgejoSource: forgejoSource,
+                CommandIdentity: commandIdentity);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

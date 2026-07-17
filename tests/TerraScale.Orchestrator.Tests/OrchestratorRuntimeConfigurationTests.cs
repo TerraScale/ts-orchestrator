@@ -16,7 +16,13 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 cell = "fra",
                 natsUrl = "tls://control-nats.fra.internal:4222",
                 replicas = 3,
-                instance = "2"
+                instance = "2",
+                commandSigningKeyFile = "/run/credentials/orchestrator/command-signing.pem",
+                commandTrustKeyFiles = new[]
+                {
+                    "/etc/terrascale/command-current.pem",
+                    "/etc/terrascale/command-previous.pem"
+                }
             }));
 
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
@@ -28,6 +34,12 @@ public sealed class OrchestratorRuntimeConfigurationTests
             await Assert.That(options.NatsUrl).IsEqualTo("tls://control-nats.fra.internal:4222/");
             await Assert.That(options.Replicas).IsEqualTo(3);
             await Assert.That(options.Instance).IsEqualTo("2");
+            await Assert.That(options.CommandIdentity!.SigningKeyFile)
+                .IsEqualTo("/run/credentials/orchestrator/command-signing.pem");
+            await Assert.That(options.CommandIdentity.TrustKeyFiles).IsEquivalentTo([
+                "/etc/terrascale/command-current.pem",
+                "/etc/terrascale/command-previous.pem",
+            ]);
         }
         finally
         {

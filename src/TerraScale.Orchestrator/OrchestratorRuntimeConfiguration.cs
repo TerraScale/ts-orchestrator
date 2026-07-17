@@ -13,7 +13,9 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? GlobalNatsNKeyFile = null,
     string? GlobalNatsTlsCaFile = null,
     string? GlobalNatsTlsCertificateFile = null,
-    string? GlobalNatsTlsKeyFile = null)
+    string? GlobalNatsTlsKeyFile = null,
+    string? CommandSigningKeyFile = null,
+    string[]? CommandTrustKeyFiles = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -49,6 +51,10 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_GLOBAL_NATS_TLS_CA_FILE" => GlobalNatsTlsCaFile,
         "TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE" => GlobalNatsTlsCertificateFile,
         "TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE" => GlobalNatsTlsKeyFile,
+        "TS_ORCH_COMMAND_SIGNING_KEY_FILE" => CommandSigningKeyFile,
+        "TS_ORCH_COMMAND_TRUST_KEY_FILES" => CommandTrustKeyFiles is { Length: > 0 }
+            ? string.Join(Path.PathSeparator, CommandTrustKeyFiles)
+            : null,
         _ => null
     };
 }

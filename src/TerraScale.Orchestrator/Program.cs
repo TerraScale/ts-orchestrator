@@ -48,6 +48,7 @@ try
         return 0;
     }
 
+    using var commandIdentity = options.CommandIdentity?.Open();
     using var telemetry = OrchestratorTelemetry.Start(options, Environment.GetEnvironmentVariable);
     using var startupActivity = telemetry.StartRuntime();
     var startupTimestamp = Stopwatch.GetTimestamp();
