@@ -120,6 +120,16 @@ Configure Forgejo to send JSON `push` and `pull_request` events to that exact
 path. Successful durable acceptance and exact retries return HTTP 202;
 authentication, collision, timeout, and journal failures never return a 2xx.
 
+After exact commit/tree resolution, the closed CI trigger policy maps feature
+PRs targeting `develop` and direct `develop` pushes to compile/test-only
+untrusted validation. Only a same-repository `develop` → `main` PR may request
+a trusted compile/test/sign candidate build, and that job receives no
+production-deploy capability. A `main` push cannot build anything or directly
+create runner work; it can only request resolution of the exact already
+qualified candidate before promotion. Forks and lookalike branches targeting
+`main`, protected-branch deletions, metadata-only actions, tags, and unsupported
+refs cannot widen those trust or capability sets.
+
 The three regional controller candidates share one NATS service queue group
 and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
 revisions. The production authority state machine advances the fencing epoch,
