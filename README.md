@@ -79,19 +79,29 @@ does not replace the real multi-host clock, partition, mTLS, and NATS-JWT gates.
 
 `lab plan` is a pure operation and prints the fixed `dev-containers-three-cell-lean` topology. It contains GRU, SFO, and FRA cells. Every cell has one Orchestrator controller, one control-plane NATS server, one product-plane NATS server, one TerraBase server, Authentication, API, and Dashboard. Email and Stripe emulators are shared development fixtures. This 23-container profile is fast local integration evidence; it does not claim production R3 failure tolerance.
 
+For control-plane smoke and stability work, `--profile dev-containers-control` keeps the same three regions but starts only one control NATS server and one controller in each region. This six-container slice exercises regional authority and health without building or starting product workloads.
+
 ```bash
 dotnet run --project src/TerraScale.Orchestrator -- lab plan
 dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` builds the required release artifacts, verifies rootless Podman availability, creates an owner-labelled pod with a fixed memory budget, and starts only digest-pinned images. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the full solution and policy suites before writing evidence outside the repository. Startup then verifies rootless Podman availability, creates an owner-labelled pod with a fixed memory budget, and starts only digest-pinned images. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write.
 
 ```bash
-dotnet run --project src/TerraScale.Orchestrator -- lab up \
+dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
+  development-attest \
+  --output /tmp/terrascale-orchestrator-control-evidence.json \
+  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
+  --profile dev-containers-control-three-cell-lean
+
+src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
+  lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
-  --profile dev-containers
+  --profile dev-containers-control \
+  --evidence /tmp/terrascale-orchestrator-control-evidence.json
 ```
 
 The adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Stopping the foreground Orchestrator removes every owned container and its pod; persisted data remains for the next generation. Startup removes an existing pod only when its ownership label matches exactly and refuses to touch foreign resources.
