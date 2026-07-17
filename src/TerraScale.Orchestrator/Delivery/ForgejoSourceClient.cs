@@ -154,7 +154,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
     private const int MaximumMetadataResponseBytes = 64 * 1024;
     private const int MaximumChangedPathsResponseBytes = 8 * 1024 * 1024;
     public const int MaximumFileBytes = 1024 * 1024;
-    public const int MaximumChangedPaths = 16_384;
+    public const int MaximumChangedPaths = 4_096;
     private const int MaximumJsonDepth = 12;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
     private readonly ForgejoSourceConfiguration configuration;

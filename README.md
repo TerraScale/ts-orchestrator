@@ -143,6 +143,14 @@ sets, and conservatively selects the whole repository policy for rename/copy
 results whose old path is not present in the comparison response. The affected
 pipeline coordinator that consumes this exact change set remains unimplemented.
 
+Once supplied, the exact descriptor blobs, changed paths, source commits/trees,
+trigger policy, controller generation, and runner evidence window are rebuilt
+through the existing planners and stored as one immutable pipeline object in
+`GLOBAL_BUNDLES`. A small CAS pointer in `GLOBAL_RELEASES` binds that object to
+the Forgejo event. Restart recovery re-parses every descriptor and recomputes
+the impact, pipeline, and job identities; interrupted writes resume, while a
+second plan for the same event, corrupt content, or lost authority fails closed.
+
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
 (no automatic newline trimming), must be 32–4096 bytes, and must be private to

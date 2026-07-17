@@ -20,6 +20,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
         NativeGitOpsSourceJournal nativeGitOpsSources,
+        RepositoryCiPipelineJournal pipelines,
         RepositoryCiPromotionJournal promotions,
         RepositoryCiCandidateJournal candidates)
     {
@@ -29,6 +30,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
+        Pipelines = pipelines;
         Promotions = promotions;
         Candidates = candidates;
     }
@@ -37,6 +39,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public ForgejoSourceJournal ForgejoSources { get; }
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
+    public RepositoryCiPipelineJournal Pipelines { get; }
     public RepositoryCiPromotionJournal Promotions { get; }
     public RepositoryCiCandidateJournal Candidates { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
@@ -88,6 +91,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 ciEvents,
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
+                new(ledger, objects),
                 new(ledger, objects),
                 new(ledger),
                 new(ledger, objects));
