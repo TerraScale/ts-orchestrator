@@ -107,6 +107,7 @@ internal sealed class RepositoryCiCandidateArtifactReader(
                     throw new InvalidDataException("The verified artifact attestation does not match its exact subject.");
                 results.Add(new(
                     planned.Plan.Repository,
+                    planned.Plan.Promotion,
                     subject.Job,
                     subject.Artifact,
                     subject.Architecture,

@@ -15,6 +15,7 @@ public sealed record RepositoryCiJobResult(
 
 public sealed record RepositoryCiArtifactResult(
     string Repository,
+    RepositoryCiPromotionStrategy Promotion,
     JobId Job,
     ArtifactId Artifact,
     RepositoryCiArchitecture Architecture,
@@ -124,7 +125,7 @@ public static class RepositoryCiCandidateAssembler
                 throw new InvalidOperationException("An artifact job lacks candidate publication authority.");
             var artifact = artifactByIdentity[(job.Request.Job.Value, architecture)];
             ValidateArtifact(artifact);
-            if (artifact.Repository != job.Plan.Repository)
+            if (artifact.Repository != job.Plan.Repository || artifact.Promotion != job.Plan.Promotion)
                 throw new InvalidDataException("Candidate artifact ownership does not match its release job.");
             if (architecture == RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest is not null ||
                 architecture != RepositoryCiArchitecture.Any && artifact.ObservedRuntimeDigest != artifact.Digest)
@@ -280,6 +281,7 @@ public static class RepositoryCiCandidateAssembler
     private static void ValidateArtifact(RepositoryCiArtifactResult artifact)
     {
         if (!ForgejoWebhookVerifier.IsRepository(artifact.Repository) ||
+            artifact.Promotion is RepositoryCiPromotionStrategy.None || !Enum.IsDefined(artifact.Promotion) ||
             !IsArtifactId(artifact.Artifact?.Value) || !IsDigest(artifact.Digest?.Value) ||
             !RepositoryCiArtifactAttestation.TryEntrypointsDigest(
                 artifact.Architecture,
@@ -334,6 +336,7 @@ public static class RepositoryCiCandidateAssembler
             {
                 writer.WriteStartObject();
                 writer.WriteString("repository", artifact.Repository);
+                writer.WriteString("promotion", artifact.Promotion.ToString());
                 writer.WriteString("job", artifact.Job.Value);
                 writer.WriteString("artifact", artifact.Artifact.Value);
                 writer.WriteString("architecture", artifact.Architecture.ToString());

@@ -121,6 +121,7 @@ public sealed class RepositoryCiCandidateResolverTests
             .Where(static job => job.Plan.Node.Kind == RepositoryCiNodeKind.Artifact)
             .Select((job, index) => new RepositoryCiArtifactResult(
                 job.Plan.Repository,
+                job.Plan.Promotion,
                 job.Request.Job,
                 new($"artifact-{index}"),
                 RepositoryCiArchitecture.Any,

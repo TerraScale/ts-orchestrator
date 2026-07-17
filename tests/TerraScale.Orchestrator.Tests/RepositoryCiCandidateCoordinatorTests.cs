@@ -186,6 +186,7 @@ public sealed class RepositoryCiCandidateCoordinatorTests
             var digest = new DigestId(Digest(index + 100));
             return new RepositoryCiArtifactResult(
                 job.Plan.Repository,
+                job.Plan.Promotion,
                 job.Request.Job,
                 new($"artifact-{architecture}"),
                 architecture,

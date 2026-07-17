@@ -159,6 +159,9 @@ public static class RepositoryCiPipelinePlanner
             var job = impact.Jobs[index];
             if (job is null || job.Node is null || job.DependsOn is null || job.Reasons is null ||
                 !ForgejoWebhookVerifier.IsRepository(job.Repository) ||
+                !Enum.IsDefined(job.Promotion) ||
+                job.Node.Kind == RepositoryCiNodeKind.Artifact &&
+                    job.Promotion == RepositoryCiPromotionStrategy.None ||
                 job.Id != $"{job.Repository}:{job.Node.Id}" || !IsNodeId(job.Node.Id) ||
                 job.Node.Profiles is null || !job.Node.Profiles.Contains(impact.Profile) ||
                 job.Reasons is not { Count: > 0 and <= 128 } ||

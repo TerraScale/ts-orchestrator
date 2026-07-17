@@ -36,12 +36,14 @@ public sealed record RepositoryCiPlannedJob
     internal RepositoryCiPlannedJob(
         string id,
         string repository,
+        RepositoryCiPromotionStrategy promotion,
         RepositoryCiNode node,
         IReadOnlyList<string> dependsOn,
         IReadOnlyList<string> reasons)
     {
         Id = id;
         Repository = repository;
+        Promotion = promotion;
         Node = node;
         DependsOn = dependsOn;
         Reasons = reasons;
@@ -49,6 +51,7 @@ public sealed record RepositoryCiPlannedJob
 
     public string Id { get; }
     public string Repository { get; }
+    public RepositoryCiPromotionStrategy Promotion { get; }
     public RepositoryCiNode Node { get; }
     public IReadOnlyList<string> DependsOn { get; }
     public IReadOnlyList<string> Reasons { get; }
@@ -294,6 +297,7 @@ public static class RepositoryCiImpactPlanner
                 jobs.Add(new(
                     id,
                     repository,
+                    descriptor.Promotion,
                     node,
                     ReadOnly(dependencies.Order(StringComparer.Ordinal).ToArray()),
                     ReadOnly(reasons[id].Order(StringComparer.Ordinal).ToArray())));

@@ -34,6 +34,7 @@ public sealed class RepositoryCiCandidateTests
         await Assert.That(first.Sources[0].Tree).IsEqualTo(Tree);
         await Assert.That(first.Artifacts).HasSingleItem();
         await Assert.That(first.Artifacts[0].Repository).IsEqualTo(Repository);
+        await Assert.That(first.Artifacts[0].Promotion).IsEqualTo(RepositoryCiPromotionStrategy.Package);
         await Assert.That(first.Artifacts[0].Architecture).IsEqualTo(RepositoryCiArchitecture.Any);
         await Assert.That(second.Digest).IsEqualTo(first.Digest);
     }
@@ -94,6 +95,7 @@ public sealed class RepositoryCiCandidateTests
             [artifacts[0] with { ObservedRuntimeDigest = artifacts[0].Digest }],
             [artifacts[0] with { Artifact = new("../artifact") }],
             [artifacts[0] with { Repository = "TerraScale/Another.Repository" }],
+            [artifacts[0] with { Promotion = RepositoryCiPromotionStrategy.Pages }],
         };
 
         foreach (var value in cases)
@@ -181,6 +183,7 @@ public sealed class RepositoryCiCandidateTests
             var digest = new DigestId(Digest(index + 100));
             return new RepositoryCiArtifactResult(
                 job.Plan.Repository,
+                job.Plan.Promotion,
                 job.Request.Job,
                 new($"artifact-{architecture}"),
                 architecture,
