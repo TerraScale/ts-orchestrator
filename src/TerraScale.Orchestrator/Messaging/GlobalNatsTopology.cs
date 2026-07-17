@@ -9,6 +9,7 @@ public sealed class GlobalNatsTopology
     private const string Root = "ts.orch.v1.global";
     public const string CiStream = "GLOBAL_CI";
     public const string CiSubject = $"{Root}.ci.forgejo";
+    public const string CiJobSubjectPrefix = $"{Root}.ci.job";
 
     public GlobalNatsTopology(int replicas)
     {
@@ -34,7 +35,7 @@ public sealed class GlobalNatsTopology
         },
         new(CiStream, [$"{Root}.ci.>"])
         {
-            Description = "Durable normalized global CI events",
+            Description = "Durable normalized CI events and fenced runner commands",
             MaxBytes = 1024L * 1024 * 1024,
             MaxAge = TimeSpan.FromDays(30),
             DuplicateWindow = TimeSpan.FromHours(24),

@@ -158,8 +158,14 @@ credential, cache, resource, and output-isolation policy. Prepared, dispatched,
 running, success, and failure edges are strictly ordered and idempotent. A
 higher global authority epoch increments the job fence; an old controller can
 no longer advance it. Pipeline failure stops new dispatch, while successful
-dependency evidence unlocks the next deterministic DAG nodes. The NATS job
-publisher and real isolated runner executor remain separate unimplemented gates.
+dependency evidence unlocks the next deterministic DAG nodes. Prepared attempts
+also persist an exact two-hour deadline, encode a canonical bounded command for
+the selected runner, require the configured command signer, and advance to
+dispatched only after `GLOBAL_CI` returns a durable expected-stream
+acknowledgement. Replay reuses the exact bytes and message ID plus the
+acknowledged stream sequence. The live pipeline coordinator, CI signer wiring,
+and isolated runner inbox/executor remain separate unimplemented gates; no
+unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy

@@ -18,6 +18,8 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(specification.NumReplicas).IsEqualTo(3);
         await Assert.That(specification.Storage).IsEqualTo(StreamConfigStorage.File);
         await Assert.That(ci.Subjects).IsEquivalentTo(["ts.orch.v1.global.ci.>"]);
+        await Assert.That(GlobalNatsTopology.CiJobSubjectPrefix)
+            .IsEqualTo("ts.orch.v1.global.ci.job");
         await Assert.That(ci.NumReplicas).IsEqualTo(3);
         await Assert.That(ci.DuplicateWindow).IsEqualTo(TimeSpan.FromHours(24));
         await Assert.That(topology.CiConsumer.FilterSubject).IsEqualTo(GlobalNatsTopology.CiSubject);
