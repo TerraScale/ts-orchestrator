@@ -184,15 +184,16 @@ public sealed class RepositoryCiJobInboxTests
             wire.Headers,
             51,
             decoded.Document.Runner,
-            Now,
+            Now.AddHours(3),
             TimeSpan.Zero,
-            new TestVerifier([6]),
+            new TestVerifier([99]),
             _ => Task.CompletedTask);
 
         await Assert.That(durable).IsNotNull();
         await Assert.That(execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Ready);
         await Assert.That(recovered.AcceptanceDisposition)
             .IsEqualTo(RepositoryCiJobAcceptanceDisposition.Duplicate);
+        await Assert.That(recovered.ProtocolError).IsEqualTo(CommandValidationError.None);
         await Assert.That(recovered.IsAcknowledged).IsTrue();
     }
 
