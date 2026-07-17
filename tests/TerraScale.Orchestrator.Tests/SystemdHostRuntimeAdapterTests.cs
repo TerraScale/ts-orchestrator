@@ -9,15 +9,19 @@ public sealed class SystemdHostRuntimeAdapterTests
     [Test]
     public async Task ConvergeUsesArgumentListsAndEveryCatalogSecurityProperty()
     {
-        var runner = new RecordingRunner();
+        var runner = new RecordingRunner(
+            new HostCommandResult(1, "LoadState=not-found\n", "Unit not found"),
+            new HostCommandResult(0, string.Empty, string.Empty));
         var adapter = new SystemdHostRuntimeAdapter(runner, userManager: false);
         var plan = NativePlan();
 
         await adapter.ConvergeAsync(plan, CancellationToken.None);
 
-        var command = runner.Commands.Single();
+        var command = runner.Commands.Last();
         await Assert.That(command.Executable).IsEqualTo("/usr/bin/systemd-run");
         await Assert.That(command.Arguments).Contains(plan.Systemd!.UnitName);
+        await Assert.That(command.Arguments).Contains(
+            $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}");
         await Assert.That(command.Arguments).Contains("NoNewPrivileges=yes");
         await Assert.That(command.Arguments).Contains("ProtectSystem=strict");
         await Assert.That(command.Arguments).Contains("RestrictSUIDSGID=yes");
@@ -28,17 +32,48 @@ public sealed class SystemdHostRuntimeAdapterTests
     [Test]
     public async Task ObserveMapsSystemdStateWithoutTrustingFreeFormOutput()
     {
-        var runner = new RecordingRunner
-        {
-            Next = new(0, "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nResult=success\n", string.Empty)
-        };
+        var plan = NativePlan();
+        var runner = new RecordingRunner(new HostCommandResult(0,
+            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nResult=success\n" +
+            $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}\n",
+            string.Empty));
         var adapter = new SystemdHostRuntimeAdapter(runner, userManager: true);
 
-        var observation = await adapter.ObserveAsync(NativePlan(), CancellationToken.None);
+        var observation = await adapter.ObserveAsync(plan, CancellationToken.None);
 
         await Assert.That(observation.State).IsEqualTo(SystemdAllocationState.Running);
         await Assert.That(observation.MainProcessId).IsEqualTo(481);
         await Assert.That(runner.Commands.Single().Arguments.First()).IsEqualTo("--user");
+    }
+
+    [Test]
+    public async Task ConvergenceIsIdempotentAndInspectionFailuresStayFailClosed()
+    {
+        var plan = NativePlan();
+        var description = $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}";
+        var running = new RecordingRunner(new HostCommandResult(0,
+            $"LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\n{description}\n",
+            string.Empty));
+
+        await new SystemdHostRuntimeAdapter(running).ConvergeAsync(plan, CancellationToken.None);
+
+        await Assert.That(running.Commands).Count().IsEqualTo(1);
+        await Assert.That(running.Commands.Single().Executable).IsEqualTo("/usr/bin/systemctl");
+
+        var unavailable = new RecordingRunner(
+            new HostCommandResult(1, string.Empty, "D-Bus unavailable"));
+        await Assert.That(() => new SystemdHostRuntimeAdapter(unavailable)
+                .ConvergeAsync(plan, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(unavailable.Commands).Count().IsEqualTo(1);
+
+        var foreign = new RecordingRunner(new HostCommandResult(0,
+            "LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\nDescription=foreign\n",
+            string.Empty));
+        await Assert.That(() => new SystemdHostRuntimeAdapter(foreign)
+                .ConvergeAsync(plan, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(foreign.Commands).Count().IsEqualTo(1);
     }
 
     [Test]
@@ -67,9 +102,9 @@ public sealed class SystemdHostRuntimeAdapterTests
         new ArtifactDigest(Digest),
         HostArchitecture.Arm64);
 
-    private sealed class RecordingRunner : IHostCommandRunner
+    private sealed class RecordingRunner(params HostCommandResult[] results) : IHostCommandRunner
     {
-        public HostCommandResult Next { get; init; } = new(0, string.Empty, string.Empty);
+        private readonly Queue<HostCommandResult> _results = new(results);
         public List<(string Executable, IReadOnlyList<string> Arguments)> Commands { get; } = [];
 
         public Task<HostCommandResult> RunAsync(
@@ -78,7 +113,9 @@ public sealed class SystemdHostRuntimeAdapterTests
             CancellationToken cancellationToken)
         {
             Commands.Add((executable, arguments.ToArray()));
-            return Task.FromResult(Next);
+            return Task.FromResult(_results.Count == 0
+                ? new HostCommandResult(0, string.Empty, string.Empty)
+                : _results.Dequeue());
         }
     }
 }

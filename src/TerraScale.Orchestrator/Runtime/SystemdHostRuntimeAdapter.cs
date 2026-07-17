@@ -55,6 +55,7 @@ internal enum SystemdAllocationState
     Starting,
     Running,
     Stopping,
+    Stopped,
     Failed
 }
 
@@ -71,6 +72,25 @@ internal sealed class SystemdHostRuntimeAdapter(
     public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         RequireCanonicalSystemdPlan(plan);
+        var observation = await ObserveAsync(plan, cancellationToken);
+        if (observation.State is SystemdAllocationState.Running or SystemdAllocationState.Starting)
+        {
+            return;
+        }
+        if (observation.State != SystemdAllocationState.Absent)
+        {
+            var start = await commandRunner.RunAsync(
+                "/usr/bin/systemctl",
+                ManagerArguments("start", plan.Systemd!.UnitName),
+                cancellationToken);
+            if (start.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"systemd could not start allocation {plan.AllocationId}; exit code {start.ExitCode}.");
+            }
+            return;
+        }
+
         var systemd = plan.Systemd!;
         var arguments = new List<string>();
         if (userManager)
@@ -80,6 +100,8 @@ internal sealed class SystemdHostRuntimeAdapter(
         arguments.Add("--unit");
         arguments.Add(systemd.UnitName);
         arguments.Add("--collect");
+        arguments.Add("--property");
+        arguments.Add($"Description={PlanDescription(plan)}");
         foreach (var property in systemd.Properties)
         {
             arguments.Add("--property");
@@ -108,24 +130,37 @@ internal sealed class SystemdHostRuntimeAdapter(
             "--property=ActiveState",
             "--property=SubState",
             "--property=MainPID",
-            "--property=Result");
+            "--property=Result",
+            "--property=Description");
         var result = await commandRunner.RunAsync("/usr/bin/systemctl", arguments, cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            return new(plan.Systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
-        }
         var values = result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Split('=', 2))
             .Where(parts => parts.Length == 2)
             .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+        if (values.GetValueOrDefault("LoadState") == "not-found")
+        {
+            return new(plan.Systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
+        }
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"systemd could not inspect allocation {plan.AllocationId}; exit code {result.ExitCode}.");
+        }
+        if (values.GetValueOrDefault("LoadState") != "loaded" ||
+            values.GetValueOrDefault("Description") != PlanDescription(plan))
+        {
+            throw new InvalidOperationException(
+                $"Existing systemd allocation '{plan.Systemd.UnitName}' is not owned by the canonical plan.");
+        }
         var state = values.GetValueOrDefault("ActiveState") switch
         {
             "active" => SystemdAllocationState.Running,
-            "activating" => SystemdAllocationState.Starting,
+            "activating" or "reloading" => SystemdAllocationState.Starting,
             "deactivating" => SystemdAllocationState.Stopping,
+            "inactive" => SystemdAllocationState.Stopped,
             "failed" => SystemdAllocationState.Failed,
-            _ when values.GetValueOrDefault("LoadState") == "not-found" => SystemdAllocationState.Absent,
-            _ => SystemdAllocationState.Failed
+            _ => throw new InvalidOperationException(
+                $"systemd returned an unknown state for allocation {plan.AllocationId}.")
         };
         int? pid = int.TryParse(values.GetValueOrDefault("MainPID"), out var parsedPid) && parsedPid > 0
             ? parsedPid
@@ -140,6 +175,12 @@ internal sealed class SystemdHostRuntimeAdapter(
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         RequireCanonicalSystemdPlan(plan);
+        var observation = await ObserveAsync(plan, cancellationToken);
+        if (observation.State is SystemdAllocationState.Absent or SystemdAllocationState.Stopped or
+            SystemdAllocationState.Failed or SystemdAllocationState.Stopping)
+        {
+            return;
+        }
         var result = await commandRunner.RunAsync(
             "/usr/bin/systemctl",
             ManagerArguments("stop", plan.Systemd!.UnitName),
@@ -150,6 +191,9 @@ internal sealed class SystemdHostRuntimeAdapter(
                 $"systemd could not stop allocation {plan.AllocationId}; exit code {result.ExitCode}.");
         }
     }
+
+    private static string PlanDescription(HostRuntimePlan plan) =>
+        $"TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}";
 
     private IReadOnlyList<string> ManagerArguments(params string[] arguments) => userManager
         ? new[] { "--user" }.Concat(arguments).ToArray()
