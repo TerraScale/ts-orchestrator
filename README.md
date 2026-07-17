@@ -413,6 +413,14 @@ and commits each new acknowledgement before attempting the next cell. A crash
 after stream storage but before CAS replays the same persisted bytes and message
 ID, then converges on the journal. Stale or conflicting durable state blocks the
 side effect, and a completed replay performs no publish.
+The global-to-regional relay decodes and validates one exact globally stored
+CellSpec against its destination cell, current global writer epoch, validity
+window, and injected signature trust policy before any regional side effect. It
+then publishes the unchanged payload and canonical headers to regional
+`CELL_SPEC` and acknowledges the global delivery only after regional storage and
+a final regional-authority check. Authority loss at any boundary leaves the
+global delivery unacknowledged; acknowledgement failure redelivers the same
+regional message identity and bytes so JetStream deduplication remains safe.
 The JetStream publisher sends one signed command to
 `ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
 uses handoff/cell/writer-epoch message identity so exact retries deduplicate but
