@@ -217,6 +217,18 @@ suspended role. An explicit empty workload array is a valid bounded generation;
 against accepted state it requests dependent-first guarded retirement of every
 declared parent without granting direct deletion of any journal-owned child.
 
+The global plan can be compiled into deterministic, at-most-1-MiB per-cell
+handoff payloads. Every payload binds the verified repository, commit, tree,
+manifest blob and content digest, global generation/digest, complete desired
+workloads for that cell, and its ordered local changes. Added cells receive
+create actions; cells removed from an otherwise retained workload receive
+guarded retirement. Retirement-only cells remain in the required-cell barrier
+even when the proposed workload set is empty. Each payload has its own SHA-256,
+and an aggregate handoff digest binds the sorted cell/digest set. These payloads
+are signable material only: the compiler does not grant unsigned apply authority;
+durable cell acceptance still requires the KMS-backed signing policy and
+regional handoff journal.
+
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
 branch or tag for that object ID. Loading requires a signature-verified commit
