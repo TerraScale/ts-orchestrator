@@ -57,4 +57,58 @@ public sealed class RepositoryCiJobNatsConsumerTests
         await Assert.That(flattened.Count(item => item.Key == "TS-Runner-Id")).IsEqualTo(2);
         await Assert.That(bounded.Count).IsEqualTo(RepositoryCiJobWireCodec.ExpectedHeaderCount + 1);
     }
+
+    [Test]
+    public async Task LongExecutionRenewsItsDeliveryUntilTheCoordinatorReturns()
+    {
+        var completed = new TaskCompletionSource<CiRunnerExecutionCoordinatorReceipt>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = 0;
+
+        var receipt = await RepositoryCiJobNatsConsumer.ExecuteWithProgressAsync(
+            _ => completed.Task,
+            _ =>
+            {
+                progress++;
+                completed.TrySetResult(Completed());
+                return Task.CompletedTask;
+            },
+            TimeSpan.FromMilliseconds(1),
+            default);
+
+        await Assert.That(progress).IsGreaterThanOrEqualTo(1);
+        await Assert.That(receipt.Disposition).IsEqualTo(CiRunnerExecutionCoordinatorDisposition.Completed);
+    }
+
+    [Test]
+    public async Task ProgressFailureCancelsExecutionAndCannotReturnAResult()
+    {
+        var canceled = false;
+
+        await Assert.That(async () => await RepositoryCiJobNatsConsumer.ExecuteWithProgressAsync(
+                async token =>
+                {
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        canceled = true;
+                        throw;
+                    }
+                    throw new InvalidOperationException();
+                },
+                _ => throw new IOException("simulated progress failure"),
+                TimeSpan.FromMilliseconds(1),
+                default))
+            .Throws<InvalidDataException>();
+        await Assert.That(canceled).IsTrue();
+    }
+
+    private static CiRunnerExecutionCoordinatorReceipt Completed() => new(
+        CiRunnerExecutionCoordinatorDisposition.Completed,
+        RepositoryCiJobExecutionDisposition.Completed,
+        null,
+        new string('a', 64));
 }
