@@ -141,7 +141,12 @@ Git object IDs. The authenticated Forgejo source adapter reads the bounded
 `base...head` comparison, rejects empty, duplicate, unsafe, or oversized path
 sets, and conservatively selects the whole repository policy for rename/copy
 results whose old path is not present in the comparison response. The affected
-pipeline coordinator that consumes this exact change set remains unimplemented.
+pipeline coordinator starts only from the durable trigger decision, recovers an
+already persisted pipeline before making source calls, reads this bounded exact
+change set, and CAS-records the resulting immutable pipeline under the same
+event identity. Authority loss before or during source resolution produces no
+pipeline. Exact cross-repository descriptor and source selection is an injected
+policy boundary; the coordinator never infers those inputs from moving refs.
 
 Once supplied, the exact descriptor blobs, changed paths, source commits/trees,
 trigger policy, controller generation, and runner evidence window are rebuilt
@@ -200,8 +205,9 @@ issuance is enabled only with global authority plus
 `TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY` identifies the parent account when
 the credential is a scoped signing key. Typed JSON carries the same fields and
 startup opens and retains the signer before any NATS connection. Live credential
-delivery, the pipeline coordinator, runner process, and executor remain separate
-unimplemented gates; no unsigned runtime fallback is installed.
+delivery, exact cross-repository source-graph resolution, the runner process,
+and the executor remain separate unimplemented gates; no unsigned runtime
+fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy
