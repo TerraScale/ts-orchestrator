@@ -32,6 +32,35 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task SignedMainTreeSetFindsTheCandidateInAnyInputOrder()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(ledger, objects);
+        await journal.RecordCandidateAsync(qualified.Candidate, 7, 1, static () => true);
+        var observations = MainObservations(qualified);
+
+        var first = await journal.FindCandidateAsync(observations);
+        var reversed = await journal.FindCandidateAsync(observations.Reverse());
+        var missing = await journal.FindCandidateAsync(
+            observations.Select((observation, index) => index == 0
+                ? new ForgejoBranchObservation(
+                    "main",
+                    true,
+                    new(
+                        observation.Revision.Repository,
+                        observation.Revision.Commit,
+                        "effe000000000000000000000000000000000005",
+                        true))
+                : observation));
+
+        await Assert.That(first!.Digest).IsEqualTo(qualified.Candidate.Digest);
+        await Assert.That(reversed!.Digest).IsEqualTo(qualified.Candidate.Digest);
+        await Assert.That(missing).IsNull();
+    }
+
+    [Test]
     public async Task QualificationRequiresItsExactDurableCandidate()
     {
         var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
@@ -64,6 +93,29 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task InterruptedTreeIndexCreationIsRepairedByAnExactRetry()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 2);
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects);
+
+        await Assert.That(async () => await journal.RecordCandidateAsync(
+                candidate, 7, 1, static () => true))
+            .Throws<IOException>();
+        var recovered = await new RepositoryCiCandidateJournal(ledger, objects)
+            .RecordCandidateAsync(candidate, 7, 1, static () => true);
+
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateJournalDisposition.Recorded);
+        await Assert.That(await journal.FindCandidateAsync(
+            candidate.Sources.Select(static source => new ForgejoBranchObservation(
+                "main",
+                true,
+                new(source.Repository, source.Commit, source.Tree, true))))).IsNotNull();
+    }
+
+    [Test]
     public async Task ConcurrentExactRecordsConvergeOnOnePointer()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -78,7 +130,7 @@ public sealed class RepositoryCiCandidateJournalTests
             receipt.Disposition == RepositoryCiCandidateJournalDisposition.Recorded)).IsEqualTo(1);
         await Assert.That(receipts.Count(receipt =>
             receipt.Disposition == RepositoryCiCandidateJournalDisposition.Duplicate)).IsEqualTo(15);
-        await Assert.That(ledger.Mutations).IsEqualTo(1);
+        await Assert.That(ledger.Mutations).IsEqualTo(2);
     }
 
     [Test]
@@ -124,6 +176,25 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task LookupRejectsUnprotectedUnsignedOrDuplicateSources()
+    {
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(
+            new ForgejoWebhookJournalTests.TestLedger(),
+            new TestObjectStore());
+        var sources = MainObservations(qualified);
+
+        await Assert.That(async () => await journal.FindCandidateAsync(
+                sources.Select((source, index) => index == 0
+                    ? new ForgejoBranchObservation("main", false, source.Revision)
+                    : source)))
+            .Throws<InvalidDataException>();
+        await Assert.That(async () => await journal.FindCandidateAsync(
+                [sources[0], sources[0]]))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
     public async Task GlobalTopologySeparatesBoundedPointersFromLargeCandidateObjects()
     {
         var topology = new GlobalNatsTopology(3);
@@ -133,6 +204,14 @@ public sealed class RepositoryCiCandidateJournalTests
         await Assert.That(topology.Bundles.MaxBytes).IsEqualTo(1024L * 1024 * 1024);
         await Assert.That(topology.Bundles.NumberOfReplicas).IsEqualTo(3);
     }
+
+    private static ForgejoBranchObservation[] MainObservations(
+        RepositoryCiQualifiedCandidate qualified) => qualified.Sources
+        .Select(static source => new ForgejoBranchObservation(
+            "main",
+            true,
+            new(source.Repository, source.MainCommit, source.Tree, true)))
+        .ToArray();
 
     private sealed class TestObjectStore : INativeGitOpsManifestStore
     {

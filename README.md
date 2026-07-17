@@ -190,8 +190,11 @@ source set, every first-attempt job result, every signed architecture-specific
 artifact, runtime digest, and qualified main tree. A qualification cannot be
 recorded before its exact candidate. Concurrent exact writes converge; pointer
 collisions, corrupt or missing objects, interrupted writes, and a lost global
-authority fail closed. Candidate lookup indexing, retention cleanup, and a
-coordinator that consumes these records remain unimplemented.
+authority fail closed. Recording also commits a canonical repository/tree-set
+index. Signed protected-main observations find the same candidate in any input
+order; an interrupted index write is repaired by exact retry, while a second
+candidate claiming the same tree set is an identity conflict. Retention cleanup
+and a coordinator that consumes these records remain unimplemented.
 
 Runner admission is likewise a pure contract today. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,

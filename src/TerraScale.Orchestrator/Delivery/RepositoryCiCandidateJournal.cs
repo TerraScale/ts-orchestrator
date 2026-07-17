@@ -38,6 +38,39 @@ internal sealed class RepositoryCiCandidateJournal
         CancellationToken cancellationToken = default) =>
         ReadCandidateCoreAsync(digest, required: false, cancellationToken);
 
+    internal async Task<RepositoryCiCandidate?> FindCandidateAsync(
+        IEnumerable<ForgejoBranchObservation> currentMainSources,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(currentMainSources);
+        var observations = currentMainSources.Take(65).ToArray();
+        if (observations.Length is < 1 or > 64 || observations.Any(static observation => observation is null))
+            throw new ArgumentException("Current main sources must be bounded and non-empty.", nameof(currentMainSources));
+        foreach (var observation in observations)
+        {
+            var source = observation.Revision;
+            if (observation.Branch != "main" || !observation.Protected || !source.SignatureVerified ||
+                !ForgejoWebhookVerifier.IsRepository(source.Repository) || !IsObjectId(source.Tree))
+                throw new InvalidDataException("Candidate lookup requires signed protected-main sources.");
+        }
+        if (observations.Select(static observation => observation.Revision.Repository)
+                .Distinct(StringComparer.Ordinal).Count() != observations.Length)
+            throw new InvalidDataException("Candidate lookup contains a duplicate repository.");
+
+        var treeSetDigest = TreeSetDigest(observations.Select(static observation =>
+            (observation.Revision.Repository, observation.Revision.Tree)));
+        var entry = await ledger.GetAsync(TreeIndex(treeSetDigest), cancellationToken);
+        if (entry is null) return null;
+        var index = DeserializeTreeIndex(entry.Value);
+        if (index.TreeSetDigest != treeSetDigest)
+            throw new InvalidDataException("A candidate tree-set index changed identity.");
+        var candidate = await ReadCandidateCoreAsync(index.CandidateDigest, required: true, cancellationToken)
+            ?? throw new InvalidDataException("A candidate tree-set index lost its candidate.");
+        if (TreeSetDigest(candidate.Sources.Select(static source => (source.Repository, source.Tree))) != treeSetDigest)
+            throw new InvalidDataException("A candidate does not match its durable tree-set index.");
+        return candidate;
+    }
+
     internal async Task<RepositoryCiQualifiedCandidate?> ReadQualifiedAsync(
         string digest,
         CancellationToken cancellationToken = default)
@@ -64,7 +97,7 @@ internal sealed class RepositoryCiCandidateJournal
     {
         ArgumentNullException.ThrowIfNull(candidate);
         var content = SerializeCandidate(candidate);
-        return await RecordAsync(
+        var recorded = await RecordAsync(
             RepositoryCiCandidateRecordKind.Candidate,
             candidate.Digest,
             candidate.Digest,
@@ -73,6 +106,22 @@ internal sealed class RepositoryCiCandidateJournal
             sequence,
             authorityStillValid,
             cancellationToken);
+        if (recorded.Disposition is not (RepositoryCiCandidateJournalDisposition.Recorded or
+                RepositoryCiCandidateJournalDisposition.Duplicate))
+            return recorded;
+        var indexed = await EnsureTreeIndexAsync(
+            candidate,
+            authorityEpoch,
+            sequence,
+            authorityStillValid,
+            cancellationToken);
+        if (indexed.Disposition is RepositoryCiCandidateJournalDisposition.IdentityConflict or
+            RepositoryCiCandidateJournalDisposition.StaleAuthority)
+            return indexed;
+        return new(recorded.Disposition == RepositoryCiCandidateJournalDisposition.Recorded ||
+            indexed.Disposition == RepositoryCiCandidateJournalDisposition.Recorded
+                ? RepositoryCiCandidateJournalDisposition.Recorded
+                : RepositoryCiCandidateJournalDisposition.Duplicate);
     }
 
     internal async Task<RepositoryCiCandidateJournalReceipt> RecordQualifiedAsync(
@@ -151,6 +200,39 @@ internal sealed class RepositoryCiCandidateJournal
         }
     }
 
+    private async Task<RepositoryCiCandidateJournalReceipt> EnsureTreeIndexAsync(
+        RepositoryCiCandidate candidate,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
+        var treeSetDigest = TreeSetDigest(candidate.Sources.Select(static source =>
+            (source.Repository, source.Tree)));
+        var proposed = new RepositoryCiCandidateTreeIndexDocument(
+            1,
+            treeSetDigest,
+            candidate.Digest,
+            authorityEpoch,
+            sequence);
+        proposed.Validate();
+        var key = TreeIndex(treeSetDigest);
+        var existing = await ledger.GetAsync(key, cancellationToken);
+        if (existing is not null) return CompareTreeIndex(existing, proposed);
+        if (!authorityStillValid()) return new(RepositoryCiCandidateJournalDisposition.StaleAuthority);
+        try
+        {
+            await ledger.CreateAsync(key, SerializeTreeIndex(proposed), cancellationToken);
+            return new(RepositoryCiCandidateJournalDisposition.Recorded);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            var observed = await ledger.GetAsync(key, cancellationToken)
+                ?? throw new InvalidDataException("A concurrently committed candidate tree index disappeared.");
+            return CompareTreeIndex(observed, proposed);
+        }
+    }
+
     private async Task<RepositoryCiCandidate?> ReadCandidateCoreAsync(
         string digest,
         bool required,
@@ -210,6 +292,17 @@ internal sealed class RepositoryCiCandidateJournal
         return new(observed.SameIdentity(proposed)
             ? RepositoryCiCandidateJournalDisposition.Duplicate
             : RepositoryCiCandidateJournalDisposition.IdentityConflict);
+    }
+
+    private static RepositoryCiCandidateJournalReceipt CompareTreeIndex(
+        ForgejoDeliveryLedgerEntry entry,
+        RepositoryCiCandidateTreeIndexDocument proposed)
+    {
+        var observed = DeserializeTreeIndex(entry.Value);
+        return new(observed.TreeSetDigest == proposed.TreeSetDigest &&
+            observed.CandidateDigest == proposed.CandidateDigest
+                ? RepositoryCiCandidateJournalDisposition.Duplicate
+                : RepositoryCiCandidateJournalDisposition.IdentityConflict);
     }
 
     private static byte[] SerializeCandidate(RepositoryCiCandidate candidate)
@@ -284,6 +377,23 @@ internal sealed class RepositoryCiCandidateJournal
         }
     }
 
+    private static RepositoryCiCandidateTreeIndexDocument DeserializeTreeIndex(string value)
+    {
+        try
+        {
+            var document = JsonSerializer.Deserialize(
+                value,
+                RepositoryCiCandidateJournalJsonContext.Default.RepositoryCiCandidateTreeIndexDocument)
+                ?? throw new JsonException();
+            document.Validate();
+            return document;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("A candidate tree-set index is invalid.", exception);
+        }
+    }
+
     private static string SerializePointer(RepositoryCiCandidatePointerDocument document)
     {
         var value = JsonSerializer.Serialize(
@@ -294,8 +404,32 @@ internal sealed class RepositoryCiCandidateJournal
         return value;
     }
 
+    private static string SerializeTreeIndex(RepositoryCiCandidateTreeIndexDocument document)
+    {
+        var value = JsonSerializer.Serialize(
+            document,
+            RepositoryCiCandidateJournalJsonContext.Default.RepositoryCiCandidateTreeIndexDocument);
+        if (Encoding.UTF8.GetByteCount(value) > MaximumPointerBytes)
+            throw new InvalidDataException("The candidate tree-set index exceeded its bound.");
+        return value;
+    }
+
     private static string Index(RepositoryCiCandidateRecordKind kind, string digest) =>
         $"ci-{kind.ToString().ToLowerInvariant()}.{digest}";
+
+    private static string TreeIndex(string treeSetDigest) => $"ci-tree-set.{treeSetDigest}";
+
+    internal static string TreeSetDigest(IEnumerable<(string Repository, string Tree)> sources)
+    {
+        var value = new StringBuilder();
+        foreach (var source in sources.OrderBy(static source => source.Repository, StringComparer.Ordinal))
+            value.Append(source.Repository).Append(':').Append(source.Tree.ToLowerInvariant()).Append('\n');
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
+
+    private static bool IsObjectId(string? value) => value is { Length: 40 or 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F') &&
+        value.Any(static character => character != '0');
 
     private static void ValidateDigest(string? value, string parameter) =>
         _ = value is { Length: 64 } &&
@@ -357,6 +491,25 @@ internal sealed record RepositoryCiCandidatePointerDocument(
         value.Any(static character => character != '0');
 }
 
+internal sealed record RepositoryCiCandidateTreeIndexDocument(
+    int SchemaVersion,
+    string TreeSetDigest,
+    string CandidateDigest,
+    long AuthorityEpoch,
+    long Sequence)
+{
+    internal void Validate()
+    {
+        if (SchemaVersion != 1 || !Digest(TreeSetDigest) || !Digest(CandidateDigest) ||
+            AuthorityEpoch <= 0 || Sequence <= 0)
+            throw new InvalidDataException("A candidate tree-set index is invalid.");
+    }
+
+    private static bool Digest(string? value) => value is { Length: 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
+        value.Any(static character => character != '0');
+}
+
 internal sealed record RepositoryCiCandidateObjectDocument(
     int SchemaVersion,
     string Digest,
@@ -394,6 +547,7 @@ internal sealed record RepositoryCiQualifiedObjectDocument(
 }
 
 [JsonSerializable(typeof(RepositoryCiCandidatePointerDocument))]
+[JsonSerializable(typeof(RepositoryCiCandidateTreeIndexDocument))]
 [JsonSerializable(typeof(RepositoryCiCandidateObjectDocument))]
 [JsonSerializable(typeof(RepositoryCiQualifiedObjectDocument))]
 internal sealed partial class RepositoryCiCandidateJournalJsonContext : JsonSerializerContext;
