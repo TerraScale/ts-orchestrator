@@ -109,8 +109,8 @@ public static class NativeGitOpsManifest
     private static List<NativeGitOpsWorkloadPlan> ParseWorkloads(JsonElement root)
     {
         if (!root.TryGetProperty("workloads", out var value) || value.ValueKind != JsonValueKind.Array ||
-            value.GetArrayLength() is < 1 or > MaximumWorkloads)
-            throw new InvalidDataException("The manifest must contain a bounded non-empty workload array.");
+            value.GetArrayLength() > MaximumWorkloads)
+            throw new InvalidDataException("The manifest must contain a bounded workload array.");
 
         var workloads = new List<NativeGitOpsWorkloadPlan>(value.GetArrayLength());
         var ids = new HashSet<string>(StringComparer.Ordinal);

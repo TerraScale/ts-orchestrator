@@ -127,6 +127,19 @@ public sealed class NativeGitOpsManifestTests
             await Assert.That(() => Parse(value)).Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task EmptyDesiredSetCompilesAsAnExplicitBoundedGeneration()
+    {
+        var plan = Parse("""
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":9,"workloads":[]}
+            """);
+
+        await Assert.That(plan.Generation).IsEqualTo(9);
+        await Assert.That(plan.Digest.Length).IsEqualTo(64);
+        await Assert.That(plan.Workloads).IsEmpty();
+        await Assert.That(plan.Cells).IsEmpty();
+    }
+
     private static NativeGitOpsPlan Parse(string value) =>
         NativeGitOpsManifest.Parse(Encoding.UTF8.GetBytes(value));
 

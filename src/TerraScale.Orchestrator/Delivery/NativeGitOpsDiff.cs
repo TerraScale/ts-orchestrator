@@ -164,7 +164,7 @@ public static class NativeGitOpsDiff
         if (plan.ApiVersion != NativeGitOpsManifest.ApiVersion || plan.Kind != NativeGitOpsManifest.Kind ||
             plan.Generation <= 0 || plan.Digest.Length != 64 ||
             plan.Digest.Any(character => character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f')) ||
-            plan.Workloads.Count is < 1 or > NativeGitOpsManifest.MaximumWorkloads ||
+            plan.Workloads.Count > NativeGitOpsManifest.MaximumWorkloads ||
             plan.Workloads.Select(workload => workload.Id).Distinct(StringComparer.Ordinal).Count() != plan.Workloads.Count ||
             plan.Workloads.Any(workload =>
                 workload.ChildOwnership != GitOpsChildOwnership.RegionalJournal ||

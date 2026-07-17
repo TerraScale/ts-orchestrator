@@ -209,7 +209,9 @@ Accepted/proposed diffs require monotonically increasing generations and one
 digest per generation. Create, update, and resume changes are dependency-first;
 suspension and guarded retirement are dependent-first. A stable workload ID
 cannot change its admitted role, and an active workload cannot depend on a
-suspended role.
+suspended role. An explicit empty workload array is a valid bounded generation;
+against accepted state it requests dependent-first guarded retirement of every
+declared parent without granting direct deletion of any journal-owned child.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a

@@ -120,6 +120,23 @@ public sealed class NativeGitOpsDiffTests
         await Assert.That(error.Code).IsEqualTo(NativeGitOpsDiffError.ImmutableIdentityChanged);
     }
 
+    [Test]
+    public async Task EmptyDesiredSetRetiresEveryWorkloadDependentFirst()
+    {
+        var accepted = Plan(1,
+            Workload("api", "Api", ApiV1, dependsOn: ["auth"]),
+            Workload("auth", "Authentication", Auth));
+        var proposed = Plan(2);
+
+        var diff = NativeGitOpsDiff.Compare(accepted, proposed);
+        var initial = NativeGitOpsDiff.Compare(null, Plan(1));
+
+        await Assert.That(string.Join(',', diff.Changes.Select(change =>
+            $"{change.Kind}:{change.WorkloadId}")))
+            .IsEqualTo("GuardedRetirement:api,GuardedRetirement:auth");
+        await Assert.That(initial.IsNoOp).IsTrue();
+    }
+
     private static NativeGitOpsPlan Plan(long generation, params string[] workloads) =>
         NativeGitOpsManifest.Parse(Encoding.UTF8.GetBytes($$"""
             {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{{string.Join(',', workloads)}}]}
