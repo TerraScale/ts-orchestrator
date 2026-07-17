@@ -6,8 +6,7 @@ namespace TerraScale.Orchestrator.Messaging;
 internal sealed record CiRunnerConsumerRegistration(
     string Zone,
     string Consumer,
-    string Subject,
-    INatsJSConsumer Handle);
+    string Subject);
 
 /// <summary>
 /// Reconciles controller-owned runner consumers before any runner identity can be issued.
@@ -38,7 +37,7 @@ internal sealed class CiRunnerConsumerReconciler
             throw new InvalidOperationException(
                 $"NATS returned an unsafe CI runner consumer configuration for {expected.Name}.");
 
-        return new(zone, expected.Name!, expected.FilterSubject!, consumer);
+        return new(zone, expected.Name!, expected.FilterSubject!);
     }
 
     internal static bool Matches(ConsumerInfo observed, ConsumerConfig expected)

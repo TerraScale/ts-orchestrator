@@ -191,8 +191,11 @@ plan is limited to its pre-created exact consumer, ACKs, own hashed KV journal
 prefix, the dedicated runner bundle bucket, and reply inboxes; it cannot publish
 jobs, use another runner's consumer or journal, mutate `GLOBAL_BUNDLES`, or call
 stream purge. The controller can now reconcile each runner's exact durable pull
-consumer and fail closed on altered server readback. JWT/NKey issuance, the live
-pipeline coordinator, runner process, and executor remain separate
+consumer and fail closed on altered server readback. A bounded issuer can mint a
+STANDARD-only, 1–15 minute NATS user JWT/NKey lease from a private account or
+scoped account-signing credential after that readback; it embeds only the exact
+runner subject plan and zeroes retained seed buffers on disposal. Live credential
+delivery, the pipeline coordinator, runner process, and executor remain separate
 unimplemented gates; no unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
