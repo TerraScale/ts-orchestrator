@@ -8,7 +8,12 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string Cell,
     string NatsUrl,
     int Replicas,
-    string Instance)
+    string Instance,
+    string? GlobalNatsUrl = null,
+    string? GlobalNatsNKeyFile = null,
+    string? GlobalNatsTlsCaFile = null,
+    string? GlobalNatsTlsCertificateFile = null,
+    string? GlobalNatsTlsKeyFile = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -39,6 +44,11 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_NATS_URL" => NatsUrl,
         "TS_ORCH_REPLICAS" => Replicas.ToString(System.Globalization.CultureInfo.InvariantCulture),
         "TS_ORCH_INSTANCE" => Instance,
+        "TS_ORCH_GLOBAL_NATS_URL" => GlobalNatsUrl,
+        "TS_ORCH_GLOBAL_NATS_NKEY_FILE" => GlobalNatsNKeyFile,
+        "TS_ORCH_GLOBAL_NATS_TLS_CA_FILE" => GlobalNatsTlsCaFile,
+        "TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE" => GlobalNatsTlsCertificateFile,
+        "TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE" => GlobalNatsTlsKeyFile,
         _ => null
     };
 }

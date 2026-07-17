@@ -24,6 +24,22 @@ internal static class NatsCredentialFile
         {
             throw new ArgumentException($"{optionName} must be private to the current user.");
         }
+        try
+        {
+            _ = NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(path));
+        }
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
+        {
+            throw new ArgumentException($"{optionName} does not contain a valid NKey seed.", exception);
+        }
         return path;
     }
+
+    internal static bool SameIdentity(string first, string second) =>
+        NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(first)) ==
+        NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(second));
+
+    private static string Seed(string path) => File.ReadLines(path)
+        .FirstOrDefault(static line => !string.IsNullOrWhiteSpace(line))
+        ?? throw new ArgumentException("NKey seed file is empty.");
 }

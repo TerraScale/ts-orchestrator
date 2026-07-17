@@ -92,7 +92,27 @@ instance, and startup outcome. Export queues and batches use the bounded
 OpenTelemetry SDK processors; regional disk spooling and drop-oldest policy
 remain the responsibility of the managed Alloy/Collector role.
 
-Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery. `ORCH_DELIVERY` also backs the closed promotion journal contract; a future global-control-plane topology split must move that keyspace to the specified `GLOBAL_RELEASES` store before production deployment.
+Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
+
+GRU global-controller candidates opt in to the separate global control account
+only with the complete `TS_ORCH_GLOBAL_NATS_*` configuration. The connection
+requires R3, a `tls://` endpoint, a valid private user NKey seed, and a complete
+mTLS identity distinct from the regional account. The endpoint may be the same
+GRU control-NATS cluster because account authorization is separate. Startup
+then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, and the
+64-revision-per-release `GLOBAL_RELEASES` KV journal before reporting ready:
+
+```bash
+TS_ORCH_GLOBAL_NATS_URL=tls://control-nats-gru.internal:4222 \
+TS_ORCH_GLOBAL_NATS_NKEY_FILE=/run/credentials/global-controller.nk \
+TS_ORCH_GLOBAL_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
+TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE=/run/credentials/global-controller.pem \
+TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE=/run/credentials/global-controller-key.pem \
+terrascale-orchestrator check
+```
+
+Supplying any subset, reusing either regional identity, using plaintext, or
+configuring fewer than three replicas fails before the global connection.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
@@ -157,9 +177,9 @@ uses no credential and executes no deployment. Its CAS journal admits one
 authorization per qualified release set, fences takeover by authority epoch
 and a monotonic token, resumes exact phase operations idempotently, requires
 SFO then FRA then GRU verification, and unwinds affected regions in reverse.
-No coordinator drives that journal yet; global-store placement, registry
-publication, regional actuators, live verification, and the real runner
-executor remain separate gates.
+No coordinator drives that journal yet; registry publication, regional
+actuators, live verification, and the real runner executor remain separate
+gates.
 
 Runner admission is likewise a pure contract today. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,

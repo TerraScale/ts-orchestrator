@@ -28,8 +28,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator authority,
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
-        NativeGitOpsSourceJournal nativeGitOpsSources,
-        RepositoryCiPromotionJournal promotions)
+        NativeGitOpsSourceJournal nativeGitOpsSources)
     {
         this.client = client;
         this.service = service;
@@ -38,14 +37,12 @@ public sealed class NatsRuntime : IAsyncDisposable
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
-        Promotions = promotions;
     }
 
     public Task Completion => authority.Completion;
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     internal ForgejoSourceJournal ForgejoSources { get; }
     internal NativeGitOpsSourceJournal NativeGitOpsSources { get; }
-    internal RepositoryCiPromotionJournal Promotions { get; }
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
@@ -88,7 +85,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             await client.ConnectAsync();
             if (options.NatsNKeyFile is not null || options.NatsTls is not null)
             {
-                await VerifyAnonymousDeniedAsync(options.NatsUrl, cancellationToken);
+                await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
             }
             var state = await ReconcileStateWithRetryAsync(client, topology, cancellationToken);
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
@@ -201,8 +198,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 authority,
                 new(deliveryLedger),
                 new(deliveryLedger),
-                new(deliveryLedger, new NatsNativeGitOpsManifestStore(state.Bundles)),
-                new(deliveryLedger));
+                new(deliveryLedger, new NatsNativeGitOpsManifestStore(state.Bundles)));
         }
         catch
         {
@@ -240,17 +236,30 @@ public sealed class NatsRuntime : IAsyncDisposable
         }
     }
 
-    private static async Task VerifyAnonymousDeniedAsync(
+    internal static async Task VerifyAnonymousDeniedAsync(
         string url,
+        NatsTlsFiles? tls,
         CancellationToken cancellationToken)
     {
-        await using var anonymous = new NatsClient(new NatsOpts
+        var options = new NatsOpts
         {
             Url = url,
             RetryOnInitialConnect = false,
             ConnectTimeout = TimeSpan.FromSeconds(3),
             RequestTimeout = TimeSpan.FromSeconds(3)
-        });
+        };
+        if (tls is not null)
+            options = options with
+            {
+                TlsOpts = new NatsTlsOpts
+                {
+                    Mode = TlsMode.Require,
+                    CaFile = tls.CaFile,
+                    CertFile = tls.CertificateFile,
+                    KeyFile = tls.KeyFile,
+                },
+            };
+        await using var anonymous = new NatsClient(options);
         try
         {
             await anonymous.ConnectAsync();

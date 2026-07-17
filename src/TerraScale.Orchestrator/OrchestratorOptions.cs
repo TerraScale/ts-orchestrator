@@ -97,8 +97,8 @@ public sealed record OrchestratorOptions(
             : null;
         if (globalNats is not null &&
             (natsNKeyFile is null || natsTls is null ||
-                globalNats.NKeyFile == natsNKeyFile ||
-                globalNats.Tls.CertificateFile == natsTls.CertificateFile))
+                Messaging.NatsCredentialFile.SameIdentity(globalNats.NKeyFile, natsNKeyFile) ||
+                globalNats.Tls.SameIdentity(natsTls)))
             throw new ArgumentException("Global and regional control NATS require distinct complete identities.");
 
         if (command is not OrchestratorCommand.Lab)

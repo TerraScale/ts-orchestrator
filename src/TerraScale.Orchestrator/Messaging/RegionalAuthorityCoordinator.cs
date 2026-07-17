@@ -58,13 +58,13 @@ internal sealed record RegionalAuthorityLeaseDocument(
 
 internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 {
-    private const string LeaseKey = "authority.regional";
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(3);
 
     private readonly INatsKVStore store;
     private readonly string authorityId;
     private readonly string candidateId;
+    private readonly string leaseKey;
     private readonly Stopwatch confirmedLeaseAge = new();
     private readonly CancellationTokenSource stopping = new();
     private readonly List<AuthorityEvent> history = [];
@@ -72,11 +72,16 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     private RegionalAuthoritySnapshot snapshot = new(
         "follower", false, 0, 0, null, DateTimeOffset.MinValue, "authority-not-observed");
 
-    private RegionalAuthorityCoordinator(INatsKVStore store, string cell, string instance)
+    private RegionalAuthorityCoordinator(
+        INatsKVStore store,
+        string authorityId,
+        string candidateId,
+        string leaseKey)
     {
         this.store = store;
-        authorityId = $"{cell}-regional";
-        candidateId = $"{cell}-controller-{instance}";
+        this.authorityId = authorityId;
+        this.candidateId = candidateId;
+        this.leaseKey = leaseKey;
     }
 
     public RegionalAuthoritySnapshot Snapshot => Volatile.Read(ref snapshot);
@@ -89,7 +94,26 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         string instance,
         CancellationToken cancellationToken)
     {
-        var coordinator = new RegionalAuthorityCoordinator(store, cell, instance);
+        var coordinator = new RegionalAuthorityCoordinator(
+            store,
+            $"{cell}-regional",
+            $"{cell}-controller-{instance}",
+            "authority.regional");
+        await coordinator.TickAsync(cancellationToken);
+        coordinator.loop = coordinator.RunAsync(coordinator.stopping.Token);
+        return coordinator;
+    }
+
+    public static async Task<RegionalAuthorityCoordinator> StartGlobalAsync(
+        INatsKVStore store,
+        string instance,
+        CancellationToken cancellationToken)
+    {
+        var coordinator = new RegionalAuthorityCoordinator(
+            store,
+            "global",
+            $"global-controller-{instance}",
+            "authority.global");
         await coordinator.TickAsync(cancellationToken);
         coordinator.loop = coordinator.RunAsync(coordinator.stopping.Token);
         return coordinator;
@@ -199,9 +223,9 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
                 document,
                 RegionalAuthorityLeaseJsonContext.Default.RegionalAuthorityLeaseDocument);
             var revision = intent.ExpectedRevision == 0
-                ? await store.CreateAsync(LeaseKey, value, cancellationToken: cancellationToken)
+                ? await store.CreateAsync(leaseKey, value, cancellationToken: cancellationToken)
                 : await store.UpdateAsync(
-                    LeaseKey,
+                    leaseKey,
                     value,
                     checked((ulong)intent.ExpectedRevision),
                     cancellationToken: cancellationToken);
@@ -247,7 +271,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     {
         try
         {
-            var entry = await store.GetEntryAsync<string>(LeaseKey, cancellationToken: cancellationToken);
+            var entry = await store.GetEntryAsync<string>(leaseKey, cancellationToken: cancellationToken);
             entry.EnsureSuccess();
             var document = JsonSerializer.Deserialize(
                 entry.Value ?? throw new InvalidOperationException("The regional authority lease is empty."),

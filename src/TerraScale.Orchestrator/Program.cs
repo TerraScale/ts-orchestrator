@@ -51,10 +51,16 @@ try
     using var telemetry = OrchestratorTelemetry.Start(options, Environment.GetEnvironmentVariable);
     using var startupActivity = telemetry.StartRuntime();
     var startupTimestamp = Stopwatch.GetTimestamp();
-    NatsRuntime runtime;
+    NatsRuntime? runtime = null;
+    GlobalNatsRuntime? globalRuntime = null;
     try
     {
         runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
+        if (options.GlobalNats is not null)
+            globalRuntime = await GlobalNatsRuntime.StartAsync(
+                options.GlobalNats,
+                options.Instance,
+                shutdown.Token);
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
     {
@@ -62,11 +68,14 @@ try
     }
     catch (Exception exception)
     {
+        if (globalRuntime is not null) await globalRuntime.DisposeAsync();
+        if (runtime is not null) await runtime.DisposeAsync();
         telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
         startupActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
         throw;
     }
     await using var ownedRuntime = runtime;
+    await using var ownedGlobalRuntime = globalRuntime;
     ForgejoWebhookServer? webhookServer = null;
     ForgejoSourcePoller? sourcePoller = null;
     try
@@ -94,13 +103,16 @@ try
     await using var sources = sourcePoller;
     telemetry.RecordReady(Stopwatch.GetElapsedTime(startupTimestamp));
     startupActivity?.SetStatus(ActivityStatusCode.Ok);
-    Console.WriteLine($"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}");
+    Console.WriteLine(options.GlobalNats is null
+        ? $"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}"
+        : $"{BuildVersion.Current.DisplayName} ready in {options.Cell} with regional and global authority");
 
     if (options.Command is OrchestratorCommand.Run)
     {
         var completions = new[]
         {
             ownedRuntime.Completion,
+            ownedGlobalRuntime?.Completion,
             webhooks?.Completion,
             sources?.Completion,
         }.Where(static task => task is not null).Cast<Task>();

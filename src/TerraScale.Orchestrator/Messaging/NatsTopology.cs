@@ -48,7 +48,7 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public NatsKVConfig Delivery => new("ORCH_DELIVERY")
     {
-        Description = $"Durable Forgejo delivery, source, GitOps pointers, and promotion journals for {Cell}",
+        Description = $"Durable Forgejo delivery, source, and GitOps pointers for {Cell}",
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,

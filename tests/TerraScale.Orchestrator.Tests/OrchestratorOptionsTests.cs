@@ -86,7 +86,7 @@ public sealed class OrchestratorOptionsTests
         var path = Path.Combine(Path.GetTempPath(), $"ts-orch-option-{Guid.NewGuid():N}.nk");
         try
         {
-            await File.WriteAllTextAsync(path, "seed");
+            await File.WriteAllTextAsync(path, NATS.Client.Core.NKeys.CreateUserSeed());
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var options = OrchestratorOptions.Parse(
                 ["run"],
@@ -94,6 +94,12 @@ public sealed class OrchestratorOptionsTests
 
             await Assert.That(options.NatsNKeyFile).IsEqualTo(path);
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.OtherRead);
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["run"],
+                    name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null))
+                .Throws<ArgumentException>();
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            await File.WriteAllTextAsync(path, "not-an-nkey-seed");
             await Assert.That(() => OrchestratorOptions.Parse(
                     ["run"],
                     name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null))
