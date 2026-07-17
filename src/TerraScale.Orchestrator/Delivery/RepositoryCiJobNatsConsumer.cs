@@ -26,6 +26,8 @@ internal sealed record RepositoryCiJobExecutionDeliveryReceipt(
 internal sealed class RepositoryCiJobNatsConsumer
 {
     private static readonly TimeSpan ExecutionProgressInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ExecutionRecoveryInterval = TimeSpan.FromSeconds(5);
+    private const int MaximumExecutionRecoveryWaits = 720;
     private readonly INatsJSConsumer consumer;
     private readonly RepositoryCiJobInbox inbox;
     private readonly ConsumerConfig configuration;
@@ -87,7 +89,11 @@ internal sealed class RepositoryCiJobNatsConsumer
         }
 
         var execution = await ExecuteWithProgressAsync(
-            token => execute(prepared.Receipt.Acceptance!, token),
+            token => ExecuteUntilSettledAsync(
+                inner => execute(prepared.Receipt.Acceptance!, inner),
+                inner => Task.Delay(ExecutionRecoveryInterval, inner),
+                MaximumExecutionRecoveryWaits,
+                token),
             token => prepared.Message.AckProgressAsync(cancellationToken: token).AsTask(),
             ExecutionProgressInterval,
             cancellationToken);
@@ -186,6 +192,36 @@ internal sealed class RepositoryCiJobNatsConsumer
         if (progressFailure is not null)
             throw new InvalidDataException("The CI runner lost its JetStream delivery lease.", progressFailure);
         return result;
+    }
+
+    internal static async Task<CiRunnerExecutionCoordinatorReceipt> ExecuteUntilSettledAsync(
+        Func<CancellationToken, Task<CiRunnerExecutionCoordinatorReceipt>> execute,
+        Func<CancellationToken, Task> wait,
+        int maximumWaits,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+        ArgumentNullException.ThrowIfNull(wait);
+        if (maximumWaits < 0) throw new ArgumentOutOfRangeException(nameof(maximumWaits));
+
+        for (var waits = 0;; waits++)
+        {
+            var receipt = await execute(cancellationToken);
+            if (!ShouldRetry(receipt) || waits == maximumWaits) return receipt;
+            await wait(cancellationToken);
+        }
+    }
+
+    private static bool ShouldRetry(CiRunnerExecutionCoordinatorReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (IsTerminal(receipt.Execution)) return false;
+        return receipt.Disposition is (CiRunnerExecutionCoordinatorDisposition.NotAcquired or
+                CiRunnerExecutionCoordinatorDisposition.LeaseLost) &&
+            receipt.ExecutionDisposition is (RepositoryCiJobExecutionDisposition.Duplicate or
+                RepositoryCiJobExecutionDisposition.LeaseHeld or
+                RepositoryCiJobExecutionDisposition.StaleLease or
+                RepositoryCiJobExecutionDisposition.Contention);
     }
 
     private static async Task<Exception?> MaintainProgressAsync(

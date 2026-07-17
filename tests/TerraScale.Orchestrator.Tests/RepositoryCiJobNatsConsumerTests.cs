@@ -106,9 +106,85 @@ public sealed class RepositoryCiJobNatsConsumerTests
         await Assert.That(canceled).IsTrue();
     }
 
+    [Test]
+    public async Task LeaseRecoveryWaitsUntilTheExistingExecutionSettles()
+    {
+        var receipts = new Queue<CiRunnerExecutionCoordinatorReceipt>(
+        [
+            Pending(RepositoryCiJobExecutionDisposition.LeaseHeld),
+            Pending(RepositoryCiJobExecutionDisposition.Contention),
+            Completed(),
+        ]);
+        var waits = 0;
+
+        var result = await RepositoryCiJobNatsConsumer.ExecuteUntilSettledAsync(
+            _ => Task.FromResult(receipts.Dequeue()),
+            _ =>
+            {
+                waits++;
+                return Task.CompletedTask;
+            },
+            maximumWaits: 10);
+
+        await Assert.That(result.Disposition).IsEqualTo(CiRunnerExecutionCoordinatorDisposition.Completed);
+        await Assert.That(waits).IsEqualTo(2);
+        await Assert.That(receipts).IsEmpty();
+    }
+
+    [Test]
+    public async Task RecoveryWatchYieldsTheDeliveryAfterItsBound()
+    {
+        var executions = 0;
+        var waits = 0;
+
+        var result = await RepositoryCiJobNatsConsumer.ExecuteUntilSettledAsync(
+            _ =>
+            {
+                executions++;
+                return Task.FromResult(Pending(RepositoryCiJobExecutionDisposition.LeaseHeld));
+            },
+            _ =>
+            {
+                waits++;
+                return Task.CompletedTask;
+            },
+            maximumWaits: 2);
+
+        await Assert.That(result.ExecutionDisposition)
+            .IsEqualTo(RepositoryCiJobExecutionDisposition.LeaseHeld);
+        await Assert.That(executions).IsEqualTo(3);
+        await Assert.That(waits).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task UnsafeAcquisitionFailureIsNotRetriedBlindly()
+    {
+        var waits = 0;
+
+        var result = await RepositoryCiJobNatsConsumer.ExecuteUntilSettledAsync(
+            _ => Task.FromResult(Pending(RepositoryCiJobExecutionDisposition.IdentityConflict)),
+            _ =>
+            {
+                waits++;
+                return Task.CompletedTask;
+            },
+            maximumWaits: 10);
+
+        await Assert.That(result.ExecutionDisposition)
+            .IsEqualTo(RepositoryCiJobExecutionDisposition.IdentityConflict);
+        await Assert.That(waits).IsEqualTo(0);
+    }
+
     private static CiRunnerExecutionCoordinatorReceipt Completed() => new(
         CiRunnerExecutionCoordinatorDisposition.Completed,
         RepositoryCiJobExecutionDisposition.Completed,
         null,
         new string('a', 64));
+
+    private static CiRunnerExecutionCoordinatorReceipt Pending(
+        RepositoryCiJobExecutionDisposition disposition) => new(
+        CiRunnerExecutionCoordinatorDisposition.NotAcquired,
+        disposition,
+        null,
+        string.Empty);
 }

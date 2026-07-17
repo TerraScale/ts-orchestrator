@@ -331,13 +331,16 @@ internal static class CiRunnerProcess
                     configuration.IsolationEvidence(accepted),
                     configuration.BuildKit,
                     configuration.WorkspaceRoot,
-                    $"ci-runner-{Environment.ProcessId}-{Guid.NewGuid():N}",
+                    ExecutionLeaseId(accepted),
                     token),
                 cancellationToken);
             if (receipt is not null) idleSince = DateTimeOffset.UtcNow;
         }
         return 0;
     }
+
+    internal static string ExecutionLeaseId(RepositoryCiAcceptedJob accepted) =>
+        (accepted ?? throw new ArgumentNullException(nameof(accepted))).Command.Operation;
 
     private static string Zone(TrustZone zone) => zone switch
     {

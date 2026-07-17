@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
 
+[SupportedOSPlatform("linux")]
 public sealed class CiRunnerProcessTests
 {
     [Test]
@@ -12,6 +14,7 @@ public sealed class CiRunnerProcessTests
         var command = accepted.Command;
         var expected = CiRunnerExecutionPlannerTests.Isolation(command);
 
+        await Assert.That(CiRunnerProcess.ExecutionLeaseId(accepted)).IsEqualTo(command.Operation);
         var evidence = CiRunnerProcessConfiguration.CreateIsolationEvidence(
             accepted,
             command.Runner,
