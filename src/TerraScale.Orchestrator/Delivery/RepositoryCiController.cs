@@ -30,6 +30,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
     private readonly RepositoryCiPipelineRunCoordinator runs;
     private readonly OciCiRunnerAvailability availability;
     private readonly Func<string, string, CancellationToken, Task> reconcileConsumer;
+    private readonly Func<string, ForgejoCommitStatusState, CancellationToken, Task> reportStatus;
     private readonly OciCiRunnerPoolConfiguration pool;
     private readonly IOciCiRunnerCapacityAdapter capacity;
     private readonly Func<RegionalAuthoritySnapshot> authority;
@@ -45,6 +46,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         RepositoryCiPipelineRunCoordinator runs,
         OciCiRunnerAvailability availability,
         Func<string, string, CancellationToken, Task> reconcileConsumer,
+        Func<string, ForgejoCommitStatusState, CancellationToken, Task> reportStatus,
         OciCiRunnerPoolConfiguration pool,
         IOciCiRunnerCapacityAdapter capacity,
         Func<RegionalAuthoritySnapshot> authority,
@@ -58,6 +60,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         this.runs = runs ?? throw new ArgumentNullException(nameof(runs));
         this.availability = availability ?? throw new ArgumentNullException(nameof(availability));
         this.reconcileConsumer = reconcileConsumer ?? throw new ArgumentNullException(nameof(reconcileConsumer));
+        this.reportStatus = reportStatus ?? throw new ArgumentNullException(nameof(reportStatus));
         this.pool = pool ?? throw new ArgumentNullException(nameof(pool));
         this.capacity = capacity ?? throw new ArgumentNullException(nameof(capacity));
         this.authority = authority ?? throw new ArgumentNullException(nameof(authority));
@@ -80,7 +83,18 @@ internal sealed class RepositoryCiController : IAsyncDisposable
             if (receipt.Disposition is RepositoryCiControllerDisposition.Succeeded or
                 RepositoryCiControllerDisposition.Failed or
                 RepositoryCiControllerDisposition.NotDispatchable)
+            {
+                await reportStatus(
+                    trigger.Envelope.Revision,
+                    receipt.Disposition switch
+                    {
+                        RepositoryCiControllerDisposition.Succeeded => ForgejoCommitStatusState.Success,
+                        RepositoryCiControllerDisposition.Failed => ForgejoCommitStatusState.Failure,
+                        _ => ForgejoCommitStatusState.Error,
+                    },
+                    cancellationToken);
                 return true;
+            }
             if (receipt.Disposition == RepositoryCiControllerDisposition.AuthorityLost)
                 return false;
             if (receipt.Disposition != RepositoryCiControllerDisposition.Active)

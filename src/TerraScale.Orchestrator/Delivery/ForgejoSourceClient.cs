@@ -166,9 +166,18 @@ public sealed class ForgejoSourceNotFoundException : Exception
     internal ForgejoSourceNotFoundException() : base("The requested Forgejo source revision was not found.") { }
 }
 
+internal enum ForgejoCommitStatusState
+{
+    Unspecified,
+    Success,
+    Failure,
+    Error,
+}
+
 /// <summary>Resolves immutable Forgejo commit and tree identities with bounded authenticated API reads.</summary>
 public sealed class ForgejoSourceClient : IAsyncDisposable
 {
+    internal const string CiStatusContext = "terrascale/orchestrator-ci";
     private const int MaximumMetadataResponseBytes = 64 * 1024;
     private const int MaximumChangedPathsResponseBytes = 8 * 1024 * 1024;
     public const int MaximumFileBytes = 1024 * 1024;
@@ -385,6 +394,79 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
             revision,
             Convert.ToHexStringLower(SHA256.HashData(content)),
             content);
+    }
+
+    internal async Task ReportCommitStatusAsync(
+        string commit,
+        ForgejoCommitStatusState state,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsObjectId(commit) || commit.All(static value => value == '0'))
+            throw new ArgumentException("The Forgejo status commit identity is invalid.", nameof(commit));
+        var (wireState, description) = state switch
+        {
+            ForgejoCommitStatusState.Success => ("success", "TerraScale CI passed."),
+            ForgejoCommitStatusState.Failure => ("failure", "TerraScale CI failed."),
+            ForgejoCommitStatusState.Error => ("error", "TerraScale CI could not run."),
+            _ => throw new ArgumentOutOfRangeException(nameof(state)),
+        };
+        using var content = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(content))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("context", CiStatusContext);
+            writer.WriteString("description", description);
+            writer.WriteString("state", wireState);
+            writer.WriteEndObject();
+        }
+
+        var (owner, repository) = SplitRepository(configuration.Repository);
+        var path = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/statuses/" +
+            commit.ToLowerInvariant();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(RequestTimeout);
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(configuration.Server, path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("token", configuration.ReadToken());
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new ByteArrayContent(content.ToArray());
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json")
+        {
+            CharSet = "utf-8",
+        };
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        if (response.StatusCode == HttpStatusCode.NotFound) throw new ForgejoSourceNotFoundException();
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            throw new UnauthorizedAccessException("Forgejo status credentials were denied.");
+        if (response.StatusCode != HttpStatusCode.Created)
+            throw new HttpRequestException("Forgejo commit-status publication failed.", null, response.StatusCode);
+        if (!string.Equals(
+                response.Content.Headers.ContentType?.MediaType,
+                "application/json",
+                StringComparison.OrdinalIgnoreCase) ||
+            response.Content.Headers.ContentLength > MaximumMetadataResponseBytes)
+            throw new InvalidDataException("The Forgejo commit-status response was not bounded JSON.");
+        await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+        var bytes = await ReadBoundedAsync(stream, MaximumMetadataResponseBytes, timeout.Token);
+        try
+        {
+            if (HasDuplicateProperties(bytes)) throw new JsonException();
+            using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = MaximumJsonDepth,
+            });
+            var root = document.RootElement;
+            if (!TryString(root, "context", out var observedContext) || observedContext != CiStatusContext ||
+                !TryString(root, "description", out var observedDescription) || observedDescription != description ||
+                !TryString(root, "status", out var observedState) || observedState != wireState ||
+                !TryInt64(root, "id", out var id) || id <= 0)
+                throw new JsonException();
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("The Forgejo commit-status response changed identity.", exception);
+        }
     }
 
     private async Task<JsonDocument> GetJsonAsync(

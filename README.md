@@ -265,6 +265,15 @@ idempotency key and higher fence, and stop after attempt three. Workload/policy
 failures and trusted release builds remain terminal so candidate builds stay
 clean, immutable first-attempt evidence.
 
+After a durable pipeline reaches success, failure, or a terminal planning hold,
+the controller posts the matching terminal status to its exact Forgejo commit
+under the fixed `terrascale/orchestrator-ci` context and verifies the created
+status response before the JetStream event can be acknowledged. Forgejo status
+creation is append-only and has no fencing or idempotency key, so the controller
+intentionally does not publish a mutable pending status that an old leader could
+finish after a newer leader's terminal result. Exact terminal retries converge
+to the same state and description.
+
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
 (no automatic newline trimming), must be 32–4096 bytes, and must be private to

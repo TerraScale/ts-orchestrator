@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Runtime.Versioning;
 using System.Text;
+using System.Text.Json;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -283,6 +284,52 @@ public sealed class ForgejoSourceClientTests
     }
 
     [Test]
+    public async Task TerminalCommitStatusRequiresExactForgejoReadback()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var accepted = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent($$"""
+                    {"id":42,"context":"{{ForgejoSourceClient.CiStatusContext}}","description":"TerraScale CI passed.","status":"success"}
+                    """, Encoding.UTF8, "application/json"),
+            });
+            await using var client = Client(tokenFile, accepted);
+
+            await client.ReportCommitStatusAsync(Commit, ForgejoCommitStatusState.Success);
+
+            var request = accepted.Requests.Single();
+            using var body = JsonDocument.Parse(request.Body);
+            await Assert.That(request.Method).IsEqualTo("POST");
+            await Assert.That(request.Path).IsEqualTo(
+                $"/api/v1/repos/TerraScale/TerraScale.Orchestrator/statuses/{Commit}");
+            await Assert.That(request.ContentType).IsEqualTo("application/json");
+            await Assert.That(body.RootElement.GetProperty("context").GetString())
+                .IsEqualTo(ForgejoSourceClient.CiStatusContext);
+            await Assert.That(body.RootElement.GetProperty("description").GetString())
+                .IsEqualTo("TerraScale CI passed.");
+            await Assert.That(body.RootElement.GetProperty("state").GetString()).IsEqualTo("success");
+
+            var substituted = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = Json("""
+                    {"id":43,"context":"other","description":"TerraScale CI failed.","status":"failure"}
+                    """).Content,
+            });
+            await using var substitutedClient = Client(tokenFile, substituted);
+            await Assert.That(async () => await substitutedClient.ReportCommitStatusAsync(
+                    Commit,
+                    ForgejoCommitStatusState.Failure))
+                .Throws<InvalidDataException>();
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Test]
     public async Task ArchiveFetchRejectsWrongRepositoryTypeSizeAndMagic()
     {
         var tokenFile = await CreateTokenFileAsync();
@@ -394,25 +441,34 @@ public sealed class ForgejoSourceClientTests
 
         internal List<RequestRecord> Requests { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var body = request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add(new(
+                request.Method.Method,
                 request.RequestUri!.AbsolutePath,
                 request.RequestUri.Query,
                 request.Headers.Authorization?.Scheme,
                 request.Headers.Authorization?.Parameter,
-                string.Join(",", request.Headers.Accept.Select(static value => value.MediaType))));
-            return Task.FromResult(remaining.Dequeue()(request));
+                string.Join(",", request.Headers.Accept.Select(static value => value.MediaType)),
+                request.Content?.Headers.ContentType?.MediaType,
+                body));
+            return remaining.Dequeue()(request);
         }
     }
 
     private sealed record RequestRecord(
+        string Method,
         string Path,
         string Query,
         string? AuthenticationScheme,
         string? AuthenticationParameter,
-        string Accept);
+        string Accept,
+        string? ContentType,
+        string Body);
 }

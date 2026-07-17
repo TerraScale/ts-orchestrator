@@ -156,6 +156,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         {
                             _ = await runnerConsumers.ReconcileAsync(zone, runner, token);
                         },
+                        source.ReportCommitStatusAsync,
                         ciPool,
                         capacity,
                         () => authority.Snapshot,

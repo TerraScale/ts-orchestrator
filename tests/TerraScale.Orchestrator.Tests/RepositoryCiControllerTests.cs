@@ -127,6 +127,11 @@ public sealed class RepositoryCiControllerTests
                     consumerReconciliations++;
                     return Task.CompletedTask;
                 },
+                static (_, _, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.CompletedTask;
+                },
                 pool,
                 capacity,
                 () => authority,
@@ -141,6 +146,95 @@ public sealed class RepositoryCiControllerTests
             await Assert.That(transport.Messages).Count().IsEqualTo(1);
             await Assert.That(consumerReconciliations).IsEqualTo(1);
             await Assert.That(capacity.Mutations).IsEmpty();
+        }
+        finally
+        {
+            if (controller is not null) await controller.DisposeAsync();
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task NondispatchableTerminalTriggerReportsErrorBeforeItCanBeAcknowledged()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(
+            Path.GetTempPath(),
+            $"ts-orch-controller-status-{Guid.NewGuid():N}"));
+        RepositoryCiController? controller = null;
+        try
+        {
+            var pool = await PoolAsync(root.FullName);
+            var slot = pool.Slots.Single();
+            var now = DateTimeOffset.UtcNow;
+            var ledger = new ForgejoWebhookJournalTests.TestLedger();
+            var objects = new TestObjectStore();
+            var triggers = new ForgejoCiTriggerJournal(ledger);
+            var trigger = QualificationTrigger();
+            _ = await triggers.RecordAsync(trigger, 5, 9, static () => true);
+            var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
+            var jobs = new RepositoryCiJobJournal(ledger);
+            var availability = new OciCiRunnerAvailability();
+            var statuses = new List<string>();
+            controller = new(
+                pipelines,
+                new(
+                    triggers,
+                    pipelines,
+                    static (_, _) => throw new InvalidOperationException("A held trigger read changed paths."),
+                    static (_, _) => throw new InvalidOperationException("A held trigger resolved sources.")),
+                jobs,
+                new(
+                    jobs,
+                    new(
+                        jobs,
+                        new(objects),
+                        new(jobs, new(new TestTransport(), new TestSigner())),
+                        static (_, _) => throw new InvalidOperationException("A held trigger read an archive."),
+                        static (_, _, _) => throw new InvalidOperationException("A held trigger selected isolation.")),
+                    new(
+                        jobs,
+                        new(new ForgejoWebhookJournalTests.TestLedger()),
+                        new RepositoryCiJobResultReconcilerTests.TestEvidenceVerifier()),
+                    availability.ReadAsync),
+                availability,
+                static (_, _, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return Task.CompletedTask;
+                },
+                (commit, state, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    statuses.Add($"{commit}:{state}");
+                    return Task.CompletedTask;
+                },
+                pool,
+                new TestCapacity(new(
+                    "ocid1.instance.oc1.sa-saopaulo-1.runner",
+                    "etag-runner",
+                    slot.Demand.Runner,
+                    slot.Demand.Sequence,
+                    OciCiRunnerNodeState.Running,
+                    ActiveJob: false,
+                    now,
+                    Preemptible: true,
+                    PreserveBootVolume: false,
+                    OciCiRunnerCapacityEngine.Tags(slot.Demand, pool.Template.Generation))),
+                () => new(
+                    "leader",
+                    true,
+                    5,
+                    9,
+                    now.AddMinutes(1),
+                    now,
+                    null),
+                "gru-controller-1");
+
+            var handled = await controller.RunToCompletionAsync(trigger, default);
+
+            await Assert.That(handled).IsTrue();
+            await Assert.That(statuses).IsEquivalentTo([$"{Commit}:Error"]);
+            await Assert.That(await pipelines.ReadAsync(trigger.Envelope.DedupeKey)).IsNull();
         }
         finally
         {
@@ -189,6 +283,20 @@ public sealed class RepositoryCiControllerTests
         null,
         false,
         new string('a', 64)));
+
+    private static ForgejoCiTriggerPlan QualificationTrigger() => ForgejoCiTriggerPlanner.Plan(new(
+        Guid.Parse("c47d2580-70d2-45c2-b3a3-3a416630f21d"),
+        ForgejoWebhookKind.Push,
+        "push",
+        Repository,
+        Repository,
+        BaseCommit,
+        Commit,
+        "refs/heads/main",
+        null,
+        null,
+        false,
+        new string('b', 64)));
 
     private static ForgejoSourceFile Descriptor()
     {
