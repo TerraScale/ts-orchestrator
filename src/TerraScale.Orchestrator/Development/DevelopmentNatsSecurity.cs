@@ -35,9 +35,9 @@ internal sealed record DevelopmentNatsCellSecurity(
 
 internal sealed class DevelopmentNatsSecurity
 {
-    private static readonly UnixFileMode DirectoryMode =
+    private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-    private static readonly UnixFileMode SecretFileMode =
+    private const UnixFileMode SecretFileMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     private readonly IReadOnlyDictionary<string, DevelopmentNatsCellSecurity> cells;

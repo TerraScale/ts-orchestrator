@@ -6,11 +6,11 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentPki
 {
-    private static readonly UnixFileMode DirectoryMode =
+    private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-    private static readonly UnixFileMode PrivateMode =
+    private const UnixFileMode PrivateMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite;
-    private static readonly UnixFileMode PublicMode =
+    private const UnixFileMode PublicMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead;
 
     public static IReadOnlyDictionary<string, DevelopmentNatsTlsSecurity> Create(
