@@ -465,6 +465,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         {
             NativeMethods.RegularFile => CiRunnerOutputFileKind.Regular,
             NativeMethods.Directory => CiRunnerOutputFileKind.Directory,
+            NativeMethods.Socket => CiRunnerOutputFileKind.Socket,
             _ => CiRunnerOutputFileKind.Other,
         };
     }
@@ -515,6 +516,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         internal const ushort FileTypeMask = 0xf000;
         internal const ushort RegularFile = 0x8000;
         internal const ushort Directory = 0x4000;
+        internal const ushort Socket = 0xc000;
 
         [DllImport("libc", EntryPoint = "statx", SetLastError = true, CharSet = CharSet.Ansi)]
         internal static extern int Statx(
@@ -544,4 +546,5 @@ internal enum CiRunnerOutputFileKind
     Other,
     Regular,
     Directory,
+    Socket,
 }
