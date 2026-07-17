@@ -84,7 +84,7 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
         var workload = stored.Workload;
         if (stored.SchemaVersion != 1 || stored.RetentionDays != CiRunnerDurableResultSink.RetentionDays ||
             stored.LogObject is null || stored.LogSha256 is null || stored.ArtifactObject is null ||
-            stored.ArtifactSha256 is null ||
+            stored.ArtifactSha256 is null || !ValidArtifacts(stored.Artifacts) ||
             workload is null || workload.SchemaVersion != 1 || workload.Runner != expected.Runner ||
             workload.PipelineDigest != expected.PipelineDigest || workload.Job != expected.Job ||
             workload.JobDigest != expected.JobDigest ||
@@ -108,9 +108,37 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
                 Digest(stored.ArtifactSha256) && stored.ArtifactBytes > 0 &&
                 stored.ArtifactBytes <= workload.OutputBytes + ArtifactArchiveOverheadBytes
             : stored.ArtifactObject.Length == 0 && stored.ArtifactSha256.Length == 0 &&
-                stored.ArtifactBytes == 0 && stored.RequiredTestSkips == 0;
+                stored.ArtifactBytes == 0 && stored.Artifacts is null or { Length: 0 } &&
+                stored.RequiredTestSkips == 0;
         return logMatches && artifactMatches;
     }
+
+    private static bool ValidArtifacts(CiRunnerStoredArtifactEvidence[]? artifacts)
+    {
+        artifacts ??= [];
+        if (artifacts.Length > 2 || artifacts.Any(static value => value is null ||
+                !ArtifactId(value.Artifact) || !Enum.IsDefined(value.Architecture) ||
+                value.Architecture == RepositoryCiArchitecture.Unspecified ||
+                !RelativePath(value.Path) || !Digest(value.Digest)) ||
+            artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
+            artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length ||
+            !artifacts.SequenceEqual(artifacts.OrderBy(static value => value.Architecture)))
+            return false;
+        return !artifacts.Any(left => artifacts.Any(right => left != right &&
+            right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal)));
+    }
+
+    private static bool ArtifactId(string? value) => value is { Length: >= 1 and <= 256 } &&
+        value[0] != '/' && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
+
+    private static bool RelativePath(string? value) => value is { Length: >= 1 and <= 1024 } &&
+        value[0] != '/' && !value.EndsWith('/') && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
 
     private static bool ValidWorkload(CiRunnerWorkloadEvidence value)
     {

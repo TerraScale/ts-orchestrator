@@ -81,6 +81,16 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
         await Assert.That(verified).IsFalse();
     }
 
+    [Test]
+    public async Task InvalidArchitectureArtifactDeclarationFailsBeforeProjection()
+    {
+        var fixture = await Fixture.CreateAsync(invalidArtifact: true);
+
+        var verified = await fixture.Verifier.VerifyAsync(fixture.Execution, default);
+
+        await Assert.That(verified).IsFalse();
+    }
+
     private sealed record Fixture(
         TestObjectStore Store,
         CiRunnerDurableEvidenceVerifier Verifier,
@@ -91,7 +101,8 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
         internal static async Task<Fixture> CreateAsync(
             bool changeLeaseSequence = false,
             bool unsafeLog = false,
-            int artifactBytesAdjustment = 0)
+            int artifactBytesAdjustment = 0,
+            bool invalidArtifact = false)
         {
             var accepted = await RepositoryCiJobInboxTests.AcceptedAsync();
             var journal = new RepositoryCiJobExecutionJournal(
@@ -144,6 +155,11 @@ public sealed class CiRunnerDurableEvidenceVerifierTests
                 artifactObject,
                 Hash(artifact),
                 artifact.LongLength + artifactBytesAdjustment,
+                [new(
+                    "TerraScale/TerraScale.Orchestrator",
+                    invalidArtifact ? RepositoryCiArchitecture.Unspecified : RepositoryCiArchitecture.LinuxX64,
+                    "linux-x64",
+                    Digest('2'))],
                 0,
                 30);
             var content = JsonSerializer.SerializeToUtf8Bytes(

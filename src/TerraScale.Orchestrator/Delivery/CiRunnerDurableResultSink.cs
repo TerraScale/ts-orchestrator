@@ -14,7 +14,19 @@ internal sealed record CiRunnerResultManifest(
     string Job,
     string PlanDigest,
     bool Succeeded,
-    int RequiredTestSkips);
+    int RequiredTestSkips,
+    CiRunnerResultArtifact[]? Artifacts);
+
+internal sealed record CiRunnerResultArtifact(
+    string Artifact,
+    RepositoryCiArchitecture Architecture,
+    string Path);
+
+internal sealed record CiRunnerStoredArtifactEvidence(
+    string Artifact,
+    RepositoryCiArchitecture Architecture,
+    string Path,
+    string Digest);
 
 internal sealed record CiRunnerStoredWorkloadEvidence(
     int SchemaVersion,
@@ -25,6 +37,7 @@ internal sealed record CiRunnerStoredWorkloadEvidence(
     string ArtifactObject,
     string ArtifactSha256,
     long ArtifactBytes,
+    CiRunnerStoredArtifactEvidence[]? Artifacts,
     int RequiredTestSkips,
     int RetentionDays);
 
@@ -61,10 +74,11 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         var artifactObject = string.Empty;
         var artifactSha256 = string.Empty;
         long artifactBytes = 0;
+        CiRunnerStoredArtifactEvidence[] artifacts = [];
         if (evidence.Succeeded)
         {
             string? archivePath = null;
-            (string Sha256, long Bytes) archive;
+            ArchiveEvidence archive;
             try
             {
                 var root = Path.GetFullPath(exportDirectory!);
@@ -74,7 +88,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     Directory.GetParent(root)?.FullName ?? throw new InvalidDataException(
                         "The CI result export has no private output parent."),
                     "artifact.tar.gz");
-                archive = await CreateArchiveAsync(root, archivePath, evidence, cancellationToken);
+                archive = await CreateArchiveAsync(root, archivePath, evidence, manifest, cancellationToken);
+                artifacts = archive.Artifacts;
             }
             catch (InvalidDataException)
             {
@@ -98,6 +113,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     string.Empty,
                     string.Empty,
                     0,
+                    [],
                     0,
                     cancellationToken);
             }
@@ -133,6 +149,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             artifactObject,
             artifactSha256,
             artifactBytes,
+            artifacts,
             requiredTestSkips,
             cancellationToken);
     }
@@ -143,6 +160,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         string artifactObject,
         string artifactSha256,
         long artifactBytes,
+        CiRunnerStoredArtifactEvidence[] artifacts,
         int requiredTestSkips,
         CancellationToken cancellationToken)
     {
@@ -155,6 +173,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             artifactObject,
             artifactSha256,
             artifactBytes,
+            artifacts,
             requiredTestSkips,
             RetentionDays);
         var evidenceContent = JsonSerializer.SerializeToUtf8Bytes(
@@ -200,9 +219,14 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 ?? throw new JsonException();
             if (value.SchemaVersion != 1 || value.Job != evidence.Job ||
                 value.PlanDigest != evidence.PlanDigest || !value.Succeeded ||
-                value.RequiredTestSkips is < 0 or > 1_000_000)
+                value.RequiredTestSkips is < 0 or > 1_000_000 || !ValidArtifacts(value.Artifacts))
                 throw new JsonException();
-            return value;
+            return value with
+            {
+                Artifacts = (value.Artifacts ?? [])
+                    .OrderBy(static artifact => artifact.Architecture)
+                    .ToArray(),
+            };
         }
         catch (JsonException exception)
         {
@@ -210,10 +234,11 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         }
     }
 
-    private static async Task<(string Sha256, long Bytes)> CreateArchiveAsync(
+    private static async Task<ArchiveEvidence> CreateArchiveAsync(
         string root,
         string archivePath,
         CiRunnerWorkloadEvidence evidence,
+        CiRunnerResultManifest manifest,
         CancellationToken cancellationToken)
     {
         var directory = new DirectoryInfo(root);
@@ -237,6 +262,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         File.SetUnixFileMode(archivePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         using var output = new HashingWriteStream(file, maximumArchiveBytes);
         var canonical = new StringBuilder();
+        var artifacts = (manifest.Artifacts ?? []).Select(static value => new ArtifactTracker(value)).ToArray();
         var files = 0;
         long bytes = 0;
         await using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
@@ -249,6 +275,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 if (entry is DirectoryInfo)
                 {
                     canonical.Append("d:").Append(normalized).Append('\n');
+                    foreach (var artifact in artifacts) artifact.Directory(normalized);
                     await writer.WriteEntryAsync(TarEntry(
                         TarEntryType.Directory,
                         normalized + '/',
@@ -279,6 +306,8 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 canonical.Append("f:").Append(normalized).Append(':')
                     .Append(length.ToString(CultureInfo.InvariantCulture)).Append(':')
                     .Append(executable ? '1' : '0').Append(':').Append(content.Sha256).Append('\n');
+                foreach (var artifact in artifacts)
+                    artifact.File(normalized, length, executable, content.Sha256);
                 bytes += length;
                 files++;
             }
@@ -289,8 +318,80 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         if (files != evidence.OutputFiles || bytes != evidence.OutputBytes ||
             outputDigest != evidence.OutputSha256)
             throw new InvalidDataException("The CI artifact export changed after BuildKit validation.");
-        return archive;
+        return new(archive.Sha256, archive.Bytes, artifacts.Select(static value => value.Complete()).ToArray());
     }
+
+    private static bool ValidArtifacts(CiRunnerResultArtifact[]? artifacts)
+    {
+        artifacts ??= [];
+        if (artifacts.Length > 2 || artifacts.Any(static value => value is null ||
+                !ArtifactId(value.Artifact) || !Enum.IsDefined(value.Architecture) ||
+                value.Architecture == RepositoryCiArchitecture.Unspecified || !RelativePath(value.Path)) ||
+            artifacts.Select(static value => value.Architecture).Distinct().Count() != artifacts.Length ||
+            artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Length)
+            return false;
+        return !artifacts.Any(left => artifacts.Any(right => left != right &&
+            right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal)));
+    }
+
+    private static bool ArtifactId(string? value) => value is { Length: >= 1 and <= 256 } &&
+        value[0] != '/' && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
+
+    private static bool RelativePath(string? value) => value is { Length: >= 1 and <= 1024 } &&
+        value[0] != '/' && !value.EndsWith('/') && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
+
+    private sealed class ArtifactTracker(CiRunnerResultArtifact artifact)
+    {
+        private readonly StringBuilder canonical = new();
+        private bool rootFound;
+        private int files;
+
+        internal void Directory(string path)
+        {
+            if (path == artifact.Path)
+            {
+                rootFound = true;
+                return;
+            }
+            if (Relative(path) is { } relative)
+                canonical.Append("d:").Append(relative).Append('\n');
+        }
+
+        internal void File(string path, long bytes, bool executable, string digest)
+        {
+            if (Relative(path) is not { } relative) return;
+            canonical.Append("f:").Append(relative).Append(':')
+                .Append(bytes.ToString(CultureInfo.InvariantCulture)).Append(':')
+                .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
+            files++;
+        }
+
+        internal CiRunnerStoredArtifactEvidence Complete()
+        {
+            if (!rootFound || files == 0)
+                throw new InvalidDataException("A declared CI artifact root is missing or empty.");
+            return new(
+                artifact.Artifact,
+                artifact.Architecture,
+                artifact.Path,
+                Hash(Encoding.UTF8.GetBytes(canonical.ToString())));
+        }
+
+        private string? Relative(string path) => path.StartsWith(artifact.Path + '/', StringComparison.Ordinal)
+            ? path[(artifact.Path.Length + 1)..]
+            : null;
+    }
+
+    private sealed record ArchiveEvidence(
+        string Sha256,
+        long Bytes,
+        CiRunnerStoredArtifactEvidence[] Artifacts);
 
     private static PaxTarEntry TarEntry(TarEntryType type, string name, bool executable) => new(type, name)
     {
