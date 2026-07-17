@@ -388,6 +388,14 @@ Exact retries recover the same dispatch identity; changed observations require
 a strictly newer watermark. A new generation or fenced takeover must also
 advance both the acceptance revision and regional stream sequence, preventing
 an old accepted receipt from being relabeled as fresh authority.
+Each converged cell emits a signed, validity-bounded receipt over its exact
+handoff/payload, convergence checkpoint, acceptance sequence/revision, and
+regional writer epoch. The global live barrier verifies those receipts through
+the injected KMS trust policy and the current epoch for every required cell.
+Missing cells remain explicitly pending with no barrier digest; duplicate,
+foreign, expired, signature-substituted, wrong-digest, and stale-writer
+receipts fail closed. Only the complete same-generation, same-global-plan,
+same-handoff live set produces the deterministic cross-cell barrier digest.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
