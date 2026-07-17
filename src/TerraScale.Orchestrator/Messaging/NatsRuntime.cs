@@ -25,15 +25,18 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
-        RegionalAuthorityCoordinator authority)
+        RegionalAuthorityCoordinator authority,
+        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
+        NativeGitOpsCellAcceptances = nativeGitOpsCellAcceptances;
     }
 
     public Task Completion => authority.Completion;
+    internal NativeGitOpsCellAcceptanceJournal NativeGitOpsCellAcceptances { get; }
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
@@ -181,11 +184,14 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
+            var deliveryLedger = new NatsForgejoDeliveryLedger(state.Delivery);
+            var bundles = new NatsNativeGitOpsManifestStore(state.Bundles);
             return new(
                 client,
                 service,
                 registration,
-                authority);
+                authority,
+                new(deliveryLedger, bundles));
         }
         catch
         {

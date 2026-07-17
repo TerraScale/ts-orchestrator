@@ -278,8 +278,15 @@ and requires a caller-provided KMS signer/verifier. Its signed material binds th
 aggregate handoff digest, exact cell, generation, global writer epoch, payload
 SHA-256, deterministic operation/idempotency identities, delivery attempt, and
 validity window. Cell, generation, epoch, payload, aggregate-barrier, expired,
-and signature substitution fail before acceptance. Durable regional acceptance
-still requires the handoff journal and a production KMS adapter.
+and signature substitution fail before acceptance. A regional acceptance is
+acknowledgeable only after the exact payload is written and read back through
+`CELL_BUNDLES` and a fenced CAS receipt is committed in `ORCH_DELIVERY`. That
+bounded receipt binds the cell, global plan and handoff digests, generation,
+writer epoch, signed operation/idempotency identities, signature digest,
+acceptance time, and original stream sequence. Replays converge on the same
+receipt; stale writers/generations, same-generation equivocation, authority
+loss, corrupt payloads, and crash-before-pointer fail closed. `CELL_SPEC`
+transport/consumer wiring and the owner-selected production KMS adapter remain.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
