@@ -410,7 +410,10 @@ under current authority. Feature-profile, active, failed, incomplete, unsigned,
 substituted, and authority-lost inputs produce no candidate. The longest
 candidate-retention policy among affected repositories is now bound into the
 impact plan, pipeline, candidate identity, and restart-safe candidate record;
-the deletion coordinator remains unimplemented. The OCI CI terminal path now
+each candidate also has one CAS lifecycle that fences qualification, retains
+its exact expiry, and resumes interrupted qualification without exposing a
+partially committed qualified pointer. Expiry and object deletion remain
+unimplemented. The OCI CI terminal path now
 invokes that coordinator
 after runner cleanup and reports Forgejo success only after the exact candidate
 is durable. Under the same fenced lease, the controller mints and readback-

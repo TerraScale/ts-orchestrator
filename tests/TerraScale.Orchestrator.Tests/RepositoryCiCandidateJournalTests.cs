@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
 
@@ -30,6 +31,10 @@ public sealed class RepositoryCiCandidateJournalTests
         await Assert.That(recovered.Candidate.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(recovered.Candidate.Artifacts).IsEquivalentTo(qualified.Candidate.Artifacts);
         await Assert.That(recovered.Sources).IsEquivalentTo(qualified.Sources);
+        var lifecycle = await LifecycleAsync(ledger, qualified.Candidate.Digest);
+        await Assert.That(lifecycle.State).IsEqualTo(RepositoryCiCandidateLifecycleState.Qualified);
+        await Assert.That(lifecycle.QualifiedDigest).IsEqualTo(qualified.Digest);
+        await Assert.That(lifecycle.RetainUntilUtc - lifecycle.CreatedAtUtc).IsEqualTo(TimeSpan.FromDays(7));
     }
 
     [Test]
@@ -117,6 +122,70 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task InterruptedLifecycleCreationIsRepairedByAnExactRetry()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 3);
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects);
+
+        await Assert.That(async () => await journal.RecordCandidateAsync(
+                candidate, 7, 1, static () => true))
+            .Throws<IOException>();
+        var recovered = await journal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateJournalDisposition.Recorded);
+        await Assert.That((await LifecycleAsync(ledger, candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.Active);
+    }
+
+    [Test]
+    public async Task InterruptedQualificationResumesFromItsPreparedLifecycle()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 5);
+        var objects = new TestObjectStore();
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(ledger, objects);
+        await journal.RecordCandidateAsync(qualified.Candidate, 7, 1, static () => true);
+
+        await Assert.That(async () => await journal.RecordQualifiedAsync(
+                qualified, 7, 2, static () => true))
+            .Throws<IOException>();
+        await Assert.That((await LifecycleAsync(ledger, qualified.Candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.QualificationPrepared);
+
+        var recovered = await journal.RecordQualifiedAsync(qualified, 7, 2, static () => true);
+
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateJournalDisposition.Recorded);
+        await Assert.That((await LifecycleAsync(ledger, qualified.Candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.Qualified);
+    }
+
+    [Test]
+    public async Task QualifiedPointerIsInvisibleUntilItsLifecycleCommit()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 6);
+        var objects = new TestObjectStore();
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(ledger, objects);
+        await journal.RecordCandidateAsync(qualified.Candidate, 7, 1, static () => true);
+
+        await Assert.That(async () => await journal.RecordQualifiedAsync(
+                qualified, 7, 2, static () => true))
+            .Throws<IOException>();
+        await Assert.That(async () => await journal.ReadQualifiedAsync(qualified.Digest))
+            .Throws<InvalidDataException>();
+
+        var recovered = await journal.RecordQualifiedAsync(qualified, 7, 2, static () => true);
+
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateJournalDisposition.Recorded);
+        await Assert.That(await journal.ReadQualifiedAsync(qualified.Digest)).IsNotNull();
+    }
+
+    [Test]
     public async Task ConcurrentExactRecordsConvergeOnOnePointer()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -131,7 +200,7 @@ public sealed class RepositoryCiCandidateJournalTests
             receipt.Disposition == RepositoryCiCandidateJournalDisposition.Recorded)).IsEqualTo(1);
         await Assert.That(receipts.Count(receipt =>
             receipt.Disposition == RepositoryCiCandidateJournalDisposition.Duplicate)).IsEqualTo(15);
-        await Assert.That(ledger.Mutations).IsEqualTo(2);
+        await Assert.That(ledger.Mutations).IsEqualTo(3);
     }
 
     [Test]
@@ -213,6 +282,18 @@ public sealed class RepositoryCiCandidateJournalTests
             true,
             new(source.Repository, source.MainCommit, source.Tree, true)))
         .ToArray();
+
+    private static async Task<RepositoryCiCandidateLifecycleDocument> LifecycleAsync(
+        IForgejoDeliveryLedger ledger,
+        string candidateDigest)
+    {
+        var entry = await ledger.GetAsync($"ci-candidate-lifecycle.{candidateDigest}", default)
+            ?? throw new InvalidDataException("Missing candidate lifecycle test record.");
+        return JsonSerializer.Deserialize(
+            entry.Value,
+            RepositoryCiCandidateJournalJsonContext.Default.RepositoryCiCandidateLifecycleDocument)
+            ?? throw new InvalidDataException("Invalid candidate lifecycle test record.");
+    }
 
     private sealed class TestObjectStore : IDeliveryObjectStore
     {

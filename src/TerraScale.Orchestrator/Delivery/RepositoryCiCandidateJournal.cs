@@ -24,13 +24,16 @@ internal sealed class RepositoryCiCandidateJournal
     private const int MaximumCandidateBytes = 64 * 1024 * 1024;
     private readonly IForgejoDeliveryLedger ledger;
     private readonly IDeliveryObjectStore objects;
+    private readonly TimeProvider timeProvider;
 
     internal RepositoryCiCandidateJournal(
         IForgejoDeliveryLedger ledger,
-        IDeliveryObjectStore objects)
+        IDeliveryObjectStore objects,
+        TimeProvider? timeProvider = null)
     {
         this.ledger = ledger;
         this.objects = objects;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     internal Task<RepositoryCiCandidate?> ReadCandidateAsync(
@@ -68,6 +71,11 @@ internal sealed class RepositoryCiCandidateJournal
             ?? throw new InvalidDataException("A candidate tree-set index lost its candidate.");
         if (TreeSetDigest(candidate.Sources.Select(static source => (source.Repository, source.Tree))) != treeSetDigest)
             throw new InvalidDataException("A candidate does not match its durable tree-set index.");
+        var lifecycle = await ReadLifecycleAsync(candidate, required: true, cancellationToken);
+        if (lifecycle!.State is not (RepositoryCiCandidateLifecycleState.Active or
+                RepositoryCiCandidateLifecycleState.QualificationPrepared or
+                RepositoryCiCandidateLifecycleState.Qualified))
+            return null;
         return candidate;
     }
 
@@ -85,6 +93,10 @@ internal sealed class RepositoryCiCandidateJournal
             throw new InvalidDataException("The qualified candidate object differs from its durable pointer.");
         var candidate = await ReadCandidateCoreAsync(document.CandidateDigest, required: true, cancellationToken)
             ?? throw new InvalidDataException("The qualified candidate lost its durable candidate.");
+        var lifecycle = await ReadLifecycleAsync(candidate, required: true, cancellationToken);
+        if (lifecycle!.State != RepositoryCiCandidateLifecycleState.Qualified ||
+            lifecycle.QualifiedDigest != digest)
+            throw new InvalidDataException("The qualified candidate has not reached its durable lifecycle commit.");
         return RepositoryCiCandidateResolver.Restore(document.Digest, candidate, document.Sources);
     }
 
@@ -118,8 +130,18 @@ internal sealed class RepositoryCiCandidateJournal
         if (indexed.Disposition is RepositoryCiCandidateJournalDisposition.IdentityConflict or
             RepositoryCiCandidateJournalDisposition.StaleAuthority)
             return indexed;
+        var lifecycle = await EnsureLifecycleAsync(
+            candidate,
+            authorityEpoch,
+            sequence,
+            authorityStillValid,
+            cancellationToken);
+        if (lifecycle.Disposition is RepositoryCiCandidateJournalDisposition.IdentityConflict or
+            RepositoryCiCandidateJournalDisposition.StaleAuthority)
+            return lifecycle;
         return new(recorded.Disposition == RepositoryCiCandidateJournalDisposition.Recorded ||
-            indexed.Disposition == RepositoryCiCandidateJournalDisposition.Recorded
+            indexed.Disposition == RepositoryCiCandidateJournalDisposition.Recorded ||
+            lifecycle.Disposition == RepositoryCiCandidateJournalDisposition.Recorded
                 ? RepositoryCiCandidateJournalDisposition.Recorded
                 : RepositoryCiCandidateJournalDisposition.Duplicate);
     }
@@ -135,8 +157,17 @@ internal sealed class RepositoryCiCandidateJournal
         var persisted = await ReadCandidateCoreAsync(qualified.Candidate.Digest, required: true, cancellationToken);
         if (persisted is null || persisted.Digest != qualified.Candidate.Digest)
             throw new InvalidDataException("Qualification requires the exact durable candidate first.");
+        var prepared = await PrepareQualificationAsync(
+            qualified,
+            authorityEpoch,
+            sequence,
+            authorityStillValid,
+            cancellationToken);
+        if (prepared.Disposition is not (RepositoryCiCandidateJournalDisposition.Recorded or
+                RepositoryCiCandidateJournalDisposition.Duplicate))
+            return prepared;
         var content = SerializeQualified(qualified);
-        return await RecordAsync(
+        var recorded = await RecordAsync(
             RepositoryCiCandidateRecordKind.Qualified,
             qualified.Digest,
             qualified.Candidate.Digest,
@@ -145,6 +176,23 @@ internal sealed class RepositoryCiCandidateJournal
             sequence,
             authorityStillValid,
             cancellationToken);
+        if (recorded.Disposition is not (RepositoryCiCandidateJournalDisposition.Recorded or
+                RepositoryCiCandidateJournalDisposition.Duplicate))
+            return recorded;
+        var completed = await CompleteQualificationAsync(
+            qualified,
+            authorityEpoch,
+            sequence,
+            authorityStillValid,
+            cancellationToken);
+        if (completed.Disposition is not (RepositoryCiCandidateJournalDisposition.Recorded or
+                RepositoryCiCandidateJournalDisposition.Duplicate))
+            return completed;
+        return new(prepared.Disposition == RepositoryCiCandidateJournalDisposition.Recorded ||
+            recorded.Disposition == RepositoryCiCandidateJournalDisposition.Recorded ||
+            completed.Disposition == RepositoryCiCandidateJournalDisposition.Recorded
+                ? RepositoryCiCandidateJournalDisposition.Recorded
+                : RepositoryCiCandidateJournalDisposition.Duplicate);
     }
 
     private async Task<RepositoryCiCandidateJournalReceipt> RecordAsync(
@@ -231,6 +279,164 @@ internal sealed class RepositoryCiCandidateJournal
                 ?? throw new InvalidDataException("A concurrently committed candidate tree index disappeared.");
             return CompareTreeIndex(observed, proposed);
         }
+    }
+
+    private async Task<RepositoryCiCandidateJournalReceipt> EnsureLifecycleAsync(
+        RepositoryCiCandidate candidate,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
+        var createdAt = timeProvider.GetUtcNow().ToUniversalTime();
+        var proposed = RepositoryCiCandidateLifecycleDocument.Active(
+            candidate.Digest,
+            createdAt,
+            candidate.CandidateRetentionDays,
+            authorityEpoch,
+            sequence);
+        proposed.Validate();
+        var key = LifecycleIndex(candidate.Digest);
+        var existing = await ledger.GetAsync(key, cancellationToken);
+        if (existing is not null)
+        {
+            var observed = DeserializeLifecycle(existing.Value);
+            return CompareLifecycle(candidate, observed);
+        }
+        if (!authorityStillValid()) return new(RepositoryCiCandidateJournalDisposition.StaleAuthority);
+        try
+        {
+            await ledger.CreateAsync(key, SerializeLifecycle(proposed), cancellationToken);
+            return new(RepositoryCiCandidateJournalDisposition.Recorded);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            var observed = await ledger.GetAsync(key, cancellationToken)
+                ?? throw new InvalidDataException("A concurrently committed candidate lifecycle disappeared.");
+            var document = DeserializeLifecycle(observed.Value);
+            return CompareLifecycle(candidate, document);
+        }
+    }
+
+    private static RepositoryCiCandidateJournalReceipt CompareLifecycle(
+        RepositoryCiCandidate candidate,
+        RepositoryCiCandidateLifecycleDocument lifecycle)
+    {
+        if (lifecycle.CandidateDigest != candidate.Digest)
+            return new(RepositoryCiCandidateJournalDisposition.IdentityConflict);
+        if (lifecycle.RetainUntilUtc != lifecycle.CreatedAtUtc.AddDays(candidate.CandidateRetentionDays))
+            throw new InvalidDataException("A candidate lifecycle differs from its immutable candidate.");
+        return new(lifecycle.State is RepositoryCiCandidateLifecycleState.Active or
+            RepositoryCiCandidateLifecycleState.QualificationPrepared or
+            RepositoryCiCandidateLifecycleState.Qualified
+                ? RepositoryCiCandidateJournalDisposition.Duplicate
+                : RepositoryCiCandidateJournalDisposition.IdentityConflict);
+    }
+
+    private Task<RepositoryCiCandidateJournalReceipt> PrepareQualificationAsync(
+        RepositoryCiQualifiedCandidate qualified,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken) => TransitionQualificationAsync(
+        qualified,
+        RepositoryCiCandidateLifecycleState.QualificationPrepared,
+        authorityEpoch,
+        sequence,
+        authorityStillValid,
+        cancellationToken);
+
+    private Task<RepositoryCiCandidateJournalReceipt> CompleteQualificationAsync(
+        RepositoryCiQualifiedCandidate qualified,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken) => TransitionQualificationAsync(
+        qualified,
+        RepositoryCiCandidateLifecycleState.Qualified,
+        authorityEpoch,
+        sequence,
+        authorityStillValid,
+        cancellationToken);
+
+    private async Task<RepositoryCiCandidateJournalReceipt> TransitionQualificationAsync(
+        RepositoryCiQualifiedCandidate qualified,
+        RepositoryCiCandidateLifecycleState target,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
+        if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
+        var key = LifecycleIndex(qualified.Candidate.Digest);
+        var entry = await ledger.GetAsync(key, cancellationToken)
+            ?? throw new InvalidDataException("Qualification requires a durable candidate lifecycle.");
+        var observed = DeserializeLifecycle(entry.Value);
+        if (observed.CandidateDigest != qualified.Candidate.Digest ||
+            observed.QualifiedDigest is not null && observed.QualifiedDigest != qualified.Digest)
+            return new(RepositoryCiCandidateJournalDisposition.IdentityConflict);
+        if ((target == RepositoryCiCandidateLifecycleState.QualificationPrepared &&
+                observed.State is RepositoryCiCandidateLifecycleState.QualificationPrepared or
+                    RepositoryCiCandidateLifecycleState.Qualified) ||
+            (target == RepositoryCiCandidateLifecycleState.Qualified &&
+                observed.State == RepositoryCiCandidateLifecycleState.Qualified))
+            return new(RepositoryCiCandidateJournalDisposition.Duplicate);
+        var expected = target switch
+        {
+            RepositoryCiCandidateLifecycleState.QualificationPrepared =>
+                RepositoryCiCandidateLifecycleState.Active,
+            RepositoryCiCandidateLifecycleState.Qualified =>
+                RepositoryCiCandidateLifecycleState.QualificationPrepared,
+            _ => throw new ArgumentOutOfRangeException(nameof(target)),
+        };
+        if (observed.State != expected)
+            return new(RepositoryCiCandidateJournalDisposition.IdentityConflict);
+        if (!authorityStillValid()) return new(RepositoryCiCandidateJournalDisposition.StaleAuthority);
+        var proposed = observed with
+        {
+            State = target,
+            QualifiedDigest = qualified.Digest,
+            AuthorityEpoch = authorityEpoch,
+            Sequence = sequence,
+        };
+        proposed.Validate();
+        try
+        {
+            await ledger.UpdateAsync(key, SerializeLifecycle(proposed), entry.Revision, cancellationToken);
+            return new(RepositoryCiCandidateJournalDisposition.Recorded);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            var concurrent = await ledger.GetAsync(key, cancellationToken)
+                ?? throw new InvalidDataException("A candidate lifecycle disappeared during qualification.");
+            var document = DeserializeLifecycle(concurrent.Value);
+            return new(document.CandidateDigest == qualified.Candidate.Digest &&
+                document.QualifiedDigest == qualified.Digest &&
+                (document.State == target || target == RepositoryCiCandidateLifecycleState.QualificationPrepared &&
+                    document.State == RepositoryCiCandidateLifecycleState.Qualified)
+                    ? RepositoryCiCandidateJournalDisposition.Duplicate
+                    : RepositoryCiCandidateJournalDisposition.IdentityConflict);
+        }
+    }
+
+    private async Task<RepositoryCiCandidateLifecycleDocument?> ReadLifecycleAsync(
+        RepositoryCiCandidate candidate,
+        bool required,
+        CancellationToken cancellationToken)
+    {
+        var entry = await ledger.GetAsync(LifecycleIndex(candidate.Digest), cancellationToken);
+        if (entry is null)
+        {
+            if (required) throw new InvalidDataException("A durable candidate lost its lifecycle record.");
+            return null;
+        }
+        var lifecycle = DeserializeLifecycle(entry.Value);
+        if (lifecycle.CandidateDigest != candidate.Digest ||
+            lifecycle.RetainUntilUtc != lifecycle.CreatedAtUtc.AddDays(candidate.CandidateRetentionDays))
+            throw new InvalidDataException("A candidate lifecycle differs from its immutable candidate.");
+        return lifecycle;
     }
 
     private async Task<RepositoryCiCandidate?> ReadCandidateCoreAsync(
@@ -396,6 +602,23 @@ internal sealed class RepositoryCiCandidateJournal
         }
     }
 
+    private static RepositoryCiCandidateLifecycleDocument DeserializeLifecycle(string value)
+    {
+        try
+        {
+            var document = JsonSerializer.Deserialize(
+                value,
+                RepositoryCiCandidateJournalJsonContext.Default.RepositoryCiCandidateLifecycleDocument)
+                ?? throw new JsonException();
+            document.Validate();
+            return document;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("A candidate lifecycle is invalid.", exception);
+        }
+    }
+
     private static string SerializePointer(RepositoryCiCandidatePointerDocument document)
     {
         var value = JsonSerializer.Serialize(
@@ -416,10 +639,22 @@ internal sealed class RepositoryCiCandidateJournal
         return value;
     }
 
+    private static string SerializeLifecycle(RepositoryCiCandidateLifecycleDocument document)
+    {
+        var value = JsonSerializer.Serialize(
+            document,
+            RepositoryCiCandidateJournalJsonContext.Default.RepositoryCiCandidateLifecycleDocument);
+        if (Encoding.UTF8.GetByteCount(value) > MaximumPointerBytes)
+            throw new InvalidDataException("The candidate lifecycle exceeded its bound.");
+        return value;
+    }
+
     private static string Index(RepositoryCiCandidateRecordKind kind, string digest) =>
         $"ci-{kind.ToString().ToLowerInvariant()}.{digest}";
 
     private static string TreeIndex(string treeSetDigest) => $"ci-tree-set.{treeSetDigest}";
+
+    private static string LifecycleIndex(string candidateDigest) => $"ci-candidate-lifecycle.{candidateDigest}";
 
     internal static string TreeSetDigest(IEnumerable<(string Repository, string Tree)> sources)
     {
@@ -446,6 +681,61 @@ internal enum RepositoryCiCandidateRecordKind
     Unspecified,
     Candidate,
     Qualified,
+}
+
+internal enum RepositoryCiCandidateLifecycleState
+{
+    Unspecified,
+    Active,
+    QualificationPrepared,
+    Qualified,
+    DeletionPrepared,
+    Deleted,
+}
+
+internal sealed record RepositoryCiCandidateLifecycleDocument(
+    int SchemaVersion,
+    string CandidateDigest,
+    RepositoryCiCandidateLifecycleState State,
+    string? QualifiedDigest,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset RetainUntilUtc,
+    long AuthorityEpoch,
+    long Sequence)
+{
+    internal static RepositoryCiCandidateLifecycleDocument Active(
+        string candidateDigest,
+        DateTimeOffset createdAtUtc,
+        int retentionDays,
+        long authorityEpoch,
+        long sequence) => new(
+        1,
+        candidateDigest,
+        RepositoryCiCandidateLifecycleState.Active,
+        null,
+        createdAtUtc,
+        createdAtUtc.AddDays(retentionDays),
+        authorityEpoch,
+        sequence);
+
+    internal void Validate()
+    {
+        var duration = RetainUntilUtc - CreatedAtUtc;
+        var qualifiedState = State is RepositoryCiCandidateLifecycleState.QualificationPrepared or
+            RepositoryCiCandidateLifecycleState.Qualified;
+        if (SchemaVersion != 1 || !Digest(CandidateDigest) ||
+            State is RepositoryCiCandidateLifecycleState.Unspecified ||
+            qualifiedState != (QualifiedDigest is not null) ||
+            QualifiedDigest is not null && !Digest(QualifiedDigest) ||
+            CreatedAtUtc.Offset != TimeSpan.Zero || RetainUntilUtc.Offset != TimeSpan.Zero ||
+            duration.Ticks < TimeSpan.TicksPerDay || duration.Ticks > 30 * TimeSpan.TicksPerDay ||
+            duration.Ticks % TimeSpan.TicksPerDay != 0 || AuthorityEpoch <= 0 || Sequence <= 0)
+            throw new InvalidDataException("A candidate lifecycle is invalid.");
+    }
+
+    private static bool Digest(string? value) => value is { Length: 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
+        value.Any(static character => character != '0');
 }
 
 internal sealed record RepositoryCiCandidatePointerDocument(
@@ -552,6 +842,7 @@ internal sealed record RepositoryCiQualifiedObjectDocument(
 
 [JsonSerializable(typeof(RepositoryCiCandidatePointerDocument))]
 [JsonSerializable(typeof(RepositoryCiCandidateTreeIndexDocument))]
+[JsonSerializable(typeof(RepositoryCiCandidateLifecycleDocument))]
 [JsonSerializable(typeof(RepositoryCiCandidateObjectDocument))]
 [JsonSerializable(typeof(RepositoryCiQualifiedObjectDocument))]
 internal sealed partial class RepositoryCiCandidateJournalJsonContext : JsonSerializerContext;
