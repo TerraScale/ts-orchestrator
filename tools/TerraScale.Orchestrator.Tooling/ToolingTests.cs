@@ -75,16 +75,25 @@ internal static class ToolingTests
             var digest = new string('a', 64);
 
             AssertEqual(0, CiResultManifestCommand.Run([
-                "--job", "pipeline:job", "--plan-digest", digest, "--trx", trx, "--output", output]));
+                "--job", "pipeline:job", "--plan-digest", digest, "--trx", trx,
+                "--artifact", "TerraScale/Orchestrator|LinuxX64|linux-x64", "--output", output]));
             var document = JsonNode.Parse(File.ReadAllText(output))!.AsObject();
             AssertEqual(1, document["schemaVersion"]!.GetValue<int>());
             AssertEqual("pipeline:job", document["job"]!.GetValue<string>());
             AssertEqual(digest, document["planDigest"]!.GetValue<string>());
             AssertEqual(true, document["succeeded"]!.GetValue<bool>());
             AssertEqual(1, document["requiredTestSkips"]!.GetValue<int>());
+            AssertEqual("TerraScale/Orchestrator",
+                document["artifacts"]![0]!["artifact"]!.GetValue<string>());
+            AssertEqual("LinuxX64", document["artifacts"]![0]!["architecture"]!.GetValue<string>());
+            AssertEqual("linux-x64", document["artifacts"]![0]!["path"]!.GetValue<string>());
             AssertThrows<ToolValidationException>(() => CiResultManifestCommand.ReadTrx(invalid));
             AssertThrows<ToolValidationException>(() => CiResultManifestCommand.Parse([
                 "--job", "pipeline:job", "--plan-digest", new string('A', 64), "--output", output]));
+            AssertThrows<ToolValidationException>(() => CiResultManifestCommand.Parse([
+                "--job", "pipeline:job", "--plan-digest", digest,
+                "--artifact", "artifact|LinuxX64|linux",
+                "--artifact", "artifact|LinuxArm64|linux/arm64", "--output", output]));
         }
         finally
         {

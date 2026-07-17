@@ -9,7 +9,10 @@ internal sealed record CiResultManifestOptions(
     string Job,
     string PlanDigest,
     string Output,
-    IReadOnlyList<string> TrxFiles);
+    IReadOnlyList<string> TrxFiles,
+    IReadOnlyList<CiResultArtifactOption> Artifacts);
+
+internal sealed record CiResultArtifactOption(string Artifact, string Architecture, string Path);
 
 internal static class CiResultManifestCommand
 {
@@ -52,6 +55,16 @@ internal static class CiResultManifestCommand
             writer.WriteString("planDigest", options.PlanDigest);
             writer.WriteBoolean("succeeded", true);
             writer.WriteNumber("requiredTestSkips", requiredTestSkips);
+            writer.WriteStartArray("artifacts");
+            foreach (var artifact in options.Artifacts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("artifact", artifact.Artifact);
+                writer.WriteString("architecture", artifact.Architecture);
+                writer.WriteString("path", artifact.Path);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
         File.WriteAllBytes(output, content.ToArray());
@@ -66,6 +79,7 @@ internal static class CiResultManifestCommand
         string? planDigest = null;
         string? output = null;
         var trx = new List<string>();
+        var artifacts = new List<CiResultArtifactOption>();
         for (var index = 0; index < arguments.Length; index += 2)
         {
             if (index + 1 == arguments.Length)
@@ -85,6 +99,9 @@ internal static class CiResultManifestCommand
                 case "--trx" when trx.Count < MaximumTrxFiles:
                     trx.Add(Path.GetFullPath(value));
                     break;
+                case "--artifact" when artifacts.Count < 2:
+                    artifacts.Add(ParseArtifact(value));
+                    break;
                 default:
                     throw new ToolValidationException(["ci-result-manifest contains an unknown, duplicate, or excessive option"]);
             }
@@ -96,8 +113,23 @@ internal static class CiResultManifestCommand
             errors.Add("ci-result-manifest job is invalid");
         if (!Digest(planDigest)) errors.Add("ci-result-manifest plan digest is invalid");
         if (string.IsNullOrWhiteSpace(output)) errors.Add("ci-result-manifest output is required");
+        if (artifacts.Select(static value => value.Architecture).Distinct(StringComparer.Ordinal).Count() !=
+                artifacts.Count ||
+            artifacts.Select(static value => value.Path).Distinct(StringComparer.Ordinal).Count() != artifacts.Count ||
+            artifacts.Any(left => artifacts.Any(right => left != right &&
+                right.Path.StartsWith(left.Path + '/', StringComparison.Ordinal))))
+            errors.Add("ci-result-manifest artifact roots must be distinct and non-overlapping");
         if (errors.Count != 0) throw new ToolValidationException(errors);
-        return new(job!, planDigest!, output!, trx.AsReadOnly());
+        return new(job!, planDigest!, output!, trx.AsReadOnly(), artifacts.AsReadOnly());
+    }
+
+    private static CiResultArtifactOption ParseArtifact(string value)
+    {
+        var fields = value.Split('|');
+        if (fields is not [var artifact, var architecture, var path] || !ArtifactId(artifact) ||
+            architecture is not ("Any" or "LinuxX64" or "LinuxArm64") || !RelativePath(path))
+            throw new ToolValidationException(["ci-result-manifest artifact declaration is invalid"]);
+        return new(artifact, architecture, path);
     }
 
     internal static (int Total, int Skipped) ReadTrx(string path)
@@ -180,4 +212,16 @@ internal static class CiResultManifestCommand
     private static bool Digest(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
         value.Any(static character => character != '0');
+
+    private static bool ArtifactId(string? value) => value is { Length: >= 1 and <= 256 } &&
+        value[0] != '/' && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
+
+    private static bool RelativePath(string? value) => value is { Length: >= 1 and <= 1024 } &&
+        value[0] != '/' && !value.EndsWith('/') && !value.Contains("//", StringComparison.Ordinal) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/') &&
+        value.Split('/').All(static segment => segment is not ("" or "." or ".."));
 }

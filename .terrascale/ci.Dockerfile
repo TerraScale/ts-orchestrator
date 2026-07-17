@@ -55,11 +55,22 @@ COPY --from=test /evidence/tests/ /evidence/tests/
 COPY --from=test /evidence/terrascale-ci-result-v1.json /
 
 FROM test AS artifact
-RUN dotnet publish src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj -c Release -r linux-x64 --self-contained --no-restore -o /candidate/orchestrator/linux-x64
-RUN dotnet publish src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj -c Release -r linux-arm64 --self-contained --no-restore -o /candidate/orchestrator/linux-arm64
-RUN dotnet publish src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj -c Release -r linux-x64 --self-contained --no-restore -o /candidate/cli/linux-x64
-RUN dotnet publish src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj -c Release -r linux-arm64 --self-contained --no-restore -o /candidate/cli/linux-arm64
+ARG TS_CI_JOB
+ARG TS_CI_PLAN_DIGEST
+RUN dotnet publish src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj -c Release -r linux-x64 --self-contained --no-restore -o /candidate/linux-x64/orchestrator
+RUN dotnet publish src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj -c Release -r linux-arm64 --self-contained --no-restore -o /candidate/linux-arm64/orchestrator
+RUN dotnet publish src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj -c Release -r linux-x64 --self-contained --no-restore -o /candidate/linux-x64/cli
+RUN dotnet publish src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj -c Release -r linux-arm64 --self-contained --no-restore -o /candidate/linux-arm64/cli
+RUN dotnet run --project tools/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj -c Release --no-build --no-restore -- \
+    ci-result-manifest --job "$TS_CI_JOB" --plan-digest "$TS_CI_PLAN_DIGEST" \
+    --trx /evidence/tests/control-plane/control-plane.trx \
+    --trx /evidence/tests/model/model.trx \
+    --trx /evidence/tests/protocol/protocol.trx \
+    --trx /evidence/tests/scheduler/scheduler.trx \
+    --trx /evidence/tests/orchestrator/orchestrator.trx \
+    --artifact "TerraScale/TerraScale.Orchestrator|LinuxX64|linux-x64" \
+    --artifact "TerraScale/TerraScale.Orchestrator|LinuxArm64|linux-arm64" \
+    --output /candidate/terrascale-ci-result-v1.json
 
 FROM scratch AS ci-artifact
 COPY --from=artifact /candidate/ /
-COPY --from=test /evidence/terrascale-ci-result-v1.json /
