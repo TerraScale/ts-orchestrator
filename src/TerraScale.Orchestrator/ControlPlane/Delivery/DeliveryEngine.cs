@@ -70,11 +70,11 @@ public static class DeliveryEngine
         if (!TrustPolicyAllows(job))
             return Held(DeliveryErrorCode.TrustZoneDenied, job.Job);
 
-        var validRunners = runnerSnapshot.Where(runner => ValidRunner(runner, maximumIdentityLength)).ToArray();
-        if (validRunners.Length != runnerSnapshot.Count) return Held(DeliveryErrorCode.InvalidInput, job.Job);
-        if (validRunners.Select(static runner => runner.Runner).Distinct().Count() != validRunners.Length)
+        if (runnerSnapshot.Any(runner => !ValidRunner(runner, maximumIdentityLength)))
+            return Held(DeliveryErrorCode.InvalidInput, job.Job);
+        if (runnerSnapshot.Select(static runner => runner.Runner).Distinct().Count() != runnerSnapshot.Count)
             return Held(DeliveryErrorCode.DuplicateEvidence, job.Job);
-        var fresh = validRunners.Where(runner => runner.Sequence >= job.MinimumRunnerSequence &&
+        var fresh = runnerSnapshot.Where(runner => runner.Sequence >= job.MinimumRunnerSequence &&
             runner.Sequence <= job.MaximumRunnerSequence && runner.Available).ToArray();
         if (fresh.Length == 0) return Held(DeliveryErrorCode.RunnerStale, job.Job);
         var zoned = fresh.Where(runner => job.AllowedZones.Contains(runner.Zone)).ToArray();
