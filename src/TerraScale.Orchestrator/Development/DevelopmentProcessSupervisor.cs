@@ -194,11 +194,10 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--pull", "never",
             "--label", OwnershipLabel,
             "--label", $"io.terrascale.profile={topology.Profile}",
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
-            "--pids-limit", ContainerProcessLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--memory", memory,
-            "--memory-swap", memory,
+        ]);
+        Add(process.StartInfo, ContainerIsolationArguments(memory));
+        Add(process.StartInfo,
+        [
             "--stop-timeout", "15",
             "--env-file", environmentFile,
             "--volume", $"{workspaceRoot}:{workspaceRoot}:ro",
@@ -324,6 +323,16 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     internal static IReadOnlyList<string> OwnedPodRemovalArguments(string podName, int timeoutSeconds) =>
         ["pod", "rm", "--force", "--time", timeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture), podName];
+
+    internal static IReadOnlyList<string> ContainerIsolationArguments(string memory) =>
+    [
+        "--read-only",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--pids-limit", ContainerProcessLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        "--memory", memory,
+        "--memory-swap", memory,
+    ];
 
     internal static string? WritableRuntimeOverlay(
         DevelopmentTopology topology,

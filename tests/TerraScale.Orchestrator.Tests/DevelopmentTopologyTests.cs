@@ -187,6 +187,21 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task ServiceContainersUseReadOnlyBoundedRootlessIsolation()
+    {
+        var arguments = DevelopmentProcessSupervisor.ContainerIsolationArguments("335544320");
+
+        await Assert.That(arguments).IsEquivalentTo([
+            "--read-only",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--pids-limit", "512",
+            "--memory", "335544320",
+            "--memory-swap", "335544320",
+        ]);
+    }
+
+    [Test]
     public async Task ProductArtifactBuildUsesOneMsBuildNode()
     {
         await Assert.That(DevelopmentArtifactBuilder.DotNetBuildArguments("product.csproj"))
