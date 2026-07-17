@@ -343,6 +343,13 @@ authority. Malformed, invalid-signature, stale, conflicting, and non-durable
 deliveries remain unacknowledged. Authority or acknowledgement loss after the
 receipt is safe: redelivery observes the durable duplicate and a replacement
 leader can acknowledge it without repeating acceptance.
+The concrete pull adapter requires the exact `CELL_SPEC` stream, cell subject,
+durable consumer identity, nonzero stream/consumer sequences, and delivery
+count within the configured five-attempt bound. Its per-instance consumer has a
+15-second acknowledgement window, at most eight outstanding messages/pulls,
+bounded backoff, and double acknowledgements. Repeated NATS header values are
+preserved so the strict wire decoder can reject duplicates instead of silently
+choosing one.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a

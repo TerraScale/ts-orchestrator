@@ -14,6 +14,8 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string StatusSubject => $"{Root}.query.status";
 
+    public string CellSpecSubject => $"{Root}.desired.gitops";
+
     public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";
 
     public string ProtocolObject => "orchestrator-protocol-v1";
@@ -70,6 +72,24 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         MaxDeliver = 5,
         MaxAckPending = 32,
         MaxWaiting = 16,
+        Backoff =
+        [
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(30)
+        ],
+        NumReplicas = Replicas
+    };
+
+    public ConsumerConfig CellSpecConsumer => new($"gitops_cell_spec_{Instance}")
+    {
+        Description = $"Durable signed native GitOps CellSpecs for {Cell}/{Instance}",
+        FilterSubject = CellSpecSubject,
+        AckWait = TimeSpan.FromSeconds(15),
+        MaxDeliver = 5,
+        MaxAckPending = 8,
+        MaxWaiting = 8,
         Backoff =
         [
             TimeSpan.FromSeconds(1),
