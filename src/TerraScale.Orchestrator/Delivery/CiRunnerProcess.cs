@@ -10,12 +10,50 @@ using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Delivery;
 
+internal sealed record CiRunnerNatsConfiguration(
+    string Url,
+    string CredentialsFile,
+    NatsTlsFiles Tls)
+{
+    private const UnixFileMode ForbiddenCredentialMode =
+        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+        UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+
+    internal static CiRunnerNatsConfiguration Resolve(
+        string? url,
+        string? credentialsFile,
+        string? caFile,
+        string? certificateFile,
+        string? keyFile)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
+            throw new ArgumentException("TS_ORCH_CI_RUNNER_NATS_URL must be an absolute tls:// URL.");
+        if (string.IsNullOrWhiteSpace(credentialsFile))
+            throw new ArgumentException("TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE is required.");
+        if (!OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("CI runner NATS credentials require Linux file permissions.");
+        var credentials = Path.GetFullPath(credentialsFile);
+        var file = new FileInfo(credentials);
+        if (!file.Exists || file.LinkTarget is not null || file.Length is < 1 or > 32 * 1024 ||
+            (File.GetUnixFileMode(credentials) & ForbiddenCredentialMode) != 0)
+            throw new ArgumentException(
+                "TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE must be a bounded owner-private regular file.");
+        var tls = NatsTlsFiles.Resolve(
+            caFile,
+            certificateFile,
+            keyFile,
+            "TS_ORCH_CI_RUNNER_NATS_TLS") ?? throw new ArgumentException(
+                "A CI runner requires its complete NATS mTLS identity.");
+        return new(uri.ToString(), credentials, tls);
+    }
+}
+
 internal sealed record CiRunnerProcessConfiguration(
     string Runner,
     TrustZone Zone,
     long Sequence,
     IReadOnlyList<RunnerCapability> Capabilities,
-    GlobalNatsConfiguration Nats,
+    CiRunnerNatsConfiguration Nats,
     CommandIdentityConfiguration CommandIdentity,
     string WorkspaceRoot,
     CiRunnerBuildKitRuntime BuildKit,
@@ -42,13 +80,12 @@ internal sealed record CiRunnerProcessConfiguration(
                 "TS_ORCH_CI_RUNNER_ZONE must be 'untrusted-product' or 'trusted-build'."),
         };
         var capabilities = CapabilitiesFor(zone, environment("TS_ORCH_CI_RUNNER_CAPABILITIES"));
-        var nats = GlobalNatsConfiguration.Resolve(
-            environment("TS_ORCH_GLOBAL_NATS_URL"),
-            environment("TS_ORCH_GLOBAL_NATS_NKEY_FILE"),
-            environment("TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"),
-            environment("TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"),
-            environment("TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"),
-            3) ?? throw new ArgumentException("A CI runner requires its complete global NATS identity.");
+        var nats = CiRunnerNatsConfiguration.Resolve(
+            environment("TS_ORCH_CI_RUNNER_NATS_URL"),
+            environment("TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE"),
+            environment("TS_ORCH_CI_RUNNER_NATS_TLS_CA_FILE"),
+            environment("TS_ORCH_CI_RUNNER_NATS_TLS_CERT_FILE"),
+            environment("TS_ORCH_CI_RUNNER_NATS_TLS_KEY_FILE"));
         var commandIdentity = CommandIdentityConfiguration.Resolve(
             null,
             environment("TS_ORCH_COMMAND_TRUST_KEY_FILES"));
@@ -385,20 +422,7 @@ internal sealed class CiRunnerNatsRuntime : IAsyncDisposable
         CiRunnerProcessConfiguration configuration,
         CancellationToken cancellationToken)
     {
-        var options = new NatsOpts
-        {
-            Url = configuration.Nats.Url,
-            RetryOnInitialConnect = true,
-            RequestTimeout = TimeSpan.FromSeconds(15),
-            AuthOpts = new NatsAuthOpts { NKeyFile = configuration.Nats.NKeyFile },
-            TlsOpts = new NatsTlsOpts
-            {
-                Mode = TlsMode.Require,
-                CaFile = configuration.Nats.Tls.CaFile,
-                CertFile = configuration.Nats.Tls.CertificateFile,
-                KeyFile = configuration.Nats.Tls.KeyFile,
-            },
-        };
+        var options = Options(configuration.Nats);
         var client = new NatsClient(options);
         try
         {
@@ -433,6 +457,21 @@ internal sealed class CiRunnerNatsRuntime : IAsyncDisposable
             throw;
         }
     }
+
+    internal static NatsOpts Options(CiRunnerNatsConfiguration configuration) => new()
+    {
+        Url = configuration.Url,
+        RetryOnInitialConnect = true,
+        RequestTimeout = TimeSpan.FromSeconds(15),
+        AuthOpts = new NatsAuthOpts { CredsFile = configuration.CredentialsFile },
+        TlsOpts = new NatsTlsOpts
+        {
+            Mode = TlsMode.Require,
+            CaFile = configuration.Tls.CaFile,
+            CertFile = configuration.Tls.CertificateFile,
+            KeyFile = configuration.Tls.KeyFile,
+        },
+    };
 
     public ValueTask DisposeAsync() => client.DisposeAsync();
 }

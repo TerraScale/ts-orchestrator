@@ -85,7 +85,12 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 infisicalSecretPath = "/orchestrator/fra",
                 infisicalClientIdFile = "/run/credentials/infisical-client-id",
                 infisicalClientSecretFile = "/run/credentials/infisical-client-secret",
-                infisicalOrganizationSlug = "terrascale"
+                infisicalOrganizationSlug = "terrascale",
+                ciRunnerNatsUrl = "tls://global-control.internal:4222",
+                ciRunnerNatsCredentialsFile = "/run/credentials/ci-runner.creds",
+                ciRunnerNatsTlsCaFile = "/run/credentials/global-ca.pem",
+                ciRunnerNatsTlsCertificateFile = "/run/credentials/ci-runner.pem",
+                ciRunnerNatsTlsKeyFile = "/run/credentials/ci-runner-key.pem"
             }));
 
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
@@ -110,6 +115,13 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 .IsEqualTo("/run/credentials/infisical-client-secret");
             await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_INFISICAL_ORGANIZATION_SLUG"))
                 .IsEqualTo("terrascale");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_CI_RUNNER_NATS_URL"))
+                .IsEqualTo("tls://global-control.internal:4222");
+            await Assert.That(configuration.GetEnvironmentValue(
+                    "TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE"))
+                .IsEqualTo("/run/credentials/ci-runner.creds");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_CI_RUNNER_NATS_TLS_CA_FILE"))
+                .IsEqualTo("/run/credentials/global-ca.pem");
         }
         finally
         {

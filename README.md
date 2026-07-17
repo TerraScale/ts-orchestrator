@@ -406,14 +406,21 @@ bounded renewable lease, fences crash takeover, and records one terminal
 evidence digest or typed failure. The runner now compiles and owns one exact
 rootless BuildKit daemon, verifies its Unix-socket peer UID, executable, and
 closed arguments before use, and stops the process tree on cancellation. The
-`runner` process mode connects with its scoped global-NATS identity, verifies the
-pre-created consumer, reconstructs the exact signed isolation profile, executes
+`runner` process mode connects with its scoped short-lived NATS user JWT and
+distinct mTLS machine identity, verifies the pre-created consumer, reconstructs
+the exact signed isolation profile, executes
 the durable coordinator, and exits after 60 idle seconds by default. Runtime
 roots and runner identity/resource values are supplied through `HOME`,
 `XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
 configurable from 30 to 900 seconds. Controller-side result publication and
 candidate artifact interpretation/publication remain separate gates. No result
 is acknowledged unless its exact durable sink completed first.
+
+The runner receives that identity through
+`TS_ORCH_CI_RUNNER_NATS_URL`, an owner-private standard NATS credentials file at
+`TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE`, and the complete
+`TS_ORCH_CI_RUNNER_NATS_TLS_{CA,CERT,KEY}_FILE` set. It never accepts the
+controller's global NKey as a runner credential.
 
 OCI CI capacity is compiled as standalone preemptible
 `VM.Standard.A1.Flex` instances with 4 OCPUs and 24 GiB, a private VNIC, closed

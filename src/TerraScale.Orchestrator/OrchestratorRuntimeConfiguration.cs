@@ -36,7 +36,12 @@ internal sealed record OrchestratorRuntimeConfiguration(
     long? CiRunnerEphemeralDiskBytes = null,
     int? CiRunnerPids = null,
     long? CiRunnerMaximumLogBytes = null,
-    int? CiRunnerIdleSeconds = null)
+    int? CiRunnerIdleSeconds = null,
+    string? CiRunnerNatsUrl = null,
+    string? CiRunnerNatsCredentialsFile = null,
+    string? CiRunnerNatsTlsCaFile = null,
+    string? CiRunnerNatsTlsCertificateFile = null,
+    string? CiRunnerNatsTlsKeyFile = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -97,6 +102,11 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_CI_RUNNER_PIDS" => Invariant(CiRunnerPids),
         "TS_ORCH_CI_RUNNER_MAXIMUM_LOG_BYTES" => Invariant(CiRunnerMaximumLogBytes),
         "TS_ORCH_CI_RUNNER_IDLE_SECONDS" => Invariant(CiRunnerIdleSeconds),
+        "TS_ORCH_CI_RUNNER_NATS_URL" => CiRunnerNatsUrl,
+        "TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE" => CiRunnerNatsCredentialsFile,
+        "TS_ORCH_CI_RUNNER_NATS_TLS_CA_FILE" => CiRunnerNatsTlsCaFile,
+        "TS_ORCH_CI_RUNNER_NATS_TLS_CERT_FILE" => CiRunnerNatsTlsCertificateFile,
+        "TS_ORCH_CI_RUNNER_NATS_TLS_KEY_FILE" => CiRunnerNatsTlsKeyFile,
         _ => null
     };
 
