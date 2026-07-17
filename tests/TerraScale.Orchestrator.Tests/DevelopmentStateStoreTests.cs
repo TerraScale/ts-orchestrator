@@ -5,6 +5,54 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentStateStoreTests
 {
     [Test]
+    public async Task ObsoleteResourceKindIsIgnoredAsDisposableState()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-state-{Guid.NewGuid():N}");
+        var stateFile = Path.Combine(directory, "state.json");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await File.WriteAllTextAsync(
+                stateFile,
+                """
+                {
+                  "schemaVersion": 2,
+                  "profile": "dev-containers-three-cell-lean",
+                  "generation": 7,
+                  "startedAt": "2026-07-17T00:00:00Z",
+                  "observedAt": "2026-07-17T00:00:00Z",
+                  "resources": [{
+                    "name": "gru-api",
+                    "cell": "gru",
+                    "kind": "api",
+                    "replica": 1,
+                    "state": "ready",
+                    "healthy": true,
+                    "detail": "obsolete",
+                    "observedAt": "2026-07-17T00:00:00Z"
+                  }],
+                  "reconciliation": {
+                    "desiredResources": 1,
+                    "observedResources": 1,
+                    "readyResources": 1,
+                    "startingResources": 0,
+                    "degradedResources": 0,
+                    "failedResources": 0,
+                    "missingResources": [],
+                    "unexpectedResources": []
+                  }
+                }
+                """);
+
+            await Assert.That(await DevelopmentStateStore.ReadAsync(stateFile, CancellationToken.None)).IsNull();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task StartingStateDoesNotPublishCutoverEndpoints()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-state-{Guid.NewGuid():N}");

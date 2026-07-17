@@ -71,11 +71,21 @@ internal static class DevelopmentStateStore
             return null;
         }
 
-        await using var stream = File.OpenRead(stateFile);
-        return await JsonSerializer.DeserializeAsync<DevelopmentRuntimeState>(
-            stream,
-            SerializerOptions,
-            cancellationToken);
+        try
+        {
+            await using var stream = File.OpenRead(stateFile);
+            return await JsonSerializer.DeserializeAsync<DevelopmentRuntimeState>(
+                stream,
+                SerializerOptions,
+                cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // Development observations are disposable projections, not desired state.
+            // A renamed or removed resource kind must not prevent a newer runtime from
+            // reconciling a fresh generation and atomically replacing the snapshot.
+            return null;
+        }
     }
 
     private static async Task WriteAtomicAsync<T>(
