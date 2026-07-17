@@ -3,6 +3,8 @@ using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using TerraScale.Orchestrator.Operations;
+using TerraScale.Orchestrator.Observability;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -45,12 +47,32 @@ try
         return 0;
     }
 
-    await using var runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
+    using var telemetry = OrchestratorTelemetry.Start(options, Environment.GetEnvironmentVariable);
+    using var startupActivity = telemetry.StartRuntime();
+    var startupTimestamp = Stopwatch.GetTimestamp();
+    NatsRuntime runtime;
+    try
+    {
+        runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
+    }
+    catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+    {
+        throw;
+    }
+    catch (Exception exception)
+    {
+        telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
+        startupActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+        throw;
+    }
+    await using var ownedRuntime = runtime;
+    telemetry.RecordReady(Stopwatch.GetElapsedTime(startupTimestamp));
+    startupActivity?.SetStatus(ActivityStatusCode.Ok);
     Console.WriteLine($"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}");
 
     if (options.Command is OrchestratorCommand.Run)
     {
-        await runtime.Completion.WaitAsync(shutdown.Token);
+        await ownedRuntime.Completion.WaitAsync(shutdown.Token);
     }
 
     return 0;

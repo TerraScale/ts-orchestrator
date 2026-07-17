@@ -62,6 +62,27 @@ The TLS CA, certificate, and key options (or matching
 the PEM identity must match its owner-private key, and TLS is required rather
 than opportunistically negotiated.
 
+The `run` and `check` paths emit correlated OpenTelemetry traces, metrics, and
+structured logs through the pinned OTLP exporter. Export is disabled when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is unset or empty and never affects product or
+control readiness. Plaintext export is accepted only to a loopback collector;
+a remote collector requires HTTPS. The standard OpenTelemetry mTLS variables
+provide the CA, client certificate, and client key:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://alloy-gru.internal:4318 \
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_CERTIFICATE=/run/credentials/otel/ca.pem \
+OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/run/credentials/otel/client.pem \
+OTEL_EXPORTER_OTLP_CLIENT_KEY=/run/credentials/otel/client-key.pem \
+terrascale-orchestrator check
+```
+
+The built-in signal attributes are deliberately bounded to cell, controller
+instance, and startup outcome. Export queues and batches use the bounded
+OpenTelemetry SDK processors; regional disk spooling and drop-oldest policy
+remain the responsibility of the managed Alloy/Collector role.
+
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS` and `ORCH_RUNTIME` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
 The three regional controller candidates share one NATS service queue group
