@@ -99,6 +99,10 @@ public static class RepositoryCiDescriptor
 
             var dependencies = ParseRepositoryDependencies(document);
             var nodes = OrderAndValidate(ParseNodes(document));
+            if (promotion != RepositoryCiPromotionStrategy.None &&
+                !nodes.Any(static node => node.Kind == RepositoryCiNodeKind.Artifact &&
+                    node.Profiles.Contains(RepositoryCiProfile.Release)))
+                throw new InvalidDataException("A promotable repository CI policy requires a release artifact node.");
             return new(
                 ApiVersion,
                 document.Repository!,
@@ -202,8 +206,11 @@ public static class RepositoryCiDescriptor
         {
             foreach (var dependency in node.DependsOn)
             {
-                if (dependency == node.Id || !byId.ContainsKey(dependency))
+                if (dependency == node.Id || !byId.TryGetValue(dependency, out var dependencyNode))
                     throw new InvalidDataException("Every repository CI node dependency must name another node.");
+                if (node.Profiles.Except(dependencyNode.Profiles).Any() ||
+                    Rank(dependencyNode.Kind) > Rank(node.Kind))
+                    throw new InvalidDataException("A repository CI dependency cannot narrow its consumer profile or run later.");
                 dependents[dependency].Add(node.Id);
             }
         }
@@ -226,6 +233,15 @@ public static class RepositoryCiDescriptor
             throw new InvalidDataException("The repository CI node graph contains a cycle.");
         return ordered;
     }
+
+    private static int Rank(RepositoryCiNodeKind kind) => kind switch
+    {
+        RepositoryCiNodeKind.Static => 0,
+        RepositoryCiNodeKind.Build => 1,
+        RepositoryCiNodeKind.Test => 2,
+        RepositoryCiNodeKind.Artifact => 3,
+        _ => throw new InvalidDataException("The repository CI node kind is invalid."),
+    };
 
     private static string ComputeDigest(
         string repository,

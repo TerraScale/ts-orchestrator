@@ -89,8 +89,12 @@ public sealed class RepositoryCiDescriptorTests
         var self = ValidDescriptor().Replace("\"dependsOn\":[\"static\"]", "\"dependsOn\":[\"build\"]", StringComparison.Ordinal);
         var cycle = ValidDescriptor().Replace("\"id\":\"static\",\"kind\":\"Static\"", "\"id\":\"static\",\"kind\":\"Static\",\"dependsOn\":[\"candidate\"]", StringComparison.Ordinal);
         var repositorySelf = ValidDescriptor().Replace("TerraScale/TerraBase", "TerraScale/TerraScale.Internals", StringComparison.Ordinal);
+        var narrowedProfile = ValidDescriptor().Replace(
+            "\"id\":\"static\",\"kind\":\"Static\",\"resourceWeight\":\"Light\",\"profiles\":[\"Feature\",\"Release\"]",
+            "\"id\":\"static\",\"kind\":\"Static\",\"resourceWeight\":\"Light\",\"profiles\":[\"Release\"]",
+            StringComparison.Ordinal);
 
-        foreach (var value in new[] { missing, self, cycle, repositorySelf })
+        foreach (var value in new[] { missing, self, cycle, repositorySelf, narrowedProfile })
             await Assert.That(() => Parse(value)).Throws<InvalidDataException>();
     }
 
