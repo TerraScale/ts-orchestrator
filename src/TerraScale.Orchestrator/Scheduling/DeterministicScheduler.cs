@@ -24,13 +24,16 @@ public sealed class DeterministicScheduler
             throw new ArgumentException("Candidate collections cannot contain null.", nameof(candidates));
         }
 
-        var orderedCandidates = suppliedCandidates.OrderBy(candidate => candidate.Id, StringComparer.Ordinal).ToArray();
-        if (orderedCandidates.Select(candidate => candidate.Id).Distinct(StringComparer.Ordinal).Count() != orderedCandidates.Length)
+        Array.Sort(suppliedCandidates, static (left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+        for (var index = 1; index < suppliedCandidates.Length; index++)
         {
-            throw new ArgumentException("Candidate IDs must be unique.", nameof(candidates));
+            if (StringComparer.Ordinal.Equals(suppliedCandidates[index - 1].Id, suppliedCandidates[index].Id))
+            {
+                throw new ArgumentException("Candidate IDs must be unique.", nameof(candidates));
+            }
         }
 
-        var evaluations = orderedCandidates.Select(candidate => Evaluate(workload, candidate, policy)).ToArray();
+        var evaluations = suppliedCandidates.Select(candidate => Evaluate(workload, candidate, policy)).ToArray();
         var selected = evaluations
             .Where(evaluation => evaluation.Score is not null)
             .Order(ScoreComparer.Instance)
