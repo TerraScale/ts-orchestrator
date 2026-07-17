@@ -60,20 +60,23 @@ public sealed class ForgejoCiTriggerPlan
     public bool RequiresQualifiedCandidate { get; }
 
     public JobRequest CreateJobRequest(
-        string resolvedCommit,
-        string resolvedTree,
+        ForgejoResolvedRevision resolved,
         long generation,
         long minimumRunnerSequence,
         long maximumRunnerSequence)
     {
+        ArgumentNullException.ThrowIfNull(resolved);
         if (Disposition != ForgejoCiTriggerDisposition.Dispatch)
             throw new InvalidOperationException("A non-dispatch Forgejo trigger cannot create CI work.");
         if (RequiresQualifiedCandidate)
             throw new InvalidOperationException("A promotion trigger requires exact qualified-candidate resolution before CI dispatch.");
-        if (!StringComparer.OrdinalIgnoreCase.Equals(resolvedCommit, Envelope.Revision))
-            throw new ArgumentException("The resolved commit does not match the signed Forgejo revision.", nameof(resolvedCommit));
-        if (!IsObjectId(resolvedTree) || resolvedTree.All(static value => value == '0'))
-            throw new ArgumentException("The resolved Git tree identity is invalid.", nameof(resolvedTree));
+        if (resolved.Repository != Envelope.Repository ||
+            !StringComparer.OrdinalIgnoreCase.Equals(resolved.Commit, Envelope.Revision))
+            throw new ArgumentException("The resolved source does not match the signed Forgejo revision.", nameof(resolved));
+        if (!IsObjectId(resolved.Tree) || resolved.Tree.All(static value => value == '0'))
+            throw new ArgumentException("The resolved Git tree identity is invalid.", nameof(resolved));
+        if (JobKind == JobKind.TrustedBuild && !resolved.SignatureVerified)
+            throw new InvalidOperationException("A trusted candidate build requires a verified source commit signature.");
         if (generation <= 0 || minimumRunnerSequence <= 0 || maximumRunnerSequence < minimumRunnerSequence)
             throw new ArgumentOutOfRangeException(nameof(generation), "Generation and runner evidence bounds must be positive and ordered.");
 
@@ -82,7 +85,7 @@ public sealed class ForgejoCiTriggerPlan
             new PipelineId($"forgejo-{identity[..24]}"),
             new JobId($"ci-{identity[..32]}"),
             JobKind,
-            new TreeId(resolvedTree.ToLowerInvariant()),
+            new TreeId(resolved.Tree.ToLowerInvariant()),
             generation,
             1,
             MaximumAttempts,

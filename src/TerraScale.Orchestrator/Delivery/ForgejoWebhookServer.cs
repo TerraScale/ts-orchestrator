@@ -22,10 +22,10 @@ public sealed class ForgejoWebhookConfiguration
         string? repository,
         string? secretFile)
     {
-        var supplied = new[] { listenPrefix, repository, secretFile }
-            .Count(static value => !string.IsNullOrWhiteSpace(value));
-        if (supplied == 0) return null;
-        if (supplied != 3)
+        var hasPrefix = !string.IsNullOrWhiteSpace(listenPrefix);
+        var hasSecret = !string.IsNullOrWhiteSpace(secretFile);
+        if (!hasPrefix && !hasSecret) return null;
+        if (!hasPrefix || !hasSecret || string.IsNullOrWhiteSpace(repository))
             throw new ArgumentException(
                 "Forgejo webhook configuration requires listen prefix, repository, and secret file together.");
         if (!Uri.TryCreate(listenPrefix, UriKind.Absolute, out var prefix) ||
