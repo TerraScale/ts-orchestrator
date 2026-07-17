@@ -36,7 +36,8 @@ public sealed record OrchestratorOptions(
     OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevContainers,
     string? NatsNKeyFile = null,
     Messaging.NatsTlsFiles? NatsTls = null,
-    Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null)
+    Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
+    Delivery.ForgejoSourceConfiguration? ForgejoSource = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -97,6 +98,12 @@ public sealed record OrchestratorOptions(
                     environment("TS_ORCH_FORGEJO_REPOSITORY"),
                     environment("TS_ORCH_FORGEJO_SECRET_FILE"))
                 : null;
+            var forgejoSource = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? Delivery.ForgejoSourceConfiguration.Resolve(
+                    environment("TS_ORCH_FORGEJO_API_URL"),
+                    environment("TS_ORCH_FORGEJO_REPOSITORY"),
+                    environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
+                : null;
             return new(
                 command,
                 cell,
@@ -105,7 +112,8 @@ public sealed record OrchestratorOptions(
                 Instance: instance,
                 NatsNKeyFile: natsNKeyFile,
                 NatsTls: natsTls,
-                ForgejoWebhook: forgejoWebhook);
+                ForgejoWebhook: forgejoWebhook,
+                ForgejoSource: forgejoSource);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);
