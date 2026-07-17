@@ -195,7 +195,7 @@ internal sealed class CiRunnerNatsCredentialLease : IDisposable
 /// <summary>Issues a short-lived NATS user only after its exact consumer was reconciled.</summary>
 internal sealed class CiRunnerNatsCredentialIssuer
 {
-    internal static readonly TimeSpan MaximumLifetime = TimeSpan.FromMinutes(15);
+    internal static readonly TimeSpan MaximumLifetime = TimeSpan.FromMinutes(75);
     internal static readonly TimeSpan MinimumLifetime = TimeSpan.FromMinutes(1);
     internal const int MaximumPayloadBytes = 128 * 1024;
     internal const int MaximumSubscriptions = 32;

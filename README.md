@@ -221,8 +221,9 @@ succeeds. Exact redelivery after an acknowledgement failure resumes from that
 durable acceptance; higher fenced takeover and contiguous retry attempts can
 replace it. A bounded runner pull adapter derives one durable exact-subject
 consumer per runner, permits one in-flight command, rejects wrong
-stream/consumer/sequence/redelivery metadata, and uses a double ACK only through
-that durable inbox. Command signatures now use a protocol-owned, versioned
+stream/consumer/sequence/redelivery metadata, renews the delivery while the
+fenced workload runs, and double-ACKs only after terminal durable execution.
+Command signatures now use a protocol-owned, versioned
 canonical encoding that covers every identity, fence, validity, payload, and
 digest field without timestamp precision loss. The production identity adapter
 uses the supported .NET P-256/SHA-256 implementation: an intermediate private
@@ -240,7 +241,7 @@ prefix, the dedicated runner bundle bucket, and reply inboxes; it cannot publish
 jobs, use another runner's consumer or journal, mutate `GLOBAL_BUNDLES`, or call
 stream purge. The controller can now reconcile each runner's exact durable pull
 consumer and fail closed on altered server readback. A bounded issuer can mint a
-STANDARD-only, 1–15 minute NATS user JWT/NKey lease from a private account or
+STANDARD-only, 1–75 minute NATS user JWT/NKey lease from a private account or
 scoped account-signing credential after that readback; it embeds only the exact
 runner subject plan and zeroes retained seed buffers on disposal. Live credential
 issuance is enabled only with global authority plus
@@ -359,8 +360,8 @@ and replays the same operation after interruption. It drives publish, SFO, FRA,
 and GRU in order; any failed forward phase enters the journal's exact reverse
 rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
-new fence. Registry publication, regional actuator and live-verification
-implementations, and normal runner process wiring remain separate gates.
+new fence. Registry publication, regional actuator, live-verification
+implementations, and controller-side CI orchestration remain separate gates.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
@@ -400,10 +401,14 @@ bounded renewable lease, fences crash takeover, and records one terminal
 evidence digest or typed failure. The runner now compiles and owns one exact
 rootless BuildKit daemon, verifies its Unix-socket peer UID, executable, and
 closed arguments before use, and stops the process tree on cancellation. The
-runner process mode, controller-side result publication, and candidate artifact
-interpretation/publication are still separate missing gates. The standalone
-coordinator is not wired into normal startup and does not claim that a workload
-ran unless its exact durable sink completed first.
+`runner` process mode connects with its scoped global-NATS identity, verifies the
+pre-created consumer, reconstructs the exact signed isolation profile, executes
+the durable coordinator, and exits after 60 idle seconds by default. Runtime
+roots and runner identity/resource values are supplied through `HOME`,
+`XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
+configurable from 30 to 900 seconds. Controller-side result publication and
+candidate artifact interpretation/publication remain separate gates. No result
+is acknowledged unless its exact durable sink completed first.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

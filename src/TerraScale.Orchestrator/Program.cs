@@ -40,7 +40,7 @@ try
             LocalEnvironment,
             shutdown.Token);
     }
-    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check"
+    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check" or "runner"
         ? InfisicalConfiguration.Resolve(LocalEnvironment)
         : null;
     using var infisicalEnvironment = infisicalConfiguration is null
@@ -48,6 +48,12 @@ try
         : await InfisicalSecretEnvironment.LoadAsync(infisicalConfiguration, shutdown.Token);
     string? ResolvedEnvironment(string key) =>
         LocalEnvironment(key) ?? infisicalEnvironment?.GetValue(key);
+    if (args.FirstOrDefault() is "runner")
+    {
+        if (!OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("CI runners require Linux isolation.");
+        return await CiRunnerProcess.ExecuteAsync(ResolvedEnvironment, shutdown.Token);
+    }
     var options = OrchestratorOptions.Parse(
         args,
         ResolvedEnvironment);

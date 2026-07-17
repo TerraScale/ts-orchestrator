@@ -24,7 +24,19 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? InfisicalSecretPath = null,
     string? InfisicalClientIdFile = null,
     string? InfisicalClientSecretFile = null,
-    string? InfisicalOrganizationSlug = null)
+    string? InfisicalOrganizationSlug = null,
+    string? CiRunnerId = null,
+    string? CiRunnerZone = null,
+    long? CiRunnerSequence = null,
+    string? CiRunnerCapabilities = null,
+    string? CiRunnerWorkspaceRoot = null,
+    string? CiRunnerOutputRoot = null,
+    int? CiRunnerCpuMilliCores = null,
+    long? CiRunnerMemoryBytes = null,
+    long? CiRunnerEphemeralDiskBytes = null,
+    int? CiRunnerPids = null,
+    long? CiRunnerMaximumLogBytes = null,
+    int? CiRunnerIdleSeconds = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -73,6 +85,21 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_INFISICAL_CLIENT_ID_FILE" => InfisicalClientIdFile,
         "TS_ORCH_INFISICAL_CLIENT_SECRET_FILE" => InfisicalClientSecretFile,
         "TS_ORCH_INFISICAL_ORGANIZATION_SLUG" => InfisicalOrganizationSlug,
+        "TS_ORCH_CI_RUNNER_ID" => CiRunnerId,
+        "TS_ORCH_CI_RUNNER_ZONE" => CiRunnerZone,
+        "TS_ORCH_CI_RUNNER_SEQUENCE" => Invariant(CiRunnerSequence),
+        "TS_ORCH_CI_RUNNER_CAPABILITIES" => CiRunnerCapabilities,
+        "TS_ORCH_CI_RUNNER_WORKSPACE_ROOT" => CiRunnerWorkspaceRoot,
+        "TS_ORCH_CI_RUNNER_OUTPUT_ROOT" => CiRunnerOutputRoot,
+        "TS_ORCH_CI_RUNNER_CPU_MILLICORES" => Invariant(CiRunnerCpuMilliCores),
+        "TS_ORCH_CI_RUNNER_MEMORY_BYTES" => Invariant(CiRunnerMemoryBytes),
+        "TS_ORCH_CI_RUNNER_EPHEMERAL_DISK_BYTES" => Invariant(CiRunnerEphemeralDiskBytes),
+        "TS_ORCH_CI_RUNNER_PIDS" => Invariant(CiRunnerPids),
+        "TS_ORCH_CI_RUNNER_MAXIMUM_LOG_BYTES" => Invariant(CiRunnerMaximumLogBytes),
+        "TS_ORCH_CI_RUNNER_IDLE_SECONDS" => Invariant(CiRunnerIdleSeconds),
         _ => null
     };
+
+    private static string? Invariant(long? value) => value?.ToString(
+        System.Globalization.CultureInfo.InvariantCulture);
 }

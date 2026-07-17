@@ -41,7 +41,7 @@ public sealed class CiRunnerNatsCredentialIssuerTests
                 registration,
                 "runner-static",
                 DateTimeOffset.FromUnixTimeSeconds(1_800_000_000),
-                TimeSpan.FromMinutes(15));
+                TimeSpan.FromMinutes(75));
 
             var chunks = credential.Jwt.Split('.');
             using var header = JsonDocument.Parse(Base64Url.DecodeFromChars(chunks[0]));
@@ -58,7 +58,7 @@ public sealed class CiRunnerNatsCredentialIssuerTests
             await Assert.That(root.GetProperty("jti").GetString()).IsEqualTo(credential.LeaseId);
             await Assert.That(credential.LeaseId.Length).IsEqualTo(52);
             await Assert.That(root.GetProperty("iat").GetInt64()).IsEqualTo(1_800_000_000);
-            await Assert.That(root.GetProperty("exp").GetInt64()).IsEqualTo(1_800_000_900);
+            await Assert.That(root.GetProperty("exp").GetInt64()).IsEqualTo(1_800_004_500);
             await Assert.That(nats.GetProperty("pub").GetProperty("allow").EnumerateArray()
                 .Select(static value => value.GetString()!).ToArray()).IsEquivalentTo(plan.Publish);
             await Assert.That(nats.GetProperty("sub").GetProperty("allow").EnumerateArray()
@@ -139,7 +139,7 @@ public sealed class CiRunnerNatsCredentialIssuerTests
                     registration,
                     "runner-static",
                     now,
-                    TimeSpan.FromMinutes(15) + TimeSpan.FromSeconds(1)))
+                    TimeSpan.FromMinutes(75) + TimeSpan.FromSeconds(1)))
                 .Throws<ArgumentOutOfRangeException>();
             await Assert.That(async () => await issuer.IssueAsync(
                     registration,
