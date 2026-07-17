@@ -241,7 +241,7 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(arguments).Contains(DevelopmentContainerImages.RuntimeDependencies);
         await Assert.That(arguments).Contains("--infra-command");
         await Assert.That(arguments).Contains("sleep infinity");
-        await Assert.That(arguments).Contains("slirp4netns:allow_host_loopback=true");
+        await Assert.That(arguments).Contains("pasta:--host-lo-to-ns-lo,--log-file=/dev/null");
     }
 
     [Test]
