@@ -21,6 +21,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoSourceJournal forgejoSources,
         NativeGitOpsSourceJournal nativeGitOpsSources,
         RepositoryCiPipelineJournal pipelines,
+        RepositoryCiJobJournal jobs,
         RepositoryCiPromotionJournal promotions,
         RepositoryCiCandidateJournal candidates)
     {
@@ -31,6 +32,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
         Pipelines = pipelines;
+        Jobs = jobs;
         Promotions = promotions;
         Candidates = candidates;
     }
@@ -40,6 +42,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public ForgejoSourceJournal ForgejoSources { get; }
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     public RepositoryCiPipelineJournal Pipelines { get; }
+    public RepositoryCiJobJournal Jobs { get; }
     public RepositoryCiPromotionJournal Promotions { get; }
     public RepositoryCiCandidateJournal Candidates { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
@@ -93,6 +96,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 new(ledger),
                 new(ledger, objects),
                 new(ledger, objects),
+                new(ledger),
                 new(ledger),
                 new(ledger, objects));
         }

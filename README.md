@@ -151,6 +151,16 @@ the Forgejo event. Restart recovery re-parses every descriptor and recomputes
 the impact, pipeline, and job identities; interrupted writes resume, while a
 second plan for the same event, corrupt content, or lost authority fails closed.
 
+Each persisted pipeline can also initialize one compact CAS record per job.
+Only dependency-ready work can prepare a dispatch, and preparation reuses the
+closed runner selector plus the exact cgroup-v2, namespace, seccomp, network,
+credential, cache, resource, and output-isolation policy. Prepared, dispatched,
+running, success, and failure edges are strictly ordered and idempotent. A
+higher global authority epoch increments the job fence; an old controller can
+no longer advance it. Pipeline failure stops new dispatch, while successful
+dependency evidence unlocks the next deterministic DAG nodes. The NATS job
+publisher and real isolated runner executor remain separate unimplemented gates.
+
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
 (no automatic newline trimming), must be 32–4096 bytes, and must be private to

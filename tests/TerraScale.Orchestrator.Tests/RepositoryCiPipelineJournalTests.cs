@@ -132,6 +132,15 @@ public sealed class RepositoryCiPipelineJournalTests
             9,
             authorityStillValid ?? (() => true));
 
+    internal static RepositoryCiPipelinePlan Pipeline() => RepositoryCiPipelineJournal.CreatePlan(
+        Trigger(),
+        Descriptors(),
+        [new RepositoryCiChange(Repository, ["src/file.cs"])],
+        Sources(),
+        7,
+        10,
+        100);
+
     private static ForgejoCiTriggerPlan Trigger() => ForgejoCiTriggerPlanner.Plan(new(
         Guid.Parse("f6266f16-1bf3-46a5-9ea4-602e06ead473"),
         ForgejoWebhookKind.Push,
