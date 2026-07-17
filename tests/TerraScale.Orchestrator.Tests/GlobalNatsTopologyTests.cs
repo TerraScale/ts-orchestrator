@@ -46,10 +46,15 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(runner.DurableName).IsEqualTo(runner.Name);
         await Assert.That(runner.FilterSubject)
             .IsEqualTo(GlobalNatsTopology.CiJobSubject("untrusted-product", "runner-static"));
+        await Assert.That(runner.DeliverPolicy).IsEqualTo(ConsumerConfigDeliverPolicy.All);
+        await Assert.That(runner.AckPolicy).IsEqualTo(ConsumerConfigAckPolicy.Explicit);
+        await Assert.That(runner.ReplayPolicy).IsEqualTo(ConsumerConfigReplayPolicy.Instant);
         await Assert.That(runner.AckWait).IsEqualTo(TimeSpan.FromSeconds(30));
         await Assert.That(runner.MaxDeliver).IsEqualTo(5);
         await Assert.That(runner.MaxAckPending).IsEqualTo(1);
         await Assert.That(runner.MaxWaiting).IsEqualTo(4);
+        await Assert.That(runner.MaxBatch).IsEqualTo(1);
+        await Assert.That(runner.MaxExpires).IsEqualTo(TimeSpan.FromSeconds(30));
         await Assert.That(runner.InactiveThreshold).IsEqualTo(TimeSpan.FromHours(24));
         await Assert.That(runner.NumReplicas).IsEqualTo(3);
         await Assert.That(() => new GlobalNatsTopology(1)).Throws<ArgumentOutOfRangeException>();

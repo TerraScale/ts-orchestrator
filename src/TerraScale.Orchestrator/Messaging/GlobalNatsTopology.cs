@@ -118,11 +118,16 @@ public sealed class GlobalNatsTopology
         return new($"ci_runner_{zone.Replace('-', '_')}_{runnerHash}")
         {
             Description = $"Durable fenced CI command inbox for {zone} runner {runnerHash}",
+            DeliverPolicy = ConsumerConfigDeliverPolicy.All,
+            AckPolicy = ConsumerConfigAckPolicy.Explicit,
             FilterSubject = subject,
+            ReplayPolicy = ConsumerConfigReplayPolicy.Instant,
             AckWait = TimeSpan.FromSeconds(30),
             MaxDeliver = 5,
             MaxAckPending = 1,
             MaxWaiting = 4,
+            MaxBatch = 1,
+            MaxExpires = TimeSpan.FromSeconds(30),
             InactiveThreshold = TimeSpan.FromHours(24),
             Backoff =
             [

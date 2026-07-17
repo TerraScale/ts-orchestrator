@@ -17,6 +17,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         NatsClient client,
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
+        CiRunnerConsumerReconciler ciRunners,
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
         NativeGitOpsSourceJournal nativeGitOpsSources,
@@ -28,6 +29,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.client = client;
         this.authority = authority;
         this.ciEvents = ciEvents;
+        CiRunners = ciRunners;
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
@@ -39,6 +41,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 
     public Task Completion => Task.WhenAny(authority.Completion, ciEvents.Completion).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
+    public CiRunnerConsumerReconciler CiRunners { get; }
     public ForgejoSourceJournal ForgejoSources { get; }
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     public RepositoryCiPipelineJournal Pipelines { get; }
@@ -92,6 +95,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 client,
                 authority,
                 ciEvents,
+                new(client.CreateJetStreamContext(), topology),
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
                 new(ledger, objects),
