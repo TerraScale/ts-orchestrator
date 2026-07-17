@@ -50,7 +50,7 @@ internal sealed record OtlpExporterConfiguration(Uri Endpoint, OtlpExportProtoco
     private static Uri EnsureBasePath(Uri endpoint)
     {
         var builder = new UriBuilder(endpoint);
-        if (!builder.Path.EndsWith("/", StringComparison.Ordinal))
+        if (!builder.Path.EndsWith('/'))
         {
             builder.Path += '/';
         }
