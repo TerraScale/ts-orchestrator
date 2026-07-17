@@ -7,6 +7,8 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Read `ORCHESTRATOR.md` before changing architecture or production behavior.
 - Owner decisions 1A–10A are accepted. Pure Phase 1 contract tranches may freeze when safety policy remains explicit and configurable; unmeasured cost, storage, RPO, and RTO targets block deployment qualification, not implementation.
 - Never start a system-under-test VM, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
+- Keep the aggregate local container and test workload at or below 16 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
+- Do not reproduce the full production topology locally. Use three regions with replication factor 1; validating regional behavior is more important than simulating quorum locally.
 - Never edit sibling repositories from this checkout. Cross-repository cleanup must be done inside each owning product repo on `develop` (or on a user-requested branch/worktree pair), then committed and pushed to that repo's `develop` after the native replacement gate exists.
 
 ## Ownership and dependency rules
