@@ -78,6 +78,7 @@ try
             ? ForgejoSourcePoller.Start(
                 options.ForgejoSource,
                 ownedRuntime.ForgejoSources,
+                ownedRuntime.NativeGitOpsSources,
                 () => ownedRuntime.AuthoritySnapshot)
             : null;
     }

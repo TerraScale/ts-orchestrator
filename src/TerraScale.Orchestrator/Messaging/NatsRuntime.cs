@@ -27,7 +27,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         RuntimeRegistration registration,
         RegionalAuthorityCoordinator authority,
         ForgejoWebhookJournal forgejoWebhooks,
-        ForgejoSourceJournal forgejoSources)
+        ForgejoSourceJournal forgejoSources,
+        NativeGitOpsSourceJournal nativeGitOpsSources)
     {
         this.client = client;
         this.service = service;
@@ -35,11 +36,13 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.authority = authority;
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
+        NativeGitOpsSources = nativeGitOpsSources;
     }
 
     public Task Completion => authority.Completion;
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     internal ForgejoSourceJournal ForgejoSources { get; }
+    internal NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
@@ -194,7 +197,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 registration,
                 authority,
                 new(deliveryLedger),
-                new(deliveryLedger));
+                new(deliveryLedger),
+                new(deliveryLedger, new NatsNativeGitOpsManifestStore(state.Bundles)));
         }
         catch
         {

@@ -10,6 +10,8 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
     private readonly Func<string, CancellationToken, Task<ForgejoBranchObservation>> pollBranch;
     private readonly ForgejoSourceJournal journal;
     private readonly Func<RegionalAuthoritySnapshot> authority;
+    private readonly Func<ForgejoBranchObservation, long, long, CancellationToken,
+        Task<NativeGitOpsSourceReconcileResult>>? reconcile;
     private readonly ForgejoSourceClient? ownedClient;
     private readonly CancellationTokenSource stopping = new();
     private Task? loop;
@@ -19,7 +21,17 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         Func<string, CancellationToken, Task<ForgejoBranchObservation>> pollBranch,
         ForgejoSourceJournal journal,
         Func<RegionalAuthoritySnapshot> authority)
-        : this(pollBranch, journal, authority, null)
+        : this(pollBranch, journal, authority, null, null)
+    {
+    }
+
+    internal ForgejoSourcePoller(
+        Func<string, CancellationToken, Task<ForgejoBranchObservation>> pollBranch,
+        ForgejoSourceJournal journal,
+        Func<RegionalAuthoritySnapshot> authority,
+        Func<ForgejoBranchObservation, long, long, CancellationToken,
+            Task<NativeGitOpsSourceReconcileResult>> reconcile)
+        : this(pollBranch, journal, authority, reconcile, null)
     {
     }
 
@@ -27,11 +39,14 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         Func<string, CancellationToken, Task<ForgejoBranchObservation>> pollBranch,
         ForgejoSourceJournal journal,
         Func<RegionalAuthoritySnapshot> authority,
+        Func<ForgejoBranchObservation, long, long, CancellationToken,
+            Task<NativeGitOpsSourceReconcileResult>>? reconcile,
         ForgejoSourceClient? ownedClient)
     {
         this.pollBranch = pollBranch;
         this.journal = journal;
         this.authority = authority;
+        this.reconcile = reconcile;
         this.ownedClient = ownedClient;
     }
 
@@ -40,10 +55,17 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
     internal static ForgejoSourcePoller Start(
         ForgejoSourceConfiguration configuration,
         ForgejoSourceJournal journal,
+        NativeGitOpsSourceJournal gitOps,
         Func<RegionalAuthoritySnapshot> authority)
     {
         var client = ForgejoSourceClient.Create(configuration);
-        var poller = new ForgejoSourcePoller(client.PollBranchAsync, journal, authority, client);
+        var reconciler = new NativeGitOpsSourceReconciler(client, gitOps, authority);
+        var poller = new ForgejoSourcePoller(
+            client.PollBranchAsync,
+            journal,
+            authority,
+            reconciler.ReconcileAsync,
+            client);
         poller.loop = poller.RunAsync(poller.stopping.Token);
         return poller;
     }
@@ -79,10 +101,11 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
             var confirmed = authority();
             if (!confirmed.Ready || !confirmed.IsLeader || confirmed.Epoch != lease.Epoch) return;
 
+            var sequence = Interlocked.Increment(ref pollSequence);
             var receipt = await journal.ObserveAsync(
                 observation,
                 lease.Epoch,
-                Interlocked.Increment(ref pollSequence),
+                sequence,
                 cancellationToken);
             if (receipt.Disposition is ForgejoSourceJournalDisposition.StaleAuthority or
                 ForgejoSourceJournalDisposition.StaleSequence)
@@ -90,6 +113,16 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
             if (receipt.Disposition is ForgejoSourceJournalDisposition.UnprotectedBranch or
                 ForgejoSourceJournalDisposition.IdentityConflict or ForgejoSourceJournalDisposition.Unspecified)
                 throw new InvalidOperationException("Forgejo source polling produced an unsafe branch observation.");
+
+            if (reconcile is null) continue;
+            var plan = await reconcile(observation, lease.Epoch, sequence, cancellationToken);
+            if (plan.Disposition is NativeGitOpsSourceJournalDisposition.StaleAuthority or
+                NativeGitOpsSourceJournalDisposition.StaleSequence)
+                return;
+            if (plan.Disposition is not (NativeGitOpsSourceJournalDisposition.NotConfigured or
+                NativeGitOpsSourceJournalDisposition.Recorded or
+                NativeGitOpsSourceJournalDisposition.Duplicate))
+                throw new InvalidOperationException("Forgejo source polling produced an unsafe native GitOps plan.");
         }
     }
 

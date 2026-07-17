@@ -222,6 +222,17 @@ accepted/proposed diff as one source plan. Symlinks, path substitution,
 malformed encoding, size mismatch, unsigned commits, and stale or conflicting
 generations fail closed before regional work is planned.
 
+The fenced leader stores accepted manifest bytes under their content digest in
+`CELL_BUNDLES` and advances a compact branch pointer in `ORCH_DELIVERY` with
+exact compare-and-set. It reads the object back before moving that pointer and
+recompiles accepted bytes after restart, so a crash between the two writes
+leaves only harmless unreferenced content. A concurrent pointer winner forces
+the diff to be recomputed from the new accepted plan. Authority or poll-sequence
+rollback, one immutable commit/tree presenting different bytes, a corrupt
+stored object, and a stale-generation replay cannot advance accepted state. A
+repository without the native manifest is treated as not configured and does
+not disturb its last accepted plan.
+
 The optional polling fallback runs only on the current fenced regional leader.
 It reads protected `develop` and `main` refs every 30 seconds, resolves each
 observed commit to its exact Git tree, then records the observation in

@@ -107,6 +107,28 @@ public sealed class ForgejoSourcePollerTests
         await Assert.That(ledger.Mutations).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task CurrentLeaderReconcilesEachDurablyObservedBranchWithTheSameFence()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var reconciled = new List<string>();
+        await using var poller = new ForgejoSourcePoller(
+            (branch, _) => Task.FromResult(Observation(branch)),
+            new ForgejoSourceJournal(ledger),
+            () => Authority(7),
+            (observation, epoch, sequence, _) =>
+            {
+                reconciled.Add($"{observation.Branch}:{epoch}:{sequence}");
+                return Task.FromResult(new NativeGitOpsSourceReconcileResult(
+                    NativeGitOpsSourceJournalDisposition.Recorded,
+                    null));
+            });
+
+        await poller.PollOnceAsync();
+
+        await Assert.That(string.Join(',', reconciled)).IsEqualTo("develop:7:1,main:7:2");
+    }
+
     private static ForgejoBranchObservation Observation(string branch, bool isProtected = true) =>
         new(branch, isProtected, new ForgejoResolvedRevision(Repository, Commit, Tree, true));
 
