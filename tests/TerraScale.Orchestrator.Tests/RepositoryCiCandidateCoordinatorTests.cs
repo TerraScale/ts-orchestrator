@@ -21,7 +21,7 @@ public sealed class RepositoryCiCandidateCoordinatorTests
         var coordinator = new RepositoryCiCandidateCoordinator(
             new(ledger, objects),
             (_, _) => Task.FromResult(Run(RepositoryCiPipelineRunState.Succeeded, results)),
-            (_, _) =>
+            (_, _, _) =>
             {
                 artifactReads++;
                 return Task.FromResult<IReadOnlyList<RepositoryCiArtifactResult>>(artifacts);
@@ -55,7 +55,7 @@ public sealed class RepositoryCiCandidateCoordinatorTests
         var coordinator = new RepositoryCiCandidateCoordinator(
             new(new ForgejoWebhookJournalTests.TestLedger(), new TestObjectStore()),
             (_, _) => Task.FromResult(Run(state, [])),
-            (_, _) =>
+            (_, _, _) =>
             {
                 artifactReads++;
                 return Task.FromResult<IReadOnlyList<RepositoryCiArtifactResult>>([]);
@@ -121,20 +121,20 @@ public sealed class RepositoryCiCandidateCoordinatorTests
             (_, _) => Task.FromResult(Run(
                 RepositoryCiPipelineRunState.Succeeded,
                 Results(pipeline))),
-            (_, _) => Task.FromResult(artifacts));
+            (_, _, _) => Task.FromResult(artifacts));
 
     private static RepositoryCiPipelineRunSnapshot Run(
         RepositoryCiPipelineRunState state,
         IReadOnlyList<RepositoryCiJobResult> results) => new(state, [], [], results);
 
-    private static RepositoryCiPipelinePlan ReleasePipeline()
+    internal static RepositoryCiPipelinePlan ReleasePipeline(string promotion = "Package")
     {
         var descriptor = RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes($$"""
             {
               "apiVersion":"terrascale.ci/v2",
               "repository":"{{Repository}}",
               "candidateRetentionDays":7,
-              "promotion":"Package",
+              "promotion":"{{promotion}}",
               "repositoryDependencies":[],
               "nodes":[
                 {"id":"candidate","kind":"Artifact","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build","release-tests"]},

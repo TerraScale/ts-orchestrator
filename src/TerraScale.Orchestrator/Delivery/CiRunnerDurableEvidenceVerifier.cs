@@ -22,18 +22,23 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
 
     public async Task<bool> VerifyAsync(
         RepositoryCiJobExecutionSnapshot execution,
+        CancellationToken cancellationToken) =>
+        await ReadVerifiedAsync(execution, cancellationToken) is not null;
+
+    internal async Task<CiRunnerStoredWorkloadEvidence?> ReadVerifiedAsync(
+        RepositoryCiJobExecutionSnapshot execution,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(execution);
         if (execution.Phase is not (RepositoryCiJobExecutionPhase.Succeeded or
                 RepositoryCiJobExecutionPhase.Failed) || !Digest(execution.EvidenceDigest))
-            return false;
+            return null;
         var content = await objects.GetAsync(
             $"ci-result-evidence-{execution.EvidenceDigest}",
             cancellationToken);
         if (content.Length is < 1 or > MaximumEvidenceBytes ||
             Hash(content) != execution.EvidenceDigest || HasDuplicateProperties(content))
-            return false;
+            return null;
 
         CiRunnerStoredWorkloadEvidence? stored;
         try
@@ -44,10 +49,12 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
         return stored is not null && Matches(execution, stored) &&
-            await VerifyObjectsAsync(stored, cancellationToken);
+            await VerifyObjectsAsync(stored, cancellationToken)
+                ? stored
+                : null;
     }
 
     private async Task<bool> VerifyObjectsAsync(

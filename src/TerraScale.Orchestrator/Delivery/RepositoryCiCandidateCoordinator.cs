@@ -29,7 +29,8 @@ internal sealed record RepositoryCiCandidateCoordinationReceipt(
 internal sealed class RepositoryCiCandidateCoordinator(
     RepositoryCiCandidateJournal candidates,
     Func<RepositoryCiPipelinePlan, CancellationToken, Task<RepositoryCiPipelineRunSnapshot>> readRun,
-    Func<RepositoryCiPipelinePlan, CancellationToken, Task<IReadOnlyList<RepositoryCiArtifactResult>>>
+    Func<RepositoryCiPipelinePlan, RepositoryCiPipelineRunSnapshot, CancellationToken,
+        Task<IReadOnlyList<RepositoryCiArtifactResult>>>
         readArtifacts)
 {
     internal async Task<RepositoryCiCandidateCoordinationReceipt> CoordinateAsync(
@@ -59,7 +60,7 @@ internal sealed class RepositoryCiCandidateCoordinator(
         if (!authorityStillValid())
             return Result(RepositoryCiCandidateCoordinationDisposition.AuthorityLost);
 
-        var artifacts = await readArtifacts(pipeline, cancellationToken)
+        var artifacts = await readArtifacts(pipeline, run, cancellationToken)
             ?? throw new InvalidDataException("The CI artifact evidence reader returned no evidence.");
         if (!authorityStillValid())
             return Result(RepositoryCiCandidateCoordinationDisposition.AuthorityLost);
