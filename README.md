@@ -357,7 +357,7 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 14 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 14 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,184 MiB. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 14 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 14 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,248 MiB. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \

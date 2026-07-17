@@ -139,10 +139,10 @@ public sealed class DevelopmentTopologyTests
         ]);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateThreeCellLean()))
-            .IsEqualTo(13_184L * 1024 * 1024);
+            .IsEqualTo(13_248L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateThreeCellControlPlane()))
-            .IsEqualTo(1_920L * 1024 * 1024);
+            .IsEqualTo(1_728L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
     }

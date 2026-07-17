@@ -362,12 +362,12 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     private static long MemoryLimitBytes(DevelopmentResourceKind kind) => kind switch
     {
-        DevelopmentResourceKind.TerraBase => 1536L * 1024 * 1024,
-        DevelopmentResourceKind.Api => 768L * 1024 * 1024,
-        DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 512L * 1024 * 1024,
-        DevelopmentResourceKind.ControllerAgent => 384L * 1024 * 1024,
+        DevelopmentResourceKind.TerraBase => 2048L * 1024 * 1024,
+        DevelopmentResourceKind.Api => 640L * 1024 * 1024,
+        DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 384L * 1024 * 1024,
+        DevelopmentResourceKind.ControllerAgent => 320L * 1024 * 1024,
         DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => 256L * 1024 * 1024,
-        DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => 256L * 1024 * 1024,
+        DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => 192L * 1024 * 1024,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
