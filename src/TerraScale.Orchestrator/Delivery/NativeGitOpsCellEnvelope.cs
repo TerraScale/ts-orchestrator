@@ -38,7 +38,8 @@ public static class NativeGitOpsCellEnvelope
     private static readonly HashSet<string> CellPayloadProperties =
     [
         "schemaVersion", "repository", "commit", "tree", "filePath", "blob", "contentSha256",
-        "generation", "globalPlanDigest", "cell", "desiredWorkloads", "changes",
+        "acceptedGeneration", "acceptedGlobalPlanDigest", "generation", "globalPlanDigest", "cell",
+        "desiredWorkloads", "changes",
     ];
 
     public static CommandEnvelope Sign(

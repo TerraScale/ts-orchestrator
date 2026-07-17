@@ -203,6 +203,14 @@ public static class NativeGitOpsCellSpecCompiler
             writer.WriteString("filePath", source.SourceFile.Path);
             writer.WriteString("blob", source.SourceFile.Blob);
             writer.WriteString("contentSha256", source.SourceFile.ContentSha256);
+            if (source.Diff.AcceptedGeneration is { } acceptedGeneration)
+                writer.WriteNumber("acceptedGeneration", acceptedGeneration);
+            else
+                writer.WriteNull("acceptedGeneration");
+            if (source.Diff.AcceptedDigest is { } acceptedDigest)
+                writer.WriteString("acceptedGlobalPlanDigest", acceptedDigest);
+            else
+                writer.WriteNull("acceptedGlobalPlanDigest");
             writer.WriteNumber("generation", source.Proposed.Generation);
             writer.WriteString("globalPlanDigest", source.Proposed.Digest);
             writer.WriteString("cell", cell);
@@ -217,6 +225,8 @@ public static class NativeGitOpsCellSpecCompiler
                 writer.WriteString("workloadId", change.WorkloadId);
                 writer.WriteString("childOwnership", change.ChildOwnership.ToString());
                 writer.WriteString("removalPolicy", change.RemovalPolicy.ToString());
+                WriteDigest(writer, "acceptedWorkloadSha256", change.Accepted);
+                WriteDigest(writer, "proposedWorkloadSha256", change.Proposed);
                 if (change.Kind == NativeGitOpsChangeKind.GuardedRetirement)
                 {
                     writer.WritePropertyName("retiredWorkload");
@@ -230,6 +240,25 @@ public static class NativeGitOpsCellSpecCompiler
         if (bytes.WrittenCount > MaximumCellSpecBytes)
             throw new InvalidDataException("A native GitOps cell specification exceeded its technical bound.");
         return bytes.WrittenMemory.ToArray();
+    }
+
+    private static void WriteDigest(
+        Utf8JsonWriter writer,
+        string propertyName,
+        NativeGitOpsWorkloadPlan? workload)
+    {
+        if (workload is null)
+            writer.WriteNull(propertyName);
+        else
+            writer.WriteString(propertyName, WorkloadDigest(workload));
+    }
+
+    internal static string WorkloadDigest(NativeGitOpsWorkloadPlan workload)
+    {
+        ArgumentNullException.ThrowIfNull(workload);
+        var bytes = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(bytes)) WriteWorkload(writer, workload);
+        return Convert.ToHexStringLower(SHA256.HashData(bytes.WrittenSpan));
     }
 
     private static void WriteWorkload(Utf8JsonWriter writer, NativeGitOpsWorkloadPlan workload)

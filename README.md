@@ -324,6 +324,10 @@ Each region can validate from a compact descriptor containing the generation,
 global-plan digest, aggregate handoff digest, and sorted cell/payload-digest
 set; it recomputes the aggregate and checks its own closed payload identity, so
 transport does not need to copy every other region's full CellSpec.
+Each CellSpec also binds the accepted base generation/global-plan digest and
+the exact before/after digest of every changed workload. Regional drift,
+retirement, and rollback decisions therefore never infer prior ownership from
+the proposed plan or from mutable runtime labels.
 The wire contract keeps the CellSpec as raw bytes and carries exactly 16
 canonical metadata headers rather than Base64-expanding the payload. CellSpecs
 are capped at 896 KiB, headers at 64 KiB, and the complete command plus protocol

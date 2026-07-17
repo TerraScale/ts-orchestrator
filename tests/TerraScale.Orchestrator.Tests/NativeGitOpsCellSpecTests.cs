@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -71,6 +72,45 @@ public sealed class NativeGitOpsCellSpecTests
             change.Proposed is null && change.Accepted is not null &&
             change.ChildOwnership == GitOpsChildOwnership.RegionalJournal &&
             change.RemovalPolicy == GitOpsRemovalPolicy.GuardedRetirement)).IsTrue();
+    }
+
+    [Test]
+    public async Task PayloadBindsAcceptedPlanAndBeforeAfterWorkloadIdentities()
+    {
+        var accepted = NativeGitOpsManifest.Parse(Plan(1,
+            Workload("api", "Api", ApiV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
+        var source = SourcePlan(accepted, Plan(2,
+            Workload("api", "Api", ApiV2, ["gru"], ["auth"]),
+            Workload("auth", "Authentication", Auth, ["gru"])));
+        var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
+
+        foreach (var cell in handoff.Cells)
+        {
+            using var document = JsonDocument.Parse(cell.Payload);
+            var root = document.RootElement;
+            await Assert.That(root.GetProperty("acceptedGeneration").GetInt64()).IsEqualTo(1);
+            await Assert.That(root.GetProperty("acceptedGlobalPlanDigest").GetString())
+                .IsEqualTo(accepted.Digest);
+            var encoded = root.GetProperty("changes").EnumerateArray().ToArray();
+            await Assert.That(encoded.Length).IsEqualTo(cell.Changes.Count);
+            for (var index = 0; index < encoded.Length; index++)
+            {
+                var change = cell.Changes[index];
+                await Assert.That(encoded[index].GetProperty("workloadId").GetString())
+                    .IsEqualTo(change.WorkloadId);
+                await AssertDigest(encoded[index], "acceptedWorkloadSha256", change.Accepted);
+                await AssertDigest(encoded[index], "proposedWorkloadSha256", change.Proposed);
+            }
+        }
+
+        var first = NativeGitOpsCellSpecCompiler.Compile(SourcePlan(null, Plan(1,
+            Workload("api", "Api", ApiV1, ["gru"])))).Cells.Single();
+        using var initial = JsonDocument.Parse(first.Payload);
+        await Assert.That(initial.RootElement.GetProperty("acceptedGeneration").ValueKind)
+            .IsEqualTo(JsonValueKind.Null);
+        await Assert.That(initial.RootElement.GetProperty("acceptedGlobalPlanDigest").ValueKind)
+            .IsEqualTo(JsonValueKind.Null);
     }
 
     [Test]
@@ -153,4 +193,16 @@ public sealed class NativeGitOpsCellSpecTests
         bool suspended = false) => $$"""
         {"id":"{{id}}","role":"{{role}}","artifactDigest":"{{digest}}","cells":[{{string.Join(',', cells.Select(cell => $"\"{cell}\""))}}],"dependsOn":[{{string.Join(',', (dependsOn ?? []).Select(dependency => $"\"{dependency}\""))}}]{{(replicas is null ? "" : $",\"replicas\":{replicas}")}},"suspended":{{suspended.ToString().ToLowerInvariant()}}}
         """;
+
+    private static async Task AssertDigest(
+        JsonElement change,
+        string property,
+        NativeGitOpsWorkloadPlan? workload)
+    {
+        var value = change.GetProperty(property);
+        if (workload is null)
+            await Assert.That(value.ValueKind).IsEqualTo(JsonValueKind.Null);
+        else
+            await Assert.That(value.GetString()).IsEqualTo(NativeGitOpsCellSpecCompiler.WorkloadDigest(workload));
+    }
 }
