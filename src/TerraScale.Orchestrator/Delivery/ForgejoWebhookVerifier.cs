@@ -290,7 +290,7 @@ public static class ForgejoWebhookVerifier
                property.TryGetInt64(out value) && value > 0;
     }
 
-    private static bool IsRepository(string? value)
+    internal static bool IsRepository(string? value)
     {
         if (value is not { Length: >= 3 and <= 256 }) return false;
         var slash = value.IndexOf('/');

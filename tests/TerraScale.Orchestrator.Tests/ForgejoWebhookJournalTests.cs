@@ -15,7 +15,7 @@ public sealed class ForgejoWebhookJournalTests
     [Test]
     public async Task ReplicatedIdentityReservationsBecomeAcknowledgeableAndIdempotent()
     {
-        var ledger = new FakeLedger();
+        var ledger = new TestLedger();
         var journal = new ForgejoWebhookJournal(ledger);
         var envelope = Envelope("refs/heads/develop", Delivery);
 
@@ -35,13 +35,13 @@ public sealed class ForgejoWebhookJournalTests
     [Test]
     public async Task DeliveryCollisionAndPayloadReplayNeverBecomeAcknowledgeable()
     {
-        var collisionLedger = new FakeLedger();
+        var collisionLedger = new TestLedger();
         var collisionJournal = new ForgejoWebhookJournal(collisionLedger);
         await collisionJournal.AcceptAsync(Envelope("refs/heads/develop", Delivery));
 
         var collision = await collisionJournal.AcceptAsync(Envelope("refs/heads/main", Delivery));
 
-        var replayLedger = new FakeLedger();
+        var replayLedger = new TestLedger();
         var replayJournal = new ForgejoWebhookJournal(replayLedger);
         await replayJournal.AcceptAsync(Envelope("refs/heads/develop", Delivery));
         var replayMutations = replayLedger.Mutations;
@@ -61,7 +61,7 @@ public sealed class ForgejoWebhookJournalTests
     {
         for (var failure = 1; failure <= 4; failure++)
         {
-            var ledger = new FakeLedger(failure);
+            var ledger = new TestLedger(failure);
             var journal = new ForgejoWebhookJournal(ledger);
             var envelope = Envelope("refs/heads/develop", Delivery);
 
@@ -77,7 +77,7 @@ public sealed class ForgejoWebhookJournalTests
     [Test]
     public async Task ConcurrentRetriesConvergeOnOneAcceptedIdentityPair()
     {
-        var ledger = new FakeLedger();
+        var ledger = new TestLedger();
         var journal = new ForgejoWebhookJournal(ledger);
         var envelope = Envelope("refs/heads/develop", Delivery);
 
@@ -91,7 +91,7 @@ public sealed class ForgejoWebhookJournalTests
     [Test]
     public async Task CorruptDurableIdentityFailsClosedWithoutAcknowledgement()
     {
-        var ledger = new FakeLedger();
+        var ledger = new TestLedger();
         var journal = new ForgejoWebhookJournal(ledger);
         var envelope = Envelope("refs/heads/develop", Delivery);
         await journal.AcceptAsync(envelope);
@@ -127,7 +127,7 @@ public sealed class ForgejoWebhookJournalTests
             "push").Envelope!;
     }
 
-    private sealed class FakeLedger(int failOnMutation = 0) : IForgejoWebhookLedger
+    internal sealed class TestLedger(int failOnMutation = 0) : IForgejoWebhookLedger
     {
         private readonly Dictionary<string, ForgejoWebhookLedgerEntry> entries = new(StringComparer.Ordinal);
         private readonly object sync = new();

@@ -103,6 +103,23 @@ receipt. Exact retries are idempotent, while delivery collisions, altered-ID
 payload replays, corrupt records, and interrupted writes fail closed or resume
 before acknowledgement.
 
+Enable the listener only on the `run` command by supplying the complete
+configuration below. The secret file contains the exact Forgejo secret bytes
+(no automatic newline trimming), must be 32–4096 bytes, and must be private to
+the service user. Plain HTTP is accepted only on loopback for a local ingress
+proxy; a non-loopback listener must use HTTPS.
+
+```bash
+TS_ORCH_FORGEJO_LISTEN_PREFIX=http://127.0.0.1:8080/hooks/forgejo/ \
+TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
+TS_ORCH_FORGEJO_SECRET_FILE=/run/credentials/forgejo-webhook-secret \
+terrascale-orchestrator run
+```
+
+Configure Forgejo to send JSON `push` and `pull_request` events to that exact
+path. Successful durable acceptance and exact retries return HTTP 202;
+authentication, collision, timeout, and journal failures never return a 2xx.
+
 The three regional controller candidates share one NATS service queue group
 and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
 revisions. The production authority state machine advances the fencing epoch,

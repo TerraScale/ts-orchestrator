@@ -1,5 +1,6 @@
 using TerraScale.Orchestrator;
 using TerraScale.Orchestrator.Development;
+using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using TerraScale.Orchestrator.Operations;
@@ -66,13 +67,30 @@ try
         throw;
     }
     await using var ownedRuntime = runtime;
+    ForgejoWebhookServer? webhookServer;
+    try
+    {
+        webhookServer = options.Command == OrchestratorCommand.Run && options.ForgejoWebhook is not null
+            ? ForgejoWebhookServer.Start(options.ForgejoWebhook, ownedRuntime.ForgejoWebhooks)
+            : null;
+    }
+    catch (Exception exception)
+    {
+        telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
+        startupActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
+        throw;
+    }
+    await using var webhooks = webhookServer;
     telemetry.RecordReady(Stopwatch.GetElapsedTime(startupTimestamp));
     startupActivity?.SetStatus(ActivityStatusCode.Ok);
     Console.WriteLine($"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}");
 
     if (options.Command is OrchestratorCommand.Run)
     {
-        await ownedRuntime.Completion.WaitAsync(shutdown.Token);
+        var completion = webhooks is null
+            ? ownedRuntime.Completion
+            : Task.WhenAny(ownedRuntime.Completion, webhooks.Completion).Unwrap();
+        await completion.WaitAsync(shutdown.Token);
     }
 
     return 0;

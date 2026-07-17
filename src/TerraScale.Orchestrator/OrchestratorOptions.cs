@@ -35,7 +35,8 @@ public sealed record OrchestratorOptions(
     string Instance = "local",
     OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevContainers,
     string? NatsNKeyFile = null,
-    Messaging.NatsTlsFiles? NatsTls = null)
+    Messaging.NatsTlsFiles? NatsTls = null,
+    Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -90,6 +91,12 @@ public sealed record OrchestratorOptions(
             {
                 throw new ArgumentException($"The {args[0]} command does not accept arguments.");
             }
+            var forgejoWebhook = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+                ? Delivery.ForgejoWebhookConfiguration.Resolve(
+                    environment("TS_ORCH_FORGEJO_LISTEN_PREFIX"),
+                    environment("TS_ORCH_FORGEJO_REPOSITORY"),
+                    environment("TS_ORCH_FORGEJO_SECRET_FILE"))
+                : null;
             return new(
                 command,
                 cell,
@@ -97,7 +104,8 @@ public sealed record OrchestratorOptions(
                 replicas,
                 Instance: instance,
                 NatsNKeyFile: natsNKeyFile,
-                NatsTls: natsTls);
+                NatsTls: natsTls,
+                ForgejoWebhook: forgejoWebhook);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);
