@@ -17,6 +17,9 @@ internal sealed record CiRunnerSourcePlan(
     string Repository,
     string Commit,
     string Tree,
+    string BundleObject,
+    string BundleSha256,
+    int BundleBytes,
     string DescriptorPath,
     string RecipePath);
 
@@ -81,7 +84,7 @@ internal sealed class CiRunnerExecutionPlan
         CiRunnerSourcePlan source,
         CiRunnerBuildKitPlan build)
     {
-        SchemaVersion = 1;
+        SchemaVersion = 2;
         PipelineDigest = pipelineDigest;
         Job = job;
         JobDigest = jobDigest;
@@ -172,6 +175,9 @@ internal static class CiRunnerExecutionPlanner
                 command.Repository,
                 command.SourceCommit,
                 command.SourceTree,
+                command.SourceBundleObject,
+                command.SourceBundleSha256,
+                command.SourceBundleBytes,
                 RepositoryCiImpactPlanner.DescriptorPath,
                 RecipePath),
             build);
@@ -186,7 +192,10 @@ internal static class CiRunnerExecutionPlanner
             .Append(plan.JobDigest).Append(':').Append(plan.ExecutionIdentityDigest).Append(':')
             .Append(plan.Attempt.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(plan.Source.Repository).Append(':').Append(plan.Source.Commit).Append(':')
-            .Append(plan.Source.Tree).Append(':').Append(plan.Source.DescriptorPath).Append(':')
+            .Append(plan.Source.Tree).Append(':').Append(plan.Source.BundleObject).Append(':')
+            .Append(plan.Source.BundleSha256).Append(':')
+            .Append(plan.Source.BundleBytes.ToString(CultureInfo.InvariantCulture)).Append(':')
+            .Append(plan.Source.DescriptorPath).Append(':')
             .Append(plan.Source.RecipePath).Append('\n')
             .Append(build.Frontend).Append(':').Append(build.Target).Append(':').Append(build.Output).Append('\n')
             .AppendJoin(',', build.Architectures).Append('\n')

@@ -311,7 +311,7 @@ internal static class RepositoryCiJobWireCodec
         string signature) =>
         new(ExpectedHeaderCount, StringComparer.Ordinal)
         {
-            [Schema] = "2",
+            [Schema] = "3",
             [Protocol] = "1",
             [Type] = "repository-ci-job",
             [Pipeline] = document.PipelineDigest,
@@ -445,6 +445,9 @@ internal sealed record RepositoryCiJobWireDocument(
     string SourceCommit,
     string SourceTree,
     bool SourceSignatureVerified,
+    string SourceBundleObject,
+    string SourceBundleSha256,
+    int SourceBundleBytes,
     JobKind Kind,
     string Tree,
     long Generation,
@@ -485,7 +488,7 @@ internal sealed record RepositoryCiJobWireDocument(
         var job = prepared.Job;
         var request = job.Request;
         return new(
-            2,
+            3,
             request.Pipeline.Value,
             prepared.Document.PipelineDigest,
             pipeline.ImpactDigest,
@@ -501,6 +504,9 @@ internal sealed record RepositoryCiJobWireDocument(
             job.Source.Commit,
             job.Source.Tree,
             job.Source.SignatureVerified,
+            prepared.SourceBundleObject,
+            prepared.SourceBundleSha256,
+            prepared.SourceBundleBytes,
             request.Kind,
             request.Tree.Value,
             request.Generation,
@@ -530,12 +536,15 @@ internal sealed record RepositoryCiJobWireDocument(
 
     internal void Validate()
     {
-        if (SchemaVersion != 2 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
+        if (SchemaVersion != 3 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
             Pipeline != $"ci-{PipelineDigest[..24]}" || !Identity(Job) || !Digest(JobDigest) ||
             !EnumValue(Profile) || !Identity(PlanId) || !ForgejoWebhookVerifier.IsRepository(Repository) ||
             !Node(NodeId) || PlanId != $"{Repository}:{NodeId}" ||
             !EnumValue(NodeKind) || !EnumValue(ResourceWeight) || !ValidArchitectures() || !ObjectId(SourceCommit) ||
             !ObjectId(SourceTree) || !EnumValue(Kind) || !ObjectId(Tree) || Tree != SourceTree ||
+            !Digest(SourceBundleSha256) ||
+            SourceBundleObject != RepositoryCiSourceBundlePublisher.ObjectName(SourceBundleSha256) ||
+            SourceBundleBytes is < 3 or > ForgejoSourceClient.MaximumArchiveBytes ||
             Generation <= 0 || Attempt is < 1 or > 3 || MaximumAttempts != 3 ||
             !Identity(BaseIdempotency) || !Identity(Idempotency) ||
             Idempotency != EffectiveIdempotency(BaseIdempotency, Attempt) ||

@@ -36,12 +36,15 @@ public sealed class RepositoryCiJobPublisherTests
             $"{GlobalNatsTopology.CiJobSubjectPrefix}.untrusted-product.");
         await Assert.That(published.MessageId).EndsWith(":1:1");
         await Assert.That(document.PipelineDigest).IsEqualTo(prepared.Pipeline.Digest);
-        await Assert.That(document.SchemaVersion).IsEqualTo(2);
-        await Assert.That(published.Message.Headers["TS-CI-Job-Schema"]).IsEqualTo("2");
+        await Assert.That(document.SchemaVersion).IsEqualTo(3);
+        await Assert.That(published.Message.Headers["TS-CI-Job-Schema"]).IsEqualTo("3");
         await Assert.That(document.ImpactDigest).IsEqualTo(prepared.Pipeline.ImpactDigest);
         await Assert.That(document.Job).IsEqualTo(prepared.Job.Request.Job.Value);
         await Assert.That(document.JobDigest).IsEqualTo(prepared.Receipt.Job!.Document.JobDigest);
         await Assert.That(document.Architectures).IsEquivalentTo(prepared.Job.Plan.Node.Architectures);
+        await Assert.That(document.SourceBundleObject).IsEqualTo(prepared.Receipt.Job!.SourceBundleObject);
+        await Assert.That(document.SourceBundleSha256).IsEqualTo(prepared.Receipt.Job!.SourceBundleSha256);
+        await Assert.That(document.SourceBundleBytes).IsEqualTo(prepared.Receipt.Job!.SourceBundleBytes);
         await Assert.That(document.Runner).IsEqualTo(prepared.Receipt.Job!.RunnerId);
         await Assert.That(document.FencingToken).IsEqualTo(1);
         await Assert.That(document.ExpiresAtUnixMilliseconds - document.IssuedAtUnixMilliseconds)
@@ -153,6 +156,12 @@ public sealed class RepositoryCiJobPublisherTests
             StringComparison.Ordinal));
         var architectureHeaders = wire.Headers.ToDictionary(static item => item.Key, static item => item.Value);
         architectureHeaders["TS-Payload-Sha256"] = Convert.ToHexStringLower(SHA256.HashData(forgedArchitectures));
+        var forgedBundle = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(wire.Payload.Span).Replace(
+            $"\"SourceBundleSha256\":\"{decoded.SourceBundleSha256}\"",
+            $"\"SourceBundleSha256\":\"{new string('c', 64)}\"",
+            StringComparison.Ordinal));
+        var bundleHeaders = wire.Headers.ToDictionary(static item => item.Key, static item => item.Value);
+        bundleHeaders["TS-Payload-Sha256"] = Convert.ToHexStringLower(SHA256.HashData(forgedBundle));
 
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(payload, wire.Headers))
             .Throws<InvalidDataException>();
@@ -161,6 +170,8 @@ public sealed class RepositoryCiJobPublisherTests
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(forgedPayload, forgedHeaders))
             .Throws<InvalidDataException>();
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(forgedArchitectures, architectureHeaders))
+            .Throws<InvalidDataException>();
+        await Assert.That(() => RepositoryCiJobWireCodec.Decode(forgedBundle, bundleHeaders))
             .Throws<InvalidDataException>();
         await Assert.That(() => RepositoryCiJobWireCodec.Decode(
                 wire.Payload,

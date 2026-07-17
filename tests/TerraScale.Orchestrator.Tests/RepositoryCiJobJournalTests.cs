@@ -40,6 +40,7 @@ public sealed class RepositoryCiJobJournalTests
         var denied = await journal.PrepareDispatchAsync(
             pipeline,
             root.Request.Job,
+            SourceBundle(root),
             Runner(root),
             Isolation(root) with { CgroupV2 = false },
             "gru-controller-1",
@@ -48,16 +49,35 @@ public sealed class RepositoryCiJobJournalTests
             static () => true);
         var prepared = await PrepareAsync(journal, pipeline, root);
         var duplicate = await PrepareAsync(journal, pipeline, root);
+        var otherDigest = Digest(701);
+        var substitutedBundle = SourceBundle(root) with
+        {
+            ObjectName = RepositoryCiSourceBundlePublisher.ObjectName(otherDigest),
+            ContentSha256 = otherDigest,
+        };
+        var conflict = await journal.PrepareDispatchAsync(
+            pipeline,
+            root.Request.Job,
+            substitutedBundle,
+            Runner(root),
+            Isolation(root),
+            "gru-controller-1",
+            5,
+            $"dispatch-{root.Request.Job.Value}-attempt-{root.Request.Attempt}",
+            static () => true);
         var staleReplay = await PrepareAsync(journal, pipeline, root, static () => false);
 
         await Assert.That(notReady.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.NotReady);
         await Assert.That(denied.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.RunnerDenied);
         await Assert.That(prepared.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.Prepared);
         await Assert.That(duplicate.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.Duplicate);
+        await Assert.That(conflict.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.IdentityConflict);
         await Assert.That(staleReplay.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleAuthority);
         await Assert.That(prepared.Job!.FencingToken).IsEqualTo(1);
         await Assert.That(prepared.Job.Phase).IsEqualTo(RepositoryCiJobPhase.DispatchPrepared);
         await Assert.That(prepared.Job.ExpiresAt - prepared.Job.PreparedAt).IsEqualTo(TimeSpan.FromHours(2));
+        await Assert.That(prepared.Job.SourceBundleSha256).IsEqualTo(SourceBundle(root).ContentSha256);
+        await Assert.That(prepared.Job.LegacyDispatchWithoutSourceBundle).IsFalse();
     }
 
     [Test]
@@ -172,6 +192,7 @@ public sealed class RepositoryCiJobJournalTests
         var stalePrepare = await journal.PrepareDispatchAsync(
             pipeline,
             opened.Job!.Job.Request.Job,
+            SourceBundle(opened.Job.Job),
             Runner(opened.Job.Job),
             Isolation(opened.Job.Job),
             "gru-controller-stale",
@@ -193,6 +214,7 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(opened.Job.Attempt).IsEqualTo(2);
         await Assert.That(opened.Job.Job.Request.RetryAuthorized).IsTrue();
         await Assert.That(opened.Job.Job.Request.Idempotency).IsNotEqualTo(root.Request.Idempotency);
+        await Assert.That(opened.Job.SourceBundleSha256).IsEqualTo(failed.Job!.SourceBundleSha256);
         await Assert.That(stale.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleLease);
         await Assert.That(stalePrepare.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleAuthority);
         await Assert.That(prepared.Job!.FencingToken).IsEqualTo(3);
@@ -302,6 +324,8 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(recovered.Phase).IsEqualTo(RepositoryCiJobPhase.Dispatched);
         await Assert.That(recovered.DispatchStreamSequence).IsEqualTo(0UL);
         await Assert.That(recovered.LegacyDispatchWithoutAcknowledgement).IsTrue();
+        await Assert.That(recovered.LegacyDispatchWithoutSourceBundle).IsTrue();
+        await Assert.That(recovered.SourceBundleObject).IsEmpty();
     }
 
     [Test]
@@ -343,12 +367,23 @@ public sealed class RepositoryCiJobJournalTests
         Func<bool>? authorityStillValid = null) => journal.PrepareDispatchAsync(
             pipeline,
             job.Request.Job,
+            SourceBundle(job),
             Runner(job),
             Isolation(job),
             "gru-controller-1",
             5,
             $"dispatch-{job.Request.Job.Value}-attempt-{job.Request.Attempt}",
             authorityStillValid ?? (() => true));
+
+    internal static RepositoryCiSourceBundle SourceBundle(RepositoryCiPipelineJob job)
+    {
+        var digest = Digest(700);
+        return new(
+            job.Source,
+            RepositoryCiSourceBundlePublisher.ObjectName(digest),
+            digest,
+            1024);
+    }
 
     private static async Task CompleteAsync(
         RepositoryCiJobJournal journal,
@@ -446,6 +481,10 @@ public sealed class RepositoryCiJobJournalTests
         document.Remove("ExpiresAtUnixMilliseconds");
         document.Remove("DispatchStreamSequence");
         document.Remove("LegacyDispatchWithoutAcknowledgement");
+        document.Remove("SourceBundleObject");
+        document.Remove("SourceBundleSha256");
+        document.Remove("SourceBundleBytes");
+        document.Remove("LegacyDispatchWithoutSourceBundle");
         return document.ToJsonString();
     }
 
@@ -455,6 +494,10 @@ public sealed class RepositoryCiJobJournalTests
         document["SchemaVersion"] = 3;
         document.Remove("DispatchStreamSequence");
         document.Remove("LegacyDispatchWithoutAcknowledgement");
+        document.Remove("SourceBundleObject");
+        document.Remove("SourceBundleSha256");
+        document.Remove("SourceBundleBytes");
+        document.Remove("LegacyDispatchWithoutSourceBundle");
         return document.ToJsonString();
     }
 

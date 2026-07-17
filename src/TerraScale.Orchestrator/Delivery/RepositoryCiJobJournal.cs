@@ -94,6 +94,10 @@ internal sealed class RepositoryCiJobSnapshot
         : DateTimeOffset.FromUnixTimeMilliseconds(Document.ExpiresAtUnixMilliseconds);
     public ulong DispatchStreamSequence => Document.DispatchStreamSequence;
     public bool LegacyDispatchWithoutAcknowledgement => Document.LegacyDispatchWithoutAcknowledgement;
+    public string SourceBundleObject => Document.SourceBundleObject;
+    public string SourceBundleSha256 => Document.SourceBundleSha256;
+    public int SourceBundleBytes => Document.SourceBundleBytes;
+    public bool LegacyDispatchWithoutSourceBundle => Document.LegacyDispatchWithoutSourceBundle;
     internal RepositoryCiJobDocument Document { get; }
     internal ulong Revision { get; }
 }
@@ -221,6 +225,7 @@ internal sealed class RepositoryCiJobJournal
     internal async Task<RepositoryCiJobJournalReceipt> PrepareDispatchAsync(
         RepositoryCiPipelinePlan pipeline,
         JobId jobId,
+        RepositoryCiSourceBundle sourceBundle,
         RunnerEvidence runner,
         CiRunnerIsolationEvidence isolation,
         string controllerId,
@@ -231,6 +236,7 @@ internal sealed class RepositoryCiJobJournal
     {
         ValidatePlan(pipeline);
         ArgumentNullException.ThrowIfNull(jobId);
+        ArgumentNullException.ThrowIfNull(sourceBundle);
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(isolation);
         ArgumentNullException.ThrowIfNull(authorityStillValid);
@@ -239,6 +245,7 @@ internal sealed class RepositoryCiJobJournal
         if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
         var plannedBase = pipeline.Jobs.SingleOrDefault(job => job.Request.Job == jobId)
             ?? throw new ArgumentException("The CI job is not part of the pipeline.", nameof(jobId));
+        ValidateSourceBundle(plannedBase, sourceBundle);
         var isolationDigest = IsolationDigest(isolation);
 
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
@@ -255,12 +262,14 @@ internal sealed class RepositoryCiJobJournal
             if (!admission.Accepted) return new(RepositoryCiJobJournalDisposition.RunnerDenied, current);
             if (current.Phase == RepositoryCiJobPhase.DispatchPrepared)
             {
-                var exact = current.ControllerId == controllerId && current.AuthorityEpoch == authorityEpoch &&
+                var exactLease = current.ControllerId == controllerId && current.AuthorityEpoch == authorityEpoch &&
                     current.RunnerId == runner.Runner.Value && current.RunnerSequence == runner.Sequence &&
                     current.OperationId == operationId && current.Document.IsolationDigest == isolationDigest;
-                if (exact) return new(authorityStillValid()
-                    ? RepositoryCiJobJournalDisposition.Duplicate
-                    : RepositoryCiJobJournalDisposition.StaleAuthority, current);
+                if (exactLease) return new(!SameSourceBundle(current.Document, sourceBundle)
+                    ? RepositoryCiJobJournalDisposition.IdentityConflict
+                    : authorityStillValid()
+                        ? RepositoryCiJobJournalDisposition.Duplicate
+                        : RepositoryCiJobJournalDisposition.StaleAuthority, current);
                 return new(authorityEpoch < current.AuthorityEpoch
                     ? RepositoryCiJobJournalDisposition.StaleAuthority
                     : RepositoryCiJobJournalDisposition.LeaseHeld, current);
@@ -271,6 +280,8 @@ internal sealed class RepositoryCiJobJournal
                 return new(RepositoryCiJobJournalDisposition.StaleAuthority, current);
             if (!run.Ready.Any(job => job.Request.Job == jobId))
                 return new(RepositoryCiJobJournalDisposition.NotReady, current);
+            if (current.SourceBundleSha256.Length != 0 && !SameSourceBundle(current.Document, sourceBundle))
+                return new(RepositoryCiJobJournalDisposition.IdentityConflict, current);
             if (!authorityStillValid())
                 return new(RepositoryCiJobJournalDisposition.StaleAuthority, current);
 
@@ -280,7 +291,7 @@ internal sealed class RepositoryCiJobJournal
                 var preparedAt = timeProvider.GetUtcNow();
                 prepared = current.Document with
                 {
-                    SchemaVersion = 4,
+                    SchemaVersion = 5,
                     PreviousPhase = RepositoryCiJobPhase.Pending,
                     Phase = RepositoryCiJobPhase.DispatchPrepared,
                     PhaseSequence = 1,
@@ -294,6 +305,10 @@ internal sealed class RepositoryCiJobJournal
                     EvidenceDigest = isolationDigest,
                     PreparedAtUnixMilliseconds = preparedAt.ToUnixTimeMilliseconds(),
                     ExpiresAtUnixMilliseconds = preparedAt.Add(DispatchLifetime).ToUnixTimeMilliseconds(),
+                    SourceBundleObject = sourceBundle.ObjectName,
+                    SourceBundleSha256 = sourceBundle.ContentSha256,
+                    SourceBundleBytes = sourceBundle.ContentLength,
+                    LegacyDispatchWithoutSourceBundle = false,
                 };
             }
             catch (ArgumentOutOfRangeException exception)
@@ -523,7 +538,7 @@ internal sealed class RepositoryCiJobJournal
                 var retryNotBefore = timeProvider.GetUtcNow().Add(RetryDelay(current.Attempt));
                 waiting = current with
                 {
-                    SchemaVersion = 4,
+                    SchemaVersion = 5,
                     PreviousPhase = RepositoryCiJobPhase.Failed,
                     Phase = RepositoryCiJobPhase.RetryWaiting,
                     PhaseSequence = 5,
@@ -606,7 +621,7 @@ internal sealed class RepositoryCiJobJournal
             {
                 pending = current with
                 {
-                    SchemaVersion = 4,
+                    SchemaVersion = 5,
                     PreviousPhase = RepositoryCiJobPhase.RetryWaiting,
                     Phase = RepositoryCiJobPhase.Pending,
                     PhaseSequence = 0,
@@ -804,6 +819,19 @@ internal sealed class RepositoryCiJobJournal
                     LegacyDispatchWithoutAcknowledgement = legacyDispatch,
                 };
             }
+            if (document.SchemaVersion == 4)
+            {
+                if (document.SourceBundleObject is not null || document.SourceBundleSha256 is not null ||
+                    document.SourceBundleBytes != 0 || document.LegacyDispatchWithoutSourceBundle)
+                    throw new JsonException();
+                document = document with
+                {
+                    SchemaVersion = 5,
+                    SourceBundleObject = string.Empty,
+                    SourceBundleSha256 = string.Empty,
+                    LegacyDispatchWithoutSourceBundle = document.Phase != RepositoryCiJobPhase.Pending,
+                };
+            }
             document.Validate();
             return document;
         }
@@ -826,6 +854,27 @@ internal sealed class RepositoryCiJobJournal
 
     private static string Hash(string value) => Convert.ToHexStringLower(
         SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    private static void ValidateSourceBundle(
+        RepositoryCiPipelineJob job,
+        RepositoryCiSourceBundle bundle)
+    {
+        if (bundle.Revision.Repository != job.Source.Repository ||
+            bundle.Revision.Commit != job.Source.Commit || bundle.Revision.Tree != job.Source.Tree ||
+            bundle.Revision.SignatureVerified != job.Source.SignatureVerified ||
+            !Digest(bundle.ContentSha256) ||
+            bundle.ObjectName != RepositoryCiSourceBundlePublisher.ObjectName(bundle.ContentSha256) ||
+            bundle.ContentLength is < 3 or > ForgejoSourceClient.MaximumArchiveBytes)
+            throw new InvalidDataException("The CI source bundle does not match the immutable pipeline job.");
+    }
+
+    private static bool SameSourceBundle(
+        RepositoryCiJobDocument document,
+        RepositoryCiSourceBundle bundle) =>
+        document.SourceBundleObject == bundle.ObjectName &&
+        document.SourceBundleSha256 == bundle.ContentSha256 &&
+        document.SourceBundleBytes == bundle.ContentLength &&
+        !document.LegacyDispatchWithoutSourceBundle;
 
     private static bool Digest(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
@@ -867,7 +916,11 @@ internal sealed record RepositoryCiJobDocument(
     long PreparedAtUnixMilliseconds,
     long ExpiresAtUnixMilliseconds,
     ulong DispatchStreamSequence,
-    bool LegacyDispatchWithoutAcknowledgement)
+    bool LegacyDispatchWithoutAcknowledgement,
+    string SourceBundleObject,
+    string SourceBundleSha256,
+    int SourceBundleBytes,
+    bool LegacyDispatchWithoutSourceBundle)
 {
     private const long MaximumUnixMilliseconds = 253_402_300_799_999;
 
@@ -877,7 +930,7 @@ internal sealed record RepositoryCiJobDocument(
         string jobDigest,
         long authorityEpoch,
         long sequence) => new(
-            4,
+            5,
             pipeline.Pipeline.Value,
             pipeline.Digest,
             job.Request.Job.Value,
@@ -904,6 +957,10 @@ internal sealed record RepositoryCiJobDocument(
             0,
             0,
             0,
+            false,
+            string.Empty,
+            string.Empty,
+            0,
             false);
 
     internal bool SameJob(RepositoryCiJobDocument other) =>
@@ -915,7 +972,9 @@ internal sealed record RepositoryCiJobDocument(
         ControllerId == other.ControllerId && AuthorityEpoch == other.AuthorityEpoch &&
         FencingToken == other.FencingToken && RunnerId == other.RunnerId &&
         RunnerSequence == other.RunnerSequence && IsolationDigest == other.IsolationDigest &&
-        OperationId == other.OperationId;
+        OperationId == other.OperationId && SourceBundleObject == other.SourceBundleObject &&
+        SourceBundleSha256 == other.SourceBundleSha256 && SourceBundleBytes == other.SourceBundleBytes &&
+        LegacyDispatchWithoutSourceBundle == other.LegacyDispatchWithoutSourceBundle;
 
     internal void Validate()
     {
@@ -925,7 +984,13 @@ internal sealed record RepositoryCiJobDocument(
             RepositoryCiJobPhase.Running or RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed;
         var active = leased || retryWaiting;
         var retryHistory = Attempt > 1 || retryWaiting;
-        if (SchemaVersion != 4 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
+        var noSourceBundle = SourceBundleObject is { Length: 0 } && SourceBundleSha256 is { Length: 0 } &&
+            SourceBundleBytes == 0;
+        var validSourceBundle = SourceBundleSha256 is { } bundleDigest && Identity(SourceBundleObject) &&
+            Digest(bundleDigest) &&
+            SourceBundleObject == RepositoryCiSourceBundlePublisher.ObjectName(bundleDigest) &&
+            SourceBundleBytes is >= 3 and <= ForgejoSourceClient.MaximumArchiveBytes;
+        if (SchemaVersion != 5 || !Identity(Pipeline) || !Digest(PipelineDigest) || !Identity(Job) ||
             !Digest(JobDigest) || CreatedAuthorityEpoch <= 0 || CreatedSequence <= 0 ||
             Attempt is < 1 or > 100 || AttemptChainDigest is null || RetryAuthorizationDigest is null ||
             !Enum.IsDefined(FailureKind) ||
@@ -940,7 +1005,11 @@ internal sealed record RepositoryCiJobDocument(
                 EvidenceDigest.Length != 0 || RequiredTestSkips != 0 ||
                 FailureKind != RepositoryCiJobFailureKind.Unspecified ||
                 PreparedAtUnixMilliseconds != 0 || ExpiresAtUnixMilliseconds != 0 ||
-                DispatchStreamSequence != 0 || LegacyDispatchWithoutAcknowledgement) ||
+                DispatchStreamSequence != 0 || LegacyDispatchWithoutAcknowledgement ||
+                (Attempt == 1
+                    ? !noSourceBundle || LegacyDispatchWithoutSourceBundle
+                    : !(validSourceBundle && !LegacyDispatchWithoutSourceBundle ||
+                        noSourceBundle && LegacyDispatchWithoutSourceBundle))) ||
             leased && (!Identity(ControllerId) || AuthorityEpoch <= 0 || FencingToken <= 0 ||
                 !Identity(RunnerId) || RunnerSequence <= 0 || !Digest(IsolationDigest) ||
                 !Identity(OperationId) || !Digest(EvidenceDigest) || RequiredTestSkips is < 0 or > 1_000_000 ||
@@ -969,6 +1038,9 @@ internal sealed record RepositoryCiJobDocument(
                 (DispatchStreamSequence == 0) != LegacyDispatchWithoutAcknowledgement ||
             Phase is not (RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed) && RequiredTestSkips != 0)
             throw new InvalidDataException("A CI job journal record is invalid.");
+        if (active && !(validSourceBundle && !LegacyDispatchWithoutSourceBundle ||
+                noSourceBundle && LegacyDispatchWithoutSourceBundle))
+            throw new InvalidDataException("A CI job journal record has invalid source-bundle identity.");
     }
 
     private static bool ValidPhaseEdge(

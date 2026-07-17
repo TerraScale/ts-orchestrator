@@ -254,8 +254,11 @@ The controller-side Forgejo adapter can also fetch a bounded archive for one
 already resolved exact commit, bind its repository, commit, tree, byte length,
 and SHA-256 identity, and publish it under that content address in
 `CI_RUNNER_BUNDLES` with full readback verification. This keeps the Forgejo
-token out of runner jobs. The signed job command does not yet carry that bundle
-identity and no runner-side archive extraction is installed.
+token out of runner jobs. The prepared-job CAS lease durably fixes that exact
+object name, digest, and byte length across replay, takeover, and retry. Signed
+CI job schema v3 carries the same identity into the runner execution plan;
+legacy active records remain readable but cannot invent it. No runner-side
+archive extraction is installed yet.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires

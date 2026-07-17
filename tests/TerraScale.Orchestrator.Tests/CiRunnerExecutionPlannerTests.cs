@@ -24,6 +24,9 @@ public sealed class CiRunnerExecutionPlannerTests
         await Assert.That(first.Source.Repository).IsEqualTo(accepted.Command.Repository);
         await Assert.That(first.Source.Commit).IsEqualTo(accepted.Command.SourceCommit);
         await Assert.That(first.Source.Tree).IsEqualTo(accepted.Command.SourceTree);
+        await Assert.That(first.Source.BundleObject).IsEqualTo(accepted.Command.SourceBundleObject);
+        await Assert.That(first.Source.BundleSha256).IsEqualTo(accepted.Command.SourceBundleSha256);
+        await Assert.That(first.Source.BundleBytes).IsEqualTo(accepted.Command.SourceBundleBytes);
         await Assert.That(first.Source.DescriptorPath).IsEqualTo(".terrascale/ci-v2.json");
         await Assert.That(first.Source.RecipePath).IsEqualTo(".terrascale/ci.Dockerfile");
         await Assert.That(first.Build.Frontend).IsEqualTo("dockerfile.v0");
@@ -174,6 +177,7 @@ public sealed class CiRunnerExecutionPlannerTests
         var prepared = await journal.PrepareDispatchAsync(
             pipeline,
             job.Request.Job,
+            RepositoryCiJobJournalTests.SourceBundle(job),
             runner,
             isolation,
             "gru-controller-1",
