@@ -8,8 +8,8 @@ public static class SecurityDecisionEngine
     public static SecurityDecision EvaluateEnrollment(EnrollmentRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var bootstrapGroups = request.BootstrapEvidence.GroupBy(e => e.Id.Value, StringComparer.Ordinal).ToArray();
-        var attestationGroups = request.Attestations.GroupBy(e => e.Id.Value, StringComparer.Ordinal).ToArray();
+        var bootstrapGroups = request.BootstrapEvidence.ToLookup(e => e.Id.Value, StringComparer.Ordinal);
+        var attestationGroups = request.Attestations.ToLookup(e => e.Id.Value, StringComparer.Ordinal);
         var duplicates = Duplicates(bootstrapGroups.Select(g => g.Count()).Concat(attestationGroups.Select(g => g.Count())));
         var conflicts = bootstrapGroups.Count(g => g.Select(BootstrapProjection).Distinct(StringComparer.Ordinal).Skip(1).Any()) +
                         attestationGroups.Count(g => g.Select(AttestationProjection).Distinct(StringComparer.Ordinal).Skip(1).Any());
@@ -139,7 +139,7 @@ public static class SecurityDecisionEngine
     public static SecurityDecision Authorize(AuthorizationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var groups = request.PrincipalEvidence.GroupBy(e => e.Principal.Id.Value, StringComparer.Ordinal).ToArray();
+        var groups = request.PrincipalEvidence.ToLookup(e => e.Principal.Id.Value, StringComparer.Ordinal);
         var duplicates = Duplicates(groups.Select(g => g.Count()));
         var conflicts = groups.Count(g => g.Select(PrincipalProjection).Distinct(StringComparer.Ordinal).Skip(1).Any());
         var complete = request.EvidenceCompleteness == EvidenceStatus.Valid && request.PrincipalEvidence.Count == 1;
