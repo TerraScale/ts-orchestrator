@@ -11,10 +11,12 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 {
     private readonly NatsClient client;
     private readonly RegionalAuthorityCoordinator authority;
+    private readonly ForgejoCiEventConsumer ciEvents;
 
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
+        ForgejoCiEventConsumer ciEvents,
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
         NativeGitOpsSourceJournal nativeGitOpsSources,
@@ -23,6 +25,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         this.client = client;
         this.authority = authority;
+        this.ciEvents = ciEvents;
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
@@ -30,7 +33,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         Candidates = candidates;
     }
 
-    public Task Completion => authority.Completion;
+    public Task Completion => Task.WhenAny(authority.Completion, ciEvents.Completion).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public ForgejoSourceJournal ForgejoSources { get; }
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
@@ -74,9 +77,15 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
             var objects = new NatsNativeGitOpsManifestStore(state.Bundles);
+            var triggerJournal = new ForgejoCiTriggerJournal(ledger);
+            var ciEvents = ForgejoCiEventConsumer.Start(
+                state.CiConsumer,
+                new(triggerJournal, () => authority.Snapshot),
+                () => authority.Snapshot);
             return new(
                 client,
                 authority,
+                ciEvents,
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
                 new(ledger, objects),
@@ -116,7 +125,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 {
                     bundles = await objectStore.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
                 }
-                return new(leaders, releases, bundles);
+                var ciConsumer = await jetStream.CreateOrUpdateConsumerAsync(
+                    GlobalNatsTopology.CiStream,
+                    topology.CiConsumer,
+                    cancellationToken);
+                return new(leaders, releases, bundles, ciConsumer);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -131,16 +144,24 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         try
         {
-            await authority.DisposeAsync();
+            await ciEvents.DisposeAsync();
         }
         finally
         {
-            await client.DisposeAsync();
+            try
+            {
+                await authority.DisposeAsync();
+            }
+            finally
+            {
+                await client.DisposeAsync();
+            }
         }
     }
 
     private sealed record GlobalState(
         INatsKVStore Leaders,
         INatsKVStore Releases,
-        INatsObjStore Bundles);
+        INatsObjStore Bundles,
+        INatsJSConsumer CiConsumer);
 }

@@ -75,12 +75,47 @@ internal sealed record ForgejoWebhookEventDocument(
         envelope.PayloadSha256,
         envelope.DedupeKey);
 
+    internal static ForgejoWebhookEventDocument Deserialize(string payload)
+    {
+        try
+        {
+            var document = JsonSerializer.Deserialize(
+                payload,
+                ForgejoWebhookEventJsonContext.Default.ForgejoWebhookEventDocument)
+                ?? throw new JsonException();
+            document.Validate();
+            return document;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("A normalized Forgejo inbox event is invalid.", exception);
+        }
+    }
+
+    internal ForgejoWebhookEnvelope ToEnvelope()
+    {
+        Validate();
+        return new(
+            DeliveryId,
+            Kind,
+            Action,
+            Repository,
+            SourceRepository,
+            Revision,
+            SourceRef,
+            TargetRef,
+            PullRequestNumber,
+            IsDeletion,
+            PayloadSha256);
+    }
+
     internal void Validate()
     {
         if (SchemaVersion != 1 || DeliveryId == Guid.Empty ||
             Kind is not (ForgejoWebhookKind.Push or ForgejoWebhookKind.PullRequest) ||
             string.IsNullOrWhiteSpace(Action) || !ForgejoWebhookVerifier.IsRepository(Repository) ||
             !ForgejoWebhookVerifier.IsRepository(SourceRepository) || !ObjectId(Revision) ||
+            IsDeletion != Revision.All(static character => character == '0') ||
             string.IsNullOrWhiteSpace(SourceRef) || !Digest(PayloadSha256) ||
             DedupeKey != $"forgejo-payload:{Repository}:{PayloadSha256}" ||
             Kind == ForgejoWebhookKind.Push &&
@@ -91,8 +126,7 @@ internal sealed record ForgejoWebhookEventDocument(
     }
 
     private static bool ObjectId(string? value) => value is { Length: 40 or 64 } &&
-        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F') &&
-        value.Any(static character => character != '0');
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F');
 
     private static bool Digest(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');

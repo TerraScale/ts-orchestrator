@@ -20,6 +20,9 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(ci.Subjects).IsEquivalentTo(["ts.orch.v1.global.ci.>"]);
         await Assert.That(ci.NumReplicas).IsEqualTo(3);
         await Assert.That(ci.DuplicateWindow).IsEqualTo(TimeSpan.FromHours(24));
+        await Assert.That(topology.CiConsumer.FilterSubject).IsEqualTo(GlobalNatsTopology.CiSubject);
+        await Assert.That(topology.CiConsumer.MaxDeliver).IsEqualTo(5);
+        await Assert.That(topology.CiConsumer.MaxAckPending).IsEqualTo(32);
         await Assert.That(topology.Leaders.Bucket).IsEqualTo("ORCH_LEADERS");
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");

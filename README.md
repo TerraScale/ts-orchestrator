@@ -127,6 +127,15 @@ message identity, while delivery collisions, altered-ID payload replays,
 publisher failure, corrupt records, and interrupted writes fail closed or
 resume before acknowledgement.
 
+The shared explicit-ack `GLOBAL_CI` consumer fetches only on the current global
+leader. It reconstructs the normalized event, reapplies the closed trigger
+policy, and compare-and-sets the exact disposition, reason, trust zone,
+capabilities, artifact-publication flag, qualified-candidate requirement, and
+authority observation into `GLOBAL_RELEASES` before acknowledging the message.
+Ignored and held events are durable decisions too. Followers, authority loss,
+decision conflicts, corrupt events, and journal failure do not acknowledge.
+This stage classifies input only; it cannot dispatch runner work.
+
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes
 (no automatic newline trimming), must be 32–4096 bytes, and must be private to

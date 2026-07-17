@@ -69,4 +69,22 @@ public sealed class GlobalNatsTopology
         MaxBytes = 1024L * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };
+
+    public ConsumerConfig CiConsumer => new("global_ci_trigger")
+    {
+        Description = "Leader-only normalized Forgejo trigger decisions",
+        FilterSubject = CiSubject,
+        AckWait = TimeSpan.FromSeconds(15),
+        MaxDeliver = 5,
+        MaxAckPending = 32,
+        MaxWaiting = 16,
+        Backoff =
+        [
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(30),
+        ],
+        NumReplicas = Replicas,
+    };
 }
