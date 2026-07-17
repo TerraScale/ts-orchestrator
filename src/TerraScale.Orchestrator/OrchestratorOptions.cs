@@ -17,7 +17,8 @@ public enum OrchestratorLabCommand
 
 public enum OrchestratorLabProfile
 {
-    DevContainers
+    DevContainers,
+    DevContainersControl
 }
 
 public sealed record OrchestratorOptions(
@@ -157,7 +158,9 @@ public sealed record OrchestratorOptions(
         var labProfile = GetValue(values, "--profile", environment("TS_ORCH_LAB_PROFILE") ?? "dev-containers") switch
         {
             "dev-containers" => OrchestratorLabProfile.DevContainers,
-            _ => throw new ArgumentException("Lab profile must be 'dev-containers'.")
+            "dev-containers-control" => OrchestratorLabProfile.DevContainersControl,
+            _ => throw new ArgumentException(
+                "Lab profile must be 'dev-containers' or 'dev-containers-control'.")
         };
 
         var unknown = values.Keys.Except(

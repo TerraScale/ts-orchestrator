@@ -50,17 +50,17 @@ internal static class DevelopmentPki
                         ("operator", "operator-read")))
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
                 cellRoot);
-            var api = cell.OfKind(DevelopmentResourceKind.Api).Single();
             var product = CreatePlane(
                 cell,
                 DevelopmentResourceKind.ProductNats,
                 "product",
                 productRoot,
                 productIntermediate,
-                new Dictionary<string, (string Role, string Identity)>(StringComparer.Ordinal)
-                {
-                    [api.Name] = ("workload", api.Name)
-                },
+                cell.OfKind(DevelopmentResourceKind.Api)
+                    .ToDictionary(
+                        resource => resource.Name,
+                        resource => (Role: "workload", Identity: resource.Name),
+                        StringComparer.Ordinal),
                 cellRoot);
             result.Add(cell.Cell, new DevelopmentNatsTlsSecurity(control, product));
         }

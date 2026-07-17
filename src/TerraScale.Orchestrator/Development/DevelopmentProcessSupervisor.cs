@@ -11,6 +11,19 @@ internal static class DevelopmentContainerImages
     public const string Nats = "docker.io/library/nats@sha256:a42e284980d105c1b668d553175b4c7abc9b7187c5e9859baf4f1d564772b85f";
 
     public static IReadOnlyList<string> All => [AspNet, RuntimeDependencies, Node, Nats];
+
+    public static IReadOnlyList<string> RequiredBy(DevelopmentTopology topology) => topology.Cells
+        .SelectMany(cell => cell.Resources)
+        .Concat(topology.GlobalResources)
+        .Select(resource => resource.Kind switch
+        {
+            DevelopmentResourceKind.ControllerAgent => RuntimeDependencies,
+            DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => Nats,
+            DevelopmentResourceKind.Dashboard => Node,
+            _ => AspNet
+        })
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
 }
 
 internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
@@ -71,7 +84,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             await RequireSuccessAsync(["pod", "rm", "--force", "--time", "10", podName], cancellationToken);
         }
 
-        foreach (var image in DevelopmentContainerImages.All)
+        foreach (var image in DevelopmentContainerImages.RequiredBy(topology))
         {
             var exists = await RunAsync(["image", "exists", image], cancellationToken);
             if (exists.ExitCode != 0)

@@ -63,6 +63,14 @@ public sealed record DevelopmentTopology(
         return new("dev-containers-three-cell-lean", cells, global);
     }
 
+    public static DevelopmentTopology CreateThreeCellControlPlane()
+    {
+        var cells = new[] { "gru", "sfo", "fra" }
+            .Select((cell, ordinal) => CreateCell(cell, ordinal, controlOnly: true))
+            .ToArray();
+        return new("dev-containers-control-three-cell-lean", cells, []);
+    }
+
     public DevelopmentResourcePlan GetRequired(
         string cell,
         DevelopmentResourceKind kind,
@@ -70,7 +78,10 @@ public sealed record DevelopmentTopology(
         Cells.Single(candidate => candidate.Cell == cell)
             .Resources.Single(resource => resource.Kind == kind && resource.Replica == replica);
 
-    private static DevelopmentCellPlan CreateCell(string cell, int ordinal)
+    private static DevelopmentCellPlan CreateCell(
+        string cell,
+        int ordinal,
+        bool controlOnly = false)
     {
         var start = BasePort + (ordinal * CellStride);
         var resources = new List<DevelopmentResourcePlan>();
@@ -82,19 +93,26 @@ public sealed record DevelopmentTopology(
             replica,
             start,
             start + 10));
-        resources.Add(new(
-            $"{cell}-product-nats-{replica}",
-            cell,
-            DevelopmentResourceKind.ProductNats,
-            replica,
-            start + 20,
-            start + 30));
+        if (!controlOnly)
+        {
+            resources.Add(new(
+                $"{cell}-product-nats-{replica}",
+                cell,
+                DevelopmentResourceKind.ProductNats,
+                replica,
+                start + 20,
+                start + 30));
+        }
         resources.Add(new(
             $"{cell}-controller-{replica}",
             cell,
             DevelopmentResourceKind.ControllerAgent,
             replica,
             start + 40));
+        if (controlOnly)
+        {
+            return new(cell, ordinal, resources);
+        }
         resources.Add(new(
             $"{cell}-terrabase-{replica}",
             cell,

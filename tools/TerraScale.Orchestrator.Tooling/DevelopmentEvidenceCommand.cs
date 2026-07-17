@@ -4,11 +4,11 @@ namespace TerraScale.Orchestrator.Tooling;
 
 internal static class DevelopmentEvidenceCommand
 {
-    private const string DefaultProfile = "devhost-three-cell-r3";
+    private const string DefaultProfile = "dev-containers-three-cell-lean";
     private static readonly HashSet<string> AllowedProfiles =
     [
         DefaultProfile,
-        "regions-smol"
+        "dev-containers-control-three-cell-lean"
     ];
 
     public static int Run(string[] arguments)
@@ -154,7 +154,7 @@ internal static class DevelopmentEvidenceCommand
     }
 
     private static ToolValidationException Usage() => new([
-        "development-attest requires --output <outside-repository-path> [--binary <path>] [--valid-hours 1..24] [--profile devhost-three-cell-r3|regions-smol]"
+        "development-attest requires --output <outside-repository-path> [--binary <path>] [--valid-hours 1..24] [--profile dev-containers-three-cell-lean|dev-containers-control-three-cell-lean]"
     ]);
 
     private sealed record Options(string Output, string? Binary, int ValidHours, string Profile);

@@ -5,6 +5,30 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentTopologyTests
 {
     [Test]
+    public async Task ControlPlaneProfileKeepsThreeRegionsAndStartsOnlySixResources()
+    {
+        var topology = DevelopmentTopology.CreateThreeCellControlPlane();
+
+        await Assert.That(topology.Profile)
+            .IsEqualTo("dev-containers-control-three-cell-lean");
+        await Assert.That(topology.Cells.Select(cell => cell.Cell))
+            .IsEquivalentTo(["gru", "sfo", "fra"]);
+        await Assert.That(topology.GlobalResources).IsEmpty();
+        foreach (var cell in topology.Cells)
+        {
+            await Assert.That(cell.Resources.Select(resource => resource.Kind)).IsEquivalentTo([
+                DevelopmentResourceKind.ControlNats,
+                DevelopmentResourceKind.ControllerAgent
+            ]);
+        }
+        await Assert.That(topology.Cells.Sum(cell => cell.Resources.Count)).IsEqualTo(6);
+        await Assert.That(DevelopmentContainerImages.RequiredBy(topology)).IsEquivalentTo([
+            DevelopmentContainerImages.Nats,
+            DevelopmentContainerImages.RuntimeDependencies
+        ]);
+    }
+
+    [Test]
     public async Task ThreeCellContainerProfileHasOneReplicaPerRoleAndUniquePorts()
     {
         var topology = DevelopmentTopology.CreateThreeCellLean();

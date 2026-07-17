@@ -40,6 +40,32 @@ public sealed class RuntimePlannerEndToEndTests
         await Assert.That(rejected.StandardError).Contains("Unknown or unadmitted role");
     }
 
+    [Test]
+    public async Task ExecutablePlansTheSmallRegionalControlPlaneLab()
+    {
+        var planned = await RunAsync("lab", "plan", "--profile", "dev-containers-control");
+
+        await Assert.That(planned.ExitCode).IsEqualTo(0);
+        await Assert.That(planned.StandardError).IsEmpty();
+        using var document = JsonDocument.Parse(planned.StandardOutput);
+        var root = document.RootElement;
+        await Assert.That(root.GetProperty("profile").GetString())
+            .IsEqualTo("dev-containers-control-three-cell-lean");
+        await Assert.That(root.GetProperty("cells").GetArrayLength()).IsEqualTo(3);
+        await Assert.That(root.GetProperty("globalResources").GetArrayLength()).IsEqualTo(0);
+        var resources = root.GetProperty("cells")
+            .EnumerateArray()
+            .SelectMany(cell => cell.GetProperty("resources").EnumerateArray())
+            .ToArray();
+        await Assert.That(resources.Length).IsEqualTo(6);
+        await Assert.That(resources.Select(resource => resource.GetProperty("kind").GetString()!))
+            .IsEquivalentTo([
+                "controlNats", "controllerAgent",
+                "controlNats", "controllerAgent",
+                "controlNats", "controllerAgent"
+            ]);
+    }
+
     private static async Task<(int ExitCode, string StandardOutput, string StandardError)> RunAsync(
         params string[] arguments)
     {

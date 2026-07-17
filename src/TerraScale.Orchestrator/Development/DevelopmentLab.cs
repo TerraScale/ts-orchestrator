@@ -19,7 +19,13 @@ public static class DevelopmentLab
         {
             throw new InvalidOperationException("DevelopmentLab requires a lab command.");
         }
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = options.LabProfile switch
+        {
+            OrchestratorLabProfile.DevContainers => DevelopmentTopology.CreateThreeCellLean(),
+            OrchestratorLabProfile.DevContainersControl =>
+                DevelopmentTopology.CreateThreeCellControlPlane(),
+            _ => throw new InvalidOperationException($"Unsupported lab profile {options.LabProfile}.")
+        };
         return options.LabCommand switch
         {
             OrchestratorLabCommand.Plan => PrintPlan(topology),
@@ -62,7 +68,10 @@ public static class DevelopmentLab
             topology.Profile,
             cancellationToken);
         Directory.CreateDirectory(options.DataDirectory!);
-        await DevelopmentArtifactBuilder.BuildAsync(options.WorkspaceRoot!, cancellationToken);
+        if (HasProductWorkloads(topology))
+        {
+            await DevelopmentArtifactBuilder.BuildAsync(options.WorkspaceRoot!, cancellationToken);
+        }
         var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;
         var startedAt = DateTimeOffset.UtcNow;
@@ -88,34 +97,40 @@ public static class DevelopmentLab
 
         foreach (var cell in topology.Cells)
         {
-            var control = NatsDevelopmentCluster.Start(
-                supervisor,
-                cell,
+            foreach (var kind in new[]
+            {
                 DevelopmentResourceKind.ControlNats,
-                Path.Combine(options.DataDirectory!, "nats"),
-                natsSecurity.Cell(cell.Cell));
-            var product = NatsDevelopmentCluster.Start(
-                supervisor,
-                cell,
-                DevelopmentResourceKind.ProductNats,
-                Path.Combine(options.DataDirectory!, "nats"),
-                natsSecurity.Cell(cell.Cell));
-            await NatsDevelopmentCluster.WaitReadyAsync(
-                control, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
-            await NatsDevelopmentCluster.WaitReadyAsync(
-                product, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
+                DevelopmentResourceKind.ProductNats
+            })
+            {
+                if (cell.OfKind(kind).Count == 0)
+                {
+                    continue;
+                }
+                var resources = NatsDevelopmentCluster.Start(
+                    supervisor,
+                    cell,
+                    kind,
+                    Path.Combine(options.DataDirectory!, "nats"),
+                    natsSecurity.Cell(cell.Cell));
+                await NatsDevelopmentCluster.WaitReadyAsync(
+                    resources, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
+            }
         }
 
         StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
         await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         supervisor.ThrowIfAnyExited();
-        await DevelopmentWorkloadRuntime.StartAsync(
-            supervisor,
-            topology,
-            options.WorkspaceRoot!,
-            options.DataDirectory!,
-            natsSecurity,
-            cancellationToken);
+        if (HasProductWorkloads(topology))
+        {
+            await DevelopmentWorkloadRuntime.StartAsync(
+                supervisor,
+                topology,
+                options.WorkspaceRoot!,
+                options.DataDirectory!,
+                natsSecurity,
+                cancellationToken);
+        }
         supervisor.ThrowIfAnyExited();
 
         var initialHealth = await WaitForInitialHealthAsync(
@@ -359,6 +374,10 @@ public static class DevelopmentLab
         DevelopmentTopology topology)
     {
         var gru = topology.Cells.Single(cell => cell.Cell == "gru");
+        if (gru.OfKind(DevelopmentResourceKind.ProductNats).Count == 0)
+        {
+            return;
+        }
         endpoints["nats"] = endpoints[gru.OfKind(DevelopmentResourceKind.ProductNats).First().Name];
         endpoints["api"] = endpoints[gru.OfKind(DevelopmentResourceKind.Api).Single().Name];
         endpoints["authentication"] = endpoints[gru.OfKind(DevelopmentResourceKind.Authentication).Single().Name];
@@ -368,4 +387,7 @@ public static class DevelopmentLab
         endpoints["terrabase-b"] = endpoints[terraBase[0].Name];
         endpoints["terrabase-c"] = endpoints[terraBase[0].Name];
     }
+
+    private static bool HasProductWorkloads(DevelopmentTopology topology) =>
+        topology.Cells.Any(cell => cell.OfKind(DevelopmentResourceKind.ProductNats).Count != 0);
 }

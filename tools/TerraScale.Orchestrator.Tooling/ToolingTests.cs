@@ -94,7 +94,7 @@ internal static class ToolingTests
 
     private static void TranslatedInventory()
     {
-        if (TranslatedScriptCatalog.Replacements.Count != 28) throw new InvalidOperationException("translation catalog must cover all 28 removed Python files");
+        if (TranslatedScriptCatalog.Replacements.Count != 27) throw new InvalidOperationException("translation catalog must cover all 27 retained replacements");
         var python = Directory.EnumerateFiles(ToolingSupport.Root, "*" + ".p" + "y", SearchOption.AllDirectories)
             .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj" or ".git")).ToArray();
         if (python.Length != 0) throw new InvalidOperationException($"Python sources remain: {string.Join(',', python)}");

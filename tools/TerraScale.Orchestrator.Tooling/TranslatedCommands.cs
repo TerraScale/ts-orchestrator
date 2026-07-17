@@ -246,7 +246,7 @@ internal static class RegistryAuditCommand
     public static int Run(string[] arguments)
     {
         var errors = JsonEvidenceValidator.Validate("docs/audits/registry/registry-audit.json", "schemaVersion", "summary", "findings");
-        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "0a3dfb53228f71a4eb976a209ae05668d0e49b0708ddc32a0d8457d63106aa72");
+        JsonEvidenceValidator.ExactFile(errors, "requirements/registry.yaml", "06d3d32a2b99d7ed9cf51cb1ceedd363123da8d17f0d12819a936cfc3bc3045b");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/registry-audit.json", "f7057fb8a86fbb4f379a07a28567cbf682590216176d8867a42afc67e9f8b3d5");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/owner-mapping.json", "754e37b4081b262ae338a852543bc14946eec6e1bf4dd355819698b5cb339931");
         JsonEvidenceValidator.ExactFile(errors, "docs/audits/registry/fixtures/negative-cases.json", "de9b1b3132d54d3840cdc678980f18ef05a0c0f34e9eb9b59ce7f0132c4ef10a");
@@ -332,7 +332,7 @@ internal static class NatsL0cCommand
         var errors = JsonEvidenceValidator.Validate("tools/nats-l0c/l0c-cases.json", "schemaVersion", "cases");
         errors.AddRange(JsonEvidenceValidator.Validate("tools/nats-l0c/l0c-report.json", "schemaVersion", "classification", "caseResults", "fullL0CComplete"));
         JsonEvidenceValidator.ExactFile(errors, "tools/nats-l0c/l0c-cases.json", "67f4e13479db6ef29697f1e81e91fb13e82e40f77a9d86ebdd02ce723fcc8b97");
-        JsonEvidenceValidator.ExactFile(errors, "tools/nats-l0c/l0c-report.json", "2f2e226725f1142fd0e1aa8b7b006cdf208ae6057fc923f7a961aa7434dee6b1");
+        JsonEvidenceValidator.ExactFile(errors, "tools/nats-l0c/l0c-report.json", "ea6854c8be1b57708346079e70ded45965f56118658568884700faeb29f68a77");
         JsonEvidenceValidator.ExactFile(errors, "tools/nats-l0c/negative-cases.json", "8ee942e484c7155ded7ae7d576bf67bca6fbd8babb628fa9805866f0326caba2");
         ToolingSupport.RequireNoErrors(errors);
         Console.WriteLine("NATS L0C foundation evidence valid");

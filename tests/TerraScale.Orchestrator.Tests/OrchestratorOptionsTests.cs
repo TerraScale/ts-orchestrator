@@ -27,6 +27,17 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task ParsesControlPlaneContainerProfile()
+    {
+        var options = OrchestratorOptions.Parse(
+            ["lab", "plan", "--profile", "dev-containers-control"],
+            _ => null);
+
+        await Assert.That(options.LabProfile)
+            .IsEqualTo(OrchestratorLabProfile.DevContainersControl);
+    }
+
+    [Test]
     public async Task RejectsUnknownAndDuplicateLabOptions()
     {
         await Assert.That(() => OrchestratorOptions.Parse(["lab", "plan", "--wat"], _ => null))
