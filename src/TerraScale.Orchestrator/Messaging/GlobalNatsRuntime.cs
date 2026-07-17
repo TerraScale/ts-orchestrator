@@ -77,7 +77,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             return new(
                 client,
                 authority,
-                new(ledger),
+                new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
                 new(ledger, objects),
                 new(ledger),

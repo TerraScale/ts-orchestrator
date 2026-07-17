@@ -101,7 +101,7 @@ mTLS identity distinct from the regional account. The endpoint may be the same
 GRU control-NATS cluster because account authorization is separate. Startup
 then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, the
 64-revision-per-release `GLOBAL_RELEASES` KV journal, and the R3
-`GLOBAL_BUNDLES` content store before reporting ready:
+`GLOBAL_BUNDLES` content store plus `GLOBAL_CI` inbox before reporting ready:
 
 ```bash
 TS_ORCH_GLOBAL_NATS_URL=tls://control-nats-gru.internal:4222 \
@@ -119,10 +119,13 @@ Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
 contains no secret, signature, or raw payload. Global `GLOBAL_RELEASES` then reserves
 both the Forgejo delivery ID and signed-payload digest with compare-and-set;
-only a matching, fully committed identity pair produces an acknowledgeable
-receipt. Exact retries are idempotent, while delivery collisions, altered-ID
-payload replays, corrupt records, and interrupted writes fail closed or resume
-before acknowledgement.
+the normalized event is durably published to `GLOBAL_CI` with that payload
+identity before both reservations become accepted. Only a matching, fully
+committed identity pair produces an acknowledgeable receipt. Exact accepted
+retries do not republish. A crash after publish reuses the same JetStream
+message identity, while delivery collisions, altered-ID payload replays,
+publisher failure, corrupt records, and interrupted writes fail closed or
+resume before acknowledgement.
 
 Enable the listener only on the `run` command by supplying the complete
 configuration below. The secret file contains the exact Forgejo secret bytes

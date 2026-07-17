@@ -7,6 +7,8 @@ namespace TerraScale.Orchestrator.Messaging;
 public sealed class GlobalNatsTopology
 {
     private const string Root = "ts.orch.v1.global";
+    public const string CiStream = "GLOBAL_CI";
+    public const string CiSubject = $"{Root}.ci.forgejo";
 
     public GlobalNatsTopology(int replicas)
     {
@@ -25,6 +27,17 @@ public sealed class GlobalNatsTopology
             MaxBytes = 256 * 1024 * 1024,
             MaxAge = TimeSpan.FromDays(30),
             DuplicateWindow = TimeSpan.FromMinutes(2),
+            NumReplicas = Replicas,
+            Retention = StreamConfigRetention.Limits,
+            Storage = StreamConfigStorage.File,
+            Discard = StreamConfigDiscard.Old,
+        },
+        new(CiStream, [$"{Root}.ci.>"])
+        {
+            Description = "Durable normalized global CI events",
+            MaxBytes = 1024L * 1024 * 1024,
+            MaxAge = TimeSpan.FromDays(30),
+            DuplicateWindow = TimeSpan.FromHours(24),
             NumReplicas = Replicas,
             Retention = StreamConfigRetention.Limits,
             Storage = StreamConfigStorage.File,

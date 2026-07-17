@@ -89,6 +89,60 @@ public sealed class ForgejoWebhookJournalTests
     }
 
     [Test]
+    public async Task EventIsPublishedBeforeAcceptanceAndExactRetriesDoNotRepublish()
+    {
+        var ledger = new TestLedger();
+        var publisher = new TestPublisher();
+        var journal = new ForgejoWebhookJournal(ledger, publisher);
+        var envelope = Envelope("refs/heads/develop", Delivery);
+
+        var accepted = await journal.AcceptAsync(envelope);
+        var duplicate = await journal.AcceptAsync(envelope);
+
+        await Assert.That(accepted.CanAcknowledge).IsTrue();
+        await Assert.That(duplicate.Disposition).IsEqualTo(ForgejoWebhookJournalDisposition.Duplicate);
+        await Assert.That(publisher.Events).HasSingleItem();
+        await Assert.That(publisher.Events[0].DedupeKey).IsEqualTo(envelope.DedupeKey);
+    }
+
+    [Test]
+    public async Task PublishFailureLeavesPendingStateAndNeverAcknowledges()
+    {
+        var ledger = new TestLedger();
+        var failing = new TestPublisher(failOnPublish: 1);
+        var envelope = Envelope("refs/heads/develop", Delivery);
+
+        await Assert.That(async () => await new ForgejoWebhookJournal(ledger, failing)
+                .AcceptAsync(envelope))
+            .Throws<IOException>();
+        await Assert.That(ledger.Documents.All(document =>
+            document.State == ForgejoWebhookJournalState.Pending)).IsTrue();
+
+        var recoveredPublisher = new TestPublisher();
+        var recovered = await new ForgejoWebhookJournal(ledger, recoveredPublisher)
+            .AcceptAsync(envelope);
+        await Assert.That(recovered.CanAcknowledge).IsTrue();
+        await Assert.That(recoveredPublisher.Events).HasSingleItem();
+    }
+
+    [Test]
+    public async Task CrashAfterPublishReusesTheSameDurableEventIdentity()
+    {
+        var ledger = new TestLedger(failOnMutation: 3);
+        var publisher = new TestPublisher();
+        var envelope = Envelope("refs/heads/develop", Delivery);
+        var journal = new ForgejoWebhookJournal(ledger, publisher);
+
+        await Assert.That(async () => await journal.AcceptAsync(envelope)).Throws<IOException>();
+        var recovered = await new ForgejoWebhookJournal(ledger, publisher).AcceptAsync(envelope);
+
+        await Assert.That(recovered.CanAcknowledge).IsTrue();
+        await Assert.That(publisher.Events.Count).IsEqualTo(2);
+        await Assert.That(publisher.Events.Select(static value => value.DedupeKey).Distinct().Count())
+            .IsEqualTo(1);
+    }
+
+    [Test]
     public async Task CorruptDurableIdentityFailsClosedWithoutAcknowledgement()
     {
         var ledger = new TestLedger();
@@ -223,5 +277,20 @@ public sealed class ForgejoWebhookJournalTests
 
         private static ForgejoDeliveryLedgerConflictException Conflict() =>
             new(new InvalidOperationException("simulated conflict"));
+    }
+
+    private sealed class TestPublisher(int failOnPublish = 0) : IForgejoEventPublisher
+    {
+        private readonly List<ForgejoWebhookEnvelope> events = [];
+
+        internal IReadOnlyList<ForgejoWebhookEnvelope> Events => events;
+
+        public Task PublishAsync(ForgejoWebhookEnvelope envelope, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (events.Count + 1 == failOnPublish) throw new IOException("simulated publish failure");
+            events.Add(envelope);
+            return Task.CompletedTask;
+        }
     }
 }

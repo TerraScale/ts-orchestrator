@@ -28,8 +28,15 @@ public sealed class ForgejoWebhookJournal
 {
     private const int MaximumConflictRetries = 8;
     private readonly IForgejoDeliveryLedger ledger;
+    private readonly IForgejoEventPublisher publisher;
 
-    internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger) => this.ledger = ledger;
+    internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger) : this(ledger, NullForgejoEventPublisher.Instance) { }
+
+    internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger, IForgejoEventPublisher publisher)
+    {
+        this.ledger = ledger;
+        this.publisher = publisher;
+    }
 
     public async Task<ForgejoWebhookJournalReceipt> AcceptAsync(
         ForgejoWebhookEnvelope envelope,
@@ -45,6 +52,7 @@ public sealed class ForgejoWebhookJournal
 
         var wasComplete = delivery.Document!.State == ForgejoWebhookJournalState.Accepted &&
                           payload.Document!.State == ForgejoWebhookJournalState.Accepted;
+        if (!wasComplete) await publisher.PublishAsync(envelope, cancellationToken);
         await MarkAcceptedAsync(PayloadIndex(envelope), payload, cancellationToken);
         await MarkAcceptedAsync(DeliveryIndex(envelope), delivery, cancellationToken);
         return new(wasComplete
@@ -143,6 +151,14 @@ public sealed class ForgejoWebhookJournal
         bool Matches,
         ForgejoWebhookJournalDocument? Document,
         ulong Revision);
+
+    private sealed class NullForgejoEventPublisher : IForgejoEventPublisher
+    {
+        internal static readonly NullForgejoEventPublisher Instance = new();
+
+        public Task PublishAsync(ForgejoWebhookEnvelope envelope, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
 }
 
 internal enum ForgejoWebhookJournalState

@@ -10,12 +10,16 @@ public sealed class GlobalNatsTopologyTests
     public async Task GlobalStateHasAnExplicitR3AccountTopology()
     {
         var topology = new GlobalNatsTopology(3);
-        var specification = topology.Streams.Single();
+        var specification = topology.Streams.Single(stream => stream.Name == "GLOBAL_SPEC");
+        var ci = topology.Streams.Single(stream => stream.Name == GlobalNatsTopology.CiStream);
 
         await Assert.That(specification.Name).IsEqualTo("GLOBAL_SPEC");
         await Assert.That(specification.Subjects).IsEquivalentTo(["ts.orch.v1.global.desired.>"]);
         await Assert.That(specification.NumReplicas).IsEqualTo(3);
         await Assert.That(specification.Storage).IsEqualTo(StreamConfigStorage.File);
+        await Assert.That(ci.Subjects).IsEquivalentTo(["ts.orch.v1.global.ci.>"]);
+        await Assert.That(ci.NumReplicas).IsEqualTo(3);
+        await Assert.That(ci.DuplicateWindow).IsEqualTo(TimeSpan.FromHours(24));
         await Assert.That(topology.Leaders.Bucket).IsEqualTo("ORCH_LEADERS");
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");
