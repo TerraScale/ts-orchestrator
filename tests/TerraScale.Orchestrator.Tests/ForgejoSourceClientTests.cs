@@ -45,9 +45,14 @@ public sealed class ForgejoSourceClientTests
         var tokenFile = await CreateTokenFileAsync();
         try
         {
-            var handler = new RecordingHandler(_ => Json($$$$"""
-                {"sha":"{{{{Commit}}}}","commit":{"tree":{"sha":"{{{{Tree}}}}"},"verification":{"verified":true}}}
-                """));
+            var handler = new RecordingHandler(_ =>
+            {
+                var response = Json($$$$"""
+                    {"sha":"{{{{Commit}}}}","commit":{"tree":{"sha":"{{{{Tree}}}}"},"verification":{"verified":true}}}
+                    """);
+                response.Content.Headers.ContentType!.MediaType = "Application/Json";
+                return response;
+            });
             await using var client = Client(tokenFile, handler);
 
             var resolved = await client.ResolveAsync(Commit.ToUpperInvariant());

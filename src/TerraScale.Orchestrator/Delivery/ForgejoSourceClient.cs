@@ -100,10 +100,22 @@ public sealed class ForgejoResolvedRevision
     public bool SignatureVerified { get; }
 }
 
-public sealed record ForgejoBranchObservation(
-    string Branch,
-    bool Protected,
-    ForgejoResolvedRevision Revision);
+public sealed class ForgejoBranchObservation
+{
+    internal ForgejoBranchObservation(
+        string branch,
+        bool isProtected,
+        ForgejoResolvedRevision revision)
+    {
+        Branch = branch;
+        Protected = isProtected;
+        Revision = revision;
+    }
+
+    public string Branch { get; }
+    public bool Protected { get; }
+    public ForgejoResolvedRevision Revision { get; }
+}
 
 public sealed class ForgejoSourceNotFoundException : Exception
 {
@@ -202,7 +214,10 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
             throw new UnauthorizedAccessException("Forgejo source credentials were denied.");
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException("Forgejo source resolution failed.", null, response.StatusCode);
-        if (response.Content.Headers.ContentType?.MediaType != "application/json")
+        if (!string.Equals(
+                response.Content.Headers.ContentType?.MediaType,
+                "application/json",
+                StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The Forgejo source response was not JSON.");
         if (response.Content.Headers.ContentLength > MaximumResponseBytes)
             throw new InvalidDataException("The Forgejo source response exceeded its technical bound.");
