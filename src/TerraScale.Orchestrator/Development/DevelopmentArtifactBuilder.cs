@@ -65,7 +65,7 @@ internal static class DevelopmentArtifactBuilder
         process.Start();
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         var standardError = await error;
         _ = await output;
         if (process.ExitCode != 0)

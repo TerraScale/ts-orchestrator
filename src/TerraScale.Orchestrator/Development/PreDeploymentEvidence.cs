@@ -128,7 +128,7 @@ internal sealed record PreDeploymentEvidence(
         process.Start();
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"Git evidence check failed: {await error}");

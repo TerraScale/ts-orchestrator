@@ -439,7 +439,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         }
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         return new(process.ExitCode, await output, await error);
     }
 

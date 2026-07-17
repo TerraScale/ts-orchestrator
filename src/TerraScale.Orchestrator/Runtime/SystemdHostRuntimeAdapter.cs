@@ -37,7 +37,7 @@ internal sealed class ProcessHostCommandRunner : IHostCommandRunner
         process.Start();
         var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         return new(
             process.ExitCode,
             Bound(await standardOutput),
