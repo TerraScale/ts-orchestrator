@@ -117,6 +117,32 @@ public sealed class ForgejoBranchObservation
     public ForgejoResolvedRevision Revision { get; }
 }
 
+public sealed class ForgejoSourceFile
+{
+    internal ForgejoSourceFile(
+        string repository,
+        string commit,
+        string path,
+        string blob,
+        string contentSha256,
+        byte[] content)
+    {
+        Repository = repository;
+        Commit = commit;
+        Path = path;
+        Blob = blob;
+        ContentSha256 = contentSha256;
+        Content = content;
+    }
+
+    public string Repository { get; }
+    public string Commit { get; }
+    public string Path { get; }
+    public string Blob { get; }
+    public string ContentSha256 { get; }
+    public ReadOnlyMemory<byte> Content { get; }
+}
+
 public sealed class ForgejoSourceNotFoundException : Exception
 {
     internal ForgejoSourceNotFoundException() : base("The requested Forgejo source revision was not found.") { }
@@ -125,7 +151,8 @@ public sealed class ForgejoSourceNotFoundException : Exception
 /// <summary>Resolves immutable Forgejo commit and tree identities with bounded authenticated API reads.</summary>
 public sealed class ForgejoSourceClient : IAsyncDisposable
 {
-    private const int MaximumResponseBytes = 64 * 1024;
+    private const int MaximumMetadataResponseBytes = 64 * 1024;
+    public const int MaximumFileBytes = 1024 * 1024;
     private const int MaximumJsonDepth = 12;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
     private readonly ForgejoSourceConfiguration configuration;
@@ -145,7 +172,10 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
             AllowAutoRedirect = false,
             AutomaticDecompression = DecompressionMethods.None,
             UseCookies = false,
-        }) { Timeout = Timeout.InfiniteTimeSpan });
+        })
+        {
+            Timeout = Timeout.InfiniteTimeSpan
+        });
     }
 
     public ValueTask DisposeAsync()
@@ -163,7 +193,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         var (owner, repository) = SplitRepository(configuration.Repository);
         var path = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/git/commits/" +
                    $"{commit.ToLowerInvariant()}?stat=false&verification=true&files=false";
-        using var document = await GetJsonAsync(path, cancellationToken);
+        using var document = await GetJsonAsync(path, MaximumMetadataResponseBytes, cancellationToken);
         var root = document.RootElement;
         if (!TryString(root, "sha", out var observedCommit) ||
             !StringComparer.OrdinalIgnoreCase.Equals(observedCommit, commit) ||
@@ -189,7 +219,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         var (owner, repository) = SplitRepository(configuration.Repository);
         var path = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/branches/" +
                    Uri.EscapeDataString(branch);
-        using var document = await GetJsonAsync(path, cancellationToken);
+        using var document = await GetJsonAsync(path, MaximumMetadataResponseBytes, cancellationToken);
         var root = document.RootElement;
         if (!TryString(root, "name", out var observedBranch) || observedBranch != branch ||
             !TryBoolean(root, "protected", out var isProtected) ||
@@ -200,7 +230,62 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         return new(branch, isProtected, revision);
     }
 
-    private async Task<JsonDocument> GetJsonAsync(string path, CancellationToken cancellationToken)
+    public async Task<ForgejoSourceFile> ReadFileAsync(
+        string commit,
+        string path,
+        int maximumBytes,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsObjectId(commit) || commit.All(static value => value == '0'))
+            throw new ArgumentException("The Forgejo commit identity is invalid.", nameof(commit));
+        if (!IsSafePath(path))
+            throw new ArgumentException("The Forgejo source path is invalid.", nameof(path));
+        if (maximumBytes is < 1 or > MaximumFileBytes)
+            throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+
+        var normalizedCommit = commit.ToLowerInvariant();
+        var encodedPath = string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
+        var (owner, repository) = SplitRepository(configuration.Repository);
+        var requestPath = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/contents/" +
+                          $"{encodedPath}?ref={normalizedCommit}";
+        var maximumResponseBytes = checked(((maximumBytes + 2) / 3 * 4) + MaximumMetadataResponseBytes);
+        using var document = await GetJsonAsync(requestPath, maximumResponseBytes, cancellationToken);
+        var root = document.RootElement;
+        var name = path[(path.LastIndexOf('/') + 1)..];
+        if (!TryString(root, "type", out var type) || type != "file" ||
+            !TryString(root, "name", out var observedName) || observedName != name ||
+            !TryString(root, "path", out var observedPath) || observedPath != path ||
+            !TryString(root, "sha", out var blob) || !IsObjectId(blob) || blob.All(static value => value == '0') ||
+            !TryInt64(root, "size", out var size) || size < 0 || size > maximumBytes ||
+            !TryString(root, "encoding", out var encoding) || encoding != "base64" ||
+            !TryString(root, "content", out var encodedContent))
+            throw new InvalidDataException("The Forgejo file response did not contain the exact bounded file identity.");
+
+        byte[] content;
+        try
+        {
+            content = Convert.FromBase64String(encodedContent);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException("The Forgejo file response contained invalid Base64 content.", exception);
+        }
+        if (content.LongLength != size || content.Length > maximumBytes)
+            throw new InvalidDataException("The Forgejo file response did not match its declared size.");
+
+        return new(
+            configuration.Repository,
+            normalizedCommit,
+            path,
+            blob.ToLowerInvariant(),
+            Convert.ToHexStringLower(SHA256.HashData(content)),
+            content);
+    }
+
+    private async Task<JsonDocument> GetJsonAsync(
+        string path,
+        int maximumResponseBytes,
+        CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(RequestTimeout);
@@ -220,10 +305,10 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
                 "application/json",
                 StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The Forgejo source response was not JSON.");
-        if (response.Content.Headers.ContentLength > MaximumResponseBytes)
+        if (response.Content.Headers.ContentLength > maximumResponseBytes)
             throw new InvalidDataException("The Forgejo source response exceeded its technical bound.");
         await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
-        var bytes = await ReadBoundedAsync(stream, timeout.Token);
+        var bytes = await ReadBoundedAsync(stream, maximumResponseBytes, timeout.Token);
         try
         {
             if (HasDuplicateProperties(bytes))
@@ -241,7 +326,10 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         }
     }
 
-    private static async Task<byte[]> ReadBoundedAsync(Stream stream, CancellationToken cancellationToken)
+    private static async Task<byte[]> ReadBoundedAsync(
+        Stream stream,
+        int maximumBytes,
+        CancellationToken cancellationToken)
     {
         await using var output = new MemoryStream();
         var buffer = new byte[16 * 1024];
@@ -249,7 +337,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         {
             var read = await stream.ReadAsync(buffer, cancellationToken);
             if (read == 0) return output.ToArray();
-            if (output.Length + read > MaximumResponseBytes)
+            if (output.Length + read > maximumBytes)
                 throw new InvalidDataException("The Forgejo source response exceeded its technical bound.");
             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
         }
@@ -299,6 +387,13 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         return true;
     }
 
+    private static bool TryInt64(JsonElement owner, string name, out long value)
+    {
+        value = 0;
+        return owner.ValueKind == JsonValueKind.Object && owner.TryGetProperty(name, out var property) &&
+               property.ValueKind == JsonValueKind.Number && property.TryGetInt64(out value);
+    }
+
     private static (string Owner, string Repository) SplitRepository(string value)
     {
         var separator = value.IndexOf('/');
@@ -307,4 +402,10 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
 
     private static bool IsObjectId(string value) => value.Length is 40 or 64 &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F');
+
+    private static bool IsSafePath(string value) => value is { Length: > 0 and <= 512 } &&
+        value[0] != '/' && value[^1] != '/' &&
+        value.Split('/').All(static segment => segment is not ("" or "." or "..")) &&
+        value.All(static character => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or '.' or '_' or '-' or '/');
 }
