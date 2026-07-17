@@ -111,7 +111,6 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             arguments.Add("--publish");
             arguments.Add($"127.0.0.1:{port}:{port}");
         }
-        arguments.Add(podName);
         await RequireSuccessAsync(arguments, cancellationToken);
         initialized = true;
     }
