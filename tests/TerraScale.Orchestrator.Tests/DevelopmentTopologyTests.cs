@@ -110,6 +110,11 @@ public sealed class DevelopmentTopologyTests
             .OfKind(DevelopmentResourceKind.ControlNats).Single();
 
         await Assert.That(NatsDevelopmentCluster.CreateRoutes([member], member)).IsEmpty();
+        await Assert.That(NatsDevelopmentCluster.ClusterConfiguration(
+            [member],
+            member,
+            "orchestrator-fra",
+            new("route.pem", "route.key.pem", "ca.pem", "spiffe://route"))).IsEmpty();
     }
 
     [Test]

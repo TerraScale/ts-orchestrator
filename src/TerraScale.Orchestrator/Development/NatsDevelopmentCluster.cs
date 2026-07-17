@@ -32,10 +32,6 @@ internal static class NatsDevelopmentCluster
             : $"PRODUCT_{cell.Cell.ToUpperInvariant()}";
         foreach (var resource in resources)
         {
-            var routes = CreateRoutes(resources, resource);
-            var routeConfiguration = routes.Count == 0
-                ? string.Empty
-                : $"  routes: [{string.Join(", ", routes.Select(route => $"\"{route}\""))}]";
             var root = Path.Combine(dataDirectory, resource.Name);
             Directory.CreateDirectory(root);
             var config = Path.Combine(root, "nats.conf");
@@ -46,6 +42,11 @@ internal static class NatsDevelopmentCluster
                 ? security.Tls.Control
                 : security.Tls.Product;
             var tls = planeTls.Servers[resource.Name];
+            var clusterConfiguration = ClusterConfiguration(
+                resources,
+                resource,
+                clusterName,
+                tls.Route);
             File.WriteAllText(config, $$"""
                 server_name: "{{resource.Name}}"
                 host: "0.0.0.0"
@@ -56,13 +57,7 @@ internal static class NatsDevelopmentCluster
                   domain: "{{domain}}"
                   store_dir: "{{Path.Combine(root, "store")}}"
                 }
-                cluster {
-                  name: "{{clusterName}}"
-                  host: "127.0.0.1"
-                  port: {{resource.ClusterPort}}
-                  {{TlsConfiguration(tls.Route)}}
-                {{routeConfiguration}}
-                }
+                {{clusterConfiguration}}
                 """);
             if (!OperatingSystem.IsLinux())
             {
@@ -128,6 +123,28 @@ internal static class NatsDevelopmentCluster
               timeout: 3
             }
         """;
+
+    internal static string ClusterConfiguration(
+        IReadOnlyList<DevelopmentResourcePlan> resources,
+        DevelopmentResourcePlan resource,
+        string clusterName,
+        DevelopmentTlsIdentity routeTls)
+    {
+        if (resources.Count == 1)
+        {
+            return string.Empty;
+        }
+        var routes = CreateRoutes(resources, resource);
+        return $$"""
+                cluster {
+                  name: "{{clusterName}}"
+                  host: "127.0.0.1"
+                  port: {{resource.ClusterPort}}
+                  {{TlsConfiguration(routeTls)}}
+                  routes: [{{string.Join(", ", routes.Select(route => $"\"{route}\""))}}]
+                }
+            """;
+    }
 
     internal static IReadOnlyList<string> CreateRoutes(
         IReadOnlyList<DevelopmentResourcePlan> resources,
