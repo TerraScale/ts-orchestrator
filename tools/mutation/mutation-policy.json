@@ -6,6 +6,13 @@
   "maximumSafetyInvariantSurvivors": 0,
   "projects": [
     {
+      "path": "src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj",
+      "classification": "correctness-critical-runtime",
+      "mutationRequired": true,
+      "exclusionProof": null,
+      "exclusionProofSha256": null
+    },
+    {
       "path": "src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj",
       "classification": "correctness-critical-runtime",
       "mutationRequired": true,

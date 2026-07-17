@@ -4,7 +4,7 @@
   "validUntil": "2026-08-12",
   "status": "blocked-unselected-tool",
   "policy": "tools/mutation/mutation-policy.json",
-  "policySha256": "a3924119fb62d2550a7901e47441c4f991b064ea055ca32dc728032cebe98ab5",
+  "policySha256": "8ba486fff024140794436b0783370b6fdb0b82b9d97db08862ba76a06c6278ef",
   "toolSelection": {
     "candidateId": "PIN-DOTNET-STRYKER",
     "candidateVersion": "4.16.0",
