@@ -467,12 +467,15 @@ internal sealed record RepositoryCiJobDeliveryReceipt(
     RepositoryCiJobDeliveryDisposition Disposition,
     RepositoryCiJobAcceptanceDisposition AcceptanceDisposition,
     CommandValidationError ProtocolError,
-    RepositoryCiAcceptedJob? Acceptance)
+    RepositoryCiAcceptedJob? Acceptance,
+    RepositoryCiJobExecutionDisposition ExecutionDisposition = RepositoryCiJobExecutionDisposition.Unspecified)
 {
     internal bool IsAcknowledged => Disposition == RepositoryCiJobDeliveryDisposition.Acknowledged;
 }
 
-internal sealed class RepositoryCiJobInbox(RepositoryCiJobAcceptanceJournal journal)
+internal sealed class RepositoryCiJobInbox(
+    RepositoryCiJobAcceptanceJournal journal,
+    RepositoryCiJobExecutionJournal executions)
 {
     internal async Task<RepositoryCiJobDeliveryReceipt> ProcessAsync(
         ReadOnlyMemory<byte> payload,
@@ -529,12 +532,22 @@ internal sealed class RepositoryCiJobInbox(RepositoryCiJobAcceptanceJournal jour
                 acceptance.ProtocolError,
                 null);
 
+        var execution = await executions.PrepareAsync(acceptance.Acceptance!, now, cancellationToken);
+        if (!execution.CanAcknowledge)
+            return new(
+                RepositoryCiJobDeliveryDisposition.Rejected,
+                acceptance.Disposition,
+                acceptance.ProtocolError,
+                null,
+                execution.Disposition);
+
         await acknowledge(cancellationToken);
         return new(
             RepositoryCiJobDeliveryDisposition.Acknowledged,
             acceptance.Disposition,
             acceptance.ProtocolError,
-            acceptance.Acceptance);
+            acceptance.Acceptance,
+            execution.Disposition);
     }
 }
 

@@ -17,9 +17,10 @@ public sealed class RepositoryCiJobInboxTests
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var payloads = new TestPayloadStore();
         var journal = new RepositoryCiJobAcceptanceJournal(ledger, payloads);
+        var executions = new RepositoryCiJobExecutionJournal(ledger);
         var acknowledgements = 0;
 
-        var receipt = await new RepositoryCiJobInbox(journal).ProcessAsync(
+        var receipt = await new RepositoryCiJobInbox(journal, executions).ProcessAsync(
             wire.Payload,
             wire.Headers,
             41,
@@ -36,10 +37,16 @@ public sealed class RepositoryCiJobInboxTests
             decoded.Document.Runner,
             decoded.Document.PipelineDigest,
             decoded.Document.Job);
+        var execution = await executions.ReadAsync(
+            decoded.Document.Runner,
+            decoded.Document.PipelineDigest,
+            decoded.Document.Job);
 
         await Assert.That(receipt.IsAcknowledged).IsTrue();
         await Assert.That(receipt.AcceptanceDisposition)
             .IsEqualTo(RepositoryCiJobAcceptanceDisposition.Recorded);
+        await Assert.That(receipt.ExecutionDisposition)
+            .IsEqualTo(RepositoryCiJobExecutionDisposition.Prepared);
         await Assert.That(acknowledgements).IsEqualTo(1);
         await Assert.That(recovered).IsNotNull();
         await Assert.That(recovered!.Command.JobDigest).IsEqualTo(decoded.Document.JobDigest);
@@ -48,6 +55,8 @@ public sealed class RepositoryCiJobInboxTests
             .IsEquivalentTo(decoded.Document.RequiredCapabilities);
         await Assert.That(recovered.Command.Dependencies).IsEquivalentTo(decoded.Document.Dependencies);
         await Assert.That(recovered.StreamSequence).IsEqualTo(41UL);
+        await Assert.That(execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Ready);
+        await Assert.That(execution.Document.AcceptanceRevision).IsEqualTo(recovered.JournalRevision);
         await Assert.That(recovered.Payload.Span.SequenceEqual(wire.Payload.Span)).IsTrue();
         await Assert.That(recovered.Signature.Span.SequenceEqual(new byte[] { 1, 2, 3 })).IsTrue();
         await Assert.That(payloads.Values.Count).IsEqualTo(2);
@@ -121,7 +130,7 @@ public sealed class RepositoryCiJobInboxTests
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var payloads = new TestPayloadStore();
         var journal = new RepositoryCiJobAcceptanceJournal(ledger, payloads);
-        var inbox = new RepositoryCiJobInbox(journal);
+        var inbox = new RepositoryCiJobInbox(journal, new(ledger));
 
         await Assert.That(async () => await inbox.ProcessAsync(
                 wire.Payload,
@@ -137,6 +146,10 @@ public sealed class RepositoryCiJobInboxTests
             decoded.Document.Runner,
             decoded.Document.PipelineDigest,
             decoded.Document.Job);
+        var execution = await new RepositoryCiJobExecutionJournal(ledger).ReadAsync(
+            decoded.Document.Runner,
+            decoded.Document.PipelineDigest,
+            decoded.Document.Job);
         var recovered = await inbox.ProcessAsync(
             wire.Payload,
             wire.Headers,
@@ -148,9 +161,58 @@ public sealed class RepositoryCiJobInboxTests
             _ => Task.CompletedTask);
 
         await Assert.That(durable).IsNotNull();
+        await Assert.That(execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Ready);
         await Assert.That(recovered.AcceptanceDisposition)
             .IsEqualTo(RepositoryCiJobAcceptanceDisposition.Duplicate);
         await Assert.That(recovered.IsAcknowledged).IsTrue();
+    }
+
+    [Test]
+    public async Task ExecutionPreparationFailureNeverAcknowledgesAndExactRedeliveryRepairsIt()
+    {
+        var prepared = await PreparedAsync();
+        var wire = Wire(prepared, [34]);
+        var decoded = RepositoryCiJobWireCodec.Decode(wire.Payload, wire.Headers);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 2);
+        var inbox = new RepositoryCiJobInbox(
+            new(ledger, new TestPayloadStore()),
+            new(ledger));
+        var acknowledgements = 0;
+
+        await Assert.That(async () => await inbox.ProcessAsync(
+                wire.Payload,
+                wire.Headers,
+                52,
+                decoded.Document.Runner,
+                Now,
+                TimeSpan.Zero,
+                new TestVerifier([34]),
+                _ =>
+                {
+                    acknowledgements++;
+                    return Task.CompletedTask;
+                }))
+            .Throws<IOException>();
+        var repaired = await inbox.ProcessAsync(
+            wire.Payload,
+            wire.Headers,
+            52,
+            decoded.Document.Runner,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([34]),
+            _ =>
+            {
+                acknowledgements++;
+                return Task.CompletedTask;
+            });
+
+        await Assert.That(acknowledgements).IsEqualTo(1);
+        await Assert.That(repaired.IsAcknowledged).IsTrue();
+        await Assert.That(repaired.AcceptanceDisposition)
+            .IsEqualTo(RepositoryCiJobAcceptanceDisposition.Duplicate);
+        await Assert.That(repaired.ExecutionDisposition)
+            .IsEqualTo(RepositoryCiJobExecutionDisposition.Prepared);
     }
 
     [Test]
@@ -267,9 +329,64 @@ public sealed class RepositoryCiJobInboxTests
             .IsLessThan(acceptedThird.Acceptance.Command.FencingToken);
     }
 
-    private static RepositoryCiJobInbox Inbox() => new(new(
-        new ForgejoWebhookJournalTests.TestLedger(),
-        new TestPayloadStore()));
+    private static RepositoryCiJobInbox Inbox()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        return new(new(ledger, new TestPayloadStore()), new(ledger));
+    }
+
+    internal static async Task<RepositoryCiAcceptedJob> AcceptedAsync()
+    {
+        var prepared = await PreparedAsync();
+        var wire = Wire(prepared, [31]);
+        var decoded = RepositoryCiJobWireCodec.Decode(wire.Payload, wire.Headers);
+        var receipt = await new RepositoryCiJobAcceptanceJournal(
+            new ForgejoWebhookJournalTests.TestLedger(),
+            new TestPayloadStore()).AcceptAsync(
+                decoded,
+                decoded.Document.Runner,
+                101,
+                Now,
+                TimeSpan.Zero,
+                new TestVerifier([31]));
+        return receipt.Acceptance!;
+    }
+
+    internal static async Task<(RepositoryCiAcceptedJob Original, RepositoryCiAcceptedJob Takeover)>
+        AcceptedTakeoverAsync()
+    {
+        var prepared = await PreparedAsync();
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new RepositoryCiJobAcceptanceJournal(ledger, new TestPayloadStore());
+        var originalWire = Wire(prepared, [32]);
+        var original = RepositoryCiJobWireCodec.Decode(originalWire.Payload, originalWire.Headers);
+        var first = await journal.AcceptAsync(
+            original,
+            original.Document.Runner,
+            102,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([32]));
+        var takeover = await prepared.Journal.AcquireAsync(
+            prepared.Pipeline,
+            prepared.Snapshot.Job.Request.Job,
+            "gru-controller-2",
+            6,
+            static () => true);
+        var replacementWire = RepositoryCiJobWireCodec.Encode(
+            prepared.Pipeline,
+            takeover.Job!,
+            new TestSigner([33]));
+        var replacement = RepositoryCiJobWireCodec.Decode(replacementWire.Payload, replacementWire.Headers);
+        var second = await journal.AcceptAsync(
+            replacement,
+            replacement.Document.Runner,
+            103,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([33]));
+        return (first.Acceptance!, second.Acceptance!);
+    }
 
     private static RepositoryCiJobWireMessage Wire(PreparedJob prepared, byte[] signature) =>
         RepositoryCiJobWireCodec.Encode(prepared.Pipeline, prepared.Snapshot, new TestSigner(signature));

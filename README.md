@@ -280,14 +280,20 @@ order; an interrupted index write is repaired by exact retry, while a second
 candidate claiming the same tree set is an identity conflict. Retention cleanup
 and a coordinator that consumes these records remain unimplemented.
 
-Runner admission is likewise a pure contract today. Untrusted, trusted-build,
+Runner admission remains a pure policy contract. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
 network scopes, cache domains, and phase-scoped credential profiles. Admission
 requires disposable cgroup-v2/user-namespace/seccomp isolation, read-only root,
 no host Docker socket, rootless BuildKit for compilation, bounded resources and
 logs, redaction plus secret scanning, and exact runner/job/sequence identity.
 Untrusted and trusted-build runners cannot reach metadata, production,
-control-NATS, or database networks.
+control-NATS, or database networks. A signed command is now acknowledgeable
+only after both its canonical payload/signature pointer and a runner execution
+record are durable. The execution record binds that exact acceptance, uses a
+bounded renewable lease, fences crash takeover, and records one terminal
+evidence digest or typed failure. The source materializer, closed execution
+recipe, BuildKit adapter, and result coordinator are still separate missing
+gates; this journal does not claim that a workload ran.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
