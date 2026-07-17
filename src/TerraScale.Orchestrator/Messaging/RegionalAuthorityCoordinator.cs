@@ -285,7 +285,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         DateTimeOffset now)
     {
         var state = decision.State;
-        var error = decision.Errors.FirstOrDefault()?.Code.ToString();
+        var error = decision.Errors.Count == 0 ? null : decision.Errors[0].Code.ToString();
         Publish(
             state.Status == AuthorityStatus.Leader ? "leader" :
             state.Status == AuthorityStatus.Fenced ? "fenced" :

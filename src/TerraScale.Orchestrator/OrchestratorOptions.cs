@@ -36,6 +36,7 @@ public sealed record OrchestratorOptions(
     OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevContainers,
     string? NatsNKeyFile = null,
     Messaging.NatsTlsFiles? NatsTls = null,
+    Messaging.GlobalNatsConfiguration? GlobalNats = null,
     Delivery.ForgejoWebhookConfiguration? ForgejoWebhook = null,
     Delivery.ForgejoSourceConfiguration? ForgejoSource = null)
 {
@@ -43,7 +44,7 @@ public sealed record OrchestratorOptions(
         IReadOnlyList<string> args,
         Func<string, string?> environment)
     {
-        var command = args.FirstOrDefault() switch
+        var command = (args.Count == 0 ? null : args[0]) switch
         {
             null or "run" => OrchestratorCommand.Run,
             "check" => OrchestratorCommand.Check,
@@ -85,6 +86,20 @@ public sealed record OrchestratorOptions(
         natsNKeyFile = Messaging.NatsCredentialFile.Resolve(
             natsNKeyFile,
             "TS_ORCH_NATS_NKEY_FILE");
+        var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Messaging.GlobalNatsConfiguration.Resolve(
+                environment("TS_ORCH_GLOBAL_NATS_URL"),
+                environment("TS_ORCH_GLOBAL_NATS_NKEY_FILE"),
+                environment("TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"),
+                environment("TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"),
+                environment("TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"),
+                replicas)
+            : null;
+        if (globalNats is not null &&
+            (natsNKeyFile is null || natsTls is null ||
+                globalNats.NKeyFile == natsNKeyFile ||
+                globalNats.Tls.CertificateFile == natsTls.CertificateFile))
+            throw new ArgumentException("Global and regional control NATS require distinct complete identities.");
 
         if (command is not OrchestratorCommand.Lab)
         {
@@ -112,6 +127,7 @@ public sealed record OrchestratorOptions(
                 Instance: instance,
                 NatsNKeyFile: natsNKeyFile,
                 NatsTls: natsTls,
+                GlobalNats: globalNats,
                 ForgejoWebhook: forgejoWebhook,
                 ForgejoSource: forgejoSource);
         }
@@ -127,7 +143,7 @@ public sealed record OrchestratorOptions(
         int replicas,
         string instance)
     {
-        var labCommand = args.FirstOrDefault() switch
+        var labCommand = (args.Count == 0 ? null : args[0]) switch
         {
             null or "plan" => OrchestratorLabCommand.Plan,
             "up" => OrchestratorLabCommand.Up,

@@ -20,7 +20,7 @@ internal static class HostRuntimeCli
 
     internal static HostRuntimePlan ParsePlan(IReadOnlyList<string> arguments)
     {
-        if (arguments.FirstOrDefault() is not "plan")
+        if (arguments.Count == 0 || arguments[0] is not "plan")
         {
             throw new ArgumentException("Unknown runtime command. Use 'runtime plan'.");
         }

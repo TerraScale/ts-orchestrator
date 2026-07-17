@@ -17,7 +17,7 @@ internal static class OperatorCli
         Func<string, string?> environment,
         CancellationToken cancellationToken)
     {
-        if (arguments.FirstOrDefault() != "status")
+        if (arguments.Count == 0 || arguments[0] != "status")
         {
             throw new ArgumentException("operator requires 'status'.");
         }
