@@ -460,6 +460,7 @@ internal enum RepositoryCiJobDeliveryDisposition
     Unspecified,
     Malformed,
     Rejected,
+    Prepared,
     Acknowledged,
 }
 
@@ -468,8 +469,11 @@ internal sealed record RepositoryCiJobDeliveryReceipt(
     RepositoryCiJobAcceptanceDisposition AcceptanceDisposition,
     CommandValidationError ProtocolError,
     RepositoryCiAcceptedJob? Acceptance,
-    RepositoryCiJobExecutionDisposition ExecutionDisposition = RepositoryCiJobExecutionDisposition.Unspecified)
+    RepositoryCiJobExecutionDisposition ExecutionDisposition = RepositoryCiJobExecutionDisposition.Unspecified,
+    RepositoryCiJobExecutionSnapshot? Execution = null)
 {
+    internal bool CanAcknowledge =>
+        Disposition == RepositoryCiJobDeliveryDisposition.Prepared && Acceptance is not null && Execution is not null;
     internal bool IsAcknowledged => Disposition == RepositoryCiJobDeliveryDisposition.Acknowledged;
 }
 
@@ -488,9 +492,36 @@ internal sealed class RepositoryCiJobInbox(
         Func<CancellationToken, Task> acknowledge,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(acknowledge);
+        var prepared = await PrepareAsync(
+            payload,
+            headers,
+            streamSequence,
+            expectedRunner,
+            now,
+            allowedClockSkew,
+            signatureVerifier,
+            cancellationToken);
+        if (!prepared.CanAcknowledge) return prepared;
+        await acknowledge(cancellationToken);
+        return prepared with { Disposition = RepositoryCiJobDeliveryDisposition.Acknowledged };
+    }
+
+    /// <summary>
+    /// Durably prepares one INV-005 execution without acknowledging its transport delivery.
+    /// </summary>
+    internal async Task<RepositoryCiJobDeliveryReceipt> PrepareAsync(
+        ReadOnlyMemory<byte> payload,
+        IEnumerable<KeyValuePair<string, string>> headers,
+        ulong streamSequence,
+        string expectedRunner,
+        DateTimeOffset now,
+        TimeSpan allowedClockSkew,
+        ICommandSignatureVerifier signatureVerifier,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(headers);
         ArgumentNullException.ThrowIfNull(signatureVerifier);
-        ArgumentNullException.ThrowIfNull(acknowledge);
         RepositoryCiDecodedJobCommand command;
         try
         {
@@ -539,15 +570,16 @@ internal sealed class RepositoryCiJobInbox(
                 acceptance.Disposition,
                 acceptance.ProtocolError,
                 null,
-                execution.Disposition);
+                execution.Disposition,
+                execution.Execution);
 
-        await acknowledge(cancellationToken);
         return new(
-            RepositoryCiJobDeliveryDisposition.Acknowledged,
+            RepositoryCiJobDeliveryDisposition.Prepared,
             acceptance.Disposition,
             acceptance.ProtocolError,
             acceptance.Acceptance,
-            execution.Disposition);
+            execution.Disposition,
+            execution.Execution);
     }
 }
 

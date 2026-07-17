@@ -47,6 +47,7 @@ public sealed class RepositoryCiJobInboxTests
             .IsEqualTo(RepositoryCiJobAcceptanceDisposition.Recorded);
         await Assert.That(receipt.ExecutionDisposition)
             .IsEqualTo(RepositoryCiJobExecutionDisposition.Prepared);
+        await Assert.That(receipt.Execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Ready);
         await Assert.That(acknowledgements).IsEqualTo(1);
         await Assert.That(recovered).IsNotNull();
         await Assert.That(recovered!.Command.JobDigest).IsEqualTo(decoded.Document.JobDigest);
@@ -60,6 +61,34 @@ public sealed class RepositoryCiJobInboxTests
         await Assert.That(recovered.Payload.Span.SequenceEqual(wire.Payload.Span)).IsTrue();
         await Assert.That(recovered.Signature.Span.SequenceEqual(new byte[] { 1, 2, 3 })).IsTrue();
         await Assert.That(payloads.Values.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task PreparationExposesTheDurableExecutionBeforeTransportAcknowledgement()
+    {
+        var prepared = await PreparedAsync();
+        var wire = Wire(prepared, [35]);
+        var decoded = RepositoryCiJobWireCodec.Decode(wire.Payload, wire.Headers);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var inbox = new RepositoryCiJobInbox(
+            new(ledger, new TestPayloadStore()),
+            new(ledger));
+
+        var receipt = await inbox.PrepareAsync(
+            wire.Payload,
+            wire.Headers,
+            53,
+            decoded.Document.Runner,
+            Now,
+            TimeSpan.Zero,
+            new TestVerifier([35]));
+
+        await Assert.That(receipt.Disposition).IsEqualTo(RepositoryCiJobDeliveryDisposition.Prepared);
+        await Assert.That(receipt.CanAcknowledge).IsTrue();
+        await Assert.That(receipt.IsAcknowledged).IsFalse();
+        await Assert.That(receipt.Execution!.Phase).IsEqualTo(RepositoryCiJobExecutionPhase.Ready);
+        await Assert.That(receipt.Execution.Document.ExecutionIdentityDigest)
+            .IsEqualTo(receipt.Acceptance!.ExecutionIdentityDigest);
     }
 
     [Test]
