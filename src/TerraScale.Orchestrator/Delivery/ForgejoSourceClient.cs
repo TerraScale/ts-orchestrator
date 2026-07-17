@@ -208,6 +208,7 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
         var token = configuration.ReadToken();
         request.Headers.Authorization = new AuthenticationHeaderValue("token", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         if (response.StatusCode == HttpStatusCode.NotFound) throw new ForgejoSourceNotFoundException();
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)

@@ -14,6 +14,30 @@ public sealed class ForgejoSourceClientTests
     private const string Token = "0123456789abcdef0123456789abcdef01234567";
 
     [Test]
+    public async Task RunOptionsActivateCredentialReferencedPolling()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var values = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["TS_ORCH_FORGEJO_API_URL"] = "https://git.terrascale.tech/",
+                ["TS_ORCH_FORGEJO_REPOSITORY"] = Repository,
+                ["TS_ORCH_FORGEJO_API_TOKEN_FILE"] = tokenFile,
+            };
+
+            var options = OrchestratorOptions.Parse(["run"], values.GetValueOrDefault);
+
+            await Assert.That(options.ForgejoSource).IsNotNull();
+            await Assert.That(options.ForgejoSource!.Repository).IsEqualTo(Repository);
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Test]
     public async Task ConfigurationRequiresCompletePrivateAndSecureApiIdentity()
     {
         var tokenFile = await CreateTokenFileAsync();

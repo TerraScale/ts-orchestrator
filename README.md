@@ -169,6 +169,21 @@ duplicate fields, arbitrary roles/runtimes, paths, image names, unit text,
 capabilities, invalid digests, missing/cross-cell dependencies, cycles, and
 replica counts below a role's production floor all fail before a plan exists.
 
+The optional polling fallback runs only on the current fenced regional leader.
+It reads protected `develop` and `main` refs every 30 seconds, resolves each
+observed commit to its exact Git tree, then records the observation in
+`ORCH_DELIVERY` under the authority epoch and poll sequence. A lease change
+during the API read discards the result; an old leader cannot overwrite a newer
+epoch. Use a private token file containing a repository-scoped Forgejo token
+with only `read:repository` permission:
+
+```bash
+TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
+TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
+TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-read-token \
+terrascale-orchestrator run
+```
+
 The three regional controller candidates share one NATS service queue group
 and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
 revisions. The production authority state machine advances the fencing epoch,

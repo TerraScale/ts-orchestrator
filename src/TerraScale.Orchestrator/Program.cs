@@ -67,29 +67,43 @@ try
         throw;
     }
     await using var ownedRuntime = runtime;
-    ForgejoWebhookServer? webhookServer;
+    ForgejoWebhookServer? webhookServer = null;
+    ForgejoSourcePoller? sourcePoller = null;
     try
     {
         webhookServer = options.Command == OrchestratorCommand.Run && options.ForgejoWebhook is not null
             ? ForgejoWebhookServer.Start(options.ForgejoWebhook, ownedRuntime.ForgejoWebhooks)
             : null;
+        sourcePoller = options.Command == OrchestratorCommand.Run && options.ForgejoSource is not null
+            ? ForgejoSourcePoller.Start(
+                options.ForgejoSource,
+                ownedRuntime.ForgejoSources,
+                () => ownedRuntime.AuthoritySnapshot)
+            : null;
     }
     catch (Exception exception)
     {
+        if (sourcePoller is not null) await sourcePoller.DisposeAsync();
+        if (webhookServer is not null) await webhookServer.DisposeAsync();
         telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
         startupActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
         throw;
     }
     await using var webhooks = webhookServer;
+    await using var sources = sourcePoller;
     telemetry.RecordReady(Stopwatch.GetElapsedTime(startupTimestamp));
     startupActivity?.SetStatus(ActivityStatusCode.Ok);
     Console.WriteLine($"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}");
 
     if (options.Command is OrchestratorCommand.Run)
     {
-        var completion = webhooks is null
-            ? ownedRuntime.Completion
-            : Task.WhenAny(ownedRuntime.Completion, webhooks.Completion).Unwrap();
+        var completions = new[]
+        {
+            ownedRuntime.Completion,
+            webhooks?.Completion,
+            sources?.Completion,
+        }.Where(static task => task is not null).Cast<Task>();
+        var completion = Task.WhenAny(completions).Unwrap();
         await completion.WaitAsync(shutdown.Token);
     }
 

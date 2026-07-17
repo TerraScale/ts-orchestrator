@@ -26,17 +26,21 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsSvcServer service,
         RuntimeRegistration registration,
         RegionalAuthorityCoordinator authority,
-        ForgejoWebhookJournal forgejoWebhooks)
+        ForgejoWebhookJournal forgejoWebhooks,
+        ForgejoSourceJournal forgejoSources)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
         ForgejoWebhooks = forgejoWebhooks;
+        ForgejoSources = forgejoSources;
     }
 
     public Task Completion => authority.Completion;
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
+    internal ForgejoSourceJournal ForgejoSources { get; }
+    internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
         OrchestratorOptions options,
@@ -183,7 +187,14 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
-            return new(client, service, registration, authority, new(new NatsForgejoDeliveryLedger(state.Delivery)));
+            var deliveryLedger = new NatsForgejoDeliveryLedger(state.Delivery);
+            return new(
+                client,
+                service,
+                registration,
+                authority,
+                new(deliveryLedger),
+                new(deliveryLedger));
         }
         catch
         {
