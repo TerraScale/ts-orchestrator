@@ -84,6 +84,23 @@ public sealed class OciCiRunnerCapacityTests
             .Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task StoppedRunnerIsNeverReportedAvailableAndIsTerminatedForReplacement()
+    {
+        var demand = Demand("runner-stopped", 47);
+        var stopped = Node(demand, "stopped", active: true, Now) with
+        {
+            State = OciCiRunnerNodeState.Stopped,
+        };
+
+        var action = OciCiRunnerCapacityEngine.Decide(Request([demand], [stopped])).Single();
+
+        await Assert.That(OciCiRunnerComputeAdapter.State(Instance.LifecycleStateEnum.Stopped))
+            .IsEqualTo(OciCiRunnerNodeState.Stopped);
+        await Assert.That(action).IsTypeOf<TerminateOciCiRunnerAction>();
+        await Assert.That(((TerminateOciCiRunnerAction)action).InstanceId).IsEqualTo(stopped.InstanceId);
+    }
+
     private static OciCiRunnerCapacityRequest Request(
         IEnumerable<OciCiRunnerDemand> desired,
         IEnumerable<OciCiRunnerNodeObservation> observed,

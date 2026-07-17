@@ -16,6 +16,7 @@ internal enum OciCiRunnerNodeState
 {
     Launching,
     Running,
+    Stopped,
     Terminating,
     Terminated,
 }
@@ -202,9 +203,10 @@ internal static class OciCiRunnerCapacityEngine
         var actions = new List<OciCiRunnerCapacityAction>();
         foreach (var node in live.OrderBy(static node => node.InstanceId, StringComparer.Ordinal))
         {
-            if (!Owned(node) || node.State != OciCiRunnerNodeState.Running || node.ActiveJob ||
-                desired.ContainsKey($"{node.Runner}:{node.Sequence}") ||
-                request.Now - node.LastActivity < request.IdleTimeout)
+            var stopped = node.State == OciCiRunnerNodeState.Stopped;
+            if (!Owned(node) || node.State is not (OciCiRunnerNodeState.Running or OciCiRunnerNodeState.Stopped) ||
+                !stopped && (node.ActiveJob || desired.ContainsKey($"{node.Runner}:{node.Sequence}") ||
+                    request.Now - node.LastActivity < request.IdleTimeout))
                 continue;
             if (string.IsNullOrWhiteSpace(node.ETag))
                 throw new InvalidDataException("An idle OCI CI runner has no exact ETag fence.");
@@ -470,12 +472,12 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         }
     }
 
-    private static OciCiRunnerNodeState State(Instance.LifecycleStateEnum? state)
+    internal static OciCiRunnerNodeState State(Instance.LifecycleStateEnum? state)
     {
         if (state == Instance.LifecycleStateEnum.Terminated) return OciCiRunnerNodeState.Terminated;
         if (state == Instance.LifecycleStateEnum.Terminating) return OciCiRunnerNodeState.Terminating;
-        if (state == Instance.LifecycleStateEnum.Running || state == Instance.LifecycleStateEnum.Stopped)
-            return OciCiRunnerNodeState.Running;
+        if (state == Instance.LifecycleStateEnum.Running) return OciCiRunnerNodeState.Running;
+        if (state == Instance.LifecycleStateEnum.Stopped) return OciCiRunnerNodeState.Stopped;
         return OciCiRunnerNodeState.Launching;
     }
 
