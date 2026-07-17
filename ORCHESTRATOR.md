@@ -55,7 +55,7 @@ For NATS, mTLS proves the machine/workload transport identity. NKeys, operator/a
 - Every active region has a dedicated three-server orchestrator NATS cluster and a separate three-server TerraScale product NATS cluster. Under decision 8A they may share the three compact-profile hosts, but never share a process, trust root, account, credentials, port, cgroup, or store directory. The cheapest physical-volume layout that passes isolation, recovery, and performance tests is selected automatically during qualification.
 - Pulumi is the bootstrap/foundation layer. After a durable handoff, every regional controller owns and repairs that region's concrete nodes, attachments, workload backends, and expandable storage.
 - Each region deletes safely unused elastic nodes, creates capacity when needed, replaces failed nodes, and expands storage without depending on GRU.
-- Application workloads are limited to TerraScale API, Authentication, Dashboard, and TerraBase. Required first-party platform workloads—both NATS clusters, the orchestrator, OTel/Grafana stack, VPN components, and isolated ephemeral CI runners—are allowed infrastructure roles, not a generic workload API.
+- Application workloads are limited to TerraScale Platform, Authentication, Dashboard, and TerraBase. Required first-party platform workloads—both NATS clusters, the orchestrator, OTel/Grafana stack, VPN components, and isolated ephemeral CI runners—are allowed infrastructure roles, not a generic workload API.
 - There is no arbitrary customer workload or general-purpose scheduling surface.
 - GitOps is native to the orchestrator. Flux is removed, not embedded, emulated, or retained as a runtime dependency.
 - Grafana is the operator web console for status, health, capacity, failure, storage, deployments, NATS, cost, and regional state. The orchestrator does not build a second dashboard UI.
@@ -89,7 +89,7 @@ The owner selected `all A` with reliability first on 2026-07-16. Every A choice 
 | 1 | Regional control topology | Three controller candidates plus three control-NATS servers in **each** region: 9 of each across GRU/SFO/FRA, with independent regional JetStream R3 consensus | Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants |
 | 2 | GRU/WAN outage deployments | Regions keep serving, healing, replacing/scaling nodes, expanding storage, and renewing existing identities; freeze new global releases/policy changes | Allow each isolated region to accept independent releases/policy changes |
 | 3 | Vault authority | Built-in policy/PKI/lease/rotation service with ciphertext/root protection in OCI Vault/KMS initially | Store envelope-encrypted authoritative ciphertext in a dedicated, isolated vault JetStream account/stream from v1; never ordinary subjects or plaintext |
-| 4 | Runtime defaults | Native systemd for TerraBase; containers for API/Auth/Dashboard initially; both supported where useful | Choose a different default split |
+| 4 | Runtime defaults | Native systemd for TerraBase; containers for Platform/Auth/Dashboard initially; both supported where useful | Choose a different default split |
 | 5 | Elastic data cleanup | Never shrink; retain permanent disks; quarantine a removed elastic TerraBase disk for 7 days after verified backup | Immediately delete explicitly disposable elastic disks after safe topology removal |
 | 6 | Provider implementation timing | Finish OCI plus a provider-neutral contract first; OCI's catalog must expose at least 20 usable regions, while GRU/SFO/FRA are the first activated/qualified cells; add another adapter when needed | Require a second complete cloud adapter before the first production deployment |
 | 7 | CI/CD bootstrap exception | Keep one minimal independent Forgejo workflow/runner solely to build and recover the orchestrator; all product CI/CD is orchestrator-native | Require even orchestrator recovery CI to run inside the orchestrator, accepting the circular outage dependency |
@@ -121,7 +121,7 @@ These IDs seed the implementation registry and prove that every request in the d
 | `REQ-O009` | GRU remains operational after any one node fails | Explicit capability-by-capability HA/N+1 contract and sequential node-loss acceptance |
 | `REQ-O010` | Pulumi bootstraps; then each region creates/deletes/replaces its own nodes and expands storage | Ownership/handoff receipt, compartment-scoped actuator, survival bundle, compute/storage state machines |
 | `REQ-O011` | Automatic node and TerraBase storage scaling | Compute autoscaler, expand-only storage controller, TerraBase-specific policy, budget/performance gates |
-| `REQ-O012` | Manage containers and native systemd binaries; TerraBase can use either | containerd and systemd executors with one lifecycle contract; decision 4A selects native TerraBase and containerized API/Auth/Dashboard defaults |
+| `REQ-O012` | Manage containers and native systemd binaries; TerraBase can use either | containerd and systemd executors with one lifecycle contract; decision 4A selects native TerraBase and containerized Platform/Auth/Dashboard defaults |
 | `REQ-O013` | mTLS support, but only where it is actually needed | Selective mTLS decision, workload identity, NATS JWT authorization, rotation/revocation testing |
 | `REQ-O014` | Built-in native GitOps; remove Flux | Native GitOps source/reconciler, policy/child ownership, fresh typed manifests, and Flux non-goal |
 | `REQ-O015` | Built-in vault, CI and CD | Vault/PKI/policy service with OCI Vault/KMS root protection and immutable promotion/isolated runners with the decision 7A recovery exception |
@@ -187,7 +187,7 @@ The plan is based on the ten pre-existing TerraScale repositories beside this ne
 |---|---|---|
 | `TerraBase` | Native Linux packaging, systemd unit behavior, storage signals, health, TLS/client-certificate behavior, backup/restore, admin APIs | Add an orchestrator-facing typed admin client/contract; do not fork its storage engine into the orchestrator |
 | `Terrabase.Operator` | Spec/status semantics, topology safety, replication ownership, one-member upgrades, autoscaling holds, certificate naming, tests as executable specifications | Port behavioral rules to C#; delete obsolete Kubernetes actors, StatefulSets, PVCs, Jobs, webhooks, cert-manager, and `kubectl` scripts after their rules have matching native tests |
-| `TerraScale.Internals` | API/Auth/Dashboard runtime graph, health endpoints, project placement, release manifests, region headers, OTel contract | Add native workload descriptors; fix the missing Auth build target; keep project placement separate from machine scheduling |
+| `TerraScale.Internals` | Platform/Auth/Dashboard runtime graph, health endpoints, project placement, release manifests, region headers, OTel contract | Add native workload descriptors; fix the missing Auth build target; keep project placement separate from machine scheduling |
 | `TerraScale.DotNet` | Public API and queue SDK compatibility, idempotency, preferred-region behavior, errors and receipts | No operator/host APIs in the customer SDK; create a separate operator client if needed |
 | `TerraScale.TypeScript` | Public API contract, OpenAPI/route drift tests, Dashboard runtime | Replace hard-coded OCI-specific three-region constants with discovered provider-neutral data without breaking clients |
 | `TerraScale.Infrastructure` | Region catalog, VCN/DRG, IAM, KMS/Vault, object storage, Cloudflare, base images, durable-routing patterns | Reuse reviewed source patterns only; create a new Pulumi stack/state and entirely new network, IAM, KMS/Vault, storage, DNS/LB, seed, and orchestrator resources; delete obsolete OKE/CNI/CSI/admission/cert-manager/external-secrets/Kubernetes definitions after behavior gates |
@@ -276,13 +276,13 @@ Price alone cannot win. The same ARM64 TerraBase/`fio` workload measures p50/p95
           | NATS R3 clusters   |                    | NATS R3 clusters   |
           | cell controllers   |                    | cell controllers   |
           | host agents        |                    | host agents        |
-          | API/Auth/Dashboard |                    | API/Auth/Dashboard |
+          | Platform/Auth/Dashboard |                    | Platform/Auth/Dashboard |
           | TerraBase R3       |                    | TerraBase R3       |
           | OTel spool/export  |                    | OTel spool/export  |
           +--------------------+                    +--------------------+
 ```
 
-GRU also contains the same regional API/Auth/Dashboard, local product NATS, TerraBase R3, and regional OTel collection as SFO/FRA. Global responsibilities are an additional role, not a replacement for the GRU data cell.
+GRU also contains the same regional Platform/Auth/Dashboard, local product NATS, TerraBase R3, and regional OTel collection as SFO/FRA. Global responsibilities are an additional role, not a replacement for the GRU data cell.
 
 ### GRU single-node-failure HA contract
 
@@ -294,9 +294,9 @@ GRU runs at least three seed/control/data hosts, spread across distinct OCI faul
 | Orchestrator control NATS | Three servers, R3 critical streams/KV, distinct hosts and volumes; one server loss retains quorum and publish/consume availability |
 | Product NATS | Three servers, R3 critical streams/consumers, distinct hosts and volumes; one server loss retains product queue service |
 | TerraBase | Members `a`, `b`, and `c` on separate hosts and volumes; one member loss retains local quorum/read-write operation according to TerraBase health policy |
-| API and Authentication | At least three ready instances or enough independent instances and reserved capacity to lose one with no sustained 5xx; LB health removes the failed backend |
+| Platform and Authentication | At least three ready instances or enough independent instances and reserved capacity to lose one with no sustained 5xx; LB health removes the failed backend |
 | Customer Dashboard | At least two ready instances on separate hosts; loss of one leaves a ready backend |
-| API/Auth-owned metadata, billing, email, and background responsibilities | They remain inside the allowlisted API/Auth processes or an external provider. A new standalone worker is rejected until the owner explicitly adds a first-party role; continuously required API/Auth work follows their HA topology and persists durable work outside process memory |
+| Platform/Auth-owned metadata, billing, email, and background responsibilities | They remain inside the allowlisted Platform/Auth processes or an external provider. A new standalone worker is rejected until the owner explicitly adds a first-party role; continuously required Platform/Auth work follows their HA topology and persists durable work outside process memory |
 | Built-in vault/PKI/policy | Three controller replicas over R3 metadata, KMS-protected keys, regional issuer continuity, and no private/authoritative state present only on one disk |
 | GitOps and release coordinator | Replicated operation journal and multiple controller candidates; an active reconciliation resumes under a new fenced leader rather than duplicating or abandoning mutation |
 | Operator API | At least two ready endpoints behind the private LB/VPN; authentication/control state is shared or reconstructable and no mutation depends on one process |
@@ -361,7 +361,7 @@ Publishing requirements:
 - Pulumi's initial and replacement node templates use approved A1 Ampere images and expose `architecture=arm64` to the regional inventory.
 - Every native artifact declares RID, ELF architecture, minimum kernel/glibc requirements, and digest. The agent rejects an architecture mismatch before activation.
 - Every OCI workload image is published as an OCI multi-platform manifest with an explicitly tested `linux/arm64` image. GitOps resolves and records the selected platform-specific manifest/image digest.
-- The orchestrator, TerraBase, API, Authentication, Dashboard/Node runtime, both NATS clusters, OTel collectors, Grafana stack, VPN components, BuildKit, containerd/runc, and host utilities must all have an approved ARM64 build or image before their descriptor can enter production.
+- The orchestrator, TerraBase, Platform, Authentication, Dashboard/Node runtime, both NATS clusters, OTel collectors, Grafana stack, VPN components, BuildKit, containerd/runc, and host utilities must all have an approved ARM64 build or image before their descriptor can enter production.
 - CI has native ARM64 runners. Cross-compilation and QEMU emulation may provide early feedback, but real A1 execution is required for systemd, containerd, mTLS, NATS, storage, TerraBase, observability, and performance qualification.
 - Release sets contain the logical release plus per-architecture digests. Promotion never substitutes an x64 digest on ARM or rebuilds the ARM artifact after qualification.
 - Scheduler constraints and autoscaling templates are architecture-aware. A workload with no ARM artifact remains unschedulable with a clear reason; it cannot silently force an expensive x64 pool into an A1 cell.
@@ -618,7 +618,7 @@ Lifecycle capabilities:
 
 In GRU, the scheduler treats one-node-equivalent HA reserve as unavailable to ordinary placement. It also applies hard anti-affinity to replicas of every critical service and refuses a deployment or drain that would consume the last single-node-failure margin.
 
-`systemd Active=running` is liveness, not readiness. The API/Auth `/health/live` and `/health/ready` distinction, Dashboard stack dependency check, TerraBase `/setup/alive`, and release-level endpoint checks remain distinct.
+`systemd Active=running` is liveness, not readiness. The Platform/Auth `/health/live` and `/health/ready` distinction, Dashboard stack dependency check, TerraBase `/setup/alive`, and release-level endpoint checks remain distinct.
 
 ## Automatic compute autoscaling
 
@@ -1506,7 +1506,7 @@ Deliver:
 - cordon/drain, disruption budgets, reservations, anti-affinity, placement explanations;
 - three-node regional HA, control-NATS quorum failure behavior, and no artificial per-node allocation/pod ceiling.
 
-Exit gate: API/Auth/Dashboard and a TerraBase fixture pass the applicable native/container lifecycle contracts; node/controller/NATS failures do not duplicate allocations or mutations; stale commands/orphans are rejected/reclaimed; running services survive control loss; rollout/rollback are exact-digest and health-gated; compact A1-equivalent density passes.
+Exit gate: Platform/Auth/Dashboard and a TerraBase fixture pass the applicable native/container lifecycle contracts; node/controller/NATS failures do not duplicate allocations or mutations; stale commands/orphans are rejected/reclaimed; running services survive control loss; rollout/rollback are exact-digest and health-gated; compact A1-equivalent density passes.
 
 ### Phase 4 — OCI/Pulumi handoff, compute autoscaling, and cost control
 
@@ -1595,7 +1595,7 @@ Order:
 5. Prove each empty cell can operate, replace one failed seed, reject stale bootstrap generations, and reconcile provider truth without GRU, Git, or the other cells.
 6. Initialize each product-NATS plane and fresh TerraBase `a/b/c` group, create dedicated data volumes, verify backup/restore, then establish and validate the six directed GRU/SFO/FRA replication paths. Regenerate the complete regional survival bundles with the final stateful identities/artifacts and restore-test them before any application or traffic is admitted.
 7. Deploy the GRU HA global authority, operator API, native CI/CD, vault/PKI services, Grafana/Prometheus/Loki/Tempo/Alertmanager/OTel ingest, and VPN coordination with anti-affinity and one-node reserve. Sequentially fail every GRU host before proceeding.
-8. Deploy API, Authentication, Dashboard, and regional OTel collectors first in SFO, then FRA, then the GRU product cell using one signed release set and exact architecture-specific digests. Run public-contract, SDK, synthetic queue/database, routing, mTLS, and telemetry-export tests at every regional gate.
+8. Deploy Platform, Authentication, Dashboard, and regional OTel collectors first in SFO, then FRA, then the GRU product cell using one signed release set and exact architecture-specific digests. Run public-contract, SDK, synthetic queue/database, routing, mTLS, and telemetry-export tests at every regional gate.
 9. Exercise automatic compute scale-out/replacement/scale-in, TerraBase 3->4->3, online storage expansion, certificate rotation, interrupted release recovery, and artifact/generation rollback. Rollback means returning to a previously healthy orchestrator generation/digest; there is no Kubernetes fallback.
 10. Run at least a seven-day full-topology soak with database load, sequential node failures, WAN/GRU outages, billing reconciliation, storage-performance SLOs, backup/restore, telemetry-spool exhaustion, and a zero-orphan audit.
 11. Enable public DNS/customer traffic only after the signed production gates and an explicit owner approval. With no users, initialization and synthetic validation precede exposure; later staged releases retain the SFO -> FRA -> GRU order. Emergency traffic withdrawal back to closed ingress is tested before enablement.
@@ -1736,7 +1736,7 @@ These files are the starting executable specifications. Paths are relative to th
 - Local runtime graph: `../TerraScale.DevHost/src/TerraScale.DevHost/DevStack.cs`, `../TerraScale.DevHost/src/TerraScale.DevHost/DevStackEnvironment.cs`, and `../TerraScale.Internals/docs/DevHost.md`.
 - Product regions/replication: `../TerraScale.Internals/docs/databases/regions-and-replication.md` and the project placement implementation.
 - Queue contract: `../TerraScale.Internals/docs/queue/architecture.md` and `src/Core/TerraScale.Queue/`.
-- Health/OTel/runtime contracts: Internals ServiceDefaults, API/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.
+- Health/OTel/runtime contracts: Internals ServiceDefaults, Platform/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.
 - TerraBase operator behavior: `../Terrabase.Operator/api/v1/`, `pkg/upgrade/`, `pkg/autoscaling/`, `pkg/replication/`, and `docs/autoscaling.md`.
 - Native TerraBase unit: `../TerraBase/scripts/linux/pkg/deb/assets/terrabase/debian/terrabase.service` and `../TerraBase/docs/linux.md`.
 - Public compatibility: `../TerraScale.DotNet/src/`, `../TerraScale.TypeScript/src/`, their E2E tests, and `../Terrascale.Documentation/src/content/docs/`.

@@ -867,7 +867,7 @@ src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator 
 ```
 
 All production-shaped DevHost resources project to one of these built-in
-descriptors. API, Authentication, and Dashboard retain the production OCI
+descriptors. Platform, Authentication, and Dashboard retain the production OCI
 default; TerraBase, both NATS planes, and Orchestrator retain their native
 systemd defaults. Email and Stripe emulators are explicitly development-only
 fixtures and cannot be admitted as production workloads.

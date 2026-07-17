@@ -19,7 +19,7 @@ Full historical audit markdown/JSON and retirement ledger: [`docs/archive/docs-h
 | 1 | Regional control topology | 3 controllers + 3 control-NATS per region (independent JetStream R3); no WAN control quorum |
 | 2 | GRU/WAN outage | Regions serve/heal/scale/expand/renew; freeze new global releases/policy |
 | 3 | Vault authority | Built-in policy/PKI/lease with OCI Vault/KMS root protection initially |
-| 4 | Runtime defaults | Native systemd TerraBase; containers API/Auth/Dashboard; both supported |
+| 4 | Runtime defaults | Native systemd TerraBase; containers Platform/Auth/Dashboard; both supported |
 | 5 | Elastic data cleanup | Never shrink permanent; quarantine elastic TerraBase disk 7 days after verified backup |
 | 6 | Provider timing | OCI + provider-neutral contract first (≥20 region catalog); more adapters later |
 | 7 | CI bootstrap | One minimal independent Forgejo recovery path for orchestrator; product CI is native |
