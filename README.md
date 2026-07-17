@@ -421,6 +421,11 @@ then publishes the unchanged payload and canonical headers to regional
 a final regional-authority check. Authority loss at any boundary leaves the
 global delivery unacknowledged; acknowledgement failure redelivers the same
 regional message identity and bytes so JetStream deduplication remains safe.
+Its per-cell durable pull consumer accepts only the exact `GLOBAL_SPEC` stream,
+cell-filtered subject, consumer identity, nonzero stream/consumer sequences,
+five-attempt delivery bound, and 1 MiB wire ceiling. Repeated header values are
+preserved for strict decoding, and the successful relay uses a double
+acknowledgement so an uncertain global acknowledgement remains safely replayable.
 The JetStream publisher sends one signed command to
 `ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
 uses handoff/cell/writer-epoch message identity so exact retries deduplicate but

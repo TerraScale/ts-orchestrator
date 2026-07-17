@@ -9,6 +9,7 @@ namespace TerraScale.Orchestrator.Messaging;
 public sealed class GlobalNatsTopology
 {
     private const string Root = "ts.orch.v1.global";
+    public const string CellSpecStream = "GLOBAL_SPEC";
     public const string CiStream = "GLOBAL_CI";
     public const string CiSubject = $"{Root}.ci.forgejo";
     public const string CiJobSubjectPrefix = $"{Root}.ci.job";
@@ -26,7 +27,7 @@ public sealed class GlobalNatsTopology
 
     public IReadOnlyList<StreamConfig> Streams =>
     [
-        new("GLOBAL_SPEC", [$"{Root}.desired.>"])
+        new(CellSpecStream, [$"{Root}.desired.>"])
         {
             Description = "Accepted global revisions and compiled cell handoffs",
             MaxBytes = 256 * 1024 * 1024,
@@ -111,6 +112,33 @@ public sealed class GlobalNatsTopology
         NumReplicas = Replicas,
     };
 
+    public ConsumerConfig CellSpecConsumer(string cell)
+    {
+        var subject = CellSpecSubject(cell);
+        return new($"gitops_global_cell_spec_{cell}")
+        {
+            Description = $"Durable globally signed native GitOps CellSpecs for {cell}",
+            DeliverPolicy = ConsumerConfigDeliverPolicy.All,
+            AckPolicy = ConsumerConfigAckPolicy.Explicit,
+            FilterSubject = subject,
+            ReplayPolicy = ConsumerConfigReplayPolicy.Instant,
+            AckWait = TimeSpan.FromSeconds(15),
+            MaxDeliver = 5,
+            MaxAckPending = 8,
+            MaxWaiting = 8,
+            MaxBatch = 1,
+            MaxExpires = TimeSpan.FromSeconds(30),
+            Backoff =
+            [
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(15),
+                TimeSpan.FromSeconds(30),
+            ],
+            NumReplicas = Replicas,
+        };
+    }
+
     public ConsumerConfig CiJobConsumer(string zone, string runner)
     {
         var subject = CiJobSubject(zone, runner);
@@ -146,6 +174,16 @@ public sealed class GlobalNatsTopology
             throw new ArgumentException("The CI runner subject zone is invalid.", nameof(zone));
         var hash = CiRunnerIdentityHash(runner);
         return $"{CiJobSubjectPrefix}.{zone}.{hash[..24]}";
+    }
+
+    public static string CellSpecSubject(string cell)
+    {
+        if (cell is not { Length: >= 1 and <= 63 } ||
+            cell[0] == '-' || cell[^1] == '-' ||
+            cell.Any(static character => character is not (>= 'a' and <= 'z') and
+                not (>= '0' and <= '9') and not '-'))
+            throw new ArgumentException("The global CellSpec cell is not a lowercase DNS-style token.", nameof(cell));
+        return $"{Root}.desired.gitops.{cell}";
     }
 
     public static string CiRunnerJournalPrefix(string runner) =>
