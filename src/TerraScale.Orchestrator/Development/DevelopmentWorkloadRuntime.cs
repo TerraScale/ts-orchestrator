@@ -174,13 +174,7 @@ internal static class DevelopmentWorkloadRuntime
         string dataDirectory,
         DevelopmentNatsSecurity natsSecurity)
     {
-        var directory = Path.Combine(internalsRoot, "src", "Dashboard", "TerraScale.Dashboard.Next");
-        RequireDirectory(directory, "Dashboard project");
-        var vp = Path.Combine(directory, "node_modules", ".bin", "vp");
-        if (!File.Exists(vp))
-        {
-            vp = "vp";
-        }
+        var directory = DevelopmentDashboardArtifact.Resolve(dataDirectory);
         var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
         var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[platform.Name].CaFile;
@@ -189,7 +183,7 @@ internal static class DevelopmentWorkloadRuntime
         supervisor.Start(
             dashboard.Name,
             DevelopmentContainerImages.Node,
-            [vp, .. CreateDashboardArguments(dashboard)],
+            ["node", .. CreateDashboardArguments(dashboard)],
             directory,
             CreateDashboardEnvironment(topology, platform, authentication, dashboard, certificateBundle, cache));
     }
@@ -218,12 +212,7 @@ internal static class DevelopmentWorkloadRuntime
 
     internal static IReadOnlyList<string> CreateDashboardArguments(DevelopmentResourcePlan dashboard) =>
     [
-        "run",
-        "vinext:start",
-        "--hostname",
-        "0.0.0.0",
-        "--port",
-        dashboard.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        "server.js"
     ];
 
     internal static Dictionary<string, string?> CreateServiceEnvironment(

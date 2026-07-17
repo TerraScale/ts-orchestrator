@@ -71,7 +71,10 @@ public static class DevelopmentLab
         Directory.CreateDirectory(options.DataDirectory!);
         if (HasProductWorkloads(topology))
         {
-            await DevelopmentArtifactBuilder.BuildAsync(options.WorkspaceRoot!, cancellationToken);
+            await DevelopmentArtifactBuilder.BuildAsync(
+                options.WorkspaceRoot!,
+                options.DataDirectory!,
+                cancellationToken);
         }
         var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;

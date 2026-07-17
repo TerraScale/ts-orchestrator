@@ -4,7 +4,10 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentArtifactBuilder
 {
-    public static async Task BuildAsync(string workspaceRoot, CancellationToken cancellationToken)
+    public static async Task BuildAsync(
+        string workspaceRoot,
+        string dataDirectory,
+        CancellationToken cancellationToken)
     {
         var projects = new[]
         {
@@ -33,6 +36,7 @@ internal static class DevelopmentArtifactBuilder
             "Dashboard",
             "TerraScale.Dashboard.Next");
         await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
+        DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
     }
 
     internal static IReadOnlyList<string> DotNetBuildArguments(string project) =>
