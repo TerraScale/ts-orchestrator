@@ -84,7 +84,8 @@ public sealed class CommandEnvelope
 
 /// <summary>
 /// Complete algorithm-neutral material that a caller-supplied verifier must authenticate.
-/// The verifier owns canonical serialization and signing policy; no field may be omitted.
+/// The protocol owns canonical serialization; the verifier owns signing and trust policy.
+/// No field may be omitted.
 /// </summary>
 public sealed class CommandSignedMaterial
 {

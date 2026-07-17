@@ -173,10 +173,18 @@ durable acceptance; higher fenced takeover and contiguous retry attempts can
 replace it. A bounded runner pull adapter derives one durable exact-subject
 consumer per runner, permits one in-flight command, rejects wrong
 stream/consumer/sequence/redelivery metadata, and uses a double ACK only through
-that durable inbox. The live pipeline coordinator, CI signer/identity and NATS
-credential wiring, dynamic runner consumer reconciliation, runner process, and
-executor remain separate unimplemented gates; no unsigned runtime fallback is
-installed.
+that durable inbox. Command signatures now use a protocol-owned, versioned
+canonical encoding that covers every identity, fence, validity, payload, and
+digest field without timestamp precision loss. The production identity adapter
+uses the supported .NET P-256/SHA-256 implementation: an intermediate private
+key is read only from a user-private systemd credential file, while runners load
+one to four public-only trust keys and select overlap-rotation keys by their
+SHA-256 SPKI fingerprint carried in the bounded signature envelope. OCI KMS
+can therefore remain at the offline/root issuance boundary rather than exposing
+a root key to the runtime. The live pipeline coordinator, signer/trust
+credential composition, scoped NATS identities, dynamic runner consumer
+reconciliation, runner process, and executor remain separate unimplemented
+gates; no unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy
@@ -320,8 +328,8 @@ guarded retirement. Retirement-only cells remain in the required-cell barrier
 even when the proposed workload set is empty. Each payload has its own SHA-256,
 and an aggregate handoff digest binds the sorted cell/digest set. These payloads
 are signable material only: the compiler does not grant unsigned apply authority.
-The cell-envelope adapter reuses the shared algorithm-neutral command protocol
-and requires a caller-provided KMS signer/verifier. Its signed material binds the
+The cell-envelope adapter reuses the shared command protocol and requires the
+configured P-256 signer/verifier. Its signed material binds the
 aggregate handoff digest, exact cell, generation, global writer epoch, payload
 SHA-256, deterministic operation/idempotency identities, delivery attempt, and
 validity window. Cell, generation, epoch, payload, aggregate-barrier, expired,
@@ -333,7 +341,8 @@ writer epoch, signed operation/idempotency identities, signature digest,
 acceptance time, and original stream sequence. Replays converge on the same
 receipt; stale writers/generations, same-generation equivocation, authority
 loss, corrupt payloads, and crash-before-pointer fail closed. `CELL_SPEC`
-transport/consumer wiring and the owner-selected production KMS adapter remain.
+transport/consumer wiring, runtime credential composition, and OCI KMS-backed
+root/intermediate issuance remain.
 One compiled handoff targets at most 64 distinct cells, regardless of how cells
 are distributed across workloads, and the regional bundle store is capped at
 256 MiB so one maximally bounded handoff does not consume its entire capacity.
