@@ -124,7 +124,7 @@ internal sealed record CiRunnerProcessConfiguration(
             PositiveLong(environment, "TS_ORCH_CI_RUNNER_MEMORY_BYTES", 256 * Mebibyte, 8 * Gibibyte,
                 8 * Gibibyte),
             PositiveLong(environment, "TS_ORCH_CI_RUNNER_EPHEMERAL_DISK_BYTES", Gibibyte, 200 * Gibibyte,
-                100 * Gibibyte),
+                50 * Gibibyte),
             checked((int)PositiveLong(environment, "TS_ORCH_CI_RUNNER_PIDS", 64, 4_096, 4_096)),
             PositiveLong(environment, "TS_ORCH_CI_RUNNER_MAXIMUM_LOG_BYTES", Mebibyte, 512 * Mebibyte,
                 64 * Mebibyte),
@@ -155,13 +155,16 @@ internal sealed record CiRunnerProcessConfiguration(
         return new(new(runner), zone, sequence, true, capabilities);
     }
 
-    internal CiRunnerIsolationEvidence IsolationEvidence(RepositoryCiAcceptedJob accepted)
+    internal CiRunnerIsolationEvidence IsolationEvidence(
+        RepositoryCiAcceptedJob accepted,
+        CiRunnerLinuxIsolationObservation observation)
         => CreateIsolationEvidence(
             accepted,
             Runner,
             Zone,
             Sequence,
             Capabilities,
+            observation,
             CpuMilliCores,
             MemoryBytes,
             EphemeralDiskBytes,
@@ -174,12 +177,19 @@ internal sealed record CiRunnerProcessConfiguration(
         TrustZone zone,
         long sequence,
         IReadOnlyList<RunnerCapability> capabilities,
+        CiRunnerLinuxIsolationObservation observation,
         int cpuMilliCores,
         long memoryBytes,
         long ephemeralDiskBytes,
         int pids,
         long maximumLogBytes)
     {
+        CiRunnerLinuxIsolationProbe.Require(
+            observation,
+            cpuMilliCores,
+            memoryBytes,
+            ephemeralDiskBytes,
+            pids);
         var runner = CreateRunnerEvidence(accepted, runnerId, zone, sequence, capabilities);
         var command = accepted.Command;
         var signing = command.RequiredCapabilities.Contains(RunnerCapability.Sign);
@@ -202,13 +212,13 @@ internal sealed record CiRunnerProcessConfiguration(
                 : CiRunnerCacheScope.TrustedVerified,
             Ephemeral: true,
             Disposable: true,
-            ReadOnlyRootFilesystem: true,
-            RootlessBuildKit: true,
-            HostDockerSocketMounted: false,
-            NoNewPrivileges: true,
-            UserNamespace: true,
-            Seccomp: true,
-            CgroupV2: true,
+            observation.ReadOnlyRootFilesystem,
+            observation.RootlessBuildKit,
+            observation.HostDockerSocketMounted,
+            observation.NoNewPrivileges,
+            observation.UserNamespace,
+            observation.Seccomp,
+            observation.CgroupV2,
             MetadataServiceReachable: false,
             ProductionNetworkReachable: false,
             ControlNatsReachable: false,
@@ -309,12 +319,13 @@ internal static class CiRunnerProcess
         using var commandIdentity = configuration.CommandIdentity.Open();
         var verifier = commandIdentity.Verifier ??
             throw new InvalidOperationException("The CI runner command verifier is unavailable.");
-        await using var nats = await CiRunnerNatsRuntime.ConnectAsync(configuration, cancellationToken);
         await using var daemon = await CiRunnerBuildKitDaemon.StartAsync(
             CiRunnerBuildKitDaemonInvocationCompiler.Create(configuration.BuildKit),
             cancellationToken);
+        var isolation = CiRunnerLinuxIsolationProbe.Observe(configuration, daemon);
+        await using var nats = await CiRunnerNatsRuntime.ConnectAsync(configuration, cancellationToken);
         using var stopping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var runner = RunAsync(configuration, nats, verifier, stopping.Token);
+        var runner = RunAsync(configuration, isolation, nats, verifier, stopping.Token);
         var completed = await Task.WhenAny(runner, daemon.Completion);
         if (completed == daemon.Completion)
         {
@@ -333,6 +344,7 @@ internal static class CiRunnerProcess
 
     private static async Task<int> RunAsync(
         CiRunnerProcessConfiguration configuration,
+        CiRunnerLinuxIsolationObservation isolation,
         CiRunnerNatsRuntime runtime,
         ICommandSignatureVerifier verifier,
         CancellationToken cancellationToken)
@@ -365,7 +377,7 @@ internal static class CiRunnerProcess
                 (accepted, token) => coordinator.ExecuteAsync(
                     accepted,
                     configuration.RunnerEvidence(accepted),
-                    configuration.IsolationEvidence(accepted),
+                    configuration.IsolationEvidence(accepted, isolation),
                     configuration.BuildKit,
                     configuration.WorkspaceRoot,
                     ExecutionLeaseId(accepted),

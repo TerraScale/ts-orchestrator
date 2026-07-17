@@ -110,6 +110,7 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
     }
 
     internal Task Completion => completion;
+    internal bool RootlessIsolationVerified => true;
 
     internal static async Task<CiRunnerBuildKitDaemon> StartAsync(
         CiRunnerBuildKitDaemonInvocation invocation,
@@ -237,6 +238,23 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
             .ToArray();
         if (!command.SequenceEqual(expected))
             throw new InvalidDataException("The CI BuildKit peer arguments changed from the closed invocation.");
+        if (!HasRootlessUserNamespace(
+                File.ReadAllText($"/proc/{credential.ProcessId}/uid_map"),
+                expectedUserId))
+            throw new InvalidDataException("The CI BuildKit peer is not in its expected rootless user namespace.");
+    }
+
+    internal static bool HasRootlessUserNamespace(string uidMap, uint expectedUserId)
+    {
+        var mappings = uidMap.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .ToArray();
+        return mappings.Length is > 0 and <= 5 && mappings.All(static fields => fields.Length == 3 &&
+            uint.TryParse(fields[0], out _) && uint.TryParse(fields[1], out _) &&
+            uint.TryParse(fields[2], out var length) && length > 0) &&
+            mappings.Any(fields => fields[0] == "0" &&
+                fields[1] == expectedUserId.ToString(System.Globalization.CultureInfo.InvariantCulture) &&
+                fields[2] == "1");
     }
 
     private static IEnumerable<byte[]> Split(byte[] value, byte separator)

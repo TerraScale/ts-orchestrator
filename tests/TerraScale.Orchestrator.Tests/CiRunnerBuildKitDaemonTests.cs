@@ -89,6 +89,17 @@ public sealed class CiRunnerBuildKitDaemonTests
             .IsEqualTo(CiRunnerOutputFileKind.Regular);
     }
 
+    [Test]
+    public async Task RootlessPeerRequiresTheEffectiveUserMappedToNamespaceRoot()
+    {
+        await Assert.That(CiRunnerBuildKitDaemon.HasRootlessUserNamespace(
+            "         0       1000          1\n         1     100000      65536\n", 1000)).IsTrue();
+        await Assert.That(CiRunnerBuildKitDaemon.HasRootlessUserNamespace(
+            "         0          0 4294967295\n", 1000)).IsFalse();
+        await Assert.That(CiRunnerBuildKitDaemon.HasRootlessUserNamespace(
+            "         0       1001          1\n", 1000)).IsFalse();
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal Fixture()

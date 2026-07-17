@@ -417,6 +417,12 @@ configurable from 30 to 900 seconds. Controller-side result publication and
 candidate artifact interpretation/publication remain separate gates. No result
 is acknowledged unless its exact durable sink completed first.
 
+Before any NATS connection, the runner now reads its own Linux process status,
+root mount, unified cgroup, resource ceilings, workspace filesystem, and Docker
+socket boundary. Its owned BuildKit peer must map the runner UID to root in a
+separate user namespace. Missing or unbounded controls stop the process before
+it can claim the signed isolation profile.
+
 The runner receives that identity through
 `TS_ORCH_CI_RUNNER_NATS_URL`, an owner-private standard NATS credentials file at
 `TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE`, and the complete
