@@ -122,6 +122,7 @@ internal static class ToolingTests
     private static void DevelopmentEvidenceBounds()
     {
         AssertEqual(1, DevelopmentEvidenceCommand.MaximumParallelTestModules);
+        AssertEqual(2, DevelopmentEvidenceCommand.EvidenceSchemaVersion);
         AssertEqual(4, DevelopmentEvidenceCommand.MaximumParallelTests);
         AssertEqual(5, DevelopmentEvidenceCommand.TestModules.Count);
         AssertEqual(16L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.AggregateMemoryLimitBytes);

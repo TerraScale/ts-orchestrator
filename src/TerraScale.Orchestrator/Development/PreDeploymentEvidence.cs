@@ -10,7 +10,10 @@ internal sealed record PreDeploymentEvidence(
     string SourceCommit,
     string BinarySha256,
     string AuthorizedProfile,
-    DateTimeOffset ExpiresAt)
+    DateTimeOffset ExpiresAt,
+    PreDeploymentResourcePolicy? ResourcePolicy,
+    IReadOnlyList<PreDeploymentTestModule>? TestInventory,
+    IReadOnlyList<PreDeploymentProcessObservation>? ProcessObservations)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
@@ -32,10 +35,11 @@ internal sealed record PreDeploymentEvidence(
             SerializerOptions,
             cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Pre-deployment evidence is empty.");
-        if (evidence.SchemaVersion != 1 ||
+        if (evidence.SchemaVersion != 2 ||
             !string.Equals(evidence.Result, "pass", StringComparison.Ordinal) ||
             !string.Equals(evidence.AuthorizedProfile, profile, StringComparison.Ordinal) ||
-            evidence.ExpiresAt <= DateTimeOffset.UtcNow)
+            evidence.ExpiresAt <= DateTimeOffset.UtcNow ||
+            !evidence.HasBoundedValidationEvidence())
         {
             throw new InvalidOperationException("Pre-deployment evidence does not authorize this lab profile.");
         }
@@ -68,6 +72,40 @@ internal sealed record PreDeploymentEvidence(
         }
     }
 
+    internal bool HasBoundedValidationEvidence()
+    {
+        const long aggregateLimit = 16L * 1024 * 1024 * 1024;
+        const long executionLimit = 14L * 1024 * 1024 * 1024;
+        const int processLimit = 512;
+        if (ResourcePolicy is not
+            {
+                AggregateMemoryLimitBytes: aggregateLimit,
+                ExecutionMemoryLimitBytes: executionLimit,
+                ReservedHeadroomBytes: aggregateLimit - executionLimit,
+                MaximumParallelTestModules: 1,
+                MaximumParallelTests: 4,
+                MaximumValidationProcesses: processLimit
+            } ||
+            TestInventory is not { Count: 5 } ||
+            ProcessObservations is not { Count: 7 } ||
+            TestInventory.Any(item => item.Tests <= 0 || item.MaximumParallelTests != 4) ||
+            TestInventory.Select(item => item.Module).Distinct(StringComparer.Ordinal).Count() != 5 ||
+            ProcessObservations.Any(item =>
+                item.ProcessId <= 0 ||
+                item.PeakMemoryBytes <= 0 || item.PeakMemoryBytes > executionLimit ||
+                item.PeakProcessCount <= 0 || item.PeakProcessCount > processLimit ||
+                item.DurationMilliseconds < 0))
+        {
+            return false;
+        }
+
+        var observed = ProcessObservations.Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
+        return observed.Count == 7 &&
+            observed.Contains("solution-build") &&
+            observed.Contains("orchestrator-policy-tooling-tests") &&
+            TestInventory.All(item => observed.Contains(item.Module));
+    }
+
     private static async Task<string> ReadGitAsync(
         string workingDirectory,
         IReadOnlyList<string> arguments,
@@ -98,3 +136,20 @@ internal sealed record PreDeploymentEvidence(
         return await output;
     }
 }
+
+internal sealed record PreDeploymentResourcePolicy(
+    long AggregateMemoryLimitBytes,
+    long ExecutionMemoryLimitBytes,
+    long ReservedHeadroomBytes,
+    int MaximumParallelTestModules,
+    int MaximumParallelTests,
+    int MaximumValidationProcesses);
+
+internal sealed record PreDeploymentTestModule(string Module, int Tests, int MaximumParallelTests);
+
+internal sealed record PreDeploymentProcessObservation(
+    string Name,
+    int ProcessId,
+    long PeakMemoryBytes,
+    int PeakProcessCount,
+    long DurationMilliseconds);

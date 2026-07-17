@@ -7,6 +7,7 @@ namespace TerraScale.Orchestrator.Tooling;
 internal static class DevelopmentEvidenceCommand
 {
     internal const string DefaultProfile = "dev-containers-three-cell-lean";
+    internal const int EvidenceSchemaVersion = 2;
     internal const int MaximumParallelTestModules = 1;
     internal const int MaximumParallelTests = 4;
     internal const int MaximumValidationProcesses = 512;
@@ -99,7 +100,7 @@ internal static class DevelopmentEvidenceCommand
         var now = DateTimeOffset.UtcNow;
         var document = new JsonObject
         {
-            ["schemaVersion"] = 1,
+            ["schemaVersion"] = EvidenceSchemaVersion,
             ["result"] = "pass",
             ["sourceCommit"] = ToolingSupport.Git(root, "rev-parse", "HEAD").Trim(),
             ["binarySha256"] = ToolingSupport.Sha256(ResolveCodeArtifact(binary)),

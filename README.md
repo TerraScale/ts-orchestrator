@@ -18,7 +18,8 @@ four tests active in a module, then runs policy tooling. A repository-wide
 lease prevents it from overlapping a Podman lab. Its evidence records the
 test count for every module and observed peak memory/process counts under a
 14 GiB execution ceiling, leaving 2 GiB of the 16 GiB local budget for the
-host.
+host. `lab up` rejects legacy or incomplete evidence that omits this bounded
+inventory.
 
 All repository validators, generators, audit utilities, conformance checks, and
 their tests are implemented in C#. The dependency-free tooling executable
