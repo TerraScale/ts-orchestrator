@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Runtime.Versioning;
 using System.Text;
@@ -250,6 +251,86 @@ public sealed class ForgejoSourceClientTests
         }
     }
 
+    [Test]
+    public async Task ExactArchiveFetchBindsResolvedCommitTreeAndContent()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var content = Gzip("exact source");
+            var handler = new RecordingHandler(_ => Archive(content));
+            await using var client = Client(tokenFile, handler);
+            var revision = new ForgejoResolvedRevision(Repository, Commit, Tree, signatureVerified: true);
+
+            var archive = await client.ReadArchiveAsync(revision);
+
+            await Assert.That(archive.Revision).IsSameReferenceAs(revision);
+            await Assert.That(archive.Content.ToArray()).IsEquivalentTo(content);
+            await Assert.That(archive.ContentLength).IsEqualTo(content.Length);
+            await Assert.That(archive.ContentSha256).IsEqualTo(
+                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content)));
+            await Assert.That(handler.Requests).HasSingleItem();
+            await Assert.That(handler.Requests[0].Path).IsEqualTo(
+                $"/api/v1/repos/TerraScale/TerraScale.Orchestrator/archive/{Commit}.tar.gz");
+            await Assert.That(handler.Requests[0].AuthenticationParameter).IsEqualTo(Token);
+            await Assert.That(handler.Requests[0].Accept).IsEqualTo(
+                "application/gzip,application/octet-stream");
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
+    [Test]
+    public async Task ArchiveFetchRejectsWrongRepositoryTypeSizeAndMagic()
+    {
+        var tokenFile = await CreateTokenFileAsync();
+        try
+        {
+            var wrongRepository = new RecordingHandler(_ => Archive(Gzip("unused")));
+            await using var wrongRepositoryClient = Client(tokenFile, wrongRepository);
+            await Assert.That(async () => await wrongRepositoryClient.ReadArchiveAsync(
+                    new("TerraScale/TerraBase", Commit, Tree, signatureVerified: true)))
+                .Throws<ArgumentException>();
+            await Assert.That(wrongRepository.Requests).IsEmpty();
+
+            var wrongType = new RecordingHandler(_ => Archive(Gzip("source"), "application/zip"));
+            await using var wrongTypeClient = Client(tokenFile, wrongType);
+            await Assert.That(async () => await wrongTypeClient.ReadArchiveAsync(Revision()))
+                .Throws<InvalidDataException>();
+
+            var oversized = new RecordingHandler(_ =>
+            {
+                var response = Archive(Gzip("source"));
+                response.Content.Headers.ContentLength = (long)ForgejoSourceClient.MaximumArchiveBytes + 1;
+                return response;
+            });
+            await using var oversizedClient = Client(tokenFile, oversized);
+            await Assert.That(async () => await oversizedClient.ReadArchiveAsync(Revision()))
+                .Throws<InvalidDataException>();
+
+            var mismatchedLength = new RecordingHandler(_ =>
+            {
+                var response = Archive(Gzip("source"));
+                response.Content.Headers.ContentLength--;
+                return response;
+            });
+            await using var mismatchedLengthClient = Client(tokenFile, mismatchedLength);
+            await Assert.That(async () => await mismatchedLengthClient.ReadArchiveAsync(Revision()))
+                .Throws<InvalidDataException>();
+
+            var wrongMagic = new RecordingHandler(_ => Archive([1, 2, 3, 4]));
+            await using var wrongMagicClient = Client(tokenFile, wrongMagic);
+            await Assert.That(async () => await wrongMagicClient.ReadArchiveAsync(Revision()))
+                .Throws<InvalidDataException>();
+        }
+        finally
+        {
+            File.Delete(tokenFile);
+        }
+    }
+
     private static ForgejoSourceClient Client(string tokenFile, RecordingHandler handler)
     {
         var configuration = ForgejoSourceConfiguration.Resolve(
@@ -278,6 +359,26 @@ public sealed class ForgejoSourceClientTests
         Content = new StringContent(value, Encoding.UTF8, "application/json")
     };
 
+    private static HttpResponseMessage Archive(byte[] value, string mediaType = "application/gzip") =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent(value)
+            {
+                Headers = { ContentType = new(mediaType) }
+            }
+        };
+
+    private static byte[] Gzip(string value)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+            gzip.Write(Encoding.UTF8.GetBytes(value));
+        return output.ToArray();
+    }
+
+    private static ForgejoResolvedRevision Revision() =>
+        new(Repository, Commit, Tree, signatureVerified: true);
+
     private static async Task<string> CreateTokenFileAsync()
     {
         var path = Path.Combine(Path.GetTempPath(), $"forgejo-api-{Guid.NewGuid():N}.token");
@@ -302,7 +403,8 @@ public sealed class ForgejoSourceClientTests
                 request.RequestUri!.AbsolutePath,
                 request.RequestUri.Query,
                 request.Headers.Authorization?.Scheme,
-                request.Headers.Authorization?.Parameter));
+                request.Headers.Authorization?.Parameter,
+                string.Join(",", request.Headers.Accept.Select(static value => value.MediaType))));
             return Task.FromResult(remaining.Dequeue()(request));
         }
     }
@@ -311,5 +413,6 @@ public sealed class ForgejoSourceClientTests
         string Path,
         string Query,
         string? AuthenticationScheme,
-        string? AuthenticationParameter);
+        string? AuthenticationParameter,
+        string Accept);
 }

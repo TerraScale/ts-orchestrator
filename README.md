@@ -250,6 +250,12 @@ recipe and `ci-<node-id>` target through the `dockerfile.v0` frontend. The
 repository cannot place an executable, argument, host path, or BuildKit
 endpoint in the descriptor. The signed command directly retains the exact
 `Any` or `linux-x64`/`linux-arm64` architecture set before this plan is built.
+The controller-side Forgejo adapter can also fetch a bounded archive for one
+already resolved exact commit, bind its repository, commit, tree, byte length,
+and SHA-256 identity, and publish it under that content address in
+`CI_RUNNER_BUNDLES` with full readback verification. This keeps the Forgejo
+token out of runner jobs. The signed job command does not yet carry that bundle
+identity and no runner-side archive extraction is installed.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -298,8 +304,8 @@ record are durable. The execution record binds that exact acceptance, uses a
 bounded renewable lease, fences crash takeover, and records one terminal
 evidence digest or typed failure. The exact-tree source materializer, rootless
 BuildKit adapter, bounded log/artifact evidence writer, and result coordinator
-are still separate missing gates; this journal and plan do not claim that a
-workload ran.
+are still separate missing gates; the archive publisher, journal, and plan do
+not claim that a workload ran.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

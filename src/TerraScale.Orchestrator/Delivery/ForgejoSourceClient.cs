@@ -143,6 +143,24 @@ public sealed class ForgejoSourceFile
     public ReadOnlyMemory<byte> Content { get; }
 }
 
+public sealed class ForgejoSourceArchive
+{
+    internal ForgejoSourceArchive(
+        ForgejoResolvedRevision revision,
+        string contentSha256,
+        byte[] content)
+    {
+        Revision = revision;
+        ContentSha256 = contentSha256;
+        Content = content;
+    }
+
+    public ForgejoResolvedRevision Revision { get; }
+    public string ContentSha256 { get; }
+    public int ContentLength => Content.Length;
+    public ReadOnlyMemory<byte> Content { get; }
+}
+
 public sealed class ForgejoSourceNotFoundException : Exception
 {
     internal ForgejoSourceNotFoundException() : base("The requested Forgejo source revision was not found.") { }
@@ -154,9 +172,11 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
     private const int MaximumMetadataResponseBytes = 64 * 1024;
     private const int MaximumChangedPathsResponseBytes = 8 * 1024 * 1024;
     public const int MaximumFileBytes = 1024 * 1024;
+    public const int MaximumArchiveBytes = 256 * 1024 * 1024;
     public const int MaximumChangedPaths = 4_096;
     private const int MaximumJsonDepth = 12;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ArchiveRequestTimeout = TimeSpan.FromMinutes(2);
     private readonly ForgejoSourceConfiguration configuration;
     private readonly HttpClient client;
 
@@ -314,6 +334,55 @@ public sealed class ForgejoSourceClient : IAsyncDisposable
             normalizedCommit,
             path,
             blob.ToLowerInvariant(),
+            Convert.ToHexStringLower(SHA256.HashData(content)),
+            content);
+    }
+
+    public async Task<ForgejoSourceArchive> ReadArchiveAsync(
+        ForgejoResolvedRevision revision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(revision);
+        if (revision.Repository != configuration.Repository ||
+            !IsObjectId(revision.Commit) || revision.Commit.All(static value => value == '0') ||
+            !IsObjectId(revision.Tree) || revision.Tree.All(static value => value == '0'))
+            throw new ArgumentException("The Forgejo source revision is invalid for this repository.", nameof(revision));
+
+        var normalizedCommit = revision.Commit.ToLowerInvariant();
+        var (owner, repository) = SplitRepository(configuration.Repository);
+        var archive = Uri.EscapeDataString($"{normalizedCommit}.tar.gz");
+        var path = $"api/v1/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repository)}/archive/{archive}";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ArchiveRequestTimeout);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(configuration.Server, path));
+        request.Headers.Authorization = new AuthenticationHeaderValue("token", configuration.ReadToken());
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/gzip"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        if (response.StatusCode == HttpStatusCode.NotFound) throw new ForgejoSourceNotFoundException();
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            throw new UnauthorizedAccessException("Forgejo source credentials were denied.");
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException("Forgejo source archive retrieval failed.", null, response.StatusCode);
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (mediaType is null ||
+            !mediaType.Equals("application/gzip", StringComparison.OrdinalIgnoreCase) &&
+            !mediaType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase) ||
+            response.Content.Headers.ContentEncoding.Count != 0)
+            throw new InvalidDataException("The Forgejo source archive response was not an unencoded gzip archive.");
+        var declaredLength = response.Content.Headers.ContentLength;
+        if (declaredLength is <= 0 or > MaximumArchiveBytes)
+            throw new InvalidDataException("The Forgejo source archive exceeded its technical bound.");
+
+        await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+        var content = await ReadBoundedAsync(stream, MaximumArchiveBytes, timeout.Token);
+        if (declaredLength is not null && content.Length != declaredLength)
+            throw new InvalidDataException("The Forgejo source archive did not match its declared length.");
+        if (content.Length < 3 || content[0] != 0x1f || content[1] != 0x8b || content[2] != 0x08)
+            throw new InvalidDataException("The Forgejo source archive was not a gzip stream.");
+        return new(
+            revision,
             Convert.ToHexStringLower(SHA256.HashData(content)),
             content);
     }
