@@ -408,10 +408,11 @@ under current authority. Feature-profile, active, failed, incomplete, unsigned,
 substituted, and authority-lost inputs produce no candidate. Retention cleanup
 remains unimplemented. The OCI CI terminal path now invokes that coordinator
 after runner cleanup and reports Forgejo success only after the exact candidate
-is durable. Without an injected artifact-attestation verifier, a successful
-release delivery remains pending; selecting and configuring that external
-signature/runtime verifier remains a separate production gate. The qualification
-coordinator starts only from a durable
+is durable. The runtime reads the new content-addressed artifact and native-
+runtime proof journals and verifies their exact signed subjects with the
+configured P-256 trust set. Without both verifiers, a successful release
+delivery remains pending; issuing and recording those proofs remains a separate
+production gate. The qualification coordinator starts only from a durable
 admitted protected-`main` trigger, snapshots injected signed protected-main
 observations once, locates the immutable candidate by exact tree-set index, and
 records the resolved qualification under current authority. Missing triggers,
@@ -528,6 +529,7 @@ signer:
 ```bash
 TS_ORCH_CI_OCI_CONFIG=/etc/terrascale/oci-ci-pool.json \
 TS_ORCH_COMMAND_SIGNING_KEY_FILE=/run/credentials/command-signing.pem \
+TS_ORCH_COMMAND_TRUST_KEY_FILES=/run/credentials/command-signing.pub.pem \
 TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
 TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
 TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-ci-token \

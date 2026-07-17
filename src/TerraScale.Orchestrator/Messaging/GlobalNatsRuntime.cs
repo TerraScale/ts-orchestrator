@@ -65,9 +65,12 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         ForgejoSourceConfiguration? ciSource = null,
         OciCiRunnerPoolConfiguration? ciPool = null,
         IRepositoryCiJobSigner? ciJobSigner = null,
-        IRepositoryCiArtifactAttestationVerifier? ciArtifactAttestations = null)
+        IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
+        IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        if ((ciArtifactSignatures is null) != (ciRuntimeSignatures is null))
+            throw new ArgumentException("OCI CI artifact and runtime signature verifiers must be configured together.");
         var topology = new GlobalNatsTopology(3);
         var client = new NatsClient(new NatsOpts
         {
@@ -146,9 +149,12 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         });
                     var availability = new OciCiRunnerAvailability();
                     Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null;
-                    if (ciArtifactAttestations is not null)
+                    if (ciArtifactSignatures is not null && ciRuntimeSignatures is not null)
                     {
                         var executions = new RepositoryCiJobExecutionJournal(runnerLedger);
+                        var attestations = new RepositoryCiArtifactAttestationJournal(
+                            runnerLedger,
+                            runnerObjects);
                         var artifacts = new RepositoryCiCandidateArtifactReader(
                             (job, token) => executions.ReadAsync(
                                 job.RunnerId,
@@ -156,7 +162,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                                 job.Job.Request.Job.Value,
                                 token),
                             new(runnerObjects),
-                            ciArtifactAttestations);
+                            new RepositoryCiSignedArtifactAttestationVerifier(
+                                attestations.ReadArtifactAsync,
+                                attestations.ReadRuntimeAsync,
+                                ciArtifactSignatures,
+                                ciRuntimeSignatures));
                         var candidateCoordinator = new RepositoryCiCandidateCoordinator(
                             candidates,
                             jobs.ReadAsync,
