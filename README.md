@@ -331,6 +331,13 @@ a fenced takeover is not suppressed. Authority loss before publish causes no
 mutation; loss after the storage acknowledgement is reported distinctly so the
 stale durable message cannot be mistaken for authority to advance the global
 plan. The regional epoch/signature gate still rejects that stale message.
+The regional inbox acknowledges only after decoding the bounded command,
+verifying the configured signature policy, reading back the content-addressed
+payload, committing the fenced acceptance receipt, and rechecking regional
+authority. Malformed, invalid-signature, stale, conflicting, and non-durable
+deliveries remain unacknowledged. Authority or acknowledgement loss after the
+receipt is safe: redelivery observes the durable duplicate and a replacement
+leader can acknowledge it without repeating acceptance.
 
 The native source boundary reads `.terrascale/orchestrator.json` only from the
 exact immutable commit returned by Forgejo resolution; it never substitutes a
