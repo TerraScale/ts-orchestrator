@@ -28,7 +28,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator authority,
         ForgejoWebhookJournal forgejoWebhooks,
         ForgejoSourceJournal forgejoSources,
-        NativeGitOpsSourceJournal nativeGitOpsSources)
+        NativeGitOpsSourceJournal nativeGitOpsSources,
+        RepositoryCiPromotionJournal promotions)
     {
         this.client = client;
         this.service = service;
@@ -37,12 +38,14 @@ public sealed class NatsRuntime : IAsyncDisposable
         ForgejoWebhooks = forgejoWebhooks;
         ForgejoSources = forgejoSources;
         NativeGitOpsSources = nativeGitOpsSources;
+        Promotions = promotions;
     }
 
     public Task Completion => authority.Completion;
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     internal ForgejoSourceJournal ForgejoSources { get; }
     internal NativeGitOpsSourceJournal NativeGitOpsSources { get; }
+    internal RepositoryCiPromotionJournal Promotions { get; }
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
@@ -198,7 +201,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 authority,
                 new(deliveryLedger),
                 new(deliveryLedger),
-                new(deliveryLedger, new NatsNativeGitOpsManifestStore(state.Bundles)));
+                new(deliveryLedger, new NatsNativeGitOpsManifestStore(state.Bundles)),
+                new(deliveryLedger));
         }
         catch
         {

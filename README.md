@@ -92,7 +92,7 @@ instance, and startup outcome. Export queues and batches use the bounded
 OpenTelemetry SDK processors; regional disk spooling and drop-oldest policy
 remain the responsibility of the managed Alloy/Collector role.
 
-Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
+Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery. `ORCH_DELIVERY` also backs the closed promotion journal contract; a future global-control-plane topology split must move that keyspace to the specified `GLOBAL_RELEASES` store before production deployment.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
@@ -153,9 +153,13 @@ when signed deployment evidence, dependency and generated-schema locks, pinned
 toolchain evidence, explicit approval, and all three compatibility directions
 verify against that exact qualified release-set digest. The request identity is
 also bound to its controller generation and runner evidence window. This still
-uses no credential and executes no deployment: durable promotion leases and
-journaling, registry publication, staged regional verification, and the real
-runner executor remain separate gates.
+uses no credential and executes no deployment. Its CAS journal admits one
+authorization per qualified release set, fences takeover by authority epoch
+and a monotonic token, resumes exact phase operations idempotently, requires
+SFO then FRA then GRU verification, and unwinds affected regions in reverse.
+No coordinator drives that journal yet; global-store placement, registry
+publication, regional actuators, live verification, and the real runner
+executor remain separate gates.
 
 Runner admission is likewise a pure contract today. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
