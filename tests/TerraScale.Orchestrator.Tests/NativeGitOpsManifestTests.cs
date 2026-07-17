@@ -118,7 +118,12 @@ public sealed class NativeGitOpsManifestTests
             $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"api\"]}}"
         ]);
 
-        foreach (var value in new[] { missing, crossCell, self, cycle })
+        var suspendedDependency = Manifest([
+            $"{{\"id\":\"api\",\"role\":\"Api\",\"artifactDigest\":\"{ApiDigest}\",\"cells\":[\"gru\"],\"dependsOn\":[\"auth\"]}}",
+            $"{{\"id\":\"auth\",\"role\":\"Authentication\",\"artifactDigest\":\"{AuthDigest}\",\"cells\":[\"gru\"],\"suspended\":true}}"
+        ]);
+
+        foreach (var value in new[] { missing, crossCell, self, cycle, suspendedDependency })
             await Assert.That(() => Parse(value)).Throws<InvalidDataException>();
     }
 
