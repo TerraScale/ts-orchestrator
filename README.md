@@ -298,9 +298,14 @@ uses no credential and executes no deployment. Its CAS journal admits one
 authorization per qualified release set, fences takeover by authority epoch
 and a monotonic token, resumes exact phase operations idempotently, requires
 SFO then FRA then GRU verification, and unwinds affected regions in reverse.
-No coordinator drives that journal yet; registry publication, regional
-actuators, live verification, and the real runner executor remain separate
-gates.
+The promotion coordinator journals every stable operation identity before its
+external side effect, passes the current fencing token to an injected actuator,
+and replays the same operation after interruption. It drives publish, SFO, FRA,
+and GRU in order; any failed forward phase enters the journal's exact reverse
+rollback path, whose own failed operation is safely resumable. Authority loss
+stops before the next side effect, and a higher epoch adopts the phase with a
+new fence. Registry publication, regional actuator and live-verification
+implementations, and the real runner executor remain separate gates.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
