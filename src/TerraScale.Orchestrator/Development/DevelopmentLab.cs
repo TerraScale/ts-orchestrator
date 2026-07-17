@@ -78,120 +78,143 @@ public static class DevelopmentLab
         var startedAt = DateTimeOffset.UtcNow;
         File.Delete(options.EndpointsFile!);
 
-        await using var supervisor = new DevelopmentProcessSupervisor(
+        var supervisor = new DevelopmentProcessSupervisor(
             topology,
             options.WorkspaceRoot!,
             options.DataDirectory!,
             options.Instance);
-        await supervisor.InitializeAsync(cancellationToken);
-        var natsSecurity = DevelopmentNatsSecurity.Create(topology, options.DataDirectory!);
-        await PersistAsync(
-            options,
-            topology,
-            supervisor,
-            generation,
-            startedAt,
-            DevelopmentResourceState.Starting,
-            null,
-            publishEndpoints: false,
-            cancellationToken);
-
-        foreach (var cell in topology.Cells)
+        try
         {
-            foreach (var kind in new[]
+            await using (supervisor)
             {
-                DevelopmentResourceKind.ControlNats,
-                DevelopmentResourceKind.ProductNats
-            })
-            {
-                if (cell.OfKind(kind).Count == 0)
-                {
-                    continue;
-                }
-                var resources = NatsDevelopmentCluster.Start(
+                await supervisor.InitializeAsync(cancellationToken);
+                var natsSecurity = DevelopmentNatsSecurity.Create(topology, options.DataDirectory!);
+                await PersistAsync(
+                    options,
+                    topology,
                     supervisor,
-                    cell,
-                    kind,
-                    Path.Combine(options.DataDirectory!, "nats"),
-                    natsSecurity.Cell(cell.Cell));
-                await NatsDevelopmentCluster.WaitReadyAsync(
-                    resources, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
+                    generation,
+                    startedAt,
+                    DevelopmentResourceState.Starting,
+                    null,
+                    publishEndpoints: false,
+                    cancellationToken);
+
+                foreach (var cell in topology.Cells)
+                {
+                    foreach (var kind in new[]
+                    {
+                        DevelopmentResourceKind.ControlNats,
+                        DevelopmentResourceKind.ProductNats
+                    })
+                    {
+                        if (cell.OfKind(kind).Count == 0)
+                        {
+                            continue;
+                        }
+                        var resources = NatsDevelopmentCluster.Start(
+                            supervisor,
+                            cell,
+                            kind,
+                            Path.Combine(options.DataDirectory!, "nats"),
+                            natsSecurity.Cell(cell.Cell));
+                        await NatsDevelopmentCluster.WaitReadyAsync(
+                            resources, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
+                    }
+                }
+
+                StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                supervisor.ThrowIfAnyExited();
+                if (HasProductWorkloads(topology))
+                {
+                    await DevelopmentWorkloadRuntime.StartAsync(
+                        supervisor,
+                        topology,
+                        options.WorkspaceRoot!,
+                        options.DataDirectory!,
+                        natsSecurity,
+                        cancellationToken);
+                }
+                supervisor.ThrowIfAnyExited();
+
+                var initialHealth = await WaitForInitialHealthAsync(
+                    options, topology, supervisor, natsSecurity, generation, startedAt, cancellationToken);
+                await PersistAsync(
+                    options,
+                    topology,
+                    supervisor,
+                    generation,
+                    startedAt,
+                    DevelopmentResourceState.Ready,
+                    initialHealth,
+                    publishEndpoints: true,
+                    cancellationToken);
+                Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
+
+                var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    foreach (var resourceName in supervisor.ExitedResources())
+                    {
+                        await supervisor.RestartAsync(resourceName);
+                        consecutiveUnhealthyObservations[resourceName] = 0;
+                        Console.WriteLine($"Restarted development resource {resourceName} after an unexpected exit.");
+                    }
+                    var health = await DevelopmentHealthProbe.ProbeAsync(
+                        topology,
+                        supervisor,
+                        natsSecurity,
+                        cancellationToken);
+                    await PersistAsync(
+                        options,
+                        topology,
+                        supervisor,
+                        generation,
+                        startedAt,
+                        DevelopmentResourceState.Ready,
+                        health,
+                        publishEndpoints: true,
+                        cancellationToken);
+                    foreach (var observation in health)
+                    {
+                        if (observation.Value.Healthy ||
+                            supervisor.IsWithinStartupGrace(observation.Key, TimeSpan.FromSeconds(90)))
+                        {
+                            consecutiveUnhealthyObservations[observation.Key] = 0;
+                            continue;
+                        }
+                        var failures = consecutiveUnhealthyObservations.GetValueOrDefault(observation.Key) + 1;
+                        consecutiveUnhealthyObservations[observation.Key] = failures;
+                        if (failures < 3)
+                        {
+                            continue;
+                        }
+                        await supervisor.RestartAsync(observation.Key);
+                        consecutiveUnhealthyObservations[observation.Key] = 0;
+                        Console.WriteLine(
+                            $"Restarted unhealthy development resource {observation.Key}: {observation.Value.Detail}");
+                    }
+                }
             }
         }
-
-        StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
-        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-        supervisor.ThrowIfAnyExited();
-        if (HasProductWorkloads(topology))
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await DevelopmentWorkloadRuntime.StartAsync(
-                supervisor,
-                topology,
-                options.WorkspaceRoot!,
-                options.DataDirectory!,
-                natsSecurity,
-                cancellationToken);
         }
-        supervisor.ThrowIfAnyExited();
-
-        var initialHealth = await WaitForInitialHealthAsync(
-            options, topology, supervisor, natsSecurity, generation, startedAt, cancellationToken);
-        await PersistAsync(
-            options,
-            topology,
-            supervisor,
-            generation,
-            startedAt,
-            DevelopmentResourceState.Ready,
-            initialHealth,
-            publishEndpoints: true,
-            cancellationToken);
-        Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
-
-        var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
-        while (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-            foreach (var resourceName in supervisor.ExitedResources())
-            {
-                await supervisor.RestartAsync(resourceName);
-                consecutiveUnhealthyObservations[resourceName] = 0;
-                Console.WriteLine($"Restarted development resource {resourceName} after an unexpected exit.");
-            }
-            var health = await DevelopmentHealthProbe.ProbeAsync(
-                topology,
-                supervisor,
-                natsSecurity,
-                cancellationToken);
             await PersistAsync(
                 options,
                 topology,
                 supervisor,
                 generation,
                 startedAt,
-                DevelopmentResourceState.Ready,
-                health,
-                publishEndpoints: true,
-                cancellationToken);
-            foreach (var observation in health)
-            {
-                if (observation.Value.Healthy ||
-                    supervisor.IsWithinStartupGrace(observation.Key, TimeSpan.FromSeconds(90)))
-                {
-                    consecutiveUnhealthyObservations[observation.Key] = 0;
-                    continue;
-                }
-                var failures = consecutiveUnhealthyObservations.GetValueOrDefault(observation.Key) + 1;
-                consecutiveUnhealthyObservations[observation.Key] = failures;
-                if (failures < 3)
-                {
-                    continue;
-                }
-                await supervisor.RestartAsync(observation.Key);
-                consecutiveUnhealthyObservations[observation.Key] = 0;
-                Console.WriteLine(
-                    $"Restarted unhealthy development resource {observation.Key}: {observation.Value.Detail}");
-            }
+                DevelopmentResourceState.Stopped,
+                null,
+                publishEndpoints: false,
+                CancellationToken.None);
+            File.Delete(options.EndpointsFile!);
         }
         return 0;
     }
