@@ -151,6 +151,9 @@ internal sealed class NatsAccountJwtSigner : INatsAccountJwtSigner, IDisposable
 /// <summary>A disposable user JWT and nonce-signing seed. Its string form never contains either.</summary>
 internal sealed class CiRunnerNatsCredentialLease : IDisposable
 {
+    private static readonly UnixFileMode PrivateDirectoryMode = UnixFileMode.UserRead |
+        UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    private static readonly UnixFileMode PrivateFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     private byte[]? seed;
 
     internal CiRunnerNatsCredentialLease(
@@ -179,6 +182,67 @@ internal sealed class CiRunnerNatsCredentialLease : IDisposable
     {
         ObjectDisposedException.ThrowIf(seed is null, this);
         return NatsAuthCred.FromJwt(Jwt, Encoding.ASCII.GetString(seed));
+    }
+
+    internal string WriteCredentialsFile(string path)
+    {
+        ObjectDisposedException.ThrowIf(seed is null, this);
+        if (!OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("CI runner NATS credentials require Linux file permissions.");
+        var fullPath = Path.GetFullPath(path);
+        var parent = Directory.GetParent(fullPath) ??
+            throw new ArgumentException("The CI runner credential path has no parent.", nameof(path));
+        if (!parent.Exists || parent.LinkTarget is not null ||
+            File.GetUnixFileMode(parent.FullName) != PrivateDirectoryMode)
+            throw new ArgumentException("The CI runner credential directory must be owner-private.", nameof(path));
+        var created = false;
+        try
+        {
+            using var file = new FileStream(fullPath, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                Options = FileOptions.WriteThrough,
+                UnixCreateMode = PrivateFileMode,
+            });
+            created = true;
+            Write(file, "-----BEGIN NATS USER JWT-----\n");
+            Write(file, Jwt);
+            Write(file, "\n------END NATS USER JWT------\n\n");
+            Write(file, "-----BEGIN USER NKEY SEED-----\n");
+            file.Write(seed);
+            Write(file, "\n------END USER NKEY SEED------\n");
+            file.Flush(flushToDisk: true);
+            return fullPath;
+        }
+        catch
+        {
+            if (created)
+            {
+                try
+                {
+                    File.Delete(fullPath);
+                }
+                catch
+                {
+                }
+            }
+            throw;
+        }
+    }
+
+    private static void Write(Stream stream, string value)
+    {
+        var bytes = Encoding.ASCII.GetBytes(value);
+        try
+        {
+            stream.Write(bytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bytes);
+        }
     }
 
     public void Dispose()

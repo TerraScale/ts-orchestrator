@@ -73,6 +73,44 @@ public sealed class CiRunnerNatsCredentialIssuerTests
             await Assert.That(nats.TryGetProperty("bearer_token", out _)).IsFalse();
             await Assert.That(nats.TryGetProperty("issuer_account", out _)).IsFalse();
 
+            var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-runner-creds-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+            var credentialsPath = Path.Combine(directory, "runner.creds");
+            try
+            {
+                await File.WriteAllTextAsync(credentialsPath, "sentinel");
+                await Assert.That(() => credential.WriteCredentialsFile(credentialsPath))
+                    .Throws<IOException>();
+                await Assert.That(await File.ReadAllTextAsync(credentialsPath)).IsEqualTo("sentinel");
+                File.Delete(credentialsPath);
+
+                credential.WriteCredentialsFile(credentialsPath);
+                await using var connection = new NatsConnection(new NatsOpts
+                {
+                    Url = "nats://127.0.0.1:1",
+                    RetryOnInitialConnect = false,
+                    ConnectTimeout = TimeSpan.FromMilliseconds(100),
+                    AuthOpts = new NatsAuthOpts { CredsFile = credentialsPath },
+                });
+                var parsed = false;
+                try
+                {
+                    await connection.ConnectAsync();
+                }
+                catch (NatsException exception)
+                {
+                    parsed = exception.Message.Contains("can not connect uris", StringComparison.Ordinal);
+                }
+                await Assert.That(parsed).IsTrue();
+                await Assert.That(File.GetUnixFileMode(credentialsPath))
+                    .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+
             var signingInput = Encoding.ASCII.GetBytes($"{chunks[0]}.{chunks[1]}");
             using var pair = NKeys.FromSeed(seed);
             await Assert.That(Base64Url.DecodeFromChars(chunks[2])).IsEquivalentTo(pair.Sign(signingInput));
