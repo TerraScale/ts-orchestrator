@@ -334,9 +334,9 @@ owner-private tar/gzip archive re-hashed against the accepted output tree, and
 canonical evidence under content addresses with full readback verification and
 30-day object retention. A strict result manifest carries the required-test
 skip count. Source bytes are removed before artifact capture and archive
-overhead is reserved inside the signed ephemeral-disk budget. The runner
-process mode is still absent, so no BuildKit daemon is invoked by normal
-Orchestrator startup.
+overhead is reserved inside the signed ephemeral-disk budget. The isolated
+`runner` process mode owns that BuildKit daemon and exits when its bounded idle
+window expires; normal controller startup never invokes BuildKit.
 
 Release DAGs bind every affected repository to an exact commit and tree before
 creating least-privilege trusted-build work. Candidate qualification requires
@@ -409,6 +409,17 @@ roots and runner identity/resource values are supplied through `HOME`,
 configurable from 30 to 900 seconds. Controller-side result publication and
 candidate artifact interpretation/publication remain separate gates. No result
 is acknowledged unless its exact durable sink completed first.
+
+OCI CI capacity is compiled as standalone preemptible
+`VM.Standard.A1.Flex` instances with 4 OCPUs and 24 GiB, a private VNIC, closed
+NSG membership, encrypted paravirtualized transport, and disposable boot and
+launch data volumes. The real Compute adapter uses an OCI instance principal;
+launch idempotency is content-bound, while idle deletion requires exact
+Orchestrator ownership tags and an ETag fence. Nodes with active work, ambiguous
+identity, foreign ownership, or an incomplete fence fail closed. OCI `user_data`
+contains bootstrap code or an encrypted reference only—never a plaintext runner
+credential—and the admitted runner obtains its scoped NATS/mTLS identity after
+bootstrap. Preemption and idle termination both delete the boot volume.
 
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1

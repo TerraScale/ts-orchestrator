@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-07-13",
+  "asOf": "2026-07-17",
   "status": "candidate-review-only",
   "productionQualified": false,
   "artifactSigningSelection": null,
@@ -29,6 +29,22 @@
         "contentHash": "6B8RlcstYwgoKm9IXcZEDADpH93Hn6+LcvR8hvmFa8jzwshNlIArv8tL5jelJD+fQmnlymKoQYcZ5cL7J1bITw=="
       },
       {
+        "name": "Newtonsoft.Json",
+        "declaredVersion": "13.0.4",
+        "lockType": "CentralTransitive",
+        "lockRequested": "[13.0.4, )",
+        "resolvedVersion": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
+      {
+        "name": "OCI.DotNetSDK.Core",
+        "declaredVersion": "142.0.0",
+        "lockType": "Direct",
+        "lockRequested": "[142.0.0, )",
+        "resolvedVersion": "142.0.0",
+        "contentHash": "1WGjnQDsjJ1ez/3ogE5nBpOWSeNdnNBjI28Lj+eN/dg+JGUxRgyxb0qtEd3TFna1nU8BKTJ58nLoLGkQGkS50Q=="
+      },
+      {
         "name": "TUnit",
         "declaredVersion": "1.56.18",
         "lockType": "Direct",
@@ -38,12 +54,12 @@
       }
     ],
     "lockProvenance": [
-      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "22ac11ada2b9f7a8c4483110d83018f622a64f70c1ecbcd36cfd5f33574c2d2a"},
-      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
-      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
-      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
-      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "63aca81df7b93d2257efa575764c22ef99355725b13ccc99f3234f08835db9fd"},
-      {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "08cc04f04dccf5135bf5dfa0cdb5137f80797c8aa31f7df37c3c80f77b1d7ed6"},
+      {"path": "src/TerraScale.Orchestrator/packages.lock.json", "sha256": "76a4abb558aedf5fbfebcd8bb59fc31bb7ad3354f876386aad091be18cbfce8a"},
+      {"path": "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},
+      {"path": "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},
+      {"path": "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},
+      {"path": "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json", "sha256": "4d415970a8e2cd80e212d771d22c4e3c0fdfb053bf8895771026c68912f116a6"},
+      {"path": "tests/TerraScale.Orchestrator.Tests/packages.lock.json", "sha256": "a3d86348c60df356a88223f5fd57ba936fff36e37c9d47e5741e5a4ca7f31ea1"},
       {"path": "tools/TerraScale.Orchestrator.Tooling/packages.lock.json", "sha256": "03eeadc5ef377c17f787ab65f41fb4c8a9c936bb7f7f4171111fdeec8a81cb46"}
     ],
     "lockProvenanceStatus": "checked-in-lock-files-bound-by-sha256-but-not-yet-qualified-against-an-internal-mirror"
