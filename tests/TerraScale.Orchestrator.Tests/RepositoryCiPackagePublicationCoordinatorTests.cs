@@ -69,6 +69,21 @@ public sealed class RepositoryCiPackagePublicationCoordinatorTests
     }
 
     [Test]
+    public async Task NativeCandidatePublishesItsMultiArchitectureArchive()
+    {
+        var fixture = Fixture.Create("NativeOrdered");
+        var publisher = new TestPublisher(ForgejoGenericPackagePublicationDisposition.Recorded);
+
+        var receipt = await fixture.Coordinator(publisher)
+            .PublishAsync(fixture.Qualified, static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPackagePublicationDisposition.Published);
+        await Assert.That(receipt.Packages).HasSingleItem();
+        await Assert.That(publisher.Calls[0].Content.SequenceEqual(fixture.Archive)).IsTrue();
+    }
+
+    [Test]
     public async Task MissingAuthorityCannotReadOrPublishTheArchive()
     {
         var fixture = Fixture.Create();
@@ -110,7 +125,6 @@ public sealed class RepositoryCiPackagePublicationCoordinatorTests
                 value.Plan.Node.Kind == RepositoryCiNodeKind.Artifact);
             var archive = "canonical package archive"u8.ToArray();
             var outputDigest = Digest(100);
-            var artifactDigest = Digest(101);
             var workload = new CiRunnerWorkloadEvidence(
                 1,
                 "trusted-package-runner",
@@ -134,12 +148,23 @@ public sealed class RepositoryCiPackagePublicationCoordinatorTests
                 0,
                 Digest(110),
                 outputDigest,
-                1,
+                planned.Plan.Node.Architectures.Count,
                 1024,
                 true,
                 RepositoryCiJobFailureKind.Unspecified,
                 CiRunnerWorkloadFailureCode.Unspecified);
             var artifactObject = $"ci-result-artifact-{outputDigest}";
+            var declarations = planned.Plan.Node.Architectures.Select((architecture, index) => new
+                CiRunnerStoredArtifactEvidence(
+                    $"release-{architecture}",
+                    architecture,
+                    architecture == RepositoryCiArchitecture.Any
+                        ? "package"
+                        : architecture.ToString().ToLowerInvariant(),
+                    Digest(101 + index),
+                    1,
+                    256,
+                    architecture == RepositoryCiArchitecture.Any ? [] : ["app"])).ToArray();
             var stored = new CiRunnerStoredWorkloadEvidence(
                 2,
                 workload,
@@ -149,14 +174,7 @@ public sealed class RepositoryCiPackagePublicationCoordinatorTests
                 artifactObject,
                 Hash(archive),
                 archive.LongLength,
-                [new(
-                    "release-package",
-                    RepositoryCiArchitecture.Any,
-                    "package",
-                    artifactDigest,
-                    1,
-                    256,
-                    [])],
+                declarations,
                 0,
                 CiRunnerDurableResultSink.RetentionDays);
             var evidenceContent = JsonSerializer.SerializeToUtf8Bytes(
@@ -169,21 +187,22 @@ public sealed class RepositoryCiPackagePublicationCoordinatorTests
                 true,
                 0,
                 job == planned ? evidenceDigest : Digest(200 + index))).ToArray();
-            var artifacts = new[]
+            var artifacts = declarations.Select(declaration =>
             {
-                new RepositoryCiArtifactResult(
+                var digest = new DigestId(declaration.Digest);
+                return new RepositoryCiArtifactResult(
                     planned.Plan.Repository,
                     planned.Plan.Promotion,
                     planned.Request.Job,
-                    new("release-package"),
-                    RepositoryCiArchitecture.Any,
-                    new DigestId(artifactDigest),
-                    [],
+                    new(declaration.Artifact),
+                    declaration.Architecture,
+                    digest,
+                    declaration.Entrypoints,
                     new("trusted-build-signer"),
-                    new("release-package-signature"),
+                    new($"release-{declaration.Architecture}-signature"),
                     true,
-                    null),
-            };
+                    declaration.Architecture == RepositoryCiArchitecture.Any ? null : digest);
+            }).ToArray();
             var candidate = RepositoryCiCandidateAssembler.Assemble(pipeline, results, artifacts);
             var source = candidate.Sources.Single();
             var trigger = ForgejoCiTriggerPlanner.Plan(new ForgejoWebhookEnvelope(

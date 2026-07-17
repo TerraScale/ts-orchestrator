@@ -388,8 +388,8 @@ and replays the same operation after interruption. It drives publish, SFO, FRA,
 and GRU in order; any failed forward phase enters the journal's exact reverse
 rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
-new fence. Package-strategy candidates now retain their per-repository promotion
-policy and can be published through the Forgejo generic-package API under the
+new fence. Package and native-strategy candidates now retain their per-
+repository promotion policy and can be published through the Forgejo generic-package API under the
 exact candidate version. That coordinator reopens and verifies every content-
 addressed runner archive before the first upload, streams only the matching
 durable object under current authority, reconciles immutable retries by exact

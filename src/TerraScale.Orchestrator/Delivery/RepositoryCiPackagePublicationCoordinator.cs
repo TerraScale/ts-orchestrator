@@ -31,7 +31,7 @@ internal sealed record RepositoryCiPackagePublicationReceipt(
     string EvidenceDigest,
     IReadOnlyList<RepositoryCiPublishedPackage> Packages);
 
-/// <summary>Publishes only exact Package-strategy archives from one qualified candidate.</summary>
+/// <summary>Publishes exact package and native archives from one qualified candidate.</summary>
 internal sealed class RepositoryCiPackagePublicationCoordinator(
     CiRunnerDurableEvidenceVerifier evidence,
     IDeliveryObjectStore objects,
@@ -55,7 +55,7 @@ internal sealed class RepositoryCiPackagePublicationCoordinator(
 
         var candidate = qualified.Candidate;
         var jobs = candidate.Artifacts
-            .Where(static artifact => artifact.Promotion == RepositoryCiPromotionStrategy.Package)
+            .Where(static artifact => ForgejoPackageStrategy(artifact.Promotion))
             .GroupBy(static artifact => artifact.Job)
             .OrderBy(static group => group.Key.Value, StringComparer.Ordinal)
             .ToArray();
@@ -150,6 +150,12 @@ internal sealed class RepositoryCiPackagePublicationCoordinator(
         var digest = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(name)));
         return $"ci-{name[..207]}-{digest[..32]}";
     }
+
+    private static bool ForgejoPackageStrategy(RepositoryCiPromotionStrategy strategy) => strategy is
+        RepositoryCiPromotionStrategy.Package or
+        RepositoryCiPromotionStrategy.NativeRolling or
+        RepositoryCiPromotionStrategy.NativeBlueGreen or
+        RepositoryCiPromotionStrategy.NativeOrdered;
 
     private static string EvidenceDigest(
         RepositoryCiQualifiedCandidate qualified,
