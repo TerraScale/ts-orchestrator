@@ -181,7 +181,9 @@ public sealed class ForgejoWebhookJournalTests
             "push").Envelope!;
     }
 
-    internal sealed class TestLedger(int failOnMutation = 0) : IForgejoDeliveryLedger
+    internal sealed class TestLedger(int failOnMutation = 0) :
+        IForgejoDeliveryLedger,
+        IForgejoDeliveryRetentionLedger
     {
         private readonly Dictionary<string, ForgejoDeliveryLedgerEntry> entries = new(StringComparer.Ordinal);
         private readonly object sync = new();
@@ -253,6 +255,42 @@ public sealed class ForgejoWebhookJournalTests
                 var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
                 entries[key] = entry;
                 return Task.FromResult(entry);
+            }
+        }
+
+        public async IAsyncEnumerable<string> ListKeysAsync(
+            string filter,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string[] keys;
+            lock (sync)
+            {
+                var prefix = filter.EndsWith('>') ? filter[..^1] : filter;
+                keys = entries.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+            }
+            foreach (var key in keys)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return key;
+                await Task.Yield();
+            }
+        }
+
+        public Task DeleteAsync(
+            string key,
+            ulong expectedRevision,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (sync)
+            {
+                FailIfRequested();
+                if (!entries.TryGetValue(key, out var current) || current.Revision != expectedRevision)
+                    throw Conflict();
+                entries.Remove(key);
+                revision++;
+                return Task.CompletedTask;
             }
         }
 

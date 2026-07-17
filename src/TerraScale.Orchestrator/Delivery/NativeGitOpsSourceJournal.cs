@@ -50,7 +50,14 @@ internal interface IDeliveryObjectStore
     }
 }
 
-internal sealed class NatsDeliveryObjectStore(INatsObjStore store) : IDeliveryObjectStore
+internal interface IDeliveryRetentionObjectStore
+{
+    Task DeleteIfExistsAsync(string name, CancellationToken cancellationToken);
+}
+
+internal sealed class NatsDeliveryObjectStore(INatsObjStore store) :
+    IDeliveryObjectStore,
+    IDeliveryRetentionObjectStore
 {
     public async Task PutAsync(
         string name,
@@ -66,6 +73,17 @@ internal sealed class NatsDeliveryObjectStore(INatsObjStore store) : IDeliveryOb
 
     public async Task CopyToAsync(string name, Stream destination, CancellationToken cancellationToken) =>
         _ = await store.GetAsync(name, destination, leaveOpen: true, cancellationToken);
+
+    public async Task DeleteIfExistsAsync(string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await store.DeleteAsync(name, cancellationToken);
+        }
+        catch (NatsObjNotFoundException)
+        {
+        }
+    }
 }
 
 /// <summary>

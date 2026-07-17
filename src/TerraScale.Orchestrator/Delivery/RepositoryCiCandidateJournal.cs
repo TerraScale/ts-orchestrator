@@ -17,6 +17,22 @@ internal enum RepositoryCiCandidateJournalDisposition
 internal sealed record RepositoryCiCandidateJournalReceipt(
     RepositoryCiCandidateJournalDisposition Disposition);
 
+internal enum RepositoryCiCandidateRetentionDisposition
+{
+    Unspecified,
+    NotFound,
+    NotExpired,
+    Retained,
+    Deleted,
+    AlreadyDeleted,
+    StaleAuthority,
+    IdentityConflict,
+    ConcurrentUpdate,
+}
+
+internal sealed record RepositoryCiCandidateRetentionReceipt(
+    RepositoryCiCandidateRetentionDisposition Disposition);
+
 /// <summary>Stores large immutable candidate records by content and commits only bounded global pointers.</summary>
 internal sealed class RepositoryCiCandidateJournal
 {
@@ -108,6 +124,10 @@ internal sealed class RepositoryCiCandidateJournal
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(candidate);
+        var existingLifecycle = await ReadLifecycleAsync(candidate, required: false, cancellationToken);
+        if (existingLifecycle?.State is RepositoryCiCandidateLifecycleState.DeletionPrepared or
+            RepositoryCiCandidateLifecycleState.Deleted)
+            return new(RepositoryCiCandidateJournalDisposition.IdentityConflict);
         var content = SerializeCandidate(candidate);
         var recorded = await RecordAsync(
             RepositoryCiCandidateRecordKind.Candidate,
@@ -194,6 +214,266 @@ internal sealed class RepositoryCiCandidateJournal
                 ? RepositoryCiCandidateJournalDisposition.Recorded
                 : RepositoryCiCandidateJournalDisposition.Duplicate);
     }
+
+    internal async Task<RepositoryCiCandidateRetentionReceipt> DeleteExpiredAsync(
+        string candidateDigest,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDigest(candidateDigest, nameof(candidateDigest));
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        if (authorityEpoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorityEpoch));
+        if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
+        if (ledger is not IForgejoDeliveryRetentionLedger retentionLedger ||
+            objects is not IDeliveryRetentionObjectStore retentionObjects)
+            throw new InvalidOperationException("Candidate retention requires deletable ledger and object stores.");
+
+        var lifecycleKey = LifecycleIndex(candidateDigest);
+        var lifecycleEntry = await ledger.GetAsync(lifecycleKey, cancellationToken);
+        if (lifecycleEntry is null)
+            return new(RepositoryCiCandidateRetentionDisposition.NotFound);
+        var lifecycle = DeserializeLifecycle(lifecycleEntry.Value);
+        if (lifecycle.CandidateDigest != candidateDigest)
+            return new(RepositoryCiCandidateRetentionDisposition.IdentityConflict);
+        if (lifecycle.State is RepositoryCiCandidateLifecycleState.QualificationPrepared or
+            RepositoryCiCandidateLifecycleState.Qualified)
+            return new(RepositoryCiCandidateRetentionDisposition.Retained);
+        if (lifecycle.State == RepositoryCiCandidateLifecycleState.Deleted)
+            return new(RepositoryCiCandidateRetentionDisposition.AlreadyDeleted);
+
+        if (lifecycle.State == RepositoryCiCandidateLifecycleState.Active)
+        {
+            if (timeProvider.GetUtcNow().ToUniversalTime() < lifecycle.RetainUntilUtc)
+                return new(RepositoryCiCandidateRetentionDisposition.NotExpired);
+            var prepared = await PrepareDeletionAsync(
+                lifecycleKey,
+                lifecycleEntry,
+                lifecycle,
+                authorityEpoch,
+                sequence,
+                authorityStillValid,
+                cancellationToken);
+            if (prepared.Receipt is not null) return prepared.Receipt;
+            lifecycleEntry = prepared.Entry!;
+            lifecycle = prepared.Lifecycle!;
+        }
+
+        if (lifecycle.State is not (RepositoryCiCandidateLifecycleState.DeletionPrepared or
+                RepositoryCiCandidateLifecycleState.Deleted))
+            return new(RepositoryCiCandidateRetentionDisposition.IdentityConflict);
+        return await DeletePreparedAsync(
+            lifecycleKey,
+            lifecycle,
+            authorityEpoch,
+            sequence,
+            authorityStillValid,
+            retentionLedger,
+            retentionObjects,
+            cancellationToken);
+    }
+
+    private async Task<(
+        ForgejoDeliveryLedgerEntry? Entry,
+        RepositoryCiCandidateLifecycleDocument? Lifecycle,
+        RepositoryCiCandidateRetentionReceipt? Receipt)> PrepareDeletionAsync(
+        string lifecycleKey,
+        ForgejoDeliveryLedgerEntry lifecycleEntry,
+        RepositoryCiCandidateLifecycleDocument lifecycle,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
+        var pointerKey = Index(RepositoryCiCandidateRecordKind.Candidate, lifecycle.CandidateDigest);
+        var pointerEntry = await ledger.GetAsync(pointerKey, cancellationToken)
+            ?? throw new InvalidDataException("An active candidate lost its durable pointer before expiry.");
+        var pointer = DeserializePointer(pointerEntry.Value);
+        if (pointer.Kind != RepositoryCiCandidateRecordKind.Candidate ||
+            pointer.IdentityDigest != lifecycle.CandidateDigest ||
+            pointer.CandidateDigest != lifecycle.CandidateDigest)
+            return (null, null, new(RepositoryCiCandidateRetentionDisposition.IdentityConflict));
+        var candidate = await ReadCandidateCoreAsync(lifecycle.CandidateDigest, required: true, cancellationToken)
+            ?? throw new InvalidDataException("An active candidate disappeared before expiry.");
+        if (lifecycle.RetainUntilUtc != lifecycle.CreatedAtUtc.AddDays(candidate.CandidateRetentionDays))
+            throw new InvalidDataException("A candidate lifecycle differs from its immutable candidate.");
+        var treeSetDigest = TreeSetDigest(candidate.Sources.Select(static source =>
+            (source.Repository, source.Tree)));
+        var treeEntry = await ledger.GetAsync(TreeIndex(treeSetDigest), cancellationToken)
+            ?? throw new InvalidDataException("An active candidate lost its tree-set index before expiry.");
+        var tree = DeserializeTreeIndex(treeEntry.Value);
+        if (tree.TreeSetDigest != treeSetDigest || tree.CandidateDigest != lifecycle.CandidateDigest)
+            return (null, null, new(RepositoryCiCandidateRetentionDisposition.IdentityConflict));
+        if (!authorityStillValid())
+            return (null, null, new(RepositoryCiCandidateRetentionDisposition.StaleAuthority));
+
+        var proposed = lifecycle with
+        {
+            State = RepositoryCiCandidateLifecycleState.DeletionPrepared,
+            AuthorityEpoch = authorityEpoch,
+            Sequence = sequence,
+            CandidateContentDigest = pointer.ContentDigest,
+            CandidateObjectName = pointer.ObjectName,
+            TreeSetDigest = treeSetDigest,
+            CandidatePointerRevision = pointerEntry.Revision,
+            TreeIndexRevision = treeEntry.Revision,
+        };
+        proposed.Validate();
+        try
+        {
+            var updated = await ledger.UpdateAsync(
+                lifecycleKey,
+                SerializeLifecycle(proposed),
+                lifecycleEntry.Revision,
+                cancellationToken);
+            return (updated, proposed, null);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            var concurrent = await ledger.GetAsync(lifecycleKey, cancellationToken);
+            if (concurrent is null)
+                return (null, null, new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate));
+            var document = DeserializeLifecycle(concurrent.Value);
+            if (document.CandidateDigest != lifecycle.CandidateDigest)
+                return (null, null, new(RepositoryCiCandidateRetentionDisposition.IdentityConflict));
+            if (document.State is RepositoryCiCandidateLifecycleState.QualificationPrepared or
+                RepositoryCiCandidateLifecycleState.Qualified)
+                return (null, null, new(RepositoryCiCandidateRetentionDisposition.Retained));
+            if ((document.State is RepositoryCiCandidateLifecycleState.DeletionPrepared or
+                    RepositoryCiCandidateLifecycleState.Deleted) &&
+                SameDeletionEvidence(document, proposed))
+                return (concurrent, document, null);
+            return (null, null, new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate));
+        }
+    }
+
+    private async Task<RepositoryCiCandidateRetentionReceipt> DeletePreparedAsync(
+        string lifecycleKey,
+        RepositoryCiCandidateLifecycleDocument lifecycle,
+        long authorityEpoch,
+        long sequence,
+        Func<bool> authorityStillValid,
+        IForgejoDeliveryRetentionLedger retentionLedger,
+        IDeliveryRetentionObjectStore retentionObjects,
+        CancellationToken cancellationToken)
+    {
+        var deletedTree = await DeleteTreeIndexAsync(
+            lifecycle, authorityStillValid, retentionLedger, cancellationToken);
+        if (deletedTree is not null) return deletedTree;
+        var deletedPointer = await DeleteCandidatePointerAsync(
+            lifecycle, authorityStillValid, retentionLedger, cancellationToken);
+        if (deletedPointer is not null) return deletedPointer;
+        if (!authorityStillValid())
+            return new(RepositoryCiCandidateRetentionDisposition.StaleAuthority);
+        await retentionObjects.DeleteIfExistsAsync(lifecycle.CandidateObjectName!, cancellationToken);
+
+        var current = await ledger.GetAsync(lifecycleKey, cancellationToken);
+        if (current is null)
+            return new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate);
+        var document = DeserializeLifecycle(current.Value);
+        if (!SameDeletionEvidence(document, lifecycle))
+            return new(RepositoryCiCandidateRetentionDisposition.IdentityConflict);
+        if (document.State == RepositoryCiCandidateLifecycleState.Deleted)
+            return new(RepositoryCiCandidateRetentionDisposition.AlreadyDeleted);
+        if (document.State != RepositoryCiCandidateLifecycleState.DeletionPrepared)
+            return new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate);
+        if (!authorityStillValid())
+            return new(RepositoryCiCandidateRetentionDisposition.StaleAuthority);
+        var deleted = document with
+        {
+            State = RepositoryCiCandidateLifecycleState.Deleted,
+            AuthorityEpoch = authorityEpoch,
+            Sequence = sequence,
+        };
+        deleted.Validate();
+        try
+        {
+            await ledger.UpdateAsync(lifecycleKey, SerializeLifecycle(deleted), current.Revision, cancellationToken);
+            return new(RepositoryCiCandidateRetentionDisposition.Deleted);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            var concurrent = await ledger.GetAsync(lifecycleKey, cancellationToken);
+            if (concurrent is null)
+                return new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate);
+            var observed = DeserializeLifecycle(concurrent.Value);
+            return new(observed.State == RepositoryCiCandidateLifecycleState.Deleted &&
+                SameDeletionEvidence(observed, deleted)
+                    ? RepositoryCiCandidateRetentionDisposition.AlreadyDeleted
+                    : RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate);
+        }
+    }
+
+    private async Task<RepositoryCiCandidateRetentionReceipt?> DeleteTreeIndexAsync(
+        RepositoryCiCandidateLifecycleDocument lifecycle,
+        Func<bool> authorityStillValid,
+        IForgejoDeliveryRetentionLedger retentionLedger,
+        CancellationToken cancellationToken)
+    {
+        var key = TreeIndex(lifecycle.TreeSetDigest!);
+        var entry = await ledger.GetAsync(key, cancellationToken);
+        if (entry is null) return null;
+        var tree = DeserializeTreeIndex(entry.Value);
+        if (entry.Revision < lifecycle.TreeIndexRevision || tree.TreeSetDigest != lifecycle.TreeSetDigest ||
+            tree.CandidateDigest != lifecycle.CandidateDigest)
+            return new(RepositoryCiCandidateRetentionDisposition.IdentityConflict);
+        return await DeleteLedgerEntryAsync(key, entry.Revision, authorityStillValid, retentionLedger, cancellationToken);
+    }
+
+    private async Task<RepositoryCiCandidateRetentionReceipt?> DeleteCandidatePointerAsync(
+        RepositoryCiCandidateLifecycleDocument lifecycle,
+        Func<bool> authorityStillValid,
+        IForgejoDeliveryRetentionLedger retentionLedger,
+        CancellationToken cancellationToken)
+    {
+        var key = Index(RepositoryCiCandidateRecordKind.Candidate, lifecycle.CandidateDigest);
+        var entry = await ledger.GetAsync(key, cancellationToken);
+        if (entry is null) return null;
+        var pointer = DeserializePointer(entry.Value);
+        if (entry.Revision < lifecycle.CandidatePointerRevision ||
+            pointer.Kind != RepositoryCiCandidateRecordKind.Candidate ||
+            pointer.IdentityDigest != lifecycle.CandidateDigest ||
+            pointer.CandidateDigest != lifecycle.CandidateDigest ||
+            pointer.ContentDigest != lifecycle.CandidateContentDigest ||
+            pointer.ObjectName != lifecycle.CandidateObjectName)
+            return new(RepositoryCiCandidateRetentionDisposition.IdentityConflict);
+        return await DeleteLedgerEntryAsync(key, entry.Revision, authorityStillValid, retentionLedger, cancellationToken);
+    }
+
+    private async Task<RepositoryCiCandidateRetentionReceipt?> DeleteLedgerEntryAsync(
+        string key,
+        ulong revision,
+        Func<bool> authorityStillValid,
+        IForgejoDeliveryRetentionLedger retentionLedger,
+        CancellationToken cancellationToken)
+    {
+        if (!authorityStillValid())
+            return new(RepositoryCiCandidateRetentionDisposition.StaleAuthority);
+        try
+        {
+            await retentionLedger.DeleteAsync(key, revision, cancellationToken);
+            return null;
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            return await ledger.GetAsync(key, cancellationToken) is null
+                ? null
+                : new(RepositoryCiCandidateRetentionDisposition.ConcurrentUpdate);
+        }
+    }
+
+    private static bool SameDeletionEvidence(
+        RepositoryCiCandidateLifecycleDocument left,
+        RepositoryCiCandidateLifecycleDocument right) =>
+        left.CandidateDigest == right.CandidateDigest &&
+        left.CreatedAtUtc == right.CreatedAtUtc &&
+        left.RetainUntilUtc == right.RetainUntilUtc &&
+        left.CandidateContentDigest == right.CandidateContentDigest &&
+        left.CandidateObjectName == right.CandidateObjectName &&
+        left.TreeSetDigest == right.TreeSetDigest &&
+        left.CandidatePointerRevision == right.CandidatePointerRevision &&
+        left.TreeIndexRevision == right.TreeIndexRevision;
 
     private async Task<RepositoryCiCandidateJournalReceipt> RecordAsync(
         RepositoryCiCandidateRecordKind kind,
@@ -701,7 +981,12 @@ internal sealed record RepositoryCiCandidateLifecycleDocument(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset RetainUntilUtc,
     long AuthorityEpoch,
-    long Sequence)
+    long Sequence,
+    string? CandidateContentDigest,
+    string? CandidateObjectName,
+    string? TreeSetDigest,
+    ulong CandidatePointerRevision,
+    ulong TreeIndexRevision)
 {
     internal static RepositoryCiCandidateLifecycleDocument Active(
         string candidateDigest,
@@ -716,17 +1001,32 @@ internal sealed record RepositoryCiCandidateLifecycleDocument(
         createdAtUtc,
         createdAtUtc.AddDays(retentionDays),
         authorityEpoch,
-        sequence);
+        sequence,
+        null,
+        null,
+        null,
+        0,
+        0);
 
     internal void Validate()
     {
         var duration = RetainUntilUtc - CreatedAtUtc;
         var qualifiedState = State is RepositoryCiCandidateLifecycleState.QualificationPrepared or
             RepositoryCiCandidateLifecycleState.Qualified;
+        var deletionState = State is RepositoryCiCandidateLifecycleState.DeletionPrepared or
+            RepositoryCiCandidateLifecycleState.Deleted;
+        var deletionEvidence = CandidateContentDigest is not null || CandidateObjectName is not null ||
+            TreeSetDigest is not null || CandidatePointerRevision != 0 || TreeIndexRevision != 0;
+        var expectedObjectName = CandidateContentDigest is null
+            ? null
+            : $"ci-candidate-{CandidateDigest}-{CandidateContentDigest}";
         if (SchemaVersion != 1 || !Digest(CandidateDigest) ||
             State is RepositoryCiCandidateLifecycleState.Unspecified ||
             qualifiedState != (QualifiedDigest is not null) ||
             QualifiedDigest is not null && !Digest(QualifiedDigest) ||
+            deletionState != deletionEvidence ||
+            deletionState && (!Digest(CandidateContentDigest) || CandidateObjectName != expectedObjectName ||
+                !Digest(TreeSetDigest) || CandidatePointerRevision == 0 || TreeIndexRevision == 0) ||
             CreatedAtUtc.Offset != TimeSpan.Zero || RetainUntilUtc.Offset != TimeSpan.Zero ||
             duration.Ticks < TimeSpan.TicksPerDay || duration.Ticks > 30 * TimeSpan.TicksPerDay ||
             duration.Ticks % TimeSpan.TicksPerDay != 0 || AuthorityEpoch <= 0 || Sequence <= 0)

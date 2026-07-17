@@ -6,6 +6,9 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class RepositoryCiCandidateJournalTests
 {
+    private static readonly DateTimeOffset RetentionStart =
+        new(2026, 7, 17, 12, 0, 0, TimeSpan.Zero);
+
     [Test]
     public async Task CandidateAndQualificationRoundTripAcrossJournalInstances()
     {
@@ -186,6 +189,143 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task ExpiryDeletesOnlyAnUnqualifiedCandidateAndLeavesATombstone()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        await journal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+
+        var summary = await new RepositoryCiCandidateRetentionCoordinator(journal, ledger)
+            .RunOnceAsync(7, 2, static () => true);
+
+        await Assert.That(summary.Deleted).IsEqualTo(1);
+        await Assert.That(summary.Deferred).IsEqualTo(0);
+        await Assert.That(objects.Count).IsEqualTo(0);
+        await Assert.That(await journal.ReadCandidateAsync(candidate.Digest)).IsNull();
+        await Assert.That((await LifecycleAsync(ledger, candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.Deleted);
+        await Assert.That((await journal.RecordCandidateAsync(candidate, 7, 3, static () => true)).Disposition)
+            .IsEqualTo(RepositoryCiCandidateJournalDisposition.IdentityConflict);
+
+        var replay = await new RepositoryCiCandidateRetentionCoordinator(journal, ledger)
+            .RunOnceAsync(7, 4, static () => true);
+        await Assert.That(replay.AlreadyDeleted).IsEqualTo(1);
+        await Assert.That(objects.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task RetentionDeadlineAndQualificationBothPreventDeletion()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        var retention = new RepositoryCiCandidateRetentionCoordinator(journal, ledger);
+        await journal.RecordCandidateAsync(qualified.Candidate, 7, 1, static () => true);
+
+        clock.Advance(TimeSpan.FromDays(7) - TimeSpan.FromTicks(1));
+        var early = await retention.RunOnceAsync(7, 2, static () => true);
+        await Assert.That(early.NotExpired).IsEqualTo(1);
+        await Assert.That(await journal.ReadCandidateAsync(qualified.Candidate.Digest)).IsNotNull();
+
+        await journal.RecordQualifiedAsync(qualified, 7, 3, static () => true);
+        clock.Advance(TimeSpan.FromTicks(1));
+        var retained = await retention.RunOnceAsync(7, 4, static () => true);
+        await Assert.That(retained.Retained).IsEqualTo(1);
+        await Assert.That(objects.Count).IsEqualTo(2);
+        await Assert.That(await journal.ReadQualifiedAsync(qualified.Digest)).IsNotNull();
+    }
+
+    [Test]
+    public async Task InterruptedLedgerDeletionResumesFromPreparedEvidence()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 6);
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        await journal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+
+        await Assert.That(async () => await journal.DeleteExpiredAsync(
+                candidate.Digest, 7, 2, static () => true))
+            .Throws<IOException>();
+        await Assert.That((await LifecycleAsync(ledger, candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.DeletionPrepared);
+
+        var recovered = await journal.DeleteExpiredAsync(candidate.Digest, 8, 3, static () => true);
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateRetentionDisposition.Deleted);
+        await Assert.That(objects.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task InterruptedObjectDeletionAndFinalCommitBothResumeExactly()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var objectLedger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore(failOnDeletion: 1);
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var objectJournal = new RepositoryCiCandidateJournal(objectLedger, objects, clock);
+        await objectJournal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+
+        await Assert.That(async () => await objectJournal.DeleteExpiredAsync(
+                candidate.Digest, 7, 2, static () => true))
+            .Throws<IOException>();
+        var objectRecovered = await objectJournal.DeleteExpiredAsync(
+            candidate.Digest, 8, 3, static () => true);
+        await Assert.That(objectRecovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateRetentionDisposition.Deleted);
+
+        var commitClock = new AdjustableTimeProvider(RetentionStart);
+        var commitLedger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 7);
+        var commitObjects = new TestObjectStore();
+        var commitJournal = new RepositoryCiCandidateJournal(commitLedger, commitObjects, commitClock);
+        await commitJournal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        commitClock.Advance(TimeSpan.FromDays(7));
+        await Assert.That(async () => await commitJournal.DeleteExpiredAsync(
+                candidate.Digest, 7, 2, static () => true))
+            .Throws<IOException>();
+
+        var commitRecovered = await commitJournal.DeleteExpiredAsync(
+            candidate.Digest, 8, 3, static () => true);
+        await Assert.That(commitRecovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateRetentionDisposition.Deleted);
+        await Assert.That((await LifecycleAsync(commitLedger, candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.Deleted);
+    }
+
+    [Test]
+    public async Task AuthorityLossAfterPreparationStopsBeforeAnyDeletion()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        await journal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+        var checks = 0;
+
+        var stopped = await journal.DeleteExpiredAsync(candidate.Digest, 7, 2, () => ++checks == 1);
+
+        await Assert.That(stopped.Disposition)
+            .IsEqualTo(RepositoryCiCandidateRetentionDisposition.StaleAuthority);
+        await Assert.That((await LifecycleAsync(ledger, candidate.Digest)).State)
+            .IsEqualTo(RepositoryCiCandidateLifecycleState.DeletionPrepared);
+        await Assert.That(objects.Count).IsEqualTo(1);
+        var recovered = await journal.DeleteExpiredAsync(candidate.Digest, 8, 3, static () => true);
+        await Assert.That(recovered.Disposition)
+            .IsEqualTo(RepositoryCiCandidateRetentionDisposition.Deleted);
+    }
+
+    [Test]
     public async Task ConcurrentExactRecordsConvergeOnOnePointer()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -295,10 +435,14 @@ public sealed class RepositoryCiCandidateJournalTests
             ?? throw new InvalidDataException("Invalid candidate lifecycle test record.");
     }
 
-    private sealed class TestObjectStore : IDeliveryObjectStore
+    private sealed class TestObjectStore(int failOnDeletion = 0) :
+        IDeliveryObjectStore,
+        IDeliveryRetentionObjectStore
     {
         private readonly Dictionary<string, byte[]> values = new(StringComparer.Ordinal);
         private readonly object sync = new();
+        private int deletionAttempts;
+        private bool deletionFailed;
 
         internal int Count { get { lock (sync) return values.Count; } }
 
@@ -322,6 +466,22 @@ public sealed class RepositoryCiCandidateJournalTests
             }
         }
 
+        public Task DeleteIfExistsAsync(string name, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (sync)
+            {
+                deletionAttempts++;
+                if (!deletionFailed && deletionAttempts == failOnDeletion)
+                {
+                    deletionFailed = true;
+                    throw new IOException("simulated object deletion crash");
+                }
+                values.Remove(name);
+                return Task.CompletedTask;
+            }
+        }
+
         internal void CorruptFirst()
         {
             lock (sync)
@@ -330,5 +490,14 @@ public sealed class RepositoryCiCandidateJournalTests
                 values[first.Key] = "corrupt"u8.ToArray();
             }
         }
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset value = now;
+
+        public override DateTimeOffset GetUtcNow() => value;
+
+        internal void Advance(TimeSpan duration) => value = value.Add(duration);
     }
 }

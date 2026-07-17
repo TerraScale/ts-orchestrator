@@ -239,10 +239,18 @@ internal interface IForgejoDeliveryLedger
     Task<ForgejoDeliveryLedgerEntry> UpdateAsync(string key, string value, ulong revision, CancellationToken cancellationToken);
 }
 
+internal interface IForgejoDeliveryRetentionLedger
+{
+    IAsyncEnumerable<string> ListKeysAsync(string filter, CancellationToken cancellationToken);
+    Task DeleteAsync(string key, ulong revision, CancellationToken cancellationToken);
+}
+
 internal sealed class ForgejoDeliveryLedgerConflictException(Exception innerException)
     : Exception("The Forgejo delivery ledger changed concurrently.", innerException);
 
-internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) : IForgejoDeliveryLedger
+internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) :
+    IForgejoDeliveryLedger,
+    IForgejoDeliveryRetentionLedger
 {
     public async Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
     {
@@ -286,6 +294,32 @@ internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) : IForgejoDe
         {
             var updated = await store.UpdateAsync(key, value, revision, cancellationToken: cancellationToken);
             return new(value, updated);
+        }
+        catch (NatsKVWrongLastRevisionException exception)
+        {
+            throw new ForgejoDeliveryLedgerConflictException(exception);
+        }
+    }
+
+    public async IAsyncEnumerable<string> ListKeysAsync(
+        string filter,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var key in store.GetKeysAsync(
+            [filter],
+            new NatsKVWatchOpts { IgnoreDeletes = true },
+            cancellationToken))
+            yield return key;
+    }
+
+    public async Task DeleteAsync(
+        string key,
+        ulong revision,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await store.DeleteAsync(key, new NatsKVDeleteOpts { Revision = revision }, cancellationToken);
         }
         catch (NatsKVWrongLastRevisionException exception)
         {
