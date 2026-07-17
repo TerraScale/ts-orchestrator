@@ -368,6 +368,16 @@ canonical metadata headers rather than Base64-expanding the payload. CellSpecs
 are capped at 896 KiB, headers at 64 KiB, and the complete command plus protocol
 allowance at 1 MiB. Duplicate, unknown, non-canonical, oversized, reordered,
 digest-mismatched, and payload-substituted inputs fail before durable delivery.
+Before publication, the global writer stores each exact signed wire command in
+`GLOBAL_BUNDLES` under its content digest and read-verifies it, then advances one
+compact branch pointer in `GLOBAL_RELEASES` by CAS. The pointer binds the source
+journal revision, global authority/writer epoch, generation, plan and handoff
+digests, common validity window, and every cell's payload and wire digest. A
+restart or concurrent writer therefore recovers the winning signature bytes;
+it never re-signs different bytes behind an already assigned message ID. Crash
+orphans are harmless, while authority, source-revision, and generation rollback
+or same-generation equivocation fail closed. The worst-case 64-cell pointer
+remains within the global 16 KiB KV value limit.
 The JetStream publisher sends one signed command to
 `ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
 uses handoff/cell/writer-epoch message identity so exact retries deduplicate but

@@ -87,9 +87,48 @@ internal sealed class NativeGitOpsCellPublisher(INativeGitOpsCellTransport trans
         ArgumentNullException.ThrowIfNull(handoff);
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(authorityStillValid);
+        var descriptor = NativeGitOpsCellEnvelope.Describe(handoff)
+            ?? throw new InvalidDataException("The native GitOps handoff cannot be published.");
         var message = NativeGitOpsCellWireCodec.Encode(handoff, envelope);
+        return await PublishCoreAsync(
+            descriptor,
+            envelope,
+            message,
+            authorityStillValid,
+            cancellationToken);
+    }
+
+    internal async Task<NativeGitOpsCellPublishReceipt> PublishPreparedAsync(
+        NativeGitOpsCellHandoffDescriptor handoff,
+        NativeGitOpsPreparedCellSpec prepared,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(handoff);
+        ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(authorityStillValid);
+        var decoded = NativeGitOpsCellWireCodec.Decode(prepared.Message.Payload, prepared.Message.Headers);
+        if (!Same(handoff, decoded.Handoff) || decoded.Envelope.Cell.Value != prepared.Cell ||
+            Convert.ToHexStringLower(decoded.Envelope.PayloadDigest.Bytes) != prepared.PayloadSha256)
+            throw new InvalidDataException("The prepared native GitOps CellSpec changed handoff identity.");
+        return await PublishCoreAsync(
+            handoff,
+            decoded.Envelope,
+            prepared.Message,
+            authorityStillValid,
+            cancellationToken);
+    }
+
+    private async Task<NativeGitOpsCellPublishReceipt> PublishCoreAsync(
+        NativeGitOpsCellHandoffDescriptor handoff,
+        CommandEnvelope envelope,
+        NativeGitOpsCellWireMessage message,
+        Func<bool> authorityStillValid,
+        CancellationToken cancellationToken)
+    {
         var cell = envelope.Cell.Value;
-        var spec = handoff.Cells.Single(item => item.Cell == cell);
+        var spec = handoff.Cells.SingleOrDefault(item => item.Cell == cell)
+            ?? throw new InvalidDataException("The native GitOps CellSpec is not part of the handoff.");
         if (!authorityStillValid())
             return Receipt(
                 NativeGitOpsCellPublishDisposition.AuthorityLostBeforePublish,
@@ -124,8 +163,8 @@ internal sealed class NativeGitOpsCellPublisher(INativeGitOpsCellTransport trans
 
     private static NativeGitOpsCellPublishReceipt Receipt(
         NativeGitOpsCellPublishDisposition disposition,
-        NativeGitOpsCellHandoff handoff,
-        NativeGitOpsCellSpec spec,
+        NativeGitOpsCellHandoffDescriptor handoff,
+        NativeGitOpsCellDigest spec,
         long writerEpoch,
         ulong sequence) => new(
         disposition,
@@ -134,4 +173,12 @@ internal sealed class NativeGitOpsCellPublisher(INativeGitOpsCellTransport trans
         spec.PayloadSha256,
         writerEpoch,
         sequence);
+
+    private static bool Same(
+        NativeGitOpsCellHandoffDescriptor left,
+        NativeGitOpsCellHandoffDescriptor right) =>
+        left.Generation == right.Generation &&
+        left.GlobalPlanDigest == right.GlobalPlanDigest &&
+        left.HandoffDigest == right.HandoffDigest &&
+        left.Cells.SequenceEqual(right.Cells);
 }
