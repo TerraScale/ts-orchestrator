@@ -366,7 +366,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--label", "io.terrascale.schema=2",
             "--memory", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--memory-swap", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--network", "pasta:--host-lo-to-ns-lo",
+            "--network", "slirp4netns:allow_host_loopback=true",
             "--exit-policy", "continue"
         };
         foreach (var port in PublishedPorts(topology))
