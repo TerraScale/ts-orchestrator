@@ -326,6 +326,34 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task RetentionWorkerRunsOnlyUnderTheObservedGlobalLeader()
+    {
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var candidate = RepositoryCiCandidateResolverTests.QualifiedCandidate().Candidate;
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        await journal.RecordCandidateAsync(candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+        var now = DateTimeOffset.UtcNow;
+        var observed = new RegionalAuthoritySnapshot(
+            "follower", false, 7, 2, now.AddMinutes(1), now, null);
+        await using var worker = RepositoryCiCandidateRetentionWorker.Start(
+            new(journal, ledger),
+            () => observed);
+
+        await Assert.That(await worker.SweepOnceAsync()).IsNull();
+        await Assert.That(objects.Count).IsEqualTo(1);
+
+        observed = observed with { State = "leader", IsLeader = true };
+        var summary = await worker.SweepOnceAsync();
+
+        await Assert.That(summary).IsNotNull();
+        await Assert.That(summary!.Deleted).IsEqualTo(1);
+        await Assert.That(objects.Count).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task ConcurrentExactRecordsConvergeOnOnePointer()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();

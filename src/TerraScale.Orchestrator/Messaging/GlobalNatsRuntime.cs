@@ -14,6 +14,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly RegionalAuthorityCoordinator authority;
     private readonly ForgejoCiEventConsumer ciEvents;
     private readonly RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs;
+    private readonly RepositoryCiCandidateRetentionWorker retention;
     private readonly RepositoryCiController? ciController;
 
     private GlobalNatsRuntime(
@@ -21,6 +22,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
         RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs,
+        RepositoryCiCandidateRetentionWorker retention,
         RepositoryCiController? ciController,
         CiRunnerConsumerReconciler ciRunners,
         CiRunnerNatsCredentialIssuer? ciRunnerCredentials,
@@ -36,6 +38,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.authority = authority;
         this.ciEvents = ciEvents;
         this.runtimeProofs = runtimeProofs;
+        this.retention = retention;
         this.ciController = ciController;
         CiRunners = ciRunners;
         CiRunnerCredentials = ciRunnerCredentials;
@@ -51,7 +54,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public Task Completion => Task.WhenAny(
         authority.Completion,
         ciEvents.Completion,
-        runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan)).Unwrap();
+        runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan),
+        retention.Completion).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public CiRunnerConsumerReconciler CiRunners { get; }
     public CiRunnerNatsCredentialIssuer? CiRunnerCredentials { get; }
@@ -98,6 +102,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 
         RegionalAuthorityCoordinator? authority = null;
         RepositoryCiController? ciController = null;
+        RepositoryCiCandidateRetentionWorker? retention = null;
         try
         {
             await client.ConnectAsync();
@@ -275,11 +280,15 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     new(new(runnerLedger, runnerObjects), ciRuntimeSignatures),
                     () => authority.Snapshot,
                     topology);
+            retention = RepositoryCiCandidateRetentionWorker.Start(
+                new(candidates, ledger),
+                () => authority.Snapshot);
             return new(
                 client,
                 authority,
                 ciEvents,
                 runtimeProofs,
+                retention,
                 ciController,
                 runnerConsumers,
                 ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
@@ -293,6 +302,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         }
         catch
         {
+            if (retention is not null) await retention.DisposeAsync();
             if (ciController is not null) await ciController.DisposeAsync();
             if (authority is not null) await authority.DisposeAsync();
             await client.DisposeAsync();
@@ -364,29 +374,36 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         try
         {
-            if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
+            await retention.DisposeAsync();
         }
         finally
         {
             try
             {
-                await ciEvents.DisposeAsync();
+                if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
             }
             finally
             {
                 try
                 {
-                    if (ciController is not null) await ciController.DisposeAsync();
+                    await ciEvents.DisposeAsync();
                 }
                 finally
                 {
                     try
                     {
-                        await authority.DisposeAsync();
+                        if (ciController is not null) await ciController.DisposeAsync();
                     }
                     finally
                     {
-                        await client.DisposeAsync();
+                        try
+                        {
+                            await authority.DisposeAsync();
+                        }
+                        finally
+                        {
+                            await client.DisposeAsync();
+                        }
                     }
                 }
             }

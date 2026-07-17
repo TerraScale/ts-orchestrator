@@ -412,9 +412,12 @@ candidate-retention policy among affected repositories is now bound into the
 impact plan, pipeline, candidate identity, and restart-safe candidate record;
 each candidate also has one CAS lifecycle that fences qualification, retains
 its exact expiry, and resumes interrupted qualification without exposing a
-partially committed qualified pointer. Expiry and object deletion remain
-unimplemented. The OCI CI terminal path now
-invokes that coordinator
+partially committed qualified pointer. A leader-only bounded retention sweep
+streams those lifecycles hourly, retains qualified candidates, and CAS-prepares
+expired unqualified candidates with their exact pointer, tree index, and object
+identity before revision-fenced deletion. Authority loss and interruption stop
+safely between steps; exact retries finish a durable deletion tombstone. The
+OCI CI terminal path now invokes that coordinator
 after runner cleanup and reports Forgejo success only after the exact candidate
 is durable. Under the same fenced lease, the controller mints and readback-
 verifies a content-addressed P-256 artifact proof exactly once, then reads the
