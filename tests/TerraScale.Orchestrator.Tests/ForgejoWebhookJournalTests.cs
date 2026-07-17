@@ -181,7 +181,9 @@ public sealed class ForgejoWebhookJournalTests
             "push").Envelope!;
     }
 
-    internal sealed class TestLedger(int failOnMutation = 0) :
+    internal sealed class TestLedger(
+        int failOnMutation = 0,
+        Func<string, CancellationToken, Task>? beforeUpdate = null) :
         IForgejoDeliveryLedger,
         IForgejoDeliveryRetentionLedger
     {
@@ -241,20 +243,21 @@ public sealed class ForgejoWebhookJournalTests
             }
         }
 
-        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+        public async Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
             string key,
             string value,
             ulong expectedRevision,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (beforeUpdate is not null) await beforeUpdate(key, cancellationToken);
             lock (sync)
             {
                 FailIfRequested();
                 if (!entries.TryGetValue(key, out var current) || current.Revision != expectedRevision) throw Conflict();
                 var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
                 entries[key] = entry;
-                return Task.FromResult(entry);
+                return entry;
             }
         }
 

@@ -354,6 +354,48 @@ public sealed class RepositoryCiCandidateJournalTests
     }
 
     [Test]
+    public async Task QualificationAndExpiryHaveExactlyOneLifecycleWinner()
+    {
+        var entrants = 0;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task BeforeUpdate(string key, CancellationToken cancellationToken)
+        {
+            if (!key.StartsWith("ci-candidate-lifecycle.", StringComparison.Ordinal) ||
+                Interlocked.Increment(ref entrants) > 2)
+                return;
+            if (entrants == 2) release.TrySetResult();
+            await release.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+
+        var clock = new AdjustableTimeProvider(RetentionStart);
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(beforeUpdate: BeforeUpdate);
+        var objects = new TestObjectStore();
+        var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
+        var journal = new RepositoryCiCandidateJournal(ledger, objects, clock);
+        await journal.RecordCandidateAsync(qualified.Candidate, 7, 1, static () => true);
+        clock.Advance(TimeSpan.FromDays(7));
+
+        var qualificationTask = journal.RecordQualifiedAsync(qualified, 7, 2, static () => true);
+        var deletionTask = journal.DeleteExpiredAsync(
+            qualified.Candidate.Digest, 7, 3, static () => true);
+        await Task.WhenAll(qualificationTask, deletionTask);
+        var qualification = await qualificationTask;
+        var deletion = await deletionTask;
+        var qualificationWon =
+            qualification.Disposition == RepositoryCiCandidateJournalDisposition.Recorded &&
+            deletion.Disposition == RepositoryCiCandidateRetentionDisposition.Retained;
+        var deletionWon =
+            qualification.Disposition == RepositoryCiCandidateJournalDisposition.IdentityConflict &&
+            deletion.Disposition == RepositoryCiCandidateRetentionDisposition.Deleted;
+
+        await Assert.That(qualificationWon ^ deletionWon).IsTrue();
+        var lifecycle = await LifecycleAsync(ledger, qualified.Candidate.Digest);
+        await Assert.That(lifecycle.State).IsEqualTo(qualificationWon
+            ? RepositoryCiCandidateLifecycleState.Qualified
+            : RepositoryCiCandidateLifecycleState.Deleted);
+    }
+
+    [Test]
     public async Task ConcurrentExactRecordsConvergeOnOnePointer()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
