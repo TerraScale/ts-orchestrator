@@ -130,6 +130,37 @@ qualified candidate before promotion. Forks and lookalike branches targeting
 `main`, protected-branch deletions, metadata-only actions, tags, and unsupported
 refs cannot widen those trust or capability sets.
 
+The command-free `terrascale.ci/v2` descriptor contract admits only closed
+static/build/test/artifact nodes, feature/release profiles, bounded resource
+weights, safe repository-relative path prefixes, explicit repository edges
+with reasons, candidate retention, native/package/pages promotion policy, and
+architecture sets. Its compiler rejects unknown or duplicate fields,
+free-form commands, retired Flux strategies, missing/profile-narrowing edges,
+cycles, unsafe paths, and native candidates that do not cover Linux x64 and
+ARM64. The affected planner then requires every changed path to select an
+explainable node, closes prerequisites and dependents transitively, propagates
+cross-repository reasons, and emits a deterministic DAG digest.
+
+Release DAGs bind every affected repository to an exact commit and tree before
+creating least-privilege trusted-build work. Candidate qualification requires
+every planned job exactly once on its first attempt, no required skips,
+content-addressed evidence, signed artifacts for every declared architecture,
+and exact runtime-digest proof for native artifacts. A later `main` push
+qualifies that candidate only when protected `main` observations for the whole
+release set have the same tested trees; Forgejo may use different merge commit
+IDs. This still creates no production job or credential: signed deployment
+evidence, approval, promotion journaling, and the real runner executor remain
+separate gates.
+
+Runner admission is likewise a pure contract today. Untrusted, trusted-build,
+production-release, and control-recovery runners have distinct node classes,
+network scopes, cache domains, and phase-scoped credential profiles. Admission
+requires disposable cgroup-v2/user-namespace/seccomp isolation, read-only root,
+no host Docker socket, rootless BuildKit for compilation, bounded resources and
+logs, redaction plus secret scanning, and exact runner/job/sequence identity.
+Untrusted and trusted-build runners cannot reach metadata, production,
+control-NATS, or database networks.
+
 Native GitOps desired state is a fresh TerraScale document rather than a
 Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
 compiler accepts only closed catalog roles, catalog-approved runtimes,
