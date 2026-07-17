@@ -29,6 +29,8 @@ public sealed class CiRunnerBuildKitInvocationTests
                 "--local", $"dockerfile={fixture.Source.Root}",
                 "--opt", "filename=.terrascale/ci.Dockerfile",
                 "--opt", "target=ci-build",
+                "--opt", $"build-arg:TS_CI_JOB={fixture.Plan.Job}",
+                "--opt", $"build-arg:TS_CI_PLAN_DIGEST={fixture.Plan.Digest}",
                 "--no-cache",
                 "--metadata-file", Path.Combine(fixture.Output, $"ci-{fixture.Plan.ExecutionIdentityDigest}", "metadata.json"),
                 "--output", $"type=local,dest={Path.Combine(fixture.Output, $"ci-{fixture.Plan.ExecutionIdentityDigest}", "evidence")}",

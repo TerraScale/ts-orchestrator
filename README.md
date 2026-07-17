@@ -321,9 +321,10 @@ workspace, and rejects links, special files, traversal, duplicate paths,
 corruption, decompression excess, and missing fixed descriptor/recipe files.
 The next compiler emits one exact `/usr/bin/buildctl` argument vector against a
 rootless `/run/user/<uid>/buildkit/buildkitd.sock`: fixed frontend, source
-context, recipe and target; closed platform mapping; deterministic runtime-only
-output/metadata paths; no shell; and a six-variable environment without a
-Docker endpoint. Untrusted work disables cache reuse. The process adapter and
+context, recipe and target; two derived job/plan identity build arguments;
+closed platform mapping; deterministic runtime-only output/metadata paths; no
+shell; and a six-variable environment without a Docker endpoint. Untrusted work
+disables cache reuse. The process adapter and
 output validator then clear inherited environment, enforce timeout and a
 combined log-byte ceiling, kill the whole process tree on cancellation, and
 classify exit/timeout/log overflow. Raw output never crosses the process
@@ -340,8 +341,10 @@ failure leaves the lease recoverable; crash takeover fences a stale terminal
 write. The concrete sink stores the verified redacted log, a deterministic
 owner-private tar/gzip archive re-hashed against the accepted output tree, and
 canonical evidence under content addresses with full readback verification and
-30-day object retention. A strict result manifest carries the required-test
-skip count. Source bytes are removed before artifact capture and archive
+30-day object retention. The repository recipe emits the strict result manifest
+for every fixed target; test targets derive its required-test skip count from
+five successful, bounded TRX reports through the dependency-free C# tooling
+command. Source bytes are removed before artifact capture and archive
 overhead is reserved inside the signed ephemeral-disk budget. The isolated
 `runner` process mode owns that BuildKit daemon and exits when its bounded idle
 window expires; normal controller startup never invokes BuildKit.

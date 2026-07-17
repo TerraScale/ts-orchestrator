@@ -26,6 +26,7 @@ internal static class ToolingTests
             ("owner missing question", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["questions", 4]), OwnerDecisionCommand.Validate)),
             ("owner semantic drift", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "question"], "drift"), OwnerDecisionCommand.Validate)),
             ("no python sources", NoPythonSources),
+            ("CI result manifest", CiResultManifest),
             ("development evidence profile authorization", DevelopmentEvidenceProfiles),
             ("development evidence bounded execution", DevelopmentEvidenceBounds),
             ("development bounded process observation", DevelopmentBoundedProcessObservation),
@@ -59,6 +60,52 @@ internal static class ToolingTests
         if (python.Length != 0)
             throw new InvalidOperationException($"Python sources remain: {string.Join(',', python)}");
     }
+
+    private static void CiResultManifest()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ci-result-manifest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var trx = Path.Combine(root, "tests.trx");
+            var invalid = Path.Combine(root, "invalid.trx");
+            var output = Path.Combine(root, "terrascale-ci-result-v1.json");
+            File.WriteAllText(trx, Trx("Passed", "NotExecuted", failed: 0, notExecuted: 1));
+            File.WriteAllText(invalid, Trx("Passed", "Failed", failed: 1, notExecuted: 0));
+            var digest = new string('a', 64);
+
+            AssertEqual(0, CiResultManifestCommand.Run([
+                "--job", "pipeline:job", "--plan-digest", digest, "--trx", trx, "--output", output]));
+            var document = JsonNode.Parse(File.ReadAllText(output))!.AsObject();
+            AssertEqual(1, document["schemaVersion"]!.GetValue<int>());
+            AssertEqual("pipeline:job", document["job"]!.GetValue<string>());
+            AssertEqual(digest, document["planDigest"]!.GetValue<string>());
+            AssertEqual(true, document["succeeded"]!.GetValue<bool>());
+            AssertEqual(1, document["requiredTestSkips"]!.GetValue<int>());
+            AssertThrows<ToolValidationException>(() => CiResultManifestCommand.ReadTrx(invalid));
+            AssertThrows<ToolValidationException>(() => CiResultManifestCommand.Parse([
+                "--job", "pipeline:job", "--plan-digest", new string('A', 64), "--output", output]));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string Trx(string first, string second, int failed, int notExecuted) => $$"""
+        <?xml version="1.0" encoding="utf-8"?>
+        <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+          <Results>
+            <UnitTestResult executionId="11111111-1111-1111-1111-111111111111" testName="first" outcome="{{first}}" />
+            <UnitTestResult executionId="22222222-2222-2222-2222-222222222222" testName="second" outcome="{{second}}" />
+          </Results>
+          <ResultSummary outcome="Completed">
+            <Counters total="2" executed="{{2 - notExecuted}}" passed="1" failed="{{failed}}" error="0"
+              timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0"
+              notExecuted="{{notExecuted}}" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+          </ResultSummary>
+        </TestRun>
+        """;
 
     private static void DevelopmentEvidenceProfiles()
     {

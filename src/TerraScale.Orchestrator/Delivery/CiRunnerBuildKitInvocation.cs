@@ -98,6 +98,8 @@ internal static class CiRunnerBuildKitInvocationCompiler
             "--local", $"dockerfile={source.Root}",
             "--opt", $"filename={CiRunnerExecutionPlanner.RecipePath}",
             "--opt", $"target={plan.Build.Target}",
+            "--opt", $"build-arg:TS_CI_JOB={plan.Job}",
+            "--opt", $"build-arg:TS_CI_PLAN_DIGEST={plan.Digest}",
         };
         var platform = Platform(plan.Build.Architectures);
         if (platform is not null)

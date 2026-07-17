@@ -9,6 +9,7 @@ internal static class ToolDispatcher
         {
             ["adr-readiness"] = arguments => Task.FromResult(AdrReadinessCommand.Run(arguments)),
             ["owner-decisions"] = arguments => Task.FromResult(OwnerDecisionCommand.Run(arguments)),
+            ["ci-result-manifest"] = arguments => Task.FromResult(CiResultManifestCommand.Run(arguments)),
             ["development-attest"] = arguments => Task.FromResult(DevelopmentEvidenceCommand.Run(arguments)),
             ["json-format"] = arguments => Task.FromResult(JsonFormatCommand.Run(arguments)),
             ["test"] = arguments => Task.FromResult(ToolingTests.Run(arguments)),
