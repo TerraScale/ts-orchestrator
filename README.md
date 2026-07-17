@@ -378,6 +378,13 @@ it never re-signs different bytes behind an already assigned message ID. Crash
 orphans are harmless, while authority, source-revision, and generation rollback
 or same-generation equivocation fail closed. The worst-case 64-cell pointer
 remains within the global 16 KiB KV value limit.
+The global publisher then appends those recovered commands to
+`ts.orch.v1.global.desired.gitops.<cell>` sequentially and requires a nonzero
+`GLOBAL_SPEC` storage acknowledgement for every cell. Exact retries retain the
+same message identity and bytes. Authority loss before a later cell or after a
+storage acknowledgement returns explicit partial durable evidence and can
+never report a complete handoff; regional `CELL_SPEC` publication and acceptance
+remain separate fenced boundaries.
 The JetStream publisher sends one signed command to
 `ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
 uses handoff/cell/writer-epoch message identity so exact retries deduplicate but

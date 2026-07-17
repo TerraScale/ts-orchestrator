@@ -116,7 +116,7 @@ internal sealed class NativeGitOpsSignedHandoffJournal(
             prepared.Add(new(
                 cell.Cell,
                 cell.PayloadSha256,
-                Hash(content),
+                ComputeWireSha256(content),
                 content));
         }
 
@@ -307,6 +307,11 @@ internal sealed class NativeGitOpsSignedHandoffJournal(
         Encoding.UTF8.GetBytes($"native-gitops-signed:{repository}:{branch}"))}";
 
     private static string ObjectName(string digest) => $"native-gitops-cell-wire-{digest}";
+
+    internal static string ComputeWireSha256(NativeGitOpsPreparedCellSpec prepared) =>
+        ComputeWireSha256(SerializeWire(NativeGitOpsCellWireObject.From(prepared.Cell, prepared.Message)));
+
+    private static string ComputeWireSha256(ReadOnlySpan<byte> content) => Hash(content);
 
     private static string Hash(ReadOnlySpan<byte> value) =>
         Convert.ToHexStringLower(SHA256.HashData(value));
