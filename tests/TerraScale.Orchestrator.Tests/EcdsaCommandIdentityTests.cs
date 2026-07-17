@@ -26,14 +26,24 @@ public sealed class EcdsaCommandIdentityTests
             var changed = Material("job/two");
             var firstSignature = firstSigner.Sign(material);
             var secondSignature = secondSigner.Sign(material);
+            ReadOnlyMemory<byte> detachedMaterial = "artifact-subject"u8.ToArray();
+            ReadOnlyMemory<byte> changedDetachedMaterial = "changed-artifact-subject"u8.ToArray();
+            var detachedSignature = firstSigner.Sign(detachedMaterial);
 
             await Assert.That(firstSigner is IRepositoryCiJobSigner).IsTrue();
             await Assert.That(firstSigner is INativeGitOpsCellSpecSigner).IsTrue();
+            await Assert.That(firstSigner is IRepositoryCiArtifactAttestationSigner).IsTrue();
             await Assert.That(rotating.Verify(material, firstSignature)).IsEqualTo(VerificationOutcome.Valid);
             await Assert.That(rotating.Verify(material, secondSignature)).IsEqualTo(VerificationOutcome.Valid);
             await Assert.That(rotating.Verify(changed, firstSignature)).IsEqualTo(VerificationOutcome.Invalid);
             await Assert.That(secondOnly.Verify(material, firstSignature)).IsEqualTo(VerificationOutcome.Invalid);
             await Assert.That(secondOnly.Verify(material, secondSignature)).IsEqualTo(VerificationOutcome.Valid);
+            await Assert.That(rotating.Verify(firstSigner.Identity, detachedMaterial, detachedSignature))
+                .IsEqualTo(VerificationOutcome.Valid);
+            await Assert.That(rotating.Verify(secondSigner.Identity, detachedMaterial, detachedSignature))
+                .IsEqualTo(VerificationOutcome.Invalid);
+            await Assert.That(rotating.Verify(firstSigner.Identity, changedDetachedMaterial, detachedSignature))
+                .IsEqualTo(VerificationOutcome.Invalid);
         }
         finally
         {

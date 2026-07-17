@@ -95,6 +95,7 @@ internal sealed class CommandIdentityRuntime : IDisposable
 internal sealed class EcdsaCommandSigner :
     IRepositoryCiJobSigner,
     INativeGitOpsCellSpecSigner,
+    IRepositoryCiArtifactAttestationSigner,
     IDisposable
 {
     private readonly ECDsa key;
@@ -105,7 +106,10 @@ internal sealed class EcdsaCommandSigner :
     {
         this.key = key;
         keyId = SHA256.HashData(key.ExportSubjectPublicKeyInfo());
+        Identity = EcdsaCommandSignatureEnvelope.Identity(keyId);
     }
+
+    public string Identity { get; }
 
     internal static EcdsaCommandSigner LoadPrivatePem(string path)
     {
@@ -127,6 +131,14 @@ internal sealed class EcdsaCommandSigner :
     public OpaqueSignature Sign(CommandSignedMaterial material)
     {
         var digest = CommandSignedMaterialCodec.Hash(material);
+        return SignDigest(digest);
+    }
+
+    public OpaqueSignature Sign(ReadOnlyMemory<byte> canonicalMaterial) =>
+        SignDigest(SHA256.HashData(canonicalMaterial.Span));
+
+    private OpaqueSignature SignDigest(ReadOnlySpan<byte> digest)
+    {
         byte[] signature;
         lock (sync)
             signature = key.SignHash(digest, DSASignatureFormat.Rfc3279DerSequence);
@@ -174,7 +186,10 @@ internal sealed class EcdsaCommandSigner :
 }
 
 /// <summary>Verifies versioned command signatures against a bounded rotating P-256 trust set.</summary>
-internal sealed class EcdsaCommandSignatureVerifier : ICommandSignatureVerifier, IDisposable
+internal sealed class EcdsaCommandSignatureVerifier :
+    ICommandSignatureVerifier,
+    IRepositoryCiArtifactSignatureVerifier,
+    IDisposable
 {
     private const int MaximumTrustedKeys = 4;
     private readonly Dictionary<string, TrustedKey> keys;
@@ -228,13 +243,26 @@ internal sealed class EcdsaCommandSignatureVerifier : ICommandSignatureVerifier,
     }
 
     public VerificationOutcome Verify(CommandSignedMaterial signedMaterial, OpaqueSignature signature)
+        => VerifyDigest(CommandSignedMaterialCodec.Hash(signedMaterial), signature);
+
+    public VerificationOutcome Verify(
+        string signingIdentity,
+        ReadOnlyMemory<byte> canonicalMaterial,
+        OpaqueSignature signature) =>
+        VerifyDigest(SHA256.HashData(canonicalMaterial.Span), signature, signingIdentity);
+
+    private VerificationOutcome VerifyDigest(
+        ReadOnlySpan<byte> digest,
+        OpaqueSignature signature,
+        string? signingIdentity = null)
     {
         if (!EcdsaCommandSignatureEnvelope.TryDecode(signature.Bytes, out var keyId, out var value) ||
+            signingIdentity is not null && signingIdentity != EcdsaCommandSignatureEnvelope.Identity(keyId) ||
             !keys.TryGetValue(Convert.ToHexStringLower(keyId), out var key))
             return VerificationOutcome.Invalid;
         try
         {
-            return key.Verify(CommandSignedMaterialCodec.Hash(signedMaterial), value)
+            return key.Verify(digest, value)
                 ? VerificationOutcome.Valid
                 : VerificationOutcome.Invalid;
         }
@@ -271,6 +299,9 @@ internal static class EcdsaCommandSignatureEnvelope
     private const int HeaderBytes = 4 + 1 + 1 + KeyIdBytes + 2;
     private const int MaximumSignatureBytes = 128;
     private static ReadOnlySpan<byte> Magic => "TSCS"u8;
+
+    internal static string Identity(ReadOnlySpan<byte> keyId) =>
+        $"ecdsa-p256-sha256-{Convert.ToHexStringLower(keyId)}";
 
     internal static byte[] Encode(ReadOnlySpan<byte> keyId, ReadOnlySpan<byte> signature)
     {
