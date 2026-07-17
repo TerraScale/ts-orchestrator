@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk@sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5 AS source
+FROM mcr.microsoft.com/dotnet/sdk@sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664 AS source
 WORKDIR /source
 COPY . .
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
@@ -9,7 +9,7 @@ FROM source AS restore
 RUN dotnet restore TerraScale.Orchestrator.slnx --locked-mode --disable-parallel
 
 FROM restore AS static-check
-RUN dotnet run --project tools/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj --no-restore -- test
+RUN dotnet run --project tools/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj --no-restore -- test --repository-only
 
 FROM scratch AS ci-static
 COPY --from=static-check /source/tools/TerraScale.Orchestrator.Tooling/bin/Debug/net10.0/ /evidence/tooling/

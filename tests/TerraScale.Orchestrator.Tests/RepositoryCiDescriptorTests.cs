@@ -19,7 +19,7 @@ public sealed class RepositoryCiDescriptorTests
         await Assert.That(descriptor.Nodes.Single(static node => node.Id == "artifact").Architectures)
             .IsEquivalentTo([RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]);
         await Assert.That(recipe).Contains(
-            "mcr.microsoft.com/dotnet/sdk@sha256:ea8bde36c11b6e7eec2656d0e59101d4462f6bd630730f2c8201ed0572b295d5");
+            "mcr.microsoft.com/dotnet/sdk@sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664");
         await Assert.That(recipe.Split("--results-directory /evidence/tests/", StringSplitOptions.None).Length - 1)
             .IsEqualTo(5);
         await Assert.That(recipe).DoesNotContain("COPY --from=test /source/tests/");
