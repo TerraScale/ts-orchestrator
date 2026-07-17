@@ -31,17 +31,45 @@ public sealed class RepositoryCiChange
     }
 }
 
-public sealed record RepositoryCiPlannedJob(
-    string Id,
-    string Repository,
-    RepositoryCiNode Node,
-    IReadOnlyList<string> DependsOn,
-    IReadOnlyList<string> Reasons);
+public sealed record RepositoryCiPlannedJob
+{
+    internal RepositoryCiPlannedJob(
+        string id,
+        string repository,
+        RepositoryCiNode node,
+        IReadOnlyList<string> dependsOn,
+        IReadOnlyList<string> reasons)
+    {
+        Id = id;
+        Repository = repository;
+        Node = node;
+        DependsOn = dependsOn;
+        Reasons = reasons;
+    }
 
-public sealed record RepositoryCiImpactPlan(
-    RepositoryCiProfile Profile,
-    string Digest,
-    IReadOnlyList<RepositoryCiPlannedJob> Jobs);
+    public string Id { get; }
+    public string Repository { get; }
+    public RepositoryCiNode Node { get; }
+    public IReadOnlyList<string> DependsOn { get; }
+    public IReadOnlyList<string> Reasons { get; }
+}
+
+public sealed class RepositoryCiImpactPlan
+{
+    internal RepositoryCiImpactPlan(
+        RepositoryCiProfile profile,
+        string digest,
+        IReadOnlyList<RepositoryCiPlannedJob> jobs)
+    {
+        Profile = profile;
+        Digest = digest;
+        Jobs = jobs;
+    }
+
+    public RepositoryCiProfile Profile { get; }
+    public string Digest { get; }
+    public IReadOnlyList<RepositoryCiPlannedJob> Jobs { get; }
+}
 
 /// <summary>Selects the bounded cross-repository CI DAG and explains every included job.</summary>
 public static class RepositoryCiImpactPlanner

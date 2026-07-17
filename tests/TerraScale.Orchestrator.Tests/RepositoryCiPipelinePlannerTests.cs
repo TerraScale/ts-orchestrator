@@ -36,6 +36,15 @@ public sealed class RepositoryCiPipelinePlannerTests
         await Assert.That(pipeline.Jobs.SelectMany(static job => job.Request.RequiredCapabilities)
             .All(static capability => capability is RunnerCapability.Compile or RunnerCapability.Test)).IsTrue();
         await Assert.That(pipeline.Jobs.All(static job => !job.MayPublishCandidateArtifact)).IsTrue();
+        foreach (var job in pipeline.Jobs)
+        {
+            var decision = DeliveryEngine.DecideJob(
+                job.Request,
+                [new(new($"runner-{job.Plan.Node.Id}"), TrustZone.UntrustedProduct, 20, true,
+                    job.Request.RequiredCapabilities)],
+                96);
+            await Assert.That(decision.Errors).IsEmpty();
+        }
     }
 
     [Test]
@@ -59,6 +68,15 @@ public sealed class RepositoryCiPipelinePlannerTests
         await Assert.That(artifacts.All(static job => job.MayPublishCandidateArtifact)).IsTrue();
         await Assert.That(artifacts.All(static job => job.Request.RequiredCapabilities
             .SequenceEqual([RunnerCapability.Compile, RunnerCapability.Sign]))).IsTrue();
+        foreach (var job in pipeline.Jobs)
+        {
+            var decision = DeliveryEngine.DecideJob(
+                job.Request,
+                [new(new($"runner-{job.Plan.Node.Id}"), TrustZone.TrustedBuild, 20, true,
+                    job.Request.RequiredCapabilities)],
+                96);
+            await Assert.That(decision.Errors).IsEmpty();
+        }
     }
 
     [Test]

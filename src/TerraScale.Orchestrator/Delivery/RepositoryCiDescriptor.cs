@@ -41,24 +41,72 @@ public enum RepositoryCiPromotionStrategy
     NativeOrdered,
 }
 
-public sealed record RepositoryCiDependency(string Repository, string Reason);
+public sealed record RepositoryCiDependency
+{
+    internal RepositoryCiDependency(string repository, string reason)
+    {
+        Repository = repository;
+        Reason = reason;
+    }
 
-public sealed record RepositoryCiNode(
-    string Id,
-    RepositoryCiNodeKind Kind,
-    RepositoryCiResourceWeight ResourceWeight,
-    IReadOnlyList<RepositoryCiProfile> Profiles,
-    IReadOnlyList<string> Paths,
-    IReadOnlyList<string> DependsOn);
+    public string Repository { get; }
+    public string Reason { get; }
+}
 
-public sealed record RepositoryCiDescriptorV2(
-    string ApiVersion,
-    string Repository,
-    string Digest,
-    int CandidateRetentionDays,
-    RepositoryCiPromotionStrategy Promotion,
-    IReadOnlyList<RepositoryCiDependency> RepositoryDependencies,
-    IReadOnlyList<RepositoryCiNode> Nodes);
+public sealed record RepositoryCiNode
+{
+    internal RepositoryCiNode(
+        string id,
+        RepositoryCiNodeKind kind,
+        RepositoryCiResourceWeight resourceWeight,
+        IReadOnlyList<RepositoryCiProfile> profiles,
+        IReadOnlyList<string> paths,
+        IReadOnlyList<string> dependsOn)
+    {
+        Id = id;
+        Kind = kind;
+        ResourceWeight = resourceWeight;
+        Profiles = profiles;
+        Paths = paths;
+        DependsOn = dependsOn;
+    }
+
+    public string Id { get; }
+    public RepositoryCiNodeKind Kind { get; }
+    public RepositoryCiResourceWeight ResourceWeight { get; }
+    public IReadOnlyList<RepositoryCiProfile> Profiles { get; }
+    public IReadOnlyList<string> Paths { get; }
+    public IReadOnlyList<string> DependsOn { get; }
+}
+
+public sealed class RepositoryCiDescriptorV2
+{
+    internal RepositoryCiDescriptorV2(
+        string apiVersion,
+        string repository,
+        string digest,
+        int candidateRetentionDays,
+        RepositoryCiPromotionStrategy promotion,
+        IReadOnlyList<RepositoryCiDependency> repositoryDependencies,
+        IReadOnlyList<RepositoryCiNode> nodes)
+    {
+        ApiVersion = apiVersion;
+        Repository = repository;
+        Digest = digest;
+        CandidateRetentionDays = candidateRetentionDays;
+        Promotion = promotion;
+        RepositoryDependencies = repositoryDependencies;
+        Nodes = nodes;
+    }
+
+    public string ApiVersion { get; }
+    public string Repository { get; }
+    public string Digest { get; }
+    public int CandidateRetentionDays { get; }
+    public RepositoryCiPromotionStrategy Promotion { get; }
+    public IReadOnlyList<RepositoryCiDependency> RepositoryDependencies { get; }
+    public IReadOnlyList<RepositoryCiNode> Nodes { get; }
+}
 
 /// <summary>Compiles the command-free repository CI policy used by the native affected graph.</summary>
 public static class RepositoryCiDescriptor
