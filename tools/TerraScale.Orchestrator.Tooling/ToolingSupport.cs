@@ -67,6 +67,9 @@ internal static class ToolingSupport
         {
             process.StartInfo.ArgumentList.Add(argument);
         }
+        process.StartInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        process.StartInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        process.StartInfo.Environment["UseSharedCompilation"] = "false";
 
         process.Start();
         var stdout = process.StandardOutput.ReadToEndAsync();

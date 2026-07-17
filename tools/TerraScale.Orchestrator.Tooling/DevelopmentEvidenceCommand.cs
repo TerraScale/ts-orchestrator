@@ -36,7 +36,12 @@ internal static class DevelopmentEvidenceCommand
         RequireClean(root);
         RunRequired(
             "dotnet",
-            ["test", "TerraScale.Orchestrator.slnx", "--no-restore"],
+            ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "-m:1", "-nr:false"],
+            root,
+            TimeSpan.FromMinutes(5));
+        RunRequired(
+            "dotnet",
+            ["test", "TerraScale.Orchestrator.slnx", "--no-build", "--no-restore"],
             root,
             TimeSpan.FromMinutes(5));
         _ = ToolingTests.Run([]);
