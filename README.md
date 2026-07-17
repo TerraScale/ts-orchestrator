@@ -205,9 +205,8 @@ issuance is enabled only with global authority plus
 `TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY` identifies the parent account when
 the credential is a scoped signing key. Typed JSON carries the same fields and
 startup opens and retains the signer before any NATS connection. Live credential
-delivery, exact cross-repository source-graph resolution, the runner process,
-and the executor remain separate unimplemented gates; no unsigned runtime
-fallback is installed.
+delivery and exact cross-repository source-graph resolution remain separate
+unimplemented gates; no unsigned runtime fallback is installed.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy
@@ -309,7 +308,7 @@ and GRU in order; any failed forward phase enters the journal's exact reverse
 rollback path, whose own failed operation is safely resumable. Authority loss
 stops before the next side effect, and a higher epoch adopts the phase with a
 new fence. Registry publication, regional actuator and live-verification
-implementations, and the real runner executor remain separate gates.
+implementations, and normal runner process wiring remain separate gates.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
@@ -328,7 +327,12 @@ signed artifact evidence through an injected reader, reuses the closed
 candidate assembler, and commits the immutable candidate and tree-set index
 under current authority. Feature-profile, active, failed, incomplete, unsigned,
 substituted, and authority-lost inputs produce no candidate. Retention cleanup
-and protected-main qualification coordination remain unimplemented.
+remains unimplemented. The qualification coordinator starts only from a durable
+admitted protected-`main` trigger, snapshots injected signed protected-main
+observations once, locates the immutable candidate by exact tree-set index, and
+records the resolved qualification under current authority. Missing triggers,
+non-qualification events, missing candidates, changed trees or webhook commits,
+and authority loss cannot create a qualification.
 
 Runner admission remains a pure policy contract. Untrusted, trusted-build,
 production-release, and control-recovery runners have distinct node classes,
