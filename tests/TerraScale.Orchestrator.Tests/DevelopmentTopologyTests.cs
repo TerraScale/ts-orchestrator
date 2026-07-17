@@ -101,12 +101,15 @@ public sealed class DevelopmentTopologyTests
             cell.OfKind(DevelopmentResourceKind.Api).Single(),
             cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
             dashboard,
-            "/runtime/product-ca.pem");
+            "/runtime/product-ca.pem",
+            "/runtime/gru-dashboard/vite-task-cache");
 
         await Assert.That(DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard)).IsEquivalentTo([
             "run", "vinext:start", "--hostname", "0.0.0.0", "--port", dashboard.Port.ToString()
         ]);
         await Assert.That(environment["SSL_CERT_FILE"]).IsEqualTo("/runtime/product-ca.pem");
+        await Assert.That(environment["VITE_CACHE_PATH"])
+            .IsEqualTo("/runtime/gru-dashboard/vite-task-cache");
     }
 
     [Test]
