@@ -50,8 +50,12 @@ public sealed class RegionalAuthorityCoordinatorTests
             "leader", true, 2, 3, future, DateTimeOffset.UtcNow, null);
 
         await Assert.That(leader.Ready).IsTrue();
+        await Assert.That((leader with { State = "follower", IsLeader = false }).Ready).IsTrue();
         await Assert.That((leader with { State = "fenced", IsLeader = false }).Ready).IsFalse();
+        await Assert.That((leader with { State = "held", IsLeader = false }).Ready).IsFalse();
         await Assert.That((leader with { ObservedAt = DateTimeOffset.UtcNow.AddMinutes(-1) }).Ready).IsFalse();
         await Assert.That((leader with { Error = "uncertain" }).Ready).IsFalse();
+        await Assert.That((leader with { LeaseExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1) }).Ready)
+            .IsFalse();
     }
 }

@@ -156,6 +156,77 @@ public sealed class AuthorityEngineTests
     }
 
     [Test]
+    public async Task StateBasedDecideMatchesJournalReplayAndStaysBoundedAcrossManyRenewals()
+    {
+        var history = BuildLeader();
+        var journalState = AuthorityEngine.Replay(history).State;
+        var current = journalState.Confirmed!;
+
+        // One cycle: state-based decide must match full journal replay.
+        var historyRenewal = AuthorityEngine.Decide(history, new RenewAuthority(
+            "regional-authority", "candidate-a", "renew-match", current,
+            Healthy(Start.AddMinutes(1), TimeSpan.FromMinutes(1)), Duration));
+        var stateRenewal = AuthorityEngine.Decide(journalState, new RenewAuthority(
+            "regional-authority", "candidate-a", "renew-match", current,
+            Healthy(Start.AddMinutes(1), TimeSpan.FromMinutes(1)), Duration));
+        await Assert.That(AuthorityDigest.State(stateRenewal.State))
+            .IsEqualTo(AuthorityDigest.State(historyRenewal.State));
+        await Assert.That(stateRenewal.Intents.Single()).IsEqualTo(historyRenewal.Intents.Single());
+
+        // Live coordinators must renew without replaying an ever-growing journal.
+        // 5k renewals ≈ 4h RF=1 lab uptime at a 3s tick and is enough to prove the
+        // state path stays correct without materializing thousands of events.
+        const int renewals = 5_000;
+        var state = journalState;
+        var observation = current;
+        var clock = Start.AddMinutes(1);
+        for (var i = 0; i < renewals; i++)
+        {
+            clock = clock.AddSeconds(3);
+            var renewal = AuthorityEngine.Decide(state, new RenewAuthority(
+                "regional-authority",
+                "candidate-a",
+                $"renew-bounded-{i}",
+                observation,
+                Healthy(clock, TimeSpan.FromSeconds(3)),
+                Duration));
+            if (renewal.Errors.Count != 0 || renewal.State.Status != AuthorityStatus.RenewalPending)
+            {
+                throw new InvalidOperationException(
+                    $"Renewal {i} failed: status={renewal.State.Status}, errors={renewal.Errors.Count}.");
+            }
+            state = renewal.State;
+            var intent = (CompareAndSetLeaseIntent)renewal.Intents.Single();
+            observation = new AuthorityObservation(
+                "regional-authority",
+                intent.ExpectedRevision + 1,
+                intent.ProposedEpoch,
+                $"renewed-{i}",
+                intent.ProposedLease);
+            var confirmed = AuthorityEngine.Decide(state, new ObserveAuthorityCas(
+                "regional-authority",
+                "candidate-a",
+                $"renew-bounded-{i}",
+                AuthorityCasOutcome.Succeeded,
+                observation,
+                Healthy(clock, TimeSpan.Zero)));
+            if (confirmed.Errors.Count != 0 || confirmed.State.Status != AuthorityStatus.Leader)
+            {
+                throw new InvalidOperationException(
+                    $"Confirm {i} failed: status={confirmed.State.Status}, errors={confirmed.Errors.Count}.");
+            }
+            state = confirmed.State;
+        }
+
+        await Assert.That(state.Confirmed!.KvRevision).IsEqualTo(current.KvRevision + renewals);
+        await Assert.That(state.LastSequence).IsEqualTo(journalState.LastSequence + (renewals * 2));
+        // State-only path never materializes the multi-thousand-event journal that
+        // would make each tick re-hash the full history under the previous design.
+        await Assert.That(state.Status).IsEqualTo(AuthorityStatus.Leader);
+        await Assert.That(state.PendingSet).IsNull();
+    }
+
+    [Test]
     public async Task RenewalFailureUncertaintyAndConflictFenceImmediately()
     {
         foreach (var outcome in new[] { AuthorityCasOutcome.Failed, AuthorityCasOutcome.Uncertain, AuthorityCasOutcome.Conflict })

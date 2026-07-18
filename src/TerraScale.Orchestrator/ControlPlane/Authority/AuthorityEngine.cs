@@ -8,7 +8,17 @@ public static class AuthorityEngine
         ArgumentNullException.ThrowIfNull(command);
         var replay = Replay(history);
         if (replay.Errors.Count != 0) return replay;
-        var state = replay.State;
+        return Decide(replay.State, command);
+    }
+
+    /// <summary>
+    /// Applies one command to an already-replayed authority state without replaying the journal.
+    /// Live coordinators must use this path so long-running lease renewal stays O(1) per tick.
+    /// </summary>
+    public static AuthorityDecision Decide(AuthorityState state, AuthorityCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(command);
         var common = ValidateCommand(state, command);
         if (common is not null) return Reject(state, common);
         if (state.Status == AuthorityStatus.Fenced)

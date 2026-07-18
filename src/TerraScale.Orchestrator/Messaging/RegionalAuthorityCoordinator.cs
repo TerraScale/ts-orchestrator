@@ -67,7 +67,10 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     private readonly string leaseKey;
     private readonly Stopwatch confirmedLeaseAge = new();
     private readonly CancellationTokenSource stopping = new();
-    private readonly List<AuthorityEvent> history = [];
+    // Keep only the current pure-engine state. Replaying an unbounded renewal
+    // journal every tick grows to tens of thousands of SHA-256 validations and
+    // eventually makes lease readiness fail after multi-hour lab uptime.
+    private AuthorityState journalState = AuthorityState.Empty;
     private Task? loop;
     private RegionalAuthoritySnapshot snapshot = new(
         "follower", false, 0, 0, null, DateTimeOffset.MinValue, "authority-not-observed");
@@ -146,7 +149,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 
     private async Task TickAsync(CancellationToken cancellationToken)
     {
-        var state = AuthorityEngine.Replay(history).State;
+        var state = journalState;
         if (state.Status == AuthorityStatus.Leader && state.Confirmed is not null)
         {
             await RenewAsync(state.Confirmed, cancellationToken);
@@ -168,7 +171,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 
         var requestId = $"acquire-{Guid.NewGuid():N}";
         var health = Health(now, TimeSpan.Zero);
-        var acquisition = AuthorityEngine.Decide(history, new AcquireAuthority(
+        var acquisition = AuthorityEngine.Decide(journalState, new AcquireAuthority(
             authorityId,
             candidateId,
             requestId,
@@ -176,7 +179,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             observed,
             health,
             LeaseDuration));
-        Append(acquisition);
+        Apply(acquisition);
         if (acquisition.Intents.SingleOrDefault() is not CompareAndSetLeaseIntent intent)
         {
             PublishDecision(acquisition, observed, now);
@@ -192,14 +195,14 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     {
         var now = DateTimeOffset.UtcNow;
         var requestId = $"renew-{Guid.NewGuid():N}";
-        var renewal = AuthorityEngine.Decide(history, new RenewAuthority(
+        var renewal = AuthorityEngine.Decide(journalState, new RenewAuthority(
             authorityId,
             candidateId,
             requestId,
             current,
             Health(now, confirmedLeaseAge.Elapsed),
             LeaseDuration));
-        Append(renewal);
+        Apply(renewal);
         if (renewal.Intents.SingleOrDefault() is not CompareAndSetLeaseIntent intent)
         {
             PublishDecision(renewal, current, now);
@@ -235,14 +238,14 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
                 intent.ProposedEpoch,
                 $"kv-{revision}",
                 intent.ProposedLease);
-            var result = AuthorityEngine.Decide(history, new ObserveAuthorityCas(
+            var result = AuthorityEngine.Decide(journalState, new ObserveAuthorityCas(
                 authorityId,
                 candidateId,
                 intent.RequestId,
                 AuthorityCasOutcome.Succeeded,
                 observed,
                 Health(DateTimeOffset.UtcNow, TimeSpan.Zero)));
-            Append(result);
+            Apply(result);
             if (result.State.Status == AuthorityStatus.Leader)
             {
                 confirmedLeaseAge.Restart();
@@ -253,14 +256,14 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             exception is NatsKVWrongLastRevisionException or NatsKVCreateException)
         {
             var observed = await ReadAsync(cancellationToken);
-            var result = AuthorityEngine.Decide(history, new ObserveAuthorityCas(
+            var result = AuthorityEngine.Decide(journalState, new ObserveAuthorityCas(
                 authorityId,
                 candidateId,
                 intent.RequestId,
                 AuthorityCasOutcome.Conflict,
                 observed,
                 Health(DateTimeOffset.UtcNow, TimeSpan.Zero)));
-            Append(result);
+            Apply(result);
             // Losing a CAS is the normal follower path. It denies mutation
             // authority but does not make the read-serving controller unhealthy.
             Publish("follower", false, observed, null, DateTimeOffset.UtcNow);
@@ -298,9 +301,12 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     internal static AuthorityHealth Health(DateTimeOffset now, TimeSpan confirmedLeaseAge) =>
         new(now, confirmedLeaseAge, PartitionCertain: true, ClockCertain: true);
 
-    private void Append(AuthorityDecision decision)
+    private void Apply(AuthorityDecision decision)
     {
-        history.AddRange(decision.EventsToAppend);
+        if (decision.EventsToAppend.Count != 0)
+        {
+            journalState = decision.State;
+        }
     }
 
     private void PublishDecision(
