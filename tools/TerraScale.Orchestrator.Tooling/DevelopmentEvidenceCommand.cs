@@ -55,7 +55,7 @@ internal static class DevelopmentEvidenceCommand
         var observations = new List<(string Name, ProcessObservation Value)>();
         observations.Add(("solution-build", RunRequired(
             "dotnet",
-            ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "--nologo", "--maxcpucount:1", "--nodeReuse:false"],
+            ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "--no-incremental", "--nologo", "--maxcpucount:1", "--nodeReuse:false"],
             root,
             TimeSpan.FromMinutes(5)).Observation));
         var inventory = new JsonArray();
