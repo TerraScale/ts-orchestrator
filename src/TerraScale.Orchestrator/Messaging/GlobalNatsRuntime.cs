@@ -32,7 +32,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RepositoryCiPipelineJournal pipelines,
         RepositoryCiJobJournal jobs,
         RepositoryCiPromotionJournal promotions,
-        RepositoryCiCandidateJournal candidates)
+        RepositoryCiCandidateJournal candidates,
+        NativeGitOpsGlobalHandoffRuntime? nativeGitOpsHandoffs)
     {
         this.client = client;
         this.authority = authority;
@@ -49,6 +50,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         Jobs = jobs;
         Promotions = promotions;
         Candidates = candidates;
+        NativeGitOpsHandoffs = nativeGitOpsHandoffs;
     }
 
     public Task Completion => Task.WhenAny(
@@ -65,6 +67,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public RepositoryCiJobJournal Jobs { get; }
     public RepositoryCiPromotionJournal Promotions { get; }
     public RepositoryCiCandidateJournal Candidates { get; }
+    internal NativeGitOpsGlobalHandoffRuntime? NativeGitOpsHandoffs { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<GlobalNatsRuntime> StartAsync(
@@ -78,7 +81,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         IRepositoryCiJobSigner? ciJobSigner = null,
         IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
         IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
-        IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null)
+        IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null,
+        INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         if (ciPool is not null && (ciArtifactSigner is null || ciArtifactSignatures is null ||
@@ -123,6 +127,18 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
             var jobs = new RepositoryCiJobJournal(ledger);
             var candidates = new RepositoryCiCandidateJournal(ledger, objects);
+            var nativeGitOpsSources = new NativeGitOpsSourceJournal(ledger, objects);
+            var nativeGitOpsHandoffs = nativeGitOpsSigner is null
+                ? null
+                : new NativeGitOpsGlobalHandoffRuntime(
+                    new NativeGitOpsGlobalHandoffCoordinator(
+                        nativeGitOpsSources,
+                        new(ledger, objects),
+                        new(
+                            new(ledger),
+                            new(new NatsNativeGitOpsGlobalHandoffTransport(client)))),
+                    nativeGitOpsSigner,
+                    () => authority.Snapshot);
             var runnerConsumers = new CiRunnerConsumerReconciler(client.CreateJetStreamContext(), topology);
             RepositoryCiQualificationController? qualificationController = null;
             if (ciPool is not null)
@@ -295,11 +311,12 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
                 new(ledger, new NatsForgejoEventPublisher(client)),
                 new(ledger),
-                new(ledger, objects),
+                nativeGitOpsSources,
                 new(ledger, objects),
                 new(ledger),
                 new(ledger),
-                candidates);
+                candidates,
+                nativeGitOpsHandoffs);
         }
         catch
         {

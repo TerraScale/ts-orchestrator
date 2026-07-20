@@ -94,7 +94,8 @@ try
                 commandIdentity?.Signer,
                 commandIdentity?.Signer,
                 commandIdentity?.Verifier,
-                commandIdentity?.Verifier);
+                commandIdentity?.Verifier,
+                commandIdentity?.Signer);
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
     {
@@ -122,7 +123,8 @@ try
                 options.ForgejoSource,
                 ownedGlobalRuntime!.ForgejoSources,
                 ownedGlobalRuntime.NativeGitOpsSources,
-                () => ownedGlobalRuntime.AuthoritySnapshot)
+                () => ownedGlobalRuntime.AuthoritySnapshot,
+                ownedGlobalRuntime.NativeGitOpsHandoffs)
             : null;
     }
     catch (Exception exception)

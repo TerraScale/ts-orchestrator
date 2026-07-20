@@ -187,11 +187,22 @@ public sealed class NativeGitOpsGlobalHandoffCoordinatorTests
             ExpiresAt,
             signer,
             static () => true);
+        var changedSource = await coordinator.CoordinateAsync(
+            Repository,
+            "develop",
+            8,
+            IssuedAt,
+            ExpiresAt,
+            signer,
+            static () => true,
+            expectedCommit: new string('f', 40));
 
         await Assert.That(missing.Disposition)
             .IsEqualTo(NativeGitOpsGlobalHandoffCoordinationDisposition.SourceMissing);
         await Assert.That(newerAuthority.Disposition)
             .IsEqualTo(NativeGitOpsGlobalHandoffCoordinationDisposition.AuthorityLost);
+        await Assert.That(changedSource.Disposition)
+            .IsEqualTo(NativeGitOpsGlobalHandoffCoordinationDisposition.SourceChanged);
         await Assert.That(signer.Signatures).IsEqualTo(0);
         await Assert.That(transport.Published).IsEmpty();
     }

@@ -259,8 +259,9 @@ issuance is enabled only with global authority plus
 `TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY` identifies the parent account when
 the credential is a scoped signing key. Typed JSON carries the same fields and
 startup opens and retains the signer before any NATS connection. Live credential
-delivery and exact cross-repository source-graph resolution remain separate
-unimplemented gates; no unsigned runtime fallback is installed.
+delivery remains a separate unimplemented gate; no unsigned runtime fallback is
+installed. Exact cross-repository source resolution uses the bounded catalog
+described below.
 Only explicitly authorized transient feature-validation failures can retry:
 attempts wait for the fixed 5-second then 30-second backoff, receive a new
 idempotency key and higher fence, and stop after attempt three. Workload/policy
@@ -691,6 +692,13 @@ it never re-signs different bytes behind an already assigned message ID. Crash
 orphans are harmless, while authority, source-revision, and generation rollback
 or same-generation equivocation fail closed. The worst-case 64-cell pointer
 remains within the global 16 KiB KV value limit.
+When the command signer is configured, the protected-`main` source poll now
+invokes this coordinator immediately after its source CAS. It captures one exact
+global lease, signs a 30-day validity window matching `GLOBAL_SPEC` retention,
+and resumes durable publication on every exact polling replay. `develop` remains
+a validation/source-journal input and cannot publish desired state. Missing
+signing authority leaves the source journal available but installs no unsigned
+handoff path.
 The global publisher then appends those recovered commands to
 `ts.orch.v1.global.desired.gitops.<cell>` sequentially and requires a nonzero
 `GLOBAL_SPEC` storage acknowledgement for every cell. Exact retries retain the

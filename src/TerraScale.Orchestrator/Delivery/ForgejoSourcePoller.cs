@@ -12,6 +12,8 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
     private readonly Func<RegionalAuthoritySnapshot> authority;
     private readonly Func<ForgejoBranchObservation, long, long, CancellationToken,
         Task<NativeGitOpsSourceReconcileResult>>? reconcile;
+    private readonly Func<ForgejoBranchObservation, long, CancellationToken,
+        Task<NativeGitOpsGlobalHandoffCoordinationReceipt>>? publishHandoff;
     private readonly ForgejoSourceClient? ownedClient;
     private readonly CancellationTokenSource stopping = new();
     private Task? loop;
@@ -21,7 +23,7 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         Func<string, CancellationToken, Task<ForgejoBranchObservation>> pollBranch,
         ForgejoSourceJournal journal,
         Func<RegionalAuthoritySnapshot> authority)
-        : this(pollBranch, journal, authority, null, null)
+        : this(pollBranch, journal, authority, null, null, null)
     {
     }
 
@@ -30,8 +32,10 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         ForgejoSourceJournal journal,
         Func<RegionalAuthoritySnapshot> authority,
         Func<ForgejoBranchObservation, long, long, CancellationToken,
-            Task<NativeGitOpsSourceReconcileResult>> reconcile)
-        : this(pollBranch, journal, authority, reconcile, null)
+            Task<NativeGitOpsSourceReconcileResult>> reconcile,
+        Func<ForgejoBranchObservation, long, CancellationToken,
+            Task<NativeGitOpsGlobalHandoffCoordinationReceipt>>? publishHandoff = null)
+        : this(pollBranch, journal, authority, reconcile, publishHandoff, null)
     {
     }
 
@@ -41,12 +45,15 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         Func<RegionalAuthoritySnapshot> authority,
         Func<ForgejoBranchObservation, long, long, CancellationToken,
             Task<NativeGitOpsSourceReconcileResult>>? reconcile,
+        Func<ForgejoBranchObservation, long, CancellationToken,
+            Task<NativeGitOpsGlobalHandoffCoordinationReceipt>>? publishHandoff,
         ForgejoSourceClient? ownedClient)
     {
         this.pollBranch = pollBranch;
         this.journal = journal;
         this.authority = authority;
         this.reconcile = reconcile;
+        this.publishHandoff = publishHandoff;
         this.ownedClient = ownedClient;
     }
 
@@ -56,15 +63,20 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
         ForgejoSourceConfiguration configuration,
         ForgejoSourceJournal journal,
         NativeGitOpsSourceJournal gitOps,
-        Func<RegionalAuthoritySnapshot> authority)
+        Func<RegionalAuthoritySnapshot> authority,
+        NativeGitOpsGlobalHandoffRuntime? handoffs = null)
     {
         var client = ForgejoSourceClient.Create(configuration);
         var reconciler = new NativeGitOpsSourceReconciler(client, gitOps, authority);
+        Func<ForgejoBranchObservation, long, CancellationToken,
+            Task<NativeGitOpsGlobalHandoffCoordinationReceipt>>? publishHandoff = null;
+        if (handoffs is not null) publishHandoff = handoffs.CoordinateAsync;
         var poller = new ForgejoSourcePoller(
             client.PollBranchAsync,
             journal,
             authority,
             reconciler.ReconcileAsync,
+            publishHandoff,
             client);
         poller.loop = poller.RunAsync(poller.stopping.Token);
         return poller;
@@ -123,6 +135,16 @@ internal sealed class ForgejoSourcePoller : IAsyncDisposable
                 NativeGitOpsSourceJournalDisposition.Recorded or
                 NativeGitOpsSourceJournalDisposition.Duplicate))
                 throw new InvalidOperationException("Forgejo source polling produced an unsafe native GitOps plan.");
+            if (plan.Disposition == NativeGitOpsSourceJournalDisposition.NotConfigured ||
+                plan.SourcePlan is { Proposed.Workloads.Count: 0, Diff.Changes.Count: 0 } ||
+                observation.Branch != "main" || publishHandoff is null)
+                continue;
+
+            var handoff = await publishHandoff(observation, lease.Epoch, cancellationToken);
+            if (handoff.Disposition == NativeGitOpsGlobalHandoffCoordinationDisposition.AuthorityLost)
+                return;
+            if (!handoff.IsComplete)
+                throw new InvalidOperationException("Forgejo source polling produced an unsafe global handoff.");
         }
     }
 

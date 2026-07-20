@@ -7,6 +7,7 @@ internal enum NativeGitOpsGlobalHandoffCoordinationDisposition
     AlreadyComplete,
     SourceMissing,
     SourceNotRecoverable,
+    SourceChanged,
     AuthorityLost,
     PreparationRejected,
     DispatchRejected,
@@ -41,7 +42,8 @@ internal sealed class NativeGitOpsGlobalHandoffCoordinator(
         DateTimeOffset expiresAt,
         INativeGitOpsCellSpecSigner signer,
         Func<bool> authorityStillValid,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? expectedCommit = null)
     {
         ArgumentNullException.ThrowIfNull(signer);
         ArgumentNullException.ThrowIfNull(authorityStillValid);
@@ -51,6 +53,11 @@ internal sealed class NativeGitOpsGlobalHandoffCoordinator(
         var accepted = await sources.ReadAsync(repository, branch, cancellationToken);
         if (accepted is null)
             return Result(NativeGitOpsGlobalHandoffCoordinationDisposition.SourceMissing);
+        if (expectedCommit is not null &&
+            !StringComparer.OrdinalIgnoreCase.Equals(accepted.Revision.Commit, expectedCommit))
+            return Result(
+                NativeGitOpsGlobalHandoffCoordinationDisposition.SourceChanged,
+                sourceJournalRevision: accepted.JournalRevision);
         if (accepted.Diff is null)
             return Result(
                 NativeGitOpsGlobalHandoffCoordinationDisposition.SourceNotRecoverable,

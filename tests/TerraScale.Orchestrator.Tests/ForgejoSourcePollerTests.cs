@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
 
@@ -127,6 +129,128 @@ public sealed class ForgejoSourcePollerTests
         await poller.PollOnceAsync();
 
         await Assert.That(string.Join(',', reconciled)).IsEqualTo("develop:7:1,main:7:2");
+    }
+
+    [Test]
+    public async Task DurableProtectedMainPublishesTheCompleteGlobalHandoff()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var steps = new List<string>();
+        await using var poller = new ForgejoSourcePoller(
+            (branch, _) => Task.FromResult(Observation(branch)),
+            new ForgejoSourceJournal(ledger),
+            () => Authority(7),
+            (observation, _, _, _) =>
+            {
+                steps.Add($"reconcile:{observation.Branch}");
+                return Task.FromResult(new NativeGitOpsSourceReconcileResult(
+                    NativeGitOpsSourceJournalDisposition.Recorded,
+                    null));
+            },
+            (observation, epoch, _) =>
+            {
+                steps.Add($"publish:{observation.Branch}:{epoch}");
+                return Task.FromResult(CompletedHandoff());
+            });
+
+        await poller.PollOnceAsync();
+
+        await Assert.That(string.Join(',', steps))
+            .IsEqualTo("reconcile:develop,reconcile:main,publish:main:7");
+    }
+
+    [Test]
+    public async Task AuthorityLossAtHandoffBoundaryStopsThePollCycle()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var publishes = 0;
+        await using var poller = new ForgejoSourcePoller(
+            (branch, _) => Task.FromResult(Observation(branch)),
+            new ForgejoSourceJournal(ledger),
+            () => Authority(7),
+            static (_, _, _, _) => Task.FromResult(new NativeGitOpsSourceReconcileResult(
+                NativeGitOpsSourceJournalDisposition.Recorded,
+                null)),
+            (_, _, _) =>
+            {
+                publishes++;
+                return Task.FromResult(new NativeGitOpsGlobalHandoffCoordinationReceipt(
+                    NativeGitOpsGlobalHandoffCoordinationDisposition.AuthorityLost,
+                    NativeGitOpsSignedHandoffJournalDisposition.StaleAuthority,
+                    null,
+                    1));
+            });
+
+        await poller.PollOnceAsync();
+
+        await Assert.That(publishes).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task InitialEmptyDesiredStateHasNoUnaddressedGlobalHandoff()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var publishes = 0;
+        await using var poller = new ForgejoSourcePoller(
+            (branch, _) => Task.FromResult(Observation(branch)),
+            new ForgejoSourceJournal(ledger),
+            () => Authority(7),
+            (observation, _, _, _) => Task.FromResult(new NativeGitOpsSourceReconcileResult(
+                NativeGitOpsSourceJournalDisposition.Recorded,
+                EmptySource(observation.Revision))),
+            (_, _, _) =>
+            {
+                publishes++;
+                return Task.FromResult(CompletedHandoff());
+            });
+
+        await poller.PollOnceAsync();
+
+        await Assert.That(publishes).IsEqualTo(0);
+    }
+
+    private static NativeGitOpsSourcePlan EmptySource(ForgejoResolvedRevision revision)
+    {
+        var content = Encoding.UTF8.GetBytes(
+            "{\"apiVersion\":\"terrascale.io/v1\",\"kind\":\"TerraScaleDesiredState\",\"generation\":1,\"workloads\":[]}");
+        var plan = NativeGitOpsManifest.Parse(content);
+        return new(
+            revision,
+            new(
+                revision.Repository,
+                revision.Commit,
+                NativeGitOpsSourceLoader.ManifestPath,
+                new string('c', 40),
+                Convert.ToHexStringLower(SHA256.HashData(content)),
+                content),
+            plan,
+            NativeGitOpsDiff.Compare(null, plan));
+    }
+
+    private static NativeGitOpsGlobalHandoffCoordinationReceipt CompletedHandoff()
+    {
+        var digest = new string('a', 64);
+        var snapshot = new NativeGitOpsGlobalHandoffPublishSnapshot(
+            Repository,
+            "main",
+            1,
+            7,
+            1,
+            digest,
+            digest,
+            1,
+            1,
+            [new("gru", digest, 1)],
+            1);
+        return new(
+            NativeGitOpsGlobalHandoffCoordinationDisposition.Completed,
+            NativeGitOpsSignedHandoffJournalDisposition.Recorded,
+            new(
+                NativeGitOpsGlobalHandoffDispatchDisposition.Completed,
+                NativeGitOpsGlobalHandoffPublishJournalDisposition.Recorded,
+                snapshot,
+                1),
+            1);
     }
 
     private static ForgejoBranchObservation Observation(string branch, bool isProtected = true) =>
