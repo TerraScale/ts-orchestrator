@@ -75,6 +75,7 @@ public sealed class ControlOperationPropertyTests
         await Assert.That(surfaces).IsEquivalentTo(new[]
         {
             "TerraScale.Orchestrator.ControlPlane.Authority.AuthorityEngine.Decide",
+            "TerraScale.Orchestrator.ControlPlane.Authority.AuthorityEngine.Decide",
             "TerraScale.Orchestrator.ControlPlane.Authority.AuthorityEngine.Replay",
             "TerraScale.Orchestrator.ControlPlane.Operations.OperationEngine.Decide",
             "TerraScale.Orchestrator.ControlPlane.Operations.OperationEngine.Replay",
