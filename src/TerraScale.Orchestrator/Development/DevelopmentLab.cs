@@ -257,8 +257,11 @@ public static class DevelopmentLab
                         // Certificate failures must not be swallowed by startup grace.
                         // Bare RestartAsync after NATS recycle (cid reset) re-loads the same
                         // expired PEMs; control-plane probes then re-present CN=operator-read
-                        // every few minutes (fingerprint c6627a56bf45… / gru-control-nats and
-                        // e517701a… / sfo-control-nats).
+                        // every few minutes (fingerprint c6627a56bf45… / gru-control-nats,
+                        // fingerprint c48cbf142a9a… / gru-control-nats four-occurrence twin
+                        // cid 29239 → 34 → 66 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
+                        // 18:50:40Z against the same 4e40db2b… leaf, and e517701a… /
+                        // sfo-control-nats).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
                         if (!observationCertificateFailure &&
@@ -278,7 +281,10 @@ public static class DevelopmentLab
                         // controllers, platforms), or near-expiry survey: never bare-restart
                         // mTLS consumers. RestartAsync alone recycled NATS while client PEMs
                         // stayed expired (cid 29237 → 62 → 69 for CN=operator-read on
-                        // gru/sfo-control-nats; cid 29237 → 63 → 68 for CN=operator-read on
+                        // gru/sfo-control-nats; cid 29239 → 34 → 66 → 72 for CN=operator-read on
+                        // gru-control-nats-1, fingerprint c48cbf142a9a… — four-occurrence twin of
+                        // c6627a56bf45… against the same 4e40db2b… leaf at 18:45:40Z / 18:47:40Z /
+                        // 18:48:40Z / 18:50:40Z; cid 29237 → 63 → 68 for CN=operator-read on
                         // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
                         // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
@@ -440,6 +446,9 @@ public static class DevelopmentLab
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
     /// fingerprint 91b5b852… / fra-control-nats CN=fra-controller-1 cid 29238 → 62 → 69 → 70
     /// at 18:45:34Z / 18:48:34Z / 18:50:34Z,
+    /// fingerprint c6627a56bf45… / gru-control-nats CN=operator-read cid 29237 → 62 → 69,
+    /// fingerprint c48cbf142a9a… / gru-control-nats CN=operator-read cid 29239 → 34 → 66 → 72
+    /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 4e40db2b… leaf,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
     /// Product NATS is analogous for platform leaves
