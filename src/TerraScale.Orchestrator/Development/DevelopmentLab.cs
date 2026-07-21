@@ -353,11 +353,13 @@ public static class DevelopmentLab
                         //
                         // Plain "can not start to connect nats server" (fingerprint
                         // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
-                        // bare restarts; twins on product NATS and every cell's controller)
-                        // is the client-side outer NATS.Net message when handshakes fail or
-                        // the listener is mid-recycle. LooksLikeCertificateFailure is false
-                        // for that outer text alone, so the cert-shaped branch above can miss
-                        // it. Control/product NATS and controllers must never bare-RestartAsync
+                        // bare restarts; fingerprint 2c66150c157c… / gru-product-nats-1 at
+                        // 18:45:42Z / 18:49:12Z three bare restarts on nats://127.0.0.1:18620;
+                        // twins on every cell's product NATS and controller) is the
+                        // client-side outer NATS.Net message when handshakes fail or the
+                        // listener is mid-recycle. LooksLikeCertificateFailure is false for
+                        // that outer text alone, so the cert-shaped branch above can miss it.
+                        // Control/product NATS and controllers must never bare-RestartAsync
                         // on persistent unhealth: remint rewrites PEMs and restarts the full
                         // mTLS consumer set with WaitReadyAsync instead of thrashing one
                         // NATS member every ~105s (90s grace + 3×5s failures).
@@ -594,9 +596,10 @@ public static class DevelopmentLab
     /// Control/product NATS and controllers must force remint on persistent unhealth even
     /// when the probe detail is only the outer NATS.Net text
     /// <c>can not start to connect nats server: nats://…</c> (fingerprint c05d3fee208c… /
-    /// gru-control-nats-1 three bare restarts; product-NATS and controller twins across
-    /// gru/sfo/fra). Bare RestartAsync of a single NATS member reloads the same PEMs and
-    /// does not WaitReadyAsync for dependents, producing multi-minute thrash.
+    /// gru-control-nats-1 three bare restarts on :18600; fingerprint 2c66150c157c… /
+    /// gru-product-nats-1 three bare restarts on :18620; sfo/fra product-NATS and every
+    /// cell's controller twins). Bare RestartAsync of a single NATS member reloads the
+    /// same PEMs and does not WaitReadyAsync for dependents, producing multi-minute thrash.
     /// Platforms keep HTTP bare-restart for non-TLS app failures; their product-leaf
     /// expiry is already covered by <see cref="ResourceHasInvalidTlsLeaf"/>.
     /// </summary>
@@ -614,11 +617,13 @@ public static class DevelopmentLab
     /// Every client leaf that would re-handshake against <paramref name="resourceName"/> after a
     /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform,
     /// plus the NATS server's client-facing and route leaves so an expired server PEM alone
-    /// still force-remints (plain connect failures otherwise look non-cert shaped).
+    /// still force-remints (plain connect failures otherwise look non-cert shaped —
+    /// c05d3fee208c… control and 2c66150c157c… product).
     /// Control NATS includes operator-read and every controller in the cell so an expired
     /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
     /// and denser twin 782d6308…, fra 91b5b852… and denser twin ffcef075c58c…) alone still
-    /// forces remint instead of NATS recycle.
+    /// forces remint instead of NATS recycle. Product NATS surveys every platform client
+    /// plus product server Client/Route leaves the same way.
     /// </summary>
     internal static IEnumerable<DevelopmentTlsIdentity> EnumerateReconnectTlsIdentities(
         DevelopmentTopology topology,
