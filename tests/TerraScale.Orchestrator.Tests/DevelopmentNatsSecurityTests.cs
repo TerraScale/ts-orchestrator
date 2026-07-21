@@ -332,13 +332,30 @@ public sealed class DevelopmentNatsSecurityTests
                 "is after 2026-07-21T18:45:24Z (CN=fra-platform)"))
             .IsTrue();
         // Control-plane twin: CN=fra-controller-1 against fra-control-nats (same NotAfter
-        // window as the continuous-lab remint race that must stop clients before Create).
+        // window as the continuous-lab remint race that must stop NATS before clients
+        // finish draining, otherwise server logs keep recording expired handshakes).
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "[fra-control-nats-1] [1] 2026/07/21 18:45:28.168910 [ERR] 127.0.0.1:55276 - cid:29236 - " +
                 "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
                 "or is not yet valid: current time 2026-07-21T18:45:28Z is after 2026-07-21T18:45:24Z " +
                 "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
                 "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        // Exact sfo-control-nats / CN=sfo-controller-1 incident shape (fingerprint
+        // ca1ca558…): remint must stop NATS before sequential client teardown so this
+        // server-side line cannot keep firing for every still-running peer.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:45:28.167747 [ERR] 127.0.0.1:45732 - cid:29236 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:28Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        // operator-read health probes also present leaves; once expired they appear on
+        // the same NATS server log stream and must match force-remint detection.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] TLS handshake error: tls: failed to verify certificate: " +
+                "x509: certificate has expired or is not yet valid (CN=operator-read)"))
             .IsTrue();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
@@ -349,14 +366,27 @@ public sealed class DevelopmentNatsSecurityTests
     }
 
     [Test]
-    public async Task PkiRemintClientSetIncludesControllersAndPlatformsButNotNats()
+    public async Task PkiRemintStopsNatsBeforeClientsAndCoversAllCells()
     {
-        // Remint must stop every non-NATS mTLS client before Create rewrites PEMs and
-        // before NATS is recycled. Controllers (control plane) and platforms (product
-        // plane) both present leaves; leaving either running logs certificate-expired
-        // handshakes against still-live NATS (CN=*-controller-1 / CN=*-platform).
+        // Remint must stop control/product NATS first (cut server-side expiry logs),
+        // then every non-NATS mTLS client, before Create rewrites PEMs. Controllers
+        // (control plane) and platforms (product plane) both present leaves; leaving
+        // NATS up while either reconnects logs certificate-expired handshakes
+        // (CN=*-controller-1 / CN=*-platform / CN=operator-read).
         var topology = DevelopmentTopology.CreateThreeCellLean();
+        var nats = DevelopmentLab.NatsResourceNames(topology);
         var clients = DevelopmentLab.TlsClientResourceNames(topology);
+
+        await Assert.That(nats).Contains("sfo-control-nats-1");
+        await Assert.That(nats).Contains("sfo-product-nats-1");
+        await Assert.That(nats).Contains("fra-control-nats-1");
+        await Assert.That(nats).Contains("gru-control-nats-1");
+        await Assert.That(nats).Contains("gru-product-nats-1");
+        await Assert.That(nats).Contains("fra-product-nats-1");
+        await Assert.That(nats.Any(name => name.Contains("controller", StringComparison.Ordinal)))
+            .IsFalse();
+        await Assert.That(nats.Any(name => name.Contains("platform", StringComparison.Ordinal)))
+            .IsFalse();
 
         await Assert.That(clients).Contains("fra-platform");
         await Assert.That(clients).Contains("gru-platform");
@@ -372,9 +402,13 @@ public sealed class DevelopmentNatsSecurityTests
         var fraController = clients.ToList().IndexOf("fra-controller-1");
         var fraPlatform = clients.ToList().IndexOf("fra-platform");
         var gruPlatform = clients.ToList().IndexOf("gru-platform");
+        var sfoController = clients.ToList().IndexOf("sfo-controller-1");
         await Assert.That(fraController).IsGreaterThanOrEqualTo(0);
         await Assert.That(fraPlatform).IsGreaterThanOrEqualTo(0);
         await Assert.That(gruPlatform).IsGreaterThanOrEqualTo(0);
+        await Assert.That(sfoController).IsGreaterThanOrEqualTo(0);
+        // NATS and client sets must be disjoint so StopMany cannot double-stop.
+        await Assert.That(nats.Intersect(clients, StringComparer.Ordinal).Any()).IsFalse();
     }
 
     [Test]

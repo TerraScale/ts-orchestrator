@@ -165,17 +165,44 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     /// Used before NATS recycle on PKI remint so clients cannot keep presenting
     /// pre-remint (often expired) leaves to freshly restarted servers.
     /// </summary>
-    public async Task StopAsync(string name)
+    public Task StopAsync(string name) => StopManyAsync([name]);
+
+    /// <summary>
+    /// Stops many containers in parallel while retaining trusted start specifications.
+    /// Remint recovery uses this so multi-cell controllers/platforms (and NATS) are
+    /// torn down together instead of one-by-one with a 15s grace each, which left
+    /// still-running peers presenting expired leaves to live NATS for minutes.
+    /// </summary>
+    public async Task StopManyAsync(IReadOnlyList<string> names, int stopTimeoutSeconds = 1)
     {
-        if (!specifications.ContainsKey(name))
+        ArgumentNullException.ThrowIfNull(names);
+        if (stopTimeoutSeconds < 0)
         {
-            throw new InvalidOperationException($"Development resource '{name}' has no trusted container specification.");
+            throw new ArgumentOutOfRangeException(nameof(stopTimeoutSeconds));
         }
-        if (processes.Remove(name, out var previous))
+
+        var victims = new List<(string Name, Process Process)>(names.Count);
+        foreach (var name in names)
         {
-            await RemoveContainerAsync(name, previous);
+            if (!specifications.ContainsKey(name))
+            {
+                throw new InvalidOperationException(
+                    $"Development resource '{name}' has no trusted container specification.");
+            }
+            if (processes.Remove(name, out var previous))
+            {
+                victims.Add((name, previous));
+            }
+            startedAt.Remove(name);
         }
-        startedAt.Remove(name);
+
+        if (victims.Count == 0)
+        {
+            return;
+        }
+
+        await Task.WhenAll(victims.Select(
+            victim => RemoveContainerAsync(victim.Name, victim.Process, stopTimeoutSeconds)));
     }
 
     public async Task<Process> RestartAsync(string name)
@@ -271,9 +298,17 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         stopping.Dispose();
     }
 
-    private async Task RemoveContainerAsync(string name, Process process)
+    private async Task RemoveContainerAsync(string name, Process process, int stopTimeoutSeconds = 15)
     {
-        _ = await RunAsync(["rm", "--force", "--time", "15", ContainerName(name)], CancellationToken.None);
+        _ = await RunAsync(
+            [
+                "rm",
+                "--force",
+                "--time",
+                stopTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ContainerName(name)
+            ],
+            CancellationToken.None);
         try
         {
             if (!process.HasExited)

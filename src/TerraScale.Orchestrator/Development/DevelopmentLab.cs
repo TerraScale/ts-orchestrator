@@ -279,25 +279,26 @@ public static class DevelopmentLab
             return false;
         }
 
-        // Critical ordering for continuous labs:
-        // 1) Stop mTLS clients (controllers, platforms, …) FIRST.
-        // 2) Remint PEMs onto stable paths.
-        // 3) Recycle control/product NATS so servers load the new CA.
-        // 4) Restart clients so they present the new leaves.
-        //
-        // If Create runs while controllers/platforms are still up, they keep
-        // presenting the pre-remint leaf (often past NotAfter) to still-running
-        // NATS and log the continuous-lab failure shapes:
-        //   [fra-control-nats-1] … certificate has expired … (CN=fra-controller-1 …)
-        //   [fra-product-nats-1] … certificate has expired … (CN=fra-platform …)
-        // until those clients are eventually stopped. Stopping first cuts that window.
+        // Capture the running sets first so RestartAsync can bring back exactly the
+        // resources that were live for this generation (specifications survive Stop).
+        var natsServers = NatsResourceNames(topology)
+            .Where(name => supervisor.Processes.ContainsKey(name))
+            .ToArray();
         var tlsClients = TlsClientResourceNames(topology)
             .Where(name => supervisor.Processes.ContainsKey(name))
             .ToArray();
-        foreach (var name in tlsClients)
-        {
-            await supervisor.StopAsync(name);
-        }
+
+        // Critical ordering for continuous labs:
+        // 1) Stop control/product NATS FIRST. Server-side logs are the incident source
+        //    ("TLS handshake error … certificate has expired … CN=sfo-controller-1").
+        //    Leaving NATS up while clients are stopped one-by-one (15s grace each)
+        //    produced multi-minute reconnect storms across gru/sfo/fra for both
+        //    controllers and platforms, plus operator-read health probes.
+        // 2) Stop mTLS clients so they cannot present pre-remint leaves after NATS returns.
+        // 3) Remint PEMs onto stable paths.
+        // 4) Restart NATS (new CA) then clients (new leaves).
+        await supervisor.StopManyAsync(natsServers);
+        await supervisor.StopManyAsync(tlsClients);
 
         DevelopmentPki.Create(topology, dataDirectory);
         Console.WriteLine(
@@ -308,6 +309,7 @@ public static class DevelopmentLab
             supervisor,
             topology,
             natsSecurity,
+            natsServers,
             tlsClients,
             cancellationToken);
         return true;
@@ -332,16 +334,19 @@ public static class DevelopmentLab
     }
 
     /// <summary>
-    /// After clients are already stopped and PEMs reminted: recycle NATS planes, then
-    /// bring the previously stopped mTLS clients back so they load the new leaves.
+    /// After NATS and clients are already stopped and PEMs reminted: bring control/product
+    /// NATS back on the new CA, wait for readiness, then restart the previously stopped
+    /// mTLS clients so they load the new leaves.
     /// </summary>
     private static async Task RestartNatsAndTlsClientsAfterRemintAsync(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
         DevelopmentNatsSecurity natsSecurity,
+        IReadOnlyList<string> natsServers,
         IReadOnlyList<string> tlsClients,
         CancellationToken cancellationToken)
     {
+        var natsSet = natsServers.ToHashSet(StringComparer.Ordinal);
         foreach (var cell in topology.Cells)
         {
             foreach (var kind in new[]
@@ -350,19 +355,17 @@ public static class DevelopmentLab
                 DevelopmentResourceKind.ProductNats
             })
             {
-                var resources = cell.OfKind(kind);
-                foreach (var resource in resources)
-                {
-                    if (!supervisor.Processes.ContainsKey(resource.Name))
-                    {
-                        continue;
-                    }
-                    await supervisor.RestartAsync(resource.Name);
-                }
-                if (resources.Count == 0 ||
-                    resources.Any(resource => !supervisor.Processes.ContainsKey(resource.Name)))
+                var resources = cell.OfKind(kind)
+                    .Where(resource => natsSet.Contains(resource.Name))
+                    .ToArray();
+                if (resources.Length == 0)
                 {
                     continue;
+                }
+                foreach (var resource in resources)
+                {
+                    // Already stopped above; RestartAsync starts from the retained spec.
+                    await supervisor.RestartAsync(resource.Name);
                 }
                 await NatsDevelopmentCluster.WaitReadyAsync(
                     resources,
@@ -377,6 +380,18 @@ public static class DevelopmentLab
             await supervisor.RestartAsync(name);
         }
     }
+
+    /// <summary>
+    /// Control and product NATS resources that must be stopped before PKI remint so
+    /// they cannot keep logging client-certificate expiry while peers reconnect.
+    /// </summary>
+    internal static IReadOnlyList<string> NatsResourceNames(DevelopmentTopology topology) =>
+        topology.Cells
+            .SelectMany(cell => cell.Resources)
+            .Where(resource => resource.Kind is DevelopmentResourceKind.ControlNats
+                or DevelopmentResourceKind.ProductNats)
+            .Select(resource => resource.Name)
+            .ToArray();
 
     /// <summary>
     /// Non-NATS lab resources that hold or consume regional mTLS material and must
