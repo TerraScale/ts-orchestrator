@@ -74,12 +74,25 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(certificate.HasPrivateKey).IsTrue();
             await Assert.That(certificate.Extensions["2.5.29.17"]!.Format(false))
                 .Contains(operatorTls.SpiffeId);
-            // Continuous DevHost labs do not rotate leaves; a 24-hour NotAfter
-            // previously expired mid-generation and broke NATS mTLS probes.
+            // Continuous labs remint near expiry; fresh leaves must still outlast a
+            // multi-day generation and report no remint need at mint time.
             var leafRemaining = certificate.NotAfter.ToUniversalTime() - DateTime.UtcNow;
             await Assert.That(leafRemaining).IsGreaterThan(TimeSpan.FromDays(7));
             await Assert.That(leafRemaining)
                 .IsLessThanOrEqualTo(DevelopmentPki.LeafLifetime + TimeSpan.FromMinutes(1));
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
+                .IsFalse();
+            var earliest = DevelopmentPki.TryGetEarliestLeafNotAfter(directory);
+            await Assert.That(earliest).IsNotNull();
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(
+                    directory,
+                    earliest!.Value - DevelopmentPki.LeafRenewalLeadTime + TimeSpan.FromSeconds(1)))
+                .IsTrue();
+            await Assert.That(DevelopmentPki.RemintLeavesIfNeeded(
+                    topology,
+                    directory,
+                    DateTimeOffset.UtcNow))
+                .IsFalse();
             var resolved = NatsTlsFiles.Resolve(
                 operatorTls.CaFile,
                 operatorTls.CertificateFile,
@@ -116,6 +129,54 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(productProbe.AuthOpts.Username).IsEqualTo(gru.Product.Username);
             await Assert.That(productProbe.TlsOpts.CertFile)
                 .IsEqualTo(gru.Tls.Product.Clients["gru-platform"].CertificateFile);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task NearExpiryLeavesAreRemintedOntoStablePaths()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-remint-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+            var platform = security.Cell("gru").Tls.Product.Clients["gru-platform"];
+            var originalCert = File.ReadAllText(platform.CertificateFile);
+            using var before = X509Certificate2.CreateFromPemFile(
+                platform.CertificateFile,
+                platform.KeyFile);
+            var forceRemintAt = before.NotAfter.ToUniversalTime() -
+                DevelopmentPki.LeafRenewalLeadTime +
+                TimeSpan.FromMinutes(1);
+
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, forceRemintAt)).IsTrue();
+            await Assert.That(DevelopmentPki.RemintLeavesIfNeeded(topology, directory, forceRemintAt))
+                .IsTrue();
+            await Assert.That(File.Exists(platform.CertificateFile)).IsTrue();
+            await Assert.That(File.Exists(platform.KeyFile)).IsTrue();
+            await Assert.That(File.Exists(platform.CaFile)).IsTrue();
+            await Assert.That(File.ReadAllText(platform.CertificateFile)).IsNotEqualTo(originalCert);
+            using var after = X509Certificate2.CreateFromPemFile(
+                platform.CertificateFile,
+                platform.KeyFile);
+            var remaining = after.NotAfter.ToUniversalTime() - DateTime.UtcNow;
+            await Assert.That(remaining).IsGreaterThan(DevelopmentPki.LeafRenewalLeadTime);
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
+                .IsFalse();
+            // NKey and product password material must survive a PKI-only remint.
+            await Assert.That(File.Exists(security.Cell("gru").Operator.SeedFile)).IsTrue();
+            await Assert.That(security.Cell("gru").Product.Username).IsEqualTo("product-gru");
         }
         finally
         {

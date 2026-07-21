@@ -6,13 +6,17 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentPki
 {
-    // DevHost mints the full regional PKI once per lab generation and does not
-    // rotate leaves in-process (rotation remains a production qualification gate).
-    // Leaf validity must therefore outlast a continuous multi-day lab generation;
-    // a 24-hour leaf caused mTLS handshakes to fail exactly one day after start.
+    // DevHost mints regional mTLS material at generation start. Continuous labs may
+    // outlive a single leaf NotAfter; without remint, health-driven restarts keep
+    // loading expired PEMs and every NATS handshake fails. Leaves therefore use a
+    // multi-week lifetime, and the lab remints when remaining validity drops below
+    // one-third of LeafLifetime (production-style renewal lead time). Full issuer
+    // rotation with dual trust bundles remains a production qualification gate.
     internal static readonly TimeSpan RootLifetime = TimeSpan.FromDays(365);
     internal static readonly TimeSpan IntermediateLifetime = TimeSpan.FromDays(30);
     internal static readonly TimeSpan LeafLifetime = TimeSpan.FromDays(30);
+    // Renew when less than one-third of the leaf lifetime remains.
+    internal static readonly TimeSpan LeafRenewalLeadTime = TimeSpan.FromTicks(LeafLifetime.Ticks / 3);
     private static readonly TimeSpan NotBeforeSkew = TimeSpan.FromMinutes(5);
 
     private const UnixFileMode DirectoryMode =
@@ -33,16 +37,25 @@ internal static class DevelopmentPki
 
         var root = Path.Combine(dataDirectory, "credentials", "pki");
         RecreatePrivateDirectory(root);
-        using var controlRoot = CreateRoot("TerraScale DevHost control root");
-        using var productRoot = CreateRoot("TerraScale DevHost product root");
+        // One issuance clock for the whole mint so leaf NotAfter cannot drift past
+        // intermediate NotAfter when IntermediateLifetime == LeafLifetime.
+        var issuedAt = DateTimeOffset.UtcNow;
+        using var controlRoot = CreateRoot("TerraScale DevHost control root", issuedAt);
+        using var productRoot = CreateRoot("TerraScale DevHost product root", issuedAt);
         var result = new Dictionary<string, DevelopmentNatsTlsSecurity>(StringComparer.Ordinal);
 
         foreach (var cell in topology.Cells)
         {
             var cellRoot = Path.Combine(root, cell.Cell);
             RecreatePrivateDirectory(cellRoot);
-            using var controlIntermediate = CreateIntermediate(controlRoot, $"TerraScale {cell.Cell} control issuer");
-            using var productIntermediate = CreateIntermediate(productRoot, $"TerraScale {cell.Cell} product issuer");
+            using var controlIntermediate = CreateIntermediate(
+                controlRoot,
+                $"TerraScale {cell.Cell} control issuer",
+                issuedAt);
+            using var productIntermediate = CreateIntermediate(
+                productRoot,
+                $"TerraScale {cell.Cell} product issuer",
+                issuedAt);
             var control = CreatePlane(
                 cell,
                 DevelopmentResourceKind.ControlNats,
@@ -58,7 +71,8 @@ internal static class DevelopmentPki
                         "operator-read",
                         ("operator", "operator-read")))
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
-                cellRoot);
+                cellRoot,
+                issuedAt);
             var product = CreatePlane(
                 cell,
                 DevelopmentResourceKind.ProductNats,
@@ -70,11 +84,85 @@ internal static class DevelopmentPki
                         resource => resource.Name,
                         resource => (Role: "workload", Identity: resource.Name),
                         StringComparer.Ordinal),
-                cellRoot);
+                cellRoot,
+                issuedAt);
             result.Add(cell.Cell, new DevelopmentNatsTlsSecurity(control, product));
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Returns true when any on-disk leaf is missing, already expired, or within
+    /// <see cref="LeafRenewalLeadTime"/> of NotAfter. Callers that remint must also
+    /// restart processes that loaded the previous PEMs into memory.
+    /// </summary>
+    internal static bool LeavesNeedRemint(string dataDirectory, DateTimeOffset utcNow)
+    {
+        var earliest = TryGetEarliestLeafNotAfter(dataDirectory);
+        if (earliest is null)
+        {
+            return true;
+        }
+
+        return earliest.Value <= utcNow + LeafRenewalLeadTime;
+    }
+
+    /// <summary>
+    /// Remints the full regional PKI when <see cref="LeavesNeedRemint"/> is true.
+    /// PEM paths are stable; NKey and product password material is left untouched.
+    /// </summary>
+    internal static bool RemintLeavesIfNeeded(
+        DevelopmentTopology topology,
+        string dataDirectory,
+        DateTimeOffset utcNow)
+    {
+        if (!LeavesNeedRemint(dataDirectory, utcNow))
+        {
+            return false;
+        }
+
+        Create(topology, dataDirectory);
+        return true;
+    }
+
+    internal static DateTimeOffset? TryGetEarliestLeafNotAfter(string dataDirectory)
+    {
+        var root = Path.Combine(dataDirectory, "credentials", "pki");
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+
+        DateTimeOffset? earliest = null;
+        foreach (var path in Directory.EnumerateFiles(root, "*.pem", SearchOption.AllDirectories))
+        {
+            var name = Path.GetFileName(path);
+            if (name.EndsWith(".key.pem", StringComparison.Ordinal) ||
+                name is "ca.pem" or "intermediate.pem")
+            {
+                continue;
+            }
+
+            try
+            {
+                // Leaf PEMs are written as leaf + intermediate; CreateFromPem takes the first cert.
+                using var certificate = X509Certificate2.CreateFromPem(File.ReadAllText(path));
+                var notAfter = certificate.NotAfter.ToUniversalTime();
+                if (earliest is null || notAfter < earliest.Value)
+                {
+                    earliest = notAfter;
+                }
+            }
+            catch (Exception exception) when (
+                exception is CryptographicException or ArgumentException or IOException)
+            {
+                // Unreadable material is treated as requiring a remint by the caller
+                // that sees a null earliest after filtering; skip individual bad files.
+            }
+        }
+
+        return earliest;
     }
 
     private static DevelopmentNatsTlsPlane CreatePlane(
@@ -84,7 +172,8 @@ internal static class DevelopmentPki
         X509Certificate2 root,
         X509Certificate2 intermediate,
         IReadOnlyDictionary<string, (string Role, string Identity)> clientIdentities,
-        string cellRoot)
+        string cellRoot,
+        DateTimeOffset issuedAt)
     {
         var planeRoot = Path.Combine(cellRoot, plane);
         RecreatePrivateDirectory(planeRoot);
@@ -106,7 +195,8 @@ internal static class DevelopmentPki
                     $"spiffe://terrascale.tech/cell/{cell.Cell}/nats/{plane}/server/{server.Name}",
                     server.Name,
                     serverAuth: true,
-                    clientAuth: false),
+                    clientAuth: false,
+                    issuedAt),
                 CreateLeaf(
                     intermediate,
                     caFile,
@@ -115,7 +205,8 @@ internal static class DevelopmentPki
                     $"spiffe://terrascale.tech/cell/{cell.Cell}/nats/{plane}/route/{server.Name}",
                     server.Name,
                     serverAuth: true,
-                    clientAuth: true)));
+                    clientAuth: true,
+                    issuedAt)));
         }
 
         var clients = new Dictionary<string, DevelopmentTlsIdentity>(StringComparer.Ordinal);
@@ -131,24 +222,28 @@ internal static class DevelopmentPki
                 $"spiffe://terrascale.tech/cell/{cell.Cell}/{identity.Role}/{identity.Identity}",
                 name,
                 serverAuth: false,
-                clientAuth: true));
+                clientAuth: true,
+                issuedAt));
         }
         return new DevelopmentNatsTlsPlane(servers, clients);
     }
 
-    private static X509Certificate2 CreateRoot(string commonName)
+    private static X509Certificate2 CreateRoot(string commonName, DateTimeOffset issuedAt)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = Request(commonName, key, certificateAuthority: true, serverAuth: false, clientAuth: false, null, null);
-        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
+        var notBefore = issuedAt - NotBeforeSkew;
         return request.CreateSelfSigned(notBefore, notBefore + RootLifetime);
     }
 
-    private static X509Certificate2 CreateIntermediate(X509Certificate2 root, string commonName)
+    private static X509Certificate2 CreateIntermediate(
+        X509Certificate2 root,
+        string commonName,
+        DateTimeOffset issuedAt)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = Request(commonName, key, certificateAuthority: true, serverAuth: false, clientAuth: false, null, null);
-        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
+        var notBefore = issuedAt - NotBeforeSkew;
         using var certificate = request.Create(
             root,
             notBefore,
@@ -165,7 +260,8 @@ internal static class DevelopmentPki
         string spiffeId,
         string dnsName,
         bool serverAuth,
-        bool clientAuth)
+        bool clientAuth,
+        DateTimeOffset issuedAt)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = Request(
@@ -176,7 +272,7 @@ internal static class DevelopmentPki
             clientAuth,
             spiffeId,
             dnsName);
-        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
+        var notBefore = issuedAt - NotBeforeSkew;
         using var certificate = request.Create(
             issuer,
             notBefore,

@@ -159,6 +159,23 @@ public static class DevelopmentLab
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    // Expired on-disk leaves cannot be healed by RestartAsync alone: NATS and
+                    // clients reload the same PEM paths. Remint before health-driven restarts.
+                    if (DevelopmentPki.RemintLeavesIfNeeded(
+                            topology,
+                            options.DataDirectory!,
+                            DateTimeOffset.UtcNow))
+                    {
+                        Console.WriteLine(
+                            "Reminted development mTLS material near leaf expiry; restarting TLS consumers.");
+                        await RestartAfterPkiRemintAsync(
+                            supervisor,
+                            topology,
+                            natsSecurity,
+                            cancellationToken);
+                        consecutiveUnhealthyObservations.Clear();
+                        continue;
+                    }
                     foreach (var resourceName in supervisor.ExitedResources())
                     {
                         await supervisor.RestartAsync(resourceName);
@@ -220,6 +237,61 @@ public static class DevelopmentLab
             File.Delete(options.EndpointsFile!);
         }
         return 0;
+    }
+
+    private static async Task RestartAfterPkiRemintAsync(
+        DevelopmentProcessSupervisor supervisor,
+        DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity,
+        CancellationToken cancellationToken)
+    {
+        // PEM paths are stable across remint; reload by restarting processes that
+        // already loaded the previous material. Bring NATS planes back first so
+        // subsequent controller and product restarts can re-authenticate.
+        foreach (var cell in topology.Cells)
+        {
+            foreach (var kind in new[]
+            {
+                DevelopmentResourceKind.ControlNats,
+                DevelopmentResourceKind.ProductNats
+            })
+            {
+                var resources = cell.OfKind(kind);
+                foreach (var resource in resources)
+                {
+                    if (!supervisor.Processes.ContainsKey(resource.Name))
+                    {
+                        continue;
+                    }
+                    await supervisor.RestartAsync(resource.Name);
+                }
+                if (resources.Count == 0 ||
+                    resources.Any(resource => !supervisor.Processes.ContainsKey(resource.Name)))
+                {
+                    continue;
+                }
+                await NatsDevelopmentCluster.WaitReadyAsync(
+                    resources,
+                    supervisor,
+                    natsSecurity.Cell(cell.Cell),
+                    cancellationToken);
+            }
+        }
+
+        foreach (var resource in topology.Cells
+            .SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources))
+        {
+            if (resource.Kind is DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats)
+            {
+                continue;
+            }
+            if (!supervisor.Processes.ContainsKey(resource.Name))
+            {
+                continue;
+            }
+            await supervisor.RestartAsync(resource.Name);
+        }
     }
 
     private static void StartControllers(
