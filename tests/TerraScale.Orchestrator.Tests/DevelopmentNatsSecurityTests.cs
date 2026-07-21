@@ -331,6 +331,19 @@ public sealed class DevelopmentNatsSecurityTests
                 "x509: certificate has expired or is not yet valid: current time 2026-07-21T18:45:28Z " +
                 "is after 2026-07-21T18:45:24Z (CN=fra-platform)"))
             .IsTrue();
+        // Exact gru-product-nats / CN=gru-platform incident shape (fingerprint
+        // 57ae70882ed5…): the platform process (not the HTTP health path) presents the
+        // product-plane leaf. When NotAfter elapses, product NATS logs this server-side
+        // line every reconnect while platform /health/ready stays green. Recovery must
+        // match it, and platform probes must refuse the leaf so force-remint runs
+        // without relying solely on product-NATS ConnectAsync failures.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:45:34.132719 [ERR] 127.0.0.1:54008 - cid:14634 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
         // Control-plane twin: CN=fra-controller-1 against fra-control-nats (same NotAfter
         // window as the continuous-lab remint race that must stop NATS before clients
         // finish draining, otherwise server logs keep recording expired handshakes).
@@ -512,6 +525,17 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(expiredRefusal.Detail).Contains("Health probe failed:");
             await Assert.That(expiredRefusal.Detail).Contains("certificate has expired");
             await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredRefusal.Detail)).IsTrue();
+
+            // Product-plane twin: an expired gru-platform leaf must refuse the same way so
+            // platform health (not only product-NATS ConnectAsync) can force-remint and stop
+            // CN=gru-platform handshake spam on gru-product-nats.
+            var platformTls = security.Cell("gru").Tls.Product.Clients["gru-platform"];
+            File.WriteAllText(platformTls.CertificateFile, File.ReadAllText(operatorTls.CertificateFile));
+            var platformRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(platformTls);
+            await Assert.That(platformRefusal).IsNotNull();
+            await Assert.That(platformRefusal!.Healthy).IsFalse();
+            await Assert.That(platformRefusal.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformRefusal.Detail)).IsTrue();
         }
         finally
         {

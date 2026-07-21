@@ -166,6 +166,19 @@ internal static class DevelopmentHealthProbe
                     }
                     await ProbeNatsAsync(resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Authenticated NATS endpoint {resource.Port} ready."));
+                case DevelopmentResourceKind.Platform:
+                    // Platform HTTP readiness stays green while the product-NATS mTLS leaf is
+                    // expired. The platform process keeps reconnecting and is the source of
+                    // product-plane server logs "TLS handshake error … CN=*-platform" (for
+                    // example gru-product-nats / CN=gru-platform). Surface the invalid leaf
+                    // here so force-remint runs even when HTTP /health/ready still passes.
+                    probeTls = natsSecurity.Cell(resource.Cell).Tls.Product.Clients[resource.Name];
+                    if (TryInvalidLeafProbeFailure(probeTls) is { } platformLeafFailure)
+                    {
+                        return (resource.Name, platformLeafFailure);
+                    }
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
                     await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
                     await ProbeTcpAsync(resource.SecondaryPort!.Value, cancellationToken);
