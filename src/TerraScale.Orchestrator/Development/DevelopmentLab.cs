@@ -320,9 +320,21 @@ public static class DevelopmentLab
         DevelopmentNatsSecurity natsSecurity,
         CancellationToken cancellationToken)
     {
-        // PEM paths are stable across remint; reload by restarting processes that
-        // already loaded the previous material. Bring NATS planes back first so
-        // subsequent controller and product restarts can re-authenticate.
+        // PEM paths are stable across remint; processes must reload them.
+        // Critical ordering: stop mTLS clients (platform, controllers, …) BEFORE
+        // recycling NATS. Otherwise product/control servers come up on the new CA
+        // while platform still presents the pre-remint leaf (often past NotAfter)
+        // and log the exact continuous-lab failure:
+        //   TLS handshake error … certificate has expired … (CN=fra-platform …)
+        // until those clients are eventually restarted.
+        var tlsClients = TlsClientResourceNames(topology)
+            .Where(name => supervisor.Processes.ContainsKey(name))
+            .ToArray();
+        foreach (var name in tlsClients)
+        {
+            await supervisor.StopAsync(name);
+        }
+
         foreach (var cell in topology.Cells)
         {
             foreach (var kind in new[]
@@ -334,6 +346,8 @@ public static class DevelopmentLab
                 var resources = cell.OfKind(kind);
                 foreach (var resource in resources)
                 {
+                    // NATS stays up until this point so stopping clients first can
+                    // cut expired platform/controller handshakes without a race.
                     if (!supervisor.Processes.ContainsKey(resource.Name))
                     {
                         continue;
@@ -353,21 +367,24 @@ public static class DevelopmentLab
             }
         }
 
-        foreach (var resource in topology.Cells
-            .SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources))
+        foreach (var name in tlsClients)
         {
-            if (resource.Kind is DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats)
-            {
-                continue;
-            }
-            if (!supervisor.Processes.ContainsKey(resource.Name))
-            {
-                continue;
-            }
-            await supervisor.RestartAsync(resource.Name);
+            await supervisor.RestartAsync(name);
         }
     }
+
+    /// <summary>
+    /// Non-NATS lab resources that hold or consume regional mTLS material and must
+    /// be stopped before NATS is recycled after a PKI remint.
+    /// </summary>
+    internal static IReadOnlyList<string> TlsClientResourceNames(DevelopmentTopology topology) =>
+        topology.Cells
+            .SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources)
+            .Where(resource => resource.Kind is not DevelopmentResourceKind.ControlNats
+                and not DevelopmentResourceKind.ProductNats)
+            .Select(resource => resource.Name)
+            .ToArray();
 
     private static void StartControllers(
         DevelopmentProcessSupervisor supervisor,

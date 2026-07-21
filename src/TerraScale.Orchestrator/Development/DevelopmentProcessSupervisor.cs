@@ -159,6 +159,25 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     public string GetContainerId(string name) => ContainerName(name);
 
+    /// <summary>
+    /// Stops a running development container while retaining its trusted start
+    /// specification so <see cref="RestartAsync"/> can bring it back later.
+    /// Used before NATS recycle on PKI remint so clients cannot keep presenting
+    /// pre-remint (often expired) leaves to freshly restarted servers.
+    /// </summary>
+    public async Task StopAsync(string name)
+    {
+        if (!specifications.ContainsKey(name))
+        {
+            throw new InvalidOperationException($"Development resource '{name}' has no trusted container specification.");
+        }
+        if (processes.Remove(name, out var previous))
+        {
+            await RemoveContainerAsync(name, previous);
+        }
+        startedAt.Remove(name);
+    }
+
     public async Task<Process> RestartAsync(string name)
     {
         if (!specifications.TryGetValue(name, out var specification))

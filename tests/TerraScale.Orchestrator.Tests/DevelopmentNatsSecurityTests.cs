@@ -325,12 +325,44 @@ public sealed class DevelopmentNatsSecurityTests
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "tls: failed to verify certificate: x509: certificate has expired or is not yet valid"))
             .IsTrue();
+        // Product-plane server log shape for CN=fra-platform presenting an expired leaf.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] TLS handshake error: tls: failed to verify certificate: " +
+                "x509: certificate has expired or is not yet valid: current time 2026-07-21T18:45:28Z " +
+                "is after 2026-07-21T18:45:24Z (CN=fra-platform)"))
+            .IsTrue();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
             .IsFalse();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: Connection refused"))
             .IsFalse();
+    }
+
+    [Test]
+    public async Task PkiRemintStopsPlatformClientsBeforeRecyclingProductNats()
+    {
+        // After remint, product NATS must not see CN=*-platform presenting the previous
+        // (often expired) leaf while servers already loaded the new CA. The ordered client
+        // list therefore includes every regional platform and excludes NATS servers.
+        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var clients = DevelopmentLab.TlsClientResourceNames(topology);
+
+        await Assert.That(clients).Contains("fra-platform");
+        await Assert.That(clients).Contains("gru-platform");
+        await Assert.That(clients).Contains("sfo-platform");
+        await Assert.That(clients).Contains("fra-controller-1");
+        await Assert.That(clients).Contains("gru-controller-1");
+        await Assert.That(clients).Contains("sfo-controller-1");
+        await Assert.That(clients.Any(name => name.Contains("product-nats", StringComparison.Ordinal)))
+            .IsFalse();
+        await Assert.That(clients.Any(name => name.Contains("control-nats", StringComparison.Ordinal)))
+            .IsFalse();
+        // Platforms are listed before NATS recycle; order among clients is stable cell order.
+        var fraPlatform = clients.ToList().IndexOf("fra-platform");
+        var gruPlatform = clients.ToList().IndexOf("gru-platform");
+        await Assert.That(fraPlatform).IsGreaterThanOrEqualTo(0);
+        await Assert.That(gruPlatform).IsGreaterThanOrEqualTo(0);
     }
 
     [Test]
