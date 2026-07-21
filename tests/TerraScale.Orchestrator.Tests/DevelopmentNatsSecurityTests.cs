@@ -331,6 +331,15 @@ public sealed class DevelopmentNatsSecurityTests
                 "x509: certificate has expired or is not yet valid: current time 2026-07-21T18:45:28Z " +
                 "is after 2026-07-21T18:45:24Z (CN=fra-platform)"))
             .IsTrue();
+        // Control-plane twin: CN=fra-controller-1 against fra-control-nats (same NotAfter
+        // window as the continuous-lab remint race that must stop clients before Create).
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:45:28.168910 [ERR] 127.0.0.1:55276 - cid:29236 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:28Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
             .IsFalse();
@@ -340,11 +349,12 @@ public sealed class DevelopmentNatsSecurityTests
     }
 
     [Test]
-    public async Task PkiRemintStopsPlatformClientsBeforeRecyclingProductNats()
+    public async Task PkiRemintClientSetIncludesControllersAndPlatformsButNotNats()
     {
-        // After remint, product NATS must not see CN=*-platform presenting the previous
-        // (often expired) leaf while servers already loaded the new CA. The ordered client
-        // list therefore includes every regional platform and excludes NATS servers.
+        // Remint must stop every non-NATS mTLS client before Create rewrites PEMs and
+        // before NATS is recycled. Controllers (control plane) and platforms (product
+        // plane) both present leaves; leaving either running logs certificate-expired
+        // handshakes against still-live NATS (CN=*-controller-1 / CN=*-platform).
         var topology = DevelopmentTopology.CreateThreeCellLean();
         var clients = DevelopmentLab.TlsClientResourceNames(topology);
 
@@ -358,9 +368,11 @@ public sealed class DevelopmentNatsSecurityTests
             .IsFalse();
         await Assert.That(clients.Any(name => name.Contains("control-nats", StringComparison.Ordinal)))
             .IsFalse();
-        // Platforms are listed before NATS recycle; order among clients is stable cell order.
+        // Controllers and platforms are both first-class remint clients (cell order).
+        var fraController = clients.ToList().IndexOf("fra-controller-1");
         var fraPlatform = clients.ToList().IndexOf("fra-platform");
         var gruPlatform = clients.ToList().IndexOf("gru-platform");
+        await Assert.That(fraController).IsGreaterThanOrEqualTo(0);
         await Assert.That(fraPlatform).IsGreaterThanOrEqualTo(0);
         await Assert.That(gruPlatform).IsGreaterThanOrEqualTo(0);
     }

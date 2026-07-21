@@ -272,27 +272,44 @@ public static class DevelopmentLab
         bool force,
         CancellationToken cancellationToken)
     {
-        var reminted = force
-            ? ForceRemint(topology, dataDirectory)
-            : DevelopmentPki.RemintLeavesIfNeeded(topology, dataDirectory, DateTimeOffset.UtcNow);
-        if (!reminted)
+        // Decide before stopping anything: near-expiry survey or forced recovery after
+        // an observed x509 failure. Create always rewrites the full regional tree.
+        if (!force && !DevelopmentPki.LeavesNeedRemint(dataDirectory, DateTimeOffset.UtcNow))
         {
             return false;
         }
 
+        // Critical ordering for continuous labs:
+        // 1) Stop mTLS clients (controllers, platforms, …) FIRST.
+        // 2) Remint PEMs onto stable paths.
+        // 3) Recycle control/product NATS so servers load the new CA.
+        // 4) Restart clients so they present the new leaves.
+        //
+        // If Create runs while controllers/platforms are still up, they keep
+        // presenting the pre-remint leaf (often past NotAfter) to still-running
+        // NATS and log the continuous-lab failure shapes:
+        //   [fra-control-nats-1] … certificate has expired … (CN=fra-controller-1 …)
+        //   [fra-product-nats-1] … certificate has expired … (CN=fra-platform …)
+        // until those clients are eventually stopped. Stopping first cuts that window.
+        var tlsClients = TlsClientResourceNames(topology)
+            .Where(name => supervisor.Processes.ContainsKey(name))
+            .ToArray();
+        foreach (var name in tlsClients)
+        {
+            await supervisor.StopAsync(name);
+        }
+
+        DevelopmentPki.Create(topology, dataDirectory);
         Console.WriteLine(
             force
                 ? "Reminted development mTLS material after certificate handshake failures; restarting TLS consumers."
                 : "Reminted development mTLS material near leaf expiry; restarting TLS consumers.");
-        await RestartAfterPkiRemintAsync(supervisor, topology, natsSecurity, cancellationToken);
-        return true;
-    }
-
-    private static bool ForceRemint(DevelopmentTopology topology, string dataDirectory)
-    {
-        // Always rewrite the regional tree onto stable paths. Used when probes already
-        // observed x509 failures so recovery does not depend solely on NotAfter survey.
-        DevelopmentPki.Create(topology, dataDirectory);
+        await RestartNatsAndTlsClientsAfterRemintAsync(
+            supervisor,
+            topology,
+            natsSecurity,
+            tlsClients,
+            cancellationToken);
         return true;
     }
 
@@ -314,27 +331,17 @@ public static class DevelopmentLab
             || detail.Contains("x509:", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task RestartAfterPkiRemintAsync(
+    /// <summary>
+    /// After clients are already stopped and PEMs reminted: recycle NATS planes, then
+    /// bring the previously stopped mTLS clients back so they load the new leaves.
+    /// </summary>
+    private static async Task RestartNatsAndTlsClientsAfterRemintAsync(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
         DevelopmentNatsSecurity natsSecurity,
+        IReadOnlyList<string> tlsClients,
         CancellationToken cancellationToken)
     {
-        // PEM paths are stable across remint; processes must reload them.
-        // Critical ordering: stop mTLS clients (platform, controllers, …) BEFORE
-        // recycling NATS. Otherwise product/control servers come up on the new CA
-        // while platform still presents the pre-remint leaf (often past NotAfter)
-        // and log the exact continuous-lab failure:
-        //   TLS handshake error … certificate has expired … (CN=fra-platform …)
-        // until those clients are eventually restarted.
-        var tlsClients = TlsClientResourceNames(topology)
-            .Where(name => supervisor.Processes.ContainsKey(name))
-            .ToArray();
-        foreach (var name in tlsClients)
-        {
-            await supervisor.StopAsync(name);
-        }
-
         foreach (var cell in topology.Cells)
         {
             foreach (var kind in new[]
@@ -346,8 +353,6 @@ public static class DevelopmentLab
                 var resources = cell.OfKind(kind);
                 foreach (var resource in resources)
                 {
-                    // NATS stays up until this point so stopping clients first can
-                    // cut expired platform/controller handshakes without a race.
                     if (!supervisor.Processes.ContainsKey(resource.Name))
                     {
                         continue;
@@ -375,7 +380,7 @@ public static class DevelopmentLab
 
     /// <summary>
     /// Non-NATS lab resources that hold or consume regional mTLS material and must
-    /// be stopped before NATS is recycled after a PKI remint.
+    /// be stopped before PEMs are reminted and NATS is recycled.
     /// </summary>
     internal static IReadOnlyList<string> TlsClientResourceNames(DevelopmentTopology topology) =>
         topology.Cells
