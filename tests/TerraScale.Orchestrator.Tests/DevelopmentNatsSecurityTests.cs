@@ -382,6 +382,33 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact gru-control-nats / CN=operator-read incident shape (fingerprint
+        // c6627a56bf45…): same NotAfter window as the sfo twin, but health-driven
+        // RestartAsync recycled NATS without reminting PEMs so the expired leaf kept
+        // being presented after each recycle (cid 29237 → 62 → 69 at ~2–3 min gaps).
+        // Recovery must match every occurrence, skip startup grace for cert failures,
+        // and force remint instead of bare restart so the recycle loop cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:45:34.131618 [ERR] 127.0.0.1:49494 - cid:29237 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:48:34.476021 [ERR] 127.0.0.1:41086 - cid:62 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:50:34.254117 [ERR] 127.0.0.1:56294 - cid:69 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
         // Pre-connect leaf refusal must still feed force-remint (same recovery path as
         // post-connect FormatProbeFailure annotations).
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(

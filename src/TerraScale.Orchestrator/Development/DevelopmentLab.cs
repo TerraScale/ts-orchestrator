@@ -172,7 +172,23 @@ public static class DevelopmentLab
                         consecutiveUnhealthyObservations.Clear();
                         continue;
                     }
-                    foreach (var resourceName in supervisor.ExitedResources())
+                    // Unexpected exits cannot be healed by restarting onto expired PEMs.
+                    // Remint first when leaves already need rotation, then restart victims.
+                    var exitedResources = supervisor.ExitedResources();
+                    if (exitedResources.Count > 0 &&
+                        DevelopmentPki.LeavesNeedRemint(options.DataDirectory!, DateTimeOffset.UtcNow) &&
+                        await TryRemintAndRestartTlsConsumersAsync(
+                            topology,
+                            options.DataDirectory!,
+                            supervisor,
+                            natsSecurity,
+                            force: true,
+                            cancellationToken))
+                    {
+                        consecutiveUnhealthyObservations.Clear();
+                        continue;
+                    }
+                    foreach (var resourceName in exitedResources)
                     {
                         await supervisor.RestartAsync(resourceName);
                         consecutiveUnhealthyObservations[resourceName] = 0;
@@ -211,26 +227,44 @@ public static class DevelopmentLab
                     }
                     foreach (var observation in health)
                     {
-                        if (observation.Value.Healthy ||
+                        if (observation.Value.Healthy)
+                        {
+                            consecutiveUnhealthyObservations[observation.Key] = 0;
+                            continue;
+                        }
+
+                        // Certificate failures must not be swallowed by startup grace.
+                        // Bare RestartAsync after NATS recycle (cid reset) re-loads the same
+                        // expired PEMs; control-plane probes then re-present CN=operator-read
+                        // every few minutes (fingerprint c6627a56bf45… / gru-control-nats).
+                        var observationCertificateFailure =
+                            LooksLikeCertificateFailure(observation.Value.Detail);
+                        if (!observationCertificateFailure &&
                             supervisor.IsWithinStartupGrace(observation.Key, TimeSpan.FromSeconds(90)))
                         {
                             consecutiveUnhealthyObservations[observation.Key] = 0;
                             continue;
                         }
+
                         var failures = consecutiveUnhealthyObservations.GetValueOrDefault(observation.Key) + 1;
                         consecutiveUnhealthyObservations[observation.Key] = failures;
                         if (failures < 3)
                         {
                             continue;
                         }
-                        // Re-check near-expiry after probes: a leaf can cross NotAfter between
-                        // the top-of-loop remint check and this restart decision.
-                        if (await TryRemintAndRestartTlsConsumersAsync(
+                        // Certificate-shaped unhealth or near-expiry survey: never bare-restart
+                        // mTLS consumers. RestartAsync alone recycled NATS while operator-read
+                        // stayed expired (cid 29237 → 62 → 69 on gru-control-nats-1).
+                        if ((observationCertificateFailure ||
+                             DevelopmentPki.LeavesNeedRemint(
+                                 options.DataDirectory!,
+                                 DateTimeOffset.UtcNow)) &&
+                            await TryRemintAndRestartTlsConsumersAsync(
                                 topology,
                                 options.DataDirectory!,
                                 supervisor,
                                 natsSecurity,
-                                force: false,
+                                force: true,
                                 cancellationToken))
                         {
                             consecutiveUnhealthyObservations.Clear();
