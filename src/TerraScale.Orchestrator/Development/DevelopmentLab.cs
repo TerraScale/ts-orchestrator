@@ -161,18 +161,14 @@ public static class DevelopmentLab
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                     // Expired on-disk leaves cannot be healed by RestartAsync alone: NATS and
                     // clients reload the same PEM paths. Remint before health-driven restarts.
-                    if (DevelopmentPki.RemintLeavesIfNeeded(
+                    if (await TryRemintAndRestartTlsConsumersAsync(
                             topology,
                             options.DataDirectory!,
-                            DateTimeOffset.UtcNow))
-                    {
-                        Console.WriteLine(
-                            "Reminted development mTLS material near leaf expiry; restarting TLS consumers.");
-                        await RestartAfterPkiRemintAsync(
                             supervisor,
-                            topology,
                             natsSecurity,
-                            cancellationToken);
+                            force: false,
+                            cancellationToken))
+                    {
                         consecutiveUnhealthyObservations.Clear();
                         continue;
                     }
@@ -197,6 +193,22 @@ public static class DevelopmentLab
                         health,
                         publishEndpoints: true,
                         cancellationToken);
+                    var certificateFailure = health.Values.Any(static observation =>
+                        !observation.Healthy && LooksLikeCertificateFailure(observation.Detail));
+                    if (certificateFailure &&
+                        await TryRemintAndRestartTlsConsumersAsync(
+                            topology,
+                            options.DataDirectory!,
+                            supervisor,
+                            natsSecurity,
+                            force: true,
+                            cancellationToken))
+                    {
+                        // operator-read / controller / platform handshakes that fail x509
+                        // verification cannot be healed by RestartAsync on the same PEMs.
+                        consecutiveUnhealthyObservations.Clear();
+                        continue;
+                    }
                     foreach (var observation in health)
                     {
                         if (observation.Value.Healthy ||
@@ -210,6 +222,19 @@ public static class DevelopmentLab
                         if (failures < 3)
                         {
                             continue;
+                        }
+                        // Re-check near-expiry after probes: a leaf can cross NotAfter between
+                        // the top-of-loop remint check and this restart decision.
+                        if (await TryRemintAndRestartTlsConsumersAsync(
+                                topology,
+                                options.DataDirectory!,
+                                supervisor,
+                                natsSecurity,
+                                force: false,
+                                cancellationToken))
+                        {
+                            consecutiveUnhealthyObservations.Clear();
+                            break;
                         }
                         await supervisor.RestartAsync(observation.Key);
                         consecutiveUnhealthyObservations[observation.Key] = 0;
@@ -237,6 +262,48 @@ public static class DevelopmentLab
             File.Delete(options.EndpointsFile!);
         }
         return 0;
+    }
+
+    private static async Task<bool> TryRemintAndRestartTlsConsumersAsync(
+        DevelopmentTopology topology,
+        string dataDirectory,
+        DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
+        bool force,
+        CancellationToken cancellationToken)
+    {
+        var reminted = force
+            ? ForceRemint(topology, dataDirectory)
+            : DevelopmentPki.RemintLeavesIfNeeded(topology, dataDirectory, DateTimeOffset.UtcNow);
+        if (!reminted)
+        {
+            return false;
+        }
+
+        Console.WriteLine(
+            force
+                ? "Reminted development mTLS material after certificate handshake failures; restarting TLS consumers."
+                : "Reminted development mTLS material near leaf expiry; restarting TLS consumers.");
+        await RestartAfterPkiRemintAsync(supervisor, topology, natsSecurity, cancellationToken);
+        return true;
+    }
+
+    private static bool ForceRemint(DevelopmentTopology topology, string dataDirectory)
+    {
+        // Always rewrite the regional tree onto stable paths. Used when probes already
+        // observed x509 failures so recovery does not depend solely on NotAfter survey.
+        DevelopmentPki.Create(topology, dataDirectory);
+        return true;
+    }
+
+    private static bool LooksLikeCertificateFailure(string detail)
+    {
+        // Match x509 verification failures only. Broader TLS connect errors are often
+        // transient during intentional restarts and must not force a full PKI remint.
+        return detail.Contains("certificate has expired", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("certificate is not yet valid", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("failed to verify certificate", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("remote certificate is invalid", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task RestartAfterPkiRemintAsync(

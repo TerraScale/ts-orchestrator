@@ -246,6 +246,70 @@ public sealed class DevelopmentNatsSecurityTests
     }
 
     [Test]
+    public async Task RemintPublishesOntoStablePathsWithoutLeavingStagingResidue()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-atomic-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+            var operatorTls = security.Cell("gru").Tls.Control.Clients["operator-read"];
+            var stableCertPath = operatorTls.CertificateFile;
+            var stableKeyPath = operatorTls.KeyFile;
+            var stableCaPath = operatorTls.CaFile;
+            await Assert.That(stableCertPath.Contains(
+                    Path.Combine("credentials", "pki"),
+                    StringComparison.Ordinal))
+                .IsTrue();
+            await Assert.That(stableCertPath.Contains(".pki-staging-", StringComparison.Ordinal))
+                .IsFalse();
+            var originalCert = File.ReadAllText(stableCertPath);
+            using var before = X509Certificate2.CreateFromPemFile(stableCertPath, stableKeyPath);
+            var forceRemintAt = before.NotAfter.ToUniversalTime() -
+                DevelopmentPki.LeafRenewalLeadTime +
+                TimeSpan.FromMinutes(1);
+
+            await Assert.That(DevelopmentPki.RemintLeavesIfNeeded(topology, directory, forceRemintAt))
+                .IsTrue();
+            await Assert.That(File.Exists(stableCertPath)).IsTrue();
+            await Assert.That(File.Exists(stableKeyPath)).IsTrue();
+            await Assert.That(File.Exists(stableCaPath)).IsTrue();
+            await Assert.That(File.ReadAllText(stableCertPath)).IsNotEqualTo(originalCert);
+            await Assert.That(Directory.GetDirectories(
+                    Path.Combine(directory, "credentials"),
+                    ".pki-staging-*",
+                    SearchOption.TopDirectoryOnly))
+                .IsEmpty();
+            await Assert.That(Directory.GetDirectories(
+                    Path.Combine(directory, "credentials"),
+                    ".pki-retired-*",
+                    SearchOption.TopDirectoryOnly))
+                .IsEmpty();
+            using var after = X509Certificate2.CreateFromPemFile(stableCertPath, stableKeyPath);
+            await Assert.That(after.NotAfter.ToUniversalTime() - DateTime.UtcNow)
+                .IsGreaterThan(DevelopmentPki.LeafRenewalLeadTime);
+            // Intermediate remains part of the remint survey surface.
+            var intermediatePath = Path.Combine(
+                Path.GetDirectoryName(stableCaPath)!,
+                "intermediate.pem");
+            using var intermediate = X509Certificate2.CreateFromPem(File.ReadAllText(intermediatePath));
+            await Assert.That(intermediate.NotAfter.ToUniversalTime())
+                .IsGreaterThan(after.NotAfter.ToUniversalTime());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task ExistingSeedOnlyNKeyIsUpgradedWithoutChangingItsIdentity()
     {
         if (!OperatingSystem.IsLinux())

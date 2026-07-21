@@ -38,61 +38,98 @@ internal static class DevelopmentPki
             throw new PlatformNotSupportedException("The Orchestrator development PKI requires Linux.");
         }
 
+        // Mint into a staging tree, then swap onto the stable PEM paths. A non-atomic
+        // wipe of credentials/pki mid-remint leaves operator-read (and every other
+        // leaf) missing for concurrent NATS handshakes, which surfaces as the same
+        // continuous-lab TLS failure mode as expiry.
         var root = Path.Combine(dataDirectory, "credentials", "pki");
-        RecreatePrivateDirectory(root);
-        // One issuance clock for the whole mint so every cert shares the same
-        // notBefore baseline; IntermediateLifetime strictly exceeds LeafLifetime.
-        var issuedAt = DateTimeOffset.UtcNow;
-        using var controlRoot = CreateRoot("TerraScale DevHost control root", issuedAt);
-        using var productRoot = CreateRoot("TerraScale DevHost product root", issuedAt);
-        var result = new Dictionary<string, DevelopmentNatsTlsSecurity>(StringComparer.Ordinal);
-
-        foreach (var cell in topology.Cells)
+        var credentialsRoot = Path.Combine(dataDirectory, "credentials");
+        Directory.CreateDirectory(credentialsRoot);
+        var staging = Path.Combine(
+            credentialsRoot,
+            $".pki-staging-{Environment.ProcessId}-{Guid.NewGuid():N}");
+        var retired = Path.Combine(
+            credentialsRoot,
+            $".pki-retired-{Environment.ProcessId}-{Guid.NewGuid():N}");
+        try
         {
-            var cellRoot = Path.Combine(root, cell.Cell);
-            RecreatePrivateDirectory(cellRoot);
-            using var controlIntermediate = CreateIntermediate(
-                controlRoot,
-                $"TerraScale {cell.Cell} control issuer",
-                issuedAt);
-            using var productIntermediate = CreateIntermediate(
-                productRoot,
-                $"TerraScale {cell.Cell} product issuer",
-                issuedAt);
-            var control = CreatePlane(
-                cell,
-                DevelopmentResourceKind.ControlNats,
-                "control",
-                controlRoot,
-                controlIntermediate,
-                cell.OfKind(DevelopmentResourceKind.ControllerAgent)
-                    .ToDictionary(
-                        resource => resource.Name,
-                        resource => (Role: "controller", Identity: resource.Name),
-                        StringComparer.Ordinal)
-                    .Append(new KeyValuePair<string, (string Role, string Identity)>(
-                        "operator-read",
-                        ("operator", "operator-read")))
-                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
-                cellRoot,
-                issuedAt);
-            var product = CreatePlane(
-                cell,
-                DevelopmentResourceKind.ProductNats,
-                "product",
-                productRoot,
-                productIntermediate,
-                cell.OfKind(DevelopmentResourceKind.Platform)
-                    .ToDictionary(
-                        resource => resource.Name,
-                        resource => (Role: "workload", Identity: resource.Name),
-                        StringComparer.Ordinal),
-                cellRoot,
-                issuedAt);
-            result.Add(cell.Cell, new DevelopmentNatsTlsSecurity(control, product));
-        }
+            RecreatePrivateDirectory(staging);
+            // One issuance clock for the whole mint so every cert shares the same
+            // notBefore baseline; IntermediateLifetime strictly exceeds LeafLifetime.
+            var issuedAt = DateTimeOffset.UtcNow;
+            using var controlRoot = CreateRoot("TerraScale DevHost control root", issuedAt);
+            using var productRoot = CreateRoot("TerraScale DevHost product root", issuedAt);
+            var result = new Dictionary<string, DevelopmentNatsTlsSecurity>(StringComparer.Ordinal);
 
-        return result;
+            foreach (var cell in topology.Cells)
+            {
+                var cellRoot = Path.Combine(staging, cell.Cell);
+                RecreatePrivateDirectory(cellRoot);
+                using var controlIntermediate = CreateIntermediate(
+                    controlRoot,
+                    $"TerraScale {cell.Cell} control issuer",
+                    issuedAt);
+                using var productIntermediate = CreateIntermediate(
+                    productRoot,
+                    $"TerraScale {cell.Cell} product issuer",
+                    issuedAt);
+                var control = CreatePlane(
+                    cell,
+                    DevelopmentResourceKind.ControlNats,
+                    "control",
+                    controlRoot,
+                    controlIntermediate,
+                    cell.OfKind(DevelopmentResourceKind.ControllerAgent)
+                        .ToDictionary(
+                            resource => resource.Name,
+                            resource => (Role: "controller", Identity: resource.Name),
+                            StringComparer.Ordinal)
+                        .Append(new KeyValuePair<string, (string Role, string Identity)>(
+                            "operator-read",
+                            ("operator", "operator-read")))
+                        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                    cellRoot,
+                    issuedAt);
+                var product = CreatePlane(
+                    cell,
+                    DevelopmentResourceKind.ProductNats,
+                    "product",
+                    productRoot,
+                    productIntermediate,
+                    cell.OfKind(DevelopmentResourceKind.Platform)
+                        .ToDictionary(
+                            resource => resource.Name,
+                            resource => (Role: "workload", Identity: resource.Name),
+                            StringComparer.Ordinal),
+                    cellRoot,
+                    issuedAt);
+                // Rewrite identity paths from staging to the stable published root so
+                // callers keep using credentials/pki/... after the atomic swap.
+                result.Add(
+                    cell.Cell,
+                    RelocateTlsSecurity(new DevelopmentNatsTlsSecurity(control, product), staging, root));
+            }
+
+            PublishPkiTree(staging, root, retired);
+            return result;
+        }
+        finally
+        {
+            // PublishPkiTree removes staging on success and restores root on failure.
+            // Only clean leftovers that are no longer the live credentials/pki tree.
+            if (Directory.Exists(staging) &&
+                !string.Equals(
+                    Path.GetFullPath(staging),
+                    Path.GetFullPath(root),
+                    StringComparison.Ordinal))
+            {
+                Directory.Delete(staging, recursive: true);
+            }
+            if (Directory.Exists(retired))
+            {
+                Directory.Delete(retired, recursive: true);
+            }
+        }
     }
 
     /// <summary>
@@ -148,12 +185,14 @@ internal static class DevelopmentPki
         foreach (var path in Directory.EnumerateFiles(root, "*.pem", SearchOption.AllDirectories))
         {
             var name = Path.GetFileName(path);
-            if (name.EndsWith(".key.pem", StringComparison.Ordinal) ||
-                name is "ca.pem" or "intermediate.pem")
+            if (name.EndsWith(".key.pem", StringComparison.Ordinal) || name is "ca.pem")
             {
                 continue;
             }
 
+            // Survey leaves and intermediate.pem. Intermediate private keys are not
+            // persisted, so an intermediate that ages out with (or before) its leaves
+            // still requires a full tree remint; skipping it would miss that window.
             sawLeaf = true;
             try
             {
@@ -184,6 +223,93 @@ internal static class DevelopmentPki
     }
 
     private readonly record struct LeafSurvey(DateTimeOffset? EarliestNotAfter, bool UnreadableLeaves);
+
+    private static void PublishPkiTree(string staging, string root, string retired)
+    {
+        if (Directory.Exists(retired))
+        {
+            Directory.Delete(retired, recursive: true);
+        }
+
+        var hadPrevious = Directory.Exists(root);
+        if (hadPrevious)
+        {
+            Directory.Move(root, retired);
+        }
+
+        try
+        {
+            Directory.Move(staging, root);
+        }
+        catch
+        {
+            // Restore the previous tree if the publish rename fails so callers keep
+            // whatever mTLS material was last known good.
+            if (hadPrevious && !Directory.Exists(root) && Directory.Exists(retired))
+            {
+                Directory.Move(retired, root);
+            }
+            throw;
+        }
+    }
+
+    private static DevelopmentNatsTlsSecurity RelocateTlsSecurity(
+        DevelopmentNatsTlsSecurity security,
+        string fromRoot,
+        string toRoot)
+    {
+        return new DevelopmentNatsTlsSecurity(
+            RelocatePlane(security.Control, fromRoot, toRoot),
+            RelocatePlane(security.Product, fromRoot, toRoot));
+    }
+
+    private static DevelopmentNatsTlsPlane RelocatePlane(
+        DevelopmentNatsTlsPlane plane,
+        string fromRoot,
+        string toRoot)
+    {
+        var servers = plane.Servers.ToDictionary(
+            pair => pair.Key,
+            pair => new DevelopmentNatsServerTlsIdentity(
+                RelocateIdentity(pair.Value.Client, fromRoot, toRoot),
+                RelocateIdentity(pair.Value.Route, fromRoot, toRoot)),
+            StringComparer.Ordinal);
+        var clients = plane.Clients.ToDictionary(
+            pair => pair.Key,
+            pair => RelocateIdentity(pair.Value, fromRoot, toRoot),
+            StringComparer.Ordinal);
+        return new DevelopmentNatsTlsPlane(servers, clients);
+    }
+
+    private static DevelopmentTlsIdentity RelocateIdentity(
+        DevelopmentTlsIdentity identity,
+        string fromRoot,
+        string toRoot)
+    {
+        return new DevelopmentTlsIdentity(
+            RelocatePath(identity.CertificateFile, fromRoot, toRoot),
+            RelocatePath(identity.KeyFile, fromRoot, toRoot),
+            RelocatePath(identity.CaFile, fromRoot, toRoot),
+            identity.SpiffeId);
+    }
+
+    private static string RelocatePath(string path, string fromRoot, string toRoot)
+    {
+        var full = Path.GetFullPath(path);
+        var from = Path.GetFullPath(fromRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!full.StartsWith(from + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+            !string.Equals(full, from, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Development PKI path '{path}' is outside staging root '{fromRoot}'.");
+        }
+
+        var relative = full[from.Length..].TrimStart(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+        return Path.Combine(toRoot, relative);
+    }
 
     private static DevelopmentNatsTlsPlane CreatePlane(
         DevelopmentCellPlan cell,
