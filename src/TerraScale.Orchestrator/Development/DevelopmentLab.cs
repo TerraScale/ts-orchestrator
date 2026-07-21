@@ -277,10 +277,11 @@ public static class DevelopmentLab
                         // Certificate-shaped unhealth, invalid reconnect leaf (operator-read,
                         // controllers, platforms), or near-expiry survey: never bare-restart
                         // mTLS consumers. RestartAsync alone recycled NATS while client PEMs
-                        // stayed expired (cid 29237 → 62 → 69 for CN=operator-read;
-                        // cid 29238 → 63 → 70 for CN=sfo-controller-1 on sfo-control-nats-1;
-                        // cid 29238 → 32 → 63 → 70 for CN=gru-controller-1 on
-                        // gru-control-nats-1, fingerprint c2bf6b539a62…).
+                        // stayed expired (cid 29237 → 62 → 69 for CN=operator-read on
+                        // gru/sfo-control-nats; cid 29237 → 63 → 68 for CN=operator-read on
+                        // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
+                        // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
+                        // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
@@ -425,9 +426,11 @@ public static class DevelopmentLab
     /// leaf stays expired re-emits multi-occurrence server logs
     /// (fingerprint f490b625… / sfo-control-nats CN=sfo-controller-1 cid 29238 → 63 → 70,
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
-    /// and the e517701a… operator-read twin). Product NATS is analogous for platform leaves.
+    /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
+    /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
+    /// Product NATS is analogous for platform leaves.
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
-    /// gru/sfo/fra controller-only expiry cannot fall through to bare NATS recycle.
+    /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS recycle.
     /// </summary>
     internal static bool ResourceHasInvalidTlsLeaf(
         DevelopmentTopology topology,

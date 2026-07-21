@@ -500,6 +500,35 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact fra-control-nats / CN=operator-read multi-occurrence shape (fingerprint
+        // 9a811bb8b959…): same NotAfter (18:45:24Z) as the gru/sfo operator-read twins,
+        // with a distinct cid recycle (29237 → 63 → 68 at 18:45:34Z / 18:48:34Z /
+        // 18:50:34Z) against the fra control issuer and the 6477b788… operator-read leaf.
+        // Health probes present operator-read every cycle; bare RestartAsync of NATS while
+        // that PEM stays expired re-emits every reconnect. Recovery must match every
+        // occurrence and force remint from invalid on-disk probe leaves for every cell,
+        // not only gru/sfo.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:45:34.134763 [ERR] 127.0.0.1:55294 - cid:29237 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:48:34.475736 [ERR] 127.0.0.1:40558 - cid:63 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:50:34.256251 [ERR] 127.0.0.1:51904 - cid:68 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         // Pre-connect leaf refusal must still feed force-remint (same recovery path as
         // post-connect FormatProbeFailure annotations).
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -521,11 +550,46 @@ public sealed class DevelopmentNatsSecurityTests
         // When that leaf is already past NotAfter, ResourceHasInvalidTlsLeaf must be true
         // for sfo-control-nats-1 so the consecutive-unhealthy path force-remints instead of
         // bare RestartAsync (cid recycle 29237 → 62 → 69).
+        await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("sfo");
+    }
+
+    [Test]
+    public async Task InvalidOperatorReadLeafIsDetectedForGruControlNatsBeforeBareRestart()
+    {
+        // Fingerprint c6627a56bf45…: gru-control-nats health probes present operator-read.
+        // Same NotAfter window and bare-NATS-recycle storm as the sfo twin (cid 29237 → 62 →
+        // 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z). When only the gru operator-read PEM is
+        // past NotAfter, ResourceHasInvalidTlsLeaf must still be true for gru-control-nats-1
+        // so force-remint runs instead of bare RestartAsync.
+        await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("gru");
+    }
+
+    [Test]
+    public async Task InvalidOperatorReadLeafIsDetectedForFraControlNatsBeforeBareRestart()
+    {
+        // Fingerprint 9a811bb8b959…: fra-control-nats health probes present operator-read.
+        // Same NotAfter (18:45:24Z) as the gru/sfo twins, with cid recycle 29237 → 63 → 68
+        // at 18:45:34Z / 18:48:34Z / 18:50:34Z against the 6477b788… leaf. When only the
+        // fra operator-read PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be
+        // true for fra-control-nats-1 so force-remint runs instead of bare RestartAsync.
+        await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("fra");
+    }
+
+    private static async Task AssertInvalidOperatorReadLeafForcesRemintForCellAsync(string cell)
+    {
         if (!OperatingSystem.IsLinux())
         {
             return;
         }
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-sfo-operator-leaf-{Guid.NewGuid():N}");
+
+        var controlNatsName = $"{cell}-control-nats-1";
+        var platformName = $"{cell}-platform";
+        var otherCells = new[] { "gru", "sfo", "fra" }
+            .Where(candidate => !string.Equals(candidate, cell, StringComparison.Ordinal))
+            .ToArray();
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"ts-orch-{cell}-operator-leaf-{Guid.NewGuid():N}");
         try
         {
             var topology = DevelopmentTopology.CreateThreeCellLean();
@@ -533,19 +597,19 @@ public sealed class DevelopmentNatsSecurityTests
 
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsFalse();
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsFalse();
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, "sfo-control-nats-1")!.SpiffeId)
-                .IsEqualTo("spiffe://terrascale.tech/cell/sfo/operator/operator-read");
+                    topology, security, controlNatsName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/operator/operator-read");
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, "sfo-platform")!.SpiffeId)
-                .IsEqualTo("spiffe://terrascale.tech/cell/sfo/workload/sfo-platform");
+                    topology, security, platformName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
                     topology, security, "email-emulator"))
                 .IsNull();
 
-            var operatorTls = security.Cell("sfo").Tls.Control.Clients["operator-read"];
+            var operatorTls = security.Cell(cell).Tls.Control.Clients["operator-read"];
             using (var ecdsa = System.Security.Cryptography.ECDsa.Create(
                        System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
             {
@@ -560,16 +624,23 @@ public sealed class DevelopmentNatsSecurityTests
             }
 
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsTrue();
             // Other cells still have valid operator-read leaves; AnyProbe must still trip
-            // because sfo's probe identity is invalid.
+            // because this cell's probe identity is invalid.
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
+            foreach (var other in otherCells)
+            {
+                await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                        topology, security, $"{other}-control-nats-1"))
+                    .IsFalse();
+            }
+
             // A single deleted probe leaf must also force remint even when the NotAfter
             // survey of remaining siblings would still look healthy.
             File.Delete(operatorTls.CertificateFile);
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsTrue();
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
         }
