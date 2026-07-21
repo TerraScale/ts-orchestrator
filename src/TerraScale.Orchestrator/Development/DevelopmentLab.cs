@@ -306,6 +306,12 @@ public static class DevelopmentLab
                         // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
                         // long-running sfo-platform reconnects while bare product-NATS
                         // RestartAsync reloads the same expired platform leaf;
+                        // cid 14635 → 67 → 37 → 38 → 50 → 44 for CN=sfo-platform on sfo-product-nats-1,
+                        // fingerprint 77220dace263… — denser six-occurrence twin of b1723b879b59…
+                        // against the same a914ebca… leaf at 18:45:40Z / 18:46:40Z / 18:47:40Z
+                        // (dual cid 37+38) / 18:48:40Z / 18:50:40Z: long-running sfo-platform
+                        // reconnects while bare product-NATS RestartAsync reloads the same
+                        // expired platform leaf;
                         // cid 14635 → 38 → 50 → 44 for CN=gru-platform on gru-product-nats-1,
                         // fingerprint 54fea6c92b78… — denser four-occurrence twin of
                         // 57ae70882ed5… against the same 6b500765… leaf at 18:45:40Z /
@@ -472,7 +478,10 @@ public static class DevelopmentLab
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf
     /// — denser four-occurrence twin of 57ae70882ed5…;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
-    /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z).
+    /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z;
+    /// fingerprint 77220dace263… / sfo-product-nats CN=sfo-platform cid 14635 → 67 → 37 → 38 → 50 → 44
+    /// at 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
+    /// a914ebca… leaf — denser six-occurrence twin of b1723b879b59…).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
     /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
     /// recycle; product plane surveys every product client (platforms) the same way.
