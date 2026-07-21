@@ -289,7 +289,11 @@ public static class DevelopmentLab
                         // cid 14634 → 63 → 50 → 43 for CN=fra-platform on fra-product-nats-1,
                         // fingerprint 25ef0004168c… — product-plane twin: platform process
                         // reconnects while bare product-NATS RestartAsync reloads the same
-                        // expired leaf).
+                        // expired leaf;
+                        // cid 14634 → 63 → 34 → 49 → 43 for CN=sfo-platform on sfo-product-nats-1,
+                        // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
+                        // long-running sfo-platform reconnects while bare product-NATS
+                        // RestartAsync reloads the same expired platform leaf).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
@@ -440,7 +444,9 @@ public static class DevelopmentLab
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
-    /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…).
+    /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…;
+    /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
+    /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
     /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
     /// recycle; product plane surveys every product client (platforms) the same way.

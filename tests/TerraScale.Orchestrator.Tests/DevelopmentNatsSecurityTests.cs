@@ -380,6 +380,52 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
                 "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
             .IsTrue();
+        // Exact sfo-product-nats / CN=sfo-platform multi-occurrence shape (fingerprint
+        // b1723b879b59…): same NotAfter (18:45:24Z) as the fra-platform product-plane twin
+        // (25ef0004168c…), with cid recycle 14634 → 63 → 34 → 49 → 43 at 18:45:34Z /
+        // 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z against the a914ebca… leaf and the
+        // sfo product issuer. The long-running sfo-platform process (not the HTTP health
+        // path) presents the product leaf; platform /health/ready can stay green while
+        // product NATS logs every reconnect, and bare RestartAsync of product NATS while
+        // the platform PEM stays expired re-emits every reconnect. Recovery must match
+        // every occurrence and force remint from invalid product-plane client leaves
+        // (platforms) on the NATS resource for every cell — bare RestartAsync of product
+        // NATS alone reloads the same expired PEM.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:45:34.135787 [ERR] 127.0.0.1:50184 - cid:14634 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:46:34.482478 [ERR] 127.0.0.1:59092 - cid:63 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:47:34.318498 [ERR] 127.0.0.1:43072 - cid:34 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:48:34.475349 [ERR] 127.0.0.1:55720 - cid:49 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:50:34.253808 [ERR] 127.0.0.1:56280 - cid:43 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
         // Control-plane twin: CN=fra-controller-1 against fra-control-nats (same NotAfter
         // window as the continuous-lab remint race that must stop NATS before clients
         // finish draining, otherwise server logs keep recording expired handshakes).
@@ -872,8 +918,13 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForSfoProductNatsBeforeBareRestart()
     {
-        // sfo product-plane twin: platform-only expiry on sfo-product-nats-1 must force remint
-        // cell-locally without falling through to bare NATS recycle.
+        // Fingerprint b1723b879b59…: sfo-platform presents the product leaf. Same NotAfter
+        // (18:45:24Z) as the fra twin (25ef0004168c…), with cid recycle 14634 → 63 → 34 → 49 →
+        // 43 at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z against the a914ebca…
+        // leaf. When only that PEM is past NotAfter, ResourceHasInvalidTlsLeaf must be true for
+        // both sfo-platform and sfo-product-nats-1 so force-remint runs instead of bare
+        // product-NATS RestartAsync. Platform HTTP /health/ready can stay green; product-plane
+        // recovery must not rely on that path alone.
         await AssertInvalidPlatformLeafForcesRemintForCellAsync("sfo");
     }
 
