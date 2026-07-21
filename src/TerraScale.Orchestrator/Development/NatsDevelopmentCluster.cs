@@ -174,6 +174,20 @@ internal static class NatsDevelopmentCluster
         timeout.CancelAfter(TimeSpan.FromMinutes(2));
         foreach (var resource in resources)
         {
+            // Readiness probes use operator-read (control) or platform (product). An
+            // invalid on-disk leaf cannot become ready by retrying ConnectAsync; each
+            // attempt would only spam NATS with CN=operator-read / CN=*-platform
+            // certificate-expired handshake errors (the continuous-lab incident shape).
+            var probeTls = resource.Kind is DevelopmentResourceKind.ControlNats
+                ? security.Tls.Control.Clients["operator-read"]
+                : security.Tls.Product.Clients[$"{security.Cell}-platform"];
+            var leafStatus = DevelopmentHealthProbe.DescribeLeafValidity(probeTls.CertificateFile);
+            if (leafStatus is not null)
+            {
+                throw new InvalidOperationException(
+                    $"NATS readiness for {resource.Name} cannot proceed: {leafStatus}");
+            }
+
             while (true)
             {
                 supervisor.ThrowIfAnyExited();

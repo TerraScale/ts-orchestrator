@@ -357,6 +357,24 @@ public sealed class DevelopmentNatsSecurityTests
                 "[sfo-control-nats-1] TLS handshake error: tls: failed to verify certificate: " +
                 "x509: certificate has expired or is not yet valid (CN=operator-read)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=operator-read incident shape (fingerprint
+        // ffc463abefcb…): control-plane health probes present operator-read every
+        // cycle; when NotAfter elapses NATS logs this server-side line. Recovery must
+        // match it, and probes must refuse the leaf before ConnectAsync so this line
+        // is not re-emitted while remint restarts TLS consumers.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:45:28.171942 [ERR] 127.0.0.1:45714 - cid:29235 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:28Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        // Pre-connect leaf refusal must still feed force-remint (same recovery path as
+        // post-connect FormatProbeFailure annotations).
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: certificate has expired: current time 2026-07-21T18:45:28.0000000Z " +
+                "is after 2026-07-21T18:45:24.0000000Z"))
+            .IsTrue();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
             .IsFalse();
@@ -441,6 +459,8 @@ public sealed class DevelopmentNatsSecurityTests
             // Fresh leaves must not be annotated as expired on a generic connect failure.
             await Assert.That(DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile))
                 .IsNull();
+            await Assert.That(DevelopmentHealthProbe.TryInvalidLeafProbeFailure(operatorTls))
+                .IsNull();
             var freshDetail = DevelopmentHealthProbe.FormatProbeFailure(
                 new NATS.Client.Core.NatsException(
                     "can not start to connect nats server: nats://127.0.0.1:19000"),
@@ -457,9 +477,15 @@ public sealed class DevelopmentNatsSecurityTests
                     "can not start to connect nats server: nats://127.0.0.1:19000"),
                 operatorTls);
             await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingDetail)).IsTrue();
+            var missingRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(operatorTls);
+            await Assert.That(missingRefusal).IsNotNull();
+            await Assert.That(missingRefusal!.Healthy).IsFalse();
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingRefusal.Detail)).IsTrue();
 
             // An on-disk leaf that is already past NotAfter must annotate explicitly even when
-            // the outer NATS exception text is generic.
+            // the outer NATS exception text is generic — and pre-connect refusal must surface
+            // the same recovery trigger without calling ConnectAsync (no CN=operator-read
+            // server log from the probe itself).
             using (var ecdsa = System.Security.Cryptography.ECDsa.Create(
                        System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
             {
@@ -480,6 +506,12 @@ public sealed class DevelopmentNatsSecurityTests
                     "can not start to connect nats server: nats://127.0.0.1:19000"),
                 operatorTls);
             await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredDetail)).IsTrue();
+            var expiredRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(operatorTls);
+            await Assert.That(expiredRefusal).IsNotNull();
+            await Assert.That(expiredRefusal!.Healthy).IsFalse();
+            await Assert.That(expiredRefusal.Detail).Contains("Health probe failed:");
+            await Assert.That(expiredRefusal.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredRefusal.Detail)).IsTrue();
         }
         finally
         {

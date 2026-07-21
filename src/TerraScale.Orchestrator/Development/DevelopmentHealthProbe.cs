@@ -99,6 +99,25 @@ internal static class DevelopmentHealthProbe
         }
     }
 
+    /// <summary>
+    /// Returns an unhealthy probe result when the on-disk leaf must not be presented to
+    /// NATS (expired, not yet valid, missing, or unreadable). Callers use this before
+    /// <c>ConnectAsync</c> so control-plane health cycles cannot emit server-side
+    /// <c>TLS handshake error … CN=operator-read</c> lines while force-remint recovers.
+    /// </summary>
+    internal static DevelopmentResourceHealth? TryInvalidLeafProbeFailure(DevelopmentTlsIdentity identity)
+    {
+        var leafStatus = DescribeLeafValidity(identity.CertificateFile);
+        if (leafStatus is null)
+        {
+            return null;
+        }
+
+        // Prefix matches FormatProbeFailure so LooksLikeCertificateFailure and log
+        // scrapers see the same shape as a post-connect probe failure.
+        return new DevelopmentResourceHealth(false, $"Health probe failed: {leafStatus}");
+    }
+
     private static async Task<(string Name, DevelopmentResourceHealth Health)> ProbeOneAsync(
         DevelopmentTopology topology,
         DevelopmentResourcePlan resource,
@@ -122,6 +141,12 @@ internal static class DevelopmentHealthProbe
             {
                 case DevelopmentResourceKind.ControllerAgent:
                     probeTls = natsSecurity.Cell(resource.Cell).Tls.Control.Clients[resource.Name];
+                    // Refuse expired/missing controller leaves before ConnectAsync so NATS
+                    // never logs CN=*-controller-1 handshake failures from the probe path.
+                    if (TryInvalidLeafProbeFailure(probeTls) is { } controllerLeafFailure)
+                    {
+                        return (resource.Name, controllerLeafFailure);
+                    }
                     await ProbeControllerAsync(topology, resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Controller {process.Id} authority endpoint ready."));
                 case DevelopmentResourceKind.ControlNats:
@@ -129,6 +154,16 @@ internal static class DevelopmentHealthProbe
                     probeTls = resource.Kind is DevelopmentResourceKind.ControlNats
                         ? natsSecurity.Cell(resource.Cell).Tls.Control.Clients["operator-read"]
                         : natsSecurity.Cell(resource.Cell).Tls.Product.Clients[$"{resource.Cell}-platform"];
+                    // operator-read (control) and platform (product) probes are the only
+                    // in-process mTLS clients that present leaves every health cycle. When a
+                    // leaf is already past NotAfter, ConnectAsync produces the exact NATS
+                    // server log "TLS handshake error … CN=operator-read" that DevHost scrapes.
+                    // Fail the probe from on-disk validity instead so recovery can remint
+                    // without generating that server-side line.
+                    if (TryInvalidLeafProbeFailure(probeTls) is { } natsLeafFailure)
+                    {
+                        return (resource.Name, natsLeafFailure);
+                    }
                     await ProbeNatsAsync(resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Authenticated NATS endpoint {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
