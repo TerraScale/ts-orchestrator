@@ -1081,9 +1081,9 @@ public sealed class DevelopmentNatsSecurityTests
                 "is after 2026-07-21T18:45:24.0000000Z"))
             .IsTrue();
         // Fingerprint c05d3fee208c… (and control-NATS / product-NATS / controller twins
-        // including b0ca5ad6b00f… and 2c66150c157c…): orchestrator logged "Restarted
-        // unhealthy development resource gru-control-nats-1: Health probe failed: can not
-        // start to connect nats server: nats://127.0.0.1:18600" three times between
+        // including b0ca5ad6b00f…, 2c66150c157c…, and 666f072201a5…): orchestrator logged
+        // "Restarted unhealthy development resource gru-control-nats-1: Health probe failed:
+        // can not start to connect nats server: nats://127.0.0.1:18600" three times between
         // 18:45:41Z and 18:49:11Z. The outer NATS.Net text alone is intentionally not a
         // certificate-shaped match — remint must still win via
         // RequiresForceRemintOnPersistentUnhealth so bare RestartAsync cannot thrash NATS.
@@ -1099,6 +1099,11 @@ public sealed class DevelopmentNatsSecurityTests
         // gru-product-nats-1 :18620 three bare restarts between 18:45:42Z and 18:49:12Z.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18620"))
+            .IsFalse();
+        // Exact sfo product-plane twin (fingerprint 666f072201a5…): same outer text on
+        // sfo-product-nats-1 :18820 three bare restarts between 18:45:43Z and 18:49:13Z.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18820"))
             .IsFalse();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
@@ -1201,6 +1206,9 @@ public sealed class DevelopmentNatsSecurityTests
         // :18600): LooksLikeCertificateFailure is intentionally false for that outer text,
         // so recovery must still force remint via RequiresForceRemintOnPersistentUnhealth
         // and never log "Restarted unhealthy development resource gru-product-nats-1: …".
+        // Fingerprint 666f072201a5…: three bare restarts of sfo-product-nats-1 with only the
+        // outer probe detail "can not start to connect nats server: nats://127.0.0.1:18820"
+        // between 18:45:43Z and 18:49:13Z (sfo product twin of 2c66150c157c…).
         var topology = DevelopmentTopology.CreateThreeCellLean();
         foreach (var cell in new[] { "gru", "sfo", "fra" })
         {
@@ -1219,10 +1227,31 @@ public sealed class DevelopmentNatsSecurityTests
                 topology, "gru-product-nats-1"))
             .IsTrue();
 
+        // Exact orchestrator restart log detail that DevHost scrapes for 666f072201a5… —
+        // not certificate-shaped, but sfo product-NATS must still force remint.
+        const string sfoProductConnectFailure =
+            "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18820";
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(sfoProductConnectFailure))
+            .IsFalse();
+        await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
+                topology, "sfo-product-nats-1"))
+            .IsTrue();
+
+        // Full restart-log shape DevHost normalizes for this fingerprint (resource + detail).
+        const string sfoProductRestartLog =
+            "Restarted unhealthy development resource sfo-product-nats-1: " +
+            "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18820";
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(sfoProductRestartLog))
+            .IsFalse();
+        await Assert.That(sfoProductRestartLog.Contains(
+                "Restarted unhealthy development resource sfo-product-nats-1:",
+                StringComparison.Ordinal))
+            .IsTrue();
+
         // Sibling product endpoints that share the same bare-restart normalized shape.
         foreach (var endpoint in new[]
                  {
-                     ("sfo-product-nats-1", "nats://127.0.0.1:18820"),
+                     ("gru-product-nats-1", "nats://127.0.0.1:18620"),
                      ("fra-product-nats-1", "nats://127.0.0.1:19020")
                  })
         {
@@ -1354,11 +1383,12 @@ public sealed class DevelopmentNatsSecurityTests
     public async Task InvalidProductNatsServerLeafForcesRemintBeforeBareRestart()
     {
         // Product-plane twin of InvalidControlNatsServerLeafForcesRemintBeforeBareRestart
-        // (fingerprint 2c66150c157c…): health probes present the platform leaf, not the
-        // product NATS server Client/Route PEMs. An expired server leaf alone used to fall
-        // through to bare RestartAsync and the "can not start to connect nats server:
-        // nats://127.0.0.1:18620" thrash. EnumerateReconnectTlsIdentities must include
-        // product server Client/Route leaves for every product cell.
+        // (fingerprint 2c66150c157c… / 666f072201a5…): health probes present the platform
+        // leaf, not the product NATS server Client/Route PEMs. An expired server leaf alone
+        // used to fall through to bare RestartAsync and the "can not start to connect nats
+        // server: nats://127.0.0.1:18620" / ":18820" thrash. EnumerateReconnectTlsIdentities
+        // must include product server Client/Route leaves for every product cell
+        // (gru :18620, sfo :18820, fra :19020).
         if (!OperatingSystem.IsLinux())
         {
             return;
