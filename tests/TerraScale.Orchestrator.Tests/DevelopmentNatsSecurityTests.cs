@@ -565,6 +565,50 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=sfo-controller-1 multi-occurrence shape (fingerprint
+        // 9815ef5a…): same f56fe7a4… sfo-controller-1 leaf and sfo control issuer as
+        // f490b625…, with a denser cid recycle (29240 → 34 → 35 → 66 → 73 at 18:45:40Z /
+        // 18:47:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z, dual reconnect at 18:47:40Z). The
+        // long-running sfo-controller-1 process (not the operator-read probe) presents this
+        // leaf; bare RestartAsync of NATS while the controller PEM stays expired re-emits
+        // every reconnect. Recovery must match every occurrence and force remint from invalid
+        // control-plane client leaves (including controllers) on the NATS resource for every
+        // cell — bare RestartAsync of control NATS alone reloads the same expired PEM.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:45:40.092139 [ERR] 127.0.0.1:55370 - cid:29240 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:47:40.071730 [ERR] 127.0.0.1:34612 - cid:34 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:47:40.470050 [ERR] 127.0.0.1:34620 - cid:35 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:48:40.410764 [ERR] 127.0.0.1:51952 - cid:66 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:50:40.270161 [ERR] 127.0.0.1:41748 - cid:73 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
         // Exact gru-control-nats / CN=gru-controller-1 multi-occurrence shape (fingerprint
         // c2bf6b539a62…): same NotAfter (18:45:24Z) as the sfo controller twin, with an
         // extra mid-window reconnect (cid 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z /
@@ -1040,11 +1084,14 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidControllerLeafIsDetectedForSfoControlNatsBeforeBareRestart()
     {
-        // Fingerprint f490b625…: sfo-controller-1 (not operator-read) presents the control
-        // leaf. When only that PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be
-        // true for sfo-control-nats-1 so the consecutive-unhealthy path force-remints instead
-        // of bare RestartAsync (cid recycle 29238 → 63 → 70). Health probes alone would miss
-        // this because control-NATS probes present operator-read.
+        // Fingerprints f490b625… and 9815ef5a…: sfo-controller-1 (not operator-read) presents
+        // the control leaf. When only that PEM is past NotAfter, ResourceHasInvalidTlsLeaf
+        // must still be true for sfo-control-nats-1 so the consecutive-unhealthy path
+        // force-remints instead of bare RestartAsync (cid recycle 29238 → 63 → 70 at
+        // 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 34 → 35 → 66 → 73 at
+        // 18:45:40Z / 18:47:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
+        // f56fe7a4… leaf, dual reconnect at 18:47:40Z). Health probes alone would miss this
+        // because control-NATS probes present operator-read.
         await AssertInvalidControllerLeafForcesRemintForCellAsync("sfo");
     }
 
