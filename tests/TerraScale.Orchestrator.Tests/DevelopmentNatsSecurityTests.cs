@@ -80,6 +80,8 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(leafRemaining).IsGreaterThan(TimeSpan.FromDays(7));
             await Assert.That(leafRemaining)
                 .IsLessThanOrEqualTo(DevelopmentPki.LeafLifetime + TimeSpan.FromMinutes(1));
+            await Assert.That(DevelopmentPki.IntermediateLifetime)
+                .IsGreaterThan(DevelopmentPki.LeafLifetime);
             await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
                 .IsFalse();
             var earliest = DevelopmentPki.TryGetEarliestLeafNotAfter(directory);
@@ -110,6 +112,15 @@ public sealed class DevelopmentNatsSecurityTests
                 serverTls.Client.KeyFile);
             var serverRemaining = serverCertificate.NotAfter.ToUniversalTime() - DateTime.UtcNow;
             await Assert.That(serverRemaining).IsGreaterThan(TimeSpan.FromDays(7));
+            // Intermediate must strictly outlive the leaf so chain creation cannot
+            // fail when wall-clock advances between issuer and leaf issuance.
+            var intermediatePemPath = Path.Combine(
+                Path.GetDirectoryName(serverTls.Client.CaFile)!,
+                "intermediate.pem");
+            using var intermediateCertificate = X509Certificate2.CreateFromPem(
+                File.ReadAllText(intermediatePemPath));
+            await Assert.That(intermediateCertificate.NotAfter.ToUniversalTime())
+                .IsGreaterThan(serverCertificate.NotAfter.ToUniversalTime());
 
             using var platformCertificate = X509Certificate2.CreateFromPemFile(
                 gru.Tls.Product.Clients["gru-platform"].CertificateFile,
@@ -177,6 +188,53 @@ public sealed class DevelopmentNatsSecurityTests
             // NKey and product password material must survive a PKI-only remint.
             await Assert.That(File.Exists(security.Cell("gru").Operator.SeedFile)).IsTrue();
             await Assert.That(security.Cell("gru").Product.Username).IsEqualTo("product-gru");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task UnreadableLeafPemForcesRemintEvenWhenSiblingsRemainValid()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-corrupt-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+            var platform = security.Cell("gru").Tls.Product.Clients["gru-platform"];
+            var originalCert = File.ReadAllText(platform.CertificateFile);
+
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
+                .IsFalse();
+
+            // One corrupt leaf must not be masked by healthy siblings: NATS would keep
+            // rejecting that identity until the whole regional tree is reminted.
+            File.WriteAllText(platform.CertificateFile, "not-a-certificate\n");
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
+                .IsTrue();
+            await Assert.That(DevelopmentPki.RemintLeavesIfNeeded(
+                    topology,
+                    directory,
+                    DateTimeOffset.UtcNow))
+                .IsTrue();
+            await Assert.That(File.ReadAllText(platform.CertificateFile)).IsNotEqualTo(originalCert);
+            await Assert.That(File.ReadAllText(platform.CertificateFile)).DoesNotContain("not-a-certificate");
+            using var restored = X509Certificate2.CreateFromPemFile(
+                platform.CertificateFile,
+                platform.KeyFile);
+            await Assert.That(restored.NotAfter.ToUniversalTime() - DateTime.UtcNow)
+                .IsGreaterThan(DevelopmentPki.LeafRenewalLeadTime);
+            await Assert.That(DevelopmentPki.LeavesNeedRemint(directory, DateTimeOffset.UtcNow))
+                .IsFalse();
         }
         finally
         {

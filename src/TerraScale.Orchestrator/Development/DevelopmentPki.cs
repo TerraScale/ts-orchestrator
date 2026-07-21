@@ -10,10 +10,13 @@ internal static class DevelopmentPki
     // outlive a single leaf NotAfter; without remint, health-driven restarts keep
     // loading expired PEMs and every NATS handshake fails. Leaves therefore use a
     // multi-week lifetime, and the lab remints when remaining validity drops below
-    // one-third of LeafLifetime (production-style renewal lead time). Full issuer
-    // rotation with dual trust bundles remains a production qualification gate.
+    // one-third of LeafLifetime (production-style renewal lead time). Intermediate
+    // lifetime strictly outlives leaf lifetime so chain creation cannot fail when
+    // wall-clock advances between issuer and leaf issuance. Full dual-bundle issuer
+    // rotation remains a production qualification gate; remint rewrites the whole
+    // regional tree onto stable PEM paths and restarts TLS consumers.
     internal static readonly TimeSpan RootLifetime = TimeSpan.FromDays(365);
-    internal static readonly TimeSpan IntermediateLifetime = TimeSpan.FromDays(30);
+    internal static readonly TimeSpan IntermediateLifetime = TimeSpan.FromDays(90);
     internal static readonly TimeSpan LeafLifetime = TimeSpan.FromDays(30);
     // Renew when less than one-third of the leaf lifetime remains.
     internal static readonly TimeSpan LeafRenewalLeadTime = TimeSpan.FromTicks(LeafLifetime.Ticks / 3);
@@ -37,8 +40,8 @@ internal static class DevelopmentPki
 
         var root = Path.Combine(dataDirectory, "credentials", "pki");
         RecreatePrivateDirectory(root);
-        // One issuance clock for the whole mint so leaf NotAfter cannot drift past
-        // intermediate NotAfter when IntermediateLifetime == LeafLifetime.
+        // One issuance clock for the whole mint so every cert shares the same
+        // notBefore baseline; IntermediateLifetime strictly exceeds LeafLifetime.
         var issuedAt = DateTimeOffset.UtcNow;
         using var controlRoot = CreateRoot("TerraScale DevHost control root", issuedAt);
         using var productRoot = CreateRoot("TerraScale DevHost product root", issuedAt);
@@ -93,24 +96,26 @@ internal static class DevelopmentPki
     }
 
     /// <summary>
-    /// Returns true when any on-disk leaf is missing, already expired, or within
-    /// <see cref="LeafRenewalLeadTime"/> of NotAfter. Callers that remint must also
-    /// restart processes that loaded the previous PEMs into memory.
+    /// Returns true when any on-disk leaf is missing, unreadable, already expired, or
+    /// within <see cref="LeafRenewalLeadTime"/> of NotAfter. Callers that remint must
+    /// also restart processes that loaded the previous PEMs into memory.
     /// </summary>
     internal static bool LeavesNeedRemint(string dataDirectory, DateTimeOffset utcNow)
     {
-        var earliest = TryGetEarliestLeafNotAfter(dataDirectory);
-        if (earliest is null)
+        var survey = SurveyLeaves(dataDirectory);
+        if (survey.UnreadableLeaves || survey.EarliestNotAfter is null)
         {
             return true;
         }
 
-        return earliest.Value <= utcNow + LeafRenewalLeadTime;
+        return survey.EarliestNotAfter.Value <= utcNow + LeafRenewalLeadTime;
     }
 
     /// <summary>
     /// Remints the full regional PKI when <see cref="LeavesNeedRemint"/> is true.
     /// PEM paths are stable; NKey and product password material is left untouched.
+    /// Intermediate private keys are not persisted, so remint rewrites the whole
+    /// trust tree (roots, intermediates, and leaves) onto the same paths.
     /// </summary>
     internal static bool RemintLeavesIfNeeded(
         DevelopmentTopology topology,
@@ -126,15 +131,20 @@ internal static class DevelopmentPki
         return true;
     }
 
-    internal static DateTimeOffset? TryGetEarliestLeafNotAfter(string dataDirectory)
+    internal static DateTimeOffset? TryGetEarliestLeafNotAfter(string dataDirectory) =>
+        SurveyLeaves(dataDirectory).EarliestNotAfter;
+
+    private static LeafSurvey SurveyLeaves(string dataDirectory)
     {
         var root = Path.Combine(dataDirectory, "credentials", "pki");
         if (!Directory.Exists(root))
         {
-            return null;
+            return new LeafSurvey(EarliestNotAfter: null, UnreadableLeaves: false);
         }
 
         DateTimeOffset? earliest = null;
+        var sawLeaf = false;
+        var unreadable = false;
         foreach (var path in Directory.EnumerateFiles(root, "*.pem", SearchOption.AllDirectories))
         {
             var name = Path.GetFileName(path);
@@ -144,11 +154,14 @@ internal static class DevelopmentPki
                 continue;
             }
 
+            sawLeaf = true;
             try
             {
                 // Leaf PEMs are written as leaf + intermediate; CreateFromPem takes the first cert.
                 using var certificate = X509Certificate2.CreateFromPem(File.ReadAllText(path));
-                var notAfter = certificate.NotAfter.ToUniversalTime();
+                // NotAfter is local DateTime on some runtimes; normalize to UTC offset.
+                var notAfter = new DateTimeOffset(
+                    DateTime.SpecifyKind(certificate.NotAfter.ToUniversalTime(), DateTimeKind.Utc));
                 if (earliest is null || notAfter < earliest.Value)
                 {
                     earliest = notAfter;
@@ -157,13 +170,20 @@ internal static class DevelopmentPki
             catch (Exception exception) when (
                 exception is CryptographicException or ArgumentException or IOException)
             {
-                // Unreadable material is treated as requiring a remint by the caller
-                // that sees a null earliest after filtering; skip individual bad files.
+                // A single corrupt leaf still breaks its NATS identity; force remint.
+                unreadable = true;
             }
         }
 
-        return earliest;
+        if (!sawLeaf)
+        {
+            return new LeafSurvey(EarliestNotAfter: null, UnreadableLeaves: false);
+        }
+
+        return new LeafSurvey(earliest, unreadable);
     }
+
+    private readonly record struct LeafSurvey(DateTimeOffset? EarliestNotAfter, bool UnreadableLeaves);
 
     private static DevelopmentNatsTlsPlane CreatePlane(
         DevelopmentCellPlan cell,
@@ -353,8 +373,7 @@ internal static class DevelopmentPki
         {
             throw new PlatformNotSupportedException("The Orchestrator development PKI requires Linux.");
         }
-        File.WriteAllText(path, content);
-        File.SetUnixFileMode(path, PrivateMode);
+        WriteAtomically(path, content, PrivateMode);
     }
 
     private static void WritePublic(string path, string content)
@@ -363,7 +382,31 @@ internal static class DevelopmentPki
         {
             throw new PlatformNotSupportedException("The Orchestrator development PKI requires Linux.");
         }
-        File.WriteAllText(path, content);
-        File.SetUnixFileMode(path, PublicMode);
+        WriteAtomically(path, content, PublicMode);
+    }
+
+    private static void WriteAtomically(string path, string content, UnixFileMode mode)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new PlatformNotSupportedException("The Orchestrator development PKI requires Linux.");
+        }
+
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException($"Certificate path '{path}' has no directory.");
+        var temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.WriteAllText(temporary, content);
+            File.SetUnixFileMode(temporary, mode);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+            {
+                File.Delete(temporary);
+            }
+        }
     }
 }
