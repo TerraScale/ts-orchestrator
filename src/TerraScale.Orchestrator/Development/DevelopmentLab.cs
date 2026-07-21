@@ -353,13 +353,15 @@ public static class DevelopmentLab
                         //
                         // Plain "can not start to connect nats server" (fingerprint
                         // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
-                        // bare restarts; fingerprint 2c66150c157c… / gru-product-nats-1 at
-                        // 18:45:42Z / 18:49:12Z three bare restarts on nats://127.0.0.1:18620;
-                        // fingerprint 7bead2653aa7… / gru-controller-1 at 18:45:42Z /
-                        // 18:49:12Z three bare restarts with the same outer text on
-                        // nats://127.0.0.1:18600; twins on every cell's product NATS and
-                        // controller) is the client-side outer NATS.Net message when
-                        // handshakes fail or the listener is mid-recycle.
+                        // bare restarts on nats://127.0.0.1:18600; fingerprint b0ca5ad6b00f…
+                        // / sfo-control-nats-1 at 18:45:42Z / 18:49:12Z three bare restarts
+                        // on nats://127.0.0.1:18800; fingerprint 2c66150c157c… /
+                        // gru-product-nats-1 at 18:45:42Z / 18:49:12Z three bare restarts on
+                        // nats://127.0.0.1:18620; fingerprint 7bead2653aa7… / gru-controller-1
+                        // at 18:45:42Z / 18:49:12Z three bare restarts with the same outer
+                        // text on nats://127.0.0.1:18600; twins on every cell's control NATS,
+                        // product NATS, and controller) is the client-side outer NATS.Net
+                        // message when handshakes fail or the listener is mid-recycle.
                         // LooksLikeCertificateFailure is false for that outer text alone,
                         // so the cert-shaped branch above can miss it. Control/product NATS
                         // and controllers must never bare-RestartAsync on persistent
@@ -599,12 +601,13 @@ public static class DevelopmentLab
     /// Control/product NATS and controllers must force remint on persistent unhealth even
     /// when the probe detail is only the outer NATS.Net text
     /// <c>can not start to connect nats server: nats://…</c> (fingerprint c05d3fee208c… /
-    /// gru-control-nats-1 three bare restarts on :18600; fingerprint 2c66150c157c… /
+    /// gru-control-nats-1 three bare restarts on :18600; fingerprint b0ca5ad6b00f… /
+    /// sfo-control-nats-1 three bare restarts on :18800; fingerprint 2c66150c157c… /
     /// gru-product-nats-1 three bare restarts on :18620; fingerprint 7bead2653aa7… /
     /// gru-controller-1 three bare restarts with the same outer text on :18600; sfo/fra
-    /// product-NATS and every cell's controller twins). Bare RestartAsync of a single NATS
-    /// member or controller reloads the same PEMs and does not WaitReadyAsync for
-    /// dependents, producing multi-minute thrash. Platforms keep HTTP bare-restart for
+    /// control-NATS, product-NATS, and every cell's controller twins). Bare RestartAsync of
+    /// a single NATS member or controller reloads the same PEMs and does not WaitReadyAsync
+    /// for dependents, producing multi-minute thrash. Platforms keep HTTP bare-restart for
     /// non-TLS app failures; their product-leaf expiry is already covered by
     /// <see cref="ResourceHasInvalidTlsLeaf"/>.
     /// </summary>
@@ -623,7 +626,8 @@ public static class DevelopmentLab
     /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform,
     /// plus the NATS server's client-facing and route leaves so an expired server PEM alone
     /// still force-remints (plain connect failures otherwise look non-cert shaped —
-    /// c05d3fee208c… control, 2c66150c157c… product, 7bead2653aa7… controller).
+    /// c05d3fee208c… / b0ca5ad6b00f… control, 2c66150c157c… product, 7bead2653aa7…
+    /// controller).
     /// Control NATS includes operator-read and every controller in the cell so an expired
     /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
     /// and denser twin 782d6308…, fra 91b5b852… and denser twin ffcef075c58c…) alone still
