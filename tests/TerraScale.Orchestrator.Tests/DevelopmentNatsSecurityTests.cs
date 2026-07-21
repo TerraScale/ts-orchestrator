@@ -74,6 +74,12 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(certificate.HasPrivateKey).IsTrue();
             await Assert.That(certificate.Extensions["2.5.29.17"]!.Format(false))
                 .Contains(operatorTls.SpiffeId);
+            // Continuous DevHost labs do not rotate leaves; a 24-hour NotAfter
+            // previously expired mid-generation and broke NATS mTLS probes.
+            var leafRemaining = certificate.NotAfter.ToUniversalTime() - DateTime.UtcNow;
+            await Assert.That(leafRemaining).IsGreaterThan(TimeSpan.FromDays(7));
+            await Assert.That(leafRemaining)
+                .IsLessThanOrEqualTo(DevelopmentPki.LeafLifetime + TimeSpan.FromMinutes(1));
             var resolved = NatsTlsFiles.Resolve(
                 operatorTls.CaFile,
                 operatorTls.CertificateFile,
@@ -86,6 +92,17 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(tlsConfiguration).Contains("verify: true");
             await Assert.That(tlsConfiguration).DoesNotContain("insecure");
             await Assert.That(serverTls.Client.SpiffeId).IsNotEqualTo(serverTls.Route.SpiffeId);
+            using var serverCertificate = X509Certificate2.CreateFromPemFile(
+                serverTls.Client.CertificateFile,
+                serverTls.Client.KeyFile);
+            var serverRemaining = serverCertificate.NotAfter.ToUniversalTime() - DateTime.UtcNow;
+            await Assert.That(serverRemaining).IsGreaterThan(TimeSpan.FromDays(7));
+
+            using var platformCertificate = X509Certificate2.CreateFromPemFile(
+                gru.Tls.Product.Clients["gru-platform"].CertificateFile,
+                gru.Tls.Product.Clients["gru-platform"].KeyFile);
+            var platformRemaining = platformCertificate.NotAfter.ToUniversalTime() - DateTime.UtcNow;
+            await Assert.That(platformRemaining).IsGreaterThan(TimeSpan.FromDays(7));
 
             var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
             var controlProbe = NatsDevelopmentCluster.ClientOptions(

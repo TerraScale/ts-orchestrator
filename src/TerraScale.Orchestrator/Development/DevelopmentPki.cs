@@ -6,6 +6,15 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentPki
 {
+    // DevHost mints the full regional PKI once per lab generation and does not
+    // rotate leaves in-process (rotation remains a production qualification gate).
+    // Leaf validity must therefore outlast a continuous multi-day lab generation;
+    // a 24-hour leaf caused mTLS handshakes to fail exactly one day after start.
+    internal static readonly TimeSpan RootLifetime = TimeSpan.FromDays(365);
+    internal static readonly TimeSpan IntermediateLifetime = TimeSpan.FromDays(30);
+    internal static readonly TimeSpan LeafLifetime = TimeSpan.FromDays(30);
+    private static readonly TimeSpan NotBeforeSkew = TimeSpan.FromMinutes(5);
+
     private const UnixFileMode DirectoryMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
     private const UnixFileMode PrivateMode =
@@ -131,19 +140,19 @@ internal static class DevelopmentPki
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = Request(commonName, key, certificateAuthority: true, serverAuth: false, clientAuth: false, null, null);
-        return request.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddMinutes(-5),
-            DateTimeOffset.UtcNow.AddYears(1));
+        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
+        return request.CreateSelfSigned(notBefore, notBefore + RootLifetime);
     }
 
     private static X509Certificate2 CreateIntermediate(X509Certificate2 root, string commonName)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var request = Request(commonName, key, certificateAuthority: true, serverAuth: false, clientAuth: false, null, null);
+        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
         using var certificate = request.Create(
             root,
-            DateTimeOffset.UtcNow.AddMinutes(-5),
-            DateTimeOffset.UtcNow.AddDays(30),
+            notBefore,
+            notBefore + IntermediateLifetime,
             Serial());
         return certificate.CopyWithPrivateKey(key);
     }
@@ -167,10 +176,11 @@ internal static class DevelopmentPki
             clientAuth,
             spiffeId,
             dnsName);
+        var notBefore = DateTimeOffset.UtcNow - NotBeforeSkew;
         using var certificate = request.Create(
             issuer,
-            DateTimeOffset.UtcNow.AddMinutes(-5),
-            DateTimeOffset.UtcNow.AddHours(24),
+            notBefore,
+            notBefore + LeafLifetime,
             Serial());
         var certificateFile = Path.Combine(directory, $"{filePrefix}.pem");
         var keyFile = Path.Combine(directory, $"{filePrefix}.key.pem");
