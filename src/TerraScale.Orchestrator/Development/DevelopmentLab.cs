@@ -302,6 +302,12 @@ public static class DevelopmentLab
                         // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
                         // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
+                        // cid 29240 → 58 → 35 → 65 → 67 → 42 → 73 for CN=gru-controller-1 on
+                        // gru-control-nats-1, fingerprint 782d6308… — denser seven-occurrence twin
+                        // of c2bf6b539a62… against the same d467c210… leaf at 18:45:40Z /
+                        // 18:46:40Z / 18:47:40Z / 18:48:40Z (dual cid 65+67) / 18:49:40Z /
+                        // 18:50:40Z: long-running gru-controller-1 reconnects while bare
+                        // control-NATS RestartAsync reloads the same expired controller leaf;
                         // cid 29238 → 62 → 69 → 70 for CN=fra-controller-1 on fra-control-nats-1,
                         // fingerprint 91b5b852… — fra twin of the sfo/gru controller storms:
                         // long-running fra-controller-1 reconnects while bare control-NATS
@@ -470,6 +476,9 @@ public static class DevelopmentLab
     /// leaf stays expired re-emits multi-occurrence server logs
     /// (fingerprint f490b625… / sfo-control-nats CN=sfo-controller-1 cid 29238 → 63 → 70,
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
+    /// fingerprint 782d6308… / gru-control-nats CN=gru-controller-1 cid 29240 → 58 → 35 → 65 → 67 → 42 → 73
+    /// at 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:48:40Z / 18:49:40Z / 18:50:40Z against
+    /// the same d467c210… leaf — denser seven-occurrence twin of c2bf6b539a62…,
     /// fingerprint 91b5b852… / fra-control-nats CN=fra-controller-1 cid 29238 → 62 → 69 → 70
     /// at 18:45:34Z / 18:48:34Z / 18:50:34Z,
     /// fingerprint c6627a56bf45… / gru-control-nats CN=operator-read cid 29237 → 62 → 69,
@@ -546,8 +555,8 @@ public static class DevelopmentLab
     /// Every client leaf that would re-handshake against <paramref name="resourceName"/> after a
     /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform.
     /// Control NATS includes operator-read and every controller in the cell so an expired
-    /// CN=*-controller-1 leaf (sfo f490b625…, gru c2bf6b539a62…, fra 91b5b852…) alone still
-    /// forces remint instead of NATS recycle.
+    /// CN=*-controller-1 leaf (sfo f490b625…, gru c2bf6b539a62… and denser twin 782d6308…,
+    /// fra 91b5b852…) alone still forces remint instead of NATS recycle.
     /// </summary>
     internal static IEnumerable<DevelopmentTlsIdentity> EnumerateReconnectTlsIdentities(
         DevelopmentTopology topology,
