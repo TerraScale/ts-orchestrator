@@ -654,6 +654,42 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=operator-read multi-occurrence shape (fingerprint
+        // f08d1c577176…): same aa00c1c3… operator-read leaf and sfo control issuer as
+        // e517701a2468…, with a denser cid recycle (29239 → 33 → 65 → 72 at 18:45:40Z /
+        // 18:47:40Z / 18:48:40Z / 18:50:40Z). This is the sfo twin of gru c48cbf142a9a…:
+        // health probes present operator-read every cycle; bare RestartAsync of NATS while
+        // that PEM stays expired re-emits every reconnect. Recovery must match every
+        // occurrence, skip startup grace for cert failures, and force remint from invalid
+        // on-disk probe leaves so the recycle loop cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:45:40.091257 [ERR] 127.0.0.1:55352 - cid:29239 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:47:40.071359 [ERR] 127.0.0.1:34600 - cid:33 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:48:40.409379 [ERR] 127.0.0.1:51940 - cid:65 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:50:40.268987 [ERR] 127.0.0.1:41716 - cid:72 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
         // Exact fra-control-nats / CN=operator-read multi-occurrence shape (fingerprint
         // 9a811bb8b959…): same NotAfter (18:45:24Z) as the gru/sfo operator-read twins,
         // with a distinct cid recycle (29237 → 63 → 68 at 18:45:34Z / 18:48:34Z /
@@ -700,10 +736,13 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidOperatorReadLeafIsDetectedForSfoControlNatsBeforeBareRestart()
     {
-        // Fingerprint e517701a2468…: sfo-control-nats health probes present operator-read.
-        // When that leaf is already past NotAfter, ResourceHasInvalidTlsLeaf must be true
-        // for sfo-control-nats-1 so the consecutive-unhealthy path force-remints instead of
-        // bare RestartAsync (cid recycle 29237 → 62 → 69).
+        // Fingerprints e517701a2468… and f08d1c577176…: sfo-control-nats health probes present
+        // operator-read. Same NotAfter window and bare-NATS-recycle storm as the gru twin
+        // (cid 29237 → 62 → 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29239 →
+        // 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
+        // aa00c1c3… leaf). When only the sfo operator-read PEM is past NotAfter,
+        // ResourceHasInvalidTlsLeaf must still be true for sfo-control-nats-1 so force-remint
+        // runs instead of bare RestartAsync.
         await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("sfo");
     }
 

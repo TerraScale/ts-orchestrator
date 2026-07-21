@@ -177,7 +177,8 @@ public static class DevelopmentLab
                     // surveys NotAfter across existing PEMs and can miss a single deleted leaf
                     // while siblings remain valid; force remint before ProbeAsync so the health
                     // cycle is not the first detector of an already-invalid operator-read PEM
-                    // (fingerprint e517701a… / sfo-control-nats multi-occurrence).
+                    // (fingerprint e517701a… / sfo-control-nats multi-occurrence and denser
+                    // twin f08d1c577176… cid 29239 → 33 → 65 → 72).
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
@@ -260,8 +261,10 @@ public static class DevelopmentLab
                         // every few minutes (fingerprint c6627a56bf45… / gru-control-nats,
                         // fingerprint c48cbf142a9a… / gru-control-nats four-occurrence twin
                         // cid 29239 → 34 → 66 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
-                        // 18:50:40Z against the same 4e40db2b… leaf, and e517701a… /
-                        // sfo-control-nats).
+                        // 18:50:40Z against the same 4e40db2b… leaf, e517701a… /
+                        // sfo-control-nats, and fingerprint f08d1c577176… / sfo-control-nats
+                        // four-occurrence twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
+                        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
                         if (!observationCertificateFailure &&
@@ -284,6 +287,9 @@ public static class DevelopmentLab
                         // gru/sfo-control-nats; cid 29239 → 34 → 66 → 72 for CN=operator-read on
                         // gru-control-nats-1, fingerprint c48cbf142a9a… — four-occurrence twin of
                         // c6627a56bf45… against the same 4e40db2b… leaf at 18:45:40Z / 18:47:40Z /
+                        // 18:48:40Z / 18:50:40Z; cid 29239 → 33 → 65 → 72 for CN=operator-read on
+                        // sfo-control-nats-1, fingerprint f08d1c577176… — four-occurrence twin of
+                        // e517701a… against the same aa00c1c3… leaf at 18:45:40Z / 18:47:40Z /
                         // 18:48:40Z / 18:50:40Z; cid 29237 → 63 → 68 for CN=operator-read on
                         // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
@@ -450,6 +456,8 @@ public static class DevelopmentLab
     /// fingerprint c48cbf142a9a… / gru-control-nats CN=operator-read cid 29239 → 34 → 66 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 4e40db2b… leaf,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
+    /// fingerprint f08d1c577176… / sfo-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
+    /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
