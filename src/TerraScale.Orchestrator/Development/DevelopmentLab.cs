@@ -277,8 +277,10 @@ public static class DevelopmentLab
                         // Certificate-shaped unhealth, invalid reconnect leaf (operator-read,
                         // controllers, platforms), or near-expiry survey: never bare-restart
                         // mTLS consumers. RestartAsync alone recycled NATS while client PEMs
-                        // stayed expired (cid 29237 → 62 → 69 for CN=operator-read and
-                        // cid 29238 → 63 → 70 for CN=sfo-controller-1 on sfo-control-nats-1).
+                        // stayed expired (cid 29237 → 62 → 69 for CN=operator-read;
+                        // cid 29238 → 63 → 70 for CN=sfo-controller-1 on sfo-control-nats-1;
+                        // cid 29238 → 32 → 63 → 70 for CN=gru-controller-1 on
+                        // gru-control-nats-1, fingerprint c2bf6b539a62…).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
@@ -422,7 +424,10 @@ public static class DevelopmentLab
     /// controllers also reconnect to that plane; bare RestartAsync of NATS while a controller
     /// leaf stays expired re-emits multi-occurrence server logs
     /// (fingerprint f490b625… / sfo-control-nats CN=sfo-controller-1 cid 29238 → 63 → 70,
+    /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
     /// and the e517701a… operator-read twin). Product NATS is analogous for platform leaves.
+    /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
+    /// gru/sfo/fra controller-only expiry cannot fall through to bare NATS recycle.
     /// </summary>
     internal static bool ResourceHasInvalidTlsLeaf(
         DevelopmentTopology topology,
@@ -474,7 +479,8 @@ public static class DevelopmentLab
     /// Every client leaf that would re-handshake against <paramref name="resourceName"/> after a
     /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform.
     /// Control NATS includes operator-read and every controller in the cell so an expired
-    /// CN=sfo-controller-1 leaf alone still forces remint instead of NATS recycle.
+    /// CN=*-controller-1 leaf (sfo f490b625…, gru c2bf6b539a62…, and fra twins) alone still
+    /// forces remint instead of NATS recycle.
     /// </summary>
     internal static IEnumerable<DevelopmentTlsIdentity> EnumerateReconnectTlsIdentities(
         DevelopmentTopology topology,

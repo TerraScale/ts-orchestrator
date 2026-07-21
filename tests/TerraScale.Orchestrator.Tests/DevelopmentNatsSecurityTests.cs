@@ -392,6 +392,42 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact gru-control-nats / CN=gru-controller-1 multi-occurrence shape (fingerprint
+        // c2bf6b539a62…): same NotAfter (18:45:24Z) as the sfo controller twin, with an
+        // extra mid-window reconnect (cid 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z /
+        // 18:48:34Z / 18:50:34Z). The long-running gru-controller-1 process (not the
+        // operator-read probe) presents this leaf; bare RestartAsync of NATS while the
+        // controller PEM stays expired re-emits every reconnect. Recovery must match every
+        // occurrence and force remint from invalid control-plane client leaves (including
+        // controllers) on the NATS resource for every cell, not only sfo.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:45:34.132839 [ERR] 127.0.0.1:49506 - cid:29238 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:47:34.670147 [ERR] 127.0.0.1:36448 - cid:32 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:48:34.476555 [ERR] 127.0.0.1:41090 - cid:63 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:50:34.253711 [ERR] 127.0.0.1:56314 - cid:70 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
         // operator-read health probes also present leaves; once expired they appear on
         // the same NATS server log stream and must match force-remint detection.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -554,41 +590,74 @@ public sealed class DevelopmentNatsSecurityTests
         // true for sfo-control-nats-1 so the consecutive-unhealthy path force-remints instead
         // of bare RestartAsync (cid recycle 29238 → 63 → 70). Health probes alone would miss
         // this because control-NATS probes present operator-read.
+        await AssertInvalidControllerLeafForcesRemintForCellAsync("sfo");
+    }
+
+    [Test]
+    public async Task InvalidControllerLeafIsDetectedForGruControlNatsBeforeBareRestart()
+    {
+        // Fingerprint c2bf6b539a62…: gru-controller-1 (not operator-read) presents the control
+        // leaf. Same NotAfter window and bare-NATS-recycle storm as the sfo twin (cid 29238 →
+        // 32 → 63 → 70 at 18:45:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z). When only the
+        // gru-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
+        // for gru-control-nats-1 so force-remint runs instead of bare RestartAsync. Health
+        // probes alone would miss this because control-NATS probes present operator-read.
+        await AssertInvalidControllerLeafForcesRemintForCellAsync("gru");
+    }
+
+    [Test]
+    public async Task InvalidControllerLeafIsDetectedForFraControlNatsBeforeBareRestart()
+    {
+        // fra twin of f490b625… / c2bf6b539a62…: controller-only expiry on fra-control-nats-1
+        // must force remint cell-locally without relying on operator-read probe health.
+        await AssertInvalidControllerLeafForcesRemintForCellAsync("fra");
+    }
+
+    private static async Task AssertInvalidControllerLeafForcesRemintForCellAsync(string cell)
+    {
         if (!OperatingSystem.IsLinux())
         {
             return;
         }
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-sfo-controller-leaf-{Guid.NewGuid():N}");
+
+        var controllerName = $"{cell}-controller-1";
+        var controlNatsName = $"{cell}-control-nats-1";
+        var otherCells = new[] { "gru", "sfo", "fra" }
+            .Where(candidate => !string.Equals(candidate, cell, StringComparison.Ordinal))
+            .ToArray();
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"ts-orch-{cell}-controller-leaf-{Guid.NewGuid():N}");
         try
         {
             var topology = DevelopmentTopology.CreateThreeCellLean();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
 
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsFalse();
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-controller-1"))
+                    topology, security, controllerName))
                 .IsFalse();
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, "sfo-controller-1")!.SpiffeId)
-                .IsEqualTo("spiffe://terrascale.tech/cell/sfo/controller/sfo-controller-1");
+                    topology, security, controllerName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/controller/{controllerName}");
             var reconnectLeaves = DevelopmentLab.EnumerateReconnectTlsIdentities(
-                    topology, security, "sfo-control-nats-1")
+                    topology, security, controlNatsName)
                 .Select(identity => identity.SpiffeId)
                 .ToArray();
             await Assert.That(reconnectLeaves)
-                .Contains("spiffe://terrascale.tech/cell/sfo/operator/operator-read");
+                .Contains($"spiffe://terrascale.tech/cell/{cell}/operator/operator-read");
             await Assert.That(reconnectLeaves)
-                .Contains("spiffe://terrascale.tech/cell/sfo/controller/sfo-controller-1");
+                .Contains($"spiffe://terrascale.tech/cell/{cell}/controller/{controllerName}");
 
-            var controllerTls = security.Cell("sfo").Tls.Control.Clients["sfo-controller-1"];
-            var operatorTls = security.Cell("sfo").Tls.Control.Clients["operator-read"];
+            var controllerTls = security.Cell(cell).Tls.Control.Clients[controllerName];
+            var operatorTls = security.Cell(cell).Tls.Control.Clients["operator-read"];
             using (var ecdsa = System.Security.Cryptography.ECDsa.Create(
                        System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
             {
                 var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
-                    "CN=sfo-controller-1",
+                    $"CN={controllerName}",
                     ecdsa,
                     System.Security.Cryptography.HashAlgorithmName.SHA256);
                 var notBefore = DateTimeOffset.UtcNow.AddDays(-2);
@@ -601,24 +670,27 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile))
                 .IsNull();
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, "sfo-control-nats-1")!.SpiffeId)
-                .IsEqualTo("spiffe://terrascale.tech/cell/sfo/operator/operator-read");
+                    topology, security, controlNatsName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/operator/operator-read");
             // Control NATS must still see the expired controller client leaf.
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-controller-1"))
+                    topology, security, controllerName))
                 .IsTrue();
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsTrue();
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
-            // Other cells' control NATS stay clean when only sfo-controller-1 is expired.
-            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "gru-control-nats-1"))
-                .IsFalse();
+            // Other cells' control NATS stay clean when only this cell's controller is expired.
+            foreach (var other in otherCells)
+            {
+                await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                        topology, security, $"{other}-control-nats-1"))
+                    .IsFalse();
+            }
 
             File.Delete(controllerTls.CertificateFile);
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
-                    topology, security, "sfo-control-nats-1"))
+                    topology, security, controlNatsName))
                 .IsTrue();
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
         }
