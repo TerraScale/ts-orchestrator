@@ -310,6 +310,109 @@ public sealed class DevelopmentNatsSecurityTests
     }
 
     [Test]
+    public async Task CertificateFailureDetailsMatchOpenSslAndExpiredLeafAnnotations()
+    {
+        // NATS.Net outer messages are generic; recovery depends on flattened OpenSSL inners
+        // and on-disk leaf annotations from DevelopmentHealthProbe.FormatProbeFailure.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000 | " +
+                "error:0A000415:SSL routines::ssl/tls alert certificate expired"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: can not start to connect | " +
+                "certificate has expired: current time 2026-07-21T18:45:28Z is after 2026-07-21T18:45:24Z"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "tls: failed to verify certificate: x509: certificate has expired or is not yet valid"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
+            .IsFalse();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: Connection refused"))
+            .IsFalse();
+    }
+
+    [Test]
+    public async Task ProbeFailureFormattingSurfacesExpiredOperatorReadLeaf()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-probe-expiry-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+            var operatorTls = security.Cell("fra").Tls.Control.Clients["operator-read"];
+
+            // Mirror the live NATS.Net exception chain for an expired client leaf: generic
+            // outer message with OpenSSL "certificate expired" nested on inners.
+            var outer = new NATS.Client.Core.NatsException(
+                "can not start to connect nats server: nats://127.0.0.1:19000",
+                new IOException(
+                    "The decryption operation failed, see inner exception.",
+                    new InvalidOperationException(
+                        "error:0A000415:SSL routines::ssl/tls alert certificate expired")));
+            var detail = DevelopmentHealthProbe.FormatProbeFailure(outer, operatorTls);
+            await Assert.That(detail).Contains("can not start to connect");
+            await Assert.That(detail).Contains("certificate expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(detail)).IsTrue();
+
+            // Fresh leaves must not be annotated as expired on a generic connect failure.
+            await Assert.That(DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile))
+                .IsNull();
+            var freshDetail = DevelopmentHealthProbe.FormatProbeFailure(
+                new NATS.Client.Core.NatsException(
+                    "can not start to connect nats server: nats://127.0.0.1:19000"),
+                operatorTls);
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(freshDetail)).IsFalse();
+
+            // Missing leaf PEMs are annotated so force-remint can recover without relying on
+            // server-side log text that never reaches the health probe.
+            File.Delete(operatorTls.CertificateFile);
+            await Assert.That(DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile))
+                .Contains("failed to verify certificate");
+            var missingDetail = DevelopmentHealthProbe.FormatProbeFailure(
+                new NATS.Client.Core.NatsException(
+                    "can not start to connect nats server: nats://127.0.0.1:19000"),
+                operatorTls);
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingDetail)).IsTrue();
+
+            // An on-disk leaf that is already past NotAfter must annotate explicitly even when
+            // the outer NATS exception text is generic.
+            using (var ecdsa = System.Security.Cryptography.ECDsa.Create(
+                       System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+            {
+                var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                    "CN=operator-read",
+                    ecdsa,
+                    System.Security.Cryptography.HashAlgorithmName.SHA256);
+                var notBefore = DateTimeOffset.UtcNow.AddDays(-2);
+                var notAfter = DateTimeOffset.UtcNow.AddDays(-1);
+                using var expired = request.CreateSelfSigned(notBefore, notAfter);
+                File.WriteAllText(operatorTls.CertificateFile, expired.ExportCertificatePem());
+            }
+            var expiredStatus = DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile);
+            await Assert.That(expiredStatus).IsNotNull();
+            await Assert.That(expiredStatus!).Contains("certificate has expired");
+            var expiredDetail = DevelopmentHealthProbe.FormatProbeFailure(
+                new NATS.Client.Core.NatsException(
+                    "can not start to connect nats server: nats://127.0.0.1:19000"),
+                operatorTls);
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredDetail)).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task ExistingSeedOnlyNKeyIsUpgradedWithoutChangingItsIdentity()
     {
         if (!OperatingSystem.IsLinux())

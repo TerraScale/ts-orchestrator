@@ -1,4 +1,8 @@
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using NATS.Client.Core;
 using NATS.Net;
 using TerraScale.Orchestrator.Messaging;
@@ -36,6 +40,65 @@ internal static class DevelopmentHealthProbe
         _ => null
     };
 
+    /// <summary>
+    /// Formats a probe failure so certificate-recovery matching can see OpenSSL/x509 text that
+    /// NATS.Net often nests under a generic outer <see cref="NatsException"/> message.
+    /// </summary>
+    internal static string FormatProbeFailure(Exception exception, DevelopmentTlsIdentity? tlsIdentity = null)
+    {
+        var builder = new StringBuilder("Health probe failed: ");
+        builder.Append(exception.Message);
+        for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            builder.Append(" | ");
+            builder.Append(inner.Message);
+        }
+
+        if (tlsIdentity is not null)
+        {
+            var leafStatus = DescribeLeafValidity(tlsIdentity.CertificateFile);
+            if (leafStatus is not null)
+            {
+                builder.Append(" | ");
+                builder.Append(leafStatus);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    internal static string? DescribeLeafValidity(string certificateFile)
+    {
+        try
+        {
+            if (!File.Exists(certificateFile))
+            {
+                return "failed to verify certificate: leaf PEM is missing";
+            }
+
+            using var certificate = X509Certificate2.CreateFromPem(File.ReadAllText(certificateFile));
+            var notAfter = certificate.NotAfter.ToUniversalTime();
+            var now = DateTime.UtcNow;
+            if (now > notAfter)
+            {
+                // Match DevelopmentLab.LooksLikeCertificateFailure recovery triggers.
+                return $"certificate has expired: current time {now:O} is after {notAfter:O}";
+            }
+
+            if (now < certificate.NotBefore.ToUniversalTime())
+            {
+                return $"certificate is not yet valid: current time {now:O} is before {certificate.NotBefore.ToUniversalTime():O}";
+            }
+
+            return null;
+        }
+        catch (Exception exception) when (
+            exception is CryptographicException or ArgumentException or IOException)
+        {
+            return $"failed to verify certificate: leaf PEM is unreadable ({exception.Message})";
+        }
+    }
+
     private static async Task<(string Name, DevelopmentResourceHealth Health)> ProbeOneAsync(
         DevelopmentTopology topology,
         DevelopmentResourcePlan resource,
@@ -52,15 +115,20 @@ internal static class DevelopmentHealthProbe
             return (resource.Name, new(false, $"Exited with code {process.ExitCode}."));
         }
 
+        DevelopmentTlsIdentity? probeTls = null;
         try
         {
             switch (resource.Kind)
             {
                 case DevelopmentResourceKind.ControllerAgent:
+                    probeTls = natsSecurity.Cell(resource.Cell).Tls.Control.Clients[resource.Name];
                     await ProbeControllerAsync(topology, resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Controller {process.Id} authority endpoint ready."));
                 case DevelopmentResourceKind.ControlNats:
                 case DevelopmentResourceKind.ProductNats:
+                    probeTls = resource.Kind is DevelopmentResourceKind.ControlNats
+                        ? natsSecurity.Cell(resource.Cell).Tls.Control.Clients["operator-read"]
+                        : natsSecurity.Cell(resource.Cell).Tls.Product.Clients[$"{resource.Cell}-platform"];
                     await ProbeNatsAsync(resource, natsSecurity, cancellationToken);
                     return (resource.Name, new(true, $"Authenticated NATS endpoint {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
@@ -73,9 +141,15 @@ internal static class DevelopmentHealthProbe
             }
         }
         catch (Exception exception) when (
-            exception is HttpRequestException or SocketException or TaskCanceledException or NatsException)
+            exception is HttpRequestException
+                or SocketException
+                or TaskCanceledException
+                or NatsException
+                or AuthenticationException
+                or IOException)
         {
-            return (resource.Name, new(false, $"Health probe failed: {exception.Message}"));
+            // Outer NATS messages are often "can not start to connect"; x509 text lives on inners.
+            return (resource.Name, new(false, FormatProbeFailure(exception, probeTls)));
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {

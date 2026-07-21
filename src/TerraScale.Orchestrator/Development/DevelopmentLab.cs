@@ -296,14 +296,22 @@ public static class DevelopmentLab
         return true;
     }
 
-    private static bool LooksLikeCertificateFailure(string detail)
+    /// <summary>
+    /// Detects x509 verification failures in health-probe details. NATS.Net wraps OpenSSL
+    /// alerts under a generic outer message ("can not start to connect"); probes flatten
+    /// inner exceptions and annotate expired on-disk leaves so these patterns match.
+    /// Broader plain TLS connect errors must not force a full PKI remint.
+    /// </summary>
+    internal static bool LooksLikeCertificateFailure(string detail)
     {
-        // Match x509 verification failures only. Broader TLS connect errors are often
-        // transient during intentional restarts and must not force a full PKI remint.
         return detail.Contains("certificate has expired", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("certificate expired", StringComparison.OrdinalIgnoreCase)
             || detail.Contains("certificate is not yet valid", StringComparison.OrdinalIgnoreCase)
             || detail.Contains("failed to verify certificate", StringComparison.OrdinalIgnoreCase)
-            || detail.Contains("remote certificate is invalid", StringComparison.OrdinalIgnoreCase);
+            || detail.Contains("remote certificate is invalid", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("ssl/tls alert certificate", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("alert certificate expired", StringComparison.OrdinalIgnoreCase)
+            || detail.Contains("x509:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task RestartAfterPkiRemintAsync(
