@@ -350,8 +350,20 @@ public static class DevelopmentLab
                         // 18:47:40Z / 18:48:40Z / 18:50:40Z: long-running gru-platform
                         // reconnects while bare product-NATS RestartAsync reloads the same
                         // expired platform leaf).
+                        //
+                        // Plain "can not start to connect nats server" (fingerprint
+                        // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
+                        // bare restarts; twins on product NATS and every cell's controller)
+                        // is the client-side outer NATS.Net message when handshakes fail or
+                        // the listener is mid-recycle. LooksLikeCertificateFailure is false
+                        // for that outer text alone, so the cert-shaped branch above can miss
+                        // it. Control/product NATS and controllers must never bare-RestartAsync
+                        // on persistent unhealth: remint rewrites PEMs and restarts the full
+                        // mTLS consumer set with WaitReadyAsync instead of thrashing one
+                        // NATS member every ~105s (90s grace + 3×5s failures).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
+                             RequiresForceRemintOnPersistentUnhealth(topology, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
                                  options.DataDirectory!,
                                  DateTimeOffset.UtcNow)) &&
@@ -579,8 +591,30 @@ public static class DevelopmentLab
     }
 
     /// <summary>
+    /// Control/product NATS and controllers must force remint on persistent unhealth even
+    /// when the probe detail is only the outer NATS.Net text
+    /// <c>can not start to connect nats server: nats://…</c> (fingerprint c05d3fee208c… /
+    /// gru-control-nats-1 three bare restarts; product-NATS and controller twins across
+    /// gru/sfo/fra). Bare RestartAsync of a single NATS member reloads the same PEMs and
+    /// does not WaitReadyAsync for dependents, producing multi-minute thrash.
+    /// Platforms keep HTTP bare-restart for non-TLS app failures; their product-leaf
+    /// expiry is already covered by <see cref="ResourceHasInvalidTlsLeaf"/>.
+    /// </summary>
+    internal static bool RequiresForceRemintOnPersistentUnhealth(
+        DevelopmentTopology topology,
+        string resourceName)
+    {
+        var resource = FindResource(topology, resourceName);
+        return resource?.Kind is DevelopmentResourceKind.ControlNats
+            or DevelopmentResourceKind.ProductNats
+            or DevelopmentResourceKind.ControllerAgent;
+    }
+
+    /// <summary>
     /// Every client leaf that would re-handshake against <paramref name="resourceName"/> after a
-    /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform.
+    /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform,
+    /// plus the NATS server's client-facing and route leaves so an expired server PEM alone
+    /// still force-remints (plain connect failures otherwise look non-cert shaped).
     /// Control NATS includes operator-read and every controller in the cell so an expired
     /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
     /// and denser twin 782d6308…, fra 91b5b852… and denser twin ffcef075c58c…) alone still
@@ -605,11 +639,21 @@ public static class DevelopmentLab
                 {
                     yield return client;
                 }
+                if (cellSecurity.Tls.Control.Servers.TryGetValue(resource.Name, out var controlServer))
+                {
+                    yield return controlServer.Client;
+                    yield return controlServer.Route;
+                }
                 yield break;
             case DevelopmentResourceKind.ProductNats:
                 foreach (var client in cellSecurity.Tls.Product.Clients.Values)
                 {
                     yield return client;
+                }
+                if (cellSecurity.Tls.Product.Servers.TryGetValue(resource.Name, out var productServer))
+                {
+                    yield return productServer.Client;
+                    yield return productServer.Route;
                 }
                 yield break;
             case DevelopmentResourceKind.ControllerAgent:
