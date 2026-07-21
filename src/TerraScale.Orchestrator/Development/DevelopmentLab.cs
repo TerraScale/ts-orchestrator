@@ -178,7 +178,9 @@ public static class DevelopmentLab
                     // while siblings remain valid; force remint before ProbeAsync so the health
                     // cycle is not the first detector of an already-invalid operator-read PEM
                     // (fingerprint e517701a… / sfo-control-nats multi-occurrence and denser
-                    // twin f08d1c577176… cid 29239 → 33 → 65 → 72).
+                    // twin f08d1c577176… cid 29239 → 33 → 65 → 72; fingerprint 9a811bb8… /
+                    // fra-control-nats multi-occurrence and denser twin f95adc65… cid
+                    // 29239 → 33 → 65 → 72).
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
@@ -262,9 +264,12 @@ public static class DevelopmentLab
                         // fingerprint c48cbf142a9a… / gru-control-nats four-occurrence twin
                         // cid 29239 → 34 → 66 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
                         // 18:50:40Z against the same 4e40db2b… leaf, e517701a… /
-                        // sfo-control-nats, and fingerprint f08d1c577176… / sfo-control-nats
+                        // sfo-control-nats, fingerprint f08d1c577176… / sfo-control-nats
                         // four-occurrence twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
-                        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf).
+                        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
+                        // and fingerprint f95adc65… / fra-control-nats four-occurrence twin
+                        // cid 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
+                        // 18:50:40Z against the same 6477b788… leaf).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
                         if (!observationCertificateFailure &&
@@ -291,7 +296,10 @@ public static class DevelopmentLab
                         // sfo-control-nats-1, fingerprint f08d1c577176… — four-occurrence twin of
                         // e517701a… against the same aa00c1c3… leaf at 18:45:40Z / 18:47:40Z /
                         // 18:48:40Z / 18:50:40Z; cid 29237 → 63 → 68 for CN=operator-read on
-                        // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
+                        // fra-control-nats, fingerprint 9a811bb8…; cid 29239 → 33 → 65 → 72 for
+                        // CN=operator-read on fra-control-nats-1, fingerprint f95adc65… —
+                        // four-occurrence twin of 9a811bb8… against the same 6477b788… leaf at
+                        // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
                         // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
                         // cid 29238 → 62 → 69 → 70 for CN=fra-controller-1 on fra-control-nats-1,
@@ -470,7 +478,9 @@ public static class DevelopmentLab
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint f08d1c577176… / sfo-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
-    /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
+    /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68,
+    /// fingerprint f95adc65… / fra-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
+    /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6477b788… leaf).
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…;
