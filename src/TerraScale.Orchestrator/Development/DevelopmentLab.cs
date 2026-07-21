@@ -305,7 +305,13 @@ public static class DevelopmentLab
                         // cid 14634 → 63 → 34 → 49 → 43 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
                         // long-running sfo-platform reconnects while bare product-NATS
-                        // RestartAsync reloads the same expired platform leaf).
+                        // RestartAsync reloads the same expired platform leaf;
+                        // cid 14635 → 38 → 50 → 44 for CN=gru-platform on gru-product-nats-1,
+                        // fingerprint 54fea6c92b78… — denser four-occurrence twin of
+                        // 57ae70882ed5… against the same 6b500765… leaf at 18:45:40Z /
+                        // 18:47:40Z / 18:48:40Z / 18:50:40Z: long-running gru-platform
+                        // reconnects while bare product-NATS RestartAsync reloads the same
+                        // expired platform leaf).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
@@ -462,6 +468,9 @@ public static class DevelopmentLab
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…;
+    /// fingerprint 54fea6c92b78… / gru-product-nats CN=gru-platform cid 14635 → 38 → 50 → 44
+    /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf
+    /// — denser four-occurrence twin of 57ae70882ed5…;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so

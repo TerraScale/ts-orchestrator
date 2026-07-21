@@ -380,6 +380,46 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
                 "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
             .IsTrue();
+        // Exact gru-product-nats / CN=gru-platform multi-occurrence shape (fingerprint
+        // 54fea6c92b78…): same 6b500765… gru-platform leaf and gru product issuer as
+        // 57ae70882ed5…, with a denser cid recycle (14635 → 38 → 50 → 44 at 18:45:40Z /
+        // 18:47:40Z / 18:48:40Z / 18:50:40Z). This is the gru product-plane twin of
+        // fra 25ef0004168c… and sfo b1723b879b59…, and the denser four-occurrence twin
+        // of 57ae70882ed5…: the long-running gru-platform process presents the product
+        // leaf; platform /health/ready can stay green while product NATS logs every
+        // reconnect, and bare RestartAsync of product NATS while the platform PEM stays
+        // expired re-emits every reconnect. Recovery must match every occurrence and
+        // force remint from invalid product-plane client leaves (platforms) on the NATS
+        // resource for every cell — bare RestartAsync of product NATS alone reloads the
+        // same expired PEM.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:45:40.091310 [ERR] 127.0.0.1:39438 - cid:14635 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:47:40.071006 [ERR] 127.0.0.1:38346 - cid:38 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:48:40.406032 [ERR] 127.0.0.1:54932 - cid:50 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:50:40.270545 [ERR] 127.0.0.1:56300 - cid:44 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:40Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
         // Exact sfo-product-nats / CN=sfo-platform multi-occurrence shape (fingerprint
         // b1723b879b59…): same NotAfter (18:45:24Z) as the fra-platform product-plane twin
         // (25ef0004168c…), with cid recycle 14634 → 63 → 34 → 49 → 43 at 18:45:34Z /
@@ -988,7 +1028,14 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForGruProductNatsBeforeBareRestart()
     {
-        // Fingerprint 57ae70882ed5…: gru-platform product-plane twin of 25ef0004168c….
+        // Fingerprints 57ae70882ed5… and 54fea6c92b78…: gru-platform presents the product
+        // leaf. Same NotAfter window and bare product-NATS recycle storm as the fra twin
+        // (cid 14634 at 18:45:34Z; denser twin cid 14635 → 38 → 50 → 44 at 18:45:40Z /
+        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf). When only
+        // that PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true for both
+        // gru-platform and gru-product-nats-1 so force-remint runs instead of bare
+        // product-NATS RestartAsync. Platform HTTP /health/ready can stay green;
+        // product-plane recovery must not rely on that path alone.
         await AssertInvalidPlatformLeafForcesRemintForCellAsync("gru");
     }
 
