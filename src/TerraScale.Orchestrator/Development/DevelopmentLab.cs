@@ -281,7 +281,11 @@ public static class DevelopmentLab
                         // gru/sfo-control-nats; cid 29237 → 63 → 68 for CN=operator-read on
                         // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
-                        // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…).
+                        // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
+                        // cid 14634 → 63 → 50 → 43 for CN=fra-platform on fra-product-nats-1,
+                        // fingerprint 25ef0004168c… — product-plane twin: platform process
+                        // reconnects while bare product-NATS RestartAsync reloads the same
+                        // expired leaf).
                         if ((observationCertificateFailure ||
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
@@ -428,9 +432,12 @@ public static class DevelopmentLab
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
-    /// Product NATS is analogous for platform leaves.
+    /// Product NATS is analogous for platform leaves
+    /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
+    /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
-    /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS recycle.
+    /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
+    /// recycle; product plane surveys every product client (platforms) the same way.
     /// </summary>
     internal static bool ResourceHasInvalidTlsLeaf(
         DevelopmentTopology topology,

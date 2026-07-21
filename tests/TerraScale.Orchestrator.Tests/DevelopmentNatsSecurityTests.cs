@@ -331,6 +331,42 @@ public sealed class DevelopmentNatsSecurityTests
                 "x509: certificate has expired or is not yet valid: current time 2026-07-21T18:45:28Z " +
                 "is after 2026-07-21T18:45:24Z (CN=fra-platform)"))
             .IsTrue();
+        // Exact fra-product-nats / CN=fra-platform multi-occurrence shape (fingerprint
+        // 25ef0004168c…): same NotAfter (18:45:24Z) and bare product-NATS recycle pattern
+        // (cid 14634 → 63 → 50 → 43 at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z) as the
+        // control-plane controller storms. The long-running fra-platform process presents
+        // the product leaf; platform /health/ready can stay green while product NATS logs
+        // every reconnect. Recovery must match every occurrence and force remint from
+        // invalid product-plane client leaves (platforms) on the NATS resource for every
+        // cell — bare RestartAsync of product NATS alone reloads the same expired PEM.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:45:34.133777 [ERR] 127.0.0.1:46776 - cid:14634 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:46:34.033522 [ERR] 127.0.0.1:32802 - cid:63 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:48:34.475586 [ERR] 127.0.0.1:38008 - cid:50 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:50:34.257829 [ERR] 127.0.0.1:54186 - cid:43 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
         // Exact gru-product-nats / CN=gru-platform incident shape (fingerprint
         // 57ae70882ed5…): the platform process (not the HTTP health path) presents the
         // product-plane leaf. When NotAfter elapses, product NATS logs this server-side
@@ -762,6 +798,123 @@ public sealed class DevelopmentNatsSecurityTests
             File.Delete(controllerTls.CertificateFile);
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
                     topology, security, controlNatsName))
+                .IsTrue();
+            await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvalidPlatformLeafIsDetectedForFraProductNatsBeforeBareRestart()
+    {
+        // Fingerprint 25ef0004168c…: fra-platform presents the product leaf. When only that
+        // PEM is past NotAfter, ResourceHasInvalidTlsLeaf must be true for both fra-platform
+        // and fra-product-nats-1 so force-remint runs instead of bare product-NATS RestartAsync
+        // (cid 14634 → 63 → 50 → 43 at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z).
+        // Platform HTTP /health/ready can stay green; product-plane recovery must not rely on
+        // that path alone.
+        await AssertInvalidPlatformLeafForcesRemintForCellAsync("fra");
+    }
+
+    [Test]
+    public async Task InvalidPlatformLeafIsDetectedForGruProductNatsBeforeBareRestart()
+    {
+        // Fingerprint 57ae70882ed5…: gru-platform product-plane twin of 25ef0004168c….
+        await AssertInvalidPlatformLeafForcesRemintForCellAsync("gru");
+    }
+
+    [Test]
+    public async Task InvalidPlatformLeafIsDetectedForSfoProductNatsBeforeBareRestart()
+    {
+        // sfo product-plane twin: platform-only expiry on sfo-product-nats-1 must force remint
+        // cell-locally without falling through to bare NATS recycle.
+        await AssertInvalidPlatformLeafForcesRemintForCellAsync("sfo");
+    }
+
+    private static async Task AssertInvalidPlatformLeafForcesRemintForCellAsync(string cell)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var platformName = $"{cell}-platform";
+        var productNatsName = $"{cell}-product-nats-1";
+        var otherCells = new[] { "gru", "sfo", "fra" }
+            .Where(candidate => !string.Equals(candidate, cell, StringComparison.Ordinal))
+            .ToArray();
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"ts-orch-{cell}-platform-leaf-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+
+            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                    topology, security, productNatsName))
+                .IsFalse();
+            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                    topology, security, platformName))
+                .IsFalse();
+            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
+                    topology, security, platformName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
+            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
+                    topology, security, productNatsName)!.SpiffeId)
+                .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
+            var reconnectLeaves = DevelopmentLab.EnumerateReconnectTlsIdentities(
+                    topology, security, productNatsName)
+                .Select(identity => identity.SpiffeId)
+                .ToArray();
+            await Assert.That(reconnectLeaves)
+                .Contains($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
+
+            var platformTls = security.Cell(cell).Tls.Product.Clients[platformName];
+            using (var ecdsa = System.Security.Cryptography.ECDsa.Create(
+                       System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+            {
+                var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                    $"CN={platformName}",
+                    ecdsa,
+                    System.Security.Cryptography.HashAlgorithmName.SHA256);
+                var notBefore = DateTimeOffset.UtcNow.AddDays(-2);
+                var notAfter = DateTimeOffset.UtcNow.AddDays(-1);
+                using var expired = request.CreateSelfSigned(notBefore, notAfter);
+                File.WriteAllText(platformTls.CertificateFile, expired.ExportCertificatePem());
+            }
+
+            // Platform resource and product NATS must both see the expired product client leaf.
+            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                    topology, security, platformName))
+                .IsTrue();
+            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                    topology, security, productNatsName))
+                .IsTrue();
+            await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
+            var platformRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(platformTls);
+            await Assert.That(platformRefusal).IsNotNull();
+            await Assert.That(platformRefusal!.Healthy).IsFalse();
+            await Assert.That(platformRefusal.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformRefusal.Detail))
+                .IsTrue();
+            // Other cells' product NATS stay clean when only this cell's platform is expired.
+            foreach (var other in otherCells)
+            {
+                await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                        topology, security, $"{other}-product-nats-1"))
+                    .IsFalse();
+            }
+
+            File.Delete(platformTls.CertificateFile);
+            await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
+                    topology, security, productNatsName))
                 .IsTrue();
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
         }
