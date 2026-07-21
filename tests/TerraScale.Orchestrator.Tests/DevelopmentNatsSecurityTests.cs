@@ -464,6 +464,42 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
                 "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
             .IsTrue();
+        // Exact fra-control-nats / CN=fra-controller-1 multi-occurrence shape (fingerprint
+        // 91b5b852…): same NotAfter (18:45:24Z) and bare control-NATS recycle pattern as the
+        // sfo/gru controller twins (cid 29238 → 62 → 69 → 70 at 18:45:34Z / 18:48:34Z /
+        // 18:50:34Z). The long-running fra-controller-1 process (not the operator-read probe)
+        // presents this leaf; bare RestartAsync of NATS while the controller PEM stays expired
+        // re-emits every reconnect. Recovery must match every occurrence and force remint from
+        // invalid control-plane client leaves (including controllers) on the NATS resource for
+        // every cell — bare RestartAsync of control NATS alone reloads the same expired PEM.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:45:34.134988 [ERR] 127.0.0.1:55318 - cid:29238 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:48:34.476639 [ERR] 127.0.0.1:40568 - cid:62 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:50:34.258927 [ERR] 127.0.0.1:51928 - cid:69 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:50:34.269531 [ERR] 127.0.0.1:51934 - cid:70 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:34Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         // operator-read health probes also present leaves; once expired they appear on
         // the same NATS server log stream and must match force-remint detection.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -715,8 +751,12 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidControllerLeafIsDetectedForFraControlNatsBeforeBareRestart()
     {
-        // fra twin of f490b625… / c2bf6b539a62…: controller-only expiry on fra-control-nats-1
-        // must force remint cell-locally without relying on operator-read probe health.
+        // Fingerprint 91b5b852…: fra-controller-1 (not operator-read) presents the control
+        // leaf. Same NotAfter window and bare-NATS-recycle storm as the sfo/gru twins (cid
+        // 29238 → 62 → 69 → 70 at 18:45:34Z / 18:48:34Z / 18:50:34Z). When only the
+        // fra-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
+        // for fra-control-nats-1 so force-remint runs instead of bare RestartAsync. Health
+        // probes alone would miss this because control-NATS probes present operator-read.
         await AssertInvalidControllerLeafForcesRemintForCellAsync("fra");
     }
 

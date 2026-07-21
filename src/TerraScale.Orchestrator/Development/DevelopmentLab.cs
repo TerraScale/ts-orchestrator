@@ -282,6 +282,10 @@ public static class DevelopmentLab
                         // fra-control-nats, fingerprint 9a811bb8…; cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1; cid 29238 → 32 → 63 → 70
                         // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
+                        // cid 29238 → 62 → 69 → 70 for CN=fra-controller-1 on fra-control-nats-1,
+                        // fingerprint 91b5b852… — fra twin of the sfo/gru controller storms:
+                        // long-running fra-controller-1 reconnects while bare control-NATS
+                        // RestartAsync reloads the same expired controller leaf;
                         // cid 14634 → 63 → 50 → 43 for CN=fra-platform on fra-product-nats-1,
                         // fingerprint 25ef0004168c… — product-plane twin: platform process
                         // reconnects while bare product-NATS RestartAsync reloads the same
@@ -430,6 +434,8 @@ public static class DevelopmentLab
     /// leaf stays expired re-emits multi-occurrence server logs
     /// (fingerprint f490b625… / sfo-control-nats CN=sfo-controller-1 cid 29238 → 63 → 70,
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
+    /// fingerprint 91b5b852… / fra-control-nats CN=fra-controller-1 cid 29238 → 62 → 69 → 70
+    /// at 18:45:34Z / 18:48:34Z / 18:50:34Z,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68).
     /// Product NATS is analogous for platform leaves
@@ -489,7 +495,7 @@ public static class DevelopmentLab
     /// Every client leaf that would re-handshake against <paramref name="resourceName"/> after a
     /// bare RestartAsync, plus the resource's own client leaf when it is a controller/platform.
     /// Control NATS includes operator-read and every controller in the cell so an expired
-    /// CN=*-controller-1 leaf (sfo f490b625…, gru c2bf6b539a62…, and fra twins) alone still
+    /// CN=*-controller-1 leaf (sfo f490b625…, gru c2bf6b539a62…, fra 91b5b852…) alone still
     /// forces remint instead of NATS recycle.
     /// </summary>
     internal static IEnumerable<DevelopmentTlsIdentity> EnumerateReconnectTlsIdentities(
