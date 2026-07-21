@@ -172,11 +172,32 @@ public static class DevelopmentLab
                         consecutiveUnhealthyObservations.Clear();
                         continue;
                     }
+                    // Probe identities (operator-read, platform, controllers) are the leaves
+                    // that emit NATS server TLS handshake logs when presented. LeavesNeedRemint
+                    // surveys NotAfter across existing PEMs and can miss a single deleted leaf
+                    // while siblings remain valid; force remint before ProbeAsync so the health
+                    // cycle is not the first detector of an already-invalid operator-read PEM
+                    // (fingerprint e517701a… / sfo-control-nats multi-occurrence).
+                    if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
+                        await TryRemintAndRestartTlsConsumersAsync(
+                            topology,
+                            options.DataDirectory!,
+                            supervisor,
+                            natsSecurity,
+                            force: true,
+                            cancellationToken))
+                    {
+                        consecutiveUnhealthyObservations.Clear();
+                        continue;
+                    }
                     // Unexpected exits cannot be healed by restarting onto expired PEMs.
-                    // Remint first when leaves already need rotation, then restart victims.
+                    // Remint first when leaves already need rotation or an exited mTLS
+                    // consumer's probe leaf is already invalid, then restart victims.
                     var exitedResources = supervisor.ExitedResources();
                     if (exitedResources.Count > 0 &&
-                        DevelopmentPki.LeavesNeedRemint(options.DataDirectory!, DateTimeOffset.UtcNow) &&
+                        (DevelopmentPki.LeavesNeedRemint(options.DataDirectory!, DateTimeOffset.UtcNow) ||
+                         exitedResources.Any(name =>
+                             ResourceHasInvalidTlsLeaf(topology, natsSecurity, name))) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
                             options.DataDirectory!,
@@ -236,7 +257,8 @@ public static class DevelopmentLab
                         // Certificate failures must not be swallowed by startup grace.
                         // Bare RestartAsync after NATS recycle (cid reset) re-loads the same
                         // expired PEMs; control-plane probes then re-present CN=operator-read
-                        // every few minutes (fingerprint c6627a56bf45… / gru-control-nats).
+                        // every few minutes (fingerprint c6627a56bf45… / gru-control-nats and
+                        // e517701a… / sfo-control-nats).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
                         if (!observationCertificateFailure &&
@@ -252,10 +274,12 @@ public static class DevelopmentLab
                         {
                             continue;
                         }
-                        // Certificate-shaped unhealth or near-expiry survey: never bare-restart
-                        // mTLS consumers. RestartAsync alone recycled NATS while operator-read
-                        // stayed expired (cid 29237 → 62 → 69 on gru-control-nats-1).
+                        // Certificate-shaped unhealth, invalid on-disk probe leaf, or
+                        // near-expiry survey: never bare-restart mTLS consumers. RestartAsync
+                        // alone recycled NATS while operator-read stayed expired
+                        // (cid 29237 → 62 → 69 on sfo/gru-control-nats-1).
                         if ((observationCertificateFailure ||
+                             ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
                                  options.DataDirectory!,
                                  DateTimeOffset.UtcNow)) &&
@@ -365,6 +389,81 @@ public static class DevelopmentLab
             || detail.Contains("ssl/tls alert certificate", StringComparison.OrdinalIgnoreCase)
             || detail.Contains("alert certificate expired", StringComparison.OrdinalIgnoreCase)
             || detail.Contains("x509:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns true when any health-probe mTLS identity (operator-read, platform leaf, or
+    /// controller leaf) is expired, not yet valid, missing, or unreadable on disk.
+    /// Used to force remint before <see cref="DevelopmentHealthProbe.ProbeAsync"/> so the
+    /// continuous-lab loop never relies on a failed ConnectAsync to discover invalid PEMs.
+    /// </summary>
+    internal static bool AnyProbeTlsLeafInvalid(
+        DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity)
+    {
+        foreach (var resource in topology.Cells
+                     .SelectMany(cell => cell.Resources)
+                     .Concat(topology.GlobalResources))
+        {
+            if (ResourceHasInvalidTlsLeaf(topology, natsSecurity, resource.Name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when the on-disk leaf presented by health probes for
+    /// <paramref name="resourceName"/> is already invalid. Control NATS probes present
+    /// operator-read; product NATS probes present the cell platform leaf; controllers and
+    /// platforms present their own client leaves. Bare RestartAsync of those resources while
+    /// the leaf stays expired re-emits the multi-occurrence NATS server log
+    /// (fingerprint e517701a… / sfo-control-nats CN=operator-read).
+    /// </summary>
+    internal static bool ResourceHasInvalidTlsLeaf(
+        DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity,
+        string resourceName)
+    {
+        var identity = TryGetProbeTlsIdentity(topology, natsSecurity, resourceName);
+        return identity is not null &&
+               DevelopmentHealthProbe.DescribeLeafValidity(identity.CertificateFile) is not null;
+    }
+
+    /// <summary>
+    /// Resolves the mTLS client identity that health probes present for a lab resource,
+    /// or null when the resource does not use a regional probe leaf.
+    /// </summary>
+    internal static DevelopmentTlsIdentity? TryGetProbeTlsIdentity(
+        DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity,
+        string resourceName)
+    {
+        var resource = topology.Cells
+            .SelectMany(cell => cell.Resources)
+            .Concat(topology.GlobalResources)
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.Name, resourceName, StringComparison.Ordinal));
+        if (resource is null)
+        {
+            return null;
+        }
+
+        var cellSecurity = natsSecurity.Cell(resource.Cell);
+        return resource.Kind switch
+        {
+            DevelopmentResourceKind.ControlNats =>
+                cellSecurity.Tls.Control.Clients["operator-read"],
+            DevelopmentResourceKind.ProductNats =>
+                cellSecurity.Tls.Product.Clients[$"{resource.Cell}-platform"],
+            DevelopmentResourceKind.ControllerAgent =>
+                cellSecurity.Tls.Control.Clients[resource.Name],
+            DevelopmentResourceKind.Platform =>
+                cellSecurity.Tls.Product.Clients[resource.Name],
+            _ => null
+        };
     }
 
     /// <summary>
