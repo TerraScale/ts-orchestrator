@@ -307,6 +307,11 @@ public static class DevelopmentLab
                         // 18:47:40Z (dual cid 34+35) / 18:48:40Z / 18:50:40Z: long-running
                         // sfo-controller-1 reconnects while bare control-NATS RestartAsync
                         // reloads the same expired controller leaf;
+                        // cid 28 → 36 for CN=sfo-controller-1 on sfo-control-nats-1,
+                        // fingerprint 4eeeee0520a1… — two-occurrence post-recycle reconnect twin
+                        // of f490b625… / 9815ef5a… against the same f56fe7a4… leaf at
+                        // 18:45:45Z on 127.0.0.1:50552 and 18:47:45Z on 127.0.0.1:37302 after
+                        // bare control-NATS RestartAsync reloads the same expired controller leaf;
                         // cid 29238 → 32 → 63 → 70
                         // for CN=gru-controller-1 on gru-control-nats-1, fingerprint c2bf6b539a62…;
                         // cid 29240 → 58 → 35 → 65 → 67 → 42 → 73 for CN=gru-controller-1 on
@@ -550,6 +555,10 @@ public static class DevelopmentLab
     /// fingerprint 9815ef5a… / sfo-control-nats CN=sfo-controller-1 cid 29240 → 34 → 35 → 66 → 73
     /// at 18:45:40Z / 18:47:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same f56fe7a4…
     /// leaf — denser five-occurrence twin of f490b625…,
+    /// fingerprint 4eeeee0520a1… / sfo-control-nats CN=sfo-controller-1 cid 28 → 36 at
+    /// 18:45:45Z on 127.0.0.1:50552 and 18:47:45Z on 127.0.0.1:37302 against the same
+    /// f56fe7a4… leaf — two-occurrence post-recycle reconnect twin of f490b625… /
+    /// 9815ef5a… after bare control-NATS RestartAsync,
     /// fingerprint c2bf6b539a62… / gru-control-nats CN=gru-controller-1 cid 29238 → 32 → 63 → 70,
     /// fingerprint 782d6308… / gru-control-nats CN=gru-controller-1 cid 29240 → 58 → 35 → 65 → 67 → 42 → 73
     /// at 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:48:40Z / 18:49:40Z / 18:50:40Z against
@@ -687,9 +696,10 @@ public static class DevelopmentLab
     /// 666f072201a5… / 6da1925a9038… product, 7bead2653aa7… / bfa083ed37ee… /
     /// e1c5c64cbb9d… controller).
     /// Control NATS includes operator-read and every controller in the cell so an expired
-    /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
-    /// and denser twin 782d6308… and two-occurrence post-recycle twin 003657d51ecd…,
-    /// fra 91b5b852… and denser twin ffcef075c58c…) alone still
+    /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a… and two-occurrence
+    /// post-recycle twin 4eeeee0520a1…, gru c2bf6b539a62… and denser twin 782d6308… and
+    /// two-occurrence post-recycle twin 003657d51ecd…, fra 91b5b852… and denser twin
+    /// ffcef075c58c…) alone still
     /// forces remint instead of NATS recycle. Product NATS surveys every platform client
     /// plus product server Client/Route leaves the same way. Controllers survey their own
     /// leaf plus every control-NATS server Client/Route leaf in the cell so an expired
