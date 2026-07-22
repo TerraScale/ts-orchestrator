@@ -384,8 +384,10 @@ public static class DevelopmentLab
                         // at 18:45:42Z / 18:49:12Z three bare restarts with the same outer
                         // text on nats://127.0.0.1:18600; fingerprint bfa083ed37ee… /
                         // sfo-controller-1 at 18:45:44Z / 18:49:13Z three bare restarts with
-                        // the same outer text on nats://127.0.0.1:18800; twins on every
-                        // cell's control NATS, product NATS, and controller) is the
+                        // the same outer text on nats://127.0.0.1:18800; fingerprint
+                        // e1c5c64cbb9d… / fra-controller-1 at 18:45:45Z / 18:49:20Z three bare
+                        // restarts with the same outer text on nats://127.0.0.1:19000; twins
+                        // on every cell's control NATS, product NATS, and controller) is the
                         // client-side outer NATS.Net message when handshakes fail or the
                         // listener is mid-recycle.
                         // LooksLikeCertificateFailure is false for that outer text alone,
@@ -647,7 +649,8 @@ public static class DevelopmentLab
     /// fra-product-nats-1 three bare restarts on :19020; fingerprint 7bead2653aa7… /
     /// gru-controller-1 three bare restarts with the same outer text on :18600; fingerprint
     /// bfa083ed37ee… / sfo-controller-1 three bare restarts with the same outer text on
-    /// :18800; every cell's controller twins). Bare RestartAsync of a
+    /// :18800; fingerprint e1c5c64cbb9d… / fra-controller-1 three bare restarts with the
+    /// same outer text on :19000; every cell's controller twins). Bare RestartAsync of a
     /// single NATS member or controller reloads the same PEMs and does not WaitReadyAsync
     /// for dependents, producing multi-minute thrash. Platforms keep HTTP bare-restart for
     /// non-TLS app failures; their product-leaf expiry is already covered by
@@ -669,7 +672,8 @@ public static class DevelopmentLab
     /// plus the NATS server's client-facing and route leaves so an expired server PEM alone
     /// still force-remints (plain connect failures otherwise look non-cert shaped —
     /// c05d3fee208c… / b0ca5ad6b00f… / 1e57af750edb… control, 2c66150c157c… /
-    /// 666f072201a5… / 6da1925a9038… product, 7bead2653aa7… / bfa083ed37ee… controller).
+    /// 666f072201a5… / 6da1925a9038… product, 7bead2653aa7… / bfa083ed37ee… /
+    /// e1c5c64cbb9d… controller).
     /// Control NATS includes operator-read and every controller in the cell so an expired
     /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
     /// and denser twin 782d6308… and two-occurrence post-recycle twin 003657d51ecd…,
@@ -677,8 +681,9 @@ public static class DevelopmentLab
     /// forces remint instead of NATS recycle. Product NATS surveys every platform client
     /// plus product server Client/Route leaves the same way. Controllers survey their own
     /// leaf plus every control-NATS server Client/Route leaf in the cell so an expired
-    /// server PEM alone (fingerprint 7bead2653aa7… / bfa083ed37ee… outer connect text on
-    /// the controller health probe) cannot fall through to bare controller RestartAsync.
+    /// server PEM alone (fingerprint 7bead2653aa7… / bfa083ed37ee… / e1c5c64cbb9d… outer
+    /// connect text on the controller health probe) cannot fall through to bare controller
+    /// RestartAsync.
     /// </summary>
     internal static IEnumerable<DevelopmentTlsIdentity> EnumerateReconnectTlsIdentities(
         DevelopmentTopology topology,
@@ -720,8 +725,8 @@ public static class DevelopmentLab
                 yield return cellSecurity.Tls.Control.Clients[resource.Name];
                 // Controller health probes ConnectAsync to control NATS. An expired server
                 // PEM alone yields the outer "can not start to connect nats server" text
-                // (fingerprint 7bead2653aa7… / bfa083ed37ee…) while the controller leaf is
-                // still valid.
+                // (fingerprint 7bead2653aa7… / bfa083ed37ee… / e1c5c64cbb9d…) while the
+                // controller leaf is still valid.
                 foreach (var server in cellSecurity.Tls.Control.Servers.Values)
                 {
                     yield return server.Client;

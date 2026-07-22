@@ -1123,11 +1123,11 @@ public sealed class DevelopmentNatsSecurityTests
             .IsTrue();
         // Fingerprint c05d3fee208c… (and control-NATS / product-NATS / controller twins
         // including b0ca5ad6b00f…, 1e57af750edb…, 2c66150c157c…, 666f072201a5…,
-        // 6da1925a9038…, 7bead2653aa7…, and bfa083ed37ee…): orchestrator logged "Restarted
-        // unhealthy development resource gru-control-nats-1: Health probe failed: can not
-        // start to connect nats server: nats://127.0.0.1:18600" three times between
-        // 18:45:41Z and 18:49:11Z. The outer NATS.Net text alone is intentionally not a
-        // certificate-shaped match — remint must still win via
+        // 6da1925a9038…, 7bead2653aa7…, bfa083ed37ee…, and e1c5c64cbb9d…): orchestrator
+        // logged "Restarted unhealthy development resource gru-control-nats-1: Health
+        // probe failed: can not start to connect nats server: nats://127.0.0.1:18600"
+        // three times between 18:45:41Z and 18:49:11Z. The outer NATS.Net text alone is
+        // intentionally not a certificate-shaped match — remint must still win via
         // RequiresForceRemintOnPersistentUnhealth so bare RestartAsync cannot thrash NATS.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18600"))
@@ -1168,6 +1168,12 @@ public sealed class DevelopmentNatsSecurityTests
         // 18:49:13Z.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: can not start to connect nats server: nats://127.0.0.1:18800"))
+            .IsFalse();
+        // Exact fra controller twin (fingerprint e1c5c64cbb9d…): same outer text on
+        // fra-controller-1 probing :19000 three bare restarts between 18:45:45Z and
+        // 18:49:20Z.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000"))
             .IsFalse();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: Connection refused"))
@@ -1385,6 +1391,10 @@ public sealed class DevelopmentNatsSecurityTests
         // Fingerprint bfa083ed37ee…: three bare restarts of sfo-controller-1 with only the
         // outer probe detail "can not start to connect nats server: nats://127.0.0.1:18800"
         // between 18:45:44Z and 18:49:13Z (sfo controller twin of 7bead2653aa7…).
+        // Fingerprint e1c5c64cbb9d…: three bare restarts of fra-controller-1 with only the
+        // outer probe detail "can not start to connect nats server: nats://127.0.0.1:19000"
+        // between 18:45:45Z and 18:49:20Z (fra controller twin of 7bead2653aa7… /
+        // bfa083ed37ee…).
         var topology = DevelopmentTopology.CreateThreeCellLean();
         foreach (var cell in new[] { "gru", "sfo", "fra" })
         {
@@ -1435,11 +1445,32 @@ public sealed class DevelopmentNatsSecurityTests
                 StringComparison.Ordinal))
             .IsTrue();
 
+        // Exact orchestrator restart log detail that DevHost scrapes for e1c5c64cbb9d… —
+        // not certificate-shaped, but fra controller must still force remint.
+        const string fraControllerConnectFailure =
+            "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000";
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(fraControllerConnectFailure))
+            .IsFalse();
+        await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
+                topology, "fra-controller-1"))
+            .IsTrue();
+
+        // Full restart-log shape DevHost normalizes for e1c5c64cbb9d… (resource + detail).
+        const string fraControllerRestartLog =
+            "Restarted unhealthy development resource fra-controller-1: " +
+            "Health probe failed: can not start to connect nats server: nats://127.0.0.1:19000";
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(fraControllerRestartLog))
+            .IsFalse();
+        await Assert.That(fraControllerRestartLog.Contains(
+                "Restarted unhealthy development resource fra-controller-1:",
+                StringComparison.Ordinal))
+            .IsTrue();
+
         // Sibling controller endpoints that share the same bare-restart normalized shape.
         foreach (var endpoint in new[]
                  {
                      ("gru-controller-1", "nats://127.0.0.1:18600"),
-                     ("fra-controller-1", "nats://127.0.0.1:19000")
+                     ("sfo-controller-1", "nats://127.0.0.1:18800")
                  })
         {
             var detail = $"Health probe failed: can not start to connect nats server: {endpoint.Item2}";
@@ -1579,15 +1610,15 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidControlNatsServerLeafForcesControllerRemintBeforeBareRestart()
     {
-        // Fingerprint 7bead2653aa7… / bfa083ed37ee…: controller health probes ConnectAsync
-        // to control NATS and present the controller leaf, not the control-NATS server
-        // Client/Route PEMs. An expired server leaf alone used to leave
+        // Fingerprint 7bead2653aa7… / bfa083ed37ee… / e1c5c64cbb9d…: controller health
+        // probes ConnectAsync to control NATS and present the controller leaf, not the
+        // control-NATS server Client/Route PEMs. An expired server leaf alone used to leave
         // ResourceHasInvalidTlsLeaf(controller) false while the probe only reported
-        // "can not start to connect nats server: nats://127.0.0.1:18600" / ":18800", so the
-        // consecutive-unhealthy path bare-RestartAsync'd gru-controller-1 / sfo-controller-1
-        // three times. EnumerateReconnectTlsIdentities for controllers must include control
-        // server Client/Route leaves for every control cell (gru :18600, sfo :18800,
-        // fra :19000).
+        // "can not start to connect nats server: nats://127.0.0.1:18600" / ":18800" /
+        // ":19000", so the consecutive-unhealthy path bare-RestartAsync'd gru-controller-1 /
+        // sfo-controller-1 / fra-controller-1 three times. EnumerateReconnectTlsIdentities
+        // for controllers must include control server Client/Route leaves for every control
+        // cell (gru :18600, sfo :18800, fra :19000).
         if (!OperatingSystem.IsLinux())
         {
             return;
