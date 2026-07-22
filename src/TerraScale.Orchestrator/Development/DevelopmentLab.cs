@@ -1155,7 +1155,25 @@ public static class DevelopmentLab
                         // 18:47:07Z steps) against the same a914ebca… leaf at 18:46:07Z on
                         // 127.0.0.1:36252 / 127.0.0.1:36270 (dual cid 45+46) and 18:47:07Z on
                         // 127.0.0.1:46566 / 127.0.0.1:46574 (dual cid 84+85) after bare
-                        // product-NATS RestartAsync reloads the same expired platform leaf).
+                        // product-NATS RestartAsync reloads the same expired platform leaf;
+                        // cid 47 → 86 → 39 for CN=sfo-platform on sfo-product-nats-1,
+                        // fingerprint 02525de8dfa3… — three-occurrence sparse post-recycle
+                        // reconnect twin of ef71b6e32493… / b439248687d8… / c907c56a7c0c… /
+                        // eacb3282ca0c… / bf521ed338de… / 9b960cc93f83… / 26b95f54769c… /
+                        // 16f64e5cf6e5… / e33d87402e17… / eaa27086a65c… / 146c64f3fc52… /
+                        // 9f8f5f2cd955… / a42bd88ac488… / d739f8d83bed… / b1723b879b59… /
+                        // 77220dace263… (and fra a66e03d58e6a… cid 47 → 86 → 39 / gru
+                        // 6be7ec00050d… cid 48 → 87 / gru 0401b56675fd… cid 47 → 86 / gru
+                        // e962f4a49508… cid 46 → 85 / gru 3f4dc73e62f2… cid 45 → 84 → 44 → 54 /
+                        // gru 5990e53d2fde… cid 44 → 83 / fra aae9c8a6b484… dual cid 45+46 →
+                        // 84+85 / fra b8e719ba13ca… cid:44 / fra 67d134aeab25… cid 43 → 38 at
+                        // the adjacent wall-clock 18:46:03Z / 18:46:04Z / 18:46:05Z /
+                        // 18:46:06Z / 18:46:07Z / 18:46:08Z / 18:46:09Z / 18:47:03Z /
+                        // 18:47:04Z / 18:47:05Z / 18:47:06Z / 18:47:07Z / 18:47:08Z /
+                        // 18:47:09Z / 18:50:09Z steps) against the same a914ebca… leaf at
+                        // 18:46:09Z on 127.0.0.1:36278, 18:47:09Z on 127.0.0.1:46582, and
+                        // 18:50:09Z on 127.0.0.1:45784 after bare product-NATS RestartAsync
+                        // reloads the same expired platform leaf).
                         //
                         // Plain "can not start to connect nats server" (fingerprint
                         // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
@@ -1934,7 +1952,21 @@ public static class DevelopmentLab
     /// 6d84bda1e560… cid 43 → 82 / fra 67d134aeab25… cid 43 → 38 at the adjacent wall-clock
     /// 18:46:02Z / 18:46:03Z / 18:46:04Z / 18:46:05Z / 18:46:06Z / 18:46:07Z / 18:47:02Z /
     /// 18:47:03Z / 18:47:05Z / 18:47:06Z / 18:47:07Z steps) after bare product-NATS
-    /// RestartAsync).
+    /// RestartAsync;
+    /// fingerprint 02525de8dfa3… / sfo-product-nats CN=sfo-platform cid 47 → 86 → 39 at
+    /// 18:46:09Z on 127.0.0.1:36278, 18:47:09Z on 127.0.0.1:46582, and 18:50:09Z on
+    /// 127.0.0.1:45784 against the same a914ebca… leaf — three-occurrence sparse
+    /// post-recycle reconnect twin of ef71b6e32493… / b439248687d8… / c907c56a7c0c… /
+    /// eacb3282ca0c… / bf521ed338de… / 9b960cc93f83… / 26b95f54769c… / 16f64e5cf6e5… /
+    /// e33d87402e17… / eaa27086a65c… / 146c64f3fc52… / 9f8f5f2cd955… / a42bd88ac488… /
+    /// d739f8d83bed… / b1723b879b59… / 77220dace263… (and fra a66e03d58e6a… cid 47 → 86 →
+    /// 39 / gru 6be7ec00050d… cid 48 → 87 / gru 0401b56675fd… cid 47 → 86 / gru
+    /// e962f4a49508… cid 46 → 85 / gru 3f4dc73e62f2… cid 45 → 84 → 44 → 54 / gru
+    /// 5990e53d2fde… cid 44 → 83 / fra aae9c8a6b484… dual cid 45+46 → 84+85 / fra
+    /// b8e719ba13ca… cid:44 / fra 67d134aeab25… cid 43 → 38 at the adjacent wall-clock
+    /// 18:46:03Z / 18:46:04Z / 18:46:05Z / 18:46:06Z / 18:46:07Z / 18:46:08Z / 18:46:09Z /
+    /// 18:47:03Z / 18:47:04Z / 18:47:05Z / 18:47:06Z / 18:47:07Z / 18:47:08Z / 18:47:09Z /
+    /// 18:50:09Z steps) after bare product-NATS RestartAsync).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
     /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
     /// recycle; product plane surveys every product client (platforms) the same way.
