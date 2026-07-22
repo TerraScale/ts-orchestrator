@@ -793,6 +793,19 @@ public static class DevelopmentLab
                         // concurrent with gru-platform 1f9106a25f41… / sfo-platform 1668f8c0e10f… /
                         // fra-platform 59a0656971a4… / gru operator-read 5807fcff9600… at the same
                         // wall-clock :19 steps);
+                        // cid 48 → 55 → 32 → 62 for CN=gru-controller-1 on gru-control-nats-1,
+                        // fingerprint e51d12dd4525… — four-occurrence post-recycle reconnect twin
+                        // of c2bf6b539a62… / 782d6308… / 003657d51ecd… / b9dc4dd1a8ef… /
+                        // 7b6a047263d8… / 87f7f1566c88… / a9bf884a363b… / 25b92b919c66… /
+                        // 34c89dedb769… / 024cbd22bdf4… / e7ad7a71e395… / 96fe8dda09bb… /
+                        // d2538c612184… / d00ef05a1026… / d56bf3307e7b… against the same
+                        // d467c210… leaf at 18:46:20Z on 127.0.0.1:37298, 18:48:20Z on
+                        // 127.0.0.1:52196, 18:49:20Z on 127.0.0.1:45314, and 18:50:20Z on
+                        // 127.0.0.1:57526 after bare control-NATS RestartAsync reloads the same
+                        // expired controller leaf (one second after d56bf3307e7b… cid 47 → 79 → 31
+                        // on adjacent :19 steps / ports 37282 → 37298 and 45312 → 45314, and
+                        // five seconds after d00ef05a1026… dual ports 52154/52194 → 52196 and
+                        // 57522/57524 → 57526 at the :15/:20 wall-clock pair);
                         // cid 29238 → 62 → 69 → 70 for CN=fra-controller-1 on fra-control-nats-1,
                         // fingerprint 91b5b852… — fra twin of the sfo/gru controller storms:
                         // long-running fra-controller-1 reconnects while bare control-NATS
@@ -2150,6 +2163,16 @@ public static class DevelopmentLab
     /// gru-platform 1f9106a25f41… / sfo-platform 1668f8c0e10f… / fra-platform 59a0656971a4… /
     /// gru operator-read 5807fcff9600… at the same wall-clock :19 steps) after bare
     /// control-NATS RestartAsync,
+    /// fingerprint e51d12dd4525… / gru-control-nats CN=gru-controller-1 cid 48 → 55 → 32 → 62
+    /// at 18:46:20Z on 127.0.0.1:37298, 18:48:20Z on 127.0.0.1:52196, 18:49:20Z on
+    /// 127.0.0.1:45314, and 18:50:20Z on 127.0.0.1:57526 against the same d467c210… leaf —
+    /// four-occurrence post-recycle reconnect twin of c2bf6b539a62… / 782d6308… /
+    /// 003657d51ecd… / b9dc4dd1a8ef… / 7b6a047263d8… / 87f7f1566c88… / a9bf884a363b… /
+    /// 25b92b919c66… / 34c89dedb769… / 024cbd22bdf4… / e7ad7a71e395… / 96fe8dda09bb… /
+    /// d2538c612184… / d00ef05a1026… / d56bf3307e7b… (one second after d56bf3307e7b… cid
+    /// 47 → 79 → 31 on adjacent :19 steps / ports 37282 → 37298 and 45312 → 45314, and five
+    /// seconds after d00ef05a1026… dual ports 52154/52194 → 52196 and 57522/57524 → 57526 at
+    /// the :15/:20 wall-clock pair) after bare control-NATS RestartAsync,
     /// fingerprint 91b5b852… / fra-control-nats CN=fra-controller-1 cid 29238 → 62 → 69 → 70
     /// at 18:45:34Z / 18:48:34Z / 18:50:34Z,
     /// fingerprint ffcef075c58c… / fra-control-nats CN=fra-controller-1 cid 29240 → 34 → 66 → 73
@@ -3151,7 +3174,8 @@ public static class DevelopmentLab
     /// twin 024cbd22bdf4… and two-occurrence post-recycle twin e7ad7a71e395… and
     /// seven-occurrence post-recycle twin 96fe8dda09bb… and three-occurrence
     /// post-recycle twin d2538c612184… and seven-occurrence post-recycle twin
-    /// d00ef05a1026… and three-occurrence post-recycle twin d56bf3307e7b…,
+    /// d00ef05a1026… and three-occurrence post-recycle twin d56bf3307e7b… and
+    /// four-occurrence post-recycle twin e51d12dd4525…,
     /// fra 91b5b852… and denser twin
     /// ffcef075c58c… and four-occurrence post-recycle twin bca21682b315… and single
     /// post-recycle twin 23eafce842f6… and two-occurrence post-recycle twins
