@@ -5031,6 +5031,36 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
                 "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
             .IsTrue();
+        // Exact gru-control-nats / CN=gru-controller-1 two-occurrence post-recycle shape
+        // (fingerprint 1455d09f7030…): same d467c210… gru-controller-1 leaf and gru control
+        // issuer as c2bf6b539a62… / 782d6308… / 003657d51ecd… / b9dc4dd1a8ef… / 7b6a047263d8… /
+        // 87f7f1566c88… / a9bf884a363b… / 25b92b919c66… / 34c89dedb769… / 024cbd22bdf4… /
+        // e7ad7a71e395… / 96fe8dda09bb… / d2538c612184… / d00ef05a1026… / d56bf3307e7b… /
+        // e51d12dd4525… / 73ac000434f0…, observed twice after control-NATS recycle (cid 51 →
+        // 83 at 18:46:26Z on 127.0.0.1:46574 and 18:47:26Z on 127.0.0.1:55160, NotAfter still
+        // 18:45:24Z). This is a one-second-later two-occurrence post-bare-restart reconnect
+        // twin of the six-occurrence 73ac000434f0… storm (cid 49 → 82 on adjacent :25 steps /
+        // ports 46536 → 46574 and 55148 → 55160): the long-running gru-controller-1 process
+        // re-presents the expired control leaf against a freshly recycled control NATS
+        // listener while probes still present only operator-read. Recovery must match every
+        // occurrence and force remint from invalid control-plane client leaves (including
+        // controllers) on the NATS resource for every cell — bare RestartAsync of control NATS
+        // alone reloads the same expired PEM and re-emits the server-side handshake error on
+        // each reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:46:26.041774 [ERR] 127.0.0.1:46574 - cid:51 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:26Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:47:26.126832 [ERR] 127.0.0.1:55160 - cid:83 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:26Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
         // Exact fra-control-nats / CN=fra-controller-1 multi-occurrence shape (fingerprint
         // 91b5b852…): same NotAfter (18:45:24Z) and bare control-NATS recycle pattern as the
         // sfo/gru controller twins (cid 29238 → 62 → 69 → 70 at 18:45:34Z / 18:48:34Z /
@@ -7200,13 +7230,13 @@ public sealed class DevelopmentNatsSecurityTests
         // Fingerprints c2bf6b539a62…, 782d6308…, 003657d51ecd…, b9dc4dd1a8ef…, 7b6a047263d8…,
         // 87f7f1566c88…, a9bf884a363b…, 25b92b919c66…, 34c89dedb769…, 024cbd22bdf4…,
         // e7ad7a71e395…, 96fe8dda09bb…, d2538c612184…, d00ef05a1026…, d56bf3307e7b…,
-        // e51d12dd4525…, and 73ac000434f0…: gru-controller-1 (not operator-read) presents the
-        // control leaf. Same NotAfter window and bare-NATS-recycle storm as the sfo twin (cid
-        // 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z; denser twin
-        // cid 29240 → 58 → 35 → 65 → 67 → 42 → 73 at 18:45:40Z / 18:46:40Z / 18:47:40Z /
-        // 18:48:40Z / 18:48:40Z / 18:49:40Z / 18:50:40Z against the same d467c210… leaf;
-        // two-occurrence post-recycle twin cid 28 → 60 at 18:45:43Z on 127.0.0.1:49796 and
-        // 18:46:43Z on 127.0.0.1:60312 for 003657d51ecd…;
+        // e51d12dd4525…, 73ac000434f0…, and 1455d09f7030…: gru-controller-1 (not
+        // operator-read) presents the control leaf. Same NotAfter window and bare-NATS-
+        // recycle storm as the sfo twin (cid 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z /
+        // 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 58 → 35 → 65 → 67 → 42 → 73 at
+        // 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:48:40Z / 18:49:40Z / 18:50:40Z
+        // against the same d467c210… leaf; two-occurrence post-recycle twin cid 28 → 60 at
+        // 18:45:43Z on 127.0.0.1:49796 and 18:46:43Z on 127.0.0.1:60312 for 003657d51ecd…;
         // four-occurrence post-recycle twin cid 29 → 61 → 68 → 45 at 18:45:45Z on
         // 127.0.0.1:56146, 18:46:45Z on 127.0.0.1:57182, 18:48:45Z on 127.0.0.1:55606, and
         // 18:49:45Z on 127.0.0.1:45982 for b9dc4dd1a8ef…; six-occurrence post-recycle twin
@@ -7255,7 +7285,10 @@ public sealed class DevelopmentNatsSecurityTests
         // at 18:46:25Z on 127.0.0.1:46536, 18:47:25Z on 127.0.0.1:55148, 18:48:25Z on
         // 127.0.0.1:44408, 18:49:25Z on 127.0.0.1:38192 / 127.0.0.1:38210 dual (cid 33+35),
         // and 18:50:25Z on 127.0.0.1:56214 for 73ac000434f0… — five seconds after
-        // e51d12dd4525… cid 48 → 55 → 32 → 62 on adjacent :20 steps). When only the
+        // e51d12dd4525… cid 48 → 55 → 32 → 62 on adjacent :20 steps; two-occurrence
+        // post-recycle twin cid 51 → 83 at 18:46:26Z on 127.0.0.1:46574 and 18:47:26Z on
+        // 127.0.0.1:55160 for 1455d09f7030… — one second after 73ac000434f0… cid 49 → 82 on
+        // adjacent :25 steps / ports 46536 → 46574 and 55148 → 55160). When only the
         // gru-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
         // for gru-control-nats-1 so force-remint runs instead of bare RestartAsync. Probes
         // alone would miss this because control-NATS probes present operator-read.
