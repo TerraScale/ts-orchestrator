@@ -1064,6 +1064,20 @@ public static class DevelopmentLab
                         // (four seconds after 4aa0ebad5b5b… cid 48 on adjacent :22 steps /
                         // ports 45440 → 38816; fra peer of sfo 306f7d4a6890… cid 50 → 51 → 65
                         // and gru 1455d09f7030… cid 51 → 83 at the same wall-clock :26 steps);
+                        // cid 51 → 58 → 60 → 35 → 66 for CN=fra-controller-1 on fra-control-nats-1,
+                        // fingerprint 3b2502548268… — five-occurrence post-recycle reconnect twin
+                        // of 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… /
+                        // 4046b92fa615… / 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… /
+                        // 876de6711801… / 52a227218acf… / 88eec19ebb94… / 49ec50da2e2a… /
+                        // 7063631384a4… / d7de94966c92… / 4cab25065be5… / 4aa0ebad5b5b… /
+                        // 4d272c403fb4… against the same 8f6e801c… leaf at 18:46:27Z on
+                        // 127.0.0.1:38820, 18:48:27Z on 127.0.0.1:58320 / 127.0.0.1:58350
+                        // (dual cid 58+60), 18:49:27Z on 127.0.0.1:51638, and 18:50:27Z on
+                        // 127.0.0.1:51878 after bare control-NATS RestartAsync reloads the same
+                        // expired controller leaf (one second after 4d272c403fb4… cid:50 on
+                        // adjacent :26 steps / ports 38816 → 38820; denser five-occurrence
+                        // continuation of the single 4d272c403fb4… reconnect with mid-window
+                        // dual-cid reconnect at :48);
                         // cid 14634 → 63 → 50 → 43 for CN=fra-platform on fra-product-nats-1,
                         // fingerprint 25ef0004168c… — product-plane twin: platform process
                         // reconnects while bare product-NATS RestartAsync reloads the same
@@ -2689,6 +2703,17 @@ public static class DevelopmentLab
     /// cid 48 on adjacent :22 steps / ports 45440 → 38816; fra peer of sfo 306f7d4a6890…
     /// cid 50 → 51 → 65 and gru 1455d09f7030… cid 51 → 83 at the same wall-clock :26
     /// steps) after bare control-NATS RestartAsync,
+    /// fingerprint 3b2502548268… / fra-control-nats CN=fra-controller-1 cid 51 → 58 → 60 →
+    /// 35 → 66 at 18:46:27Z on 127.0.0.1:38820, 18:48:27Z on 127.0.0.1:58320 /
+    /// 127.0.0.1:58350 (dual cid 58+60), 18:49:27Z on 127.0.0.1:51638, and 18:50:27Z on
+    /// 127.0.0.1:51878 against the same 8f6e801c… leaf — five-occurrence post-recycle
+    /// reconnect twin of 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… /
+    /// 4046b92fa615… / 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… / 876de6711801… /
+    /// 52a227218acf… / 88eec19ebb94… / 49ec50da2e2a… / 7063631384a4… / d7de94966c92… /
+    /// 4cab25065be5… / 4aa0ebad5b5b… / 4d272c403fb4… (one second after 4d272c403fb4…
+    /// cid:50 on adjacent :26 steps / ports 38816 → 38820; denser five-occurrence
+    /// continuation of the single 4d272c403fb4… reconnect with mid-window dual-cid
+    /// reconnect at :48) after bare control-NATS RestartAsync,
     /// fingerprint c6627a56bf45… / gru-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint c48cbf142a9a… / gru-control-nats CN=operator-read cid 29239 → 34 → 66 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 4e40db2b… leaf,
@@ -3815,7 +3840,8 @@ public static class DevelopmentLab
     /// four-occurrence post-recycle twin 7063631384a4… and three-occurrence
     /// post-recycle twin d7de94966c92… and three-occurrence post-recycle twin
     /// 4cab25065be5… and two-occurrence post-recycle twin 4aa0ebad5b5b… and
-    /// single-occurrence post-recycle twin 4d272c403fb4…) alone still
+    /// single-occurrence post-recycle twin 4d272c403fb4… and five-occurrence
+    /// post-recycle twin 3b2502548268…) alone still
     /// forces remint instead of NATS recycle. Product NATS surveys every platform client
     /// plus product server Client/Route leaves the same way. Controllers survey their own
     /// leaf plus every control-NATS server Client/Route leaf in the cell so an expired
