@@ -2784,6 +2784,54 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
                 "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
             .IsTrue();
+        // Exact gru-product-nats / CN=gru-platform three-occurrence post-recycle shape
+        // (fingerprint 8371c8687eab…): same 6b500765… gru-platform leaf and gru product
+        // issuer as 76601ac1fca5… / e9d76ad07baa… / 04ff1b46b814… / d26427e1c533… /
+        // d22a1e331a57… / 7dae08a6f4b3… / 1f9106a25f41… / d0feba5039c6… / f106e39e815f… /
+        // 88ff8c404d3b… / 897b9ff7b37e… / 8a0aaf8cb1da… / 6be7ec00050d… / 0401b56675fd… /
+        // e962f4a49508… / 3f4dc73e62f2… / 5990e53d2fde… / 6d84bda1e560… / 764b28c3439a… /
+        // a2e01c16a27c… / be7bee33b946… / 02a670a12fe6… / 9371738eec92… / b22018f7aa7b… /
+        // ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… /
+        // 54fea6c92b78… / 57ae70882ed5…, observed three times after product-NATS recycle
+        // (cid 62 → 32 → 33 at 18:46:31Z on 127.0.0.1:35290, 18:47:31Z on 127.0.0.1:60496,
+        // and 18:49:31Z on 127.0.0.1:58434; NotAfter still 18:45:24Z). This is a two-
+        // second-later three-occurrence post-bare-restart reconnect twin of the two-
+        // occurrence 76601ac1fca5… storm (cid 61 → 31 on adjacent port 35282 → 35290 and
+        // 60480 → 60496 at :29), a four-second-later twin of the three-occurrence
+        // e9d76ad07baa… storm (cid 60 → 48 → 42 on port 35270 → 35290 at :27), a five-
+        // second-later twin of the single-occurrence 04ff1b46b814… storm (cid:59 on port
+        // 35254 → 35290 at :26), and a six-second-later twin of the four-occurrence
+        // d26427e1c533… storm (cid 58 → 97 → 98 → 32 on port 35236 → 35290 and 58424 →
+        // 58434 at :25), concurrent with sfo f69b77ff7537… (dual cid 57+58 → 97 at :26) /
+        // fra 54113211a37d… (cid:58 at :26 on 127.0.0.1:60984) / fra a279798ba9f3… (cid
+        // 59 → 98 → 49 → 42 at :27) / fra 86b0b173f024… (cid 57 → 96 → 97 → 32 at :25):
+        // the long-running gru-platform process re-presents the expired product leaf
+        // against a freshly recycled product NATS listener while platform HTTP readiness
+        // can stay green. Recovery must match every occurrence and force remint from
+        // invalid product-plane client leaves (platforms) on the NATS resource for every
+        // cell — bare RestartAsync of product NATS alone reloads the same expired PEM and
+        // re-emits the server-side handshake error on the next reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:46:31.526623 [ERR] 127.0.0.1:35290 - cid:62 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:31Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:47:31.292819 [ERR] 127.0.0.1:60496 - cid:32 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:31Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-product-nats-1] [1] 2026/07/21 18:49:31.286413 [ERR] 127.0.0.1:58434 - cid:33 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:31Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-platform SHA-256: 6b500765eae962a8835795ccf60d79845ff36ef550a6646cdd9b45d64c07feb7; " +
+                "CN=TerraScale gru product issuer SHA-256: 299d23e4d124cc154d4e3646a1ddaa6b53965e55e5526eed35e140107150361f)"))
+            .IsTrue();
         // Exact sfo-product-nats / CN=sfo-platform multi-occurrence shape (fingerprint
         // b1723b879b59…): same NotAfter (18:45:24Z) as the fra-platform product-plane twin
         // (25ef0004168c…), with cid recycle 14634 → 63 → 34 → 49 → 43 at 18:45:34Z /
@@ -8346,6 +8394,26 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForGruProductNatsBeforeBareRestart()
     {
+        // Also fingerprint 8371c8687eab…: three-occurrence post-recycle twin of
+        // 76601ac1fca5… / e9d76ad07baa… / 04ff1b46b814… / d26427e1c533… / d22a1e331a57… /
+        // 7dae08a6f4b3… / 1f9106a25f41… / d0feba5039c6… / f106e39e815f… / 88ff8c404d3b… /
+        // 897b9ff7b37e… / 8a0aaf8cb1da… / 6be7ec00050d… / 0401b56675fd… / e962f4a49508… /
+        // 3f4dc73e62f2… / 5990e53d2fde… / 6d84bda1e560… / 764b28c3439a… / a2e01c16a27c… /
+        // be7bee33b946… / 02a670a12fe6… / 9371738eec92… / b22018f7aa7b… / ed3f4504d5e1… /
+        // 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… /
+        // 57ae70882ed5… (and sfo f69b77ff7537… cid 57 → 58 → 97 / fra 54113211a37d… cid:58 /
+        // fra a279798ba9f3… cid 59 → 98 → 49 → 42 / fra 86b0b173f024… cid 57 → 96 → 97 →
+        // 32 at the adjacent wall-clock 18:46:25Z / 18:46:26Z / 18:46:27Z / 18:46:29Z /
+        // 18:46:31Z / 18:47:25Z / 18:47:26Z / 18:47:27Z / 18:47:29Z / 18:47:31Z /
+        // 18:48:27Z / 18:49:25Z / 18:49:31Z / 18:50:27Z steps) with cid 62 → 32 → 33 at
+        // 18:46:31Z on 127.0.0.1:35290, 18:47:31Z on 127.0.0.1:60496, and 18:49:31Z on
+        // 127.0.0.1:58434 against the same 6b500765… leaf (two seconds after
+        // 76601ac1fca5… cid 61 → 31 on adjacent :29 steps / port 35282 → 35290 and
+        // 60480 → 60496; four seconds after e9d76ad07baa… cid 60 → 48 → 42 on :27 steps /
+        // port 35270 → 35290; five seconds after 04ff1b46b814… cid:59 on :26 steps / port
+        // 35254 → 35290; six seconds after d26427e1c533… cid 58 → 97 → 98 → 32 on :25
+        // steps / port 35236 → 35290 and 58424 → 58434) — still requires force-remint
+        // from invalid gru product-plane leaves before bare product-NATS RestartAsync.
         // Also fingerprint 76601ac1fca5…: two-occurrence post-recycle twin of
         // e9d76ad07baa… / 04ff1b46b814… / d26427e1c533… / d22a1e331a57… / 7dae08a6f4b3… /
         // 1f9106a25f41… / d0feba5039c6… / f106e39e815f… / 88ff8c404d3b… / 897b9ff7b37e… /
