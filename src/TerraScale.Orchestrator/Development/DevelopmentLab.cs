@@ -215,7 +215,10 @@ public static class DevelopmentLab
                     // fourth two-occurrence post-recycle twin d26af782af24… cid 40 → 71 at
                     // 18:46:07Z on 127.0.0.1:48686 and 18:47:07Z on 127.0.0.1:46486 and
                     // fifth two-occurrence post-recycle twin 424b0b6af457… cid 43 → 75 at
-                    // 18:46:13Z on 127.0.0.1:48710 and 18:47:13Z on 127.0.0.1:46544 against
+                    // 18:46:13Z on 127.0.0.1:48710 and 18:47:13Z on 127.0.0.1:46544 and
+                    // three-occurrence post-recycle twin 461d52d6f097… cid 46 → 78 → 29 at
+                    // 18:46:19Z on 127.0.0.1:45414, 18:47:19Z on 127.0.0.1:34512, and
+                    // 18:49:19Z on 127.0.0.1:44846 against
                     // the same 6477b788… leaf).
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
@@ -355,7 +358,11 @@ public static class DevelopmentLab
                         // 18:47:07Z on 127.0.0.1:46486 against the same 6477b788… leaf, and
                         // fingerprint 424b0b6af457… / fra-control-nats fifth two-occurrence
                         // post-recycle twin cid 43 → 75 at 18:46:13Z on 127.0.0.1:48710 and
-                        // 18:47:13Z on 127.0.0.1:46544 against the same 6477b788… leaf).
+                        // 18:47:13Z on 127.0.0.1:46544 against the same 6477b788… leaf,
+                        // fingerprint 461d52d6f097… / fra-control-nats three-occurrence
+                        // post-recycle twin cid 46 → 78 → 29 at 18:46:19Z on
+                        // 127.0.0.1:45414, 18:47:19Z on 127.0.0.1:34512, and 18:49:19Z on
+                        // 127.0.0.1:44846 against the same 6477b788… leaf).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
                         if (!observationCertificateFailure &&
@@ -506,6 +513,17 @@ public static class DevelopmentLab
                         // PEM (fra peer of gru 9dd8feb97fa2… cid 43 → 75 / sfo-platform
                         // e583d837318a… / fra-platform d86f81358e32… at the same wall-clock
                         // :13 steps);
+                        // cid 46 → 78 → 29 for CN=operator-read on
+                        // fra-control-nats-1, fingerprint 461d52d6f097… — three-occurrence
+                        // post-recycle reconnect twin of 9a811bb8… / f95adc65… /
+                        // 7421834a4183… / c74671d2c0e4… / b2dec42a6166… / d26af782af24… /
+                        // 424b0b6af457… against the same 6477b788… leaf at 18:46:19Z on
+                        // 127.0.0.1:45414, 18:47:19Z on 127.0.0.1:34512, and 18:49:19Z on
+                        // 127.0.0.1:44846 after bare control-NATS RestartAsync reloads the
+                        // same expired operator-read PEM (fra peer of gru 5807fcff9600…
+                        // cid 46 → 78 → 30 / gru-platform 1f9106a25f41… / sfo-platform
+                        // 1668f8c0e10f… / fra-platform 59a0656971a4… at the same wall-clock
+                        // :19 steps);
                         // cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1, fingerprint f490b625…;
                         // cid 29240 → 34 → 35 → 66 → 73 for CN=sfo-controller-1 on
@@ -2313,7 +2331,15 @@ public static class DevelopmentLab
     /// f95adc65… / 7421834a4183… / c74671d2c0e4… / b2dec42a6166… / d26af782af24… (fra peer
     /// of gru 9dd8feb97fa2… cid 43 → 75 / sfo-platform e583d837318a… / fra-platform
     /// d86f81358e32… at the same wall-clock :13 steps) after bare control-NATS
-    /// RestartAsync).
+    /// RestartAsync,
+    /// fingerprint 461d52d6f097… / fra-control-nats CN=operator-read cid 46 → 78 → 29 at
+    /// 18:46:19Z on 127.0.0.1:45414, 18:47:19Z on 127.0.0.1:34512, and 18:49:19Z on
+    /// 127.0.0.1:44846 against the same 6477b788… leaf — three-occurrence post-recycle
+    /// reconnect twin of 9a811bb8… / f95adc65… / 7421834a4183… / c74671d2c0e4… /
+    /// b2dec42a6166… / d26af782af24… / 424b0b6af457… (fra peer of gru 5807fcff9600…
+    /// cid 46 → 78 → 30 / gru-platform 1f9106a25f41… / sfo-platform 1668f8c0e10f… /
+    /// fra-platform 59a0656971a4… at the same wall-clock :19 steps) after bare
+    /// control-NATS RestartAsync).
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…;
