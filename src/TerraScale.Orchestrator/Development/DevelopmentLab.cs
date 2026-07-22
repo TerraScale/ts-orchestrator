@@ -1761,6 +1761,24 @@ public static class DevelopmentLab
                         // 96 on adjacent :23 steps / port 38800 → 35236; four seconds after
                         // 7dae08a6f4b3… cid 56 → 47 → 41 on :21 steps; six seconds after
                         // 1f9106a25f41… cid 54 → 55 → 94 → 31 on :19 steps);
+                        // cid:59 for CN=gru-platform on gru-product-nats-1,
+                        // fingerprint 04ff1b46b814… — single-occurrence post-recycle reconnect twin
+                        // of d26427e1c533… / d22a1e331a57… / 7dae08a6f4b3… / 1f9106a25f41… /
+                        // d0feba5039c6… / f106e39e815f… / 88ff8c404d3b… / 897b9ff7b37e… /
+                        // 8a0aaf8cb1da… / 6be7ec00050d… / 0401b56675fd… / e962f4a49508… /
+                        // 3f4dc73e62f2… / 5990e53d2fde… / 6d84bda1e560… / 764b28c3439a… /
+                        // a2e01c16a27c… / be7bee33b946… / 02a670a12fe6… / 9371738eec92… /
+                        // b22018f7aa7b… / ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… /
+                        // 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… (and
+                        // sfo f69b77ff7537… cid 57 → 58 → 97 / fra 54113211a37d… cid:58 /
+                        // fra 86b0b173f024… cid 57 → 96 → 97 → 32 at the adjacent wall-clock
+                        // 18:46:25Z / 18:46:26Z / 18:47:25Z / 18:47:26Z / 18:49:25Z steps)
+                        // against the same 6b500765… leaf at 18:46:26Z on 127.0.0.1:35254
+                        // after bare product-NATS RestartAsync reloads the same expired
+                        // platform leaf (one second after d26427e1c533… cid 58 → 97 → 98 → 32
+                        // on adjacent :25 steps / port 35236 → 35254; same wall-clock :26 as
+                        // sfo f69b77ff7537… dual cid 57+58 on 127.0.0.1:58046/58058 and fra
+                        // 54113211a37d… cid:58 on 127.0.0.1:60984);
                         // cid 31 → 70 → 40 → 35 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint d739f8d83bed… — four-occurrence post-recycle reconnect twin
                         // of b1723b879b59… / 77220dace263… (and gru 1364f1b0cdbc… / 0b23b4fb5a75…)
@@ -3335,6 +3353,20 @@ public static class DevelopmentLab
     /// 35236; four seconds after 7dae08a6f4b3… cid 56 → 47 → 41 on :21 steps; six seconds
     /// after 1f9106a25f41… cid 54 → 55 → 94 → 31 on :19 steps) after bare product-NATS
     /// RestartAsync;
+    /// fingerprint 04ff1b46b814… / gru-product-nats CN=gru-platform cid:59 at 18:46:26Z on
+    /// 127.0.0.1:35254 against the same 6b500765… leaf — single-occurrence post-recycle
+    /// reconnect twin of d26427e1c533… / d22a1e331a57… / 7dae08a6f4b3… / 1f9106a25f41… /
+    /// d0feba5039c6… / f106e39e815f… / 88ff8c404d3b… / 897b9ff7b37e… / 8a0aaf8cb1da… /
+    /// 6be7ec00050d… / 0401b56675fd… / e962f4a49508… / 3f4dc73e62f2… / 5990e53d2fde… /
+    /// 6d84bda1e560… / 764b28c3439a… / a2e01c16a27c… / be7bee33b946… / 02a670a12fe6… /
+    /// 9371738eec92… / b22018f7aa7b… / ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… /
+    /// 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… (and sfo
+    /// f69b77ff7537… cid 57 → 58 → 97 / fra 54113211a37d… cid:58 / fra 86b0b173f024…
+    /// cid 57 → 96 → 97 → 32 at the adjacent wall-clock 18:46:25Z / 18:46:26Z /
+    /// 18:47:25Z / 18:47:26Z / 18:49:25Z steps; one second after d26427e1c533… cid 58 →
+    /// 97 → 98 → 32 on adjacent :25 steps / port 35236 → 35254; same wall-clock :26 as
+    /// sfo f69b77ff7537… dual cid 57+58 on 127.0.0.1:58046/58058 and fra 54113211a37d…
+    /// cid:58 on 127.0.0.1:60984) after bare product-NATS RestartAsync;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z;
     /// fingerprint 77220dace263… / sfo-product-nats CN=sfo-platform cid 14635 → 67 → 37 → 38 → 50 → 44
