@@ -180,8 +180,10 @@ public static class DevelopmentLab
                     // (fingerprint c6627a56… / gru-control-nats multi-occurrence and denser
                     // twin c48cbf142a9a… cid 29239 → 34 → 66 → 72 and two-occurrence
                     // post-recycle twin f4f92376efda… cid 31 → 46 at 18:45:50Z on
-                    // 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996 against the same
-                    // 4e40db2b… leaf; fingerprint e517701a… / sfo-control-nats multi-
+                    // 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996 and second
+                    // two-occurrence post-recycle twin b252d8996050… cid 34 → 51 at
+                    // 18:45:56Z on 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 against
+                    // the same 4e40db2b… leaf; fingerprint e517701a… / sfo-control-nats multi-
                     // occurrence and denser twin f08d1c577176… cid 29239 → 33 → 65 → 72 and
                     // two-occurrence post-recycle twin 62860f83eeb6… cid 30 → 46 at
                     // 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on 127.0.0.1:34070 and
@@ -277,10 +279,14 @@ public static class DevelopmentLab
                         // 18:50:40Z against the same 4e40db2b… leaf, fingerprint
                         // f4f92376efda… / gru-control-nats two-occurrence post-recycle twin
                         // cid 31 → 46 at 18:45:50Z on 127.0.0.1:56170 and 18:49:50Z on
-                        // 127.0.0.1:45996 against the same 4e40db2b… leaf, e517701a… /
-                        // sfo-control-nats, fingerprint f08d1c577176… / sfo-control-nats
-                        // four-occurrence twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
-                        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
+                        // 127.0.0.1:45996 against the same 4e40db2b… leaf, fingerprint
+                        // b252d8996050… / gru-control-nats second two-occurrence
+                        // post-recycle twin cid 34 → 51 at 18:45:56Z on 127.0.0.1:54410 and
+                        // 18:49:56Z on 127.0.0.1:35762 against the same 4e40db2b… leaf,
+                        // e517701a… / sfo-control-nats, fingerprint f08d1c577176… /
+                        // sfo-control-nats four-occurrence twin cid 29239 → 33 → 65 → 72 at
+                        // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
+                        // aa00c1c3… leaf,
                         // fingerprint 62860f83eeb6… / sfo-control-nats two-occurrence
                         // post-recycle twin cid 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and
                         // 18:49:50Z on 127.0.0.1:34070 against the same aa00c1c3… leaf,
@@ -320,7 +326,13 @@ public static class DevelopmentLab
                         // post-recycle reconnect twin of c6627a56bf45… / c48cbf142a9a… against the
                         // same 4e40db2b… leaf at 18:45:50Z on 127.0.0.1:56170 and 18:49:50Z on
                         // 127.0.0.1:45996 after bare control-NATS RestartAsync reloads the same
-                        // expired operator-read PEM; cid 29239 → 33 → 65 → 72 for CN=operator-read on
+                        // expired operator-read PEM; cid 34 → 51 for CN=operator-read on
+                        // gru-control-nats-1, fingerprint b252d8996050… — second two-occurrence
+                        // post-recycle reconnect twin of c6627a56bf45… / c48cbf142a9a… /
+                        // f4f92376efda… against the same 4e40db2b… leaf at 18:45:56Z on
+                        // 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 after bare
+                        // control-NATS RestartAsync reloads the same expired operator-read PEM;
+                        // cid 29239 → 33 → 65 → 72 for CN=operator-read on
                         // sfo-control-nats-1, fingerprint f08d1c577176… — four-occurrence twin of
                         // e517701a… against the same aa00c1c3… leaf at 18:45:40Z / 18:47:40Z /
                         // 18:48:40Z / 18:50:40Z; cid 30 → 46 for CN=operator-read on
@@ -911,6 +923,10 @@ public static class DevelopmentLab
     /// 18:45:50Z on 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996 against the same
     /// 4e40db2b… leaf — two-occurrence post-recycle reconnect twin of c6627a56bf45… /
     /// c48cbf142a9a… after bare control-NATS RestartAsync,
+    /// fingerprint b252d8996050… / gru-control-nats CN=operator-read cid 34 → 51 at
+    /// 18:45:56Z on 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 against the same
+    /// 4e40db2b… leaf — second two-occurrence post-recycle reconnect twin of
+    /// c6627a56bf45… / c48cbf142a9a… / f4f92376efda… after bare control-NATS RestartAsync,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint f08d1c577176… / sfo-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
