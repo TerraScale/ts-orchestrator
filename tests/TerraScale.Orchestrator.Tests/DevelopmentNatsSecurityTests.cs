@@ -5779,6 +5779,30 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
                 "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
             .IsTrue();
+        // Exact fra-control-nats / CN=fra-controller-1 single-occurrence post-recycle shape
+        // (fingerprint 4d272c403fb4…): same 8f6e801c… fra-controller-1 leaf and fra control
+        // issuer as 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… / 4046b92fa615… /
+        // 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… / 876de6711801… / 52a227218acf… /
+        // 88eec19ebb94… / 49ec50da2e2a… / 7063631384a4… / d7de94966c92… / 4cab25065be5… /
+        // 4aa0ebad5b5b…, observed once after control-NATS recycle (cid:50 at 18:46:26Z on
+        // 127.0.0.1:38816, NotAfter still 18:45:24Z). This is a four-seconds-later
+        // single-occurrence post-bare-restart reconnect twin of the already-locked
+        // 4aa0ebad5b5b… storm (cid 48 → 57 on adjacent :22 steps / ports 45440 → 38816),
+        // the fra peer of sfo 306f7d4a6890… (cid 50 → 51 → 65 at the same wall-clock :26
+        // steps) and gru 1455d09f7030… (cid 51 → 83 at the same wall-clock :26 steps): the
+        // long-running fra-controller-1 process re-presents the expired control leaf against
+        // a freshly recycled control NATS listener while probes still present only
+        // operator-read. Recovery must match the occurrence and force remint from invalid
+        // control-plane client leaves (including controllers) on the NATS resource for every
+        // cell — bare RestartAsync of control NATS alone reloads the same expired PEM and
+        // re-emits the server-side handshake error on the next reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:46:26.042761 [ERR] 127.0.0.1:38816 - cid:50 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:26Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         // operator-read health probes also present leaves; once expired they appear on
         // the same NATS server log stream and must match force-remint detection.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -7479,44 +7503,44 @@ public sealed class DevelopmentNatsSecurityTests
     {
         // Fingerprints 91b5b852…, ffcef075c58c…, bca21682b315…, 23eafce842f6…, 4046b92fa615…,
         // 87c737a0ed10…, 5e5b835252fe…, 6e08a77cd4b6…, 876de6711801…, 52a227218acf…,
-        // 88eec19ebb94…, 49ec50da2e2a…, 7063631384a4…, d7de94966c92…, 4cab25065be5…, and
-        // 4aa0ebad5b5b…: fra-controller-1 (not operator-read) presents the control leaf. Same
-        // NotAfter window and bare-NATS-recycle storm as the sfo/gru twins (cid 29238 → 62 →
-        // 69 → 70 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 34 → 66 → 73 at
-        // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 8f6e801c… leaf;
-        // four-occurrence post-recycle twin cid 28 → 37 → 69 → 76 at 18:45:46Z on
-        // 127.0.0.1:34624, 18:47:46Z on 127.0.0.1:60304, 18:48:46Z on 127.0.0.1:50796, and
-        // 18:50:46Z on 127.0.0.1:54352 for bca21682b315…; single post-recycle twin cid:29 at
-        // 18:45:48Z on 127.0.0.1:34626 for 23eafce842f6…; two-occurrence post-recycle twin
-        // cid 31 → 47 at 18:45:50Z on 127.0.0.1:34668 and 18:49:50Z on 127.0.0.1:33784 for
-        // 4046b92fa615…; seven-occurrence post-recycle twin cid 32 → 64 → 41 → 72 → 73 → 48 →
-        // 79 at 18:45:52Z on 127.0.0.1:34674, 18:46:52Z on 127.0.0.1:53654, 18:47:52Z on
-        // 127.0.0.1:60380, 18:48:52Z on 127.0.0.1:50844 / 50858 dual, 18:49:52Z on
-        // 127.0.0.1:33786, and 18:50:52Z on 127.0.0.1:54412 for 87c737a0ed10…; second
-        // two-occurrence post-recycle twin cid 34 → 50 at 18:45:56Z on 127.0.0.1:43900 and
-        // 18:49:56Z on 127.0.0.1:37150 for 5e5b835252fe…; four-occurrence post-recycle twin
-        // cid 35 → 42 → 44 → 51 at 18:45:57Z on 127.0.0.1:43906, 18:47:57Z on 127.0.0.1:44698 /
-        // 127.0.0.1:44730 dual, and 18:49:57Z on 127.0.0.1:37152 for 6e08a77cd4b6…;
-        // two-occurrence post-recycle twin cid 37 → 69 at 18:46:01Z on 127.0.0.1:43944 and
-        // 18:47:01Z on 127.0.0.1:42784 for 876de6711801…; three-occurrence post-recycle twin
-        // cid 38 → 45 → 52 at 18:46:02Z on 127.0.0.1:43948, 18:48:02Z on 127.0.0.1:44744, and
-        // 18:50:02Z on 127.0.0.1:37162 for 52a227218acf…; five-occurrence post-recycle twin
-        // cid 39 → 41 → 72 → 48 → 55 at 18:46:07Z on 127.0.0.1:48674 / 127.0.0.1:48694 dual,
-        // 18:47:07Z on 127.0.0.1:46502, 18:48:07Z on 127.0.0.1:55402, and 18:50:07Z on
-        // 127.0.0.1:60620 for 88eec19ebb94… — fra peer of gru 024cbd22bdf4… at adjacent :07
-        // steps; three-occurrence post-recycle twin cid 42 → 51 → 58 at 18:46:12Z on
-        // 127.0.0.1:48696, 18:48:12Z on 127.0.0.1:55440, and 18:50:12Z on 127.0.0.1:60662 for
-        // 49ec50da2e2a… — sparse five-seconds-later twin of 88eec19ebb94… on adjacent ports and
-        // fra peer of sfo 914b99d5fbc6… / gru 96fe8dda09bb… at adjacent :10/:11/:12 steps;
-        // four-occurrence post-recycle twin cid 44 → 74 → 76 → 83 at 18:46:13Z on
-        // 127.0.0.1:48726, 18:47:13Z on 127.0.0.1:46524 / 127.0.0.1:46564 dual, and 18:49:13Z
-        // on 127.0.0.1:52176 for 7063631384a4… — one-second-later twin of 49ec50da2e2a… on
-        // adjacent port 48696 → 48726 with denser mid-window dual reconnect, control-plane
-        // peer of gru-platform 88ff8c404d3b… at the same wall-clock :13 steps; three-occurrence
-        // post-recycle twin cid 45 → 54 → 61 at 18:46:17Z on 127.0.0.1:45396, 18:48:17Z on
-        // 127.0.0.1:33434, and 18:50:17Z on 127.0.0.1:58410 for d7de94966c92… — four seconds
-        // after 7063631384a4…, fra peer of sfo bbdb6e0d6006… / gru d00ef05a1026… at the
-        // adjacent wall-clock :15/:16 steps, and product-plane peer of fra-platform
+        // 88eec19ebb94…, 49ec50da2e2a…, 7063631384a4…, d7de94966c92…, 4cab25065be5…,
+        // 4aa0ebad5b5b…, and 4d272c403fb4…: fra-controller-1 (not operator-read) presents the
+        // control leaf. Same NotAfter window and bare-NATS-recycle storm as the sfo/gru twins
+        // (cid 29238 → 62 → 69 → 70 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid
+        // 29240 → 34 → 66 → 73 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the
+        // same 8f6e801c… leaf; four-occurrence post-recycle twin cid 28 → 37 → 69 → 76 at
+        // 18:45:46Z on 127.0.0.1:34624, 18:47:46Z on 127.0.0.1:60304, 18:48:46Z on
+        // 127.0.0.1:50796, and 18:50:46Z on 127.0.0.1:54352 for bca21682b315…; single
+        // post-recycle twin cid:29 at 18:45:48Z on 127.0.0.1:34626 for 23eafce842f6…;
+        // two-occurrence post-recycle twin cid 31 → 47 at 18:45:50Z on 127.0.0.1:34668 and
+        // 18:49:50Z on 127.0.0.1:33784 for 4046b92fa615…; seven-occurrence post-recycle twin
+        // cid 32 → 64 → 41 → 72 → 73 → 48 → 79 at 18:45:52Z on 127.0.0.1:34674, 18:46:52Z on
+        // 127.0.0.1:53654, 18:47:52Z on 127.0.0.1:60380, 18:48:52Z on 127.0.0.1:50844 / 50858
+        // dual, 18:49:52Z on 127.0.0.1:33786, and 18:50:52Z on 127.0.0.1:54412 for
+        // 87c737a0ed10…; second two-occurrence post-recycle twin cid 34 → 50 at 18:45:56Z on
+        // 127.0.0.1:43900 and 18:49:56Z on 127.0.0.1:37150 for 5e5b835252fe…; four-occurrence
+        // post-recycle twin cid 35 → 42 → 44 → 51 at 18:45:57Z on 127.0.0.1:43906, 18:47:57Z
+        // on 127.0.0.1:44698 / 127.0.0.1:44730 dual, and 18:49:57Z on 127.0.0.1:37152 for
+        // 6e08a77cd4b6…; two-occurrence post-recycle twin cid 37 → 69 at 18:46:01Z on
+        // 127.0.0.1:43944 and 18:47:01Z on 127.0.0.1:42784 for 876de6711801…; three-occurrence
+        // post-recycle twin cid 38 → 45 → 52 at 18:46:02Z on 127.0.0.1:43948, 18:48:02Z on
+        // 127.0.0.1:44744, and 18:50:02Z on 127.0.0.1:37162 for 52a227218acf…; five-occurrence
+        // post-recycle twin cid 39 → 41 → 72 → 48 → 55 at 18:46:07Z on 127.0.0.1:48674 /
+        // 127.0.0.1:48694 dual, 18:47:07Z on 127.0.0.1:46502, 18:48:07Z on 127.0.0.1:55402,
+        // and 18:50:07Z on 127.0.0.1:60620 for 88eec19ebb94… — fra peer of gru 024cbd22bdf4…
+        // at adjacent :07 steps; three-occurrence post-recycle twin cid 42 → 51 → 58 at
+        // 18:46:12Z on 127.0.0.1:48696, 18:48:12Z on 127.0.0.1:55440, and 18:50:12Z on
+        // 127.0.0.1:60662 for 49ec50da2e2a… — sparse five-seconds-later twin of 88eec19ebb94…
+        // on adjacent ports and fra peer of sfo 914b99d5fbc6… / gru 96fe8dda09bb… at adjacent
+        // :10/:11/:12 steps; four-occurrence post-recycle twin cid 44 → 74 → 76 → 83 at
+        // 18:46:13Z on 127.0.0.1:48726, 18:47:13Z on 127.0.0.1:46524 / 127.0.0.1:46564 dual,
+        // and 18:49:13Z on 127.0.0.1:52176 for 7063631384a4… — one-second-later twin of
+        // 49ec50da2e2a… on adjacent port 48696 → 48726 with denser mid-window dual reconnect,
+        // control-plane peer of gru-platform 88ff8c404d3b… at the same wall-clock :13 steps;
+        // three-occurrence post-recycle twin cid 45 → 54 → 61 at 18:46:17Z on 127.0.0.1:45396,
+        // 18:48:17Z on 127.0.0.1:33434, and 18:50:17Z on 127.0.0.1:58410 for d7de94966c92… —
+        // four seconds after 7063631384a4…, fra peer of sfo bbdb6e0d6006… / gru d00ef05a1026…
+        // at the adjacent wall-clock :15/:16 steps, and product-plane peer of fra-platform
         // ec156a1db321… at the same wall-clock :17 steps; three-occurrence post-recycle twin
         // cid 47 → 79 → 30 at 18:46:19Z on 127.0.0.1:45434, 18:47:19Z on 127.0.0.1:34540, and
         // 18:49:19Z on 127.0.0.1:44862 for 4cab25065be5… — two seconds after d7de94966c92… on
@@ -7528,7 +7552,10 @@ public sealed class DevelopmentNatsSecurityTests
         // 4aa0ebad5b5b… — three seconds after 4cab25065be5… on adjacent :19 steps / ports
         // 45434 → 45440, fra peer of sfo 2e80728c5df4… cid 48 → 57 → 63 → 64 at the adjacent
         // wall-clock :21 steps and gru e51d12dd4525… cid 48 → 55 → 32 → 62 at the adjacent
-        // wall-clock :20 steps).
+        // wall-clock :20 steps; single-occurrence post-recycle twin cid:50 at 18:46:26Z on
+        // 127.0.0.1:38816 for 4d272c403fb4… — four seconds after 4aa0ebad5b5b… on adjacent
+        // :22 steps / ports 45440 → 38816, fra peer of sfo 306f7d4a6890… cid 50 → 51 → 65 and
+        // gru 1455d09f7030… cid 51 → 83 at the same wall-clock :26 steps).
         // When only the fra-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must
         // still be true for fra-control-nats-1 so force-remint runs instead of bare
         // RestartAsync. Probes alone would miss this because control-NATS probes present
