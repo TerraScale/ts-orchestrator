@@ -1210,6 +1210,25 @@ public static class DevelopmentLab
                         // 127.0.0.1:48216 and 127.0.0.1:48240, and 18:49:19Z on 127.0.0.1:33996
                         // after bare product-NATS RestartAsync reloads the same expired
                         // platform leaf;
+                        // cid 55 → 94 → 48 → 41 for CN=fra-platform on fra-product-nats-1,
+                        // fingerprint 8e310ea4f277… — four-occurrence post-recycle reconnect twin
+                        // of 59a0656971a4… / ec156a1db321… / bf210e609e7f… / d86f81358e32… /
+                        // a87539b37de1… / a66e03d58e6a… / aae9c8a6b484… / b8e719ba13ca… /
+                        // 67d134aeab25… / 669e26dad203… / eebfa17cec6b… / 639501fa4228… /
+                        // 5d30a28d7f44… / 5804cb3aaf61… / 7904dd055f87… / 92ed0baffd5b… /
+                        // fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… / dacc95d0e7ba… /
+                        // 1e8b88f75d43… (and gru 7dae08a6f4b3… cid 56 → 47 → 41 / gru
+                        // 1f9106a25f41… cid 54 → 55 → 94 → 31 / gru d0feba5039c6… cid:53 / gru
+                        // f106e39e815f… cid 52 → 91 / sfo e7adbe3390eb… cid 52 → 91 / sfo
+                        // e583d837318a… dual cid 49+50 → 88+89 at the adjacent wall-clock
+                        // 18:46:17Z / 18:46:19Z / 18:46:21Z / 18:47:17Z / 18:47:19Z /
+                        // 18:47:21Z / 18:48:21Z / 18:49:19Z / 18:50:21Z steps) against the
+                        // same 7ef9d0a4… leaf at 18:46:21Z on 127.0.0.1:47568, 18:47:21Z on
+                        // 127.0.0.1:48244, 18:48:21Z on 127.0.0.1:42936, and 18:50:21Z on
+                        // 127.0.0.1:56688 after bare product-NATS RestartAsync reloads the same
+                        // expired platform leaf (two seconds after 59a0656971a4… cid 53 → 54 →
+                        // 92 → 93 → 31 on adjacent :19 steps / ports 47548/47562 → 47568 and
+                        // 48216/48240 → 48244; same wall-clock :21 as gru 7dae08a6f4b3…);
                         // cid 14634 → 63 → 34 → 49 → 43 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
                         // long-running sfo-platform reconnects while bare product-NATS
@@ -2618,6 +2637,22 @@ public static class DevelopmentLab
     /// 18:47:14Z / 18:47:15Z / 18:47:17Z / 18:47:19Z / 18:48:10Z / 18:48:15Z /
     /// 18:49:10Z / 18:49:19Z / 18:50:09Z / 18:50:15Z steps) after bare product-NATS
     /// RestartAsync;
+    /// fingerprint 8e310ea4f277… / fra-product-nats CN=fra-platform cid 55 → 94 → 48 → 41 at
+    /// 18:46:21Z on 127.0.0.1:47568, 18:47:21Z on 127.0.0.1:48244, 18:48:21Z on
+    /// 127.0.0.1:42936, and 18:50:21Z on 127.0.0.1:56688 against the same 7ef9d0a4…
+    /// leaf — four-occurrence post-recycle reconnect twin of 59a0656971a4… /
+    /// ec156a1db321… / bf210e609e7f… / d86f81358e32… / a87539b37de1… / a66e03d58e6a… /
+    /// aae9c8a6b484… / b8e719ba13ca… / 67d134aeab25… / 669e26dad203… / eebfa17cec6b… /
+    /// 639501fa4228… / 5d30a28d7f44… / 5804cb3aaf61… / 7904dd055f87… / 92ed0baffd5b… /
+    /// fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… / dacc95d0e7ba… / 1e8b88f75d43…
+    /// (and gru 7dae08a6f4b3… cid 56 → 47 → 41 / gru 1f9106a25f41… cid 54 → 55 → 94 → 31 /
+    /// gru d0feba5039c6… cid:53 / gru f106e39e815f… cid 52 → 91 / sfo e7adbe3390eb… cid
+    /// 52 → 91 / sfo e583d837318a… dual cid 49+50 → 88+89 at the adjacent wall-clock
+    /// 18:46:17Z / 18:46:19Z / 18:46:21Z / 18:47:17Z / 18:47:19Z / 18:47:21Z /
+    /// 18:48:21Z / 18:49:19Z / 18:50:21Z steps; two seconds after 59a0656971a4… cid 53 →
+    /// 54 → 92 → 93 → 31 on adjacent :19 steps / ports 47548/47562 → 47568 and
+    /// 48216/48240 → 48244; same wall-clock :21 as gru 7dae08a6f4b3…) after bare
+    /// product-NATS RestartAsync;
     /// fingerprint 54fea6c92b78… / gru-product-nats CN=gru-platform cid 14635 → 38 → 50 → 44
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf
     /// — denser four-occurrence twin of 57ae70882ed5…;
