@@ -5346,6 +5346,38 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
                 "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
             .IsTrue();
+        // Exact fra-control-nats / CN=fra-controller-1 two-occurrence post-recycle shape
+        // (fingerprint 4aa0ebad5b5b…): same 8f6e801c… fra-controller-1 leaf and fra control
+        // issuer as 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… / 4046b92fa615… /
+        // 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… / 876de6711801… / 52a227218acf… /
+        // 88eec19ebb94… / 49ec50da2e2a… / 7063631384a4… / d7de94966c92… / 4cab25065be5…,
+        // observed twice after control-NATS recycle (cid 48 → 57 at 18:46:22Z on
+        // 127.0.0.1:45440 and 18:48:22Z on 127.0.0.1:33458, NotAfter still 18:45:24Z). This
+        // is a three-seconds-later two-occurrence post-bare-restart reconnect twin of the
+        // already-locked 4cab25065be5… storm (cid 47 → 79 → 30 on adjacent ports 45434 →
+        // 45440 at :19), the fra peer of sfo 2e80728c5df4… (cid 48 → 57 → 63 → 64 at the
+        // adjacent wall-clock :21 steps), and concurrent with gru e51d12dd4525… (cid 48 →
+        // 55 → 32 → 62 at the adjacent wall-clock :20 steps): the long-running
+        // fra-controller-1 process re-presents the expired control leaf against a freshly
+        // recycled control NATS listener while probes still present only operator-read.
+        // Recovery must match every occurrence and force remint from invalid control-plane
+        // client leaves (including controllers) on the NATS resource for every cell — bare
+        // RestartAsync of control NATS alone reloads the same expired PEM and re-emits the
+        // server-side handshake error on the next reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:46:22.660567 [ERR] 127.0.0.1:45440 - cid:48 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:22Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:48:22.520267 [ERR] 127.0.0.1:33458 - cid:57 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:22Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-controller-1 SHA-256: 8f6e801cbe068b0be8e9ee937fe5b8b61734098484a76d87ff2210493ef38566; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         // operator-read health probes also present leaves; once expired they appear on
         // the same NATS server log stream and must match force-remint detection.
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -6940,10 +6972,10 @@ public sealed class DevelopmentNatsSecurityTests
     {
         // Fingerprints 91b5b852…, ffcef075c58c…, bca21682b315…, 23eafce842f6…, 4046b92fa615…,
         // 87c737a0ed10…, 5e5b835252fe…, 6e08a77cd4b6…, 876de6711801…, 52a227218acf…,
-        // 88eec19ebb94…, 49ec50da2e2a…, 7063631384a4…, d7de94966c92…, and 4cab25065be5…:
-        // fra-controller-1 (not operator-read) presents the control leaf. Same NotAfter
-        // window and bare-NATS-recycle storm as the sfo/gru twins (cid 29238 → 62 → 69 → 70
-        // at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 34 → 66 → 73 at
+        // 88eec19ebb94…, 49ec50da2e2a…, 7063631384a4…, d7de94966c92…, 4cab25065be5…, and
+        // 4aa0ebad5b5b…: fra-controller-1 (not operator-read) presents the control leaf. Same
+        // NotAfter window and bare-NATS-recycle storm as the sfo/gru twins (cid 29238 → 62 →
+        // 69 → 70 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 34 → 66 → 73 at
         // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 8f6e801c… leaf;
         // four-occurrence post-recycle twin cid 28 → 37 → 69 → 76 at 18:45:46Z on
         // 127.0.0.1:34624, 18:47:46Z on 127.0.0.1:60304, 18:48:46Z on 127.0.0.1:50796, and
@@ -6984,7 +7016,12 @@ public sealed class DevelopmentNatsSecurityTests
         // adjacent :17 steps / ports 45396 → 45434, fra peer of sfo 1cdbb448aebb… cid 47 → 79
         // → 31 at the same wall-clock :19 steps, concurrent with gru-platform 1f9106a25f41… /
         // sfo-platform 1668f8c0e10f… / fra-platform 59a0656971a4… / gru operator-read
-        // 5807fcff9600… at the same wall-clock :19 steps).
+        // 5807fcff9600… at the same wall-clock :19 steps; two-occurrence post-recycle twin cid
+        // 48 → 57 at 18:46:22Z on 127.0.0.1:45440 and 18:48:22Z on 127.0.0.1:33458 for
+        // 4aa0ebad5b5b… — three seconds after 4cab25065be5… on adjacent :19 steps / ports
+        // 45434 → 45440, fra peer of sfo 2e80728c5df4… cid 48 → 57 → 63 → 64 at the adjacent
+        // wall-clock :21 steps and gru e51d12dd4525… cid 48 → 55 → 32 → 62 at the adjacent
+        // wall-clock :20 steps).
         // When only the fra-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must
         // still be true for fra-control-nats-1 so force-remint runs instead of bare
         // RestartAsync. Probes alone would miss this because control-NATS probes present
