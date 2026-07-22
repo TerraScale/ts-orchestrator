@@ -412,7 +412,15 @@ public static class DevelopmentLab
                         // against the same a914ebca… leaf at 18:45:44Z on 127.0.0.1:39116,
                         // 18:46:44Z on 127.0.0.1:59792, 18:47:44Z on 127.0.0.1:47888, and
                         // 18:49:44Z on 127.0.0.1:42228 after bare product-NATS RestartAsync
-                        // reloads the same expired platform leaf).
+                        // reloads the same expired platform leaf;
+                        // cid 32 → 71 → 41 → 51 → 45 for CN=sfo-platform on sfo-product-nats-1,
+                        // fingerprint a42bd88ac488… — five-occurrence post-recycle reconnect twin
+                        // of d739f8d83bed… / b1723b879b59… / 77220dace263… (and gru 0cbc78bc3a3a…
+                        // / 1364f1b0cdbc… / 0b23b4fb5a75…, fra 30e9c320e15b…) against the same
+                        // a914ebca… leaf at 18:45:46Z on 127.0.0.1:39118, 18:46:46Z on
+                        // 127.0.0.1:59808, 18:47:46Z on 127.0.0.1:47908, 18:48:46Z on
+                        // 127.0.0.1:54714, and 18:50:46Z on 127.0.0.1:60650 after bare
+                        // product-NATS RestartAsync reloads the same expired platform leaf).
                         //
                         // Plain "can not start to connect nats server" (fingerprint
                         // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
@@ -666,7 +674,13 @@ public static class DevelopmentLab
     /// 18:45:44Z on 127.0.0.1:39116, 18:46:44Z on 127.0.0.1:59792, 18:47:44Z on 127.0.0.1:47888,
     /// and 18:49:44Z on 127.0.0.1:42228 against the same a914ebca… leaf — four-occurrence
     /// post-recycle reconnect twin of b1723b879b59… / 77220dace263… (and gru 1364f1b0cdbc… /
-    /// 0b23b4fb5a75…) after bare product-NATS RestartAsync).
+    /// 0b23b4fb5a75…) after bare product-NATS RestartAsync;
+    /// fingerprint a42bd88ac488… / sfo-product-nats CN=sfo-platform cid 32 → 71 → 41 → 51 → 45 at
+    /// 18:45:46Z on 127.0.0.1:39118, 18:46:46Z on 127.0.0.1:59808, 18:47:46Z on 127.0.0.1:47908,
+    /// 18:48:46Z on 127.0.0.1:54714, and 18:50:46Z on 127.0.0.1:60650 against the same
+    /// a914ebca… leaf — five-occurrence post-recycle reconnect twin of d739f8d83bed… /
+    /// b1723b879b59… / 77220dace263… (and gru 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75…,
+    /// fra 30e9c320e15b…) after bare product-NATS RestartAsync).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
     /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
     /// recycle; product plane surveys every product client (platforms) the same way.
