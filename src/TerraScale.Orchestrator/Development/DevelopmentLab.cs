@@ -178,9 +178,11 @@ public static class DevelopmentLab
                     // while siblings remain valid; force remint before ProbeAsync so the health
                     // cycle is not the first detector of an already-invalid operator-read PEM
                     // (fingerprint e517701a… / sfo-control-nats multi-occurrence and denser
-                    // twin f08d1c577176… cid 29239 → 33 → 65 → 72; fingerprint 9a811bb8… /
-                    // fra-control-nats multi-occurrence and denser twin f95adc65… cid
-                    // 29239 → 33 → 65 → 72).
+                    // twin f08d1c577176… cid 29239 → 33 → 65 → 72 and two-occurrence
+                    // post-recycle twin 62860f83eeb6… cid 30 → 46 at 18:45:50Z on
+                    // 127.0.0.1:50596 and 18:49:50Z on 127.0.0.1:34070 against the same
+                    // aa00c1c3… leaf; fingerprint 9a811bb8… / fra-control-nats multi-
+                    // occurrence and denser twin f95adc65… cid 29239 → 33 → 65 → 72).
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
@@ -267,7 +269,10 @@ public static class DevelopmentLab
                         // sfo-control-nats, fingerprint f08d1c577176… / sfo-control-nats
                         // four-occurrence twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
                         // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
-                        // and fingerprint f95adc65… / fra-control-nats four-occurrence twin
+                        // fingerprint 62860f83eeb6… / sfo-control-nats two-occurrence
+                        // post-recycle twin cid 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and
+                        // 18:49:50Z on 127.0.0.1:34070 against the same aa00c1c3… leaf, and
+                        // fingerprint f95adc65… / fra-control-nats four-occurrence twin
                         // cid 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
                         // 18:50:40Z against the same 6477b788… leaf).
                         var observationCertificateFailure =
@@ -295,7 +300,12 @@ public static class DevelopmentLab
                         // 18:48:40Z / 18:50:40Z; cid 29239 → 33 → 65 → 72 for CN=operator-read on
                         // sfo-control-nats-1, fingerprint f08d1c577176… — four-occurrence twin of
                         // e517701a… against the same aa00c1c3… leaf at 18:45:40Z / 18:47:40Z /
-                        // 18:48:40Z / 18:50:40Z; cid 29237 → 63 → 68 for CN=operator-read on
+                        // 18:48:40Z / 18:50:40Z; cid 30 → 46 for CN=operator-read on
+                        // sfo-control-nats-1, fingerprint 62860f83eeb6… — two-occurrence
+                        // post-recycle reconnect twin of e517701a… / f08d1c577176… against the
+                        // same aa00c1c3… leaf at 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on
+                        // 127.0.0.1:34070 after bare control-NATS RestartAsync reloads the same
+                        // expired operator-read PEM; cid 29237 → 63 → 68 for CN=operator-read on
                         // fra-control-nats, fingerprint 9a811bb8…; cid 29239 → 33 → 65 → 72 for
                         // CN=operator-read on fra-control-nats-1, fingerprint f95adc65… —
                         // four-occurrence twin of 9a811bb8… against the same 6477b788… leaf at
@@ -682,6 +692,10 @@ public static class DevelopmentLab
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint f08d1c577176… / sfo-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
+    /// fingerprint 62860f83eeb6… / sfo-control-nats CN=operator-read cid 30 → 46 at
+    /// 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on 127.0.0.1:34070 against the same
+    /// aa00c1c3… leaf — two-occurrence post-recycle reconnect twin of e517701a… /
+    /// f08d1c577176… after bare control-NATS RestartAsync,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68,
     /// fingerprint f95adc65… / fra-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6477b788… leaf).
