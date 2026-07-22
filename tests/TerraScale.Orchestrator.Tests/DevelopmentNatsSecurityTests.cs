@@ -1813,6 +1813,31 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
                 "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
             .IsTrue();
+        // Exact fra-control-nats / CN=operator-read two-occurrence post-recycle shape
+        // (fingerprint 7421834a4183…): same 6477b788… operator-read leaf and fra control
+        // issuer as 9a811bb8b959… / f95adc65…, observed twice after control-NATS recycle
+        // (cid 30 → 46 at 18:45:50Z on 127.0.0.1:34654 and 18:49:50Z on 127.0.0.1:33762,
+        // NotAfter still 18:45:24Z). This is the sparse two-occurrence post-bare-restart
+        // reconnect twin of the denser 9a811bb8… / f95adc65… storms and the fra twin of
+        // gru f4f92376efda… / sfo 62860f83eeb6…: health probes present operator-read every
+        // cycle while bare RestartAsync of NATS reloads the same expired PEM and re-emits
+        // the server-side handshake error on the next reconnect. Recovery must match every
+        // occurrence, skip startup grace for cert failures, and force remint from invalid
+        // on-disk probe leaves so the recycle loop cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:45:50.107659 [ERR] 127.0.0.1:34654 - cid:30 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-control-nats-1] [1] 2026/07/21 18:49:50.278716 [ERR] 127.0.0.1:33762 - cid:46 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 6477b78851b42f39bb319fafc6ef3863ae4bd0223446f9b76eb026f1e3e802af; " +
+                "CN=TerraScale fra control issuer SHA-256: 0233c03792ae90553dbf3e7592420fa92fabf09fdc84f2224b6f743e66d0e742)"))
+            .IsTrue();
         // Pre-connect leaf refusal must still feed force-remint (same recovery path as
         // post-connect FormatProbeFailure annotations).
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
@@ -2404,13 +2429,14 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidOperatorReadLeafIsDetectedForFraControlNatsBeforeBareRestart()
     {
-        // Fingerprints 9a811bb8b959… and f95adc65…: fra-control-nats health probes present
-        // operator-read. Same NotAfter window and bare-NATS-recycle storm as the gru/sfo
-        // twins (cid 29237 → 63 → 68 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid
-        // 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the
-        // same 6477b788… leaf). When only the fra operator-read PEM is past NotAfter,
-        // ResourceHasInvalidTlsLeaf must still be true for fra-control-nats-1 so force-remint
-        // runs instead of bare RestartAsync.
+        // Fingerprints 9a811bb8b959…, f95adc65…, and 7421834a4183…: fra-control-nats health
+        // probes present operator-read. Same NotAfter window and bare-NATS-recycle storm as the
+        // gru/sfo twins (cid 29237 → 63 → 68 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin
+        // cid 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the
+        // same 6477b788… leaf; two-occurrence post-recycle twin cid 30 → 46 at 18:45:50Z on
+        // 127.0.0.1:34654 and 18:49:50Z on 127.0.0.1:33762 for 7421834a4183…). When only the
+        // fra operator-read PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
+        // for fra-control-nats-1 so force-remint runs instead of bare RestartAsync.
         await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("fra");
     }
 
