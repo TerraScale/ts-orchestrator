@@ -1496,6 +1496,31 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
                 "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
             .IsTrue();
+        // Exact gru-control-nats / CN=operator-read two-occurrence post-recycle shape
+        // (fingerprint f4f92376efda…): same 4e40db2b… operator-read leaf and gru control
+        // issuer as c6627a56bf45… / c48cbf142a9a…, observed twice after control-NATS recycle
+        // (cid 31 → 46 at 18:45:50Z on 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996,
+        // NotAfter still 18:45:24Z). This is the sparse two-occurrence post-bare-restart
+        // reconnect twin of the denser c6627a56… / c48cbf142a9a… storms and the gru twin of
+        // sfo 62860f83eeb6…: health probes present operator-read every cycle while bare
+        // RestartAsync of NATS reloads the same expired PEM and re-emits the server-side
+        // handshake error on the next reconnect. Recovery must match every occurrence, skip
+        // startup grace for cert failures, and force remint from invalid on-disk probe
+        // leaves so the recycle loop cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:45:50.106158 [ERR] 127.0.0.1:56170 - cid:31 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:49:50.277494 [ERR] 127.0.0.1:45996 - cid:46 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: 4e40db2bc8dcc6bcc5e19bc59b25e86ef0b630d4480fbe1a107ba79eb8ad3bf0; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
         // Exact sfo-control-nats / CN=operator-read multi-occurrence shape (fingerprint
         // e517701a2468…): same NotAfter (18:45:24Z) and cid recycle pattern as the gru
         // twin (29237 → 62 → 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z), but against the
@@ -2227,13 +2252,14 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidOperatorReadLeafIsDetectedForGruControlNatsBeforeBareRestart()
     {
-        // Fingerprints c6627a56bf45… and c48cbf142a9a…: gru-control-nats health probes present
-        // operator-read. Same NotAfter window and bare-NATS-recycle storm as the sfo twin
-        // (cid 29237 → 62 → 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29239 →
-        // 34 → 66 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
-        // 4e40db2b… leaf). When only the gru operator-read PEM is past NotAfter,
-        // ResourceHasInvalidTlsLeaf must still be true for gru-control-nats-1 so force-remint
-        // runs instead of bare RestartAsync.
+        // Fingerprints c6627a56bf45…, c48cbf142a9a…, and f4f92376efda…: gru-control-nats health
+        // probes present operator-read. Same NotAfter window and bare-NATS-recycle storm as the
+        // sfo twin (cid 29237 → 62 → 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid
+        // 29239 → 34 → 66 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
+        // 4e40db2b… leaf; two-occurrence post-recycle twin cid 31 → 46 at 18:45:50Z on
+        // 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996 for f4f92376efda…). When only the gru
+        // operator-read PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true for
+        // gru-control-nats-1 so force-remint runs instead of bare RestartAsync.
         await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("gru");
     }
 
