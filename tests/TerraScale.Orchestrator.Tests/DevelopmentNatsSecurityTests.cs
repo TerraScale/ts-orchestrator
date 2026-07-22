@@ -919,6 +919,36 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
                 "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
             .IsTrue();
+        // Exact sfo-product-nats / CN=sfo-platform two-occurrence post-recycle shape
+        // (fingerprint 146c64f3fc52…): same a914ebca… sfo-platform leaf and sfo product
+        // issuer as b1723b879b59… / 77220dace263… / d739f8d83bed… / a42bd88ac488… /
+        // 9f8f5f2cd955…, observed twice after product-NATS recycle (cid 34 → 36 at
+        // 18:45:50Z on 127.0.0.1:39142 and 18:49:50Z on 127.0.0.1:57178; NotAfter still
+        // 18:45:24Z). This is a sparse two-occurrence post-bare-restart reconnect twin of
+        // the one-minute 9f8f5f2cd955… pair (cid 33 → 72 on adjacent early ports), five-
+        // occurrence a42bd88ac488…, four-occurrence d739f8d83bed…, denser b1723b879b59… /
+        // 77220dace263… storms, and the product-plane peer of operator-read twins
+        // f4f92376efda… / 62860f83eeb6… at the same wall-clock pair: the long-running
+        // sfo-platform process re-presents the expired product leaf against a freshly
+        // recycled product NATS listener while platform HTTP readiness can stay green.
+        // Recovery must match every occurrence and force remint from invalid product-plane
+        // client leaves (platforms) on the NATS resource for every cell — bare RestartAsync
+        // of product NATS alone reloads the same expired PEM and re-emits the server-side
+        // handshake error on each reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:45:50.106850 [ERR] 127.0.0.1:39142 - cid:34 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-product-nats-1] [1] 2026/07/21 18:49:50.277983 [ERR] 127.0.0.1:57178 - cid:36 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:50Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-platform SHA-256: a914ebcaf4028d5320fafe933d8a5b04c669a6ff5a65809a534783fdd48f3c18; " +
+                "CN=TerraScale sfo product issuer SHA-256: fc09889c352d90574951becc5dfd4bbbea50beb48c000d3e7ed8dfdb02aff45d)"))
+            .IsTrue();
         // Control-plane twin: CN=fra-controller-1 against fra-control-nats (same NotAfter
         // window as the continuous-lab remint race that must stop NATS before clients
         // finish draining, otherwise server logs keep recording expired handshakes).
@@ -2605,6 +2635,12 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForSfoProductNatsBeforeBareRestart()
     {
+        // Also fingerprint 146c64f3fc52…: two-occurrence post-recycle twin of 9f8f5f2cd955… /
+        // a42bd88ac488… / d739f8d83bed… / b1723b879b59… / 77220dace263… (and operator-read
+        // twins f4f92376efda… / 62860f83eeb6… at the same wall-clock pair) with cid 34 → 36
+        // at 18:45:50Z on 127.0.0.1:39142 and 18:49:50Z on 127.0.0.1:57178 against the same
+        // a914ebca… leaf — still requires force-remint from invalid sfo product-plane leaves
+        // before bare product-NATS RestartAsync.
         // Also fingerprint 9f8f5f2cd955…: two-occurrence post-recycle twin of a42bd88ac488… /
         // d739f8d83bed… / b1723b879b59… / 77220dace263… (and gru 6a1c43a93378…, fra
         // fc4e0317d2a1…) with cid 33 → 72 at 18:45:48Z on 127.0.0.1:39126 and 18:46:48Z on
