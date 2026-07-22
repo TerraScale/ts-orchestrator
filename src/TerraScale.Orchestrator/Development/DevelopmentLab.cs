@@ -412,6 +412,12 @@ public static class DevelopmentLab
                         // 127.0.0.1:60204, 18:47:46Z on 127.0.0.1:56364, 18:48:46Z on
                         // 127.0.0.1:39346, and 18:50:46Z on 127.0.0.1:48414 after bare
                         // product-NATS RestartAsync reloads the same expired platform leaf;
+                        // cid 34 → 73 for CN=gru-platform on gru-product-nats-1,
+                        // fingerprint 6a1c43a93378… — two-occurrence post-recycle reconnect twin
+                        // of 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… /
+                        // 57ae70882ed5… against the same 6b500765… leaf at 18:45:48Z on
+                        // 127.0.0.1:48846 and 18:46:48Z on 127.0.0.1:60214 after bare
+                        // product-NATS RestartAsync reloads the same expired platform leaf;
                         // cid 31 → 70 → 40 → 35 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint d739f8d83bed… — four-occurrence post-recycle reconnect twin
                         // of b1723b879b59… / 77220dace263… (and gru 1364f1b0cdbc… / 0b23b4fb5a75…)
@@ -675,6 +681,11 @@ public static class DevelopmentLab
     /// 18:48:46Z on 127.0.0.1:39346, and 18:50:46Z on 127.0.0.1:48414 against the same
     /// 6b500765… leaf — five-occurrence post-recycle reconnect twin of 1364f1b0cdbc… /
     /// 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… after bare product-NATS RestartAsync;
+    /// fingerprint 6a1c43a93378… / gru-product-nats CN=gru-platform cid 34 → 73 at
+    /// 18:45:48Z on 127.0.0.1:48846 and 18:46:48Z on 127.0.0.1:60214 against the same
+    /// 6b500765… leaf — two-occurrence post-recycle reconnect twin of 0cbc78bc3a3a… /
+    /// 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… after bare product-NATS
+    /// RestartAsync;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z;
     /// fingerprint 77220dace263… / sfo-product-nats CN=sfo-platform cid 14635 → 67 → 37 → 38 → 50 → 44
