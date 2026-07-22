@@ -3425,6 +3425,44 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=sfo-controller-1 three-occurrence post-recycle shape
+        // (fingerprint bbdb6e0d6006…): same f56fe7a4… sfo-controller-1 leaf and sfo control
+        // issuer as f490b625… / 9815ef5a… / 4eeeee0520a1… / e8e55fe0bef9… / 412baaa56842… /
+        // 71cf8514f4d6… / ce40d219dc90… / fc867739e2e2… / 3db5efff618c… / c9f4a06686ba… /
+        // a5ee4c55235d… / 914b99d5fbc6… / 53b4362b4444…, observed three times after
+        // control-NATS recycle (cid 45 → 29 → 61 at 18:46:16Z on 127.0.0.1:40982,
+        // 18:49:16Z on 127.0.0.1:35628, and 18:50:16Z on 127.0.0.1:52900, NotAfter still
+        // 18:45:24Z). This is a three-seconds-later three-occurrence post-bare-restart
+        // reconnect twin of the already-locked 53b4362b4444… storm (cid 44 → 76 on
+        // 49260/53940 at :13) and the sfo peer of gru d00ef05a1026… (cid 45 → 77 → 52 →
+        // 54 → 29 → 60 → 61 at the adjacent wall-clock :15 steps): the long-running
+        // sfo-controller-1 process re-presents the expired control leaf against a freshly
+        // recycled control NATS listener while probes still present only operator-read.
+        // Recovery must match every occurrence and force remint from invalid control-plane
+        // client leaves (including controllers) on the NATS resource for every cell — bare
+        // RestartAsync of control NATS alone reloads the same expired PEM and re-emits the
+        // server-side handshake error on the next reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:46:16.858017 [ERR] 127.0.0.1:40982 - cid:45 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:16Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:49:16.818899 [ERR] 127.0.0.1:35628 - cid:29 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:16Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:50:16.549258 [ERR] 127.0.0.1:52900 - cid:61 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:16Z is after 2026-07-21T18:45:24Z " +
+                "(CN=sfo-controller-1 SHA-256: f56fe7a4496ad6cfa1b263537e88f65c11105efa67c23db7d1bebfa35b5cfcc7; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
         // Exact gru-control-nats / CN=gru-controller-1 multi-occurrence shape (fingerprint
         // c2bf6b539a62…): same NotAfter (18:45:24Z) as the sfo controller twin, with an
         // extra mid-window reconnect (cid 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z /
@@ -5893,8 +5931,8 @@ public sealed class DevelopmentNatsSecurityTests
     {
         // Fingerprints f490b625…, 9815ef5a…, 4eeeee0520a1…, e8e55fe0bef9…, 412baaa56842…,
         // 71cf8514f4d6…, ce40d219dc90…, fc867739e2e2…, 3db5efff618c…, c9f4a06686ba…,
-        // a5ee4c55235d…, 914b99d5fbc6…, and 53b4362b4444…: sfo-controller-1 (not
-        // operator-read) presents the control leaf. When only that PEM is past NotAfter,
+        // a5ee4c55235d…, 914b99d5fbc6…, 53b4362b4444…, and bbdb6e0d6006…: sfo-controller-1
+        // (not operator-read) presents the control leaf. When only that PEM is past NotAfter,
         // ResourceHasInvalidTlsLeaf must still be true for sfo-control-nats-1 so the
         // consecutive-unhealthy path force-remints instead of bare RestartAsync (cid recycle
         // 29238 → 63 → 70 at 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 34 →
@@ -5922,7 +5960,11 @@ public sealed class DevelopmentNatsSecurityTests
         // 127.0.0.1:53886 dual for a5ee4c55235d…; three-occurrence post-recycle twin cid 42 →
         // 83 → 58 at 18:46:11Z on 127.0.0.1:49220, 18:49:11Z on 127.0.0.1:37634, and 18:50:11Z
         // on 127.0.0.1:48798 for 914b99d5fbc6…; two-occurrence post-recycle twin cid 44 → 76
-        // at 18:46:13Z on 127.0.0.1:49260 and 18:47:13Z on 127.0.0.1:53940 for 53b4362b4444…).
+        // at 18:46:13Z on 127.0.0.1:49260 and 18:47:13Z on 127.0.0.1:53940 for 53b4362b4444…;
+        // three-occurrence post-recycle twin cid 45 → 29 → 61 at 18:46:16Z on
+        // 127.0.0.1:40982, 18:49:16Z on 127.0.0.1:35628, and 18:50:16Z on 127.0.0.1:52900 for
+        // bbdb6e0d6006… — three seconds after 53b4362b4444… and sfo peer of gru d00ef05a1026…
+        // at the adjacent wall-clock :15/:16 steps).
         // Control-NATS probes present only operator-read, so recovery must survey controller
         // leaves on the NATS resource independently of the probe leaf.
         await AssertInvalidControllerLeafForcesRemintForCellAsync("sfo");
