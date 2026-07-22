@@ -371,7 +371,9 @@ public static class DevelopmentLab
                         // gru-product-nats-1 at 18:45:42Z / 18:49:12Z three bare restarts on
                         // nats://127.0.0.1:18620; fingerprint 666f072201a5… /
                         // sfo-product-nats-1 at 18:45:43Z / 18:49:13Z three bare restarts on
-                        // nats://127.0.0.1:18820; fingerprint 7bead2653aa7… / gru-controller-1
+                        // nats://127.0.0.1:18820; fingerprint 6da1925a9038… /
+                        // fra-product-nats-1 at 18:45:44Z / 18:49:14Z three bare restarts on
+                        // nats://127.0.0.1:19020; fingerprint 7bead2653aa7… / gru-controller-1
                         // at 18:45:42Z / 18:49:12Z three bare restarts with the same outer
                         // text on nats://127.0.0.1:18600; fingerprint bfa083ed37ee… /
                         // sfo-controller-1 at 18:45:44Z / 18:49:13Z three bare restarts with
@@ -629,10 +631,11 @@ public static class DevelopmentLab
     /// sfo-control-nats-1 three bare restarts on :18800; fingerprint 1e57af750edb… /
     /// fra-control-nats-1 three bare restarts on :19000; fingerprint 2c66150c157c… /
     /// gru-product-nats-1 three bare restarts on :18620; fingerprint 666f072201a5… /
-    /// sfo-product-nats-1 three bare restarts on :18820; fingerprint 7bead2653aa7… /
+    /// sfo-product-nats-1 three bare restarts on :18820; fingerprint 6da1925a9038… /
+    /// fra-product-nats-1 three bare restarts on :19020; fingerprint 7bead2653aa7… /
     /// gru-controller-1 three bare restarts with the same outer text on :18600; fingerprint
     /// bfa083ed37ee… / sfo-controller-1 three bare restarts with the same outer text on
-    /// :18800; product-NATS and every cell's controller twins). Bare RestartAsync of a
+    /// :18800; every cell's controller twins). Bare RestartAsync of a
     /// single NATS member or controller reloads the same PEMs and does not WaitReadyAsync
     /// for dependents, producing multi-minute thrash. Platforms keep HTTP bare-restart for
     /// non-TLS app failures; their product-leaf expiry is already covered by
@@ -654,7 +657,7 @@ public static class DevelopmentLab
     /// plus the NATS server's client-facing and route leaves so an expired server PEM alone
     /// still force-remints (plain connect failures otherwise look non-cert shaped —
     /// c05d3fee208c… / b0ca5ad6b00f… / 1e57af750edb… control, 2c66150c157c… /
-    /// 666f072201a5… product, 7bead2653aa7… / bfa083ed37ee… controller).
+    /// 666f072201a5… / 6da1925a9038… product, 7bead2653aa7… / bfa083ed37ee… controller).
     /// Control NATS includes operator-read and every controller in the cell so an expired
     /// CN=*-controller-1 leaf (sfo f490b625… and denser twin 9815ef5a…, gru c2bf6b539a62…
     /// and denser twin 782d6308… and two-occurrence post-recycle twin 003657d51ecd…,
