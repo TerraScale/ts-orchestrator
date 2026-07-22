@@ -188,7 +188,9 @@ public static class DevelopmentLab
                     // two-occurrence post-recycle twin 62860f83eeb6… cid 30 → 46 at
                     // 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on 127.0.0.1:34070 and
                     // second two-occurrence post-recycle twin 97d33257778a… cid 33 → 50 at
-                    // 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 against
+                    // 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 and
+                    // third two-occurrence post-recycle twin d80a6067f126… cid 37 → 68 at
+                    // 18:46:01Z on 127.0.0.1:52246 and 18:47:01Z on 127.0.0.1:34762 against
                     // the same aa00c1c3… leaf; fingerprint 9a811bb8… / fra-control-nats multi-
                     // occurrence and denser twin f95adc65… cid 29239 → 33 → 65 → 72 and
                     // two-occurrence post-recycle twin 7421834a4183… cid 30 → 46 at
@@ -295,6 +297,9 @@ public static class DevelopmentLab
                         // fingerprint 97d33257778a… / sfo-control-nats second two-occurrence
                         // post-recycle twin cid 33 → 50 at 18:45:56Z on 127.0.0.1:52196 and
                         // 18:49:56Z on 127.0.0.1:36654 against the same aa00c1c3… leaf,
+                        // fingerprint d80a6067f126… / sfo-control-nats third two-occurrence
+                        // post-recycle twin cid 37 → 68 at 18:46:01Z on 127.0.0.1:52246 and
+                        // 18:47:01Z on 127.0.0.1:34762 against the same aa00c1c3… leaf,
                         // fingerprint f95adc65… / fra-control-nats four-occurrence twin
                         // cid 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
                         // 18:50:40Z against the same 6477b788… leaf, fingerprint
@@ -350,7 +355,13 @@ public static class DevelopmentLab
                         // post-recycle reconnect twin of e517701a… / f08d1c577176… / 62860f83eeb6…
                         // against the same aa00c1c3… leaf at 18:45:56Z on 127.0.0.1:52196 and
                         // 18:49:56Z on 127.0.0.1:36654 after bare control-NATS RestartAsync
-                        // reloads the same expired operator-read PEM; cid 29237 → 63 → 68 for
+                        // reloads the same expired operator-read PEM; cid 37 → 68 for
+                        // CN=operator-read on sfo-control-nats-1, fingerprint d80a6067f126… —
+                        // third two-occurrence post-recycle reconnect twin of e517701a… /
+                        // f08d1c577176… / 62860f83eeb6… / 97d33257778a… against the same
+                        // aa00c1c3… leaf at 18:46:01Z on 127.0.0.1:52246 and 18:47:01Z on
+                        // 127.0.0.1:34762 after bare control-NATS RestartAsync reloads the same
+                        // expired operator-read PEM; cid 29237 → 63 → 68 for
                         // CN=operator-read on fra-control-nats, fingerprint 9a811bb8…; cid
                         // 29239 → 33 → 65 → 72 for CN=operator-read on fra-control-nats-1,
                         // fingerprint f95adc65… —
@@ -1155,6 +1166,10 @@ public static class DevelopmentLab
     /// 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 against the same
     /// aa00c1c3… leaf — second two-occurrence post-recycle reconnect twin of e517701a… /
     /// f08d1c577176… / 62860f83eeb6… after bare control-NATS RestartAsync,
+    /// fingerprint d80a6067f126… / sfo-control-nats CN=operator-read cid 37 → 68 at
+    /// 18:46:01Z on 127.0.0.1:52246 and 18:47:01Z on 127.0.0.1:34762 against the same
+    /// aa00c1c3… leaf — third two-occurrence post-recycle reconnect twin of e517701a… /
+    /// f08d1c577176… / 62860f83eeb6… / 97d33257778a… after bare control-NATS RestartAsync,
     /// fingerprint 9a811bb8… / fra-control-nats CN=operator-read cid 29237 → 63 → 68,
     /// fingerprint f95adc65… / fra-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6477b788… leaf,

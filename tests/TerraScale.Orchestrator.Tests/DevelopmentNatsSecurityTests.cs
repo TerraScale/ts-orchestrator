@@ -3056,6 +3056,33 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=operator-read two-occurrence post-recycle shape
+        // (fingerprint d80a6067f126…): same aa00c1c3… operator-read leaf and sfo control
+        // issuer as e517701a2468… / f08d1c577176… / 62860f83eeb6… / 97d33257778a…, observed
+        // twice after control-NATS recycle (cid 37 → 68 at 18:46:01Z on 127.0.0.1:52246 and
+        // 18:47:01Z on 127.0.0.1:34762, NotAfter still 18:45:24Z). This is a third sparse
+        // two-occurrence post-bare-restart reconnect twin of the denser e517701a… /
+        // f08d1c577176… storms and of the earlier 62860f83eeb6… (cid 30 → 46 at 18:45:50Z /
+        // 18:49:50Z) and 97d33257778a… (cid 33 → 50 at 18:45:56Z / 18:49:56Z) pairs: health
+        // probes present operator-read every cycle while bare RestartAsync of NATS reloads
+        // the same expired PEM and re-emits the server-side handshake error on the next
+        // reconnect. Recovery must match every occurrence, skip startup grace for cert
+        // failures, and force remint from invalid on-disk probe leaves so the recycle loop
+        // cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:46:01.969997 [ERR] 127.0.0.1:52246 - cid:37 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:01Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:47:01.736126 [ERR] 127.0.0.1:34762 - cid:68 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:01Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
         // Exact fra-control-nats / CN=operator-read multi-occurrence shape (fingerprint
         // 9a811bb8b959…): same NotAfter (18:45:24Z) as the gru/sfo operator-read twins,
         // with a distinct cid recycle (29237 → 63 → 68 at 18:45:34Z / 18:48:34Z /
@@ -3737,17 +3764,18 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidOperatorReadLeafIsDetectedForSfoControlNatsBeforeBareRestart()
     {
-        // Fingerprints e517701a2468…, f08d1c577176…, 62860f83eeb6…, and 97d33257778a…:
-        // sfo-control-nats health probes present operator-read. Same NotAfter window and
-        // bare-NATS-recycle storm as the gru twin (cid 29237 → 62 → 69 at 18:45:34Z /
-        // 18:48:34Z / 18:50:34Z; denser twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
-        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf; two-occurrence
-        // post-recycle twin cid 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on
-        // 127.0.0.1:34070 for 62860f83eeb6…; second two-occurrence post-recycle twin cid 33 →
-        // 50 at 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 for
-        // 97d33257778a…). When only the sfo operator-read PEM is past NotAfter,
-        // ResourceHasInvalidTlsLeaf must still be true for sfo-control-nats-1 so force-remint
-        // runs instead of bare RestartAsync.
+        // Fingerprints e517701a2468…, f08d1c577176…, 62860f83eeb6…, 97d33257778a…, and
+        // d80a6067f126…: sfo-control-nats health probes present operator-read. Same NotAfter
+        // window and bare-NATS-recycle storm as the gru twin (cid 29237 → 62 → 69 at
+        // 18:45:34Z / 18:48:34Z / 18:50:34Z; denser twin cid 29239 → 33 → 65 → 72 at
+        // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf;
+        // two-occurrence post-recycle twin cid 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and
+        // 18:49:50Z on 127.0.0.1:34070 for 62860f83eeb6…; second two-occurrence post-recycle
+        // twin cid 33 → 50 at 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654
+        // for 97d33257778a…; third two-occurrence post-recycle twin cid 37 → 68 at 18:46:01Z
+        // on 127.0.0.1:52246 and 18:47:01Z on 127.0.0.1:34762 for d80a6067f126…). When only
+        // the sfo operator-read PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be
+        // true for sfo-control-nats-1 so force-remint runs instead of bare RestartAsync.
         await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("sfo");
     }
 
