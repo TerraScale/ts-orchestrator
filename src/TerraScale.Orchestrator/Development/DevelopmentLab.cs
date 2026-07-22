@@ -720,6 +720,16 @@ public static class DevelopmentLab
                         // steps) against the same 6b500765… leaf at 18:46:00Z on
                         // 127.0.0.1:35222 and 18:47:00Z on 127.0.0.1:53234 after bare
                         // product-NATS RestartAsync reloads the same expired platform leaf;
+                        // cid 43 → 82 for CN=gru-platform on gru-product-nats-1,
+                        // fingerprint 6d84bda1e560… — two-occurrence post-recycle reconnect twin
+                        // of 764b28c3439a… / a2e01c16a27c… / be7bee33b946… / 02a670a12fe6… /
+                        // 9371738eec92… / b22018f7aa7b… / ed3f4504d5e1… / 6a1c43a93378… /
+                        // 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… /
+                        // 57ae70882ed5… (and sfo eacb3282ca0c… dual cid 41+42 → 80+81 / fra
+                        // eebfa17cec6b… cid 41 → 80 at the same wall-clock 18:46:01Z /
+                        // 18:47:01Z steps) against the same 6b500765… leaf at 18:46:01Z on
+                        // 127.0.0.1:35228 and 18:47:01Z on 127.0.0.1:53246 after bare
+                        // product-NATS RestartAsync reloads the same expired platform leaf;
                         // cid 31 → 70 → 40 → 35 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint d739f8d83bed… — four-occurrence post-recycle reconnect twin
                         // of b1723b879b59… / 77220dace263… (and gru 1364f1b0cdbc… / 0b23b4fb5a75…)
@@ -1281,6 +1291,14 @@ public static class DevelopmentLab
     /// 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… / 54fea6c92b78… /
     /// 57ae70882ed5… (and gru controller 25b92b919c66… at the same wall-clock 18:46:00Z /
     /// 18:47:00Z steps) after bare product-NATS RestartAsync;
+    /// fingerprint 6d84bda1e560… / gru-product-nats CN=gru-platform cid 43 → 82 at
+    /// 18:46:01Z on 127.0.0.1:35228 and 18:47:01Z on 127.0.0.1:53246 against the same
+    /// 6b500765… leaf — two-occurrence post-recycle reconnect twin of 764b28c3439a… /
+    /// a2e01c16a27c… / be7bee33b946… / 02a670a12fe6… / 9371738eec92… / b22018f7aa7b… /
+    /// ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… /
+    /// 54fea6c92b78… / 57ae70882ed5… (and sfo eacb3282ca0c… dual cid 41+42 → 80+81 / fra
+    /// eebfa17cec6b… cid 41 → 80 at the same wall-clock 18:46:01Z / 18:47:01Z steps) after
+    /// bare product-NATS RestartAsync;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z;
     /// fingerprint 77220dace263… / sfo-product-nats CN=sfo-platform cid 14635 → 67 → 37 → 38 → 50 → 44
