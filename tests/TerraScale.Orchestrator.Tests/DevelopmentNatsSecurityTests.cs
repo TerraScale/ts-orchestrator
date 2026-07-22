@@ -1487,6 +1487,46 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
                 "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
             .IsTrue();
+        // Exact fra-product-nats / CN=fra-platform two-occurrence post-recycle shape
+        // (fingerprint 693e9ac2e9da…): same 7ef9d0a4… fra-platform leaf and fra product
+        // issuer as a279798ba9f3… / 54113211a37d… / 86b0b173f024… / d087ae1829c6… /
+        // 8e310ea4f277… / 59a0656971a4… / ec156a1db321… / bf210e609e7f… / d86f81358e32… /
+        // a87539b37de1… / a66e03d58e6a… / aae9c8a6b484… / b8e719ba13ca… / 67d134aeab25… /
+        // 669e26dad203… / eebfa17cec6b… / 639501fa4228… / 5d30a28d7f44… / 5804cb3aaf61… /
+        // 7904dd055f87… / 92ed0baffd5b… / fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… /
+        // dacc95d0e7ba… / 1e8b88f75d43…, observed twice after product-NATS recycle (cid
+        // 60 → 31 at 18:46:29Z on 127.0.0.1:32772 and 18:47:29Z on 127.0.0.1:48862;
+        // NotAfter still 18:45:24Z). This is a two-second-later two-occurrence
+        // post-bare-restart reconnect twin of the four-occurrence a279798ba9f3… storm
+        // (cid 59 → 98 → 49 → 42 on adjacent port 32768 → 32772 at :27), a three-
+        // second-later twin of the single-occurrence 54113211a37d… storm (cid:58 on
+        // port 60984 → 32772 at :26), and a four-second-later twin of the four-
+        // occurrence 86b0b173f024… storm (cid 57 → 96 → 97 → 32 on port 60966 → 60984
+        // at :25), concurrent with gru 76601ac1fca5… (cid 61 → 31 concurrent at :29 on
+        // 127.0.0.1:35282 / 60480) / gru e9d76ad07baa… (cid 60 → 48 → 42 at :27 on
+        // 127.0.0.1:35270 / 47144 / 59308, same cid:60 two seconds earlier) / gru
+        // 04ff1b46b814… (cid:59 at :26) / sfo f69b77ff7537… (dual cid 57+58 → 97 at
+        // :26) / gru d26427e1c533… (cid 58 → 97 → 98 → 32 at :25): the long-running
+        // fra-platform process re-presents the expired product leaf against a freshly
+        // recycled product NATS listener while platform HTTP readiness can stay green.
+        // Recovery must match every occurrence and force remint from invalid product-
+        // plane client leaves (platforms) on the NATS resource for every cell — bare
+        // RestartAsync of product NATS alone reloads the same expired PEM and re-emits
+        // the server-side handshake error on each reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:46:29.882736 [ERR] 127.0.0.1:32772 - cid:60 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:29Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:47:29.659464 [ERR] 127.0.0.1:48862 - cid:31 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:29Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
         // Exact gru-product-nats / CN=gru-platform incident shape (fingerprint
         // 57ae70882ed5…): the platform process (not the HTTP health path) presents the
         // product-plane leaf. When NotAfter elapses, product NATS logs this server-side
@@ -7877,6 +7917,23 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForFraProductNatsBeforeBareRestart()
     {
+        // Also fingerprint 693e9ac2e9da…: two-occurrence post-recycle twin of
+        // a279798ba9f3… / 54113211a37d… / 86b0b173f024… / d087ae1829c6… / 8e310ea4f277… /
+        // 59a0656971a4… / ec156a1db321… / bf210e609e7f… / d86f81358e32… / a87539b37de1… /
+        // a66e03d58e6a… / aae9c8a6b484… / b8e719ba13ca… / 67d134aeab25… / 669e26dad203… /
+        // eebfa17cec6b… / 639501fa4228… / 5d30a28d7f44… / 5804cb3aaf61… / 7904dd055f87… /
+        // 92ed0baffd5b… / fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… / dacc95d0e7ba… /
+        // 1e8b88f75d43… (and gru 76601ac1fca5… cid 61 → 31 / gru e9d76ad07baa… cid 60 →
+        // 48 → 42 / gru 04ff1b46b814… cid:59 / sfo f69b77ff7537… cid 57 → 58 → 97 / gru
+        // d26427e1c533… cid 58 → 97 → 98 → 32 at the adjacent wall-clock 18:46:25Z /
+        // 18:46:26Z / 18:46:27Z / 18:46:29Z / 18:47:25Z / 18:47:26Z / 18:47:27Z /
+        // 18:47:29Z / 18:48:27Z / 18:49:25Z / 18:50:27Z steps) with cid 60 → 31 at
+        // 18:46:29Z on 127.0.0.1:32772 and 18:47:29Z on 127.0.0.1:48862 against the
+        // same 7ef9d0a4… leaf (two seconds after a279798ba9f3… cid 59 → 98 → 49 → 42 on
+        // adjacent :27 steps / port 32768 → 32772; concurrent with gru 76601ac1fca5…
+        // cid 61 → 31 on 127.0.0.1:35282 / 60480; same cid:60 as gru e9d76ad07baa… two
+        // seconds earlier at :27 on 127.0.0.1:35270) — still requires force-remint from
+        // invalid fra product-plane leaves before bare product-NATS RestartAsync.
         // Also fingerprint a279798ba9f3…: four-occurrence post-recycle twin of
         // 54113211a37d… / 86b0b173f024… / d087ae1829c6… / 8e310ea4f277… / 59a0656971a4… /
         // ec156a1db321… / bf210e609e7f… / d86f81358e32… / a87539b37de1… / a66e03d58e6a… /
