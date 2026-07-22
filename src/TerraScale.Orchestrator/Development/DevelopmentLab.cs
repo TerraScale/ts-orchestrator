@@ -344,6 +344,12 @@ public static class DevelopmentLab
                         // 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z: long-running
                         // fra-platform reconnects while bare product-NATS RestartAsync
                         // reloads the same expired platform leaf;
+                        // cid:31 for CN=fra-platform on fra-product-nats-1,
+                        // fingerprint 1e8b88f75d43… — single post-recycle reconnect twin of
+                        // 25ef0004168c… / dacc95d0e7ba… (and gru 0b23b4fb5a75… / sfo
+                        // d739f8d83bed…) against the same 7ef9d0a4… leaf at 18:45:45Z on
+                        // 127.0.0.1:34466 after bare product-NATS RestartAsync reloads the
+                        // same expired platform leaf;
                         // cid 14634 → 63 → 34 → 49 → 43 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
                         // long-running sfo-platform reconnects while bare product-NATS
@@ -587,6 +593,10 @@ public static class DevelopmentLab
     /// fingerprint dacc95d0e7ba… / fra-product-nats CN=fra-platform cid 14635 → 67 → 38 → 51 → 44
     /// at 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
     /// 7ef9d0a4… leaf — denser five-occurrence twin of 25ef0004168c…;
+    /// fingerprint 1e8b88f75d43… / fra-product-nats CN=fra-platform cid:31 at 18:45:45Z on
+    /// 127.0.0.1:34466 against the same 7ef9d0a4… leaf — single post-recycle reconnect twin
+    /// of 25ef0004168c… / dacc95d0e7ba… (and gru 0b23b4fb5a75… / sfo d739f8d83bed…) after bare
+    /// product-NATS RestartAsync;
     /// fingerprint 54fea6c92b78… / gru-product-nats CN=gru-platform cid 14635 → 38 → 50 → 44
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf
     /// — denser four-occurrence twin of 57ae70882ed5…;
