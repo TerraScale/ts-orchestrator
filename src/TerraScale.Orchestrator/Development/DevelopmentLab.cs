@@ -444,6 +444,15 @@ public static class DevelopmentLab
                         // gru 6a1c43a93378…) against the same 7ef9d0a4… leaf at 18:45:48Z on
                         // 127.0.0.1:34476 and 18:46:48Z on 127.0.0.1:45738 after bare
                         // product-NATS RestartAsync reloads the same expired platform leaf;
+                        // cid 34 → 35 → 74 → 36 for CN=fra-platform on fra-product-nats-1,
+                        // fingerprint 92ed0baffd5b… — four-occurrence post-recycle reconnect twin
+                        // of fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… / dacc95d0e7ba… /
+                        // 1e8b88f75d43… (and gru ed3f4504d5e1… / sfo 146c64f3fc52… / operator-read
+                        // twins f4f92376efda… / 62860f83eeb6… / 7421834a4183… at the same
+                        // wall-clock pair) against the same 7ef9d0a4… leaf at 18:45:50Z on
+                        // 127.0.0.1:34504 / 34506 (dual cid 34+35), 18:46:50Z on 127.0.0.1:45768,
+                        // and 18:49:50Z on 127.0.0.1:59726 after bare product-NATS RestartAsync
+                        // reloads the same expired platform leaf;
                         // cid 14634 → 63 → 34 → 49 → 43 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint b1723b879b59… — sfo product-plane twin of fra 25ef0004168c…:
                         // long-running sfo-platform reconnects while bare product-NATS
@@ -792,6 +801,13 @@ public static class DevelopmentLab
     /// 7ef9d0a4… leaf — two-occurrence post-recycle reconnect twin of 30e9c320e15b… /
     /// 25ef0004168c… / dacc95d0e7ba… / 1e8b88f75d43… (and gru 6a1c43a93378…) after bare
     /// product-NATS RestartAsync;
+    /// fingerprint 92ed0baffd5b… / fra-product-nats CN=fra-platform cid 34 → 35 → 74 → 36 at
+    /// 18:45:50Z on 127.0.0.1:34504 / 34506 (dual cid 34+35), 18:46:50Z on 127.0.0.1:45768,
+    /// and 18:49:50Z on 127.0.0.1:59726 against the same 7ef9d0a4… leaf — four-occurrence
+    /// post-recycle reconnect twin of fc4e0317d2a1… / 30e9c320e15b… / 25ef0004168c… /
+    /// dacc95d0e7ba… / 1e8b88f75d43… (and gru ed3f4504d5e1… / sfo 146c64f3fc52… /
+    /// operator-read twins f4f92376efda… / 62860f83eeb6… / 7421834a4183… at the same
+    /// wall-clock pair) after bare product-NATS RestartAsync;
     /// fingerprint 54fea6c92b78… / gru-product-nats CN=gru-platform cid 14635 → 38 → 50 → 44
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 6b500765… leaf
     /// — denser four-occurrence twin of 57ae70882ed5…;
