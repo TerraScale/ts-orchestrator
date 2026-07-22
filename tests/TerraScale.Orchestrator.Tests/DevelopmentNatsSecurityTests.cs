@@ -3848,6 +3848,74 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
                 "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
             .IsTrue();
+        // Exact gru-control-nats / CN=gru-controller-1 seven-occurrence post-recycle shape
+        // (fingerprint d00ef05a1026…): same d467c210… gru-controller-1 leaf and gru control
+        // issuer as c2bf6b539a62… / 782d6308… / 003657d51ecd… / b9dc4dd1a8ef… / 7b6a047263d8… /
+        // 87f7f1566c88… / a9bf884a363b… / 25b92b919c66… / 34c89dedb769… / 024cbd22bdf4… /
+        // e7ad7a71e395… / 96fe8dda09bb… / d2538c612184…, observed seven times after
+        // control-NATS recycle (cid 45 → 77 → 52 → 54 → 29 → 60 → 61 at 18:46:15Z on
+        // 127.0.0.1:37246, 18:47:15Z on 127.0.0.1:34118, 18:48:15Z on 127.0.0.1:52154 /
+        // 127.0.0.1:52194 dual, 18:49:15Z on 127.0.0.1:45258, and 18:50:15Z on
+        // 127.0.0.1:57522 / 127.0.0.1:57524 dual, NotAfter still 18:45:24Z). This is a
+        // two-seconds-later denser post-bare-restart reconnect twin of the three-occurrence
+        // d2538c612184… storm (cid 44 → 76 → 28 two seconds earlier on 49052/42988/51756) and
+        // a denser seven-occurrence peer of 96fe8dda09bb… (cid 42 → 74 → 50 → 51 → 81 → 83 →
+        // 58 at the adjacent wall-clock :10 steps on 49018/42948/40182/40194/51716/51744/
+        // 35554): the long-running gru-controller-1 process re-presents the expired control
+        // leaf against a freshly recycled control NATS listener while probes still present
+        // only operator-read. Recovery must match every occurrence and force remint from
+        // invalid control-plane client leaves (including controllers) on the NATS resource
+        // for every cell — bare RestartAsync of control NATS alone reloads the same expired
+        // PEM and re-emits the server-side handshake error on the next reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:46:15.300030 [ERR] 127.0.0.1:37246 - cid:45 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:47:15.964565 [ERR] 127.0.0.1:34118 - cid:77 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:48:15.131521 [ERR] 127.0.0.1:52154 - cid:52 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:48:15.978408 [ERR] 127.0.0.1:52194 - cid:54 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:49:15.941940 [ERR] 127.0.0.1:45258 - cid:29 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:49:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:50:15.302991 [ERR] 127.0.0.1:57522 - cid:60 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[gru-control-nats-1] [1] 2026/07/21 18:50:15.684462 [ERR] 127.0.0.1:57524 - cid:61 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:15Z is after 2026-07-21T18:45:24Z " +
+                "(CN=gru-controller-1 SHA-256: d467c210a9b55640d2132d9a7a80c1758af1faebf0971568defc06d3f1df1361; " +
+                "CN=TerraScale gru control issuer SHA-256: da96b024f2849ad2ba051fa8cd80c26867c9d14cdd548e403cacb771b8d52a84)"))
+            .IsTrue();
         // Exact fra-control-nats / CN=fra-controller-1 multi-occurrence shape (fingerprint
         // 91b5b852…): same NotAfter (18:45:24Z) and bare control-NATS recycle pattern as the
         // sfo/gru controller twins (cid 29238 → 62 → 69 → 70 at 18:45:34Z / 18:48:34Z /
@@ -5735,8 +5803,8 @@ public sealed class DevelopmentNatsSecurityTests
     {
         // Fingerprints c2bf6b539a62…, 782d6308…, 003657d51ecd…, b9dc4dd1a8ef…, 7b6a047263d8…,
         // 87f7f1566c88…, a9bf884a363b…, 25b92b919c66…, 34c89dedb769…, 024cbd22bdf4…,
-        // e7ad7a71e395…, 96fe8dda09bb…, and d2538c612184…: gru-controller-1 (not
-        // operator-read) presents the control leaf. Same NotAfter window and bare-NATS-
+        // e7ad7a71e395…, 96fe8dda09bb…, d2538c612184…, and d00ef05a1026…: gru-controller-1
+        // (not operator-read) presents the control leaf. Same NotAfter window and bare-NATS-
         // recycle storm as the sfo twin (cid 29238 → 32 → 63 → 70 at 18:45:34Z / 18:47:34Z /
         // 18:48:34Z / 18:50:34Z; denser twin cid 29240 → 58 → 35 → 65 → 67 → 42 → 73 at
         // 18:45:40Z / 18:46:40Z / 18:47:40Z / 18:48:40Z / 18:48:40Z / 18:49:40Z / 18:50:40Z
@@ -5768,10 +5836,16 @@ public sealed class DevelopmentNatsSecurityTests
         // 127.0.0.1:49052, 18:47:13Z on 127.0.0.1:42988, and 18:49:13Z on 127.0.0.1:51756 for
         // d2538c612184… — three-seconds-later sparse twin of 96fe8dda09bb… on adjacent ports,
         // control-plane peer of fra-controller 7063631384a4… and product-plane peer of
-        // gru-platform 88ff8c404d3b… at the same wall-clock :13 steps). When only the
-        // gru-controller-1 PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
-        // for gru-control-nats-1 so force-remint runs instead of bare RestartAsync. Probes
-        // alone would miss this because control-NATS probes present operator-read.
+        // gru-platform 88ff8c404d3b… at the same wall-clock :13 steps; seven-occurrence
+        // post-recycle twin cid 45 → 77 → 52 → 54 → 29 → 60 → 61 at 18:46:15Z on
+        // 127.0.0.1:37246, 18:47:15Z on 127.0.0.1:34118, 18:48:15Z on 127.0.0.1:52154 /
+        // 127.0.0.1:52194 dual, 18:49:15Z on 127.0.0.1:45258, and 18:50:15Z on
+        // 127.0.0.1:57522 / 127.0.0.1:57524 dual for d00ef05a1026… — two-seconds-later denser
+        // twin of d2538c612184… and denser seven-occurrence peer of 96fe8dda09bb… at the
+        // adjacent wall-clock :15 steps). When only the gru-controller-1 PEM is past
+        // NotAfter, ResourceHasInvalidTlsLeaf must still be true for gru-control-nats-1 so
+        // force-remint runs instead of bare RestartAsync. Probes alone would miss this
+        // because control-NATS probes present operator-read.
         await AssertInvalidControllerLeafForcesRemintForCellAsync("gru");
     }
 
