@@ -226,7 +226,9 @@ public static class DevelopmentLab
                     // three-occurrence post-recycle twin 461d52d6f097… cid 46 → 78 → 29 at
                     // 18:46:19Z on 127.0.0.1:45414, 18:47:19Z on 127.0.0.1:34512, and
                     // 18:49:19Z on 127.0.0.1:44846 and single-occurrence post-recycle twin
-                    // e9d264fcee49… cid:49 at 18:46:26Z on 127.0.0.1:38796 against
+                    // e9d264fcee49… cid:49 at 18:46:26Z on 127.0.0.1:38796 and
+                    // single-occurrence post-recycle twin 01c910109181… cid:52 at
+                    // 18:46:32Z on 127.0.0.1:38838 against
                     // the same 6477b788… leaf).
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
@@ -386,6 +388,9 @@ public static class DevelopmentLab
                         // 127.0.0.1:44846 against the same 6477b788… leaf,
                         // fingerprint e9d264fcee49… / fra-control-nats single-occurrence
                         // post-recycle twin cid:49 at 18:46:26Z on 127.0.0.1:38796 against
+                        // the same 6477b788… leaf,
+                        // fingerprint 01c910109181… / fra-control-nats single-occurrence
+                        // post-recycle twin cid:52 at 18:46:32Z on 127.0.0.1:38838 against
                         // the same 6477b788… leaf).
                         var observationCertificateFailure =
                             LooksLikeCertificateFailure(observation.Value.Detail);
@@ -610,6 +615,19 @@ public static class DevelopmentLab
                         // fra-platform 86b0b173f024… cid 57 → 96 → 97 → 32 / gru-platform
                         // d26427e1c533… cid 58 → 97 → 98 → 32 at the adjacent wall-clock
                         // :25/:26 steps);
+                        // cid:52 for CN=operator-read on
+                        // fra-control-nats-1, fingerprint 01c910109181… — single-occurrence
+                        // post-recycle reconnect twin of 9a811bb8… / f95adc65… /
+                        // 7421834a4183… / c74671d2c0e4… / b2dec42a6166… / d26af782af24… /
+                        // 424b0b6af457… / 461d52d6f097… / e9d264fcee49… against the same
+                        // 6477b788… leaf at 18:46:32Z on 127.0.0.1:38838 after bare
+                        // control-NATS RestartAsync reloads the same expired operator-read
+                        // PEM (six seconds after e9d264fcee49… cid:49 on 127.0.0.1:38796 at
+                        // :26; port 38796 → 38838; concurrent with gru operator-read
+                        // b44ee24b6ded… cid:53 on 127.0.0.1:46596, sfo-controller
+                        // a3a21d809ce7… cid 52 → 29 → 61 → 38 → 68, and gru-controller
+                        // e5009d3232e3… cid 52 → 29 → 61 → 36 → 68 at the adjacent
+                        // wall-clock :30/:31/:32 steps);
                         // cid 29238 → 63 → 70 for
                         // CN=sfo-controller-1 on sfo-control-nats-1, fingerprint f490b625…;
                         // cid 29240 → 34 → 35 → 66 → 73 for CN=sfo-controller-1 on
@@ -3116,7 +3134,16 @@ public static class DevelopmentLab
     /// (seven seconds after 461d52d6f097… cid 46 on 127.0.0.1:45414 at :19; concurrent
     /// with fra-platform 86b0b173f024… cid 57 → 96 → 97 → 32 / gru-platform
     /// d26427e1c533… cid 58 → 97 → 98 → 32 at the adjacent wall-clock :25/:26 steps)
-    /// after bare control-NATS RestartAsync).
+    /// after bare control-NATS RestartAsync,
+    /// fingerprint 01c910109181… / fra-control-nats CN=operator-read cid:52 at
+    /// 18:46:32Z on 127.0.0.1:38838 against the same 6477b788… leaf — single-occurrence
+    /// post-recycle reconnect twin of 9a811bb8… / f95adc65… / 7421834a4183… /
+    /// c74671d2c0e4… / b2dec42a6166… / d26af782af24… / 424b0b6af457… / 461d52d6f097… /
+    /// e9d264fcee49… (six seconds after e9d264fcee49… cid:49 on 127.0.0.1:38796 at :26;
+    /// port 38796 → 38838; concurrent with gru operator-read b44ee24b6ded… cid:53 on
+    /// 127.0.0.1:46596, sfo-controller a3a21d809ce7… cid 52 → 29 → 61 → 38 → 68, and
+    /// gru-controller e5009d3232e3… cid 52 → 29 → 61 → 36 → 68 at the adjacent
+    /// wall-clock :30/:31/:32 steps) after bare control-NATS RestartAsync).
     /// Product NATS is analogous for platform leaves
     /// (fingerprint 25ef0004168c… / fra-product-nats CN=fra-platform cid 14634 → 63 → 50 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:48:34Z / 18:50:34Z; gru twin 57ae70882ed5…;
