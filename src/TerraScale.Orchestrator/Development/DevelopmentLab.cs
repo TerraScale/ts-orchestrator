@@ -904,6 +904,22 @@ public static class DevelopmentLab
                         // control-NATS RestartAsync reloads the same expired controller leaf
                         // (one second after 73ac000434f0… cid 49 → 82 on adjacent :25 steps /
                         // ports 46536 → 46574 and 55148 → 55160);
+                        // cid 52 → 29 → 61 → 36 → 68 for CN=gru-controller-1 on
+                        // gru-control-nats-1, fingerprint e5009d3232e3… — five-occurrence
+                        // post-recycle reconnect twin of c2bf6b539a62… / 782d6308… /
+                        // 003657d51ecd… / b9dc4dd1a8ef… / 7b6a047263d8… / 87f7f1566c88… /
+                        // a9bf884a363b… / 25b92b919c66… / 34c89dedb769… / 024cbd22bdf4… /
+                        // e7ad7a71e395… / 96fe8dda09bb… / d2538c612184… / d00ef05a1026… /
+                        // d56bf3307e7b… / e51d12dd4525… / 73ac000434f0… / 1455d09f7030…
+                        // against the same d467c210… leaf at 18:46:30Z on 127.0.0.1:46580,
+                        // 18:47:30Z on 127.0.0.1:55180, 18:48:30Z on 127.0.0.1:44460,
+                        // 18:49:30Z on 127.0.0.1:38222, and 18:50:30Z on 127.0.0.1:56272
+                        // after bare control-NATS RestartAsync reloads the same expired
+                        // controller leaf (four seconds after 1455d09f7030… cid 51 → 83 on
+                        // adjacent :26 steps / ports 46574 → 46580 and 55160 → 55180; five
+                        // seconds after 73ac000434f0… cid 49 → 82 → 58 → 33 → 35 → 65 on
+                        // adjacent :25 steps / ports 46536 → 46580, 55148 → 55180, 44408 →
+                        // 44460, 38192/38210 → 38222, and 56214 → 56272);
                         // cid 29238 → 62 → 69 → 70 for CN=fra-controller-1 on fra-control-nats-1,
                         // fingerprint 91b5b852… — fra twin of the sfo/gru controller storms:
                         // long-running fra-controller-1 reconnects while bare control-NATS
@@ -2665,6 +2681,18 @@ public static class DevelopmentLab
     /// 96fe8dda09bb… / d2538c612184… / d00ef05a1026… / d56bf3307e7b… / e51d12dd4525… /
     /// 73ac000434f0… (one second after 73ac000434f0… cid 49 → 82 on adjacent :25 steps /
     /// ports 46536 → 46574 and 55148 → 55160) after bare control-NATS RestartAsync,
+    /// fingerprint e5009d3232e3… / gru-control-nats CN=gru-controller-1 cid 52 → 29 → 61 →
+    /// 36 → 68 at 18:46:30Z on 127.0.0.1:46580, 18:47:30Z on 127.0.0.1:55180, 18:48:30Z on
+    /// 127.0.0.1:44460, 18:49:30Z on 127.0.0.1:38222, and 18:50:30Z on 127.0.0.1:56272
+    /// against the same d467c210… leaf — five-occurrence post-recycle reconnect twin of
+    /// c2bf6b539a62… / 782d6308… / 003657d51ecd… / b9dc4dd1a8ef… / 7b6a047263d8… /
+    /// 87f7f1566c88… / a9bf884a363b… / 25b92b919c66… / 34c89dedb769… / 024cbd22bdf4… /
+    /// e7ad7a71e395… / 96fe8dda09bb… / d2538c612184… / d00ef05a1026… / d56bf3307e7b… /
+    /// e51d12dd4525… / 73ac000434f0… / 1455d09f7030… (four seconds after 1455d09f7030… cid
+    /// 51 → 83 on adjacent :26 steps / ports 46574 → 46580 and 55160 → 55180; five seconds
+    /// after 73ac000434f0… cid 49 → 82 → 58 → 33 → 35 → 65 on adjacent :25 steps / ports
+    /// 46536 → 46580, 55148 → 55180, 44408 → 44460, 38192/38210 → 38222, and 56214 →
+    /// 56272) after bare control-NATS RestartAsync,
     /// fingerprint 91b5b852… / fra-control-nats CN=fra-controller-1 cid 29238 → 62 → 69 → 70
     /// at 18:45:34Z / 18:48:34Z / 18:50:34Z,
     /// fingerprint ffcef075c58c… / fra-control-nats CN=fra-controller-1 cid 29240 → 34 → 66 → 73
@@ -3982,7 +4010,7 @@ public static class DevelopmentLab
     /// d00ef05a1026… and three-occurrence post-recycle twin d56bf3307e7b… and
     /// four-occurrence post-recycle twin e51d12dd4525… and six-occurrence
     /// post-recycle twin 73ac000434f0… and two-occurrence post-recycle twin
-    /// 1455d09f7030…,
+    /// 1455d09f7030… and five-occurrence post-recycle twin e5009d3232e3…,
     /// fra 91b5b852… and denser twin
     /// ffcef075c58c… and four-occurrence post-recycle twin bca21682b315… and single
     /// post-recycle twin 23eafce842f6… and two-occurrence post-recycle twins
