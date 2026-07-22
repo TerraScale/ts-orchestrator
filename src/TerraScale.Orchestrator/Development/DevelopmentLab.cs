@@ -182,7 +182,9 @@ public static class DevelopmentLab
                     // post-recycle twin f4f92376efda… cid 31 → 46 at 18:45:50Z on
                     // 127.0.0.1:56170 and 18:49:50Z on 127.0.0.1:45996 and second
                     // two-occurrence post-recycle twin b252d8996050… cid 34 → 51 at
-                    // 18:45:56Z on 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 against
+                    // 18:45:56Z on 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 and
+                    // third two-occurrence post-recycle twin 6a650c470be6… cid 37 → 69 at
+                    // 18:46:01Z on 127.0.0.1:54470 and 18:47:01Z on 127.0.0.1:57302 against
                     // the same 4e40db2b… leaf; fingerprint e517701a… / sfo-control-nats multi-
                     // occurrence and denser twin f08d1c577176… cid 29239 → 33 → 65 → 72 and
                     // two-occurrence post-recycle twin 62860f83eeb6… cid 30 → 46 at
@@ -287,6 +289,9 @@ public static class DevelopmentLab
                         // b252d8996050… / gru-control-nats second two-occurrence
                         // post-recycle twin cid 34 → 51 at 18:45:56Z on 127.0.0.1:54410 and
                         // 18:49:56Z on 127.0.0.1:35762 against the same 4e40db2b… leaf,
+                        // fingerprint 6a650c470be6… / gru-control-nats third two-occurrence
+                        // post-recycle twin cid 37 → 69 at 18:46:01Z on 127.0.0.1:54470 and
+                        // 18:47:01Z on 127.0.0.1:57302 against the same 4e40db2b… leaf,
                         // e517701a… / sfo-control-nats, fingerprint f08d1c577176… /
                         // sfo-control-nats four-occurrence twin cid 29239 → 33 → 65 → 72 at
                         // 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same
@@ -342,6 +347,14 @@ public static class DevelopmentLab
                         // f4f92376efda… against the same 4e40db2b… leaf at 18:45:56Z on
                         // 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 after bare
                         // control-NATS RestartAsync reloads the same expired operator-read PEM;
+                        // cid 37 → 69 for CN=operator-read on
+                        // gru-control-nats-1, fingerprint 6a650c470be6… — third two-occurrence
+                        // post-recycle reconnect twin of c6627a56bf45… / c48cbf142a9a… /
+                        // f4f92376efda… / b252d8996050… against the same 4e40db2b… leaf at
+                        // 18:46:01Z on 127.0.0.1:54470 and 18:47:01Z on 127.0.0.1:57302 after
+                        // bare control-NATS RestartAsync reloads the same expired operator-read
+                        // PEM (gru peer of sfo d80a6067f126… cid 37 → 68 at the same wall-clock
+                        // :01 steps);
                         // cid 29239 → 33 → 65 → 72 for CN=operator-read on
                         // sfo-control-nats-1, fingerprint f08d1c577176… — four-occurrence twin of
                         // e517701a… against the same aa00c1c3… leaf at 18:45:40Z / 18:47:40Z /
@@ -1155,6 +1168,11 @@ public static class DevelopmentLab
     /// 18:45:56Z on 127.0.0.1:54410 and 18:49:56Z on 127.0.0.1:35762 against the same
     /// 4e40db2b… leaf — second two-occurrence post-recycle reconnect twin of
     /// c6627a56bf45… / c48cbf142a9a… / f4f92376efda… after bare control-NATS RestartAsync,
+    /// fingerprint 6a650c470be6… / gru-control-nats CN=operator-read cid 37 → 69 at
+    /// 18:46:01Z on 127.0.0.1:54470 and 18:47:01Z on 127.0.0.1:57302 against the same
+    /// 4e40db2b… leaf — third two-occurrence post-recycle reconnect twin of
+    /// c6627a56bf45… / c48cbf142a9a… / f4f92376efda… / b252d8996050… (and sfo d80a6067f126…
+    /// cid 37 → 68 at the same wall-clock :01 steps) after bare control-NATS RestartAsync,
     /// fingerprint e517701a… / sfo-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint f08d1c577176… / sfo-control-nats CN=operator-read cid 29239 → 33 → 65 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf,
