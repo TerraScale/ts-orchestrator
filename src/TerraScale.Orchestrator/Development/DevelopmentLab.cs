@@ -1909,7 +1909,26 @@ public static class DevelopmentLab
                         // expired platform leaf (two seconds after 1668f8c0e10f… cid 53 → 54 →
                         // 92 → 93 → 31 on adjacent :19 steps / ports 59860/59878 → 59888 and
                         // 55608/55624 → 55626; same wall-clock :21 as fra 8e310ea4f277… /
-                        // gru 7dae08a6f4b3…).
+                        // gru 7dae08a6f4b3…);
+                        // cid 56 → 95 for CN=sfo-platform on sfo-product-nats-1,
+                        // fingerprint db61915863fe… — two-occurrence post-recycle reconnect twin
+                        // of 230da24f64b6… / 1668f8c0e10f… / e7adbe3390eb… / e7810573222a… /
+                        // e583d837318a… / 67300e8b3fe0… / 02525de8dfa3… / ef71b6e32493… /
+                        // b439248687d8… / c907c56a7c0c… / eacb3282ca0c… / bf521ed338de… /
+                        // 9b960cc93f83… / 26b95f54769c… / 16f64e5cf6e5… / e33d87402e17… /
+                        // eaa27086a65c… / 146c64f3fc52… / 9f8f5f2cd955… / a42bd88ac488… /
+                        // d739f8d83bed… / b1723b879b59… / 77220dace263… (and gru d22a1e331a57…
+                        // cid 57 → 96 / gru 7dae08a6f4b3… cid 56 → 47 → 41 / fra 8e310ea4f277…
+                        // cid 55 → 94 → 48 → 41 / fra 59a0656971a4… cid 53 → 54 → 92 → 93 →
+                        // 31 / gru 1f9106a25f41… cid 54 → 55 → 94 → 31 at the adjacent
+                        // wall-clock 18:46:19Z / 18:46:21Z / 18:46:23Z / 18:46:24Z /
+                        // 18:47:19Z / 18:47:21Z / 18:47:23Z / 18:47:24Z steps) against the
+                        // same a914ebca… leaf at 18:46:24Z on 127.0.0.1:59904 and 18:47:24Z
+                        // on 127.0.0.1:55638 after bare product-NATS RestartAsync reloads the
+                        // same expired platform leaf (three seconds after 230da24f64b6… cid
+                        // 55 → 94 → 47 → 41 on adjacent :21 steps / ports 59888 → 59904 and
+                        // 55626 → 55638; five seconds after 1668f8c0e10f… cid 53 → 54 → 92 →
+                        // 93 → 31 on :19 steps / ports 59860/59878 → 59904).
                         //
                         // Plain "can not start to connect nats server" (fingerprint
                         // c05d3fee208c… / gru-control-nats-1 at 18:45:41Z / 18:49:11Z three
@@ -3259,7 +3278,22 @@ public static class DevelopmentLab
     /// 18:50:15Z / 18:50:21Z steps; two seconds after 1668f8c0e10f… cid 53 → 54 → 92 →
     /// 93 → 31 on adjacent :19 steps / ports 59860/59878 → 59888 and 55608/55624 →
     /// 55626; same wall-clock :21 as fra 8e310ea4f277… / gru 7dae08a6f4b3…) after bare
-    /// product-NATS RestartAsync).
+    /// product-NATS RestartAsync;
+    /// fingerprint db61915863fe… / sfo-product-nats CN=sfo-platform cid 56 → 95 at
+    /// 18:46:24Z on 127.0.0.1:59904 and 18:47:24Z on 127.0.0.1:55638 against the same
+    /// a914ebca… leaf — two-occurrence post-recycle reconnect twin of 230da24f64b6… /
+    /// 1668f8c0e10f… / e7adbe3390eb… / e7810573222a… / e583d837318a… / 67300e8b3fe0… /
+    /// 02525de8dfa3… / ef71b6e32493… / b439248687d8… / c907c56a7c0c… / eacb3282ca0c… /
+    /// bf521ed338de… / 9b960cc93f83… / 26b95f54769c… / 16f64e5cf6e5… / e33d87402e17… /
+    /// eaa27086a65c… / 146c64f3fc52… / 9f8f5f2cd955… / a42bd88ac488… / d739f8d83bed… /
+    /// b1723b879b59… / 77220dace263… (and gru d22a1e331a57… cid 57 → 96 / gru
+    /// 7dae08a6f4b3… cid 56 → 47 → 41 / fra 8e310ea4f277… cid 55 → 94 → 48 → 41 / fra
+    /// 59a0656971a4… cid 53 → 54 → 92 → 93 → 31 / gru 1f9106a25f41… cid 54 → 55 → 94 →
+    /// 31 at the adjacent wall-clock 18:46:19Z / 18:46:21Z / 18:46:23Z / 18:46:24Z /
+    /// 18:47:19Z / 18:47:21Z / 18:47:23Z / 18:47:24Z steps; three seconds after
+    /// 230da24f64b6… cid 55 → 94 → 47 → 41 on adjacent :21 steps / ports 59888 → 59904
+    /// and 55626 → 55638; five seconds after 1668f8c0e10f… cid 53 → 54 → 92 → 93 → 31 on
+    /// :19 steps / ports 59860/59878 → 59904) after bare product-NATS RestartAsync).
     /// Cell-agnostic: every control-plane client in the NATS resource's cell is surveyed so
     /// gru/sfo/fra controller-only or operator-read expiry cannot fall through to bare NATS
     /// recycle; product plane surveys every product client (platforms) the same way.
