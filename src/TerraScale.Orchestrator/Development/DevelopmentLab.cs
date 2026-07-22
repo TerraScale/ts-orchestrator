@@ -863,6 +863,20 @@ public static class DevelopmentLab
                         // 52 → 54 → 29 → 60 → 61 at the adjacent wall-clock :15 steps; product-
                         // plane peer of fra-platform ec156a1db321… cid 52 → 91 at the same
                         // wall-clock :17 steps);
+                        // cid 47 → 79 → 30 for CN=fra-controller-1 on fra-control-nats-1,
+                        // fingerprint 4cab25065be5… — three-occurrence post-recycle reconnect twin
+                        // of 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… /
+                        // 4046b92fa615… / 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… /
+                        // 876de6711801… / 52a227218acf… / 88eec19ebb94… / 49ec50da2e2a… /
+                        // 7063631384a4… / d7de94966c92… against the same 8f6e801c… leaf at
+                        // 18:46:19Z on 127.0.0.1:45434, 18:47:19Z on 127.0.0.1:34540, and
+                        // 18:49:19Z on 127.0.0.1:44862 after bare control-NATS RestartAsync
+                        // reloads the same expired controller leaf (two seconds after
+                        // d7de94966c92… cid 45 on adjacent :17 steps / ports 45396 → 45434;
+                        // fra peer of sfo 1cdbb448aebb… cid 47 → 79 → 31 at the same wall-clock
+                        // :19 steps, concurrent with gru-platform 1f9106a25f41… /
+                        // sfo-platform 1668f8c0e10f… / fra-platform 59a0656971a4… /
+                        // gru operator-read 5807fcff9600… at the same wall-clock :19 steps);
                         // cid 14634 → 63 → 50 → 43 for CN=fra-platform on fra-product-nats-1,
                         // fingerprint 25ef0004168c… — product-plane twin: platform process
                         // reconnects while bare product-NATS RestartAsync reloads the same
@@ -2166,6 +2180,17 @@ public static class DevelopmentLab
     /// 54 → 29 → 60 → 61 at the adjacent wall-clock :15 steps; product-plane peer of
     /// fra-platform ec156a1db321… cid 52 → 91 at the same wall-clock :17 steps) after bare
     /// control-NATS RestartAsync,
+    /// fingerprint 4cab25065be5… / fra-control-nats CN=fra-controller-1 cid 47 → 79 → 30 at
+    /// 18:46:19Z on 127.0.0.1:45434, 18:47:19Z on 127.0.0.1:34540, and 18:49:19Z on
+    /// 127.0.0.1:44862 against the same 8f6e801c… leaf — three-occurrence post-recycle
+    /// reconnect twin of 91b5b852… / ffcef075c58c… / bca21682b315… / 23eafce842f6… /
+    /// 4046b92fa615… / 87c737a0ed10… / 5e5b835252fe… / 6e08a77cd4b6… / 876de6711801… /
+    /// 52a227218acf… / 88eec19ebb94… / 49ec50da2e2a… / 7063631384a4… / d7de94966c92…
+    /// (two seconds after d7de94966c92… cid 45 on adjacent :17 steps / ports 45396 → 45434;
+    /// fra peer of sfo 1cdbb448aebb… cid 47 → 79 → 31 at the same wall-clock :19 steps,
+    /// concurrent with gru-platform 1f9106a25f41… / sfo-platform 1668f8c0e10f… /
+    /// fra-platform 59a0656971a4… / gru operator-read 5807fcff9600… at the same wall-clock
+    /// :19 steps) after bare control-NATS RestartAsync,
     /// fingerprint c6627a56bf45… / gru-control-nats CN=operator-read cid 29237 → 62 → 69,
     /// fingerprint c48cbf142a9a… / gru-control-nats CN=operator-read cid 29239 → 34 → 66 → 72
     /// at 18:45:40Z / 18:47:40Z / 18:48:40Z / 18:50:40Z against the same 4e40db2b… leaf,
@@ -3055,7 +3080,8 @@ public static class DevelopmentLab
     /// post-recycle twin 52a227218acf… and five-occurrence post-recycle twin
     /// 88eec19ebb94… and three-occurrence post-recycle twin 49ec50da2e2a… and
     /// four-occurrence post-recycle twin 7063631384a4… and three-occurrence
-    /// post-recycle twin d7de94966c92…) alone still
+    /// post-recycle twin d7de94966c92… and three-occurrence post-recycle twin
+    /// 4cab25065be5…) alone still
     /// forces remint instead of NATS recycle. Product NATS surveys every platform client
     /// plus product server Client/Route leaves the same way. Controllers survey their own
     /// leaf plus every control-NATS server Client/Route leaf in the cell so an expired
