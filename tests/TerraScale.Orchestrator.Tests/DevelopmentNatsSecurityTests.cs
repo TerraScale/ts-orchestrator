@@ -6279,6 +6279,32 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
                 "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
             .IsTrue();
+        // Exact sfo-control-nats / CN=operator-read single-occurrence post-recycle shape
+        // (fingerprint 7d4a69cc1db6…): same aa00c1c3… operator-read leaf and sfo control
+        // issuer as e517701a2468… / f08d1c577176… / 62860f83eeb6… / 97d33257778a… /
+        // d80a6067f126… / 58dda0785551… / 69541ea34d1d… / 0c8da303bb67…, observed once
+        // after control-NATS recycle (cid:49 at 18:46:26Z on 127.0.0.1:33700, NotAfter
+        // still 18:45:24Z). This is a single-occurrence post-bare-restart reconnect twin
+        // of the denser e517701a… / f08d1c577176… storms, of the earlier multi-occurrence
+        // pairs (62860f83eeb6… cid 30 → 46, 97d33257778a… cid 33 → 50, d80a6067f126…
+        // cid 37 → 68, 58dda0785551… cid 40 → 72, 69541ea34d1d… cid 43 → 75,
+        // 0c8da303bb67… cid 46 → 78 → 30), seven seconds after 0c8da303bb67… cid 46 on
+        // 127.0.0.1:40988 at :19, the sfo twin of fra e9d264fcee49… (cid:49 on
+        // 127.0.0.1:38796), and concurrent with sfo-platform f69b77ff7537… (cid 57 → 58 →
+        // 97) / fra-platform 86b0b173f024… (cid 57 → 96 → 97 → 32) / gru-platform
+        // d26427e1c533… (cid 58 → 97 → 98 → 32) / sfo-controller 306f7d4a6890… (cid 50 →
+        // 51 → 65) at the adjacent wall-clock :25/:26 steps: health probes present
+        // operator-read every cycle while bare RestartAsync of NATS reloads the same
+        // expired PEM and re-emits the server-side handshake error on the next reconnect.
+        // Recovery must match this line, skip startup grace for cert failures, and force
+        // remint from invalid on-disk probe leaves so the recycle loop cannot continue.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[sfo-control-nats-1] [1] 2026/07/21 18:46:26.042623 [ERR] 127.0.0.1:33700 - cid:49 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:26Z is after 2026-07-21T18:45:24Z " +
+                "(CN=operator-read SHA-256: aa00c1c3fca01567ad5069d92edb201d2a0a8d1d5a51fa62d587a8df264668fc; " +
+                "CN=TerraScale sfo control issuer SHA-256: 5e42a605731e1af1a8eb24192a5357ad022c1a8916d0e58950bc5568bfa90ec1)"))
+            .IsTrue();
         // Exact fra-control-nats / CN=operator-read multi-occurrence shape (fingerprint
         // 9a811bb8b959…): same NotAfter (18:45:24Z) as the gru/sfo operator-read twins,
         // with a distinct cid recycle (29237 → 63 → 68 at 18:45:34Z / 18:48:34Z /
@@ -7113,28 +7139,35 @@ public sealed class DevelopmentNatsSecurityTests
     public async Task InvalidOperatorReadLeafIsDetectedForSfoControlNatsBeforeBareRestart()
     {
         // Fingerprints e517701a2468…, f08d1c577176…, 62860f83eeb6…, 97d33257778a…,
-        // d80a6067f126…, 58dda0785551…, 69541ea34d1d…, and 0c8da303bb67…: sfo-control-nats
-        // health probes present operator-read. Same NotAfter window and bare-NATS-recycle
-        // storm as the gru twin (cid 29237 → 62 → 69 at 18:45:34Z / 18:48:34Z / 18:50:34Z;
-        // denser twin cid 29239 → 33 → 65 → 72 at 18:45:40Z / 18:47:40Z / 18:48:40Z /
-        // 18:50:40Z against the same aa00c1c3… leaf; two-occurrence post-recycle twin cid
-        // 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on 127.0.0.1:34070 for
-        // 62860f83eeb6…; second two-occurrence post-recycle twin cid 33 → 50 at 18:45:56Z
-        // on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 for 97d33257778a…; third
-        // two-occurrence post-recycle twin cid 37 → 68 at 18:46:01Z on 127.0.0.1:52246 and
-        // 18:47:01Z on 127.0.0.1:34762 for d80a6067f126…; fourth two-occurrence post-recycle
-        // twin cid 40 → 72 at 18:46:07Z on 127.0.0.1:49186 and 18:47:07Z on 127.0.0.1:53880
-        // for 58dda0785551…; fifth two-occurrence post-recycle twin cid 43 → 75 at
-        // 18:46:13Z on 127.0.0.1:49240 and 18:47:13Z on 127.0.0.1:53920 for 69541ea34d1d…,
-        // sfo peer of gru 9dd8feb97fa2… / fra 424b0b6af457… / sfo-platform e583d837318a… /
-        // fra-platform d86f81358e32… at the same wall-clock :13 steps; three-occurrence
-        // post-recycle twin cid 46 → 78 → 30 at 18:46:19Z on 127.0.0.1:40988, 18:47:19Z on
-        // 127.0.0.1:59820, and 18:49:19Z on 127.0.0.1:35640 for 0c8da303bb67…, sfo
-        // control-plane peer of gru 5807fcff9600… (cid 46 → 78 → 30) / fra 461d52d6f097…
-        // (cid 46 → 78 → 29) / gru-platform 1f9106a25f41… / sfo-platform 1668f8c0e10f… /
-        // fra-platform 59a0656971a4… at the same wall-clock :19 steps). When only the sfo
-        // operator-read PEM is past NotAfter, ResourceHasInvalidTlsLeaf must still be true
-        // for sfo-control-nats-1 so force-remint runs instead of bare RestartAsync.
+        // d80a6067f126…, 58dda0785551…, 69541ea34d1d…, 0c8da303bb67…, and 7d4a69cc1db6…:
+        // sfo-control-nats health probes present operator-read. Same NotAfter window and
+        // bare-NATS-recycle storm as the gru twin (cid 29237 → 62 → 69 at 18:45:34Z /
+        // 18:48:34Z / 18:50:34Z; denser twin cid 29239 → 33 → 65 → 72 at 18:45:40Z /
+        // 18:47:40Z / 18:48:40Z / 18:50:40Z against the same aa00c1c3… leaf; two-occurrence
+        // post-recycle twin cid 30 → 46 at 18:45:50Z on 127.0.0.1:50596 and 18:49:50Z on
+        // 127.0.0.1:34070 for 62860f83eeb6…; second two-occurrence post-recycle twin cid
+        // 33 → 50 at 18:45:56Z on 127.0.0.1:52196 and 18:49:56Z on 127.0.0.1:36654 for
+        // 97d33257778a…; third two-occurrence post-recycle twin cid 37 → 68 at 18:46:01Z on
+        // 127.0.0.1:52246 and 18:47:01Z on 127.0.0.1:34762 for d80a6067f126…; fourth
+        // two-occurrence post-recycle twin cid 40 → 72 at 18:46:07Z on 127.0.0.1:49186 and
+        // 18:47:07Z on 127.0.0.1:53880 for 58dda0785551…; fifth two-occurrence post-recycle
+        // twin cid 43 → 75 at 18:46:13Z on 127.0.0.1:49240 and 18:47:13Z on 127.0.0.1:53920
+        // for 69541ea34d1d…, sfo peer of gru 9dd8feb97fa2… / fra 424b0b6af457… /
+        // sfo-platform e583d837318a… / fra-platform d86f81358e32… at the same wall-clock
+        // :13 steps; three-occurrence post-recycle twin cid 46 → 78 → 30 at 18:46:19Z on
+        // 127.0.0.1:40988, 18:47:19Z on 127.0.0.1:59820, and 18:49:19Z on 127.0.0.1:35640
+        // for 0c8da303bb67…, sfo control-plane peer of gru 5807fcff9600… (cid 46 → 78 → 30)
+        // / fra 461d52d6f097… (cid 46 → 78 → 29) / gru-platform 1f9106a25f41… /
+        // sfo-platform 1668f8c0e10f… / fra-platform 59a0656971a4… at the same wall-clock
+        // :19 steps; single-occurrence post-recycle twin cid:49 at 18:46:26Z on
+        // 127.0.0.1:33700 for 7d4a69cc1db6…, seven seconds after 0c8da303bb67… cid 46 on
+        // 127.0.0.1:40988 at :19, sfo twin of fra e9d264fcee49… (cid:49 on 127.0.0.1:38796)
+        // and concurrent with sfo-platform f69b77ff7537… (cid 57 → 58 → 97) /
+        // fra-platform 86b0b173f024… (cid 57 → 96 → 97 → 32) / gru-platform d26427e1c533…
+        // (cid 58 → 97 → 98 → 32) / sfo-controller 306f7d4a6890… (cid 50 → 51 → 65) at the
+        // adjacent wall-clock :25/:26 steps). When only the sfo operator-read PEM is past
+        // NotAfter, ResourceHasInvalidTlsLeaf must still be true for sfo-control-nats-1 so
+        // force-remint runs instead of bare RestartAsync.
         await AssertInvalidOperatorReadLeafForcesRemintForCellAsync("sfo");
     }
 
