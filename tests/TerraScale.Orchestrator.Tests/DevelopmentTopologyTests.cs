@@ -100,6 +100,8 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("1");
         await Assert.That(environment["TerraScale__Queue__StreamReplicas"]).IsEqualTo("1");
         await Assert.That(environment["TerraScale__Queue__ConsumerReplicas"]).IsEqualTo("1");
+        await Assert.That(environment["TerraScale__Billing__OperationMetering__PublishTimeout"])
+            .IsEqualTo("00:00:02");
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();

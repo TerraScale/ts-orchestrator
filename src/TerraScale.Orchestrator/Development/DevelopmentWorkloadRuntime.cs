@@ -327,6 +327,14 @@ internal static class DevelopmentWorkloadRuntime
         environment["TerraScale__Queue__SubjectPrefix"] = $"terrascale.devhost.{cell.Cell}";
         environment["TerraScale__Queue__StreamReplicas"] = "1";
         environment["TerraScale__Queue__ConsumerReplicas"] = "1";
+        // Internals defaults operation-metering PublishTimeout to 100ms. The product
+        // NATS client reconnect floor is 250ms and a cold TLS JetStream publish after
+        // connect is commonly 50-80ms here; under reconnect or lab contention the
+        // 100ms budget cancels the PubAck wait (TaskCanceledException), falls back
+        // to the TerraBase outbox, and emits a Warning even though NATS is healthy.
+        // Two seconds still bounds the post-response metering path while surviving
+        // one reconnect + publish cycle on the regional product plane.
+        environment["TerraScale__Billing__OperationMetering__PublishTimeout"] = "00:00:02";
         environment["TerraScale__Backups__Provider"] = "LocalFolder";
         environment["TerraScale__Backups__LocalFolderPath"] = Path.Combine(dataDirectory, "backups", cell.Cell);
         environment["TerraScale__Backups__OperationPollSeconds"] = "1";
