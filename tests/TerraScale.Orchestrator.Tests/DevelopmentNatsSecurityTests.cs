@@ -429,6 +429,63 @@ public sealed class DevelopmentNatsSecurityTests
                 "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
                 "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
             .IsTrue();
+        // Exact fra-product-nats / CN=fra-platform six-occurrence post-recycle shape
+        // (fingerprint 30e9c320e15b…): same 7ef9d0a4… fra-platform leaf and fra product
+        // issuer as 25ef0004168c… / dacc95d0e7ba… / 1e8b88f75d43…, observed six times after
+        // product-NATS recycle (cid 32 → 71 → 41 → 42 → 52 → 45 at 18:45:46Z on
+        // 127.0.0.1:34468, 18:46:46Z on 127.0.0.1:45732, 18:47:46Z on 127.0.0.1:49922 /
+        // 49934 (dual cid 41+42), 18:48:46Z on 127.0.0.1:44248, and 18:50:46Z on
+        // 127.0.0.1:58440; NotAfter still 18:45:24Z). This is the six-occurrence
+        // post-bare-restart reconnect twin of the denser 25ef0004168c… / dacc95d0e7ba…
+        // storms and single 1e8b88f75d43… line, and the fra twin of gru 0cbc78bc3a3a…: the
+        // long-running fra-platform process re-presents the expired product leaf against a
+        // freshly recycled product NATS listener while platform HTTP readiness can stay
+        // green. Recovery must match every occurrence and force remint from invalid
+        // product-plane client leaves (platforms) on the NATS resource for every cell —
+        // bare RestartAsync of product NATS alone reloads the same expired PEM and re-emits
+        // the server-side handshake error on each reconnect.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:45:46.559103 [ERR] 127.0.0.1:34468 - cid:32 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:45:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:46:46.362005 [ERR] 127.0.0.1:45732 - cid:71 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:46:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:47:46.038396 [ERR] 127.0.0.1:49922 - cid:41 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:47:46.173282 [ERR] 127.0.0.1:49934 - cid:42 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:47:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:48:46.378173 [ERR] 127.0.0.1:44248 - cid:52 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:48:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "[fra-product-nats-1] [1] 2026/07/21 18:50:46.278446 [ERR] 127.0.0.1:58440 - cid:45 - " +
+                "TLS handshake error: tls: failed to verify certificate: x509: certificate has expired " +
+                "or is not yet valid: current time 2026-07-21T18:50:46Z is after 2026-07-21T18:45:24Z " +
+                "(CN=fra-platform SHA-256: 7ef9d0a4a20b2b246d34be40d06dca81207252b94bc45bc610d911a85bfec4da; " +
+                "CN=TerraScale fra product issuer SHA-256: 30a54ec8645211468d9411300dec823e30338a5cd4326f6ace64815d58dc1c0b)"))
+            .IsTrue();
         // Exact gru-product-nats / CN=gru-platform incident shape (fingerprint
         // 57ae70882ed5…): the platform process (not the HTTP health path) presents the
         // product-plane leaf. When NotAfter elapses, product NATS logs this server-side
@@ -2154,6 +2211,13 @@ public sealed class DevelopmentNatsSecurityTests
     [Test]
     public async Task InvalidPlatformLeafIsDetectedForFraProductNatsBeforeBareRestart()
     {
+        // Also fingerprint 30e9c320e15b…: six-occurrence post-recycle twin of 25ef0004168c… /
+        // dacc95d0e7ba… / 1e8b88f75d43… (and gru 0cbc78bc3a3a…) with cid 32 → 71 → 41 → 42 →
+        // 52 → 45 at 18:45:46Z on 127.0.0.1:34468, 18:46:46Z on 127.0.0.1:45732, 18:47:46Z on
+        // 127.0.0.1:49922 / 49934 (dual cid 41+42), 18:48:46Z on 127.0.0.1:44248, and
+        // 18:50:46Z on 127.0.0.1:58440 against the same 7ef9d0a4… leaf — still requires
+        // force-remint from invalid fra product-plane leaves before bare product-NATS
+        // RestartAsync.
         // Also fingerprint 1e8b88f75d43…: single post-recycle reconnect twin of 25ef0004168c… /
         // dacc95d0e7ba… (and gru 0b23b4fb5a75… / sfo d739f8d83bed…) with cid:31 at 18:45:45Z on
         // 127.0.0.1:34466 against the same 7ef9d0a4… leaf — still requires force-remint from
