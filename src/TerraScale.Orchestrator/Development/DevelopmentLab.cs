@@ -662,6 +662,17 @@ public static class DevelopmentLab
                         // 127.0.0.1:35204 (dual cid 39+40), 18:46:56Z on 127.0.0.1:53210, and
                         // 18:49:56Z on 127.0.0.1:49142 after bare product-NATS RestartAsync
                         // reloads the same expired platform leaf;
+                        // cid 41 → 80 → 53 for CN=gru-platform on gru-product-nats-1,
+                        // fingerprint a2e01c16a27c… — three-occurrence post-recycle reconnect twin
+                        // of be7bee33b946… / 02a670a12fe6… / 9371738eec92… / b22018f7aa7b… /
+                        // ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… /
+                        // 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… (and sfo 9b960cc93f83… /
+                        // fra 5d30a28d7f44… / gru operator-read b252d8996050… / gru-controller
+                        // a9bf884a363b… / sfo operator-read 97d33257778a… / fra operator-read
+                        // c74671d2c0e4… at adjacent wall-clock :56/:57/:58 steps) against the same
+                        // 6b500765… leaf at 18:45:58Z on 127.0.0.1:35206, 18:46:58Z on
+                        // 127.0.0.1:53226, and 18:48:58Z on 127.0.0.1:54632 after bare
+                        // product-NATS RestartAsync reloads the same expired platform leaf;
                         // cid 31 → 70 → 40 → 35 for CN=sfo-platform on sfo-product-nats-1,
                         // fingerprint d739f8d83bed… — four-occurrence post-recycle reconnect twin
                         // of b1723b879b59… / 77220dace263… (and gru 1364f1b0cdbc… / 0b23b4fb5a75…)
@@ -1151,6 +1162,15 @@ public static class DevelopmentLab
     /// 0b23b4fb5a75… / 54fea6c92b78… / 57ae70882ed5… (and gru operator-read b252d8996050… /
     /// gru-controller a9bf884a363b… / sfo operator-read 97d33257778a… / fra operator-read
     /// c74671d2c0e4… at the same wall-clock :56 steps) after bare product-NATS RestartAsync;
+    /// fingerprint a2e01c16a27c… / gru-product-nats CN=gru-platform cid 41 → 80 → 53 at
+    /// 18:45:58Z on 127.0.0.1:35206, 18:46:58Z on 127.0.0.1:53226, and 18:48:58Z on
+    /// 127.0.0.1:54632 against the same 6b500765… leaf — three-occurrence post-recycle
+    /// reconnect twin of be7bee33b946… / 02a670a12fe6… / 9371738eec92… / b22018f7aa7b… /
+    /// ed3f4504d5e1… / 6a1c43a93378… / 0cbc78bc3a3a… / 1364f1b0cdbc… / 0b23b4fb5a75… /
+    /// 54fea6c92b78… / 57ae70882ed5… (and sfo 9b960cc93f83… / fra 5d30a28d7f44… / gru
+    /// operator-read b252d8996050… / gru-controller a9bf884a363b… / sfo operator-read
+    /// 97d33257778a… / fra operator-read c74671d2c0e4… at adjacent wall-clock :56/:57/:58
+    /// steps) after bare product-NATS RestartAsync;
     /// fingerprint b1723b879b59… / sfo-product-nats CN=sfo-platform cid 14634 → 63 → 34 → 49 → 43
     /// at 18:45:34Z / 18:46:34Z / 18:47:34Z / 18:48:34Z / 18:50:34Z;
     /// fingerprint 77220dace263… / sfo-product-nats CN=sfo-platform cid 14635 → 67 → 37 → 38 → 50 → 44
