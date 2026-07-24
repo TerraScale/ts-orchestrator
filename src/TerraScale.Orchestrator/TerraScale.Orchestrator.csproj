@@ -13,5 +13,6 @@
     <PackageReference Include="NATS.Net" />
     <PackageReference Include="OCI.DotNetSDK.Core" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="ZString" />
   </ItemGroup>
 </Project>

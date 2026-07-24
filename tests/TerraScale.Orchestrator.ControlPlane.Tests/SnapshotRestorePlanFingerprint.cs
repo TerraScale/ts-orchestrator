@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Snapshots;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
@@ -9,7 +10,8 @@ internal static class SnapshotRestorePlanFingerprint
     internal static string Create(SnapshotRestorePlan plan)
     {
         var material = plan.AcceptedSnapshot.SignedMaterial;
-        var builder = new StringBuilder("snapshot-restore-plan/v1|");
+        using var builder = new ZStringWriter();
+        builder.Write("snapshot-restore-plan/v1|");
         Append(builder, material.Authority.Value!);
         Append(builder, material.Stream.Value!);
         Append(builder, material.SnapshotId.Value!);
@@ -24,13 +26,25 @@ internal static class SnapshotRestorePlanFingerprint
         return builder.ToString();
     }
 
-    private static void Append(StringBuilder builder, string value) =>
-        builder.Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value).Append('|');
+    private static void Append(ZStringWriter builder, string value)
+    {
+        builder.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        builder.Write(':');
+        builder.Write(value);
+        builder.Write('|');
+    }
 
-    private static void Append(StringBuilder builder, ulong value) =>
-        builder.Append(value.ToString(CultureInfo.InvariantCulture)).Append('|');
+    private static void Append(ZStringWriter builder, ulong value)
+    {
+        builder.Write(value.ToString(CultureInfo.InvariantCulture));
+        builder.Write('|');
+    }
 
-    private static void Append(StringBuilder builder, ReadOnlySpan<byte> value) =>
-        builder.Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(Convert.ToHexString(value)).Append('|');
+    private static void Append(ZStringWriter builder, ReadOnlySpan<byte> value)
+    {
+        builder.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        builder.Write(':');
+        builder.Write(Convert.ToHexString(value));
+        builder.Write('|');
+    }
 }

@@ -6,6 +6,7 @@ using System.Text;
 using NATS.Client.Core;
 using NATS.Net;
 using TerraScale.Orchestrator.Messaging;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -45,7 +46,8 @@ internal static class DevelopmentHealthProbe
     /// </summary>
     internal static string FormatProbeFailure(Exception exception, DevelopmentTlsIdentity? tlsIdentity = null)
     {
-        var builder = new StringBuilder("Health probe failed: ");
+        using var builder = ZString.CreateStringBuilder();
+        builder.Append("Health probe failed: ");
         builder.Append(exception.Message);
         for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
         {

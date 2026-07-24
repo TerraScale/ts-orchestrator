@@ -25,6 +25,12 @@
           "TUnit.Engine": "1.56.18"
         }
       },
+      "ZString": {
+        "type": "Direct",
+        "requested": "[2.6.0, )",
+        "resolved": "2.6.0",
+        "contentHash": "XE8a+11nZg0LRaf+RGABEWaHIf8yGd5w8v/Ra1iWxMBmAVzwuKbW7G21mS0U7w7sh1lYcgckInWGgnz4qyET8A=="
+      },
       "EnumerableAsyncProcessor": {
         "type": "Transitive",
         "resolved": "3.8.4",
@@ -404,7 +410,8 @@
         "dependencies": {
           "NATS.Net": "[2.7.2, )",
           "OCI.DotNetSDK.Core": "[142.0.0, )",
-          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.16.0, )"
+          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.16.0, )",
+          "ZString": "[2.6.0, )"
         }
       },
       "Microsoft.Extensions.FileProviders.Abstractions": {

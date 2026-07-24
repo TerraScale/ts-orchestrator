@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -262,7 +263,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         File.SetUnixFileMode(archivePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         using var output = new HashingWriteStream(file, maximumArchiveBytes);
-        var canonical = new StringBuilder();
+        using var canonical = new ZStringWriter();
         var artifacts = (manifest.Artifacts ?? []).Select(static value => new ArtifactTracker(value)).ToArray();
         var files = 0;
         long bytes = 0;
@@ -278,7 +279,9 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                     throw new InvalidDataException("The CI artifact export contains an undeclared path.");
                 if (entry is DirectoryInfo)
                 {
-                    canonical.Append("d:").Append(normalized).Append('\n');
+                    canonical.Write("d:");
+                    canonical.Write(normalized);
+                    canonical.Write('\n');
                     foreach (var artifact in artifacts) artifact.Directory(normalized);
                     await writer.WriteEntryAsync(TarEntry(
                         TarEntryType.Directory,
@@ -314,9 +317,15 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 if (content.Bytes != length || source.Length != length ||
                     CiRunnerBuildKitExecutor.FileKind(source.FullName) != CiRunnerOutputFileKind.Regular)
                     throw new InvalidDataException("A CI artifact file changed during durable capture.");
-                canonical.Append("f:").Append(normalized).Append(':')
-                    .Append(length.ToString(CultureInfo.InvariantCulture)).Append(':')
-                    .Append(executable ? '1' : '0').Append(':').Append(content.Sha256).Append('\n');
+                canonical.Write("f:");
+                canonical.Write(normalized);
+                canonical.Write(':');
+                canonical.Write(length.ToString(CultureInfo.InvariantCulture));
+                canonical.Write(':');
+                canonical.Write(executable ? '1' : '0');
+                canonical.Write(':');
+                canonical.Write(content.Sha256);
+                canonical.Write('\n');
                 foreach (var artifact in artifacts)
                     artifact.File(normalized, length, executable, content.Sha256, header.AsSpan(0, headerBytes));
                 bytes += length;
@@ -385,7 +394,7 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
 
     private sealed class ArtifactTracker(CiRunnerResultArtifact artifact)
     {
-        private readonly StringBuilder canonical = new();
+        private readonly ZStringWriter canonical = new();
         private readonly RepositoryCiArchitecture architecture =
             Enum.Parse<RepositoryCiArchitecture>(artifact.Architecture);
         private readonly string[] declaredEntrypoints = artifact.Entrypoints ?? [];
@@ -409,7 +418,11 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 return;
             }
             if (Relative(path) is { } relative)
-                canonical.Append("d:").Append(relative).Append('\n');
+            {
+                canonical.Write("d:");
+                canonical.Write(relative);
+                canonical.Write('\n');
+            }
         }
 
         internal void File(
@@ -428,9 +441,15 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
                 executables++;
             }
             _ = missingEntrypoints.Remove(relative);
-            canonical.Append("f:").Append(relative).Append(':')
-                .Append(bytes.ToString(CultureInfo.InvariantCulture)).Append(':')
-                .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
+            canonical.Write("f:");
+            canonical.Write(relative);
+            canonical.Write(':');
+            canonical.Write(bytes.ToString(CultureInfo.InvariantCulture));
+            canonical.Write(':');
+            canonical.Write(executable ? '1' : '0');
+            canonical.Write(':');
+            canonical.Write(digest);
+            canonical.Write('\n');
             files++;
             this.bytes += bytes;
         }
@@ -440,11 +459,13 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             if (!rootFound || files == 0 || missingEntrypoints.Count != 0 ||
                 architecture != RepositoryCiArchitecture.Any && executables == 0)
                 throw new InvalidDataException("A declared CI artifact root is missing or empty.");
+            var digest = Hash(Encoding.UTF8.GetBytes(canonical.ToString()));
+            canonical.Dispose();
             return new(
                 artifact.Artifact,
                 architecture,
                 artifact.Path,
-                Hash(Encoding.UTF8.GetBytes(canonical.ToString())),
+                digest,
                 files,
                 bytes,
                 declaredEntrypoints.ToArray());

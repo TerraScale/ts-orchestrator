@@ -11,6 +11,7 @@ using TerraScale.Orchestrator.Contracts;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -580,21 +581,56 @@ internal sealed record RepositoryCiJobWireDocument(
 
     private string ExpectedJobDigest()
     {
-        var value = new StringBuilder(PipelineDigest).Append('\n')
-            .Append(ImpactDigest).Append('\n')
-            .Append(PlanId).Append(':').Append(Repository).Append(':')
-            .Append(NodeId).Append(':').Append(NodeKind).Append(':').Append(ResourceWeight).Append(':')
-            .AppendJoin(',', Architectures).Append('\n')
-            .Append(Repository).Append(':').Append(SourceCommit).Append(':')
-            .Append(SourceTree).Append(':').Append(SourceSignatureVerified ? '1' : '0').Append('\n')
-            .Append(Pipeline).Append(':').Append(Job).Append(':').Append(Kind).Append(':')
-            .Append(Tree).Append(':').Append(Generation).Append(":1:")
-            .Append(MaximumAttempts).Append(':').Append(BaseIdempotency).Append(':')
-            .Append(MinimumRunnerSequence).Append(':').Append(MaximumRunnerSequence).Append(":0\n")
-            .AppendJoin(',', AllowedZones).Append('\n')
-            .AppendJoin(',', RequiredCapabilities).Append('\n')
-            .AppendJoin(',', Dependencies).Append('\n')
-            .Append(MayPublishCandidateArtifact ? '1' : '0');
+        using var value = ZString.CreateStringBuilder();
+        value.Append(PipelineDigest);
+        value.Append('\n');
+        value.Append(ImpactDigest);
+        value.Append('\n');
+        value.Append(PlanId);
+        value.Append(':');
+        value.Append(Repository);
+        value.Append(':');
+        value.Append(NodeId);
+        value.Append(':');
+        value.Append(NodeKind);
+        value.Append(':');
+        value.Append(ResourceWeight);
+        value.Append(':');
+        value.AppendJoin(',', Architectures);
+        value.Append('\n');
+        value.Append(Repository);
+        value.Append(':');
+        value.Append(SourceCommit);
+        value.Append(':');
+        value.Append(SourceTree);
+        value.Append(':');
+        value.Append(SourceSignatureVerified ? '1' : '0');
+        value.Append('\n');
+        value.Append(Pipeline);
+        value.Append(':');
+        value.Append(Job);
+        value.Append(':');
+        value.Append(Kind);
+        value.Append(':');
+        value.Append(Tree);
+        value.Append(':');
+        value.Append(Generation);
+        value.Append(":1:");
+        value.Append(MaximumAttempts);
+        value.Append(':');
+        value.Append(BaseIdempotency);
+        value.Append(':');
+        value.Append(MinimumRunnerSequence);
+        value.Append(':');
+        value.Append(MaximumRunnerSequence);
+        value.Append(":0\n");
+        value.AppendJoin(',', AllowedZones);
+        value.Append('\n');
+        value.AppendJoin(',', RequiredCapabilities);
+        value.Append('\n');
+        value.AppendJoin(',', Dependencies);
+        value.Append('\n');
+        value.Append(MayPublishCandidateArtifact ? '1' : '0');
         return Hash(value.ToString());
     }
 

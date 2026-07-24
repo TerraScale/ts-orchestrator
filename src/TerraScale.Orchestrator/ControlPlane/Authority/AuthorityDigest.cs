@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Authority;
 
@@ -43,24 +44,48 @@ public static class AuthorityDigest
 
     private static string Encode(params object?[] values)
     {
-        var builder = new StringBuilder();
+        using var builder = new ZStringWriter();
         foreach (var value in values) Append(builder, value);
         return builder.ToString();
     }
 
-    private static void Append(StringBuilder builder, object? value)
+    private static void Append(ZStringWriter builder, object? value)
     {
         switch (value)
         {
-            case null: builder.Append("N;"); return;
-            case string text: builder.Append('S').Append(text.Length).Append(':').Append(text).Append(';'); return;
-            case bool boolean: builder.Append(boolean ? "B1;" : "B0;"); return;
-            case long number: builder.Append('L').Append(number.ToString(CultureInfo.InvariantCulture)).Append(';'); return;
+            case null: builder.Write("N;"); return;
+            case string text:
+                {
+                    builder.Write('S');
+                    builder.Write(text.Length);
+                    builder.Write(':');
+                    builder.Write(text);
+                    builder.Write(';');
+                }
+                return;
+            case bool boolean: builder.Write(boolean ? "B1;" : "B0;"); return;
+            case long number:
+                {
+                    builder.Write('L');
+                    builder.Write(number.ToString(CultureInfo.InvariantCulture));
+                    builder.Write(';');
+                }
+                return;
             case Enum enumeration: Append(builder, Convert.ToInt64(enumeration, CultureInfo.InvariantCulture)); return;
             case DateTimeOffset instant:
-                builder.Append('T').Append(instant.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture)).Append(';'); return;
+                {
+                    builder.Write('T');
+                    builder.Write(instant.ToUniversalTime().Ticks.ToString(CultureInfo.InvariantCulture));
+                    builder.Write(';');
+                }
+                return;
             case TimeSpan duration:
-                builder.Append('D').Append(duration.Ticks.ToString(CultureInfo.InvariantCulture)).Append(';'); return;
+                {
+                    builder.Write('D');
+                    builder.Write(duration.Ticks.ToString(CultureInfo.InvariantCulture));
+                    builder.Write(';');
+                }
+                return;
             case AuthorityLease lease:
                 Append(builder, Encode("lease-v1", lease.CandidateId, lease.LeaseId, lease.ServerIssuedAt, lease.Duration)); return;
             case AuthorityObservation observation:
@@ -95,14 +120,22 @@ public static class AuthorityDigest
                     permit.LeaseId, permit.Epoch, permit.KvRevision, permit.ObservationId,
                     permit.EvaluatedServerTime, permit.EvaluatedMonotonicElapsed)); return;
             case System.Collections.ICollection collection:
-                builder.Append('A').Append(collection.Count).Append('[');
+                {
+                    builder.Write('A');
+                    builder.Write(collection.Count);
+                    builder.Write('[');
+                }
                 foreach (var item in collection) Append(builder, item);
-                builder.Append("];"); return;
+                builder.Write("];"); return;
             case System.Collections.IEnumerable sequence:
                 var items = sequence.Cast<object?>().ToArray();
-                builder.Append('A').Append(items.Length).Append('[');
+                {
+                    builder.Write('A');
+                    builder.Write(items.Length);
+                    builder.Write('[');
+                }
                 foreach (var item in items) Append(builder, item);
-                builder.Append("];"); return;
+                builder.Write("];"); return;
             default: throw new ArgumentException($"Unsupported digest value {value.GetType().FullName}.", nameof(value));
         }
     }

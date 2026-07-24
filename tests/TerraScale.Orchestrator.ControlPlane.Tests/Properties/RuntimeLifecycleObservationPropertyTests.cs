@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Runtime;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
@@ -53,7 +54,7 @@ internal static class RuntimeLifecycleObservationFingerprint
 {
     internal static string Create(RuntimeLifecycleRequest request)
     {
-        var value = new StringBuilder();
+        using var value = new ZStringWriter();
         Add(value, request.OperationId.Value); Add(value, request.Epoch.Value); Add(value, request.CurrentEpoch.Value);
         Add(value, request.CurrentGeneration.Value); Add(value, request.AdmissionPolicyGeneration.Value);
         Add(value, request.HealthTimeout.Value);
@@ -90,11 +91,11 @@ internal static class RuntimeLifecycleObservationFingerprint
 
     internal static string Create(RuntimeConflictEvidence evidence)
     {
-        var value = new StringBuilder(); AddConflict(value, evidence);
+        using var value = new ZStringWriter(); AddConflict(value, evidence);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 
-    private static void AddConflict(StringBuilder value, RuntimeConflictEvidence evidence)
+    private static void AddConflict(ZStringWriter value, RuntimeConflictEvidence evidence)
     {
         Add(value, evidence.AllocationId.Value); Add(value, evidence.NodeId.Value);
         AddMany(value, evidence.Ports.OrderBy(port => port.Value),
@@ -102,11 +103,16 @@ internal static class RuntimeLifecycleObservationFingerprint
         AddMany(value, evidence.Volumes.OrderBy(volume => volume.Value, StringComparer.Ordinal), volume => volume.Value);
     }
 
-    private static void Add(StringBuilder target, int value) => Add(target, value.ToString(CultureInfo.InvariantCulture));
-    private static void Add(StringBuilder target, ulong value) => Add(target, value.ToString(CultureInfo.InvariantCulture));
-    private static void Add(StringBuilder target, string value) => target.Append(value.Length.ToString(CultureInfo.InvariantCulture))
-        .Append(':').Append(value).Append(';');
-    private static void AddMany<T>(StringBuilder target, IEnumerable<T> values, Func<T, string> project)
+    private static void Add(ZStringWriter target, int value) => Add(target, value.ToString(CultureInfo.InvariantCulture));
+    private static void Add(ZStringWriter target, ulong value) => Add(target, value.ToString(CultureInfo.InvariantCulture));
+    private static void Add(ZStringWriter target, string value)
+    {
+        target.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        target.Write(':');
+        target.Write(value);
+        target.Write(';');
+    }
+    private static void AddMany<T>(ZStringWriter target, IEnumerable<T> values, Func<T, string> project)
     {
         var snapshot = values.Select(project).ToArray(); Add(target, snapshot.Length);
         foreach (var item in snapshot) Add(target, item);

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ModelTests.Simulation;
 
@@ -106,10 +107,16 @@ public sealed class ImmutableEventQueue
     {
         if (entries.Count < 2) return this;
         var values = entries.ToArray();
-        (values[0], values[1]) = (values[0] with { AvailableTick = values[1].AvailableTick,
-                DeliveryOrdinal = values[1].DeliveryOrdinal },
-            values[1] with { AvailableTick = values[0].AvailableTick,
-                DeliveryOrdinal = values[0].DeliveryOrdinal });
+        (values[0], values[1]) = (values[0] with
+        {
+            AvailableTick = values[1].AvailableTick,
+            DeliveryOrdinal = values[1].DeliveryOrdinal
+        },
+            values[1] with
+            {
+                AvailableTick = values[0].AvailableTick,
+                DeliveryOrdinal = values[0].DeliveryOrdinal
+            });
         return new(values);
     }
     public ImmutableEventQueue DelayFirst(long dueTick) => entries.Count == 0 ? this :
@@ -195,60 +202,111 @@ public sealed class ModelState
 
     public string Canonical()
     {
-        var builder = new StringBuilder();
-        builder.Append("v2|tick=").Append(Clock.Tick.ToString(CultureInfo.InvariantCulture))
-            .Append("|next=").Append(Identities.NextValue.ToString(CultureInfo.InvariantCulture))
-            .Append("|epoch=").Append(CurrentEpoch.ToString(CultureInfo.InvariantCulture));
+        using var builder = new ZStringWriter();
+        builder.Write("v2|tick=");
+        builder.Write(Clock.Tick.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|next=");
+        builder.Write(Identities.NextValue.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|epoch=");
+        builder.Write(CurrentEpoch.ToString(CultureInfo.InvariantCulture));
         AppendString(builder, "leader", Leader);
-        builder
-            .Append("|accepted=").Append(AcceptedMutations.ToString(CultureInfo.InvariantCulture))
-            .Append("|rejected=").Append(RejectedMutations.ToString(CultureInfo.InvariantCulture))
-            .Append("|terminated=").Append(Terminations.ToString(CultureInfo.InvariantCulture));
-        foreach (var node in Nodes) { AppendString(builder, "node", node.Id); builder.Append(':').Append((int)node.Role).Append(':')
-            .Append(node.Crashed ? 1 : 0).Append(':').Append(node.Partitioned ? 1 : 0).Append(':')
-            .Append(node.AcceptedWriterEpoch.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|accepted=");
+        builder.Write(AcceptedMutations.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|rejected=");
+        builder.Write(RejectedMutations.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|terminated=");
+        builder.Write(Terminations.ToString(CultureInfo.InvariantCulture));
+        foreach (var node in Nodes)
+        {
+            AppendString(builder, "node", node.Id); builder.Write(':');
+            builder.Write((int)node.Role);
+            builder.Write(':');
+            builder.Write(node.Crashed ? 1 : 0);
+            builder.Write(':');
+            builder.Write(node.Partitioned ? 1 : 0);
+            builder.Write(':');
+            builder.Write(node.AcceptedWriterEpoch.ToString(CultureInfo.InvariantCulture));
         }
-        foreach (var operation in Operations) { AppendString(builder, "operation", operation.Operation); builder.Append(':')
-            .Append(operation.Generation.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(operation.Epoch.ToString(CultureInfo.InvariantCulture)); AppendString(builder, "key", operation.IdempotencyKey);
-            AppendString(builder, "resource", operation.Resource); builder.Append(':').Append(operation.Authorized ? 1 : 0).Append(':')
-            .Append(operation.CreateCount.ToString(CultureInfo.InvariantCulture))
-            .Append(':').Append((int)operation.ProviderOutcome);
+        foreach (var operation in Operations)
+        {
+            AppendString(builder, "operation", operation.Operation); builder.Write(':');
+            builder.Write(operation.Generation.ToString(CultureInfo.InvariantCulture));
+            builder.Write(':');
+            builder.Write(operation.Epoch.ToString(CultureInfo.InvariantCulture)); AppendString(builder, "key", operation.IdempotencyKey);
+            AppendString(builder, "resource", operation.Resource); builder.Write(':');
+            builder.Write(operation.Authorized ? 1 : 0);
+            builder.Write(':');
+            builder.Write(operation.CreateCount.ToString(CultureInfo.InvariantCulture));
+            builder.Write(':');
+            builder.Write((int)operation.ProviderOutcome);
         }
-        foreach (var item in Queue.Entries) { builder.Append("|qordinal=")
-            .Append(item.DeliveryOrdinal.ToString(CultureInfo.InvariantCulture)).Append("|available=")
-            .Append(item.AvailableTick.ToString(CultureInfo.InvariantCulture)).Append('{')
-            .Append(EventCanonical(item.Event)).Append('}'); }
+        foreach (var item in Queue.Entries)
+        {
+            builder.Write("|qordinal=");
+            builder.Write(item.DeliveryOrdinal.ToString(CultureInfo.InvariantCulture));
+            builder.Write("|available=");
+            builder.Write(item.AvailableTick.ToString(CultureInfo.InvariantCulture));
+            builder.Write('{');
+            builder.Write(EventCanonical(item.Event));
+            builder.Write('}');
+        }
         foreach (var id in DeliveredEventIds) AppendString(builder, "delivered", id);
         foreach (var id in CompletedMutationOperations) AppendString(builder, "completed-operation", id);
-        foreach (var action in AcceptedActions) { builder.Append("|action=").Append((int)action.Kind);
+        foreach (var action in AcceptedActions)
+        {
+            builder.Write("|action=");
+            builder.Write((int)action.Kind);
             AppendString(builder, "accepted-event", EventCanonical(action.AcceptedEvent));
             AppendString(builder, "accepted-leader", action.LeaderAtAcceptance);
-            builder.Append("|authority-epoch=").Append(action.AuthorityEpoch.ToString(CultureInfo.InvariantCulture))
-                .Append("|node-epoch=").Append(action.NodeAcceptedEpoch.ToString(CultureInfo.InvariantCulture))
-                .Append("|node-crashed=").Append(action.NodeCrashed ? 1 : 0)
-                .Append("|node-partitioned=").Append(action.NodePartitioned ? 1 : 0)
-                .Append("|authorized=").Append(action.Authorized ? 1 : 0).Append("|role=").Append((int)action.NodeRole)
-                .Append("|ordinal=").Append(action.Ordinal.ToString(CultureInfo.InvariantCulture))
-                .Append("|critical-after=").Append(action.CriticalNodesAfter.ToString(CultureInfo.InvariantCulture)); }
+            builder.Write("|authority-epoch=");
+            builder.Write(action.AuthorityEpoch.ToString(CultureInfo.InvariantCulture));
+            builder.Write("|node-epoch=");
+            builder.Write(action.NodeAcceptedEpoch.ToString(CultureInfo.InvariantCulture));
+            builder.Write("|node-crashed=");
+            builder.Write(action.NodeCrashed ? 1 : 0);
+            builder.Write("|node-partitioned=");
+            builder.Write(action.NodePartitioned ? 1 : 0);
+            builder.Write("|authorized=");
+            builder.Write(action.Authorized ? 1 : 0);
+            builder.Write("|role=");
+            builder.Write((int)action.NodeRole);
+            builder.Write("|ordinal=");
+            builder.Write(action.Ordinal.ToString(CultureInfo.InvariantCulture));
+            builder.Write("|critical-after=");
+            builder.Write(action.CriticalNodesAfter.ToString(CultureInfo.InvariantCulture));
+        }
         return builder.ToString();
     }
     public string Digest() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical()))).ToLowerInvariant();
     public static string EventCanonical(ModelEvent item)
     {
-        var builder = new StringBuilder().Append("seq=").Append(item.Sequence.ToString(CultureInfo.InvariantCulture))
-            .Append("|due=").Append(item.DueTick.ToString(CultureInfo.InvariantCulture)).Append("|kind=")
-            .Append(((int)item.Kind).ToString(CultureInfo.InvariantCulture)).Append("|generation=")
-            .Append(item.Generation.ToString(CultureInfo.InvariantCulture)).Append("|epoch=")
-            .Append(item.Epoch.ToString(CultureInfo.InvariantCulture)).Append("|observation=")
-            .Append(item.ObservationSequence.ToString(CultureInfo.InvariantCulture));
+        using var builder = new ZStringWriter();
+        builder.Write("seq=");
+        builder.Write(item.Sequence.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|due=");
+        builder.Write(item.DueTick.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|kind=");
+        builder.Write(((int)item.Kind).ToString(CultureInfo.InvariantCulture));
+        builder.Write("|generation=");
+        builder.Write(item.Generation.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|epoch=");
+        builder.Write(item.Epoch.ToString(CultureInfo.InvariantCulture));
+        builder.Write("|observation=");
+        builder.Write(item.ObservationSequence.ToString(CultureInfo.InvariantCulture));
         AppendString(builder, "event", item.EventId); AppendString(builder, "node", item.Node);
         AppendString(builder, "operation", item.Operation); AppendString(builder, "key", item.IdempotencyKey);
         AppendString(builder, "resource", item.Resource);
         return builder.ToString();
     }
-    private static void AppendString(StringBuilder builder, string tag, string value) => builder.Append('|').Append(tag)
-        .Append('=').Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value);
+    private static void AppendString(ZStringWriter builder, string tag, string value)
+    {
+        builder.Write('|');
+        builder.Write(tag);
+        builder.Write('=');
+        builder.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        builder.Write(':');
+        builder.Write(value);
+    }
 }
 
 public sealed class SimulationResult

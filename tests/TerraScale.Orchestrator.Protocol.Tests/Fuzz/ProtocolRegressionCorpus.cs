@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Protocol.Tests.Fuzz;
 
@@ -125,11 +126,25 @@ internal static class ProtocolRegressionCorpus
 
     internal static string Digest(ProtocolCorpusEntry entry) => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(Canonical(entry)))).ToLowerInvariant();
-    internal static string Canonical(ProtocolCorpusEntry entry) => new StringBuilder("v1|family=")
-        .Append(Utf8Length(entry.Family)).Append(':').Append(entry.Family)
-        .Append("|seed=").Append(entry.Seed.ToString(CultureInfo.InvariantCulture))
-        .Append("|input=").Append(Utf8Length(entry.Input)).Append(':').Append(entry.Input)
-        .Append("|expected=").Append(Utf8Length(entry.Expected)).Append(':').Append(entry.Expected).ToString();
+    internal static string Canonical(ProtocolCorpusEntry entry)
+    {
+        using var builder = ZString.CreateStringBuilder();
+        builder.Append("v1|family=");
+        builder.Append(Utf8Length(entry.Family));
+        builder.Append(':');
+        builder.Append(entry.Family);
+        builder.Append("|seed=");
+        builder.Append(entry.Seed.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|input=");
+        builder.Append(Utf8Length(entry.Input));
+        builder.Append(':');
+        builder.Append(entry.Input);
+        builder.Append("|expected=");
+        builder.Append(Utf8Length(entry.Expected));
+        builder.Append(':');
+        builder.Append(entry.Expected);
+        return builder.ToString();
+    }
     private static int Utf8Length(string value) => Encoding.UTF8.GetByteCount(value);
 
     private static bool ExactFields(JsonElement element, HashSet<string> expected)

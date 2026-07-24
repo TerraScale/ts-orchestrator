@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -106,22 +107,38 @@ public static class RepositoryCiPromotionAuthorizer
         long minimumRunnerSequence,
         long maximumRunnerSequence)
     {
-        var value = new StringBuilder()
-            .Append(qualified.Digest).Append('\n')
-            .Append(evidence.CandidateDigest).Append('\n')
-            .Append(evidence.TestsDigest).Append('\n')
-            .Append(evidence.EvidenceDigest).Append('\n')
-            .Append(evidence.DependencyLockDigest).Append('\n')
-            .Append(evidence.GeneratedSchemasDigest).Append('\n')
-            .Append(evidence.ToolchainDigest).Append('\n')
-            .Append(evidence.SigningIdentity.Value).Append('\n')
-            .Append(evidence.Signature.Value).Append('\n')
-            .Append(evidence.Approval.Value).Append('\n')
-            .Append(evidence.Compatibility.CurrentToCurrent.Value).Append('\n')
-            .Append(evidence.Compatibility.CurrentToPrevious.Value).Append('\n')
-            .Append(evidence.Compatibility.PreviousToCurrent.Value).Append('\n')
-            .Append(generation).Append(':').Append(minimumRunnerSequence).Append(':')
-            .Append(maximumRunnerSequence);
+        using var value = ZString.CreateStringBuilder();
+        value.Append(qualified.Digest);
+        value.Append('\n');
+        value.Append(evidence.CandidateDigest);
+        value.Append('\n');
+        value.Append(evidence.TestsDigest);
+        value.Append('\n');
+        value.Append(evidence.EvidenceDigest);
+        value.Append('\n');
+        value.Append(evidence.DependencyLockDigest);
+        value.Append('\n');
+        value.Append(evidence.GeneratedSchemasDigest);
+        value.Append('\n');
+        value.Append(evidence.ToolchainDigest);
+        value.Append('\n');
+        value.Append(evidence.SigningIdentity.Value);
+        value.Append('\n');
+        value.Append(evidence.Signature.Value);
+        value.Append('\n');
+        value.Append(evidence.Approval.Value);
+        value.Append('\n');
+        value.Append(evidence.Compatibility.CurrentToCurrent.Value);
+        value.Append('\n');
+        value.Append(evidence.Compatibility.CurrentToPrevious.Value);
+        value.Append('\n');
+        value.Append(evidence.Compatibility.PreviousToCurrent.Value);
+        value.Append('\n');
+        value.Append(generation);
+        value.Append(':');
+        value.Append(minimumRunnerSequence);
+        value.Append(':');
+        value.Append(maximumRunnerSequence);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 

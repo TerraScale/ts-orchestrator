@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -725,37 +726,90 @@ internal sealed class RepositoryCiJobJournal
 
     private static string AttemptChainDigest(
         RepositoryCiJobDocument failed,
-        string authorizationDigest) => Hash(new StringBuilder()
-            .Append(failed.AttemptChainDigest).Append('\n')
-            .Append(failed.JobDigest).Append(':').Append(failed.Attempt).Append(':')
-            .Append(failed.EvidenceDigest).Append(':').Append(failed.FailureKind).Append('\n')
-            .Append(failed.ControllerId).Append(':').Append(failed.AuthorityEpoch).Append(':')
-            .Append(failed.FencingToken).Append(':').Append(failed.RunnerId).Append(':')
-            .Append(failed.OperationId).Append('\n')
-            .Append(authorizationDigest)
-            .ToString());
+        string authorizationDigest)
+    {
+        using var value = ZString.CreateStringBuilder();
+        value.Append(failed.AttemptChainDigest);
+        value.Append('\n');
+        value.Append(failed.JobDigest);
+        value.Append(':');
+        value.Append(failed.Attempt);
+        value.Append(':');
+        value.Append(failed.EvidenceDigest);
+        value.Append(':');
+        value.Append(failed.FailureKind);
+        value.Append('\n');
+        value.Append(failed.ControllerId);
+        value.Append(':');
+        value.Append(failed.AuthorityEpoch);
+        value.Append(':');
+        value.Append(failed.FencingToken);
+        value.Append(':');
+        value.Append(failed.RunnerId);
+        value.Append(':');
+        value.Append(failed.OperationId);
+        value.Append('\n');
+        value.Append(authorizationDigest);
+        return Hash(value.ToString());
+    }
 
     internal static string JobDigest(RepositoryCiPipelinePlan pipeline, RepositoryCiPipelineJob job)
     {
         var request = job.Request;
-        var value = new StringBuilder(pipeline.Digest).Append('\n')
-            .Append(pipeline.ImpactDigest).Append('\n')
-            .Append(job.Plan.Id).Append(':').Append(job.Plan.Repository).Append(':')
-            .Append(job.Plan.Node.Id).Append(':').Append(job.Plan.Node.Kind).Append(':')
-            .Append(job.Plan.Node.ResourceWeight).Append(':')
-            .AppendJoin(',', job.Plan.Node.Architectures).Append('\n')
-            .Append(job.Source.Repository).Append(':').Append(job.Source.Commit).Append(':')
-            .Append(job.Source.Tree).Append(':').Append(job.Source.SignatureVerified ? '1' : '0').Append('\n')
-            .Append(request.Pipeline.Value).Append(':').Append(request.Job.Value).Append(':')
-            .Append(request.Kind).Append(':').Append(request.Tree.Value).Append(':')
-            .Append(request.Generation).Append(':').Append(request.Attempt).Append(':')
-            .Append(request.MaximumAttempts).Append(':').Append(request.Idempotency.Value).Append(':')
-            .Append(request.MinimumRunnerSequence).Append(':').Append(request.MaximumRunnerSequence).Append(':')
-            .Append(request.RetryAuthorized ? '1' : '0').Append('\n')
-            .AppendJoin(',', request.AllowedZones).Append('\n')
-            .AppendJoin(',', request.RequiredCapabilities).Append('\n')
-            .AppendJoin(',', job.DependsOn.Select(static dependency => dependency.Value)).Append('\n')
-            .Append(job.MayPublishCandidateArtifact ? '1' : '0');
+        using var value = new ZStringWriter();
+        value.Write(pipeline.Digest);
+        value.Write('\n');
+        value.Write(pipeline.ImpactDigest);
+        value.Write('\n');
+        value.Write(job.Plan.Id);
+        value.Write(':');
+        value.Write(job.Plan.Repository);
+        value.Write(':');
+        value.Write(job.Plan.Node.Id);
+        value.Write(':');
+        value.Write(job.Plan.Node.Kind);
+        value.Write(':');
+        value.Write(job.Plan.Node.ResourceWeight);
+        value.Write(':');
+        value.Write(string.Join(',', job.Plan.Node.Architectures));
+        value.Write('\n');
+        value.Write(job.Source.Repository);
+        value.Write(':');
+        value.Write(job.Source.Commit);
+        value.Write(':');
+        value.Write(job.Source.Tree);
+        value.Write(':');
+        value.Write(job.Source.SignatureVerified ? '1' : '0');
+        value.Write('\n');
+        value.Write(request.Pipeline.Value);
+        value.Write(':');
+        value.Write(request.Job.Value);
+        value.Write(':');
+        value.Write(request.Kind);
+        value.Write(':');
+        value.Write(request.Tree.Value);
+        value.Write(':');
+        value.Write(request.Generation);
+        value.Write(':');
+        value.Write(request.Attempt);
+        value.Write(':');
+        value.Write(request.MaximumAttempts);
+        value.Write(':');
+        value.Write(request.Idempotency.Value);
+        value.Write(':');
+        value.Write(request.MinimumRunnerSequence);
+        value.Write(':');
+        value.Write(request.MaximumRunnerSequence);
+        value.Write(':');
+        value.Write(request.RetryAuthorized ? '1' : '0');
+        value.Write('\n');
+        value.Write(string.Join(',', request.AllowedZones));
+        value.Write('\n');
+        value.Write(string.Join(',', request.RequiredCapabilities));
+        value.Write('\n');
+        value.Write(string.Join(',', job.DependsOn.Select(static dependency => dependency.Value)));
+        value.Write('\n');
+        value.Write(job.MayPublishCandidateArtifact ? '1' : '0');
         return Hash(value.ToString());
     }
 
@@ -1047,13 +1101,13 @@ internal sealed record RepositoryCiJobDocument(
         RepositoryCiJobPhase previous,
         RepositoryCiJobPhase phase,
         int sequence) => (previous, phase, sequence) switch
-    {
-        (RepositoryCiJobPhase.Pending, RepositoryCiJobPhase.DispatchPrepared, 1) => true,
-        (RepositoryCiJobPhase.DispatchPrepared, RepositoryCiJobPhase.Dispatched, 2) => true,
-        (RepositoryCiJobPhase.Dispatched, RepositoryCiJobPhase.Running, 3) => true,
-        (RepositoryCiJobPhase.Running, RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed, 4) => true,
-        _ => false,
-    };
+        {
+            (RepositoryCiJobPhase.Pending, RepositoryCiJobPhase.DispatchPrepared, 1) => true,
+            (RepositoryCiJobPhase.DispatchPrepared, RepositoryCiJobPhase.Dispatched, 2) => true,
+            (RepositoryCiJobPhase.Dispatched, RepositoryCiJobPhase.Running, 3) => true,
+            (RepositoryCiJobPhase.Running, RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed, 4) => true,
+            _ => false,
+        };
 
     private static bool Digest(string? value) => value is { Length: 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&

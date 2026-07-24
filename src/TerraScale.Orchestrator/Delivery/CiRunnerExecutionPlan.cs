@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -186,40 +187,74 @@ internal static class CiRunnerExecutionPlanner
     internal static string Digest(CiRunnerExecutionPlan plan)
     {
         var build = plan.Build;
-        var value = new StringBuilder()
-            .Append(plan.SchemaVersion.ToString(CultureInfo.InvariantCulture)).Append('\n')
-            .Append(plan.PipelineDigest).Append(':').Append(plan.Job).Append(':')
-            .Append(plan.JobDigest).Append(':').Append(plan.ExecutionIdentityDigest).Append(':')
-            .Append(plan.Attempt.ToString(CultureInfo.InvariantCulture)).Append('\n')
-            .Append(plan.Source.Repository).Append(':').Append(plan.Source.Commit).Append(':')
-            .Append(plan.Source.Tree).Append(':').Append(plan.Source.BundleObject).Append(':')
-            .Append(plan.Source.BundleSha256).Append(':')
-            .Append(plan.Source.BundleBytes.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(plan.Source.DescriptorPath).Append(':')
-            .Append(plan.Source.RecipePath).Append('\n')
-            .Append(build.Frontend).Append(':').Append(build.Target).Append(':').Append(build.Output).Append('\n')
-            .AppendJoin(',', build.Architectures).Append('\n')
-            .Append(build.Network).Append(':').Append(build.Credentials).Append(':')
-            .Append(build.Cache).Append(':').Append(build.CacheNamespace).Append('\n')
-            .Append(build.CpuMilliCores.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(build.MemoryBytes.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(build.EphemeralDiskBytes.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(build.Pids.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(build.MaximumLogBytes.ToString(CultureInfo.InvariantCulture)).Append(':')
-            .Append(((long)build.Timeout.TotalSeconds).ToString(CultureInfo.InvariantCulture))
-            .ToString();
-        return Hash(value);
+        using var value = ZString.CreateStringBuilder();
+        value.Append(plan.SchemaVersion.ToString(CultureInfo.InvariantCulture));
+        value.Append('\n');
+        value.Append(plan.PipelineDigest);
+        value.Append(':');
+        value.Append(plan.Job);
+        value.Append(':');
+        value.Append(plan.JobDigest);
+        value.Append(':');
+        value.Append(plan.ExecutionIdentityDigest);
+        value.Append(':');
+        value.Append(plan.Attempt.ToString(CultureInfo.InvariantCulture));
+        value.Append('\n');
+        value.Append(plan.Source.Repository);
+        value.Append(':');
+        value.Append(plan.Source.Commit);
+        value.Append(':');
+        value.Append(plan.Source.Tree);
+        value.Append(':');
+        value.Append(plan.Source.BundleObject);
+        value.Append(':');
+        value.Append(plan.Source.BundleSha256);
+        value.Append(':');
+        value.Append(plan.Source.BundleBytes.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(plan.Source.DescriptorPath);
+        value.Append(':');
+        value.Append(plan.Source.RecipePath);
+        value.Append('\n');
+        value.Append(build.Frontend);
+        value.Append(':');
+        value.Append(build.Target);
+        value.Append(':');
+        value.Append(build.Output);
+        value.Append('\n');
+        value.AppendJoin(',', build.Architectures);
+        value.Append('\n');
+        value.Append(build.Network);
+        value.Append(':');
+        value.Append(build.Credentials);
+        value.Append(':');
+        value.Append(build.Cache);
+        value.Append(':');
+        value.Append(build.CacheNamespace);
+        value.Append('\n');
+        value.Append(build.CpuMilliCores.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(build.MemoryBytes.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(build.EphemeralDiskBytes.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(build.Pids.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(build.MaximumLogBytes.ToString(CultureInfo.InvariantCulture));
+        value.Append(':');
+        value.Append(((long)build.Timeout.TotalSeconds).ToString(CultureInfo.InvariantCulture));
+        return Hash(value.ToString());
     }
 
     private static string CacheNamespace(
         RepositoryCiJobWireDocument command,
         CiRunnerCacheScope cache) => cache switch
-    {
-        CiRunnerCacheScope.UntrustedIsolated => $"untrusted-{command.JobDigest}",
-        CiRunnerCacheScope.TrustedVerified => $"trusted-{Hash($"{command.Repository}\n{command.SourceTree}")}",
-        CiRunnerCacheScope.None => "none",
-        _ => throw new InvalidDataException("The CI runner cache scope has no execution namespace."),
-    };
+        {
+            CiRunnerCacheScope.UntrustedIsolated => $"untrusted-{command.JobDigest}",
+            CiRunnerCacheScope.TrustedVerified => $"trusted-{Hash($"{command.Repository}\n{command.SourceTree}")}",
+            CiRunnerCacheScope.None => "none",
+            _ => throw new InvalidDataException("The CI runner cache scope has no execution namespace."),
+        };
 
     private static TimeSpan Timeout(RepositoryCiResourceWeight weight) => weight switch
     {

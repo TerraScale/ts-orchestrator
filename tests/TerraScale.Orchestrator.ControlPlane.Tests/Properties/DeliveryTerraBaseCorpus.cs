@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests.Properties;
 
@@ -39,8 +40,12 @@ internal static class DeliveryTerraBaseCorpus
             return Result(DeliveryTerraBaseCorpusCode.TooLarge, []);
         try
         {
-            using var document = JsonDocument.Parse(source, new() { MaxDepth = 8, AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow });
+            using var document = JsonDocument.Parse(source, new()
+            {
+                MaxDepth = 8,
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !Exact(root, RootFields) ||
                 !root.GetProperty("version").TryGetInt32(out var version) || version != 1)
@@ -74,14 +79,33 @@ internal static class DeliveryTerraBaseCorpus
     }
 
     internal static DeliveryTerraBaseCorpusEntry WithDigest(DeliveryTerraBaseCorpusEntry entry) => entry with { Digest = Digest(entry) };
-    internal static string Json(DeliveryTerraBaseCorpusEntry entry) => JsonSerializer.Serialize(new { version = 1, entries = new[]
-        { new { family = entry.Family, seed = entry.Seed, mutation = entry.Mutation, delta = entry.Delta, expected = entry.Expected, digest = entry.Digest } } });
-    internal static string Canonical(DeliveryTerraBaseCorpusEntry entry) => new StringBuilder("v1|family=")
-        .Append(Bytes(entry.Family)).Append(':').Append(entry.Family).Append("|seed=")
-        .Append(entry.Seed.ToString(CultureInfo.InvariantCulture)).Append("|mutation=")
-        .Append(Bytes(entry.Mutation)).Append(':').Append(entry.Mutation).Append("|delta=")
-        .Append(entry.Delta.ToString(CultureInfo.InvariantCulture)).Append("|expected=")
-        .Append(Bytes(entry.Expected)).Append(':').Append(entry.Expected).ToString();
+    internal static string Json(DeliveryTerraBaseCorpusEntry entry) => JsonSerializer.Serialize(new
+    {
+        version = 1,
+        entries = new[]
+        { new { family = entry.Family, seed = entry.Seed, mutation = entry.Mutation, delta = entry.Delta, expected = entry.Expected, digest = entry.Digest } }
+    });
+    internal static string Canonical(DeliveryTerraBaseCorpusEntry entry)
+    {
+        using var builder = ZString.CreateStringBuilder();
+        builder.Append("v1|family=");
+        builder.Append(Bytes(entry.Family));
+        builder.Append(':');
+        builder.Append(entry.Family);
+        builder.Append("|seed=");
+        builder.Append(entry.Seed.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|mutation=");
+        builder.Append(Bytes(entry.Mutation));
+        builder.Append(':');
+        builder.Append(entry.Mutation);
+        builder.Append("|delta=");
+        builder.Append(entry.Delta.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|expected=");
+        builder.Append(Bytes(entry.Expected));
+        builder.Append(':');
+        builder.Append(entry.Expected);
+        return builder.ToString();
+    }
     internal static string Digest(DeliveryTerraBaseCorpusEntry entry) => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(Canonical(entry)))).ToLowerInvariant();
     private static int Bytes(string value) => Encoding.UTF8.GetByteCount(value);

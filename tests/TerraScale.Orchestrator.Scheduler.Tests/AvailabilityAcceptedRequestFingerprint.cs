@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using TerraScale.Orchestrator.Scheduler.Availability;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Scheduler.Tests;
 
@@ -15,7 +16,8 @@ internal static class AvailabilityAcceptedRequestFingerprint
 
         var request = decision.AcceptedRequest;
         var policy = request.Policy;
-        var builder = new StringBuilder("availability-accepted-request/v1|");
+        using var builder = new ZStringWriter();
+        builder.Write("availability-accepted-request/v1|");
         Text(builder, policy.ServiceId.Value);
         Number(builder, policy.Desired.Value);
         Number(builder, policy.MinimumAvailable.Value);
@@ -48,7 +50,7 @@ internal static class AvailabilityAcceptedRequestFingerprint
         return builder.ToString();
     }
 
-    private static void Change(StringBuilder builder, AvailabilityChange change)
+    private static void Change(ZStringWriter builder, AvailabilityChange change)
     {
         switch (change)
         {
@@ -73,7 +75,7 @@ internal static class AvailabilityAcceptedRequestFingerprint
         }
     }
 
-    private static void Resources(StringBuilder builder, ResourceVector resources)
+    private static void Resources(ZStringWriter builder, ResourceVector resources)
     {
         Number(builder, checked((ulong)resources.Cpu));
         Number(builder, checked((ulong)resources.Memory));
@@ -85,9 +87,17 @@ internal static class AvailabilityAcceptedRequestFingerprint
         Number(builder, checked((ulong)resources.HugePages));
     }
 
-    private static void Text(StringBuilder builder, string value) => builder
-        .Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value).Append('|');
+    private static void Text(ZStringWriter builder, string value)
+    {
+        builder.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        builder.Write(':');
+        builder.Write(value);
+        builder.Write('|');
+    }
 
-    private static void Number(StringBuilder builder, ulong value) => builder
-        .Append(value.ToString(CultureInfo.InvariantCulture)).Append('|');
+    private static void Number(ZStringWriter builder, ulong value)
+    {
+        builder.Write(value.ToString(CultureInfo.InvariantCulture));
+        builder.Write('|');
+    }
 }

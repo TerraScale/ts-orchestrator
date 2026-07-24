@@ -11,5 +11,6 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
     <PackageVersion Include="TUnit" Version="1.56.18" />
+    <PackageVersion Include="ZString" Version="2.6.0" />
   </ItemGroup>
 </Project>

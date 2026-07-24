@@ -5,6 +5,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -110,7 +111,7 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
         private const int MaximumPendingLineCharacters = 16 * 1024;
         private readonly object gate = new();
         private readonly MemoryStream retained = new();
-        private readonly StringBuilder[] pending = [new(), new()];
+        private readonly ZStringWriter[] pending = [new(), new()];
         private long observedBytes;
         private bool exceeded;
 
@@ -127,8 +128,8 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
                 if (accepted > 0)
                 {
                     observedBytes += Encoding.UTF8.GetByteCount(characters[..accepted]);
-                    pending[channel].Append(characters[..accepted]);
-                    FlushLines(pending[channel]);
+                    pending[channel].Write(characters[..accepted]);
+                    FlushLines(channel);
                 }
                 if (accepted != characters.Length)
                     exceeded = signal = true;
@@ -140,11 +141,12 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
         {
             lock (gate)
             {
-                foreach (var channel in pending)
+                for (var index = 0; index < pending.Length; index++)
                 {
-                    if (channel.Length == 0) continue;
-                    WriteLine(channel.ToString());
-                    channel.Clear();
+                    var value = pending[index].ToString();
+                    if (value.Length == 0) continue;
+                    WriteLine(value);
+                    Reset(index);
                 }
             }
         }
@@ -154,8 +156,9 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
             lock (gate) return retained.ToArray();
         }
 
-        private void FlushLines(StringBuilder channel)
+        private void FlushLines(int channelIndex)
         {
+            var channel = pending[channelIndex];
             var value = channel.ToString();
             var start = 0;
             while (value.IndexOf('\n', start) is var newline && newline >= 0)
@@ -163,11 +166,20 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
                 WriteLine(value[start..(newline + 1)]);
                 start = newline + 1;
             }
-            channel.Clear();
-            if (start < value.Length) channel.Append(value.AsSpan(start));
-            if (channel.Length <= MaximumPendingLineCharacters) return;
+            Reset(channelIndex);
+            var remainder = value.AsSpan(start);
+            if (remainder.Length <= MaximumPendingLineCharacters)
+            {
+                pending[channelIndex].Write(remainder);
+                return;
+            }
             retained.Write("[REDACTED]\n"u8);
-            channel.Clear();
+        }
+
+        private void Reset(int channel)
+        {
+            pending[channel].Dispose();
+            pending[channel] = new ZStringWriter();
         }
 
         private void WriteLine(string line)
@@ -178,7 +190,11 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
             retained.Write(content);
         }
 
-        public void Dispose() => retained.Dispose();
+        public void Dispose()
+        {
+            foreach (var channel in pending) channel.Dispose();
+            retained.Dispose();
+        }
     }
 }
 
@@ -210,7 +226,7 @@ internal static class CiRunnerLogRedactor
             line.Contains("-----BEGIN ", StringComparison.Ordinal) ||
             line.Contains("://", StringComparison.Ordinal) && line.Contains('@'))
             return true;
-        var run = new StringBuilder();
+        using var run = ZString.CreateStringBuilder();
         foreach (var character in line)
         {
             if (char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '+' or '/' or '=')
@@ -218,13 +234,13 @@ internal static class CiRunnerLogRedactor
                 run.Append(character);
                 continue;
             }
-            if (LooksSecret(run)) return true;
-            run.Clear();
+            if (LooksSecret(run.AsSpan())) return true;
+            run.Remove(0, run.Length);
         }
-        return LooksSecret(run) || LooksLikeJwt(line);
+        return LooksSecret(run.AsSpan()) || LooksLikeJwt(line);
     }
 
-    private static bool LooksSecret(StringBuilder value)
+    private static bool LooksSecret(ReadOnlySpan<char> value)
     {
         if (value.Length < 40) return false;
         var text = value.ToString();
@@ -396,7 +412,7 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         if (entries.Length is < 1 or > MaximumOutputFiles ||
             entries.Any(static item => UnsafeRelativePath(item.Relative)))
             throw new InvalidDataException("The CI BuildKit output tree is empty, linked, or oversized.");
-        var canonical = new StringBuilder();
+        using var canonical = ZString.CreateStringBuilder();
         var files = 0;
         long bytes = 0;
         foreach (var (entry, relative) in entries)
@@ -406,7 +422,9 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             if (entry is DirectoryInfo)
             {
                 File.SetUnixFileMode(entry.FullName, DirectoryMode);
-                canonical.Append("d:").Append(normalized).Append('\n');
+                canonical.Append("d:");
+                canonical.Append(normalized);
+                canonical.Append('\n');
                 continue;
             }
             if (entry is not FileInfo file || file.Length < 0 || file.Length > MaximumOutputFileBytes ||
@@ -417,9 +435,15 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
             File.SetUnixFileMode(file.FullName, executable ? FileMode | UnixFileMode.UserExecute : FileMode);
             await using var stream = file.OpenRead();
             var digest = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, cancellationToken));
-            canonical.Append("f:").Append(normalized).Append(':')
-                .Append(file.Length.ToString(CultureInfo.InvariantCulture)).Append(':')
-                .Append(executable ? '1' : '0').Append(':').Append(digest).Append('\n');
+            canonical.Append("f:");
+            canonical.Append(normalized);
+            canonical.Append(':');
+            canonical.Append(file.Length.ToString(CultureInfo.InvariantCulture));
+            canonical.Append(':');
+            canonical.Append(executable ? '1' : '0');
+            canonical.Append(':');
+            canonical.Append(digest);
+            canonical.Append('\n');
             bytes += file.Length;
             files++;
         }

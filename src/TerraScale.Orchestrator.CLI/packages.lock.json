@@ -296,7 +296,8 @@
         "dependencies": {
           "NATS.Net": "[2.7.2, )",
           "OCI.DotNetSDK.Core": "[142.0.0, )",
-          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.16.0, )"
+          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.16.0, )",
+          "ZString": "[2.6.0, )"
         }
       },
       "Microsoft.Extensions.FileProviders.Abstractions": {
@@ -361,6 +362,12 @@
         "dependencies": {
           "OpenTelemetry": "1.16.0"
         }
+      },
+      "ZString": {
+        "type": "CentralTransitive",
+        "requested": "[2.6.0, )",
+        "resolved": "2.6.0",
+        "contentHash": "XE8a+11nZg0LRaf+RGABEWaHIf8yGd5w8v/Ra1iWxMBmAVzwuKbW7G21mS0U7w7sh1lYcgckInWGgnz4qyET8A=="
       }
     },
     "net10.0/linux-arm64": {},

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -938,9 +939,14 @@ internal sealed class RepositoryCiCandidateJournal
 
     internal static string TreeSetDigest(IEnumerable<(string Repository, string Tree)> sources)
     {
-        var value = new StringBuilder();
+        using var value = ZString.CreateStringBuilder();
         foreach (var source in sources.OrderBy(static source => source.Repository, StringComparer.Ordinal))
-            value.Append(source.Repository).Append(':').Append(source.Tree.ToLowerInvariant()).Append('\n');
+        {
+            value.Append(source.Repository);
+            value.Append(':');
+            value.Append(source.Tree.ToLowerInvariant());
+            value.Append('\n');
+        }
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TerraScale.Orchestrator.ModelTests.Simulation;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ModelTests.RegressionCorpus;
 
@@ -114,12 +115,24 @@ public static class RegressionCorpusLoader
     public static string Digest(CorpusEntry entry) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(entry)))).ToLowerInvariant();
     public static string Canonical(CorpusEntry entry)
     {
-        var builder = new StringBuilder("v1|id=").Append(entry.Id).Append("|seed=")
-            .Append(entry.Seed.ToString(CultureInfo.InvariantCulture)).Append("|invariant=")
-            .Append(((int)entry.ExpectedInvariant).ToString(CultureInfo.InvariantCulture)).Append("|error=")
-            .Append(((int)entry.ExpectedError).ToString(CultureInfo.InvariantCulture));
-        foreach (var item in entry.Schedule) builder.Append("|s=").Append(((int)item.Kind).ToString(CultureInfo.InvariantCulture))
-            .Append(',').Append(item.Node).Append(',').Append(item.DelayTicks.ToString(CultureInfo.InvariantCulture));
+        using var builder = ZString.CreateStringBuilder();
+        builder.Append("v1|id=");
+        builder.Append(entry.Id);
+        builder.Append("|seed=");
+        builder.Append(entry.Seed.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|invariant=");
+        builder.Append(((int)entry.ExpectedInvariant).ToString(CultureInfo.InvariantCulture));
+        builder.Append("|error=");
+        builder.Append(((int)entry.ExpectedError).ToString(CultureInfo.InvariantCulture));
+        foreach (var item in entry.Schedule)
+        {
+            builder.Append("|s=");
+            builder.Append(((int)item.Kind).ToString(CultureInfo.InvariantCulture));
+            builder.Append(',');
+            builder.Append(item.Node);
+            builder.Append(',');
+            builder.Append(item.DelayTicks.ToString(CultureInfo.InvariantCulture));
+        }
         return builder.ToString();
     }
     private static bool ValidId(string? value) => !string.IsNullOrEmpty(value) && value.Length <= 80 &&

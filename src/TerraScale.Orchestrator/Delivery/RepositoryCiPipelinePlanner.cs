@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -201,20 +202,38 @@ public static class RepositoryCiPipelinePlanner
         long minimumRunnerSequence,
         long maximumRunnerSequence)
     {
-        var value = new StringBuilder()
-            .Append(trigger.Envelope.DedupeKey).Append('\n')
-            .Append(trigger.JobKind).Append(':').Append(trigger.TrustZone).Append(':')
-            .Append(trigger.MayPublishArtifacts ? '1' : '0').Append('\n')
-            .AppendJoin(',', trigger.Capabilities).Append('\n')
-            .Append(impact.Digest).Append('\n')
-            .Append(impact.CandidateRetentionDays).Append('\n')
-            .Append(generation).Append(':').Append(minimumRunnerSequence).Append(':')
-            .Append(maximumRunnerSequence).Append('\n');
+        using var value = ZString.CreateStringBuilder();
+        value.Append(trigger.Envelope.DedupeKey);
+        value.Append('\n');
+        value.Append(trigger.JobKind);
+        value.Append(':');
+        value.Append(trigger.TrustZone);
+        value.Append(':');
+        value.Append(trigger.MayPublishArtifacts ? '1' : '0');
+        value.Append('\n');
+        value.AppendJoin(',', trigger.Capabilities);
+        value.Append('\n');
+        value.Append(impact.Digest);
+        value.Append('\n');
+        value.Append(impact.CandidateRetentionDays);
+        value.Append('\n');
+        value.Append(generation);
+        value.Append(':');
+        value.Append(minimumRunnerSequence);
+        value.Append(':');
+        value.Append(maximumRunnerSequence);
+        value.Append('\n');
         foreach (var source in sources.OrderBy(static source => source.Repository, StringComparer.Ordinal))
-            value.Append(source.Repository).Append(':')
-                .Append(source.Commit.ToLowerInvariant()).Append(':')
-                .Append(source.Tree.ToLowerInvariant()).Append(':')
-                .Append(source.SignatureVerified ? '1' : '0').Append('\n');
+        {
+            value.Append(source.Repository);
+            value.Append(':');
+            value.Append(source.Commit.ToLowerInvariant());
+            value.Append(':');
+            value.Append(source.Tree.ToLowerInvariant());
+            value.Append(':');
+            value.Append(source.SignatureVerified ? '1' : '0');
+            value.Append('\n');
+        }
         return Hash(value.ToString());
     }
 

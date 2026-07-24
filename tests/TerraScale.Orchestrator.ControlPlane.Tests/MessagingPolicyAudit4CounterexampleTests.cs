@@ -1,5 +1,6 @@
 using TerraScale.Orchestrator.ControlPlane.Messaging;
 using TerraScale.Orchestrator.ControlPlane.Tests.Properties;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
@@ -66,22 +67,22 @@ public sealed class MessagingPolicyAudit4CounterexampleTests
         var request = AcceptedCases().Last();
         string? baseline = null;
         foreach (var culture in new[] { "en-US", "tr-TR", "ar-SA" })
-        foreach (var reverse in new[] { false, true })
-        {
-            var previous = System.Globalization.CultureInfo.CurrentCulture;
-            try
+            foreach (var reverse in new[] { false, true })
             {
-                System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
-                var candidate = reverse ? Reverse(request) : request;
-                var decision = MessagingPolicyEngine.DecideReplacement(candidate);
-                var actual = MessagingAcceptedReplacementFingerprint.Hash(decision.AcceptedReplacementRequest!);
-                baseline ??= actual;
-                await Assert.That(actual).IsEqualTo(baseline);
-                await Assert.That(MessagingAcceptedReplacementFingerprint.Hash(
-                    MessagingPolicyEngine.DecideReplacement(candidate).AcceptedReplacementRequest!)).IsEqualTo(actual);
+                var previous = System.Globalization.CultureInfo.CurrentCulture;
+                try
+                {
+                    System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+                    var candidate = reverse ? Reverse(request) : request;
+                    var decision = MessagingPolicyEngine.DecideReplacement(candidate);
+                    var actual = MessagingAcceptedReplacementFingerprint.Hash(decision.AcceptedReplacementRequest!);
+                    baseline ??= actual;
+                    await Assert.That(actual).IsEqualTo(baseline);
+                    await Assert.That(MessagingAcceptedReplacementFingerprint.Hash(
+                        MessagingPolicyEngine.DecideReplacement(candidate).AcceptedReplacementRequest!)).IsEqualTo(actual);
+                }
+                finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
             }
-            finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
-        }
 
         var canonical = MessagingAcceptedReplacementFingerprint.Canonical(request);
         AssertProperties<ReplacementRequest>(canonical, nameof(ReplacementRequest.Policy), nameof(ReplacementRequest.Proposed),
@@ -246,12 +247,12 @@ internal static class MessagingAcceptedReplacementFingerprint
     internal static string Canonical(ReplacementRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var builder = new System.Text.StringBuilder();
+        using var builder = new ZStringWriter();
         Append(builder, request);
         return builder.ToString();
     }
 
-    private static void Append(System.Text.StringBuilder builder, object? value)
+    private static void Append(ZStringWriter builder, object? value)
     {
         if (value is null)
         {
@@ -303,11 +304,15 @@ internal static class MessagingAcceptedReplacementFingerprint
 
     private static string Item(object? value)
     {
-        var builder = new System.Text.StringBuilder();
+        using var builder = new ZStringWriter();
         Append(builder, value);
         return builder.ToString();
     }
 
-    private static void Field(System.Text.StringBuilder builder, string value) => builder
-        .Append(value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(':').Append(value);
+    private static void Field(ZStringWriter builder, string value)
+    {
+        builder.Write(value.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        builder.Write(':');
+        builder.Write(value);
+    }
 }

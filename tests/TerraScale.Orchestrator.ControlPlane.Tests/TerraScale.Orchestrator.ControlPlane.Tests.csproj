@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageReference Include="OCI.DotNetSDK.Core" />
     <PackageReference Include="TUnit" />
+    <PackageReference Include="ZString" />
     <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </ItemGroup>
   <ItemGroup>

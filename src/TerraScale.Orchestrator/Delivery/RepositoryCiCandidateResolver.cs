@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -134,12 +135,20 @@ public static class RepositoryCiCandidateResolver
         RepositoryCiCandidate candidate,
         IReadOnlyList<RepositoryCiQualifiedSource> sources)
     {
-        var value = new StringBuilder(candidate.Digest).Append('\n');
+        using var value = ZString.CreateStringBuilder();
+        value.Append(candidate.Digest);
+        value.Append('\n');
         foreach (var source in sources)
-            value.Append(source.Repository).Append(':')
-                .Append(source.CandidateCommit).Append(':')
-                .Append(source.MainCommit).Append(':')
-                .Append(source.Tree).Append('\n');
+        {
+            value.Append(source.Repository);
+            value.Append(':');
+            value.Append(source.CandidateCommit);
+            value.Append(':');
+            value.Append(source.MainCommit);
+            value.Append(':');
+            value.Append(source.Tree);
+            value.Append('\n');
+        }
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 

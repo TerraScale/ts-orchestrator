@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests.Properties.Operations;
 
@@ -42,8 +43,12 @@ internal static class ControlOperationCorpus
             return Result(CorpusCode.TooLarge, []);
         try
         {
-            using var document = JsonDocument.Parse(source, new() { MaxDepth = 8, AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow });
+            using var document = JsonDocument.Parse(source, new()
+            {
+                MaxDepth = 8,
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !Exact(root, RootFields) ||
                 !root.GetProperty("version").TryGetInt32(out var version) || version != 1)
@@ -75,12 +80,27 @@ internal static class ControlOperationCorpus
         catch (InvalidOperationException) { return Result(CorpusCode.InvalidJson, []); }
     }
 
-    internal static string Canonical(CorpusEntry entry) => new StringBuilder("v1|family=")
-        .Append(Bytes(entry.Family)).Append(':').Append(entry.Family).Append("|seed=")
-        .Append(entry.Seed.ToString(CultureInfo.InvariantCulture)).Append("|mutation=")
-        .Append(Bytes(entry.Mutation)).Append(':').Append(entry.Mutation).Append("|delta=")
-        .Append(entry.Delta.ToString(CultureInfo.InvariantCulture)).Append("|expected=")
-        .Append(Bytes(entry.Expected)).Append(':').Append(entry.Expected).ToString();
+    internal static string Canonical(CorpusEntry entry)
+    {
+        using var builder = ZString.CreateStringBuilder();
+        builder.Append("v1|family=");
+        builder.Append(Bytes(entry.Family));
+        builder.Append(':');
+        builder.Append(entry.Family);
+        builder.Append("|seed=");
+        builder.Append(entry.Seed.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|mutation=");
+        builder.Append(Bytes(entry.Mutation));
+        builder.Append(':');
+        builder.Append(entry.Mutation);
+        builder.Append("|delta=");
+        builder.Append(entry.Delta.ToString(CultureInfo.InvariantCulture));
+        builder.Append("|expected=");
+        builder.Append(Bytes(entry.Expected));
+        builder.Append(':');
+        builder.Append(entry.Expected);
+        return builder.ToString();
+    }
     internal static string Digest(CorpusEntry entry) => Convert.ToHexString(SHA256.HashData(
         Encoding.UTF8.GetBytes(Canonical(entry)))).ToLowerInvariant();
     private static int Bytes(string value) => Encoding.UTF8.GetByteCount(value);

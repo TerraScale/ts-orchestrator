@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -173,12 +174,21 @@ internal sealed record ForgejoCiTriggerJournalDocument(
 
     private static string Digest(ForgejoCiTriggerPlan plan)
     {
-        var value = new StringBuilder(plan.Envelope.DedupeKey).Append('\n')
-            .Append(plan.Disposition).Append(':').Append(plan.Reason).Append(':')
-            .Append(plan.JobKind).Append(':').Append(plan.TrustZone).Append('\n')
-            .AppendJoin(',', plan.Capabilities).Append('\n')
-            .Append(plan.MayPublishArtifacts ? '1' : '0')
-            .Append(plan.RequiresQualifiedCandidate ? '1' : '0');
+        using var value = ZString.CreateStringBuilder();
+        value.Append(plan.Envelope.DedupeKey);
+        value.Append('\n');
+        value.Append(plan.Disposition);
+        value.Append(':');
+        value.Append(plan.Reason);
+        value.Append(':');
+        value.Append(plan.JobKind);
+        value.Append(':');
+        value.Append(plan.TrustZone);
+        value.Append('\n');
+        value.AppendJoin(',', plan.Capabilities);
+        value.Append('\n');
+        value.Append(plan.MayPublishArtifacts ? '1' : '0');
+        value.Append(plan.RequiresQualifiedCandidate ? '1' : '0');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 

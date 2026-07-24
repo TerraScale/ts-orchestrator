@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
@@ -11,7 +12,7 @@ internal static class DeliveryStageFingerprint
 
     internal static string Create(ReleaseSpec release, CellArtifactAvailability availability)
     {
-        var canonical = new StringBuilder();
+        using var canonical = new ZStringWriter();
         Add(canonical, release.Release.Value);
         Add(canonical, release.Operation.Value);
         Add(canonical, release.Generation.ToString(CultureInfo.InvariantCulture));
@@ -51,6 +52,11 @@ internal static class DeliveryStageFingerprint
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 
-    private static void Add(StringBuilder target, string value) => target.Append(value.Length.ToString(CultureInfo.InvariantCulture))
-        .Append(':').Append(value).Append(';');
+    private static void Add(ZStringWriter target, string value)
+    {
+        target.Write(value.Length.ToString(CultureInfo.InvariantCulture));
+        target.Write(':');
+        target.Write(value);
+        target.Write(';');
+    }
 }

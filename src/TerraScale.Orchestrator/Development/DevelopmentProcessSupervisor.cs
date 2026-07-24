@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -338,7 +339,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     private string WriteEnvironmentFile(DevelopmentProcessSpec specification)
     {
         var path = Path.Combine(dataDirectory, "container-environment", specification.Name + ".env");
-        var builder = new StringBuilder();
+        using var builder = ZString.CreateStringBuilder();
         if (specification.Environment is not null)
         {
             foreach (var (key, value) in specification.Environment.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -351,7 +352,10 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
                 {
                     throw new InvalidOperationException($"Environment value '{key}' contains a newline.");
                 }
-                builder.Append(key).Append('=').Append(value).Append('\n');
+                builder.Append(key);
+                builder.Append('=');
+                builder.Append(value);
+                builder.Append('\n');
             }
         }
         File.WriteAllText(path, builder.ToString());
