@@ -118,20 +118,7 @@ internal static class DevelopmentWorkloadRuntime
         var resourceData = Path.Combine(dataDirectory, "workloads", resource.Name);
         Directory.CreateDirectory(resourceData);
         var tag = ((char)('A' + resource.Replica - 1)).ToString();
-        var serverArguments = new[]
-        {
-            $"--ServerUrl=http://0.0.0.0:{resource.Port}",
-            $"--ServerUrl.Tcp=tcp://127.0.0.1:{resource.SecondaryPort}",
-            $"--PublicServerUrl=http://127.0.0.1:{resource.Port}",
-            $"--PublicServerUrl.Tcp=tcp://127.0.0.1:{resource.SecondaryPort}",
-            $"--PublicServerUrl.Tcp.Cluster=tcp://127.0.0.1:{resource.SecondaryPort}",
-            $"--PublicServerUrl.Tcp.External=tcp://127.0.0.1:{resource.SecondaryPort}",
-            $"--DataDir={resourceData}",
-            $"--Logs.NuGet.PackagesPath={Path.Combine(resourceData, "packages", "logging")}",
-            $"--Indexing.NuGetPackagesPath={Path.Combine(resourceData, "packages", "indexing")}",
-            "--Security.UnsecuredAccessAllowed=PublicNetwork",
-            "--Features.Availability=Experimental"
-        };
+        var serverArguments = CreateTerraBaseServerArguments(resource, resourceData);
         var assembly = Path.Combine(
             DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraBase.Server"),
             "TerraBase.Server.dll");
@@ -144,6 +131,33 @@ internal static class DevelopmentWorkloadRuntime
             projectDirectory,
             new Dictionary<string, string?> { ["TERRABASE_NODE_TAG"] = tag });
     }
+
+    /// <summary>
+    /// TerraBase launch flags for the rootless DevHost lab. Cluster timeouts are
+    /// raised above production defaults so cold restarts under pasta + multi-DB
+    /// load do not demote the sole RF=1 member before maintenance samples recover.
+    /// </summary>
+    internal static IReadOnlyList<string> CreateTerraBaseServerArguments(
+        DevelopmentResourcePlan resource,
+        string resourceData) =>
+    [
+        $"--ServerUrl=http://0.0.0.0:{resource.Port}",
+        $"--ServerUrl.Tcp=tcp://127.0.0.1:{resource.SecondaryPort}",
+        $"--PublicServerUrl=http://127.0.0.1:{resource.Port}",
+        $"--PublicServerUrl.Tcp=tcp://127.0.0.1:{resource.SecondaryPort}",
+        $"--PublicServerUrl.Tcp.Cluster=tcp://127.0.0.1:{resource.SecondaryPort}",
+        $"--PublicServerUrl.Tcp.External=tcp://127.0.0.1:{resource.SecondaryPort}",
+        $"--DataDir={resourceData}",
+        $"--Logs.NuGet.PackagesPath={Path.Combine(resourceData, "packages", "logging")}",
+        $"--Indexing.NuGetPackagesPath={Path.Combine(resourceData, "packages", "indexing")}",
+        "--Security.UnsecuredAccessAllowed=PublicNetwork",
+        "--Features.Availability=Experimental",
+        // Defaults are 5s receive / 60s rehab grace — too tight for lab cold start.
+        "--Cluster.ReceiveFromWorkerTimeoutInMs=30000",
+        "--Cluster.OnErrorDelayTimeInMs=2000",
+        "--Cluster.TcpTimeoutInMs=30000",
+        "--Cluster.TimeBeforeMovingToRehabInSec=300"
+    ];
 
     private static void StartDotNetService(
         DevelopmentProcessSupervisor supervisor,

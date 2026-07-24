@@ -217,9 +217,10 @@ public sealed class DevelopmentTopologyTests
             DevelopmentContainerImages.Node,
             DevelopmentContainerImages.Nats
         ]);
+        // 3× TerraBase at 3072 MiB (+1024 MiB each vs previous 2048) = +3072 MiB.
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))
-            .IsEqualTo(13_056L * 1024 * 1024);
+            .IsEqualTo(16_128L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateControl()))
             .IsEqualTo(1_728L * 1024 * 1024);
@@ -254,6 +255,21 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(DevelopmentProcessSupervisor.IsOwnedPod("foreign-owner")).IsFalse();
         await Assert.That(DevelopmentProcessSupervisor.OwnedPodRemovalArguments("lab", 10))
             .IsEquivalentTo(["pod", "rm", "--force", "--time", "10", "lab"]);
+    }
+
+    [Test]
+    public async Task TerraBaseServerArgumentsRaiseClusterTimeoutsForLabColdStart()
+    {
+        var resource = DevelopmentTopology.CreateRegional().Cells[0]
+            .OfKind(DevelopmentResourceKind.TerraBase)[0];
+        var arguments = DevelopmentWorkloadRuntime.CreateTerraBaseServerArguments(
+            resource,
+            "/profile/workloads/gru-terrabase-1");
+
+        await Assert.That(arguments).Contains("--Cluster.ReceiveFromWorkerTimeoutInMs=30000");
+        await Assert.That(arguments).Contains("--Cluster.TimeBeforeMovingToRehabInSec=300");
+        await Assert.That(arguments).Contains("--Cluster.TcpTimeoutInMs=30000");
+        await Assert.That(arguments).Contains($"--PublicServerUrl=http://127.0.0.1:{resource.Port}");
     }
 
     [Test]

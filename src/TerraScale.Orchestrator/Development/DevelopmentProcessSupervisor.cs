@@ -77,17 +77,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             throw new InvalidOperationException("The development runtime requires a working rootless Podman installation.");
         }
 
-        var owner = await RunAsync(
-            ["pod", "inspect", podName, "--format", "{{ index .Labels \"io.terrascale.owner\" }}"],
-            cancellationToken);
-        if (owner.ExitCode == 0)
-        {
-            if (!IsOwnedPod(owner.Output))
-            {
-                throw new InvalidOperationException($"Podman pod '{podName}' exists but is not owned by TerraScale DevHost.");
-            }
-            await RequireSuccessAsync(OwnedPodRemovalArguments(podName, 10), cancellationToken);
-        }
+        await RemoveExistingOwnedPodAsync(cancellationToken);
 
         foreach (var image in DevelopmentContainerImages.RequiredBy(topology))
         {
@@ -102,6 +92,32 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         Directory.CreateDirectory(Path.Combine(dataDirectory, "container-environment"));
         await RequireSuccessAsync(PodCreationArguments(topology, podName), cancellationToken);
         initialized = true;
+    }
+
+    /// <summary>
+    /// Removes a leftover lab pod before create. Soft restarts that SIGKILL the
+    /// Orchestrator leave pasta-backed pods in a Degraded state; force-remove even
+    /// when inspect is flaky so the next lab can recreate clean networking.
+    /// </summary>
+    private async Task RemoveExistingOwnedPodAsync(CancellationToken cancellationToken)
+    {
+        var exists = await RunAsync(["pod", "exists", podName], cancellationToken);
+        if (exists.ExitCode != 0)
+        {
+            return;
+        }
+
+        var owner = await RunAsync(
+            ["pod", "inspect", podName, "--format", "{{ index .Labels \"io.terrascale.owner\" }}"],
+            cancellationToken);
+        if (owner.ExitCode == 0 && !IsOwnedPod(owner.Output))
+        {
+            throw new InvalidOperationException(
+                $"Podman pod '{podName}' exists but is not owned by TerraScale DevHost.");
+        }
+
+        // Owned label, or inspect failed on a half-dead Degraded pod we own by name.
+        await RequireSuccessAsync(OwnedPodRemovalArguments(podName, 15), cancellationToken);
     }
 
     public Process Start(
@@ -295,15 +311,38 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await stopping.CancelAsync();
-        foreach (var (name, process) in processes.Reverse())
-        {
-            await RemoveContainerAsync(name, process);
-        }
+        // Tear down the whole owned pod in one shot. Sequential per-container
+        // stops with 15s timeouts can exceed DevHost's graceful SIGTERM budget
+        // (90–180s) on regional profiles, leaving pasta dead and the pod Degraded.
+        var processSnapshot = processes.Values.ToArray();
         processes.Clear();
         specifications.Clear();
+        startedAt.Clear();
         if (initialized)
         {
-            _ = await RunAsync(OwnedPodRemovalArguments(podName, 15), CancellationToken.None);
+            var removal = await RunAsync(OwnedPodRemovalArguments(podName, 20), CancellationToken.None);
+            if (removal.ExitCode != 0)
+            {
+                // Retry once; a stuck container can block the first force-rm.
+                _ = await RunAsync(OwnedPodRemovalArguments(podName, 10), CancellationToken.None);
+            }
+        }
+        foreach (var process in processSnapshot)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            finally
+            {
+                process.Dispose();
+            }
         }
         stopping.Dispose();
     }
@@ -455,7 +494,9 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     private static long MemoryLimitBytes(DevelopmentResourceKind kind) => kind switch
     {
-        DevelopmentResourceKind.TerraBase => 2048L * 1024 * 1024,
+        // 3 GiB: RF1 product cells load four sharded DBs plus cluster maintenance
+        // reports; 2 GiB left maintenance TCP samples timing out under GC pressure.
+        DevelopmentResourceKind.TerraBase => 3072L * 1024 * 1024,
         DevelopmentResourceKind.Platform => 640L * 1024 * 1024,
         DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 384L * 1024 * 1024,
         DevelopmentResourceKind.ControllerAgent => 320L * 1024 * 1024,
