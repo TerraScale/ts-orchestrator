@@ -258,7 +258,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--volume", $"{workspaceRoot}:{workspaceRoot}:ro",
             "--volume", $"{dataDirectory}:{dataDirectory}:rw"
         ]);
-        if (WritableRuntimeOverlay(topology, specification.Name, workspaceRoot) is { } overlay)
+        if (WritableRuntimeOverlay(topology, specification.Name, dataDirectory) is { } overlay)
         {
             Add(process.StartInfo, ["--volume", overlay]);
         }
@@ -400,7 +400,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     internal static string? WritableRuntimeOverlay(
         DevelopmentTopology topology,
         string resourceName,
-        string workspaceRoot)
+        string dataDirectory)
     {
         var resource = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
@@ -409,8 +409,9 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         {
             return null;
         }
-        var runtime = Path.GetFullPath(Path.Combine(
-            workspaceRoot, "TerraBase", "src", "TerraBase.Server", "bin", "Release", "net10.0"));
+        var runtime = Path.GetFullPath(DevelopmentArtifactBuilder.DotNetOutputDirectory(
+            dataDirectory,
+            "TerraBase.Server"));
         return $"{runtime}:{runtime}:O";
     }
 

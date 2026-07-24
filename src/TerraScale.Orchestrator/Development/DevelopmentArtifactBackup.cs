@@ -20,7 +20,6 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
     }
 
     public static DevelopmentArtifactBackup Capture(
-        string workspaceRoot,
         string dataDirectory,
         string reconciliationId,
         IReadOnlySet<DevelopmentResourceKind> kinds)
@@ -30,26 +29,23 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
         var sources = new List<string>();
         if (kinds.Contains(DevelopmentResourceKind.TerraBase))
         {
-            sources.Add(Path.Combine(
-                workspaceRoot, "TerraBase", "src", "TerraBase.Server", "bin", "Release", "net10.0"));
+            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraBase.Server"));
         }
         if (kinds.Contains(DevelopmentResourceKind.EmailEmulator))
         {
-            sources.Add(Path.Combine(
-                workspaceRoot, "TerraScale.Internals", "src", "Hosting",
-                "TerraScale.LocalEmulators", "bin", "Release", "net10.0"));
+            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(
+                dataDirectory,
+                "TerraScale.LocalEmulators"));
         }
         if (kinds.Contains(DevelopmentResourceKind.Authentication))
         {
-            sources.Add(Path.Combine(
-                workspaceRoot, "TerraScale.Internals", "src", "Auth",
-                "TerraScale.Authentication", "bin", "Release", "net10.0"));
+            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(
+                dataDirectory,
+                "TerraScale.Authentication"));
         }
         if (kinds.Contains(DevelopmentResourceKind.Platform))
         {
-            sources.Add(Path.Combine(
-                workspaceRoot, "TerraScale.Internals", "src", "Platform",
-                "TerraScale.Platform", "bin", "Release", "net10.0"));
+            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraScale.Platform"));
         }
 
         var directories = sources.Distinct(StringComparer.Ordinal)
@@ -76,7 +72,10 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
     {
         foreach (var (source, backup) in directories)
         {
-            Directory.Delete(source, recursive: true);
+            if (Directory.Exists(source))
+            {
+                Directory.Delete(source, recursive: true);
+            }
             CopyDirectory(backup, source);
         }
         if (dashboardPointer is not null)

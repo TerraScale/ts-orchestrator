@@ -34,7 +34,7 @@ internal static class DevelopmentArtifactBuilder
             }
             await RunAsync(
                 "dotnet",
-                DotNetBuildArguments(project),
+                DotNetBuildArguments(project, dataDirectory),
                 Path.GetDirectoryName(project)!,
                 cancellationToken);
         }
@@ -52,9 +52,16 @@ internal static class DevelopmentArtifactBuilder
         }
     }
 
-    internal static IReadOnlyList<string> DotNetBuildArguments(string project) =>
+    internal static IReadOnlyList<string> DotNetBuildArguments(string project, string dataDirectory) =>
         ["build", project, "--configuration", "Release", "--nologo",
-            "--no-incremental", "--maxcpucount:1", "--nodeReuse:false"];
+            "--no-incremental", "--maxcpucount:1", "--nodeReuse:false",
+            "--artifacts-path", DotNetArtifactsDirectory(dataDirectory)];
+
+    internal static string DotNetOutputDirectory(string dataDirectory, string projectName) =>
+        Path.Combine(DotNetArtifactsDirectory(dataDirectory), "bin", projectName, "release");
+
+    private static string DotNetArtifactsDirectory(string dataDirectory) =>
+        Path.Combine(dataDirectory, "artifacts", "dotnet");
 
     private static async Task RunAsync(
         string executable,

@@ -263,10 +263,11 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task ProductArtifactBuildUsesOneMsBuildNode()
     {
-        await Assert.That(DevelopmentArtifactBuilder.DotNetBuildArguments("product.csproj"))
+        await Assert.That(DevelopmentArtifactBuilder.DotNetBuildArguments("product.csproj", "/profile"))
             .IsEquivalentTo([
                 "build", "product.csproj", "--configuration", "Release", "--nologo",
-                "--no-incremental", "--maxcpucount:1", "--nodeReuse:false"
+                "--no-incremental", "--maxcpucount:1", "--nodeReuse:false",
+                "--artifacts-path", "/profile/artifacts/dotnet"
             ]);
     }
 
@@ -293,14 +294,14 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
             topology,
             "gru-terrabase-1",
-            "/workspace"))
+            "/profile"))
             .IsEqualTo(
-                "/workspace/TerraBase/src/TerraBase.Server/bin/Release/net10.0:" +
-                "/workspace/TerraBase/src/TerraBase.Server/bin/Release/net10.0:O");
+                "/profile/artifacts/dotnet/bin/TerraBase.Server/release:" +
+                "/profile/artifacts/dotnet/bin/TerraBase.Server/release:O");
         await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
             topology,
             "gru-platform",
-            "/workspace"))
+            "/profile"))
             .IsNull();
     }
 }

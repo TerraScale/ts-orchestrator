@@ -22,7 +22,7 @@ internal static class DevelopmentWorkloadRuntime
         RequireDirectory(internalsRoot, "TerraScale.Internals repository");
         RequireDirectory(terraBaseRoot, "TerraBase repository");
 
-        StartEmailEmulator(supervisor, topology, internalsRoot);
+        StartEmailEmulator(supervisor, topology, internalsRoot, dataDirectory);
         await WaitHttpAsync(topology.GlobalResources.Single(resource =>
             resource.Kind == DevelopmentResourceKind.EmailEmulator).Port, "/health/ready", supervisor, cancellationToken);
         var paymentEnvironment = ReadPaymentEnvironment();
@@ -47,7 +47,8 @@ internal static class DevelopmentWorkloadRuntime
                 authentication,
                 Path.Combine(internalsRoot, "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, authentication, isPlatform: false, dataDirectory, natsSecurity, paymentEnvironment));
+                    topology, cell, authentication, isPlatform: false, dataDirectory, natsSecurity, paymentEnvironment),
+                dataDirectory);
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
 
             var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
@@ -56,7 +57,8 @@ internal static class DevelopmentWorkloadRuntime
                 platform,
                 Path.Combine(internalsRoot, "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity, paymentEnvironment));
+                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity, paymentEnvironment),
+                dataDirectory);
             await WaitHttpAsync(platform.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
@@ -68,7 +70,8 @@ internal static class DevelopmentWorkloadRuntime
     private static void StartEmailEmulator(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
-        string internalsRoot)
+        string internalsRoot,
+        string dataDirectory)
     {
         var project = Path.Combine(
             internalsRoot,
@@ -78,8 +81,10 @@ internal static class DevelopmentWorkloadRuntime
             "TerraScale.LocalEmulators.csproj");
         RequireFile(project, "local emulator project");
         var assembly = Path.Combine(
-            Path.GetDirectoryName(project)!,
-            "bin", "Release", "net10.0", "TerraScale.LocalEmulators.dll");
+            DevelopmentArtifactBuilder.DotNetOutputDirectory(
+                dataDirectory,
+                "TerraScale.LocalEmulators"),
+            "TerraScale.LocalEmulators.dll");
         RequireFile(assembly, "published local emulator assembly");
         var resource = topology.GlobalResources.Single(candidate =>
             candidate.Kind == DevelopmentResourceKind.EmailEmulator);
@@ -127,7 +132,9 @@ internal static class DevelopmentWorkloadRuntime
             "--Security.UnsecuredAccessAllowed=PublicNetwork",
             "--Features.Availability=Experimental"
         };
-        var assembly = Path.Combine(projectDirectory, "bin", "Release", "net10.0", "TerraBase.Server.dll");
+        var assembly = Path.Combine(
+            DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraBase.Server"),
+            "TerraBase.Server.dll");
         RequireFile(assembly, "published TerraBase assembly");
         var arguments = new[] { "dotnet", assembly }.Concat(serverArguments).ToArray();
         supervisor.Start(
@@ -142,14 +149,18 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentProcessSupervisor supervisor,
         DevelopmentResourcePlan resource,
         string project,
-        IReadOnlyDictionary<string, string?> environment)
+        IReadOnlyDictionary<string, string?> environment,
+        string dataDirectory)
     {
         RequireFile(project, $"{resource.Kind} project");
         var directory = Path.GetDirectoryName(project)!;
         var assemblyName = resource.Kind == DevelopmentResourceKind.Platform
             ? "TerraScale.Platform.dll"
             : "TerraScale.Authentication.dll";
-        var assembly = Path.Combine(directory, "bin", "Release", "net10.0", assemblyName);
+        var projectName = Path.GetFileNameWithoutExtension(project);
+        var assembly = Path.Combine(
+            DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, projectName),
+            assemblyName);
         RequireFile(assembly, $"published {resource.Kind} assembly");
         supervisor.Start(
             resource.Name,

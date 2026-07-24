@@ -2612,7 +2612,6 @@ public static class DevelopmentLab
                 reconciliations.Values,
                 incidents.Values);
             backup = DevelopmentArtifactBackup.Capture(
-                options.WorkspaceRoot!,
                 options.DataDirectory!,
                 work.ReconciliationId,
                 kinds);
