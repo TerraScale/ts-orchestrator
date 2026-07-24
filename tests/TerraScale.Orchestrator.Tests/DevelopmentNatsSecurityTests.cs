@@ -28,7 +28,7 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-nats-security-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var gru = security.Cell("gru");
             var sfo = security.Cell("sfo");
@@ -160,7 +160,7 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-remint-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var platform = security.Cell("gru").Tls.Product.Clients["gru-platform"];
             var originalCert = File.ReadAllText(platform.CertificateFile);
@@ -208,7 +208,7 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-corrupt-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var platform = security.Cell("gru").Tls.Product.Clients["gru-platform"];
             var originalCert = File.ReadAllText(platform.CertificateFile);
@@ -255,7 +255,7 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-pki-atomic-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var operatorTls = security.Cell("gru").Tls.Control.Clients["operator-read"];
             var stableCertPath = operatorTls.CertificateFile;
@@ -7325,7 +7325,7 @@ public sealed class DevelopmentNatsSecurityTests
         // LooksLikeCertificateFailure is false for that text; recovery must still classify
         // control/product NATS and controllers as force-remint so the consecutive-unhealthy
         // path never logs "Restarted unhealthy development resource *-control-nats-1: …".
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         foreach (var cell in new[] { "gru", "sfo", "fra" })
         {
             await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
@@ -7434,7 +7434,7 @@ public sealed class DevelopmentNatsSecurityTests
         // Fingerprint 6da1925a9038…: three bare restarts of fra-product-nats-1 with only the
         // outer probe detail "can not start to connect nats server: nats://127.0.0.1:19020"
         // between 18:45:44Z and 18:49:14Z (fra product twin of 2c66150c157c… / 666f072201a5…).
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         foreach (var cell in new[] { "gru", "sfo", "fra" })
         {
             await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
@@ -7526,7 +7526,7 @@ public sealed class DevelopmentNatsSecurityTests
         // outer probe detail "can not start to connect nats server: nats://127.0.0.1:19000"
         // between 18:45:45Z and 18:49:20Z (fra controller twin of 7bead2653aa7… /
         // bfa083ed37ee…).
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         foreach (var cell in new[] { "gru", "sfo", "fra" })
         {
             await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
@@ -7630,7 +7630,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-server-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             foreach (var cell in new[] { "gru", "sfo", "fra" })
             {
@@ -7694,7 +7694,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-product-server-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             foreach (var cell in new[] { "gru", "sfo", "fra" })
             {
@@ -7760,7 +7760,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-controller-server-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             foreach (var cell in new[] { "gru", "sfo", "fra" })
             {
@@ -7941,7 +7941,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-{cell}-operator-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
 
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsFalse();
@@ -8236,7 +8236,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-{cell}-controller-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
 
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
@@ -9388,7 +9388,7 @@ public sealed class DevelopmentNatsSecurityTests
             $"ts-orch-{cell}-platform-leaf-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
 
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
@@ -9469,7 +9469,7 @@ public sealed class DevelopmentNatsSecurityTests
         // (control plane) and platforms (product plane) both present leaves; leaving
         // NATS up while either reconnects logs certificate-expired handshakes
         // (CN=*-controller-1 / CN=*-platform / CN=operator-read).
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var nats = DevelopmentLab.NatsResourceNames(topology);
         var clients = DevelopmentLab.TlsClientResourceNames(topology);
 
@@ -9517,7 +9517,7 @@ public sealed class DevelopmentNatsSecurityTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-probe-expiry-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var operatorTls = security.Cell("fra").Tls.Control.Clients["operator-read"];
 

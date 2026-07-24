@@ -57,10 +57,6 @@ public sealed record DevelopmentTopology(
         return new("control", cells, []);
     }
 
-    internal static DevelopmentTopology CreateThreeCellLean() => CreateRegional();
-
-    internal static DevelopmentTopology CreateThreeCellControlPlane() => CreateControl();
-
     private static DevelopmentCellPlan[] CreateCells(bool controlOnly) =>
     [
         CreateCell("gru", 0, controlOnly),

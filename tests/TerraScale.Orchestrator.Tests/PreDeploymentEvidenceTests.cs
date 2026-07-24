@@ -45,7 +45,7 @@ public sealed class PreDeploymentEvidenceTests
             "pass",
             "commit",
             "digest",
-            "dev-containers-three-cell-lean",
+            "regional",
             DateTimeOffset.UtcNow.AddHours(1),
             new(24L * 1024 * 1024 * 1024, 20L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024, 1, 4, 512),
             modules,

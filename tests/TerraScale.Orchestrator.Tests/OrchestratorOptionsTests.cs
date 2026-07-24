@@ -131,15 +131,18 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task RemovedVmAndWatchOptionsAreRejected()
+    public async Task RemovedProfilesAndOptionsAreRejected()
     {
+        foreach (var profile in new[] { "regions-smol", "dev-containers", "dev-containers-control" })
+        {
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["lab", "plan", "--profile", profile],
+                    _ => null))
+                .Throws<ArgumentException>();
+        }
         await Assert.That(() => OrchestratorOptions.Parse(
-            ["lab", "plan", "--profile", "regions-smol"],
+            ["lab", "plan", "--watch"],
             _ => null))
-            .Throws<ArgumentException>();
-        await Assert.That(() => OrchestratorOptions.Parse(
-                ["lab", "plan", "--watch"],
-                _ => null))
             .Throws<ArgumentException>();
         await Assert.That(() => OrchestratorOptions.Parse(
                 ["lab", "plan", "--base-artifact", "/tmp/base.smolmachine"],

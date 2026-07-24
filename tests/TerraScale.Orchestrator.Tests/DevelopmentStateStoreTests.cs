@@ -61,7 +61,7 @@ public sealed class DevelopmentStateStoreTests
         var now = DateTimeOffset.UtcNow;
         var state = new DevelopmentRuntimeState(
             2,
-            "dev-containers-three-cell-lean",
+            "regional",
             7,
             now,
             now,

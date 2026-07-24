@@ -227,8 +227,8 @@ public sealed record OrchestratorOptions(
         var labProfile = GetValue(values, "--profile", environment("TS_ORCH_LAB_PROFILE") ?? "quick") switch
         {
             "quick" => OrchestratorLabProfile.Quick,
-            "regional" or "dev-containers" => OrchestratorLabProfile.Regional,
-            "control" or "dev-containers-control" => OrchestratorLabProfile.Control,
+            "regional" => OrchestratorLabProfile.Regional,
+            "control" => OrchestratorLabProfile.Control,
             _ => throw new ArgumentException(
                 "Lab profile must be 'quick', 'regional', or 'control'.")
         };

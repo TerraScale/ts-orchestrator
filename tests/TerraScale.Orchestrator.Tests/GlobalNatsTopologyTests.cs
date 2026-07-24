@@ -105,7 +105,7 @@ public sealed class GlobalNatsTopologyTests
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-global-nats-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateThreeCellLean();
+            var topology = DevelopmentTopology.CreateRegional();
             var security = DevelopmentNatsSecurity.Create(topology, directory);
             var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
             var gru = security.Cell("gru");

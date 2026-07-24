@@ -7,7 +7,7 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task MissingProcessesProduceOnlyBoundedObservationIntents()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
 
         var result = DevelopmentReconciliation.Evaluate(topology, 1, []);
 
@@ -20,7 +20,7 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task ReadyExactTopologyMustConvergeInDependencyOrder()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .Select((resource, index) => new DevelopmentResourceObservation(
@@ -57,7 +57,7 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task ForeignObservationIsRejectedBeforePlanning()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var foreign = new DevelopmentResourceObservation(
             "foreign",
             "gru",
@@ -78,7 +78,7 @@ public sealed class DevelopmentReconciliationTests
     [Test]
     public async Task FailedRegionalApiAndItsDashboardAreHeldWithoutCrossRegionImpact()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .Select((resource, index) => new DevelopmentResourceObservation(

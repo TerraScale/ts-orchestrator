@@ -92,7 +92,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task RegionalServicesUseReducedDatabaseAndQueueReplication()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
         var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
@@ -135,7 +135,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task DashboardRunsPublishedBuildOnAllInterfacesInsideThePod()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
         var cell = topology.Cells.Single(cell => cell.Cell == "gru");
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
@@ -160,7 +160,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task EmulatorEnvironmentKeepsTheAssignedPort()
     {
-        var emulator = DevelopmentTopology.CreateThreeCellLean().GlobalResources
+        var emulator = DevelopmentTopology.CreateRegional().GlobalResources
             .Single(resource => resource.Kind == DevelopmentResourceKind.EmailEmulator);
 
         var environment = DevelopmentWorkloadRuntime.CreateEmulatorEnvironment(emulator);
@@ -171,7 +171,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task SingleNatsMemberHasNoSelfRoute()
     {
-        var member = DevelopmentTopology.CreateThreeCellLean().Cells
+        var member = DevelopmentTopology.CreateRegional().Cells
             .Single(cell => cell.Cell == "fra")
             .OfKind(DevelopmentResourceKind.ControlNats).Single();
 
@@ -193,10 +193,10 @@ public sealed class DevelopmentTopologyTests
             DevelopmentContainerImages.Nats
         ]);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
-            DevelopmentTopology.CreateThreeCellLean()))
+            DevelopmentTopology.CreateRegional()))
             .IsEqualTo(13_248L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
-            DevelopmentTopology.CreateThreeCellControlPlane()))
+            DevelopmentTopology.CreateControl()))
             .IsEqualTo(1_728L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
@@ -260,7 +260,7 @@ public sealed class DevelopmentTopologyTests
     public async Task PodCreationUsesOneNameAndPinnedInfraWithoutHostHelpers()
     {
         var arguments = DevelopmentProcessSupervisor.PodCreationArguments(
-            DevelopmentTopology.CreateThreeCellControlPlane(),
+            DevelopmentTopology.CreateControl(),
             "control-lab");
 
         await Assert.That(arguments.Count(argument => argument == "control-lab")).IsEqualTo(1);
@@ -274,7 +274,7 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task TerraBaseRuntimeUsesAPrivateWritableOverlay()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
 
         await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
             topology,

@@ -15,7 +15,7 @@ public sealed class CiRunnerProcessTests
         var root = Path.Combine(Path.GetTempPath(), $"ci-runner-nats-{Guid.NewGuid():N}");
         try
         {
-            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateThreeCellLean(), root);
+            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), root);
             var tls = security.Cell("gru").Tls.Control.Clients["operator-read"];
             var credentials = Path.Combine(root, "runner.creds");
             await File.WriteAllTextAsync(credentials, "bounded-supported-client-credential");
