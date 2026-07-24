@@ -130,6 +130,17 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
         await Assert.That(environment.Keys.Count(key => key.StartsWith("TerraBase__Urls__", StringComparison.Ordinal)))
             .IsEqualTo(1);
+        // Private MagicOnion listeners: auth SecondaryPort is AuthenticationEndpoint;
+        // each platform SecondaryPort is RegionalEndpoints:{cell}.
+        await Assert.That(authentication.SecondaryPort).IsEqualTo(18673);
+        await Assert.That(platform.SecondaryPort).IsEqualTo(18674);
+        await Assert.That(authenticationEnvironment["TerraScale__Kestrel__InternalRpcPort"]).IsEqualTo("18673");
+        await Assert.That(environment["TerraScale__Kestrel__InternalRpcPort"]).IsEqualTo("18674");
+        await Assert.That(environment["InternalRpc__AuthenticationEndpoint"]).IsEqualTo("http://127.0.0.1:18673");
+        await Assert.That(environment["InternalRpc__LocalPublicEndpoint"]).IsEqualTo("http://127.0.0.1:18671");
+        await Assert.That(environment["InternalRpc__RegionalEndpoints__gru"]).IsEqualTo("http://127.0.0.1:18674");
+        await Assert.That(environment["InternalRpc__RegionalEndpoints__sfo"]).IsEqualTo("http://127.0.0.1:18874");
+        await Assert.That(environment["InternalRpc__RegionalEndpoints__fra"]).IsEqualTo("http://127.0.0.1:19074");
 
         var stripeEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,

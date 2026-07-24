@@ -280,6 +280,13 @@ internal static class DevelopmentWorkloadRuntime
             ["TerraScale__ServiceDatabases__ReplicationFactor"] = "1",
             ["TerraScale__ServiceDatabases__DynamicNodesDistribution"] = "true"
         };
+        // Private MagicOnion HTTP/2 listener (SecondaryPort). Required by Internals
+        // InternalRpc for Authentication and Platform; clear-text is fine same-cell.
+        if (resource.SecondaryPort is > 0)
+        {
+            environment["TerraScale__Kestrel__InternalRpcPort"] =
+                resource.SecondaryPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         var members = cell.OfKind(DevelopmentResourceKind.TerraBase);
         for (var index = 0; index < members.Count; index++)
         {
@@ -325,6 +332,28 @@ internal static class DevelopmentWorkloadRuntime
             }
         }
         environment["Idempotency__RequireForInternalCalls"] = "true";
+        // Platform peers Authentication and every regional Platform over private MagicOnion.
+        // AuthenticationEndpoint is required at startup (ValidateOnStart); RegionalEndpoints
+        // cover queue replication and regional request streaming.
+        var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
+        if (authentication.SecondaryPort is not > 0)
+        {
+            throw new InvalidOperationException(
+                $"Authentication resource '{authentication.Name}' is missing SecondaryPort for InternalRpc.");
+        }
+        environment["InternalRpc__AuthenticationEndpoint"] = Http(authentication.SecondaryPort.Value);
+        environment["InternalRpc__LocalPublicEndpoint"] = Http(resource.Port);
+        foreach (var regionalCell in topology.Cells)
+        {
+            var regionalPlatform = regionalCell.OfKind(DevelopmentResourceKind.Platform).Single();
+            if (regionalPlatform.SecondaryPort is not > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Platform resource '{regionalPlatform.Name}' is missing SecondaryPort for InternalRpc.");
+            }
+            environment[$"InternalRpc__RegionalEndpoints__{regionalCell.Cell}"] =
+                Http(regionalPlatform.SecondaryPort.Value);
+        }
         environment["TerraScale__Queue__Provider"] = "Nats";
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";
         environment["TerraScale__Queue__NatsUsername"] = productIdentity?.Username;

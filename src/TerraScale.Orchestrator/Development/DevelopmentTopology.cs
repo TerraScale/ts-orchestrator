@@ -127,18 +127,24 @@ public sealed record DevelopmentTopology(
             start + 50,
             SecondaryPort: start + 60));
 
+        // Public HTTP listeners occupy +70..+72. Private MagicOnion HTTP/2
+        // listeners for Authentication and Platform use +73/+74 (SecondaryPort)
+        // so DevHost can publish them and inject InternalRpc endpoints without
+        // colliding with TerraBase TCP (+60) or NATS cluster ports.
         resources.Add(new(
             $"{cell}-authentication",
             cell,
             DevelopmentResourceKind.Authentication,
             1,
-            start + 70));
+            start + 70,
+            SecondaryPort: start + 73));
         resources.Add(new(
             $"{cell}-platform",
             cell,
             DevelopmentResourceKind.Platform,
             1,
-            start + 71));
+            start + 71,
+            SecondaryPort: start + 74));
         resources.Add(new(
             $"{cell}-dashboard",
             cell,
