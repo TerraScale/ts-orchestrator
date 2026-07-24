@@ -90,13 +90,21 @@ internal static class DevelopmentArtifactBuilder
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"Development artifact build failed: {FirstLine(standardError, standardOutput)}");
+                $"Development artifact build failed: {Diagnostic(standardError, standardOutput)}");
         }
     }
 
-    private static string FirstLine(params string[] values) =>
-        values.SelectMany(value => value.Split(
+    internal static string Diagnostic(params string[] values)
+    {
+        var lines = values.SelectMany(value => value.Split(
                 ['\r', '\n'],
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            .FirstOrDefault() ?? "build exited without diagnostics";
+            .ToArray();
+        return lines.FirstOrDefault(static line =>
+                   line.Contains(": error ", StringComparison.OrdinalIgnoreCase) ||
+                   line.StartsWith("error", StringComparison.OrdinalIgnoreCase) ||
+                   line.StartsWith("npm error", StringComparison.OrdinalIgnoreCase))
+               ?? lines.LastOrDefault()
+               ?? "build exited without diagnostics";
+    }
 }
