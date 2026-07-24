@@ -32,7 +32,7 @@ internal static partial class DevelopmentReconcilePlanner
     public const string SchemaVersion = "terrascale.orchestrator.development/v1";
     // Large refactors (e.g. ZString migrations across tests/bench) routinely exceed 128
     // paths; TerraBase impact mapping does not use the path list for kind selection.
-    private const int MaximumChangedPaths = 1024;
+    internal const int MaximumChangedPaths = 1024;
     private const int MaximumPathLength = 512;
 
     public static DevelopmentReconcilePlan Plan(

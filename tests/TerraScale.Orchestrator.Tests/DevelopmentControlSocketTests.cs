@@ -49,6 +49,58 @@ public sealed class DevelopmentControlSocketTests
     }
 
     [Test]
+    public async Task TerraBaseLargeSafePathListsPlanBeyondLegacyCap()
+    {
+        // Regression for 732315f: TerraBase ZString/n-gram refactors routinely
+        // ship 130+ safe relative paths. Impact ignores the path list for kind
+        // selection, but the planner must still accept counts above the former
+        // 128-entry cap (and reject empty vs oversized with distinct errors).
+        var topology = DevelopmentTopology.CreateRegional();
+        var aboveLegacyCap = Enumerable.Range(0, 129)
+            .Select(index => $"src/TerraBase.Core/Module{index:D3}.cs")
+            .ToArray();
+        var plan = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraBase", aboveLegacyCap));
+
+        await Assert.That(plan.Resources.Select(resource => resource.Kind).Distinct())
+            .IsEquivalentTo([
+                DevelopmentResourceKind.TerraBase,
+                DevelopmentResourceKind.Authentication,
+                DevelopmentResourceKind.Platform,
+                DevelopmentResourceKind.Dashboard
+            ]);
+        await Assert.That(plan.Resources.Count).IsEqualTo(12);
+
+        var empty = await Assert.That(() => DevelopmentReconcilePlanner.Plan(
+                topology,
+                Request("TerraBase", [])))
+            .Throws<InvalidDataException>();
+        var oversized = await Assert.That(() => DevelopmentReconcilePlanner.Plan(
+                topology,
+                Request(
+                    "TerraBase",
+                    Enumerable.Range(0, DevelopmentReconcilePlanner.MaximumChangedPaths + 1)
+                        .Select(index => $"src/TerraBase.Core/Oversize{index:D4}.cs")
+                        .ToArray())))
+            .Throws<InvalidDataException>();
+        var unsafePath = await Assert.That(() => DevelopmentReconcilePlanner.Plan(
+                topology,
+                Request("TerraBase", ["../secret"])))
+            .Throws<InvalidDataException>();
+
+        await Assert.That(empty!.Message)
+            .IsEqualTo("Changed paths must be a non-empty list of relative repository paths.");
+        await Assert.That(oversized!.Message)
+            .IsEqualTo(
+                $"Changed paths exceed the maximum of {DevelopmentReconcilePlanner.MaximumChangedPaths} entries.");
+        await Assert.That(unsafePath!.Message)
+            .IsEqualTo("Changed paths must be bounded relative repository paths.");
+        await Assert.That(empty.Message).IsNotEqualTo(oversized.Message);
+        await Assert.That(oversized.Message).IsNotEqualTo(unsafePath.Message);
+    }
+
+    [Test]
     public async Task OwnerSocketDeduplicatesExactRequestsAndRejectsConflicts()
     {
         if (!OperatingSystem.IsLinux())
