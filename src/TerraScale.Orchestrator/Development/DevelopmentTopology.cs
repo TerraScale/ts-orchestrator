@@ -9,8 +9,7 @@ public enum DevelopmentResourceKind
     Authentication,
     Platform,
     Dashboard,
-    EmailEmulator,
-    StripeEmulator
+    EmailEmulator
 }
 
 public sealed record DevelopmentResourcePlan(
@@ -74,13 +73,7 @@ public sealed record DevelopmentTopology(
                 "gru",
                 DevelopmentResourceKind.EmailEmulator,
                 1,
-                globalBase),
-            new(
-                "stripe-emulator",
-                "gru",
-                DevelopmentResourceKind.StripeEmulator,
-                1,
-                globalBase + 1)
+                globalBase)
         ];
     }
 

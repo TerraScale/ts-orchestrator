@@ -455,7 +455,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 384L * 1024 * 1024,
         DevelopmentResourceKind.ControllerAgent => 320L * 1024 * 1024,
         DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => 256L * 1024 * 1024,
-        DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => 192L * 1024 * 1024,
+        DevelopmentResourceKind.EmailEmulator => 192L * 1024 * 1024,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

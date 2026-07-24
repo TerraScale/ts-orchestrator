@@ -4937,8 +4937,7 @@ public static class DevelopmentLab
         DevelopmentResourceKind.Authentication or
         DevelopmentResourceKind.Platform or
         DevelopmentResourceKind.Dashboard or
-        DevelopmentResourceKind.EmailEmulator or
-        DevelopmentResourceKind.StripeEmulator =>
+        DevelopmentResourceKind.EmailEmulator =>
             $"http://127.0.0.1:{resource.Port}",
         _ => null
     };

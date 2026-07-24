@@ -33,8 +33,7 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
             sources.Add(Path.Combine(
                 workspaceRoot, "TerraBase", "src", "TerraBase.Server", "bin", "Release", "net10.0"));
         }
-        if (kinds.Contains(DevelopmentResourceKind.EmailEmulator) ||
-            kinds.Contains(DevelopmentResourceKind.StripeEmulator))
+        if (kinds.Contains(DevelopmentResourceKind.EmailEmulator))
         {
             sources.Add(Path.Combine(
                 workspaceRoot, "TerraScale.Internals", "src", "Hosting",

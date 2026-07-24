@@ -34,8 +34,7 @@ internal static class DevelopmentHealthProbe
         DevelopmentResourceKind.TerraBase => "/build/version",
         DevelopmentResourceKind.Authentication or
         DevelopmentResourceKind.Platform or
-        DevelopmentResourceKind.EmailEmulator or
-        DevelopmentResourceKind.StripeEmulator => "/health/ready",
+        DevelopmentResourceKind.EmailEmulator => "/health/ready",
         DevelopmentResourceKind.Dashboard => "/health/ready",
         _ => null
     };

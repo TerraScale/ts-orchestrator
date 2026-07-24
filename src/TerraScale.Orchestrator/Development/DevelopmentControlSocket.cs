@@ -125,7 +125,6 @@ internal static partial class DevelopmentReconcilePlanner
             else if (path.StartsWith("src/Hosting/TerraScale.LocalEmulators/", StringComparison.Ordinal))
             {
                 kinds.Add(DevelopmentResourceKind.EmailEmulator);
-                kinds.Add(DevelopmentResourceKind.StripeEmulator);
                 kinds.Add(DevelopmentResourceKind.Authentication);
                 kinds.Add(DevelopmentResourceKind.Platform);
                 kinds.Add(DevelopmentResourceKind.Dashboard);
@@ -135,7 +134,6 @@ internal static partial class DevelopmentReconcilePlanner
             {
                 kinds.UnionWith([
                     DevelopmentResourceKind.EmailEmulator,
-                    DevelopmentResourceKind.StripeEmulator,
                     DevelopmentResourceKind.Authentication,
                     DevelopmentResourceKind.Platform,
                     DevelopmentResourceKind.Dashboard
@@ -157,7 +155,7 @@ internal static partial class DevelopmentReconcilePlanner
 
     private static int Order(DevelopmentResourceKind kind) => kind switch
     {
-        DevelopmentResourceKind.EmailEmulator or DevelopmentResourceKind.StripeEmulator => 0,
+        DevelopmentResourceKind.EmailEmulator => 0,
         DevelopmentResourceKind.TerraBase => 1,
         DevelopmentResourceKind.Authentication => 2,
         DevelopmentResourceKind.Platform => 3,

@@ -23,8 +23,7 @@ public sealed class DevelopmentTopologyTests
             ]);
         await Assert.That(topology.GlobalResources.Select(resource => resource.Kind))
             .IsEquivalentTo([
-                DevelopmentResourceKind.EmailEmulator,
-                DevelopmentResourceKind.StripeEmulator
+                DevelopmentResourceKind.EmailEmulator
             ]);
     }
 
@@ -78,7 +77,7 @@ public sealed class DevelopmentTopologyTests
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
             .Concat(topology.GlobalResources)
             .ToArray();
-        await Assert.That(resources.Length).IsEqualTo(23);
+        await Assert.That(resources.Length).IsEqualTo(22);
         var ports = resources.Select(resource => resource.Port)
             .Concat(resources.Where(resource => resource.ClusterPort is not null)
                 .Select(resource => resource.ClusterPort!.Value))
@@ -125,11 +124,26 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TerraScale__Queue__ConsumerReplicas"]).IsEqualTo("1");
         await Assert.That(environment["TerraScale__Billing__OperationMetering__PublishTimeout"])
             .IsEqualTo("00:00:02");
+        await Assert.That(environment["Payments__Provider"]).IsEqualTo("polar");
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
         await Assert.That(environment.Keys.Count(key => key.StartsWith("TerraBase__Urls__", StringComparison.Ordinal)))
             .IsEqualTo(1);
+
+        var stripeEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
+            topology,
+            cell,
+            platform,
+            isPlatform: true,
+            "/tmp/terrascale-orchestrator-tests",
+            new Dictionary<string, string?>
+            {
+                ["Payments__Provider"] = "stripe",
+                ["Payments__Stripe__SecretKey"] = "test-secret"
+            });
+        await Assert.That(stripeEnvironment["Payments__Provider"]).IsEqualTo("stripe");
+        await Assert.That(stripeEnvironment["Payments__Stripe__SecretKey"]).IsEqualTo("test-secret");
     }
 
     [Test]
@@ -194,7 +208,7 @@ public sealed class DevelopmentTopologyTests
         ]);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))
-            .IsEqualTo(13_248L * 1024 * 1024);
+            .IsEqualTo(13_056L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateControl()))
             .IsEqualTo(1_728L * 1024 * 1024);

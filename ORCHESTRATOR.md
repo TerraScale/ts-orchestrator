@@ -443,7 +443,7 @@ Admission uses a closed, versioned C# discriminated role catalog, not an arbitra
 
 Each role maps to a built-in descriptor schema, permitted runtimes, artifacts, ports, identities, secrets, capabilities, mounts, probes, network policy, and resource bounds. A manifest may choose only permitted parameters; it cannot supply an arbitrary executable, privileged container, host path, systemd directive, Linux capability, or NATS permission. Adding a role is an owner-approved specification/ADR change with threat-model, resource, ARM64, HA, first-deployment, and test updates.
 
-Email/Stripe emulators are test-fixture dependencies, not production roles. Billing/email/background responsibilities already hosted within `Platform` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
+The email emulator is a test-fixture dependency, not a production role. Payment providers remain external and are exercised through Platform's production adapters. Billing/email/background responsibilities already hosted within `Platform` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
 
 ## NATS and state correctness
 
@@ -1196,19 +1196,19 @@ CI wraps `pre-deployment-evidence.json` in a signed DSSE/in-toto-style attestati
 - In-process test executables: L0 behavior without a container.
 - Targeted dependency/runtime fixture: one L0C or L1S boundary at a time.
 - One-region R3 component fixture: L2S quorum semantics without unrelated product roles.
-- `quick`: one GRU RF1 product cell plus two shared emulators.
-- `regional`: 23-container GRU/SFO/FRA RF1 regional product slice plus two shared emulators.
+- `quick`: one GRU RF1 product cell plus the shared email emulator.
+- `regional`: 22-container GRU/SFO/FRA RF1 regional product slice plus the shared email emulator.
 - `control`: six-container RF1 regional control slice.
 - `oci-cell`: disposable three-node OCI region.
 - `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region production boundary.
 
-The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and profile labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 23-container profile plans 13,248 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
+The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and profile labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 22-container profile plans 13,056 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
 
 Phase 0 records the Podman version, image manifest digests, host kernel/cgroup capabilities, rootless status, network backend, storage driver, and conformance result. Upgrades require a reviewed pin change and a cold sequential L0/L0C/L3S run. Matching-host containers cannot qualify `linux-arm64`; real A1 remains the mandatory ARM boundary.
 
 Container namespaces and overlay storage are deliberate limitations in the evidence model. L3S proves processes, protocols, identities, topology, persistence, restart, and failure logic, but never claims to prove systemd unit semantics, OCI attachment/online expansion, block durability/performance, or A1 behavior. Those claims belong only to L1R/L4.
 
-The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, email and Stripe emulators, with the current dependency and health ordering. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
+The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, and the email emulator, with the current dependency and health ordering. Payment testing calls provider sandbox/test endpoints through Platform's production adapters. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
 
 ### Bounded three-region RF1 topology
 
@@ -1216,20 +1216,20 @@ The DevHost graph becomes the first product fixture: three TerraBase processes, 
 GRU: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
 SFO: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
 FRA: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
-Shared: email emulator + Stripe emulator
+Shared: email emulator
 ```
 
 Every resource receives a deterministic name and port, unique credentials and certificates, and independent control-NATS/product-NATS/TerraBase data directories. Images and built artifacts are staged before startup. The topology deliberately uses one member per regional stateful role: it tests three-region behavior and reduced-development RF=1 configuration, not production quorum or host-failure tolerance.
 
 The lab uses a rootless Podman pod only after conformance proves isolation, ports, limits, and cleanup behavior for the pinned version. Regional failure scenarios stop, restart, or degrade only allowlisted owned resources and run sequentially against one healthy lab when clean bootstrap is not the subject. A test that needs real quorum starts a separate one-region R3 component fixture after the RF1 lab has stopped. Container connectivity alone is not evidence of production addressing.
 
-The L3S inventory is exact and closed: one controller, control NATS, product NATS, TerraBase, Auth, API, and Dashboard in each of GRU/SFO/FRA, plus shared email and Stripe emulators. A declared resource fails the gate if it is absent, uses an unpinned image, lacks its implemented health/readiness check, has the wrong configuration generation, or cannot serve its protocol. Production-only roles are tested in-process until their targeted boundary lane exists; they are not added speculatively to make the local lab resemble production.
+The L3S inventory is exact and closed: one controller, control NATS, product NATS, TerraBase, Auth, API, and Dashboard in each of GRU/SFO/FRA, plus the shared email emulator. A declared resource fails the gate if it is absent, uses an unpinned image, lacks its implemented health/readiness check, has the wrong configuration generation, or cannot serve its protocol. Production-only roles are tested in-process until their targeted boundary lane exists; they are not added speculatively to make the local lab resemble production.
 
 Every integration candidate runs all implemented pure suites first, then only the affected targeted fixtures, then the applicable RF1 regional scenarios. No local validation workloads run concurrently. A healthy L3S lab is reused across sequential faults; it is recreated only when bootstrap, persistence recovery, or cleanup isolation is the behavior under test. Production systemd, containerd, block storage, ARM, OCI, destructive operations, multi-host clocks, and HA remain L1R/L4/L5 evidence.
 
 Mandatory scenario groups are:
 
-1. clean RF1 bootstrap, identity/mTLS/authorization, exact 23-resource inventory/readiness, reduced-replication configuration, and persisted data-directory separation;
+1. clean RF1 bootstrap, identity/mTLS/authorization, exact 22-resource inventory/readiness, reduced-replication configuration, and persisted data-directory separation;
 2. sequential stop/restart/recreate of representative owned resources in every region, with dependent health and reconciliation checked continuously;
 3. regional endpoint loss and restoration, GRU unavailability, reconnect/backlog behavior, regional autonomy, and telemetry degradation policy where implemented;
 4. scheduling, exact-digest rollout/rollback, N/N-1/A-B self-update, process crashes, controller lifecycle, stale command, unauthorized stale-deployment, and generation-replay attacks; controller/NATS leadership belongs to the one-region R3 lane;
@@ -1443,7 +1443,7 @@ Test sharding follows domain boundaries:
 - L0C: control-NATS/gateways; product-NATS/isolation; N/N-1 and peer/snapshot recovery.
 - L3S: RF1 bootstrap/NATS/mTLS; regional routing/health/restart/reconciliation; product composition and persistence; implemented GitOps/CI/Grafana/OTel behavior.
 
-L3S scenarios share one exclusive healthy 23-container RF1 topology and execute sequentially. A scenario requests a fresh topology only when bootstrap, persisted recovery, or cleanup isolation is part of its assertion. L0/L0C/L1S/L2S and L3S never overlap on the same validation host.
+L3S scenarios share one exclusive healthy 22-container RF1 topology and execute sequentially. A scenario requests a fresh topology only when bootstrap, persisted recovery, or cleanup isolation is part of its assertion. L0/L0C/L1S/L2S and L3S never overlap on the same validation host.
 
 ## Delivery plan
 
@@ -1459,7 +1459,7 @@ Deliver:
 - inventory live OCI instances, volumes, attachments, backups, buckets, LBs, public IPs, IAM, Vault, NATS streams/consumers, certificates, workloads, and seven-day utilization/cost; establish the actual post-OKE-deletion residual bill, explicitly prove OKE clusters/node pools are absent, and identify any stale Kubernetes/Flux IAM, DNS, secret, volume, public-IP, load-balancer, webhook, or configuration remnants;
 - run the normalized eligible-provider TCO/ARM64/block-storage/TerraBase benchmark and record why OCI remains first or which second adapter is prioritized;
 - generate the >=20-row OCI eligible-region matrix and exhaustive cross-repository `WRK-*` retirement ledger with owners/tests/removal phases;
-- pin Podman and every image by immutable manifest digest; run bounded 23-container RF1 start, persistence, port, resource-admission, process-crash, cleanup, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
+- pin Podman and every image by immutable manifest digest; run bounded 22-container RF1 start, persistence, port, resource-admission, process-crash, cleanup, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
 - define storage, availability, RPO/RTO, security, memory, scale, and cost SLOs;
 - ADRs for authority, NATS isolation/topology, provider ownership, runtime drivers, Vault scope, compact profile, networking/VPN, and project-placement boundary;
 - select and pin the ARM64 LTS host image/kernel/glibc, production filesystem candidates, NATS server/client and N/N-1 policy, test toolchain, artifact/evidence signing, A1-capacity fallback, VPN, DNS, immutable Grafana provisioning plus metrics/log/trace HA persistence, and regional artifact-mirror design;

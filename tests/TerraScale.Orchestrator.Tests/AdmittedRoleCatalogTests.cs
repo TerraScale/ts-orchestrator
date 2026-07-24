@@ -47,6 +47,5 @@ public sealed class AdmittedRoleCatalogTests
         }
 
         await Assert.That(DevelopmentRoleProjection.Get(DevelopmentResourceKind.EmailEmulator)).IsNull();
-        await Assert.That(DevelopmentRoleProjection.Get(DevelopmentResourceKind.StripeEmulator)).IsNull();
     }
 }

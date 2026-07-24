@@ -877,7 +877,7 @@ clock, partition, mTLS, and NATS-JWT gates.
 ## DevHost development profiles
 
 `lab plan` defaults to `quick`: one GRU cell with one instance of every product
-component and the shared email/Stripe emulators. `regional` runs the same RF=1
+component and the shared email emulator. `regional` runs the same RF=1
 product graph in GRU, SFO, and FRA. `control` keeps those three cells but starts
 only control NATS and one controller per cell. Each profile stores NATS,
 TerraBase, PKI, artifacts, and backups under its own data directory; none of
@@ -889,7 +889,7 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 23-container plan totals 13,248 MiB, leaving substantial burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 22-container plan totals 13,056 MiB, leaving substantial burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
@@ -943,12 +943,12 @@ consecutive unhealthy observations fail the foreground generation so DevHost
 can re-attest and recover the graph.
 
 Every DevHost state projection is also evaluated by the production typed
-reconciliation engine. The graph is not accepted as ready unless all 23
+reconciliation engine. The graph is not accepted as ready unless all 22
 allowlisted resources have exact generation/digest observations and converge
 in dependency order. Startup progress is written to the resource-state file,
 but the endpoint map used for DevHost cutover is withheld until one complete
 health pass—including each controller's instance-specific authority endpoint—
-and 23/23 typed convergence succeed. This prevents a starting generation from
+and 22/22 typed convergence succeed. This prevents a starting generation from
 being mistaken for a deployable candidate.
 
 ## Closed production role catalog
@@ -962,8 +962,8 @@ src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator 
 All production-shaped DevHost resources project to one of these built-in
 descriptors. Platform, Authentication, and Dashboard retain the production OCI
 default; TerraBase, both NATS planes, and Orchestrator retain their native
-systemd defaults. Email and Stripe emulators are explicitly development-only
-fixtures and cannot be admitted as production workloads.
+systemd defaults. The email emulator is explicitly development-only and cannot
+be admitted as a production workload. Payment providers remain external.
 
 `runtime plan` resolves a role and artifact digest through that catalog into a
 typed host execution plan. It never accepts an executable path, image

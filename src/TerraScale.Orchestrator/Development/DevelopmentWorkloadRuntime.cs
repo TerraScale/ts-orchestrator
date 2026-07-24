@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -21,11 +22,10 @@ internal static class DevelopmentWorkloadRuntime
         RequireDirectory(internalsRoot, "TerraScale.Internals repository");
         RequireDirectory(terraBaseRoot, "TerraBase repository");
 
-        StartEmulators(supervisor, topology, internalsRoot);
+        StartEmailEmulator(supervisor, topology, internalsRoot);
         await WaitHttpAsync(topology.GlobalResources.Single(resource =>
             resource.Kind == DevelopmentResourceKind.EmailEmulator).Port, "/health/ready", supervisor, cancellationToken);
-        await WaitHttpAsync(topology.GlobalResources.Single(resource =>
-            resource.Kind == DevelopmentResourceKind.StripeEmulator).Port, "/health/ready", supervisor, cancellationToken);
+        var paymentEnvironment = ReadPaymentEnvironment();
 
         foreach (var cell in topology.Cells)
         {
@@ -47,7 +47,7 @@ internal static class DevelopmentWorkloadRuntime
                 authentication,
                 Path.Combine(internalsRoot, "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, authentication, isPlatform: false, dataDirectory, natsSecurity));
+                    topology, cell, authentication, isPlatform: false, dataDirectory, natsSecurity, paymentEnvironment));
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
 
             var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
@@ -56,7 +56,7 @@ internal static class DevelopmentWorkloadRuntime
                 platform,
                 Path.Combine(internalsRoot, "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"),
                 CreateServiceEnvironment(
-                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity));
+                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity, paymentEnvironment));
             await WaitHttpAsync(platform.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
@@ -65,7 +65,7 @@ internal static class DevelopmentWorkloadRuntime
         }
     }
 
-    private static void StartEmulators(
+    private static void StartEmailEmulator(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
         string internalsRoot)
@@ -81,21 +81,14 @@ internal static class DevelopmentWorkloadRuntime
             Path.GetDirectoryName(project)!,
             "bin", "Release", "net10.0", "TerraScale.LocalEmulators.dll");
         RequireFile(assembly, "published local emulator assembly");
-        foreach (var resource in topology.GlobalResources)
-        {
-            var mode = resource.Kind switch
-            {
-                DevelopmentResourceKind.EmailEmulator => "email",
-                DevelopmentResourceKind.StripeEmulator => "stripe",
-                _ => throw new InvalidOperationException($"Unsupported global development role {resource.Kind}.")
-            };
-            supervisor.Start(
-                resource.Name,
-                DevelopmentContainerImages.AspNet,
-                ["dotnet", assembly, mode],
-                Path.GetDirectoryName(project)!,
-                CreateEmulatorEnvironment(resource));
-        }
+        var resource = topology.GlobalResources.Single(candidate =>
+            candidate.Kind == DevelopmentResourceKind.EmailEmulator);
+        supervisor.Start(
+            resource.Name,
+            DevelopmentContainerImages.AspNet,
+            ["dotnet", assembly, "email"],
+            Path.GetDirectoryName(project)!,
+            CreateEmulatorEnvironment(resource));
     }
 
     internal static IReadOnlyDictionary<string, string?> CreateEmulatorEnvironment(
@@ -222,10 +215,10 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentResourcePlan resource,
         bool isPlatform,
         string dataDirectory,
-        DevelopmentNatsSecurity? natsSecurity = null)
+        DevelopmentNatsSecurity? natsSecurity = null,
+        IReadOnlyDictionary<string, string?>? paymentEnvironment = null)
     {
         var email = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.EmailEmulator);
-        var stripe = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.StripeEmulator);
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats)[0];
         var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
@@ -312,9 +305,14 @@ internal static class DevelopmentWorkloadRuntime
         environment["Routing__ForwardUnplacedRequests"] = "true";
         environment["QueueReplication__SharedSecret"] = "test_project_queue_replication_key";
         environment["QueueReplication__RequestTimeoutMilliseconds"] = "900";
-        environment["Payments__Stripe__WebhookSecret"] = "whsec_devhost_local";
-        environment["Payments__Stripe__SecretKey"] = "sk_test_devhost_local";
-        environment["Payments__Stripe__ApiBaseUrl"] = Http(stripe.Port);
+        environment["Payments__Provider"] = "polar";
+        if (paymentEnvironment is not null)
+        {
+            foreach (var (key, value) in paymentEnvironment)
+            {
+                environment[key] = value;
+            }
+        }
         environment["Idempotency__RequireForInternalCalls"] = "true";
         environment["TerraScale__Queue__Provider"] = "Nats";
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";
@@ -339,6 +337,21 @@ internal static class DevelopmentWorkloadRuntime
         environment["TerraScale__Backups__LocalFolderPath"] = Path.Combine(dataDirectory, "backups", cell.Cell);
         environment["TerraScale__Backups__OperationPollSeconds"] = "1";
         return environment;
+    }
+
+    private static IReadOnlyDictionary<string, string?> ReadPaymentEnvironment()
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key &&
+                key.StartsWith("Payments__", StringComparison.OrdinalIgnoreCase))
+            {
+                values[key] = entry.Value?.ToString();
+            }
+        }
+
+        return values;
     }
 
     private static async Task BootstrapTerraBaseAsync(

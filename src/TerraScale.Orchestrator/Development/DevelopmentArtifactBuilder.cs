@@ -24,9 +24,7 @@ internal static class DevelopmentArtifactBuilder
         foreach (var (kind, project) in projects)
         {
             if (affectedKinds is not null &&
-                !affectedKinds.Contains(kind) &&
-                !(kind == DevelopmentResourceKind.EmailEmulator &&
-                  affectedKinds.Contains(DevelopmentResourceKind.StripeEmulator)))
+                !affectedKinds.Contains(kind))
             {
                 continue;
             }
