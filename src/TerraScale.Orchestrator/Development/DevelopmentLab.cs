@@ -1,5 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
+using System.Threading.Channels;
 
 namespace TerraScale.Orchestrator.Development;
 
@@ -21,9 +24,9 @@ public static class DevelopmentLab
         }
         var topology = options.LabProfile switch
         {
-            OrchestratorLabProfile.DevContainers => DevelopmentTopology.CreateThreeCellLean(),
-            OrchestratorLabProfile.DevContainersControl =>
-                DevelopmentTopology.CreateThreeCellControlPlane(),
+            OrchestratorLabProfile.Quick => DevelopmentTopology.CreateQuick(),
+            OrchestratorLabProfile.Regional => DevelopmentTopology.CreateRegional(),
+            OrchestratorLabProfile.Control => DevelopmentTopology.CreateControl(),
             _ => throw new InvalidOperationException($"Unsupported lab profile {options.LabProfile}.")
         };
         return options.LabCommand switch
@@ -79,6 +82,10 @@ public static class DevelopmentLab
         var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;
         var startedAt = DateTimeOffset.UtcNow;
+        var reconciliationQueue = Channel.CreateBounded<DevelopmentReconcilePlan>(16);
+        var reconciliations = new ConcurrentDictionary<string, DevelopmentReconciliationProgress>(
+            StringComparer.Ordinal);
+        var incidents = new Dictionary<string, DevelopmentIncident>(StringComparer.Ordinal);
         File.Delete(options.EndpointsFile!);
 
         var supervisor = new DevelopmentProcessSupervisor(
@@ -101,7 +108,9 @@ public static class DevelopmentLab
                     DevelopmentResourceState.Starting,
                     null,
                     publishEndpoints: false,
-                    cancellationToken);
+                    cancellationToken,
+                    reconciliations.Values,
+                    incidents.Values);
 
                 foreach (var cell in topology.Cells)
                 {
@@ -152,13 +161,32 @@ public static class DevelopmentLab
                     DevelopmentResourceState.Ready,
                     initialHealth,
                     publishEndpoints: true,
-                    cancellationToken);
+                    cancellationToken,
+                    reconciliations.Values,
+                    incidents.Values);
                 Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
 
+                await using var controlSocket = DevelopmentControlSocket.Start(
+                    options.SocketFile!,
+                    request => AcceptReconciliation(topology, reconciliationQueue, reconciliations, request));
                 var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    while (reconciliationQueue.Reader.TryRead(out var work))
+                    {
+                        await ReconcileRepositoryAsync(
+                            options,
+                            topology,
+                            supervisor,
+                            natsSecurity,
+                            generation,
+                            startedAt,
+                            reconciliations,
+                            incidents,
+                            work,
+                            cancellationToken);
+                    }
                     // Expired on-disk leaves cannot be healed by RestartAsync alone: NATS and
                     // clients reload the same PEM paths. Remint before health-driven restarts.
                     if (await TryRemintAndRestartTlsConsumersAsync(
@@ -263,7 +291,14 @@ public static class DevelopmentLab
                     }
                     foreach (var resourceName in exitedResources)
                     {
-                        await supervisor.RestartAsync(resourceName);
+                        if (!await TryRestartRuntimeAsync(
+                                topology,
+                                supervisor,
+                                incidents,
+                                resourceName))
+                        {
+                            continue;
+                        }
                         consecutiveUnhealthyObservations[resourceName] = 0;
                         Console.WriteLine($"Restarted development resource {resourceName} after an unexpected exit.");
                     }
@@ -281,7 +316,9 @@ public static class DevelopmentLab
                         DevelopmentResourceState.Ready,
                         health,
                         publishEndpoints: true,
-                        cancellationToken);
+                        cancellationToken,
+                        reconciliations.Values,
+                        incidents.Values);
                     var certificateFailure = health.Values.Any(static observation =>
                         !observation.Healthy && LooksLikeCertificateFailure(observation.Detail));
                     if (certificateFailure &&
@@ -2458,7 +2495,14 @@ public static class DevelopmentLab
                             consecutiveUnhealthyObservations.Clear();
                             break;
                         }
-                        await supervisor.RestartAsync(observation.Key);
+                        if (!await TryRestartRuntimeAsync(
+                                topology,
+                                supervisor,
+                                incidents,
+                                observation.Key))
+                        {
+                            continue;
+                        }
                         consecutiveUnhealthyObservations[observation.Key] = 0;
                         Console.WriteLine(
                             $"Restarted unhealthy development resource {observation.Key}: {observation.Value.Detail}");
@@ -2480,10 +2524,328 @@ public static class DevelopmentLab
                 DevelopmentResourceState.Stopped,
                 null,
                 publishEndpoints: false,
-                CancellationToken.None);
+                CancellationToken.None,
+                reconciliations.Values,
+                incidents.Values);
             File.Delete(options.EndpointsFile!);
         }
         return 0;
+    }
+
+    private static DevelopmentReconcileResponse AcceptReconciliation(
+        DevelopmentTopology topology,
+        Channel<DevelopmentReconcilePlan> queue,
+        ConcurrentDictionary<string, DevelopmentReconciliationProgress> reconciliations,
+        DevelopmentReconcileRequest request)
+    {
+        try
+        {
+            var plan = DevelopmentReconcilePlanner.Plan(topology, request);
+            var now = DateTimeOffset.UtcNow;
+            var progress = new DevelopmentReconciliationProgress(
+                plan.ReconciliationId,
+                request.RequestId,
+                request.Repository,
+                request.PreviousCommit,
+                request.CurrentCommit,
+                "accepted",
+                plan.Resources.Select(resource => resource.Name).ToArray(),
+                "Accepted for targeted artifact preparation.",
+                now,
+                now);
+            if (!queue.Writer.TryWrite(plan))
+            {
+                return new(
+                    DevelopmentReconcilePlanner.SchemaVersion,
+                    request.RequestId,
+                    false,
+                    null,
+                    "The development reconciliation queue is full.");
+            }
+            reconciliations[plan.ReconciliationId] = progress;
+            return new(
+                DevelopmentReconcilePlanner.SchemaVersion,
+                request.RequestId,
+                true,
+                plan.ReconciliationId,
+                null);
+        }
+        catch (InvalidDataException exception)
+        {
+            return new(
+                DevelopmentReconcilePlanner.SchemaVersion,
+                request.RequestId,
+                false,
+                null,
+                exception.Message);
+        }
+    }
+
+    private static async Task ReconcileRepositoryAsync(
+        OrchestratorOptions options,
+        DevelopmentTopology topology,
+        DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
+        long generation,
+        DateTimeOffset startedAt,
+        ConcurrentDictionary<string, DevelopmentReconciliationProgress> reconciliations,
+        Dictionary<string, DevelopmentIncident> incidents,
+        DevelopmentReconcilePlan work,
+        CancellationToken cancellationToken)
+    {
+        var kinds = work.Resources.Select(resource => resource.Kind).ToHashSet();
+        DevelopmentArtifactBackup? backup = null;
+        var replacing = false;
+        try
+        {
+            UpdateReconciliation(reconciliations, work, "building", "Building affected artifacts while the healthy runtime remains active.");
+            await PersistAsync(
+                options,
+                topology,
+                supervisor,
+                generation,
+                startedAt,
+                DevelopmentResourceState.Ready,
+                null,
+                publishEndpoints: true,
+                cancellationToken,
+                reconciliations.Values,
+                incidents.Values);
+            backup = DevelopmentArtifactBackup.Capture(
+                options.WorkspaceRoot!,
+                options.DataDirectory!,
+                work.ReconciliationId,
+                kinds);
+            await DevelopmentArtifactBuilder.BuildAsync(
+                options.WorkspaceRoot!,
+                options.DataDirectory!,
+                cancellationToken,
+                kinds);
+
+            replacing = true;
+            UpdateReconciliation(reconciliations, work, "replacing", "Artifacts are ready; replacing affected workloads in dependency order.");
+            foreach (var resource in work.Resources)
+            {
+                if (resource.Kind == DevelopmentResourceKind.Dashboard)
+                {
+                    supervisor.UpdateWorkingDirectory(
+                        resource.Name,
+                        DevelopmentDashboardArtifact.Resolve(options.DataDirectory!));
+                }
+                await supervisor.RestartAsync(resource.Name);
+                await WaitForResourceHealthyAsync(
+                    resource.Name,
+                    topology,
+                    supervisor,
+                    natsSecurity,
+                    cancellationToken);
+            }
+
+            var health = await DevelopmentHealthProbe.ProbeAsync(
+                topology,
+                supervisor,
+                natsSecurity,
+                cancellationToken);
+            UpdateReconciliation(reconciliations, work, "completed", "Every affected replacement passed its health contract.");
+            await PersistAsync(
+                options,
+                topology,
+                supervisor,
+                generation,
+                startedAt,
+                DevelopmentResourceState.Ready,
+                health,
+                publishEndpoints: true,
+                cancellationToken,
+                reconciliations.Values,
+                incidents.Values);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            var evidence = RedactEvidence(exception.Message);
+            var rollback = string.Empty;
+            try
+            {
+                backup?.Restore();
+                if (replacing)
+                {
+                    foreach (var resource in work.Resources)
+                    {
+                        if (resource.Kind == DevelopmentResourceKind.Dashboard)
+                        {
+                            supervisor.UpdateWorkingDirectory(
+                                resource.Name,
+                                DevelopmentDashboardArtifact.Resolve(options.DataDirectory!));
+                        }
+                        await supervisor.RestartAsync(resource.Name);
+                        await WaitForResourceHealthyAsync(
+                            resource.Name,
+                            topology,
+                            supervisor,
+                            natsSecurity,
+                            cancellationToken);
+                    }
+                }
+            }
+            catch (Exception rollbackException) when (!cancellationToken.IsCancellationRequested)
+            {
+                rollback = $" Rollback failed: {RedactEvidence(rollbackException.Message)}";
+            }
+
+            var incidentResource = work.Resources[0];
+            var code = replacing ? "DEV_REPLACEMENT_FAILED" : "DEV_BUILD_FAILED";
+            RecordIncident(
+                incidents,
+                code,
+                incidentResource,
+                work.Request.Repository,
+                evidence + rollback);
+            UpdateReconciliation(
+                reconciliations,
+                work,
+                "failed",
+                replacing
+                    ? $"Replacement failed; the last healthy artifacts were restored.{rollback}"
+                    : "Build failed; the current healthy workloads were left running.");
+            var health = await DevelopmentHealthProbe.ProbeAsync(
+                topology,
+                supervisor,
+                natsSecurity,
+                cancellationToken);
+            await PersistAsync(
+                options,
+                topology,
+                supervisor,
+                generation,
+                startedAt,
+                DevelopmentResourceState.Ready,
+                health,
+                publishEndpoints: true,
+                cancellationToken,
+                reconciliations.Values,
+                incidents.Values);
+        }
+        finally
+        {
+            backup?.Dispose();
+        }
+    }
+
+    private static async Task WaitForResourceHealthyAsync(
+        string resource,
+        DevelopmentTopology topology,
+        DevelopmentProcessSupervisor supervisor,
+        DevelopmentNatsSecurity natsSecurity,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(90));
+        while (true)
+        {
+            if (supervisor.Processes.TryGetValue(resource, out var process) && process.HasExited)
+            {
+                throw new InvalidOperationException(
+                    $"Replacement '{resource}' exited with code {process.ExitCode}.");
+            }
+            var health = await DevelopmentHealthProbe.ProbeAsync(
+                topology,
+                supervisor,
+                natsSecurity,
+                timeout.Token);
+            if (health.TryGetValue(resource, out var observation) && observation.Healthy)
+            {
+                return;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1), timeout.Token);
+        }
+    }
+
+    private static void UpdateReconciliation(
+        ConcurrentDictionary<string, DevelopmentReconciliationProgress> reconciliations,
+        DevelopmentReconcilePlan work,
+        string state,
+        string detail)
+    {
+        var current = reconciliations[work.ReconciliationId];
+        reconciliations[work.ReconciliationId] = current with
+        {
+            State = state,
+            Detail = detail,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private static void RecordIncident(
+        IDictionary<string, DevelopmentIncident> incidents,
+        string code,
+        DevelopmentResourcePlan resource,
+        string repository,
+        string evidence)
+    {
+        var key = string.Join('\u001f', code, resource.Name, repository);
+        var now = DateTimeOffset.UtcNow;
+        incidents[key] = incidents.TryGetValue(key, out var current)
+            ? current with
+            {
+                Evidence = evidence,
+                Occurrences = current.Occurrences + 1,
+                ObservedAt = now
+            }
+            : new(
+                code,
+                resource.Name,
+                resource.Cell,
+                repository,
+                "error",
+                Actionable: true,
+                Transient: false,
+                evidence,
+                1,
+                now);
+    }
+
+    private static async Task<bool> TryRestartRuntimeAsync(
+        DevelopmentTopology topology,
+        DevelopmentProcessSupervisor supervisor,
+        IDictionary<string, DevelopmentIncident> incidents,
+        string resourceName)
+    {
+        try
+        {
+            await supervisor.RestartAsync(resourceName);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            var resource = topology.Cells.SelectMany(cell => cell.Resources)
+                .Concat(topology.GlobalResources)
+                .Single(candidate => candidate.Name == resourceName);
+            RecordIncident(
+                incidents,
+                "DEV_RUNTIME_RESTART_FAILED",
+                resource,
+                RepositoryFor(resource.Kind),
+                RedactEvidence(exception.Message));
+            return false;
+        }
+    }
+
+    private static string RepositoryFor(DevelopmentResourceKind kind) => kind switch
+    {
+        DevelopmentResourceKind.TerraBase => "TerraBase",
+        DevelopmentResourceKind.ControllerAgent or DevelopmentResourceKind.ControlNats or
+            DevelopmentResourceKind.ProductNats => "TerraScale.Orchestrator",
+        _ => "TerraScale.Internals"
+    };
+
+    private static string RedactEvidence(string evidence)
+    {
+        var redacted = Regex.Replace(
+            evidence,
+            @"(?i)\b(password|token|secret|api[-_]?key)\s*[:=]\s*\S+",
+            "$1=[REDACTED]",
+            RegexOptions.CultureInvariant);
+        return redacted.Length <= 4096 ? redacted : redacted[..4096] + " [truncated]";
     }
 
     private static async Task<bool> TryRemintAndRestartTlsConsumersAsync(
@@ -4486,7 +4848,9 @@ public static class DevelopmentLab
         DevelopmentResourceState state,
         IReadOnlyDictionary<string, DevelopmentResourceHealth>? health,
         bool publishEndpoints,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IEnumerable<DevelopmentReconciliationProgress>? reconciliations = null,
+        IEnumerable<DevelopmentIncident>? incidents = null)
     {
         var observedAt = DateTimeOffset.UtcNow;
         var all = topology.Cells.SelectMany(cell => cell.Resources)
@@ -4502,13 +4866,15 @@ public static class DevelopmentLab
                 "The development graph cannot be accepted until typed reconciliation proves exact convergence.");
         }
         var runtimeState = new DevelopmentRuntimeState(
-            2,
+            3,
             topology.Profile,
             generation,
             startedAt,
             observedAt,
             all,
-            reconciliation);
+            reconciliation,
+            reconciliations?.OrderBy(item => item.UpdatedAt).TakeLast(20).ToArray() ?? [],
+            incidents?.OrderBy(item => item.ObservedAt).TakeLast(50).ToArray() ?? []);
         var endpointValues = all.Where(observation => observation.Endpoint is not null)
             .ToDictionary(observation => observation.Name, observation => observation.Endpoint!, StringComparer.Ordinal);
         AddDevHostAliases(endpointValues, topology);

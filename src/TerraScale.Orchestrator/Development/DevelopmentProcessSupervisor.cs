@@ -218,6 +218,15 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         return StartCore(specification);
     }
 
+    public void UpdateWorkingDirectory(string name, string workingDirectory)
+    {
+        if (!specifications.TryGetValue(name, out var specification))
+        {
+            throw new InvalidOperationException($"Development resource '{name}' has no trusted container specification.");
+        }
+        specifications[name] = specification with { WorkingDirectory = Path.GetFullPath(workingDirectory) };
+    }
+
     private Process StartCore(DevelopmentProcessSpec specification)
     {
         var environmentFile = WriteEnvironmentFile(specification);

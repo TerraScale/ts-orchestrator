@@ -1196,8 +1196,9 @@ CI wraps `pre-deployment-evidence.json` in a signed DSSE/in-toto-style attestati
 - In-process test executables: L0 behavior without a container.
 - Targeted dependency/runtime fixture: one L0C or L1S boundary at a time.
 - One-region R3 component fixture: L2S quorum semantics without unrelated product roles.
-- `dev-containers-control-three-cell-lean`: six-container RF1 regional control slice.
-- `dev-containers-three-cell-lean`: 23-container GRU/SFO/FRA RF1 regional product slice plus two shared emulators.
+- `quick`: one GRU RF1 product cell plus two shared emulators.
+- `regional`: 23-container GRU/SFO/FRA RF1 regional product slice plus two shared emulators.
+- `control`: six-container RF1 regional control slice.
 - `oci-cell`: disposable three-node OCI region.
 - `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region production boundary.
 

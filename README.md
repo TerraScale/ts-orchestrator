@@ -874,11 +874,14 @@ not claim election or quorum. Those semantics use a separate targeted
 one-region R3 component lane and still do not replace the real multi-host
 clock, partition, mTLS, and NATS-JWT gates.
 
-## DevHost three-cell container profile
+## DevHost development profiles
 
-`lab plan` is a pure operation and prints the fixed `dev-containers-three-cell-lean` topology. It contains GRU, SFO, and FRA cells. Every cell has one Orchestrator controller, one control-plane NATS server, one product-plane NATS server, one TerraBase server, Authentication, API, and Dashboard. Email and Stripe emulators are shared development fixtures. This 23-container profile is fast local integration evidence; it does not claim production R3 failure tolerance.
-
-For control-plane smoke and stability work, `--profile dev-containers-control` keeps the same three regions but starts only one control NATS server and one controller in each region. This six-container slice exercises regional authority and health without building or starting product workloads.
+`lab plan` defaults to `quick`: one GRU cell with one instance of every product
+component and the shared email/Stripe emulators. `regional` runs the same RF=1
+product graph in GRU, SFO, and FRA. `control` keeps those three cells but starts
+only control NATS and one controller per cell. Each profile stores NATS,
+TerraBase, PKI, artifacts, and backups under its own data directory; none of
+these profiles claims production quorum.
 
 ```bash
 dotnet run --project src/TerraScale.Orchestrator -- lab plan
@@ -893,17 +896,22 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
   development-attest \
   --output /tmp/terrascale-orchestrator-control-evidence.json \
   --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
-  --profile dev-containers-control-three-cell-lean
+  --profile control
 
 src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
   lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
-  --profile dev-containers-control \
+  --profile control \
   --evidence /tmp/terrascale-orchestrator-control-evidence.json
 ```
 
-The adapter persists independent control NATS, product NATS, TerraBase, and backup data per cell. It publishes atomic resource and endpoint projections for DevHost. Stopping the foreground Orchestrator removes every owned container and its pod; persisted data remains for the next generation. Startup removes an existing pod only when its ownership label matches exactly and refuses to touch foreign resources.
+The adapter publishes atomic endpoint and runtime projections plus an
+owner-private Unix command socket. Versioned reconciliation requests carry a
+request ID, repository, commit range, and bounded changed paths. Orchestrator
+maps them to affected workloads, builds before stopping the current runtime,
+health-gates replacements, restores the last healthy artifacts on failure, and
+projects bounded structured incidents for DevHost.
 
 Run regional fault scenarios sequentially against one healthy lab and reuse it
 when clean bootstrap is not the behavior under test. Pure decision logic stays

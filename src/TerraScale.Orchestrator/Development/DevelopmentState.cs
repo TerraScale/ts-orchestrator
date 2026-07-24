@@ -33,7 +33,33 @@ public sealed record DevelopmentRuntimeState(
     DateTimeOffset StartedAt,
     DateTimeOffset ObservedAt,
     IReadOnlyList<DevelopmentResourceObservation> Resources,
-    DevelopmentReconciliationState Reconciliation);
+    DevelopmentReconciliationState Reconciliation,
+    IReadOnlyList<DevelopmentReconciliationProgress>? Reconciliations = null,
+    IReadOnlyList<DevelopmentIncident>? Incidents = null);
+
+public sealed record DevelopmentReconciliationProgress(
+    string ReconciliationId,
+    string RequestId,
+    string Repository,
+    string PreviousCommit,
+    string CurrentCommit,
+    string State,
+    IReadOnlyList<string> Resources,
+    string Detail,
+    DateTimeOffset StartedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record DevelopmentIncident(
+    string Code,
+    string Resource,
+    string Cell,
+    string Repository,
+    string Severity,
+    bool Actionable,
+    bool Transient,
+    string Evidence,
+    int Occurrences,
+    DateTimeOffset ObservedAt);
 
 public sealed record DevelopmentEndpointMap(
     int SchemaVersion,

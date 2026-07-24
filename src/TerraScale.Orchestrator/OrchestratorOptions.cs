@@ -17,8 +17,9 @@ public enum OrchestratorLabCommand
 
 public enum OrchestratorLabProfile
 {
-    DevContainers,
-    DevContainersControl
+    Quick,
+    Regional,
+    Control
 }
 
 public sealed record OrchestratorOptions(
@@ -33,7 +34,8 @@ public sealed record OrchestratorOptions(
     string? EndpointsFile = null,
     string? EvidenceFile = null,
     string Instance = "local",
-    OrchestratorLabProfile LabProfile = OrchestratorLabProfile.DevContainers,
+    OrchestratorLabProfile LabProfile = OrchestratorLabProfile.Quick,
+    string? SocketFile = null,
     string? NatsNKeyFile = null,
     Messaging.NatsTlsFiles? NatsTls = null,
     Messaging.GlobalNatsConfiguration? GlobalNats = null,
@@ -205,7 +207,7 @@ public sealed record OrchestratorOptions(
             values,
             "--workspace",
             environment("TERRASCALE_WORKSPACE_ROOT") ?? Directory.GetCurrentDirectory()));
-        var dataDirectory = Path.GetFullPath(GetValue(
+        var dataRoot = Path.GetFullPath(GetValue(
             values,
             "--data-directory",
             environment("TS_ORCH_LAB_DATA") ?? Path.Combine(
@@ -215,23 +217,32 @@ public sealed record OrchestratorOptions(
         var stateFile = Path.GetFullPath(GetValue(
             values,
             "--state-file",
-            Path.Combine(dataDirectory, "state.json")));
+            Path.Combine(dataRoot, "state.json")));
         var endpointsFile = Path.GetFullPath(GetValue(
             values,
             "--endpoints-file",
-            Path.Combine(dataDirectory, "endpoints.json")));
+            Path.Combine(dataRoot, "endpoints.json")));
         values.TryGetValue("--evidence", out var evidenceFile);
 
-        var labProfile = GetValue(values, "--profile", environment("TS_ORCH_LAB_PROFILE") ?? "dev-containers") switch
+        var labProfile = GetValue(values, "--profile", environment("TS_ORCH_LAB_PROFILE") ?? "quick") switch
         {
-            "dev-containers" => OrchestratorLabProfile.DevContainers,
-            "dev-containers-control" => OrchestratorLabProfile.DevContainersControl,
+            "quick" => OrchestratorLabProfile.Quick,
+            "regional" or "dev-containers" => OrchestratorLabProfile.Regional,
+            "control" or "dev-containers-control" => OrchestratorLabProfile.Control,
             _ => throw new ArgumentException(
-                "Lab profile must be 'dev-containers' or 'dev-containers-control'.")
+                "Lab profile must be 'quick', 'regional', or 'control'.")
         };
+        var dataDirectory = Path.Combine(
+            dataRoot,
+            "profiles",
+            labProfile.ToString().ToLowerInvariant());
+        var socketFile = Path.GetFullPath(GetValue(
+            values,
+            "--socket",
+            Path.Combine(Path.GetDirectoryName(stateFile)!, "orchestrator.sock")));
 
         var unknown = values.Keys.Except(
-            ["--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--profile"],
+            ["--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--profile", "--socket"],
             StringComparer.Ordinal).FirstOrDefault();
         if (unknown is not null)
         {
@@ -250,7 +261,8 @@ public sealed record OrchestratorOptions(
             endpointsFile,
             evidenceFile is null ? null : Path.GetFullPath(evidenceFile),
             instance,
-            labProfile);
+            labProfile,
+            SocketFile: socketFile);
     }
 
     private static string GetValue(

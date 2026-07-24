@@ -16,25 +16,40 @@ public sealed class OrchestratorOptionsTests
     public async Task ParsesLabPlanWithoutDeploymentEvidence()
     {
         var options = OrchestratorOptions.Parse(
-            ["lab", "plan", "--workspace", "/tmp/workspace", "--data-directory", "/tmp/data", "--profile", "dev-containers"],
+            ["lab", "plan", "--workspace", "/tmp/workspace", "--data-directory", "/tmp/data", "--profile", "regional"],
             _ => null);
 
         await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Lab);
         await Assert.That(options.LabCommand).IsEqualTo(OrchestratorLabCommand.Plan);
         await Assert.That(options.WorkspaceRoot).IsEqualTo("/tmp/workspace");
-        await Assert.That(options.DataDirectory).IsEqualTo("/tmp/data");
-        await Assert.That(options.LabProfile).IsEqualTo(OrchestratorLabProfile.DevContainers);
+        await Assert.That(options.DataDirectory).IsEqualTo("/tmp/data/profiles/regional");
+        await Assert.That(options.LabProfile).IsEqualTo(OrchestratorLabProfile.Regional);
     }
 
     [Test]
     public async Task ParsesControlPlaneContainerProfile()
     {
         var options = OrchestratorOptions.Parse(
-            ["lab", "plan", "--profile", "dev-containers-control"],
+            ["lab", "plan", "--profile", "control"],
             _ => null);
 
         await Assert.That(options.LabProfile)
-            .IsEqualTo(OrchestratorLabProfile.DevContainersControl);
+            .IsEqualTo(OrchestratorLabProfile.Control);
+    }
+
+    [Test]
+    public async Task ProfilesUseSeparatePersistentDataDirectories()
+    {
+        var quick = OrchestratorOptions.Parse(
+            ["lab", "plan", "--data-directory", "/tmp/data", "--profile", "quick"],
+            _ => null);
+        var regional = OrchestratorOptions.Parse(
+            ["lab", "plan", "--data-directory", "/tmp/data", "--profile", "regional"],
+            _ => null);
+
+        await Assert.That(quick.DataDirectory).IsEqualTo("/tmp/data/profiles/quick");
+        await Assert.That(regional.DataDirectory).IsEqualTo("/tmp/data/profiles/regional");
+        await Assert.That(quick.StateFile).IsEqualTo(regional.StateFile);
     }
 
     [Test]

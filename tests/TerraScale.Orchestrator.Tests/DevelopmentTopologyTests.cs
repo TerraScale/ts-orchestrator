@@ -5,12 +5,35 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentTopologyTests
 {
     [Test]
+    public async Task QuickProfileRunsOneGruCopyOfEveryProductResource()
+    {
+        var topology = DevelopmentTopology.CreateQuick();
+
+        await Assert.That(topology.Profile).IsEqualTo("quick");
+        await Assert.That(topology.Cells.Select(cell => cell.Cell)).IsEquivalentTo(["gru"]);
+        await Assert.That(topology.Cells.Single().Resources.Select(resource => resource.Kind))
+            .IsEquivalentTo([
+                DevelopmentResourceKind.ControlNats,
+                DevelopmentResourceKind.ProductNats,
+                DevelopmentResourceKind.ControllerAgent,
+                DevelopmentResourceKind.TerraBase,
+                DevelopmentResourceKind.Authentication,
+                DevelopmentResourceKind.Platform,
+                DevelopmentResourceKind.Dashboard
+            ]);
+        await Assert.That(topology.GlobalResources.Select(resource => resource.Kind))
+            .IsEquivalentTo([
+                DevelopmentResourceKind.EmailEmulator,
+                DevelopmentResourceKind.StripeEmulator
+            ]);
+    }
+
+    [Test]
     public async Task ControlPlaneProfileKeepsThreeRegionsAndStartsOnlySixResources()
     {
-        var topology = DevelopmentTopology.CreateThreeCellControlPlane();
+        var topology = DevelopmentTopology.CreateControl();
 
-        await Assert.That(topology.Profile)
-            .IsEqualTo("dev-containers-control-three-cell-lean");
+        await Assert.That(topology.Profile).IsEqualTo("control");
         await Assert.That(topology.Cells.Select(cell => cell.Cell))
             .IsEquivalentTo(["gru", "sfo", "fra"]);
         await Assert.That(topology.GlobalResources).IsEmpty();
@@ -31,9 +54,9 @@ public sealed class DevelopmentTopologyTests
     [Test]
     public async Task ThreeCellContainerProfileHasOneReplicaPerRoleAndUniquePorts()
     {
-        var topology = DevelopmentTopology.CreateThreeCellLean();
+        var topology = DevelopmentTopology.CreateRegional();
 
-        await Assert.That(topology.Profile).IsEqualTo("dev-containers-three-cell-lean");
+        await Assert.That(topology.Profile).IsEqualTo("regional");
         await Assert.That(topology.Cells.Select(cell => cell.Cell)).IsEquivalentTo(["gru", "sfo", "fra"]);
         foreach (var cell in topology.Cells)
         {

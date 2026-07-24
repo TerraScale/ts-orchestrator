@@ -39,33 +39,27 @@ public sealed record DevelopmentTopology(
     private const int CellStride = 200;
     private const int BasePort = 18600;
 
-    public static DevelopmentTopology CreateThreeCellLean()
+    public static DevelopmentTopology CreateQuick()
     {
-        var cells = CreateCells(controlOnly: false);
-        var globalBase = BasePort + (cells.Length * CellStride);
-        var global = new[]
-        {
-            new DevelopmentResourcePlan(
-                "email-emulator",
-                "gru",
-                DevelopmentResourceKind.EmailEmulator,
-                1,
-                globalBase),
-            new DevelopmentResourcePlan(
-                "stripe-emulator",
-                "gru",
-                DevelopmentResourceKind.StripeEmulator,
-                1,
-                globalBase + 1)
-        };
-        return new("dev-containers-three-cell-lean", cells, global);
+        var cells = new[] { CreateCell("gru", 0, controlOnly: false) };
+        return new("quick", cells, CreateGlobalResources(cells.Length));
     }
 
-    public static DevelopmentTopology CreateThreeCellControlPlane()
+    public static DevelopmentTopology CreateRegional()
+    {
+        var cells = CreateCells(controlOnly: false);
+        return new("regional", cells, CreateGlobalResources(cells.Length));
+    }
+
+    public static DevelopmentTopology CreateControl()
     {
         var cells = CreateCells(controlOnly: true);
-        return new("dev-containers-control-three-cell-lean", cells, []);
+        return new("control", cells, []);
     }
+
+    internal static DevelopmentTopology CreateThreeCellLean() => CreateRegional();
+
+    internal static DevelopmentTopology CreateThreeCellControlPlane() => CreateControl();
 
     private static DevelopmentCellPlan[] CreateCells(bool controlOnly) =>
     [
@@ -73,6 +67,26 @@ public sealed record DevelopmentTopology(
         CreateCell("sfo", 1, controlOnly),
         CreateCell("fra", 2, controlOnly)
     ];
+
+    private static DevelopmentResourcePlan[] CreateGlobalResources(int cellCount)
+    {
+        var globalBase = BasePort + (cellCount * CellStride);
+        return
+        [
+            new(
+                "email-emulator",
+                "gru",
+                DevelopmentResourceKind.EmailEmulator,
+                1,
+                globalBase),
+            new(
+                "stripe-emulator",
+                "gru",
+                DevelopmentResourceKind.StripeEmulator,
+                1,
+                globalBase + 1)
+        ];
+    }
 
     public DevelopmentResourcePlan GetRequired(
         string cell,

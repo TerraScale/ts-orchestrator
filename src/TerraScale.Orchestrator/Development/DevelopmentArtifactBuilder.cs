@@ -7,17 +7,29 @@ internal static class DevelopmentArtifactBuilder
     public static async Task BuildAsync(
         string workspaceRoot,
         string dataDirectory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<DevelopmentResourceKind>? affectedKinds = null)
     {
         var projects = new[]
         {
-            Path.Combine(workspaceRoot, "TerraBase", "src", "TerraBase.Server", "TerraBase.Server.csproj"),
-            Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Hosting", "TerraScale.LocalEmulators", "TerraScale.LocalEmulators.csproj"),
-            Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"),
-            Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj")
+            (DevelopmentResourceKind.TerraBase,
+                Path.Combine(workspaceRoot, "TerraBase", "src", "TerraBase.Server", "TerraBase.Server.csproj")),
+            (DevelopmentResourceKind.EmailEmulator,
+                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Hosting", "TerraScale.LocalEmulators", "TerraScale.LocalEmulators.csproj")),
+            (DevelopmentResourceKind.Authentication,
+                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj")),
+            (DevelopmentResourceKind.Platform,
+                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"))
         };
-        foreach (var project in projects)
+        foreach (var (kind, project) in projects)
         {
+            if (affectedKinds is not null &&
+                !affectedKinds.Contains(kind) &&
+                !(kind == DevelopmentResourceKind.EmailEmulator &&
+                  affectedKinds.Contains(DevelopmentResourceKind.StripeEmulator)))
+            {
+                continue;
+            }
             if (!File.Exists(project))
             {
                 throw new FileNotFoundException("A required development project is unavailable.", project);
@@ -29,14 +41,17 @@ internal static class DevelopmentArtifactBuilder
                 cancellationToken);
         }
 
-        var dashboard = Path.Combine(
-            workspaceRoot,
-            "TerraScale.Internals",
-            "src",
-            "Dashboard",
-            "TerraScale.Dashboard.Next");
-        await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
-        DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
+        if (affectedKinds is null || affectedKinds.Contains(DevelopmentResourceKind.Dashboard))
+        {
+            var dashboard = Path.Combine(
+                workspaceRoot,
+                "TerraScale.Internals",
+                "src",
+                "Dashboard",
+                "TerraScale.Dashboard.Next");
+            await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
+            DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
+        }
     }
 
     internal static IReadOnlyList<string> DotNetBuildArguments(string project) =>

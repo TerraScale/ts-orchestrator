@@ -122,9 +122,9 @@ internal static class ToolingTests
         var lean = DevelopmentEvidenceCommand.Parse(["--output", "/tmp/evidence.json"]);
         var control = DevelopmentEvidenceCommand.Parse([
             "--output", "/tmp/evidence.json",
-            "--profile", "dev-containers-control-three-cell-lean"]);
-        AssertEqual("dev-containers-three-cell-lean", lean.Profile);
-        AssertEqual("dev-containers-control-three-cell-lean", control.Profile);
+            "--profile", "control"]);
+        AssertEqual("quick", lean.Profile);
+        AssertEqual("control", control.Profile);
         var retiredProfile = string.Concat("dev-", "smol", "vm", "-three-cell-r3");
         AssertThrows<ToolValidationException>(() => DevelopmentEvidenceCommand.Parse([
             "--output", "/tmp/evidence.json",
