@@ -137,7 +137,7 @@ public sealed class DevelopmentTopologyTests
             platform,
             isPlatform: true,
             "/tmp/terrascale-orchestrator-tests",
-            new Dictionary<string, string?>
+            paymentEnvironment: new Dictionary<string, string?>
             {
                 ["Payments__Provider"] = "stripe",
                 ["Payments__Stripe__SecretKey"] = "test-secret"
