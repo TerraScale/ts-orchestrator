@@ -115,13 +115,14 @@ public sealed class DevelopmentControlSocketTests
         using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         await socket.ConnectAsync(new UnixDomainSocketEndPoint(path));
         await using var stream = new NetworkStream(socket, ownsSocket: false);
-        await JsonSerializer.SerializeAsync(stream, request);
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        await JsonSerializer.SerializeAsync(stream, request, options);
         await stream.WriteAsync("\n"u8.ToArray());
         await stream.FlushAsync();
         socket.Shutdown(SocketShutdown.Send);
         return await JsonSerializer.DeserializeAsync<DevelopmentReconcileResponse>(
             stream,
-            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            options)
             ?? throw new InvalidDataException("Missing socket response.");
     }
 }
