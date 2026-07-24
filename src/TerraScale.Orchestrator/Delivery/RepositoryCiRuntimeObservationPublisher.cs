@@ -6,8 +6,7 @@ namespace TerraScale.Orchestrator.Delivery;
 
 internal sealed record RepositoryCiRuntimeObservationTransportAck(
     string Stream,
-    ulong Sequence,
-    bool Duplicate);
+    ulong Sequence);
 
 internal interface IRepositoryCiRuntimeObservationTransport
 {
@@ -39,8 +38,7 @@ internal sealed class NatsRepositoryCiRuntimeObservationTransport(NatsClient cli
         acknowledgement.EnsureSuccess();
         return new(
             acknowledgement.Stream ?? string.Empty,
-            acknowledgement.Seq,
-            acknowledgement.Duplicate);
+            acknowledgement.Seq);
     }
 }
 

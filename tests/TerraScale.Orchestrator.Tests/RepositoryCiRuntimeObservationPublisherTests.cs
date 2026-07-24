@@ -150,8 +150,7 @@ public sealed class RepositoryCiRuntimeObservationPublisherTests
             Payload = payload.ToArray();
             return Task.FromResult(new RepositoryCiRuntimeObservationTransportAck(
                 Stream,
-                Sequence,
-                Duplicate: false));
+                Sequence));
         }
     }
 
