@@ -87,7 +87,7 @@ internal sealed record PreDeploymentEvidence(
                 MaximumValidationProcesses: processLimit
             } ||
             TestInventory is not { Count: 5 } ||
-            ProcessObservations is not { Count: 7 } ||
+            ProcessObservations is not { Count: 8 } ||
             TestInventory.Any(item => item.Tests <= 0 || item.MaximumParallelTests != 4) ||
             TestInventory.Select(item => item.Module).Distinct(StringComparer.Ordinal).Count() != 5 ||
             ProcessObservations.Any(item =>
@@ -100,7 +100,8 @@ internal sealed record PreDeploymentEvidence(
         }
 
         var observed = ProcessObservations.Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
-        return observed.Count == 7 &&
+        return observed.Count == 8 &&
+            observed.Contains("solution-restore") &&
             observed.Contains("solution-build") &&
             observed.Contains("orchestrator-policy-tooling-tests") &&
             TestInventory.All(item => observed.Contains(item.Module));

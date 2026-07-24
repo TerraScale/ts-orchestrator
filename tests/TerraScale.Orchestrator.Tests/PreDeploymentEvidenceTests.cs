@@ -36,6 +36,7 @@ public sealed class PreDeploymentEvidenceTests
                 4,
                 100))
             .Concat([
+                new("solution-restore", 1_999, 64L * 1024 * 1024, 4, 150),
                 new("solution-build", 2_000, 128L * 1024 * 1024, 8, 200),
                 new("orchestrator-policy-tooling-tests", 2_001, 64L * 1024 * 1024, 2, 100)
             ])

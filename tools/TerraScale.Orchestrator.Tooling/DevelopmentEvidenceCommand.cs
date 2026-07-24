@@ -54,6 +54,13 @@ internal static class DevelopmentEvidenceCommand
 
         RequireClean(root);
         var observations = new List<(string Name, ProcessObservation Value)>();
+        // Locked restore must precede --no-restore build so package adds (e.g. ZString/Cysharp.Text)
+        // refresh project.assets.json on the exact tree before compilation.
+        observations.Add(("solution-restore", RunRequired(
+            "dotnet",
+            ["restore", "TerraScale.Orchestrator.slnx", "--locked-mode", "--disable-parallel", "--nologo"],
+            root,
+            TimeSpan.FromMinutes(5)).Observation));
         observations.Add(("solution-build", RunRequired(
             "dotnet",
             ["build", "TerraScale.Orchestrator.slnx", "--no-restore", "--no-incremental", "--nologo", "--maxcpucount:1", "--nodeReuse:false"],
@@ -109,6 +116,7 @@ internal static class DevelopmentEvidenceCommand
             ["issuedAt"] = now,
             ["expiresAt"] = now.AddHours(options.ValidHours),
             ["checks"] = new JsonArray(
+                "orchestrator-solution-restore",
                 "orchestrator-solution-build",
                 "orchestrator-test-modules-sequential",
                 "orchestrator-policy-tooling-tests"),
