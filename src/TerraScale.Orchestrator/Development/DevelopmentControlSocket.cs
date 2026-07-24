@@ -173,6 +173,7 @@ internal static partial class DevelopmentReconcilePlanner
 internal sealed class DevelopmentControlSocket : IAsyncDisposable
 {
     private const int MaximumRequestBytes = 128 * 1024;
+    private static readonly TimeSpan ClientTimeout = TimeSpan.FromSeconds(2);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
@@ -234,7 +235,19 @@ internal sealed class DevelopmentControlSocket : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             using var client = await listener.AcceptAsync(cancellationToken);
-            await ProcessAsync(client, cancellationToken);
+            using var clientTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            clientTimeout.CancelAfter(ClientTimeout);
+            try
+            {
+                await ProcessAsync(client, clientTimeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception) when (
+                exception is IOException or SocketException or ObjectDisposedException)
+            {
+            }
         }
     }
 

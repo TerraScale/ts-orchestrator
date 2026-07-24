@@ -80,11 +80,19 @@ public sealed class DevelopmentControlSocketTests
             {
                 CurrentCommit = "cccccccccccccccccccccccccccccccccccccccc"
             });
+            using var stalled = new Socket(
+                AddressFamily.Unix,
+                SocketType.Stream,
+                ProtocolType.Unspecified);
+            await stalled.ConnectAsync(new UnixDomainSocketEndPoint(path));
+            var recovered = await SendAsync(path, request with { RequestId = "request-2" })
+                .WaitAsync(TimeSpan.FromSeconds(5));
 
             await Assert.That(first.Accepted).IsTrue();
             await Assert.That(duplicate).IsEqualTo(first);
             await Assert.That(conflict.Accepted).IsFalse();
-            await Assert.That(calls).IsEqualTo(1);
+            await Assert.That(recovered.Accepted).IsTrue();
+            await Assert.That(calls).IsEqualTo(2);
             await Assert.That(File.GetUnixFileMode(path))
                 .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
