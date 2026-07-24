@@ -30,7 +30,9 @@ internal sealed record DevelopmentReconcilePlan(
 internal static partial class DevelopmentReconcilePlanner
 {
     public const string SchemaVersion = "terrascale.orchestrator.development/v1";
-    private const int MaximumChangedPaths = 128;
+    // Large refactors (e.g. ZString migrations across tests/bench) routinely exceed 128
+    // paths; TerraBase impact mapping does not use the path list for kind selection.
+    private const int MaximumChangedPaths = 1024;
     private const int MaximumPathLength = 512;
 
     public static DevelopmentReconcilePlan Plan(
@@ -55,9 +57,16 @@ internal static partial class DevelopmentReconcilePlanner
         {
             throw new InvalidDataException("The commit range is invalid.");
         }
-        if (request.ChangedPaths is null ||
-            request.ChangedPaths.Count is < 1 or > MaximumChangedPaths ||
-            request.ChangedPaths.Any(path => !SafePath(path)))
+        if (request.ChangedPaths is null || request.ChangedPaths.Count < 1)
+        {
+            throw new InvalidDataException("Changed paths must be a non-empty list of relative repository paths.");
+        }
+        if (request.ChangedPaths.Count > MaximumChangedPaths)
+        {
+            throw new InvalidDataException(
+                $"Changed paths exceed the maximum of {MaximumChangedPaths} entries.");
+        }
+        if (request.ChangedPaths.Any(path => !SafePath(path)))
         {
             throw new InvalidDataException("Changed paths must be bounded relative repository paths.");
         }
