@@ -2593,6 +2593,17 @@ public static class DevelopmentLab
         DevelopmentReconcilePlan work,
         CancellationToken cancellationToken)
     {
+        // Docs/tooling-only Internals updates plan with zero resources: accept and complete without restart.
+        if (work.Resources.Count == 0)
+        {
+            UpdateReconciliation(
+                reconciliations,
+                work,
+                "completed",
+                "No-op: non-runtime repository content only; no workloads affected.");
+            return;
+        }
+
         var kinds = work.Resources.Select(resource => resource.Kind).ToHashSet();
         DevelopmentArtifactBackup? backup = null;
         var replacing = false;

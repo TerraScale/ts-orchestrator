@@ -81,7 +81,13 @@ internal static partial class DevelopmentReconcilePlanner
             .ToArray();
         if (resources.Length == 0)
         {
-            throw new InvalidDataException("The repository update has no safe workload mapping in this profile.");
+            // Docs/tooling-only Internals content has no runtime mapping and must not fail closed.
+            if (request.Repository != "TerraScale.Internals" ||
+                !request.ChangedPaths.All(IsNonRuntimeInternalsPath))
+            {
+                throw new InvalidDataException(
+                    "The repository update has no safe workload mapping in this profile.");
+            }
         }
 
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join(
@@ -92,6 +98,37 @@ internal static partial class DevelopmentReconcilePlanner
             request.CurrentCommit,
             string.Join('\u001e', request.ChangedPaths))));
         return new(request, $"dev-{Convert.ToHexStringLower(digest)[..24]}", resources);
+    }
+
+    /// <summary>
+    /// Paths that never map to a development workload for TerraScale.Internals.
+    /// Docs, agent rules, CI/tooling config, and root markdown may pull without restart.
+    /// </summary>
+    internal static bool IsNonRuntimeInternalsPath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        if (path.StartsWith("docs/", StringComparison.Ordinal) ||
+            path.StartsWith("eng/", StringComparison.Ordinal) ||
+            path.StartsWith(".forgejo/", StringComparison.Ordinal) ||
+            path.StartsWith(".github/", StringComparison.Ordinal) ||
+            path.StartsWith(".agents/", StringComparison.Ordinal) ||
+            path.StartsWith(".codex/", StringComparison.Ordinal) ||
+            path.StartsWith(".terrascale/", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (path is "BannedSymbols.txt" or "NuGet.config" or "PLAN.md" or "AGENTS.md" or "CLAUDE.md")
+        {
+            return true;
+        }
+
+        // Root-level markdown only (README.md, CONTRIBUTING.md, etc.).
+        return !path.Contains('/') && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
     }
 
     private static HashSet<DevelopmentResourceKind> Impact(

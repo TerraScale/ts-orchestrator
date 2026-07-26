@@ -44,8 +44,27 @@ public sealed class DevelopmentControlSocketTests
             .Throws<InvalidDataException>();
         await Assert.That(() => DevelopmentReconcilePlanner.Plan(
                 topology,
-                Request("TerraScale.Internals", ["docs/readme.md"])))
+                Request("TerraScale.Internals", ["src/Core/Something.cs"])))
             .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task DocumentationOnlyInternalsUpdatesAreNoOp()
+    {
+        var topology = DevelopmentTopology.CreateQuick();
+        var plan = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Internals", ["PLAN.md", "docs/implementation/sync/PLAN.md"]));
+
+        await Assert.That(plan.Resources).IsEmpty();
+        await Assert.That(plan.ReconciliationId).IsNotNull().And.IsNotEmpty();
+        await Assert.That(plan.ReconciliationId.StartsWith("dev-", StringComparison.Ordinal)).IsTrue();
+
+        // Single docs path (formerly fail-closed) is now an accepted no-op.
+        var docsOnly = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Internals", ["docs/readme.md"]));
+        await Assert.That(docsOnly.Resources).IsEmpty();
     }
 
     [Test]
