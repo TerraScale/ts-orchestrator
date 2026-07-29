@@ -235,12 +235,27 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         // Remint stops every peer container; on some podman/pasta hosts the lab pod
         // can vanish between the last rm and the first restart. Recreate before run.
         await EnsureOwnedPodExistsAsync(CancellationToken.None);
-        return StartCore(specification);
+        var process = StartCore(specification);
+        // podman run --pod fails with exit 125 almost immediately when the pod ID is
+        // gone from the database (including a race after exists-check). Recreate once.
+        if (await FailedImmediatelyWithMissingPodAsync(process))
+        {
+            Console.WriteLine(
+                $"Development container '{name}' exited 125 (missing pod); recreating owned pod and retrying.");
+            processes.Remove(name);
+            process.Dispose();
+            startedAt.Remove(name);
+            await RecreateOwnedPodAsync(CancellationToken.None);
+            process = StartCore(specification);
+        }
+
+        return process;
     }
 
     /// <summary>
-    /// Ensures the owned lab pod still exists. Used after bulk stop (PKI remint) so
-    /// RestartAsync does not fail with "no pod with ID … found in database".
+    /// Ensures the owned lab pod still exists and is in a usable state. Used after
+    /// bulk stop (PKI remint) and inside <see cref="RestartAsync"/> so starts do not
+    /// fail with "no pod with ID … found in database".
     /// </summary>
     public async Task EnsureOwnedPodExistsAsync(CancellationToken cancellationToken)
     {
@@ -252,12 +267,98 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         var exists = await RunAsync(["pod", "exists", podName], cancellationToken);
         if (exists.ExitCode == 0)
         {
-            return;
+            var state = await RunAsync(
+                ["pod", "inspect", podName, "--format", "{{.State}}"],
+                cancellationToken);
+            if (state.ExitCode == 0 && IsUsablePodState(state.Output))
+            {
+                return;
+            }
+
+            // Name is still registered but pasta/network is half-dead (Degraded) or
+            // inspect is flaky — force-recreate rather than hand StartCore a ghost ID.
+            Console.WriteLine(
+                $"Lab pod '{podName}' is present but unusable (state '{FirstLine(state.Output)}'); recreating.");
+            _ = await RunAsync(OwnedPodRemovalArguments(podName, 15), cancellationToken);
+        }
+        else
+        {
+            Console.WriteLine(
+                $"Lab pod '{podName}' missing after container stop; recreating owned pod before restart.");
         }
 
-        Console.WriteLine(
-            $"Lab pod '{podName}' missing after container stop; recreating owned pod before restart.");
         await RequireSuccessAsync(PodCreationArguments(topology, podName), cancellationToken);
+    }
+
+    /// <summary>
+    /// Force-removes the owned lab pod (if any) and creates a fresh one. Call only
+    /// when every peer container is already stopped (PKI remint bulk stop); safe
+    /// because no live resource still depends on the previous pasta namespace.
+    /// </summary>
+    public async Task RecreateOwnedPodAsync(CancellationToken cancellationToken)
+    {
+        if (!initialized)
+        {
+            throw new InvalidOperationException("The Podman development supervisor has not been initialized.");
+        }
+
+        var exists = await RunAsync(["pod", "exists", podName], cancellationToken);
+        if (exists.ExitCode == 0)
+        {
+            Console.WriteLine(
+                $"Recreating owned lab pod '{podName}' after bulk container stop.");
+            _ = await RunAsync(OwnedPodRemovalArguments(podName, 15), cancellationToken);
+        }
+        else
+        {
+            Console.WriteLine(
+                $"Lab pod '{podName}' already gone after bulk container stop; creating a fresh owned pod.");
+        }
+
+        await RequireSuccessAsync(PodCreationArguments(topology, podName), cancellationToken);
+    }
+
+    /// <summary>
+    /// Podman pod inspect <c>.State</c> values that can accept <c>podman run --pod</c>.
+    /// Degraded / Stopped / Exited pods after bulk force-rm are treated as unusable.
+    /// </summary>
+    internal static bool IsUsablePodState(string? state)
+    {
+        var normalized = state?.Trim();
+        return string.Equals(normalized, "Running", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalized, "Created", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Podman exit 125 is the CLI wrapper failure used when <c>run --pod</c> cannot
+    /// resolve the pod (including "no pod with ID … found in database").
+    /// </summary>
+    internal static bool IsMissingPodExitCode(int exitCode) => exitCode == 125;
+
+    /// <summary>
+    /// Waits briefly for a fail-fast <c>podman run</c> so RestartAsync can recreate the
+    /// pod once instead of letting the lab loop surface "exited unexpectedly".
+    /// Healthy starts stay up past this window and return false without extra work.
+    /// </summary>
+    private static async Task<bool> FailedImmediatelyWithMissingPodAsync(Process process)
+    {
+        // Missing-pod failures exit within tens of milliseconds. Keep the window short
+        // so remint (many sequential RestartAsync calls) does not add multi-second delay.
+        if (process.HasExited)
+        {
+            return IsMissingPodExitCode(process.ExitCode);
+        }
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            await process.WaitForExitAsync(timeout.Token);
+            return IsMissingPodExitCode(process.ExitCode);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     public void UpdateWorkingDirectory(string name, string workingDirectory)

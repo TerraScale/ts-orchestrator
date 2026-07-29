@@ -258,6 +258,24 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task UsablePodStatesAcceptOnlyRunningOrCreated()
+    {
+        await Assert.That(DevelopmentProcessSupervisor.IsUsablePodState("Running")).IsTrue();
+        await Assert.That(DevelopmentProcessSupervisor.IsUsablePodState("Created\n")).IsTrue();
+        await Assert.That(DevelopmentProcessSupervisor.IsUsablePodState("Degraded")).IsFalse();
+        await Assert.That(DevelopmentProcessSupervisor.IsUsablePodState("Exited")).IsFalse();
+        await Assert.That(DevelopmentProcessSupervisor.IsUsablePodState(null)).IsFalse();
+    }
+
+    [Test]
+    public async Task MissingPodExitCodeMatchesPodmanCliWrapperFailure()
+    {
+        await Assert.That(DevelopmentProcessSupervisor.IsMissingPodExitCode(125)).IsTrue();
+        await Assert.That(DevelopmentProcessSupervisor.IsMissingPodExitCode(0)).IsFalse();
+        await Assert.That(DevelopmentProcessSupervisor.IsMissingPodExitCode(1)).IsFalse();
+    }
+
+    [Test]
     public async Task TerraBaseServerArgumentsRaiseClusterTimeoutsForLabColdStart()
     {
         var resource = DevelopmentTopology.CreateRegional().Cells[0]
