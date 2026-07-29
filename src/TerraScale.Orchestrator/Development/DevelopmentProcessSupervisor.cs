@@ -232,7 +232,32 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         {
             await RemoveContainerAsync(name, previous);
         }
+        // Remint stops every peer container; on some podman/pasta hosts the lab pod
+        // can vanish between the last rm and the first restart. Recreate before run.
+        await EnsureOwnedPodExistsAsync(CancellationToken.None);
         return StartCore(specification);
+    }
+
+    /// <summary>
+    /// Ensures the owned lab pod still exists. Used after bulk stop (PKI remint) so
+    /// RestartAsync does not fail with "no pod with ID … found in database".
+    /// </summary>
+    public async Task EnsureOwnedPodExistsAsync(CancellationToken cancellationToken)
+    {
+        if (!initialized)
+        {
+            throw new InvalidOperationException("The Podman development supervisor has not been initialized.");
+        }
+
+        var exists = await RunAsync(["pod", "exists", podName], cancellationToken);
+        if (exists.ExitCode == 0)
+        {
+            return;
+        }
+
+        Console.WriteLine(
+            $"Lab pod '{podName}' missing after container stop; recreating owned pod before restart.");
+        await RequireSuccessAsync(PodCreationArguments(topology, podName), cancellationToken);
     }
 
     public void UpdateWorkingDirectory(string name, string workingDirectory)

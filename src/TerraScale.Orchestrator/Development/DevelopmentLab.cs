@@ -2899,6 +2899,9 @@ public static class DevelopmentLab
             force
                 ? "Reminted development mTLS material after certificate handshake failures; restarting TLS consumers."
                 : "Reminted development mTLS material near leaf expiry; restarting TLS consumers.");
+        // Bulk stop can drop the pasta-backed lab pod on some hosts; recreate before
+        // any RestartAsync so remint never fails with exit 125 / "no pod with ID".
+        await supervisor.EnsureOwnedPodExistsAsync(cancellationToken);
         await RestartNatsAndTlsClientsAfterRemintAsync(
             supervisor,
             topology,
