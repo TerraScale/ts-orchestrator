@@ -169,17 +169,45 @@ public sealed class DevelopmentTopologyTests
             cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
             dashboard,
             "/runtime/product-ca.pem",
-            "/runtime/gru-dashboard/vite-task-cache");
+            "/runtime/gru-dashboard/vite-task-cache",
+            getEnvironmentVariable: _ => null);
 
         await Assert.That(DevelopmentWorkloadRuntime.CreateDashboardArguments(dashboard))
             .IsEquivalentTo(["server.js"]);
         await Assert.That(environment["SSL_CERT_FILE"]).IsEqualTo("/runtime/product-ca.pem");
         await Assert.That(environment["VITE_CACHE_PATH"])
             .IsEqualTo("/runtime/gru-dashboard/vite-task-cache");
+        await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"])
+            .IsEqualTo($"http://127.0.0.1:{dashboard.Port}");
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_CLIENT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_PROJECT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_TENANT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_DATABASE_IDS")).IsFalse();
+    }
+
+    [Test]
+    public async Task DashboardPublicUrlPrefersDevHostTailscaleMagicDns()
+    {
+        var topology = DevelopmentTopology.CreateRegional();
+        var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
+        var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
+        const string publicUrl = "https://terrascale-dev.tail057f.ts.net:18446";
+        var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
+            topology,
+            cell.OfKind(DevelopmentResourceKind.Platform).Single(),
+            cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
+            dashboard,
+            "/runtime/product-ca.pem",
+            "/runtime/gru-dashboard/vite-task-cache",
+            getEnvironmentVariable: name =>
+                name == DevelopmentPublicSurfaces.PublicDashboardUrlEnvironmentVariable
+                    ? publicUrl
+                    : null);
+
+        await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"]).IsEqualTo(publicUrl);
+        // Server-side API targets stay on loopback inside the lab pod.
+        await Assert.That(environment["TERRASCALE_API_BASE_URL"]).StartsWith("http://127.0.0.1:");
+        await Assert.That(environment["TERRASCALE_AUTH_API_BASE_URL"]).StartsWith("http://127.0.0.1:");
     }
 
     [Test]

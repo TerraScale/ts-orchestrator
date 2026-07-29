@@ -213,7 +213,8 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentResourcePlan authentication,
         DevelopmentResourcePlan dashboard,
         string certificateBundle,
-        string cache) =>
+        string cache,
+        Func<string, string?>? getEnvironmentVariable = null) =>
         new Dictionary<string, string?>
         {
             ["HOST"] = "127.0.0.1",
@@ -223,9 +224,13 @@ internal static class DevelopmentWorkloadRuntime
             ["VITE_CACHE_PATH"] = cache,
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
+            // Server-side Platform/Auth stay on pod loopback; only the browser-facing
+            // public origin uses DevHost Tailscale MagicDNS when injected.
             ["TERRASCALE_API_BASE_URL"] = Http(platform.Port),
             ["TERRASCALE_AUTH_API_BASE_URL"] = Http(authentication.Port),
-            ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = Http(dashboard.Port),
+            ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = DevelopmentPublicSurfaces.ResolveDashboardPublicUrl(
+                dashboard.Port,
+                getEnvironmentVariable),
             ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
         };
 
@@ -334,6 +339,22 @@ internal static class DevelopmentWorkloadRuntime
         environment["Fido2__Origins__2"] = Http(dashboard.Port);
         environment["Cors__AllowedOrigins__0"] = "http://localhost";
         environment["Cors__AllowedOrigins__1"] = Http(dashboard.Port);
+        // When DevHost publishes the product dashboard on MagicDNS HTTPS, browsers
+        // present that origin to Platform. Accept it alongside loopback so cookie
+        // and CORS checks succeed for tailnet clients.
+        if (DevelopmentPublicSurfaces.PublicDashboardUrl() is { } publicDashboardOrigin)
+        {
+            environment["Fido2__Origins__3"] = publicDashboardOrigin;
+            environment["Cors__AllowedOrigins__2"] = publicDashboardOrigin;
+            // Prefer the public host for WebAuthn rpId when available (hostname only).
+            if (Uri.TryCreate(publicDashboardOrigin, UriKind.Absolute, out var publicUri) &&
+                !string.IsNullOrWhiteSpace(publicUri.Host) &&
+                !string.Equals(publicUri.Host, "localhost", StringComparison.OrdinalIgnoreCase) &&
+                publicUri.Host is not "127.0.0.1")
+            {
+                environment["Fido2__ServerDomain"] = publicUri.Host;
+            }
+        }
         environment["Routing__ForwardUnplacedRequests"] = "true";
         environment["QueueReplication__SharedSecret"] = "test_project_queue_replication_key";
         environment["QueueReplication__RequestTimeoutMilliseconds"] = "900";
