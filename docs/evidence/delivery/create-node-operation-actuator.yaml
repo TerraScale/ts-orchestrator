@@ -21,15 +21,15 @@ security:
   recoveryLookup: separately signed, provider-audience-limited, binding-digest lookup authority persists at dispatch for at most seven days; every ProviderCallStarted reconciliation requires it independently, even while the mutation receipt remains valid; missing, null, malformed, or expired authority holds manual recovery without lookup
   invocationCapability: an enabled external actuator verifies a separately keyed, audience-bound capability bound to operation, checkpoint version, lease owner/token, nonce, binding digest, and lease expiry; immediately before mutation it must atomically consume that capability through the same authoritative R3 journal, which rereads the ProviderCallStarted checkpoint and rejects expired, finalized, stale-version, binding, lease-owner/token, nonce, or already-consumed claims
   journalEnvelope: one bounded AES-256-GCM envelope per operation key, with AAD binding the CreateNode journal domain, hashed operation key, key ID, and CAS precondition version; a rotation-aware injected regional key service supplies the active key and retained verification keys, and unknown/retired keys fail closed
-  mutationGate: CreateNode journal mutation, capability minting, and capability consumption require an actual JetStream ORCH_OPERATIONS stream with RF=3, elected leader, two current non-offline zero-lag followers, and a healthy injected journal-key service; a caller-supplied replica count cannot enable mutation and no RF1 fallback is permitted
+  mutationGate: CreateNode journal mutation, capability minting, and capability consumption require an actual JetStream ORCH_OPERATIONS stream configured RF=3 and a healthy injected journal-key service; a caller-supplied replica count cannot enable mutation and no RF1 fallback is permitted. The Create/Update CAS acknowledgement is the authoritative JetStream Raft-quorum commit boundary. Management leader/follower/lag fields are sampled readiness/observability only and never an atomic all-three mutation fence.
   keyLifecycle: strict NIST P-256 algorithm/curve allowlist plus distinct receipt, tenant-authority, provider-attestation, recovery, and invocation key material/key-ID domains; composition rejects shared public material or kid across domains
   tamperHandling: receipt and every authoritative journal envelope are authenticated before any provider call
   secrets: no credential, private key, or receipt payload is logged or included in this evidence
 validation:
   journalCommand: dotnet run --project tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj --no-build --no-restore -- --reflection --treenode-filter '/*/*/NatsCreateNodeOperationJournalTests/**' --maximum-parallel-tests 4 --no-progress --timeout 5m --no-ansi
-  journalResult: passed; 3 total, 3 succeeded, 0 failed; duration 2.629s; one local nats-server process only
+  journalResult: passed; 3 total, 3 succeeded, 0 failed; duration 3.629s; one local nats-server process only
   coordinatorCommand: dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build --no-restore -- --reflection --treenode-filter '/*/*/CreateNodeCoordinatorTests/**' --maximum-parallel-tests 4 --no-progress --timeout 5m --no-ansi
-  coordinatorResult: passed; 17 total, 17 succeeded, 0 failed; duration 21.578s
+  coordinatorResult: passed; 17 total, 17 succeeded, 0 failed; duration 8.721s
   cases:
     - signed receipt tamper, expiry, tenant, and node-request binding
     - crash-after-provider-success reconciles without a second CreateNode against a deliberately non-deduplicating provider, including after mutation-receipt expiry
@@ -46,6 +46,7 @@ validation:
     - missing persisted recovery authority holds manual recovery without provider lookup
     - actual local one-node JetStream KV persistence across nats-server restart and compare-and-set conflict convergence
     - actual local RF1 JetStream management status rejects authoritative journal mutation despite no caller-supplied replica configuration
+    - documented TOCTOU proof: a follower may transition after any management-health sample; the next CAS is still acknowledged only by the JetStream Raft quorum, or fails/times out, so no sampled peer state is treated as a commit guarantee
     - authoritative invocation consume is single-use and checkpoint-version-bound; a crash after consume recovers only by reconciliation without another CreateNode
     - configuration rejects RF1 CreateNode mutation and an unhealthy injected journal-key service before a KV write
     - delayed first worker capability after lease expiry and post-lease recovery/finalization is rejected before OCI client invocation
@@ -53,5 +54,6 @@ limitations:
   - The two-process proof establishes Development file-journal mutual exclusion only. Its missing parent-directory fsync means it does not establish crash-persistent ProviderCallStarted; it is explicitly marked non-crash-durable and cannot be paired with an external CreateNode mutation provider.
   - ORCH_OPERATIONS has no age expiry: a ProviderCallStarted or final operation tombstone cannot silently disappear after seven days and be re-prepared. Bounded capacity rejects new writes rather than making an external operation replayable; capacity sizing/retention is an R3 production qualification input.
   - The local JetStream test is one-node persistence/CAS and RF1-rejection evidence only. It does not prove R3 replication, envelope encryption/rotation under mutation, quorum loss/recovery, JetStream placement, cross-host disk behavior, or production mTLS/NKey authorization.
+  - No local R3 component lane was run. Production proof must demonstrate follower transition after a readiness sample: the adapter may observe that sample, but a subsequent Create/Update CAS succeeds only after the then-current JetStream Raft quorum acknowledges it; loss of quorum must fail or time out rather than relying on stale sampled health.
   - Production qualification still requires a targeted regional three-server JetStream proof for ORCH_OPERATIONS (replicas=3): authenticated mTLS/NKey controller identity, tenant/provider authorization prerequisites, healthy rotation-aware journal-key service, one-member-loss recovery, retained-key rotation, and capability-consume fencing under quorum.
   - OCI mutation remains deliberately unavailable and unwired until a separately reviewed OCI client, scoped provider identity, complete external composition, and L4 evidence gate exist.

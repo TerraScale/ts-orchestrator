@@ -47,7 +47,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
-    public async Task MutationRequiresR3AndHealthyInjectedKeyService()
+    public async Task MutationRequiresActualR3ConfigurationAndHealthyInjectedKeyService()
     {
         await using var server = await OneNodeJetStream.StartAsync();
         var store = await server.OpenAsync(new NatsTopology("gate", 1).Operations);

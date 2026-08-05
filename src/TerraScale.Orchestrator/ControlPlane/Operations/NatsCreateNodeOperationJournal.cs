@@ -247,10 +247,11 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         if (!keys.IsHealthy)
             throw new InvalidOperationException("CreateNode mutation is disabled while the journal key service is unhealthy.");
         var info = (await store.GetStatusAsync(cancellationToken)).Info;
-        if (info.Config.NumReplicas != 3 || string.IsNullOrWhiteSpace(info.Cluster?.Leader) ||
-            info.Cluster.Replicas is not { Count: 2 } replicas ||
-            replicas.Any(static replica => replica.Offline || !replica.Current || replica.Lag != 0))
-            throw new InvalidOperationException("CreateNode mutation requires a current healthy R3 JetStream KV quorum.");
+        // Peer status is only a sampled readiness observation. Any subsequent
+        // Create/Update CAS acknowledgement, not this sample, is the durable
+        // JetStream Raft-quorum commit boundary.
+        if (info.Config.NumReplicas != 3)
+            throw new InvalidOperationException("CreateNode mutation requires an actual R3 JetStream KV stream.");
     }
 
     private static bool CanInvoke(CreateNodeOperationJournalEntry entry, DateTimeOffset now) =>
