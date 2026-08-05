@@ -54,7 +54,17 @@ internal static class Validation
                 continue;
             }
 
-            var lines = File.ReadAllLines(path);
+            var resolvedPath = ResolveExistingPath(path);
+            var resolvedWorkspaceGoal = ResolveExistingPath(Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, "GOAL.md"));
+            if (isWorkspaceGoal
+                ? !string.Equals(resolvedPath, resolvedWorkspaceGoal, StringComparison.Ordinal)
+                : !IsWithin(ResolveExistingPath(ToolingSupport.Root), resolvedPath))
+            {
+                errors.Add($"{where}: evidence target escapes the repository: {anchor}");
+                continue;
+            }
+
+            var lines = File.ReadAllLines(resolvedPath);
             var start = int.Parse(match.Groups["start"].Value, System.Globalization.CultureInfo.InvariantCulture);
             var end = int.Parse(match.Groups["end"].Value, System.Globalization.CultureInfo.InvariantCulture);
             if (end < start || end > lines.Length)
@@ -66,6 +76,28 @@ internal static class Validation
                 errors.Add($"{where}: evidence anchor contains no evidence: {anchor}");
             }
         }
+    }
+
+    private static string ResolveExistingPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath)!;
+        foreach (var segment in fullPath[root.Length..].Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var current = Path.Combine(root, segment);
+            FileSystemInfo entry = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            root = entry.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? current;
+        }
+
+        return root;
+    }
+
+    private static bool IsWithin(string root, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        return relative is not ".."
+            && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            && !Path.IsPathRooted(relative);
     }
 }
 

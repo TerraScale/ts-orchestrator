@@ -23,6 +23,7 @@ internal static class ToolingTests
             ("adr executable self dependency", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "executableDependencies"], new[] { 1 }), AdrReadinessCommand.Validate)),
             ("adr malformed anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "https://example.test/a:1-2"), AdrReadinessCommand.Validate)),
             ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
+            ("adr symlink escape anchor", SymlinkEscapeAnchor),
             ("adr canonical lane substitution", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["canonicalOwnerLanes", 0], "other"), AdrReadinessCommand.Validate)),
             ("adr normalization provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "GOAL.md:1-1"), AdrReadinessCommand.Validate)),
             ("adr Goal anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "../GOAL.md:999-999"), AdrReadinessCommand.Validate)),
@@ -87,6 +88,39 @@ internal static class ToolingTests
             .ToArray();
         if (python.Length != 0)
             throw new InvalidOperationException($"Python sources remain: {string.Join(',', python)}");
+    }
+
+    private static void SymlinkEscapeAnchor()
+    {
+        var target = Path.Combine(Path.GetTempPath(), $"tooling-symlink-target-{Guid.NewGuid():N}");
+        var linkName = $"tooling-symlink-escape-{Guid.NewGuid():N}";
+        var link = Path.Combine(ToolingSupport.Root, linkName);
+        Directory.CreateDirectory(target);
+        File.WriteAllText(Path.Combine(target, "evidence.md"), "outside repository");
+        try
+        {
+            try
+            {
+                Directory.CreateSymbolicLink(link, target);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                Console.WriteLine("SKIP adr symlink escape anchor: symbolic links are unavailable on this platform");
+                return;
+            }
+
+            if (new DirectoryInfo(link).LinkTarget is null)
+                throw new InvalidOperationException("symbolic link creation did not produce a symbolic link");
+            var errors = new List<string>();
+            Validation.ValidateLocalAnchors(new JsonArray(JsonValue.Create($"{linkName}/evidence.md:1-1")), "symlink", errors);
+            if (!errors.Any(error => error.Contains("escapes the repository", StringComparison.Ordinal)))
+                throw new InvalidOperationException("validator accepted a symlink escape anchor");
+        }
+        finally
+        {
+            if (Directory.Exists(link)) Directory.Delete(link);
+            Directory.Delete(target, recursive: true);
+        }
     }
 
     private static void CiResultManifest()
