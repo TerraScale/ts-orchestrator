@@ -51,7 +51,7 @@ Full historical audit markdown/JSON and retirement ledger: [`docs/archive/docs-h
 
 ### Provider / OCI / ARM64
 
-- **OCI residual inventory incomplete:** IAM region subscription discovery failed auth; categories recorded `not-queried`, not empty. OKE absence unproven.
+- **OCI residual inventory incomplete (two distinct fail-closed records):** the current [`oci-residual-inventory.yaml`](../evidence/phase0/oci-residual-inventory.yaml) is a host-only preflight where the OCI CLI was unavailable and no OCI API request was issued. The archived historical record, from commit `de9be9fa57fd8dadf73e168bb26cfc151ec16868`, reached a real IAM region-subscription query but failed authentication before resource-category queries. Both records leave categories `not-queried`, do not prove OKE absence, and make no discovery, absence, cleanup, or ownership claim.
 - **Provider qualification schema** drafted for capability matrices without selecting a second cloud.
 - **ARM64/A1 readiness** is a candidate inventory (host image, filesystem, systemd/containerd/runc versions remain null). Local x64 cannot masquerade as ARM qualification.
 

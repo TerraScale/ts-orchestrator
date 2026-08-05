@@ -35,6 +35,24 @@ discovery:
     - No absent CLI, credential, profile, tenancy, or authorization state is evidence that a cloud resource is absent.
     - No unobserved resource is classified as unrelated, quarantined, or approved for later cleanup.
 
+provenance:
+  currentObservation:
+    record: docs/evidence/phase0/oci-residual-inventory.yaml
+    observation: Host-only preflight found no OCI CLI on PATH; no OCI API request was issued.
+    failureClass: cli-unavailable
+    status: incomplete-fail-closed
+  archivedHistoricalEvidence:
+    archive: docs/archive/docs-historical-full.tar.xz
+    record: docs/audits/oci/phase0-residual-inventory.md
+    sourceCommit: de9be9fa57fd8dadf73e168bb26cfc151ec16868
+    observation: A real IAM region-subscription query returned an authentication-class failure before any resource-category query.
+    failureClass: authentication-class-query-failure
+    status: incomplete-fail-closed
+  statement: The current host-preflight and archived historical API attempt are distinct incomplete records; neither establishes discovery, absence, cleanup eligibility, or resource ownership.
+
+sensitiveMaterialBoundary:
+  statement: Secret values, private keys, kubeconfigs, webhook tokens, and NATS credentials must not be read or persisted.
+
 categories:
   - name: compute-instances
     status: not-queried
@@ -58,6 +76,16 @@ categories:
     status: not-queried
   - name: nats
     status: not-queried
+  - name: dns-zones-and-records
+    status: not-queried
+  - name: vault-secrets-metadata-and-kms
+    status: not-queried
+  - name: kubernetes-and-flux-configuration-and-credential-material
+    status: not-queried
+  - name: flux-webhooks-and-webhook-token-metadata
+    status: not-queried
+  - name: nats-streams-and-durable-consumers
+    status: not-queried
   - name: oke-and-node-pools
     status: unverified
     explicitFinding: OKE and node-pool absence is unproven; no OKE API discovery was performed.
@@ -77,6 +105,14 @@ authorityAndAccessGaps:
     requiredAuthority: Cloud lane-approved tooling provenance; no mutation capability.
   - gap: Scoped tenancy and compartment discovery visibility.
     requiredAuthority: Read-only access to compartments and the inventory services for compute, block storage, backup, object storage, load balancing, public IPs, networking, OKE, Vault/KMS, Certificates, IAM, and relevant workload/NATS evidence sources.
+  - gap: OCI DNS-zone/record and Vault/KMS/secret metadata visibility.
+    requiredAuthority: Read-only OCI DNS and Vault/KMS metadata-listing access for the authorized scope; secret values, private keys, and kubeconfigs must not be read or persisted.
+  - gap: Kubernetes and Flux repository/configuration presence evidence.
+    requiredAuthority: Approved read-only, presence-only repository/configuration scan; it may identify configuration-material presence but must not read or persist secret values, private keys, kubeconfigs, webhook tokens, or credential material.
+  - gap: Flux webhook and webhook-token metadata visibility.
+    requiredAuthority: Read-only Forgejo/Flux webhook metadata access; webhook tokens must not be read or persisted.
+  - gap: NATS stream and durable-consumer metadata visibility.
+    requiredAuthority: Read-only NATS management/$SYS access or approved host-level metadata read; NATS credentials must not be read or persisted.
   - gap: Seven-day cost visibility.
     requiredAuthority: Read-only Cost Analysis or Usage API access covering the target tenancy and the seven-day window, with sanitized aggregate export only.
   - gap: Residual-resource ownership and cleanup disposition.
@@ -85,6 +121,10 @@ authorityAndAccessGaps:
 nextPrerequisites:
   - Install or provide an approved OCI CLI/API client and verify its version without exposing credentials.
   - Provide a scoped read-only identity and enumerate only authorized tenancy/compartment scope.
+  - Obtain read-only OCI DNS and Vault/KMS metadata-listing authority; collect metadata only and do not retrieve secret values, private keys, or kubeconfigs.
+  - Obtain approval for a read-only presence-only repository/configuration scan for Kubernetes and Flux material; do not read or persist credential material.
+  - Obtain read-only Forgejo/Flux webhook metadata access without reading webhook tokens.
+  - Obtain read-only NATS management/$SYS access or approved host-level metadata read for streams and durable consumers without reading NATS credentials.
   - Capture sanitized per-category counts and ownership evidence; redact OCIDs, tenant/account identifiers, public IPs, raw billing, and sensitive metadata.
   - Positively query OKE and node pools before asserting their absence.
   - Obtain named owner dispositions before any cleanup proposal; this evidence authorizes no cloud mutation.
