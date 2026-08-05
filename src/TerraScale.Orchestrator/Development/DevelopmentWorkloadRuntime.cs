@@ -366,6 +366,10 @@ internal static class DevelopmentWorkloadRuntime
                 environment[key] = value;
             }
         }
+        if (environment["Payments__Provider"] is { } selectedPaymentProvider)
+        {
+            environment[$"Payments__{selectedPaymentProvider}__Enabled"] = "true";
+        }
         environment["Idempotency__RequireForInternalCalls"] = "true";
         // Platform peers Authentication and every regional Platform over private MagicOnion.
         // AuthenticationEndpoint is required at startup (ValidateOnStart); RegionalEndpoints

@@ -125,6 +125,7 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TerraScale__Billing__OperationMetering__PublishTimeout"])
             .IsEqualTo("00:00:02");
         await Assert.That(environment["Payments__Provider"]).IsEqualTo("polar");
+        await Assert.That(environment["Payments__polar__Enabled"]).IsEqualTo("true");
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
@@ -154,6 +155,7 @@ public sealed class DevelopmentTopologyTests
                 ["Payments__Stripe__SecretKey"] = "test-secret"
             });
         await Assert.That(stripeEnvironment["Payments__Provider"]).IsEqualTo("stripe");
+        await Assert.That(stripeEnvironment["Payments__stripe__Enabled"]).IsEqualTo("true");
         await Assert.That(stripeEnvironment["Payments__Stripe__SecretKey"]).IsEqualTo("test-secret");
     }
 
