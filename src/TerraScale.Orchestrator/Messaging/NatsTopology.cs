@@ -18,6 +18,11 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string OperationJournalUpdateSubject => $"{Root}.internal.operation-journal.update";
 
+    public string OperationJournalReplySubject(string callerIdentity, string nonce) =>
+        $"{Root}.internal.operation-journal.reply.{callerIdentity}.{nonce}";
+
+    public string OperationJournalWriterQueueGroup => $"terrascale_orchestrator_journal_writer_{Cell}";
+
     public string CellSpecSubject => $"{Root}.desired.gitops";
 
     public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";

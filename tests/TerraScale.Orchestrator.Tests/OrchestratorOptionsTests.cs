@@ -125,6 +125,44 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task JournalAuthorityKeyCannotReuseWriterTlsIdentity()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-identity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var tlsKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                "CN=journal-writer", tlsKey, System.Security.Cryptography.HashAlgorithmName.SHA256);
+            request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(true, false, 0, true));
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            using var replyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var nkey = Path.Combine(directory, "writer.nk");
+            var ca = Path.Combine(directory, "ca.pem");
+            var cert = Path.Combine(directory, "writer.pem");
+            var tlsPrivate = Path.Combine(directory, "writer-key.pem");
+            var authority = Path.Combine(directory, "authority.pem");
+            var reply = Path.Combine(directory, "reply.pem");
+            await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(ca, certificate.ExportCertificatePem());
+            await File.WriteAllTextAsync(cert, certificate.ExportCertificatePem());
+            await File.WriteAllTextAsync(tlsPrivate, tlsKey.ExportPkcs8PrivateKeyPem());
+            await File.WriteAllTextAsync(authority, tlsKey.ExportSubjectPublicKeyInfoPem());
+            await File.WriteAllTextAsync(reply, replyKey.ExportPkcs8PrivateKeyPem());
+            foreach (var path in new[] { nkey, tlsPrivate, reply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            await Assert.That(() => Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
+                    nkey, ca, cert, tlsPrivate, authority, reply, NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(nkey))))
+                .Throws<ArgumentException>();
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task ControllerNKeyMustBeAnExistingFile()
     {
         if (!OperatingSystem.IsLinux())

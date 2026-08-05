@@ -194,7 +194,15 @@ public sealed class NatsCreateNodeOperationJournalTests
             var topology = DevelopmentTopology.CreateRegional();
             var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
             var security = DevelopmentNatsSecurity.Create(topology, securityDirectory);
-            var cellSecurity = security.Cell(cell.Cell);
+            var primaryCellSecurity = security.Cell(cell.Cell);
+            var secondController = DevelopmentNatsSecurity.EnsureNKey(Path.Combine(securityDirectory, "controller-2.nk"));
+            var cellSecurity = primaryCellSecurity with
+            {
+                Controllers = new Dictionary<int, DevelopmentNKeyIdentity>(primaryCellSecurity.Controllers)
+                {
+                    [2] = secondController
+                }
+            };
             await using var server = await OneNodeJetStream.StartAsync(
                 NatsDevelopmentCluster.ControlAuthorization(cell, cellSecurity),
                 port => new NatsOpts
@@ -227,62 +235,119 @@ public sealed class NatsCreateNodeOperationJournalTests
             {
                 Url = $"nats://127.0.0.1:{port}",
                 RequestTimeout = TimeSpan.FromSeconds(1),
-                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Controllers.Single().Value.SeedFile },
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Controllers[1].SeedFile },
             });
+            await using var controllerTwo = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Controllers[2].SeedFile },
+            });
+            await using var writerTwo = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.JournalWriter.SeedFile },
+            });
+            var writerStoreTwo = await writerTwo.CreateJetStreamContext().CreateKeyValueStoreContext()
+                .GetStoreAsync("ORCH_OPERATIONS");
             var journalTopology = new NatsTopology(cell.Cell, 1);
-            var controllerIdentity = cellSecurity.Controllers.Single().Value.PublicKey;
+            var controllerIdentity = cellSecurity.Controllers[1].PublicKey;
+            var secondControllerIdentity = cellSecurity.Controllers[2].PublicKey;
             using var authorityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var authoritySigner = new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey);
+            var secondAuthoritySigner = new NatsOperationJournalMutationAuthoritySigner(secondControllerIdentity, authorityKey);
+            using var replyKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var replyPrivateKey = replyKey.ExportPkcs8PrivateKey();
+            var replyPublicKey = replyKey.ExportSubjectPublicKeyInfo();
             await using var mutations = await NatsOperationJournalMutationService.StartAsync(
                 writer,
                 writerStore,
                 journalTopology,
                 new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
-                controllerIdentity,
+                new HashSet<string>(StringComparer.Ordinal) { controllerIdentity, secondControllerIdentity },
+                CreateReplySigner(replyPrivateKey),
                 default);
-            var mutationClient = new NatsOperationJournalMutationClient(controller, journalTopology, authoritySigner);
+            await using var mutationsTwo = await NatsOperationJournalMutationService.StartAsync(
+                writerTwo,
+                writerStoreTwo,
+                journalTopology,
+                new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
+                new HashSet<string>(StringComparer.Ordinal) { controllerIdentity, secondControllerIdentity },
+                CreateReplySigner(replyPrivateKey),
+                default);
+            var mutationClient = new NatsOperationJournalMutationClient(
+                controller,
+                journalTopology,
+                authoritySigner,
+                new NatsOperationJournalMutationReplyVerifier(replyPublicKey));
+            var mutationClientTwo = new NatsOperationJournalMutationClient(
+                controllerTwo,
+                journalTopology,
+                secondAuthoritySigner,
+                new NatsOperationJournalMutationReplyVerifier(replyPublicKey));
             await Assert.That((await mutationClient.CreateAsync("operation.invalid", "invalid")).Succeeded).IsFalse();
             var create = await mutationClient.CreateAsync(key, "ProviderCallStarted");
             await Assert.That(create.Succeeded).IsTrue();
             var update = await mutationClient.UpdateAsync(key, "ProviderCallStarted;CAS", create.Revision);
             await Assert.That(update.Succeeded).IsTrue();
+            var firstControllerKey = "operation." + new string('f', 64);
+            var secondControllerKey = "operation." + new string('0', 64);
+            var parallel = await Task.WhenAll(
+                mutationClient.CreateAsync(firstControllerKey, "controller-one"),
+                mutationClientTwo.CreateAsync(secondControllerKey, "controller-two"));
+            await Assert.That(parallel.All(result => result.Succeeded)).IsTrue();
+
+            var forgedKey = "operation." + new string('9', 64);
+            var forgedRequest = new NatsOperationJournalCreateRequest(forgedKey, "forged-reply",
+                authoritySigner.Issue(cell.Cell, "create", forgedKey, 0, "forged-reply"));
+            var forgedReplySubject = journalTopology.OperationJournalReplySubject(controllerIdentity, Guid.NewGuid().ToString("N"));
+            await using var forgedReplies = controller.SubscribeAsync<NatsOperationJournalMutationReply>(
+                forgedReplySubject,
+                opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(2) }).GetAsyncEnumerator();
+            var forgedDigest = NatsOperationJournalMutationRequestDigest.Create(forgedRequest.Authority);
+            var receiveForgedReply = forgedReplies.MoveNextAsync().AsTask();
+            await writer.PublishAsync(forgedReplySubject, new NatsOperationJournalMutationReply(true, 999, forgedDigest, "syntactically-valid"));
+            await controller.PublishAsync(journalTopology.OperationJournalCreateSubject, forgedRequest, replyTo: forgedReplySubject);
+            await Assert.That(await receiveForgedReply).IsTrue();
+            await Assert.That(new NatsOperationJournalMutationReplyVerifier(replyPublicKey)
+                    .Verify(forgedReplies.Current.Data, forgedDigest))
+                .IsFalse();
 
             var poisonedValue = "poisoned";
             var crossCellProof = authoritySigner.Issue("sfo", "create", "operation." + new string('b', 64), 0, poisonedValue);
-            var crossCell = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+            var crossCell = await RequestPrivateAsync(
+                controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject,
-                new("operation." + new string('b', 64), poisonedValue, crossCellProof));
-            crossCell.EnsureSuccess();
-            await Assert.That(crossCell.Data!.Succeeded).IsFalse();
+                new NatsOperationJournalCreateRequest("operation." + new string('b', 64), poisonedValue, crossCellProof));
+            await Assert.That(crossCell.Succeeded).IsFalse();
 
             var digestMismatchProof = authoritySigner.Issue(cell.Cell, "create", "operation." + new string('c', 64), 0, "signed-value");
-            var digestMismatch = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+            var digestMismatch = await RequestPrivateAsync(
+                controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject,
-                new("operation." + new string('c', 64), poisonedValue, digestMismatchProof));
-            digestMismatch.EnsureSuccess();
-            await Assert.That(digestMismatch.Data!.Succeeded).IsFalse();
+                new NatsOperationJournalCreateRequest("operation." + new string('c', 64), poisonedValue, digestMismatchProof));
+            await Assert.That(digestMismatch.Succeeded).IsFalse();
 
             var wrongCallerSigner = new NatsOperationJournalMutationAuthoritySigner("other-controller", authorityKey);
             var wrongCallerKey = "operation." + new string('e', 64);
-            var wrongCaller = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+            var wrongCaller = await RequestPrivateAsync(
+                controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject,
-                new(wrongCallerKey, poisonedValue,
+                new NatsOperationJournalCreateRequest(wrongCallerKey, poisonedValue,
                     wrongCallerSigner.Issue(cell.Cell, "create", wrongCallerKey, 0, poisonedValue)));
-            wrongCaller.EnsureSuccess();
-            await Assert.That(wrongCaller.Data!.Succeeded).IsFalse();
+            await Assert.That(wrongCaller.Succeeded).IsFalse();
 
             var replayKey = "operation." + new string('d', 64);
             var replayValue = "replay-protected";
             var replayRequest = new NatsOperationJournalCreateRequest(replayKey, replayValue,
                 authoritySigner.Issue(cell.Cell, "create", replayKey, 0, replayValue));
-            var firstReplay = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+            var firstReplay = await RequestPrivateAsync(controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject, replayRequest);
-            firstReplay.EnsureSuccess();
-            await Assert.That(firstReplay.Data!.Succeeded).IsTrue();
-            var secondReplay = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+            await Assert.That(firstReplay.Succeeded).IsTrue();
+            var secondReplay = await RequestPrivateAsync(controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject, replayRequest);
-            secondReplay.EnsureSuccess();
-            await Assert.That(secondReplay.Data!.Succeeded).IsFalse();
+            await Assert.That(secondReplay.Succeeded).IsFalse();
 
             foreach (var (subject, headers) in new[]
                      {
@@ -346,6 +411,29 @@ public sealed class NatsCreateNodeOperationJournalTests
         {
             return false;
         }
+    }
+
+    private static async Task<NatsOperationJournalMutationReply> RequestPrivateAsync<TRequest>(
+        NatsClient client,
+        NatsTopology topology,
+        string callerIdentity,
+        string subject,
+        TRequest request)
+    {
+        var reply = topology.OperationJournalReplySubject(callerIdentity, Guid.NewGuid().ToString("N"));
+        await using var subscription = client.SubscribeAsync<NatsOperationJournalMutationReply>(
+            reply,
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(2) }).GetAsyncEnumerator();
+        await client.PublishAsync(subject, request, replyTo: reply);
+        if (!await subscription.MoveNextAsync()) throw new InvalidOperationException("Private journal response was not received.");
+        return subscription.Current.Data ?? throw new InvalidOperationException("Private journal response was empty.");
+    }
+
+    private static NatsOperationJournalMutationReplySigner CreateReplySigner(byte[] privateKey)
+    {
+        var key = ECDsa.Create();
+        key.ImportPkcs8PrivateKey(privateKey, out _);
+        return new(key);
     }
 
     private static NatsKVConfig Rf1Operations(string cell = "journal") => new("ORCH_OPERATIONS")

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Security.Cryptography;
+using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
 using NATS.Net;
@@ -11,68 +12,83 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
 {
     private const int MaximumValueBytes = 16 * 1024;
     private readonly INatsSvcServer service;
+    private readonly NatsOperationJournalMutationReplySigner replies;
 
-    private NatsOperationJournalMutationService(INatsSvcServer service) => this.service = service;
+    private NatsOperationJournalMutationService(INatsSvcServer service, NatsOperationJournalMutationReplySigner replies)
+    {
+        this.service = service;
+        this.replies = replies;
+    }
 
     internal static async Task<NatsOperationJournalMutationService> StartAsync(
         NatsClient writer,
         INatsKVStore store,
         NatsTopology topology,
         NatsOperationJournalMutationAuthorityVerifier authority,
-        string controllerIdentity,
+        IReadOnlySet<string> controllerIdentities,
+        NatsOperationJournalMutationReplySigner replies,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(topology);
         ArgumentNullException.ThrowIfNull(authority);
-        if (string.IsNullOrWhiteSpace(controllerIdentity)) throw new ArgumentException("Controller identity is required.", nameof(controllerIdentity));
+        if (controllerIdentities is null || controllerIdentities.Count == 0 || controllerIdentities.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("At least one controller identity is required.", nameof(controllerIdentities));
+        ArgumentNullException.ThrowIfNull(replies);
         var service = await writer.CreateServicesContext().AddServiceAsync(
             new NatsSvcConfig($"terrascale_orchestrator_journal_writer_{topology.Cell}", "1.0.0")
             {
                 Description = "Private typed CreateNode journal mutation service",
+                QueueGroup = topology.OperationJournalWriterQueueGroup,
             },
             cancellationToken);
         await service.AddEndpointAsync<NatsOperationJournalCreateRequest>(
-            message => CreateAsync(message, store, topology.Cell, authority, controllerIdentity, cancellationToken),
+            message => CreateAsync(message, store, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
             name: "create",
             subject: topology.OperationJournalCreateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
             cancellationToken: cancellationToken);
         await service.AddEndpointAsync<NatsOperationJournalUpdateRequest>(
-            message => UpdateAsync(message, store, topology.Cell, authority, controllerIdentity, cancellationToken),
+            message => UpdateAsync(message, store, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
             name: "update",
             subject: topology.OperationJournalUpdateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
             cancellationToken: cancellationToken);
-        return new(service);
+        return new(service, replies);
     }
 
-    public ValueTask DisposeAsync() => service.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await service.DisposeAsync();
+        replies.Dispose();
+    }
 
     private static async ValueTask CreateAsync(
         NatsSvcMsg<NatsOperationJournalCreateRequest> message,
         INatsKVStore store,
         string cell,
         NatsOperationJournalMutationAuthorityVerifier authority,
-        string controllerIdentity,
+        IReadOnlySet<string> controllerIdentities,
+        NatsOperationJournalMutationReplySigner replies,
         CancellationToken cancellationToken)
     {
         var request = message.Data;
         if (request is null || !IsValid(request.Key, request.Value) ||
-            !authority.Verify(request.Authority, cell, controllerIdentity, "create", request.Key, 0, request.Value))
+            !authority.Verify(request.Authority, cell, controllerIdentities, "create", request.Key, 0, request.Value))
         {
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(false, 0), cancellationToken: cancellationToken);
+            if (request is not null)
+                await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
             return;
         }
         try
         {
             var revision = await store.CreateAsync(request.Key, request.Value, cancellationToken: cancellationToken);
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(true, revision), cancellationToken: cancellationToken);
+            await ReplyAsync(message, request.Authority, true, revision, replies, cancellationToken);
         }
         catch (NatsKVCreateException)
         {
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(false, 0), cancellationToken: cancellationToken);
+            await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
         }
     }
 
@@ -81,24 +97,26 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         INatsKVStore store,
         string cell,
         NatsOperationJournalMutationAuthorityVerifier authority,
-        string controllerIdentity,
+        IReadOnlySet<string> controllerIdentities,
+        NatsOperationJournalMutationReplySigner replies,
         CancellationToken cancellationToken)
     {
         var request = message.Data;
         if (request is null || !IsValid(request.Key, request.Value) || request.Revision == 0 ||
-            !authority.Verify(request.Authority, cell, controllerIdentity, "update", request.Key, request.Revision, request.Value))
+            !authority.Verify(request.Authority, cell, controllerIdentities, "update", request.Key, request.Revision, request.Value))
         {
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(false, 0), cancellationToken: cancellationToken);
+            if (request is not null)
+                await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
             return;
         }
         try
         {
             var revision = await store.UpdateAsync(request.Key, request.Value, request.Revision, cancellationToken: cancellationToken);
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(true, revision), cancellationToken: cancellationToken);
+            await ReplyAsync(message, request.Authority, true, revision, replies, cancellationToken);
         }
         catch (NatsKVWrongLastRevisionException)
         {
-            await message.ReplyAsync(new NatsOperationJournalMutationReply(false, 0), cancellationToken: cancellationToken);
+            await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
         }
     }
 
@@ -106,12 +124,25 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         key is { Length: 74 } && key.StartsWith("operation.", StringComparison.Ordinal) &&
         key.AsSpan(10).ToString().All(Uri.IsHexDigit) && value is not null &&
         Encoding.UTF8.GetByteCount(value) <= MaximumValueBytes;
+
+    private static ValueTask ReplyAsync<TRequest>(
+        NatsSvcMsg<TRequest> message,
+        NatsOperationJournalMutationAuthorityProof authority,
+        bool succeeded,
+        ulong revision,
+        NatsOperationJournalMutationReplySigner replies,
+        CancellationToken cancellationToken)
+    {
+        var digest = NatsOperationJournalMutationRequestDigest.Create(authority);
+        return message.ReplyAsync(replies.Sign(succeeded, revision, digest), cancellationToken: cancellationToken);
+    }
 }
 
 internal sealed class NatsOperationJournalMutationClient(
     NatsClient client,
     NatsTopology topology,
-    NatsOperationJournalMutationAuthoritySigner authority)
+    NatsOperationJournalMutationAuthoritySigner authority,
+    NatsOperationJournalMutationReplyVerifier replies)
 {
     internal Task<NatsOperationJournalMutationReply> CreateAsync(
         string key,
@@ -131,22 +162,36 @@ internal sealed class NatsOperationJournalMutationClient(
     private async Task<NatsOperationJournalMutationReply> RequestAsync<TRequest>(
         string subject,
         TRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) where TRequest : INatsOperationJournalMutationRequest
     {
-        var response = await client.RequestAsync<TRequest, NatsOperationJournalMutationReply>(
-            subject,
-            request,
-            cancellationToken: cancellationToken);
-        response.EnsureSuccess();
-        return response.Data ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
+        var replySubject = topology.OperationJournalReplySubject(authority.CallerIdentity, Guid.NewGuid().ToString("N"));
+        await using var subscription = client.SubscribeAsync<NatsOperationJournalMutationReply>(
+            replySubject,
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(15) })
+            .GetAsyncEnumerator(cancellationToken);
+        await client.PublishAsync(subject, request, replyTo: replySubject, cancellationToken: cancellationToken);
+        if (!await subscription.MoveNextAsync())
+            throw new InvalidOperationException("The private journal mutation service returned no reply.");
+        var response = subscription.Current.Data ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
+        if (!replies.Verify(response, NatsOperationJournalMutationRequestDigest.Create(((INatsOperationJournalMutationRequest)request).Authority)))
+            throw new InvalidOperationException("The private journal mutation service reply failed authority verification.");
+        return response;
     }
 }
 
-internal sealed record NatsOperationJournalCreateRequest(string Key, string Value, NatsOperationJournalMutationAuthorityProof Authority);
+internal interface INatsOperationJournalMutationRequest
+{
+    NatsOperationJournalMutationAuthorityProof Authority { get; }
+}
 
-internal sealed record NatsOperationJournalUpdateRequest(string Key, string Value, ulong Revision, NatsOperationJournalMutationAuthorityProof Authority);
+internal sealed record NatsOperationJournalCreateRequest(string Key, string Value, NatsOperationJournalMutationAuthorityProof Authority) : INatsOperationJournalMutationRequest;
 
-internal sealed record NatsOperationJournalMutationReply(bool Succeeded, ulong Revision);
+internal sealed record NatsOperationJournalUpdateRequest(string Key, string Value, ulong Revision, NatsOperationJournalMutationAuthorityProof Authority) : INatsOperationJournalMutationRequest;
+
+internal sealed record NatsOperationJournalMutationReply(bool Succeeded, ulong Revision, string RequestDigest, string Signature)
+{
+    internal string Payload() => string.Join('|', Succeeded, Revision, RequestDigest);
+}
 
 internal sealed record NatsOperationJournalMutationAuthorityProof(
     string Cell,
@@ -166,9 +211,10 @@ internal sealed record NatsOperationJournalMutationAuthorityProof(
 
 internal sealed class NatsOperationJournalMutationAuthoritySigner(string callerIdentity, ECDsa key)
 {
+    internal string CallerIdentity { get; } = callerIdentity;
     internal NatsOperationJournalMutationAuthorityProof Issue(string cell, string action, string keyName, ulong revision, string value)
     {
-        var proof = new NatsOperationJournalMutationAuthorityProof(cell, callerIdentity, action, keyName, revision,
+        var proof = new NatsOperationJournalMutationAuthorityProof(cell, CallerIdentity, action, keyName, revision,
             Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value))), Guid.NewGuid().ToString("N"),
             DateTimeOffset.UtcNow.AddMinutes(2), Guid.NewGuid().ToString("N"), string.Empty);
         return proof with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(proof.Payload()), HashAlgorithmName.SHA256)) };
@@ -178,17 +224,67 @@ internal sealed class NatsOperationJournalMutationAuthoritySigner(string callerI
 internal sealed class NatsOperationJournalMutationAuthorityVerifier(byte[] publicKey)
 {
     private readonly byte[] publicKey = publicKey.ToArray();
-    internal bool Verify(NatsOperationJournalMutationAuthorityProof? proof, string cell, string caller, string action, string keyName, ulong revision, string value)
+    internal bool Verify(NatsOperationJournalMutationAuthorityProof? proof, string cell, IReadOnlySet<string> callers, string action, string keyName, ulong revision, string value)
     {
         try
         {
-            if (proof is null || proof.Cell != cell || proof.CallerIdentity != caller || proof.Action != action ||
+            if (proof is null || proof.Cell != cell || !callers.Contains(proof.CallerIdentity) || proof.Action != action ||
                 proof.Key != keyName || proof.Revision != revision || proof.CiphertextDigest != Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value))) ||
                 string.IsNullOrWhiteSpace(proof.Lease) || string.IsNullOrWhiteSpace(proof.Nonce) ||
                 proof.ExpiresAt <= DateTimeOffset.UtcNow || proof.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(5)) return false;
             using var key = ECDsa.Create();
             key.ImportSubjectPublicKeyInfo(publicKey, out _);
             return key.VerifyData(Encoding.UTF8.GetBytes(proof.Payload()), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256);
+        }
+        catch (CryptographicException) { return false; }
+        catch (FormatException) { return false; }
+    }
+}
+
+internal static class NatsOperationJournalMutationRequestDigest
+{
+    internal static string Create(NatsOperationJournalMutationAuthorityProof proof) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{proof.Payload()}|{proof.Signature}")));
+}
+
+internal sealed class NatsOperationJournalMutationReplySigner(ECDsa key) : IDisposable
+{
+    internal static NatsOperationJournalMutationReplySigner Load(string path)
+    {
+        var key = ECDsa.Create();
+        try
+        {
+            key.ImportFromPem(File.ReadAllText(path));
+            return new(key);
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
+    }
+    internal NatsOperationJournalMutationReply Sign(bool succeeded, ulong revision, string requestDigest)
+    {
+        var reply = new NatsOperationJournalMutationReply(succeeded, revision, requestDigest, string.Empty);
+        return reply with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(reply.Payload()), HashAlgorithmName.SHA256)) };
+    }
+
+    internal byte[] ExportPublicKey() => key.ExportSubjectPublicKeyInfo();
+    public void Dispose() => key.Dispose();
+}
+
+internal sealed class NatsOperationJournalMutationReplyVerifier(byte[] publicKey)
+{
+    private readonly byte[] publicKey = publicKey.ToArray();
+
+    internal bool Verify(NatsOperationJournalMutationReply? reply, string requestDigest)
+    {
+        try
+        {
+            if (reply is null || reply.RequestDigest != requestDigest || string.IsNullOrWhiteSpace(reply.Signature)) return false;
+            using var key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(publicKey, out _);
+            return key.VerifyData(Encoding.UTF8.GetBytes(reply.Payload()), Convert.FromBase64String(reply.Signature), HashAlgorithmName.SHA256);
         }
         catch (CryptographicException) { return false; }
         catch (FormatException) { return false; }

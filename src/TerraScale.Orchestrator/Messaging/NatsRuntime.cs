@@ -60,7 +60,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             clientOptions = clientOptions with
             {
-                AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile }
+                AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile },
+                InboxPrefix = $"ts.orch.v1.{options.Cell}.internal.reply.{NatsCredentialFile.PublicKey(options.NatsNKeyFile)}"
             };
         }
         if (options.NatsTls is not null)
@@ -120,7 +121,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                     writerStore,
                     topology,
                     new NatsOperationJournalMutationAuthorityVerifier(journal.AuthorityPublicKey),
-                    NatsCredentialFile.PublicKey(options.NatsNKeyFile!),
+                    journal.EligibleControllerIdentities,
+                    NatsOperationJournalMutationReplySigner.Load(journal.ReplySigningKeyFile),
                     cancellationToken);
             }
             authority = await RegionalAuthorityCoordinator.StartAsync(
@@ -189,10 +191,6 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (options.NatsTls is not null)
             {
                 capabilities.Add("nats-mtls");
-            }
-            if (journalMutations is not null)
-            {
-                capabilities.Add("authoritative-create-node-journal");
             }
             capabilities.Sort(StringComparer.Ordinal);
             await service.AddEndpointAsync<string>(

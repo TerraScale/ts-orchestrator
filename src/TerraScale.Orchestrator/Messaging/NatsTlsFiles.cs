@@ -49,6 +49,12 @@ public sealed record NatsTlsFiles(string CaFile, string CertificateFile, string 
         return first.RawData.AsSpan().SequenceEqual(second.RawData);
     }
 
+    internal bool HasSubjectPublicKeyInfo(byte[] subjectPublicKeyInfo)
+    {
+        using var certificate = X509CertificateLoader.LoadCertificateFromFile(CertificateFile);
+        return certificate.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(subjectPublicKeyInfo);
+    }
+
     private static string ResolvePublic(string value, string optionName)
     {
         var path = Path.GetFullPath(value);

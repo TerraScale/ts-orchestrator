@@ -145,20 +145,35 @@ public sealed record OrchestratorOptions(
                 Messaging.NatsCredentialFile.SameIdentity(globalNats.NKeyFile, natsNKeyFile) ||
                 globalNats.Tls.SameIdentity(natsTls)))
             throw new ArgumentException("Global and regional control NATS require distinct complete identities.");
-        var authoritativeJournal = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+        var authoritativeJournal = command is OrchestratorCommand.Run or OrchestratorCommand.Check or OrchestratorCommand.ProvisionJournal
             ? Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
                 environment("TS_ORCH_JOURNAL_NATS_NKEY_FILE"),
                 environment("TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"),
                 environment("TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"),
                 environment("TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"),
-                environment("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"))
+                environment("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"),
+                environment("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"),
+                environment("TS_ORCH_JOURNAL_CONTROLLER_NKEYS"))
             : null;
-        if (authoritativeJournal is not null &&
-            (replicas < 3 || uri.Scheme != "tls" || natsNKeyFile is null || natsTls is null ||
-             Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, natsNKeyFile) ||
-             authoritativeJournal.Tls.SameIdentity(natsTls)))
-            throw new ArgumentException(
-                "The authoritative journal requires R3/R5 TLS control NATS and a distinct writer NKey and mTLS identity.");
+        if (authoritativeJournal is not null)
+        {
+            var invalidRuntimeAdmission = command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
+                (replicas < 3 || uri.Scheme != "tls" || natsNKeyFile is null || natsTls is null ||
+                 Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, natsNKeyFile) ||
+                 authoritativeJournal.Tls.SameIdentity(natsTls) ||
+                 authoritativeJournal.Tls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
+                 natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
+                 !authoritativeJournal.EligibleControllerIdentities.Contains(Messaging.NatsCredentialFile.PublicKey(natsNKeyFile)));
+            var invalidProvisionAdmission = command == OrchestratorCommand.ProvisionJournal &&
+                (infrastructureNatsNKeyFile is not null &&
+                 Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, infrastructureNatsNKeyFile) ||
+                 infrastructureNatsTls is not null &&
+                 (authoritativeJournal.Tls.SameIdentity(infrastructureNatsTls) ||
+                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey)));
+            if (invalidRuntimeAdmission || invalidProvisionAdmission)
+                throw new ArgumentException(
+                    "The authoritative journal requires R3/R5 TLS control NATS, distinct writer/controller/infrastructure identities, and an eligible controller NKey.");
+        }
 
         if (command is not OrchestratorCommand.Lab)
         {
