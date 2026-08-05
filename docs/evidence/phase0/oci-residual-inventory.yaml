@@ -44,7 +44,9 @@ provenance:
   archivedHistoricalEvidence:
     archive: docs/archive/docs-historical-full.tar.xz
     record: docs/audits/oci/phase0-residual-inventory.md
-    sourceCommit: de9be9fa57fd8dadf73e168bb26cfc151ec16868
+    evidenceGenerationCommit: 1dff42c17b37a26f472f0987aa9e86b5f044ecf7
+    redactionHardeningCommit: ee72a8f3e3433aa8776ede2e3147815efdcd6881
+    archivePackagingCommit: 054403103b0e641ac35eda042c31b54ca394d9a5
     observation: A real IAM region-subscription query returned an authentication-class failure before any resource-category query.
     failureClass: authentication-class-query-failure
     status: incomplete-fail-closed
