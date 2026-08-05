@@ -1,0 +1,33 @@
+schemaVersion: 1
+evidenceId: DLV-CREATENODE-001
+title: CreateNode durable provider-operation actuator slice
+status: implementation-and-focused-test-evidence
+scope:
+  included:
+    - existing OperationEngine dispatch intent is required as the operation authority
+    - existing ProviderOwnershipEngine CreateNode intent is required as the provider authority
+    - durable compare-and-swap provider-call checkpoint and signed persisted handoff receipt
+    - deterministic fake provider and disabled-by-default OCI client boundary
+  excluded:
+    - live OCI provisioning, credentials, cloud mutation, and deployment qualification
+    - node enrollment, scheduling, and cluster deployment
+invariants:
+  - INV-004: exact existing operation and provider authorization intents are required.
+  - INV-005: provider invocation is durably recorded before the side effect and receipt expiry holds replay.
+  - INV-006: concurrent coordinators use CAS and a bounded invocation lease; stale attempts resume only through the same idempotency key.
+security:
+  receipt: ECDSA SHA-256, bound to operation, CreateNode action, tenant, node request, create key, issue time, and expiry
+  tamperHandling: signature, expiry, and all binding claims are verified before the fake or OCI boundary is called
+  secrets: no credential, private key, or receipt payload is logged or included in this evidence
+validation:
+  command: dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build --no-restore -- --maximum-parallel-tests 4 --no-progress
+  result: focused control-plane executable passed after adding CreateNode coordinator cases
+  cases:
+    - signed receipt tamper, expiry, tenant, and node-request binding
+    - file-journal restart and duplicate replay with one fake provider side effect
+    - concurrent coordinator CAS suppression of a second provider call
+    - stale CAS transition rejection
+    - OCI adapter disabled fail-closed without invoking its client
+limitations:
+  - File journal is a local durable implementation; regional production durability must be backed by the planned R3 control journal.
+  - OCI mutation remains deliberately unavailable until a separately reviewed OCI client, scoped identity, and L4 evidence gate exist.
