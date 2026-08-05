@@ -84,7 +84,9 @@ internal static class ToolingTests
             ("workaround extra closure key", WorkaroundExtraClosureKey),
             ("workaround unavailable closure receipt", WorkaroundUnavailableClosureReceipt),
             ("workaround mismatched closure receipt", WorkaroundMismatchedClosureReceipt),
+            ("workaround unbound real closure receipt", WorkaroundUnboundRealClosureReceipt),
             ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", 0, "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround missing archival source evidence", WorkaroundMissingArchivalSourceEvidence),
             ("workaround archival anchor drift", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround malformed archival anchor", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:unknown/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround archival receipt swap", WorkaroundArchivalReceiptSwap),
@@ -180,6 +182,34 @@ internal static class ToolingTests
             ["timestamp"] = "2026-08-05T00:00:00Z",
             ["authority"] = "test"
         };
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundUnboundRealClosureReceipt()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        var unrelated = document["archivalSourceEvidence"]!["WRK-002"]![0]!.AsObject();
+        document["entries"]![0]!["status"] = "retired";
+        document["closureEvidence"]!["WRK-001"] = new JsonObject
+        {
+            ["workaround_id"] = "WRK-002",
+            ["native_replacement_gate"] = document["entries"]![1]!["native_replacement_gate"]!.DeepClone(),
+            ["removal_assertion"] = "The retired implementation and its authority were removed.",
+            ["approved_cleanup_authority"] = "approved test authority",
+            ["repository"] = unrelated["repository"]!.DeepClone(),
+            ["commit"] = unrelated["commit"]!.DeepClone(),
+            ["path"] = unrelated["path"]!.DeepClone(),
+            ["sha256"] = unrelated["sha256"]!.DeepClone(),
+            ["timestamp"] = "2026-08-05T00:00:00Z"
+        };
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundMissingArchivalSourceEvidence()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        document["entries"]![0]!["source_anchors"] = new JsonArray();
+        document["archivalSourceEvidence"]!["WRK-001"] = new JsonArray();
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 

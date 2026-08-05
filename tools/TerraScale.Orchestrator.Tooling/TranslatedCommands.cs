@@ -119,7 +119,8 @@ internal static class Phase0EvidenceCommand
         "regression_scenario", "real_boundary_needed", "recovery_rollback_boundary", "external_authority_dependency",
         "evidence_claim_status"
     ];
-    private static readonly string[] ClosureFields = ["repository", "commit", "path", "sha256", "gate", "timestamp", "authority"];
+    private static readonly string[] ClosureFields =
+        ["workaround_id", "native_replacement_gate", "removal_assertion", "approved_cleanup_authority", "repository", "commit", "path", "sha256", "timestamp"];
     private static readonly string[] InventoryFields = ["repository", "branch", "source_commit", "checkout_state", "ownership", "descriptors"];
     private static readonly string[] DescriptorFields = ["path", "type", "purpose", "classification", "production_relevance", "confidence", "source_sha256"];
     private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256"];
@@ -239,7 +240,7 @@ internal static class Phase0EvidenceCommand
             }
             else if (status is "retired" or "closed")
             {
-                ValidateClosure(id, closure as JsonObject, errors);
+                ValidateClosure(id, StringValue(entry["native_replacement_gate"]) ?? string.Empty, closure as JsonObject, errors);
             }
             else errors.Add($"{id}: status must be identified, retired, or closed");
         }
@@ -267,7 +268,7 @@ internal static class Phase0EvidenceCommand
         }
     }
 
-    private static void ValidateClosure(string id, JsonObject? closure, List<string> errors)
+    private static void ValidateClosure(string id, string nativeReplacementGate, JsonObject? closure, List<string> errors)
     {
         if (closure is null)
         {
@@ -281,6 +282,10 @@ internal static class Phase0EvidenceCommand
         var commit = closure["commit"]?.GetValue<string>() ?? string.Empty;
         var path = closure["path"]?.GetValue<string>() ?? string.Empty;
         var hash = closure["sha256"]?.GetValue<string>() ?? string.Empty;
+        if (!string.Equals(StringValue(closure["workaround_id"]), id, StringComparison.Ordinal))
+            errors.Add($"{id}: closureEvidence workaround_id must match the current work record");
+        if (!string.Equals(StringValue(closure["native_replacement_gate"]), nativeReplacementGate, StringComparison.Ordinal))
+            errors.Add($"{id}: closureEvidence native_replacement_gate must match the current work record");
         if (!IsKnownRepository(repository)) errors.Add($"{id}: closureEvidence repository must be a known workspace product");
         if (!IsCommit(commit)) errors.Add($"{id}: closureEvidence commit must be immutable");
         if (!IsPath(path)) errors.Add($"{id}: closureEvidence path must be repository-relative");
@@ -295,7 +300,7 @@ internal static class Phase0EvidenceCommand
 
     private static void ValidateArchiveSources(string id, JsonArray? anchors, JsonArray? sources, List<string> errors)
     {
-        if (anchors is null || sources is null)
+        if (anchors is null || anchors.Count == 0 || sources is null || sources.Count == 0)
         {
             errors.Add($"{id}: archivalSourceEvidence requires an immutable source record");
             return;
