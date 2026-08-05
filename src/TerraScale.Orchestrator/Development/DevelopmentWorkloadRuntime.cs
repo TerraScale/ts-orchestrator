@@ -369,6 +369,11 @@ internal static class DevelopmentWorkloadRuntime
         if (environment["Payments__Provider"] is { } selectedPaymentProvider)
         {
             environment[$"Payments__{selectedPaymentProvider}__Enabled"] = "true";
+            if (selectedPaymentProvider.Equals("polar", StringComparison.OrdinalIgnoreCase))
+            {
+                environment.TryAdd("Payments__Polar__AccessToken", "devhost-local-access-token");
+                environment.TryAdd("Payments__Polar__WebhookSecret", "devhost-local-webhook-secret");
+            }
         }
         environment["Idempotency__RequireForInternalCalls"] = "true";
         // Platform peers Authentication and every regional Platform over private MagicOnion.

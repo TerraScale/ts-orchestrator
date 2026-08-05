@@ -126,6 +126,8 @@ public sealed class DevelopmentTopologyTests
             .IsEqualTo("00:00:02");
         await Assert.That(environment["Payments__Provider"]).IsEqualTo("polar");
         await Assert.That(environment["Payments__polar__Enabled"]).IsEqualTo("true");
+        await Assert.That(environment["Payments__Polar__AccessToken"]).IsEqualTo("devhost-local-access-token");
+        await Assert.That(environment["Payments__Polar__WebhookSecret"]).IsEqualTo("devhost-local-webhook-secret");
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
