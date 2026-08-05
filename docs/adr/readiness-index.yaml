@@ -5,12 +5,12 @@
   "normalizationEvidence": "GOAL.md:190-207",
   "status": "readiness-map-not-decision-record",
   "openOwnerQuestions": [],
-  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-31"]},
+  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-48"]},
   "openInputs": {
     "status": "open-no-defaults",
-    "source": "docs/decisions/owner-decision-packet.json:33-105",
-    "ownershipRegister": "docs/decisions/owner-decision-packet.json:73-105",
-    "unvalidatedInvariantGap": "docs/decisions/owner-decision-packet.json:107-109",
+    "source": "docs/decisions/owner-decision-packet.json:50-121",
+    "ownershipRegister": "docs/decisions/owner-decision-packet.json:90-122",
+    "unvalidatedInvariantGap": "docs/decisions/owner-decision-packet.json:124-126",
     "planning": ["team-size", "first-production-date"],
     "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
     "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
@@ -35,6 +35,7 @@
       "title": "Global versus regional authority and outage mutation policy",
       "status": "owner-input-required",
       "ownerLane": "Core",
+      "decisionAdrReferences": ["ADR-0001"], "sourceAnchors": ["ORCHESTRATOR.md:30-39"], "evidenceLocations": ["ORCHESTRATOR.md:30-39"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "regional-rpo-rto"
@@ -49,7 +50,8 @@
       "missingEvidence": [
         "Approved regional RPO/RTO and partition acceptance traces"
       ],
-      "dependencies": [],
+      "executableDependencies": [],
+      "closureEvidence": [],
       "exitEvidence": [
         "Signed owner decision for questions 1 and 2",
         "L0 authority/partition model proving one fenced writer and permitted outage actions",
@@ -62,6 +64,7 @@
       "title": "Dual dedicated regional NATS topology, host co-location isolation, bootstrap, upgrade, and recovery",
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
+      "decisionAdrReferences": ["ADR-0002"], "sourceAnchors": ["ORCHESTRATOR.md:492-517"], "evidenceLocations": ["ORCHESTRATOR.md:492-517"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "storage-slo"
@@ -77,7 +80,8 @@
         "Two-plane cgroup and storage isolation benchmark",
         "Bootstrap/peer replacement conformance"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         3,
         8,
@@ -97,6 +101,7 @@
       "title": "JetStream streams, KV CAS, snapshot/restore, fencing, and audit retention",
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
+      "decisionAdrReferences": ["ADR-0003"], "sourceAnchors": ["ORCHESTRATOR.md:461-489"], "evidenceLocations": ["ORCHESTRATOR.md:461-489"],
       "controllingInputs": [
         "regional-rpo-rto",
         "storage-slo",
@@ -113,7 +118,8 @@
         "Measured sync_interval latency/durability tradeoff",
         "Real NATS L0C snapshot/CAS/dedup/redelivery evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         2
       ],
@@ -130,7 +136,9 @@
       "title": "Pulumi/provider ownership and exact resource tags/IAM",
       "status": "draft-ready",
       "ownerLane": "Cloud",
+      "decisionAdrReferences": ["ADR-0004"], "sourceAnchors": ["ORCHESTRATOR.md:627-648"], "evidenceLocations": ["ORCHESTRATOR.md:627-648"],
       "controllingInputs": [],
+      "openInputOwnershipReferences": [],
       "availableEvidence": [
         "ORCHESTRATOR.md:627-648",
         "ORCHESTRATOR.md:650-671",
@@ -141,7 +149,8 @@
         "Pulumi retain/unmanage primary-source spike",
         "Fresh-resource handoff and crash-recovery model evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         20,
         24
@@ -159,6 +168,7 @@
       "title": "Direct OCI instances versus instance pools by node class",
       "status": "owner-input-required",
       "ownerLane": "Cloud",
+      "decisionAdrReferences": ["ADR-0005"], "sourceAnchors": ["ORCHESTRATOR.md:687-709"], "evidenceLocations": ["ORCHESTRATOR.md:687-709"],
       "controllingInputs": [
         "maximum-three-region-pre-user-cost",
         "storage-slo"
@@ -173,7 +183,8 @@
         "A1 capacity and provisioning measurements",
         "Per-node-class stateful/stateless failure analysis and TCO"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         4,
         19,
         20
@@ -191,9 +202,11 @@
       "title": "Unified workload schema and systemd/containerd driver contract",
       "status": "evidence-required",
       "ownerLane": "Runtime",
+      "decisionAdrReferences": ["ADR-0006"], "sourceAnchors": ["ORCHESTRATOR.md:400-445"], "evidenceLocations": ["ORCHESTRATOR.md:400-445"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted"
       ],
+      "openInputOwnershipReferences": [],
       "resolvedDecisionContext": ["4A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:92-92"],
       "availableEvidence": [
         "ORCHESTRATOR.md:400-445",
@@ -204,7 +217,8 @@
         "systemd D-Bus and containerd API contract spikes",
         "Cross-driver lifecycle fixtures"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         7,
         11,
         22
@@ -223,6 +237,7 @@
       "title": "Host network/port allocation versus namespaced network roadmap",
       "status": "owner-input-required",
       "ownerLane": "Runtime",
+      "decisionAdrReferences": ["ADR-0007"], "sourceAnchors": ["ORCHESTRATOR.md:850-857"], "evidenceLocations": ["ORCHESTRATOR.md:850-857"],
       "controllingInputs": [
         "memory-and-density-slo"
       ],
@@ -237,7 +252,8 @@
         "Role-by-role protocol and exposure inventory",
         "DNS/LB integration evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         6,
         15,
         16
@@ -255,6 +271,7 @@
       "title": "Compact co-location performance and promotion to isolated node classes",
       "status": "owner-input-required",
       "ownerLane": "Core",
+      "decisionAdrReferences": ["ADR-0008"], "sourceAnchors": ["ORCHESTRATOR.md:503-517"], "evidenceLocations": ["ORCHESTRATOR.md:503-517"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "maximum-three-region-pre-user-cost",
@@ -273,7 +290,8 @@
         "Colocated A1 TerraBase/NATS/observability benchmark",
         "Promotion/demotion hysteresis model"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         2,
         5,
         9,
@@ -292,6 +310,7 @@
       "title": "Volume identity, filesystem layout, fencing, expansion, performance, retention, and deletion",
       "status": "owner-input-required",
       "ownerLane": "Storage",
+      "decisionAdrReferences": ["ADR-0009"], "sourceAnchors": ["ORCHESTRATOR.md:758-840"], "evidenceLocations": ["ORCHESTRATOR.md:758-840"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "storage-slo",
@@ -308,7 +327,8 @@
         "OCI Block Volume and guest-rescan primary evidence",
         "Real ext4/XFS crash-point tests"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         4,
         8,
         20
@@ -327,6 +347,7 @@
       "title": "TerraBase topology, upgrade, backup, replication, and autoscaling controller contract",
       "status": "owner-input-required",
       "ownerLane": "TerraBase",
+      "decisionAdrReferences": ["ADR-0010"], "sourceAnchors": ["ORCHESTRATOR.md:1012-1039"], "evidenceLocations": ["ORCHESTRATOR.md:1012-1039"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "storage-slo",
@@ -342,7 +363,8 @@
         "Typed TerraBase admin contract",
         "Real backup/restore and 3-to-4-to-3 evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         6,
         9,
@@ -362,6 +384,7 @@
       "title": "Root/intermediate PKI, workload identity namespace, certificate TTL, revocation, and disconnected renewal",
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
+      "decisionAdrReferences": ["ADR-0011"], "sourceAnchors": ["ORCHESTRATOR.md:41-51"], "evidenceLocations": ["ORCHESTRATOR.md:41-51"],
       "controllingInputs": [
         "security-slo",
         "maximum-survival-window"
@@ -377,7 +400,8 @@
         "NATS active connection revocation proof",
         "Disconnected-issuer recovery evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         12,
         21
@@ -397,6 +421,7 @@
       "title": "Built-in vault backend and disaster recovery",
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
+      "decisionAdrReferences": ["ADR-0012"], "sourceAnchors": ["ORCHESTRATOR.md:904-922"], "evidenceLocations": ["ORCHESTRATOR.md:904-922"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "regional-rpo-rto",
@@ -412,7 +437,8 @@
         "Ciphertext store/KMS threat model",
         "Backup/restore/anti-rollback drill"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         3,
         11,
         21
@@ -431,7 +457,9 @@
       "title": "Native GitOps schema, fresh typed desired state, historical-behavior review, and complete Flux removal",
       "status": "draft-ready",
       "ownerLane": "Delivery",
+      "decisionAdrReferences": ["ADR-0013"], "sourceAnchors": ["ORCHESTRATOR.md:924-959"], "evidenceLocations": ["ORCHESTRATOR.md:924-959"],
       "controllingInputs": [],
+      "openInputOwnershipReferences": [],
       "availableEvidence": [
         "ORCHESTRATOR.md:924-959"
       ],
@@ -440,7 +468,8 @@
         "Complete historical behavior reconciliation",
         "Cleanup PR sequencing and native replacement gates"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         6,
         14,
@@ -460,6 +489,7 @@
       "title": "CI trust zones, release graph, bootstrap/recovery path, and artifact signing",
       "status": "evidence-required",
       "ownerLane": "Delivery",
+      "decisionAdrReferences": ["ADR-0014"], "sourceAnchors": ["ORCHESTRATOR.md:961-1010"], "evidenceLocations": ["ORCHESTRATOR.md:961-1010"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "artifact-and-evidence-signing-selection"
@@ -475,7 +505,8 @@
         "Authentication build target",
         "Runner isolation threat model"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         6,
         13,
         22,
@@ -495,6 +526,7 @@
       "title": "Service registry, DNS, ingress/LB, region headers, and routing ownership",
       "status": "evidence-required",
       "ownerLane": "Operations",
+      "decisionAdrReferences": ["ADR-0015"], "sourceAnchors": ["ORCHESTRATOR.md:873-879"], "evidenceLocations": ["ORCHESTRATOR.md:873-879"],
       "controllingInputs": [
         "dns-implementation-selection"
       ],
@@ -508,7 +540,8 @@
         "LB/Cloudflare ownership and default-deny ingress model",
         "Twenty-region topology scaling evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         7,
         16,
         18,
@@ -528,6 +561,7 @@
       "title": "VPN implementation and scalable twenty-region connectivity",
       "status": "evidence-required",
       "ownerLane": "Operations",
+      "decisionAdrReferences": ["ADR-0016"], "sourceAnchors": ["ORCHESTRATOR.md:1096-1110"], "evidenceLocations": ["ORCHESTRATOR.md:1096-1110"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "vpn-implementation-selection"
@@ -543,7 +577,8 @@
         "Route/ACL/relay/secret lifecycle threat model",
         "At-least-20-region qualified connectivity matrix"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         11,
         15,
         19
@@ -562,6 +597,7 @@
       "title": "Operator OIDC/RBAC/break-glass/API and Grafana threat model",
       "status": "owner-input-required",
       "ownerLane": "Operations",
+      "decisionAdrReferences": ["ADR-0017"], "sourceAnchors": ["ORCHESTRATOR.md:1065-1094"], "evidenceLocations": ["ORCHESTRATOR.md:1065-1094"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "operator-identity-provider-selection",
@@ -578,7 +614,8 @@
         "Grafana data-source/plugin selection",
         "Exact projection/cardinality and browser threat model"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         11,
         15
       ],
@@ -597,7 +634,9 @@
       "title": "Project placement versus host scheduling boundary",
       "status": "draft-ready",
       "ownerLane": "Integration/contract steward",
+      "decisionAdrReferences": ["ADR-0018"], "sourceAnchors": ["ORCHESTRATOR.md:155-155"], "evidenceLocations": ["ORCHESTRATOR.md:155-155"],
       "controllingInputs": [],
+      "openInputOwnershipReferences": [],
       "availableEvidence": [
         "ORCHESTRATOR.md:155-155",
         "ORCHESTRATOR.md:1031-1039"
@@ -607,7 +646,8 @@
         "Explicit storage-epoch and filtered-absence ownership map",
         "Cross-repository approval before any source-of-truth move"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         10,
         13,
         15
@@ -625,6 +665,7 @@
       "title": "Three-region cost/SLO target and provider portability contract",
       "status": "owner-input-required",
       "ownerLane": "Core",
+      "decisionAdrReferences": ["ADR-0019"], "sourceAnchors": ["ORCHESTRATOR.md:248-256"], "evidenceLocations": ["ORCHESTRATOR.md:248-256"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "maximum-three-region-pre-user-cost",
@@ -646,7 +687,8 @@
         "At-least-20-row OCI eligibility matrix",
         "Comparable ARM64 TerraBase/storage benchmarks"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         5,
         8,
         9,
@@ -666,7 +708,9 @@
       "title": "Provider-actuator crash-stop threat model, irreversible-operation fencing/resume, and OCI credential boundary",
       "status": "draft-ready",
       "ownerLane": "Cloud",
+      "decisionAdrReferences": ["ADR-0020"], "sourceAnchors": ["ORCHESTRATOR.md:627-648"], "evidenceLocations": ["ORCHESTRATOR.md:627-648"],
       "controllingInputs": [],
+      "openInputOwnershipReferences": [],
       "availableEvidence": [
         "ORCHESTRATOR.md:627-648",
         "ORCHESTRATOR.md:687-709"
@@ -677,7 +721,8 @@
         "Leadership-loss model and adapter race evidence",
         "Independent security review"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         4,
         23
@@ -696,6 +741,7 @@
       "title": "Regional survival bundle, artifact/secret availability, disconnected node replacement, and maximum survival window",
       "status": "owner-input-required",
       "ownerLane": "Messaging/security",
+      "decisionAdrReferences": ["ADR-0021"], "sourceAnchors": ["ORCHESTRATOR.md:673-685"], "evidenceLocations": ["ORCHESTRATOR.md:673-685"],
       "controllingInputs": [
         "owner-questions-1A-10A-accepted",
         "regional-rpo-rto",
@@ -713,7 +759,8 @@
         "Per-secret/certificate expiry inventory",
         "Disconnected restore/replacement evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         1,
         2,
         10,
@@ -736,6 +783,7 @@
       "title": "Golden-image bootstrap, N/N-1 compatibility, and A/B orchestrator self-upgrade/rollback",
       "status": "evidence-required",
       "ownerLane": "Runtime",
+      "decisionAdrReferences": ["ADR-0022"], "sourceAnchors": ["ORCHESTRATOR.md:333-382"], "evidenceLocations": ["ORCHESTRATOR.md:333-382"],
       "controllingInputs": [
         "arm64-host-image-selection",
         "nats-n-minus-one-policy"
@@ -750,7 +798,8 @@
         "N/N-1 protocol/schema matrix",
         "Independent rollback timer/slot implementation evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         6,
         11,
         14,
@@ -772,6 +821,7 @@
       "title": "Requirement/error registry, pure decision dependency rules, test toolchain, evidence attestation, and deployment-credential gate",
       "status": "evidence-required",
       "ownerLane": "Verification",
+      "decisionAdrReferences": ["ADR-0023"], "sourceAnchors": ["ORCHESTRATOR.md:1114-1179"], "evidenceLocations": ["ORCHESTRATOR.md:1114-1179"],
       "controllingInputs": [
         "artifact-and-evidence-signing-selection"
       ],
@@ -788,7 +838,8 @@
         "Forgejo/IAM credential enforcement design",
         "Pinned Podman and image-manifest evidence"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         14,
         22
       ],
@@ -807,9 +858,8 @@
       "title": "Greenfield OCI inventory, stale-resource quarantine/approved cleanup, partial-create recovery, initial trust/NATS/TerraBase seeding, independent regional partial success, Pulumi handoff, cleanup-PR sequencing, ingress activation/withdrawal, and first-production rollback boundaries",
       "status": "owner-input-required",
       "ownerLane": "Cloud",
+      "decisionAdrReferences": ["ADR-0024"], "sourceAnchors": ["ORCHESTRATOR.md:54-66"], "evidenceLocations": ["ORCHESTRATOR.md:54-66"],
       "controllingInputs": [
-        "explicit-cleanup-approvals",
-        "explicit-ingress-enable-approval",
         "maximum-three-region-pre-user-cost",
         "regional-rpo-rto"
       ],
@@ -825,7 +875,8 @@
         "Partial-create/independent-region recovery model",
         "Closed-ingress clean-room rehearsal"
       ],
-      "dependencies": [
+      "executableDependencies": [],
+      "closureEvidence": [
         4,
         10,
         13,

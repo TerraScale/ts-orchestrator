@@ -15,8 +15,25 @@
     "status": "accepted-owner-policy",
     "acceptedOn": "2026-07-16",
     "authority": "owner",
-    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-31"],
+    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-48"],
     "supersession": "An explicit superseding owner decision and architecture review are required to change an A choice."
+  },
+  "atomicPolicyRecords": [
+    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-48"]}
+  ],
+  "controllingInputAliases": {
+    "owner-questions-1A-10A-accepted": ["accepted-owner-policy"],
+    "regional-rpo-rto": ["regional-rpo", "regional-rto"],
+    "storage-slo": ["storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency"],
+    "audit-retention-policy": ["audit-hot-retention", "audit-immutable-retention"],
+    "memory-and-density-slo": ["memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling"],
+    "security-slo": ["security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation"],
+    "artifact-and-evidence-signing-selection": ["artifact-and-evidence-signing"],
+    "dns-implementation-selection": ["dns-implementation"],
+    "vpn-implementation-selection": ["vpn-implementation"],
+    "operator-identity-provider-selection": ["operator-identity-provider"],
+    "regional-artifact-mirror-selection": ["regional-artifact-mirror"],
+    "arm64-host-image-selection": ["arm64-host-image"]
   },
   "questions": [
     {"id": 1, "question": "Regional control topology", "optionA": "Three controller candidates plus three control-NATS servers in **each** region: 9 of each across GRU/SFO/FRA, with independent regional JetStream R3 consensus", "optionB": "Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants", "recommended": "A", "answer": "A", "sourceLine": 89, "semanticSha256": "7f0faabb929de282d9758bd859022e160831b0b2b4871e2f41ec883bf6d4cdc9", "impactedAdrs": [1, 2], "impactedGates": ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]},
