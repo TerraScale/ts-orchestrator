@@ -41,6 +41,12 @@ internal sealed class InfisicalConfiguration
     public string ClientSecretFile { get; }
     public string? OrganizationSlug { get; }
 
+    // Infrastructure-only journal provisioning must not fetch or materialize
+    // the generic TS_ORCH_* secret environment, which can contain controller
+    // and journal-writer private credential files.
+    internal static bool RequiresRuntimeSecretEnvironment(string? command) =>
+        command is null or "run" or "check" or "runner";
+
     public static InfisicalConfiguration? Resolve(Func<string, string?> environment)
     {
         ArgumentNullException.ThrowIfNull(environment);

@@ -40,7 +40,7 @@ try
             LocalEnvironment,
             shutdown.Token);
     }
-    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check" or "runner" or "provision-journal"
+    var infisicalConfiguration = InfisicalConfiguration.RequiresRuntimeSecretEnvironment(args.FirstOrDefault())
         ? InfisicalConfiguration.Resolve(LocalEnvironment)
         : null;
     using var infisicalEnvironment = infisicalConfiguration is null

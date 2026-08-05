@@ -35,6 +35,16 @@ public sealed class InfisicalSecretStoreTests
     }
 
     [Test]
+    public async Task ProvisionJournalDoesNotLoadTheGenericRuntimeSecretEnvironment()
+    {
+        await Assert.That(InfisicalConfiguration.RequiresRuntimeSecretEnvironment("provision-journal")).IsFalse();
+        await Assert.That(InfisicalConfiguration.RequiresRuntimeSecretEnvironment("journal-writer")).IsFalse();
+        await Assert.That(InfisicalConfiguration.RequiresRuntimeSecretEnvironment("run")).IsTrue();
+        await Assert.That(InfisicalConfiguration.RequiresRuntimeSecretEnvironment("check")).IsTrue();
+        await Assert.That(InfisicalConfiguration.RequiresRuntimeSecretEnvironment("runner")).IsTrue();
+    }
+
+    [Test]
     public async Task V4ClientAuthenticatesAndSupportsSecretCrudWithoutLeakingValues()
     {
         if (!OperatingSystem.IsLinux()) return;

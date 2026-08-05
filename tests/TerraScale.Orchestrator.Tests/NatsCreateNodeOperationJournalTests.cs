@@ -427,6 +427,10 @@ public sealed class NatsCreateNodeOperationJournalTests
                          ("$KV.ORCH_OPERATIONS.operation.rollup", new NatsHeaders { ["Nats-Rollup"] = "sub" }),
                          ("$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.DIRECT.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
+                         ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
                      })
             {
                 Func<Task> publish = async () =>

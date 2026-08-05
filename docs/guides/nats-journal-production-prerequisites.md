@@ -31,7 +31,8 @@ writer command rejects controller NKey/mTLS values and is the only command that
 opens writer credentials or starts the mutation service. A controller uses its
 own scoped request/reply NATS identity and only public reply-verification
 material. `provision-journal` runs with only its infrastructure NKey and mTLS
-identity; it must not receive or open controller or writer private material.
+identity; it must not receive or open controller or writer private material,
+and it does not load the generic Infisical runtime secret environment.
 The development fixture models those identities and permissions but does not
 establish a deployed workload, host mount policy, or R3 boundary.
 
@@ -45,8 +46,9 @@ must not be written into this repository.
 
 That external artifact must grant each eligible controller only its named
 runtime subjects, the exact journal `create`/`update` publish subjects, and its
-own reply namespace. It must deny both journal KV stores and all stream mutation
-subjects, and must not grant broad `_INBOX` access. The regional writer queue
+own reply namespace. It must deny both journal KV stores, both JetStream
+`DIRECT.GET` and `STREAM.MSG.GET` APIs for the operation and proof streams, and
+all stream mutation subjects; it must not grant broad `_INBOX` access. The regional writer queue
 identity alone may publish `ORCH_OPERATIONS`, `ORCH_OPERATION_PROOFS`, and
 journal replies; infrastructure alone may create or update either stream.
 `provision-journal` cannot attest cross-workload private identity separation,
