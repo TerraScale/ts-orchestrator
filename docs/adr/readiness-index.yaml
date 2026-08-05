@@ -4,13 +4,14 @@
   "generatedAt": "2026-07-17",
   "status": "readiness-map-not-decision-record",
   "openOwnerQuestions": [],
-  "openPlanningInputs": [
-    "team-size",
-    "first-production-date",
-    "maximum-three-region-pre-user-cost",
-    "storage-iops-throughput-p95-p99",
-    "regional-rpo-rto"
-  ],
+  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:12-30"]},
+  "openInputs": {
+    "status": "open-no-defaults",
+    "source": "docs/decisions/owner-decision-packet.json:58-70",
+    "planning": ["team-size", "first-production-date"],
+    "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
+    "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
+  },
   "canonicalOwnerLanes": [
     "Integration/contract steward",
     "Core",
@@ -35,13 +36,13 @@
         "owner-questions-1A-10A-accepted",
         "regional-rpo-rto"
       ],
+      "resolvedDecisionContext": ["1A and 2A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:89-90"],
       "availableEvidence": [
         "ORCHESTRATOR.md:30-39",
         "ORCHESTRATOR.md:83-99",
         "ORCHESTRATOR.md:538-552"
       ],
       "missingEvidence": [
-        "Owner selections for topology and isolated-region mutation authority",
         "Approved regional RPO/RTO and partition acceptance traces"
       ],
       "dependencies": [],
@@ -61,12 +62,12 @@
         "owner-questions-1A-10A-accepted",
         "storage-slo"
       ],
+      "resolvedDecisionContext": ["1A and 8A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:89-96"],
       "availableEvidence": [
         "ORCHESTRATOR.md:492-517",
         "ORCHESTRATOR.md:519-536"
       ],
       "missingEvidence": [
-        "Host co-location decision",
         "Pinned NATS server/client N/N-1 policy",
         "Two-plane cgroup and storage isolation benchmark",
         "Bootstrap/peer replacement conformance"
@@ -186,12 +187,12 @@
       "controllingInputs": [
         "owner-questions-1A-10A-accepted"
       ],
+      "resolvedDecisionContext": ["4A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:92-92"],
       "availableEvidence": [
         "ORCHESTRATOR.md:400-445",
         "ORCHESTRATOR.md:843-871"
       ],
       "missingEvidence": [
-        "Runtime-default owner choice",
         "Pinned containerd/runc versions",
         "systemd D-Bus and containerd API contract spikes",
         "Cross-driver lifecycle fixtures"
@@ -252,13 +253,13 @@
         "storage-slo",
         "memory-and-density-slo"
       ],
+      "resolvedDecisionContext": ["8A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:96-96"],
       "availableEvidence": [
         "ORCHESTRATOR.md:503-517",
         "ORCHESTRATOR.md:248-256",
         "ORCHESTRATOR.md:1280-1289"
       ],
       "missingEvidence": [
-        "Host-isolation choice",
         "Approved cost/memory/storage targets",
         "Colocated A1 TerraBase/NATS/observability benchmark",
         "Promotion/demotion hysteresis model"
@@ -287,11 +288,11 @@
         "storage-slo",
         "regional-rpo-rto"
       ],
+      "resolvedDecisionContext": ["5A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:93-93"],
       "availableEvidence": [
         "ORCHESTRATOR.md:758-840"
       ],
       "missingEvidence": [
-        "Elastic-volume cleanup choice",
         "Approved storage SLO/RPO",
         "Filesystem selection",
         "OCI Block Volume and guest-rescan primary evidence",
@@ -321,11 +322,11 @@
         "storage-slo",
         "regional-rpo-rto"
       ],
+      "resolvedDecisionContext": ["4A, 5A, and 10A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:92-98"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1012-1039"
       ],
       "missingEvidence": [
-        "Runtime, elastic cleanup, and rootless container scale-out choices",
         "Approved RPO/RTO and storage SLO",
         "Typed TerraBase admin contract",
         "Real backup/restore and 3-to-4-to-3 evidence"
@@ -389,11 +390,11 @@
         "regional-rpo-rto",
         "maximum-survival-window"
       ],
+      "resolvedDecisionContext": ["3A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:91-91"],
       "availableEvidence": [
         "ORCHESTRATOR.md:904-922"
       ],
       "missingEvidence": [
-        "Vault authority owner choice",
         "Approved vault RPO/RTO and disconnected duration",
         "Ciphertext store/KMS threat model",
         "Backup/restore/anti-rollback drill"
@@ -450,11 +451,11 @@
         "owner-questions-1A-10A-accepted",
         "artifact-and-evidence-signing-selection"
       ],
+      "resolvedDecisionContext": ["7A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:95-95"],
       "availableEvidence": [
         "ORCHESTRATOR.md:961-1010"
       ],
       "missingEvidence": [
-        "Bootstrap/recovery owner choice",
         "Signing identity/tool selection and pin",
         "Reconciled feature/develop/main policy",
         "Authentication build target",
@@ -516,12 +517,12 @@
         "owner-questions-1A-10A-accepted",
         "vpn-implementation-selection"
       ],
+      "resolvedDecisionContext": ["6A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:94-94"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1096-1110",
         "ORCHESTRATOR.md:248-256"
       ],
       "missingEvidence": [
-        "Provider portability timing",
         "Selected WireGuard implementation and pinned version",
         "Route/ACL/relay/secret lifecycle threat model",
         "At-least-20-region qualified connectivity matrix"
@@ -550,11 +551,11 @@
         "operator-identity-provider-selection",
         "security-slo"
       ],
+      "resolvedDecisionContext": ["9A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:97-97"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1065-1094"
       ],
       "missingEvidence": [
-        "Telemetry loss/durability owner choice",
         "OIDC provider/client and role mapping",
         "Break-glass custody/expiry procedure",
         "Grafana data-source/plugin selection",
@@ -615,6 +616,7 @@
         "team-size",
         "first-production-date"
       ],
+      "resolvedDecisionContext": ["6A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:94-94"],
       "availableEvidence": [
         "ORCHESTRATOR.md:248-256",
         "ORCHESTRATOR.md:756-756"
@@ -682,11 +684,11 @@
         "maximum-survival-window",
         "regional-artifact-mirror-selection"
       ],
+      "resolvedDecisionContext": ["2A and 3A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:90-91"],
       "availableEvidence": [
         "ORCHESTRATOR.md:673-685"
       ],
       "missingEvidence": [
-        "Outage mutation and vault choices",
         "Approved survival window/RTO",
         "Regional artifact mirror",
         "Per-secret/certificate expiry inventory",

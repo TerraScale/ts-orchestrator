@@ -10,6 +10,13 @@
     "answerOriginRequired": "explicit-owner-response"
   },
   "recordedResponse": {"receivedOn": "2026-07-16", "answer": "all A", "priority": "reliability-first"},
+  "acceptedDecisionRegister": {
+    "status": "accepted-owner-policy",
+    "acceptedOn": "2026-07-16",
+    "authority": "owner",
+    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:12-30"],
+    "supersession": "An explicit superseding owner decision and architecture review are required to change an A choice."
+  },
   "questions": [
     {"id": 1, "question": "Regional control topology", "optionA": "Three controller candidates plus three control-NATS servers in **each** region: 9 of each across GRU/SFO/FRA, with independent regional JetStream R3 consensus", "optionB": "Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants", "recommended": "A", "answer": "A", "sourceLine": 89, "semanticSha256": "7f0faabb929de282d9758bd859022e160831b0b2b4871e2f41ec883bf6d4cdc9", "impactedAdrs": [1, 2], "impactedGates": ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]},
     {"id": 2, "question": "GRU/WAN outage deployments", "optionA": "Regions keep serving, healing, replacing/scaling nodes, expanding storage, and renewing existing identities; freeze new global releases/policy changes", "optionB": "Allow each isolated region to accept independent releases/policy changes", "recommended": "A", "answer": "A", "sourceLine": 90, "semanticSha256": "49bc2a3cfbae259ff93873243f02295eb80154ced4f7eea018b22d41da562273", "impactedAdrs": [1, 21], "impactedGates": ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]},
@@ -54,5 +61,13 @@
     {"id": "arm64-host-image", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [22], "impactedGates": ["phase-0-exit", "L1R", "L4"]},
     {"id": "nats-n-minus-one-policy", "readinessStage": "later-phase0-selection", "requiredBeforeContractFreeze": false, "selection": null, "impactedAdrs": [22], "impactedGates": ["phase-0-exit", "L0C", "L3S"]}
   ],
+  "openInputRegister": {
+    "status": "open-no-defaults",
+    "authorityRequired": "Named product, operations, and security owners for unresolved measurable inputs and later selections.",
+    "sourceAnchors": ["ORCHESTRATOR.md:100-105", "GOAL.md:190-207"],
+    "planning": ["team-size", "first-production-date"],
+    "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
+    "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
+  },
   "recordedCompactResponse": "all A; reliability first"
 }
