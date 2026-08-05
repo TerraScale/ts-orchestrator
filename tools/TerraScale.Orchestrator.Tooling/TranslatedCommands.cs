@@ -302,7 +302,40 @@ internal static class DecisionReadinessValidator
 {
     private static readonly HashSet<string> AcceptedPolicyProvenance =
     ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"];
+    private static readonly HashSet<string> OpenInputProvenance =
+    ["ORCHESTRATOR.md:100-105", "../GOAL.md:70-77"];
     private static readonly HashSet<string> LaterSelectionIds = ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"];
+    private static readonly IReadOnlyDictionary<int, (int[] Adrs, string[] Gates)> QuestionMappings = new Dictionary<int, (int[], string[])>
+    {
+        [1] = ([1, 2], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]), [2] = ([1, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
+        [3] = ([12, 21], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), [4] = ([6, 10], ["contract-freeze", "phase-0-exit", "L0", "L1R", "L3S", "L4"]),
+        [5] = ([9, 10], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]), [6] = ([16, 19], ["contract-freeze", "phase-0-exit", "L0", "L4", "L5"]),
+        [7] = ([14], ["contract-freeze", "phase-0-exit", "L0", "L3S"]), [8] = ([2, 8], ["contract-freeze", "phase-0-exit", "L0C", "L3S", "L4", "L5"]),
+        [9] = ([17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]), [10] = ([10], ["contract-freeze", "phase-0-exit", "L0", "L3S"])
+    };
+    private static readonly IReadOnlyDictionary<string, (string Validation, int[] Adrs, string[] Gates)> InputMappings = new Dictionary<string, (string, int[], string[])>(StringComparer.Ordinal)
+    {
+        ["team-size"] = ("{\"type\":\"integer\",\"minimum\":1}", [19], ["phase-0-planning"]), ["first-production-date"] = ("{\"type\":\"string\",\"pattern\":\"^(\\\\d{4}-\\\\d{2}-\\\\d{2}|\\\\d{4}-Q[1-4])$\"}", [19], ["phase-0-planning"]),
+        ["maximum-three-region-pre-user-cost"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0}", [5, 8, 19, 24], ["contract-freeze", "phase-0-exit", "L5"]),
+        ["storage-minimum-iops-per-member"] = ("{\"type\":\"integer\",\"minimum\":1}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-minimum-throughput-per-member"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p95-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-p99-read-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["storage-p95-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]), ["storage-p99-write-latency"] = ("{\"type\":\"number\",\"minimum\":0}", [2, 3, 5, 8, 9, 10, 19], ["contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"]),
+        ["regional-rpo"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4", "L5"]), ["regional-rto"] = ("{\"type\":\"integer\",\"minimum\":0}", [1, 3, 9, 10, 12, 19, 21, 24], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
+        ["security-credential-revocation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), ["security-workload-certificate-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]),
+        ["security-certificate-renewal-lead"] = ("{\"type\":\"integer\",\"minimum\":1}", [11], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"]), ["security-break-glass-session-ttl"] = ("{\"type\":\"integer\",\"minimum\":1}", [17], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L5"]),
+        ["security-critical-remediation"] = ("{\"type\":\"integer\",\"minimum\":0}", [11, 17], ["contract-freeze", "phase-0-exit"]), ["memory-orchestrator-rss-per-host"] = ("{\"type\":\"integer\",\"minimum\":1}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4"]),
+        ["density-compact-post-failure-utilization-ceiling"] = ("{\"type\":\"number\",\"exclusiveMinimum\":0,\"maximum\":100}", [7, 8], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]), ["audit-hot-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L0C", "L3S"]),
+        ["audit-immutable-retention"] = ("{\"type\":\"integer\",\"minimum\":1}", [3], ["contract-freeze", "phase-0-exit", "L3S", "L4", "L5"]), ["maximum-regional-survival-window"] = ("{\"type\":\"integer\",\"minimum\":1}", [11, 12, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"])
+    };
+    private static readonly IReadOnlyDictionary<string, (int[] Adrs, string[] Gates)> LaterSelectionMappings = new Dictionary<string, (int[], string[])>(StringComparer.Ordinal)
+    {
+        ["artifact-and-evidence-signing"] = ([14, 23], ["phase-0-exit", "L0"]), ["dns-implementation"] = ([15], ["phase-0-exit", "L3S", "L4"]), ["vpn-implementation"] = ([16], ["phase-0-exit", "L3S", "L4"]), ["operator-identity-provider"] = ([17], ["phase-0-exit", "L3S", "L5"]), ["regional-artifact-mirror"] = ([21], ["phase-0-exit", "L3S", "L4"]), ["arm64-host-image"] = ([22], ["phase-0-exit", "L1R", "L4"]), ["nats-n-minus-one-policy"] = ([22], ["phase-0-exit", "L0C", "L3S"])
+    };
+    private const string InvariantGapId = "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT";
+    private const string InvariantGapStatus = "open-independent-review-required";
+    private const string InvariantGapInvariant = "P0-01V enforces accepted-policy provenance, alias expansion, ownership-reference coverage, required ADR record fields, and acyclic executable dependencies.";
+    private const string InvariantGapEvidenceLimit = "Validator success proves only checked-in schema consistency; it does not establish external owner assignment or approval, measured evidence, ADR acceptance, or independent P0-01/P0-01V review.";
+    private const string InvariantGapPrerequisite = "Independent P0-01/P0-01V review remains required before any acceptance claim.";
     private static readonly string[] AtomicPolicyFields = ["id", "status", "kind", "sourceAnchors"];
     private static readonly string[] OwnershipFields = ["id", "stableOwnerId", "accountableApprovalRole", "assignmentStatus", "decisionScope", "authorityDependency"];
     private static readonly string[] EntryFields = ["id", "slug", "title", "status", "ownerLane", "decisionAdrReferences", "sourceAnchors", "evidenceLocations", "controllingInputs", "openInputOwnershipReferences", "availableEvidence", "missingEvidence", "executableDependencies", "closureEvidence", "exitEvidence"];
@@ -311,6 +344,8 @@ internal static class DecisionReadinessValidator
     {
         var errors = new List<string>();
         var inputs = Ids(packet["inputs"], "packet inputs", 21, errors);
+        ValidateQuestions(packet["questions"] as JsonArray, errors);
+        ValidateInputs(packet["inputs"] as JsonArray, InputMappings, errors);
         var selections = Ids(packet["laterImplementationSelections"], "later selections", 7, errors);
         if (!selections.SetEquals(LaterSelectionIds)) errors.Add("later selections: canonical ID set required");
         if (packet["laterImplementationSelections"] is JsonArray later) foreach (var node in later)
@@ -321,6 +356,7 @@ internal static class DecisionReadinessValidator
             if (selection["selection"] is not null) errors.Add("later selection: selection must remain null");
             if (selection["requiredBeforeContractFreeze"] is not JsonValue freeze || !freeze.TryGetValue<bool>(out var required) || required) errors.Add("later selection: must not block contract freeze");
         }
+        ValidateInputs(packet["laterImplementationSelections"] as JsonArray, LaterSelectionMappings, errors);
         var atomic = new HashSet<string>(inputs, StringComparer.Ordinal);
         atomic.UnionWith(selections);
 
@@ -343,6 +379,7 @@ internal static class DecisionReadinessValidator
                 errors.Add($"controllingInputAliases: alias {alias} collides with an atomic ID");
         var expanded = aliases is null ? new Dictionary<string, HashSet<string>>(StringComparer.Ordinal) : ExpandAliases(aliases, atomic, errors);
         ValidateRegisters(packet, inputs, selections, errors);
+        ValidateInvariantGap(packet["unvalidatedInvariantGaps"] as JsonArray, errors);
         ValidateReadinessContext(packet, readiness, errors);
         ValidateAcceptedRegister(packet, readiness, errors);
 
@@ -404,7 +441,69 @@ internal static class DecisionReadinessValidator
             if (closure.Intersect(executable).Any()) errors.Add($"ADR {id}: closure evidence cannot also be executable dependency");
         }
         if (HasCycle(graph)) errors.Add("executableDependencies: graph must be acyclic");
+        ValidateInputReadinessMappings(entries, expanded, errors);
         return errors;
+    }
+
+    private static void ValidateQuestions(JsonArray? questions, List<string> errors)
+    {
+        if (questions is null) return;
+        foreach (var question in questions.OfType<JsonObject>())
+        {
+            var id = question["id"]?.GetValue<int>() ?? 0;
+            if (!QuestionMappings.TryGetValue(id, out var expected)) { errors.Add($"question {id}: canonical impact mapping required"); continue; }
+            ValidateImpactMapping(question, $"question {id}", expected.Adrs, expected.Gates, errors);
+        }
+    }
+
+    private static void ValidateInputs<T>(JsonArray? records, IReadOnlyDictionary<string, T> mappings, List<string> errors) where T : notnull
+    {
+        if (records is null) return;
+        foreach (var record in records.OfType<JsonObject>())
+        {
+            var id = Text(record["id"], "input id", errors);
+            if (id is null || !mappings.ContainsKey(id)) { errors.Add($"input {id}: canonical impact mapping required"); continue; }
+            switch (mappings[id])
+            {
+                case ValueTuple<string, int[], string[]> input:
+                    if (!JsonNode.DeepEquals(record["validation"], JsonNode.Parse(input.Item1))) errors.Add($"input {id}: canonical validation shape required");
+                    ValidateImpactMapping(record, $"input {id}", input.Item2, input.Item3, errors);
+                    break;
+                case ValueTuple<int[], string[]> selection:
+                    ValidateImpactMapping(record, $"input {id}", selection.Item1, selection.Item2, errors);
+                    break;
+            }
+        }
+    }
+
+    private static void ValidateImpactMapping(JsonObject record, string where, int[] adrs, string[] gates, List<string> errors)
+    {
+        if (!IntegerValues(record["impactedAdrs"], $"{where} impactedAdrs", errors).SequenceEqual(adrs)) errors.Add($"{where}: canonical impactedAdrs required");
+        if (!Strings(record["impactedGates"], $"{where} impactedGates", errors).SequenceEqual(gates)) errors.Add($"{where}: canonical impactedGates required");
+    }
+
+    private static void ValidateInvariantGap(JsonArray? gaps, List<string> errors)
+    {
+        if (gaps is null || gaps.Count != 1 || gaps[0] is not JsonObject gap || gap.Count != 6) { errors.Add("unvalidatedInvariantGaps: exact required record missing"); return; }
+        Require(gap, "unvalidatedInvariantGaps", ["id", "status", "invariant", "currentEvidenceLimit", "requiredFutureExactPaths", "prerequisite"], errors);
+        if (Text(gap["id"], "unvalidatedInvariantGaps id", errors) != InvariantGapId || Text(gap["status"], "unvalidatedInvariantGaps status", errors) != InvariantGapStatus
+            || Text(gap["invariant"], "unvalidatedInvariantGaps invariant", errors) != InvariantGapInvariant || Text(gap["currentEvidenceLimit"], "unvalidatedInvariantGaps currentEvidenceLimit", errors) != InvariantGapEvidenceLimit
+            || gap["requiredFutureExactPaths"] is not JsonArray paths || paths.Count != 0 || Text(gap["prerequisite"], "unvalidatedInvariantGaps prerequisite", errors) != InvariantGapPrerequisite)
+            errors.Add("unvalidatedInvariantGaps: independent-review provenance required");
+    }
+
+    private static void ValidateInputReadinessMappings(JsonArray entries, Dictionary<string, HashSet<string>> expanded, List<string> errors)
+    {
+        foreach (var (input, expected) in InputMappings)
+        {
+            var actual = entries.OfType<JsonObject>().Where(entry => Strings(entry["controllingInputs"], $"input {input} readiness mapping", errors).Any(control => control == input || expanded.GetValueOrDefault(control, []).Contains(input))).Select(entry => entry["id"]?.GetValue<int>() ?? 0);
+            if (expected.Adrs.Except(actual).Any()) errors.Add($"input {input}: impacted ADR lacks readiness mapping");
+        }
+        foreach (var (input, expected) in LaterSelectionMappings)
+        {
+            var actual = entries.OfType<JsonObject>().Where(entry => Strings(entry["controllingInputs"], $"input {input} readiness mapping", errors).Any(control => control == input || expanded.GetValueOrDefault(control, []).Contains(input))).Select(entry => entry["id"]?.GetValue<int>() ?? 0);
+            if (expected.Adrs.Except(actual).Any()) errors.Add($"input {input}: impacted ADR lacks readiness mapping");
+        }
     }
 
     private static Dictionary<string, HashSet<string>> ExpandAliases(JsonObject aliases, HashSet<string> atomic, List<string> errors)
@@ -434,6 +533,7 @@ internal static class DecisionReadinessValidator
         var register = packet["openInputRegister"] as JsonObject;
         if (register is null) { errors.Add("openInputRegister: required object"); return; }
         if (Text(register["status"], "openInputRegister status", errors) != "open-no-defaults") errors.Add("openInputRegister: invalid status");
+        if (!new HashSet<string>(Strings(register["sourceAnchors"], "openInputRegister sourceAnchors", errors), StringComparer.Ordinal).SetEquals(OpenInputProvenance)) errors.Add("openInputRegister: canonical source anchors required");
         Validation.ValidateLocalAnchors(register["sourceAnchors"] as JsonArray, "openInputRegister", errors);
         if (!new HashSet<string>(Strings(register["planning"], "openInputRegister planning", errors)).SetEquals(inputs.Where(id => id is "team-size" or "first-production-date"))) errors.Add("openInputRegister: planning parity failure");
         if (!new HashSet<string>(Strings(register["measurableQualification"], "openInputRegister measurableQualification", errors)).SetEquals(inputs.Where(id => id is not "team-size" and not "first-production-date"))) errors.Add("openInputRegister: measurable parity failure");
