@@ -1,7 +1,7 @@
 namespace TerraScale.Orchestrator.ControlPlane.Providers;
 
 public sealed record CreateNodeProviderRequest(ProviderOperationContext Context, CreateNodeProviderParameters Parameters,
-    CreateNodeReceiptBinding Binding, CreateNodeHandoffReceipt Receipt);
+    CreateNodeReceiptBinding Binding, CreateNodeHandoffReceipt Receipt, CreateNodeRecoveryLookupAuthority RecoveryAuthority);
 public sealed record CreateNodeProviderResponse(ProviderResourceId NodeId, ProviderWorkRequestId WorkRequestId);
 public sealed record CreateNodeProviderReconciliationProof(string Algorithm, string KeyId, CreateNodeReceiptBinding Binding,
     ProviderResourceId NodeId, ProviderWorkRequestId WorkRequestId, string Signature)
@@ -23,11 +23,12 @@ public interface ICreateNodeProvider
     ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
 }
 
-public sealed class DeterministicCreateNodeProvider(ICreateNodeReceiptKeyResolver keys, CreateNodeProviderProofSigner proofSigner, TimeProvider clock) : ICreateNodeProvider
+public sealed class DeterministicCreateNodeProvider(ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, CreateNodeProviderProofSigner proofSigner, TimeProvider clock) : ICreateNodeProvider
 {
     private readonly ICreateNodeReceiptKeyResolver keys = keys ?? throw new ArgumentNullException(nameof(keys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeProviderProofSigner proofSigner = proofSigner ?? throw new ArgumentNullException(nameof(proofSigner));
+    private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly Dictionary<string, CreateNodeProviderResponse> results = new(StringComparer.Ordinal);
     public int CreateCallCount { get; private set; }
     public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
@@ -40,7 +41,7 @@ public sealed class DeterministicCreateNodeProvider(ICreateNodeReceiptKeyResolve
     }
     public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested(); Validate(request, keys, clock.GetUtcNow());
+        cancellationToken.ThrowIfCancellationRequested(); ValidateRecovery(request, keys, recoveryKeys, clock.GetUtcNow());
         return ValueTask.FromResult(results.TryGetValue(request.Binding.CreateKey, out var response)
             ? CreateNodeReconciliation.Found(response, proofSigner.Sign(request.Binding, response)) : new(CreateNodeReconciliationStatus.NotFound, null, null));
     }
@@ -57,6 +58,8 @@ public sealed class DeterministicCreateNodeProvider(ICreateNodeReceiptKeyResolve
             !CreateNodeHandoffReceiptVerifier.Verify(request.Receipt, keys, request.Binding, now))
             throw new InvalidOperationException("CreateNode provider request is not the exact signed authorized handoff.");
     }
+    internal static void ValidateRecovery(CreateNodeProviderRequest request, ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, DateTimeOffset now)
+    { if (!CreateNodeRecoveryLookupVerifier.Verify(request.RecoveryAuthority, recoveryKeys, request.Binding, now)) throw new InvalidOperationException("CreateNode recovery authority is invalid."); if (request.Context.Fingerprint != request.Binding.ProviderContextFingerprint) throw new InvalidOperationException("CreateNode recovery context differs."); }
 }
 
 public sealed record OciCreateNodeProviderOptions(bool Enabled);

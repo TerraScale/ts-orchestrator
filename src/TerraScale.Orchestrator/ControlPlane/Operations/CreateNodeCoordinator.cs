@@ -14,7 +14,7 @@ public sealed record CreateNodeCoordinatorOptions(TimeSpan ProviderInvocationLea
 /// <summary>Never retries a recorded CreateNode call. Recovery only reconciles its durable create key, then holds on uncertainty.</summary>
 public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, ICreateNodeProvider provider,
     CreateNodeHandoffReceiptSigner signer, ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeTenantAuthorityKeyResolver tenantKeys,
-    ICreateNodeProviderAttestationKeyResolver providerKeys, TimeProvider clock,
+    ICreateNodeProviderAttestationKeyResolver providerKeys, CreateNodeRecoveryLookupSigner recoverySigner, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, TimeProvider clock,
     CreateNodeCoordinatorOptions? options = null)
 {
     private readonly ICreateNodeOperationJournal journal = journal ?? throw new ArgumentNullException(nameof(journal));
@@ -23,6 +23,8 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly ICreateNodeReceiptKeyResolver receiptKeys = receiptKeys ?? throw new ArgumentNullException(nameof(receiptKeys));
     private readonly ICreateNodeTenantAuthorityKeyResolver tenantKeys = tenantKeys ?? throw new ArgumentNullException(nameof(tenantKeys));
     private readonly ICreateNodeProviderAttestationKeyResolver providerKeys = providerKeys ?? throw new ArgumentNullException(nameof(providerKeys));
+    private readonly CreateNodeRecoveryLookupSigner recoverySigner = recoverySigner ?? throw new ArgumentNullException(nameof(recoverySigner));
+    private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
@@ -34,18 +36,25 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
             if (current is null)
             {
                 var prepared = new CreateNodeOperationJournalEntry(0, spec.Fingerprint, spec.Binding,
-                    signer.Sign(spec.Binding, now, dispatch.OperationIntent.Deadline), CreateNodeJournalStage.Prepared, null, 0, null);
+                    signer.Sign(spec.Binding, now, dispatch.OperationIntent.Deadline), recoverySigner.Sign(spec.Binding, now, now.AddDays(1)), CreateNodeJournalStage.Prepared, null, 0, null);
                 if (!await journal.CompareExchangeAsync(null, prepared, cancellationToken)) continue; continue;
             }
-            if (current.OperationFingerprint != spec.Fingerprint || current.Binding != spec.Binding ||
-                !CreateNodeHandoffReceiptVerifier.Verify(current.Receipt, receiptKeys, spec.Binding, now))
+            if (current.OperationFingerprint != spec.Fingerprint || current.Binding != spec.Binding)
                 throw new InvalidOperationException("CreateNode journal does not contain the exact current signed authorization.");
             if (current.Stage == CreateNodeJournalStage.Completed) return new(CreateNodeCoordinationDisposition.Completed, current);
             if (current.Stage == CreateNodeJournalStage.RequiresManualRecovery) return new(CreateNodeCoordinationDisposition.RequiresManualRecovery, current);
+            var mutationAuthority = CreateNodeHandoffReceiptVerifier.Verify(current.Receipt, receiptKeys, spec.Binding, now);
+            var recoveryAuthority = current.Stage == CreateNodeJournalStage.ProviderCallStarted && CreateNodeRecoveryLookupVerifier.Verify(current.RecoveryAuthority, recoveryKeys, spec.Binding, now);
+            if (!mutationAuthority && !recoveryAuthority)
+            {
+                if (current.Stage == CreateNodeJournalStage.ProviderCallStarted)
+                { var held = current with { Stage = CreateNodeJournalStage.RequiresManualRecovery }; if (!await journal.CompareExchangeAsync(current, held, cancellationToken)) continue; continue; }
+                throw new InvalidOperationException("CreateNode mutation authority has expired.");
+            }
             if (current.Stage == CreateNodeJournalStage.ProviderCallStarted)
             {
                 if (now - current.ProviderCallStartedAt!.Value < options.ProviderInvocationLease) return new(CreateNodeCoordinationDisposition.InProgress, current);
-                var reconciliation = await provider.ReconcileCreateNodeAsync(Request(dispatch, current.Receipt, spec.Binding), cancellationToken);
+                var reconciliation = await provider.ReconcileCreateNodeAsync(Request(dispatch, current.Receipt, current.RecoveryAuthority, spec.Binding), cancellationToken);
                 if (reconciliation.Status == CreateNodeReconciliationStatus.Found && reconciliation.Response is not null && reconciliation.Proof is not null &&
                     CreateNodeProviderProofVerifier.Verify(reconciliation.Proof, providerKeys, spec.Binding) &&
                     reconciliation.Proof.NodeId == reconciliation.Response.NodeId && reconciliation.Proof.WorkRequestId == reconciliation.Response.WorkRequestId)
@@ -59,12 +68,12 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
             var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1) };
             if (!await journal.CompareExchangeAsync(current, started, cancellationToken)) continue;
             var persisted = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) ?? throw new InvalidOperationException("Invocation checkpoint was not persisted.");
-            var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, spec.Binding), cancellationToken);
+            var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, persisted.RecoveryAuthority, spec.Binding), cancellationToken);
             var completedNow = persisted with { Stage = CreateNodeJournalStage.Completed, Response = response };
             if (!await journal.CompareExchangeAsync(persisted, completedNow, cancellationToken)) continue;
         }
     }
-    private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeReceiptBinding binding) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt);
+    private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeRecoveryLookupAuthority recovery, CreateNodeReceiptBinding binding) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt, recovery);
     private Specification Validate(CreateNodeDispatch dispatch, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);

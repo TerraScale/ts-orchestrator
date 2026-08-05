@@ -18,6 +18,7 @@ invariants:
   - INV-006: a stale invocation reconciles only by the durable create key; unknown/not-found transitions to manual recovery.
 security:
   receipt: ECDSA P-256 SHA-256, bound to operation/action, authenticated authorization tenant, node request, idempotency/create key, cell, compartment, generation/epoch, template, placement, bootstrap digest, authorization sequence/digest, issue time, and expiry
+  recoveryLookup: separately signed, provider-audience-limited, binding-digest lookup authority persists at dispatch for at most seven days; it can validate only a recorded provider lookup after receipt expiry and cannot authorize CreateNode
   keyLifecycle: strict NIST P-256 algorithm/curve allowlist plus distinct typed receipt, tenant-authority, and provider-attestation key resolver domains
   tamperHandling: receipt and full development-journal record tags are verified before any provider call
   secrets: no credential, private key, or receipt payload is logged or included in this evidence
@@ -26,12 +27,12 @@ validation:
   result: focused control-plane executable passed after adding CreateNode coordinator cases
   cases:
     - signed receipt tamper, expiry, tenant, and node-request binding
-    - crash-after-provider-success reconciles without a second CreateNode against a deliberately non-deduplicating provider
+    - crash-after-provider-success reconciles without a second CreateNode against a deliberately non-deduplicating provider, including after mutation-receipt expiry
     - expired in-flight lease with not-found reconciliation enters manual recovery without a second CreateNode
     - full immutable receipt binding-field tamper, P-384 rejection, and key-rotation/unknown-kid checks
     - verified tenant-authorization proof and malicious provider reconciliation-proof rejection; provider proof signs the full canonical request binding digest
     - HMAC-tagged development-journal tamper rejection
     - OCI adapter disabled fail-closed without invoking its client
 limitations:
-  - No reviewed R3/CAS journal adapter, separately scoped recovery-lookup authority, or tenant-authorization composition is available in the current tree; CreateNode is not production enabled and production composition must reject the development file journal.
+  - No reviewed R3/CAS journal adapter or tenant-authorization composition is available in the current tree; CreateNode is not production enabled and production composition must reject the development file journal.
   - OCI mutation remains deliberately unavailable until a separately reviewed OCI client, scoped identity, authoritative R3 journal, and L4 evidence gate exist.

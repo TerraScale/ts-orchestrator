@@ -50,8 +50,10 @@ public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
 }
 public interface ICreateNodeTenantAuthorityKeyResolver : ICreateNodeReceiptKeyResolver { }
 public interface ICreateNodeProviderAttestationKeyResolver : ICreateNodeReceiptKeyResolver { }
+public interface ICreateNodeRecoveryLookupKeyResolver : ICreateNodeReceiptKeyResolver { }
 public sealed class CreateNodeTenantAuthorityKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeTenantAuthorityKeyResolver { }
 public sealed class CreateNodeProviderAttestationKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeProviderAttestationKeyResolver { }
+public sealed class CreateNodeRecoveryLookupKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeRecoveryLookupKeyResolver { }
 
 public sealed class CreateNodeHandoffReceiptSigner
 {
@@ -80,6 +82,21 @@ public sealed class CreateNodeHandoffReceiptSigner
     }
     internal static ECDsa RequireP256(ECDsa key)
     { ArgumentNullException.ThrowIfNull(key); if (key.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value) throw new ArgumentException("Only NIST P-256 is allowed.", nameof(key)); return key; }
+}
+
+public sealed record CreateNodeRecoveryLookupAuthority(string Algorithm, string KeyId, string Audience, string BindingDigest,
+    DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string Signature)
+{ internal byte[] Payload() => Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-recovery-lookup-v1", Algorithm, KeyId, Audience, BindingDigest, IssuedAt.ToUniversalTime().Ticks, ExpiresAt.ToUniversalTime().Ticks)); }
+public sealed class CreateNodeRecoveryLookupSigner(string keyId, ECDsa key)
+{
+    private readonly ECDsa key = CreateNodeHandoffReceiptSigner.RequireP256(key); public string KeyId { get; } = keyId;
+    public CreateNodeRecoveryLookupAuthority Sign(CreateNodeReceiptBinding binding, DateTimeOffset issuedAt, DateTimeOffset expiresAt)
+    { if (expiresAt <= issuedAt || expiresAt - issuedAt > TimeSpan.FromDays(7)) throw new ArgumentOutOfRangeException(nameof(expiresAt)); var unsigned = new CreateNodeRecoveryLookupAuthority(CreateNodeHandoffReceiptSigner.Algorithm, KeyId, "create-node-provider-lookup", binding.Digest, issuedAt, expiresAt, string.Empty); return unsigned with { Signature = Convert.ToBase64String(key.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) }; }
+}
+public static class CreateNodeRecoveryLookupVerifier
+{
+    public static bool Verify(CreateNodeRecoveryLookupAuthority authority, ICreateNodeRecoveryLookupKeyResolver keys, CreateNodeReceiptBinding binding, DateTimeOffset now)
+    { try { if (authority.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || authority.Audience != "create-node-provider-lookup" || authority.BindingDigest != binding.Digest || now < authority.IssuedAt || now >= authority.ExpiresAt || authority.ExpiresAt - authority.IssuedAt > TimeSpan.FromDays(7) || !keys.TryResolve(authority.KeyId, authority.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); return key.VerifyData(authority.Payload(), Convert.FromBase64String(authority.Signature), HashAlgorithmName.SHA256); } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
 }
 
 public static class CreateNodeHandoffReceiptVerifier

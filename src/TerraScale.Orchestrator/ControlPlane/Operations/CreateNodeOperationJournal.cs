@@ -6,7 +6,7 @@ namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
 public enum CreateNodeJournalStage { Prepared = 1, ProviderCallStarted = 2, Completed = 3, RequiresManualRecovery = 4 }
 public sealed record CreateNodeOperationJournalEntry(long Version, string OperationFingerprint, CreateNodeReceiptBinding Binding,
-    CreateNodeHandoffReceipt Receipt, CreateNodeJournalStage Stage, DateTimeOffset? ProviderCallStartedAt,
+    CreateNodeHandoffReceipt Receipt, CreateNodeRecoveryLookupAuthority RecoveryAuthority, CreateNodeJournalStage Stage, DateTimeOffset? ProviderCallStartedAt,
     int ProviderAttempts, CreateNodeProviderResponse? Response);
 public interface ICreateNodeOperationJournal
 {
@@ -22,7 +22,7 @@ public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJou
     { cancellationToken.ThrowIfCancellationRequested(); Validate(replacement); lock (gate) { var current = entries.GetValueOrDefault(replacement.Binding.OperationId); if (current != expected) return ValueTask.FromResult(false); entries[replacement.Binding.OperationId] = replacement with { Version = checked((current?.Version ?? 0) + 1) }; return ValueTask.FromResult(true); } }
     internal static void Validate(CreateNodeOperationJournalEntry entry)
     {
-        if (entry.Version < 0 || string.IsNullOrWhiteSpace(entry.OperationFingerprint) || !Enum.IsDefined(entry.Stage) || entry.ProviderAttempts < 0 ||
+        if (entry.Version < 0 || string.IsNullOrWhiteSpace(entry.OperationFingerprint) || entry.RecoveryAuthority is null || !Enum.IsDefined(entry.Stage) || entry.ProviderAttempts < 0 ||
             (entry.Stage == CreateNodeJournalStage.Completed) != (entry.Response is not null) ||
             (entry.Stage != CreateNodeJournalStage.Prepared) != (entry.ProviderCallStartedAt is not null))
             throw new InvalidDataException("CreateNode journal entry is structurally invalid.");
