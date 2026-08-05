@@ -102,6 +102,7 @@ internal static class ToolingTests
             ("development evidence bounded execution", DevelopmentEvidenceBounds),
             ("development bounded process observation", DevelopmentBoundedProcessObservation),
             ("development validation lease", DevelopmentValidationLease),
+            ("workspace topology lease", DevelopmentWorkspaceTopologyLease),
         };
 
         var failures = new List<string>();
@@ -493,6 +494,53 @@ internal static class ToolingTests
         var scope = $"tooling-test-{Guid.NewGuid():N}";
         using var lease = LocalValidationLease.Acquire(scope);
         AssertThrows<InvalidOperationException>(() => LocalValidationLease.Acquire(scope));
+    }
+
+    private static void DevelopmentWorkspaceTopologyLease()
+    {
+        const string namespaceVariable = "TERRASCALE_VALIDATION_LEASE_NAMESPACE";
+        var previousNamespace = Environment.GetEnvironmentVariable(namespaceVariable);
+        var leaseNamespace = $"tooling-{Guid.NewGuid():N}";
+        try
+        {
+            Environment.SetEnvironmentVariable(namespaceVariable, null);
+            AssertEqual($"terrascale-workspace-topology-{Environment.UserName}", WorkspaceTopologyLease.GetMutexName());
+            Environment.SetEnvironmentVariable(namespaceVariable, leaseNamespace);
+            AssertEqual($"terrascale-workspace-topology-{leaseNamespace}", WorkspaceTopologyLease.GetMutexName());
+            AssertThrows<InvalidOperationException>(() =>
+            {
+                Environment.SetEnvironmentVariable(namespaceVariable, "invalid namespace");
+                _ = WorkspaceTopologyLease.GetMutexName();
+            });
+            Environment.SetEnvironmentVariable(namespaceVariable, leaseNamespace);
+
+            var first = WorkspaceTopologyLease.AcquireAsync(
+                "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            try
+            {
+                AssertThrows<InvalidOperationException>(() =>
+                    WorkspaceTopologyLease.AcquireAsync(
+                        "development-lab", TimeSpan.FromMilliseconds(50)).GetAwaiter().GetResult());
+
+                using var cancellation = new CancellationTokenSource();
+                var cancelled = WorkspaceTopologyLease.AcquireAsync(
+                    "development-lab", TimeSpan.FromSeconds(2), cancellation.Token);
+                cancellation.Cancel();
+                AssertThrows<OperationCanceledException>(() => cancelled.GetAwaiter().GetResult());
+            }
+            finally
+            {
+                first.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+
+            var second = WorkspaceTopologyLease.AcquireAsync(
+                "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            second.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(namespaceVariable, previousNamespace);
+        }
     }
 
     private static void DevelopmentBoundedProcessObservation()

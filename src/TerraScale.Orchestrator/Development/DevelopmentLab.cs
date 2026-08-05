@@ -71,6 +71,12 @@ public static class DevelopmentLab
             topology.Profile,
             cancellationToken);
         using var validationLease = LocalValidationLease.Acquire();
+        await using var workspaceTopologyLease = RequiresWorkspaceTopologyLease(OrchestratorLabCommand.Up, topology)
+            ? await WorkspaceTopologyLease.AcquireAsync(
+                "development-lab",
+                TimeSpan.FromMinutes(2),
+                cancellationToken)
+            : null;
         Directory.CreateDirectory(options.DataDirectory!);
         if (HasProductWorkloads(topology))
         {
@@ -4975,6 +4981,11 @@ public static class DevelopmentLab
         endpoints["terrabase-b"] = endpoints[terraBase[0].Name];
         endpoints["terrabase-c"] = endpoints[terraBase[0].Name];
     }
+
+    internal static bool RequiresWorkspaceTopologyLease(
+        OrchestratorLabCommand command,
+        DevelopmentTopology topology) =>
+        command is OrchestratorLabCommand.Up && HasProductWorkloads(topology);
 
     private static bool HasProductWorkloads(DevelopmentTopology topology) =>
         topology.Cells.Any(cell => cell.OfKind(DevelopmentResourceKind.ProductNats).Count != 0);
