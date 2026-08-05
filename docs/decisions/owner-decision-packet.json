@@ -15,11 +15,11 @@
     "status": "accepted-owner-policy",
     "acceptedOn": "2026-07-16",
     "authority": "owner",
-    "sourceAnchors": ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"],
+    "sourceAnchors": ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"],
     "supersession": "An explicit superseding owner decision and architecture review are required to change an A choice."
   },
   "atomicPolicyRecords": [
-    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"]}
+    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"]}
   ],
   "controllingInputAliases": {
     "owner-questions-1A-10A-accepted": ["accepted-owner-policy"],
@@ -83,7 +83,7 @@
   "openInputRegister": {
     "status": "open-no-defaults",
     "authorityRequired": "Named product, operations, and security owners for unresolved measurable inputs and later selections.",
-    "sourceAnchors": ["ORCHESTRATOR.md:100-105", "../GOAL.md:194-195"],
+    "sourceAnchors": ["ORCHESTRATOR.md:100-105", "../GOAL.md:70-77"],
     "planning": ["team-size", "first-production-date"],
     "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
     "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
