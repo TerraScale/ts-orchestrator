@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -300,11 +301,24 @@ internal static class Phase0EvidenceCommand
             return;
         }
 
-        var declared = anchors.Select(anchor => anchor?.GetValue<string>() ?? string.Empty).ToArray();
-        var recorded = sources.Select(source => source?["anchor"]?.GetValue<string>() ?? string.Empty).ToArray();
+        var declared = anchors.Select(anchor => StringValue(anchor) ?? string.Empty).ToArray();
+        for (var index = 0; index < declared.Length; index++)
+            if (ParseArchiveAnchor(declared[index]) is null)
+                errors.Add($"{id}: source_anchors[{index}] must be a known archival repository path and positive line");
+
+        var recorded = sources.Select(source => source is JsonObject receipt ? StringValue(receipt["anchor"]) ?? string.Empty : string.Empty).ToArray();
         if (!recorded.SequenceEqual(declared, StringComparer.Ordinal))
             errors.Add($"{id}: archivalSourceEvidence must exactly match declared source_anchors");
-        foreach (var source in sources.OfType<JsonObject>()) ValidateArchiveSource(id, source, errors);
+        foreach (var source in sources)
+        {
+            if (source is not JsonObject receipt)
+            {
+                errors.Add($"{id}: archivalSourceEvidence records must be objects");
+                continue;
+            }
+
+            ValidateArchiveSource(id, receipt, errors);
+        }
     }
 
     private static void ValidateArchiveSource(string id, JsonObject? source, List<string> errors)
@@ -317,6 +331,11 @@ internal static class Phase0EvidenceCommand
         var commit = source["commit"]?.GetValue<string>() ?? string.Empty;
         var path = source["path"]?.GetValue<string>() ?? string.Empty;
         var hash = source["sha256"]?.GetValue<string>() ?? string.Empty;
+        var anchor = source["anchor"]?.GetValue<string>() ?? string.Empty;
+        var parsedAnchor = ParseArchiveAnchor(anchor);
+        if (parsedAnchor is null) errors.Add($"{id}: archivalSourceEvidence anchor is malformed");
+        else if (parsedAnchor.Value.Repository != repository || parsedAnchor.Value.Path != path)
+            errors.Add($"{id}: archivalSourceEvidence repository/path must match its anchor");
         if (!IsKnownRepository(repository)) errors.Add($"{id}: archivalSourceEvidence repository must be a known workspace product");
         if (!IsCommit(commit)) errors.Add($"{id}: archivalSourceEvidence commit must be immutable");
         if (!IsPath(path)) errors.Add($"{id}: archivalSourceEvidence path must be repository-relative");
@@ -325,8 +344,35 @@ internal static class Phase0EvidenceCommand
         {
             VerifyCommit(repository, commit, $"{id}: archivalSourceEvidence commit", errors);
             VerifySource(repository, commit, path, hash, errors);
+            if (parsedAnchor is not null) VerifyAnchorLine(id, repository, commit, path, parsedAnchor.Value.Line, errors);
         }
     }
+
+    private static void VerifyAnchorLine(string id, string repository, string commit, string path, int line, List<string> errors)
+    {
+        try
+        {
+            var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+                .GetString(ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}"));
+            var lines = text.Split('\n');
+            if (line > lines.Length || string.IsNullOrWhiteSpace(lines[line - 1]))
+                errors.Add($"{id}: archivalSourceEvidence anchor line is out of bounds or blank");
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"{id}: archivalSourceEvidence anchor is not valid UTF-8 text ({exception.Message})");
+        }
+    }
+
+    private static (string Repository, string Path, int Line)? ParseArchiveAnchor(string anchor)
+    {
+        var match = Regex.Match(anchor, "^(?:archive|current\\+archive):(?<repository>[A-Za-z0-9.]+)/(?<path>[A-Za-z0-9._/-]+):(?<line>[1-9]\\d*)$");
+        if (!match.Success || !IsKnownRepository(match.Groups["repository"].Value) || !IsPath(match.Groups["path"].Value)
+            || !int.TryParse(match.Groups["line"].Value, out var line)) return null;
+        return (match.Groups["repository"].Value, match.Groups["path"].Value, line);
+    }
+
+    private static string? StringValue(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
     private static void VerifyCommit(string repository, string commit, string where, List<string> errors)
     {

@@ -86,6 +86,9 @@ internal static class ToolingTests
             ("workaround mismatched closure receipt", WorkaroundMismatchedClosureReceipt),
             ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", 0, "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround archival anchor drift", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround malformed archival anchor", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:unknown/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround archival receipt swap", WorkaroundArchivalReceiptSwap),
+            ("workaround archival anchor line bounds", WorkaroundArchivalAnchorLineBounds),
             ("git bytes preserve non UTF-8 blob", GitBytesPreserveNonUtf8Blob),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
@@ -199,6 +202,24 @@ internal static class ToolingTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static void WorkaroundArchivalReceiptSwap()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        var receipt = document["archivalSourceEvidence"]!["WRK-001"]![0]!.AsObject();
+        receipt["path"] = "src/TerraScale.Infrastructure/Program.cs";
+        receipt["sha256"] = "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4";
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundArchivalAnchorLineBounds()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        const string anchor = "archive:TerraScale.Infrastructure/AGENTS.md:999999";
+        document["entries"]![0]!["source_anchors"]![0] = anchor;
+        document["archivalSourceEvidence"]!["WRK-001"]![0]!["anchor"] = anchor;
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 
     private static void NoPythonSources()
