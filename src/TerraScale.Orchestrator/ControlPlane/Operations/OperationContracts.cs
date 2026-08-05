@@ -68,7 +68,11 @@ public sealed record AuthorizationEvidence(
     bool ApprovalsSatisfied,
     bool PolicySatisfied,
     bool QuorumSatisfied,
-    bool BudgetSatisfied);
+    bool BudgetSatisfied)
+{
+    /// <summary>Authenticated tenant subject, populated by the authorization boundary for tenant-scoped operations.</summary>
+    public string? TenantId { get; init; }
+}
 
 public abstract record OperationCommand(string OperationId, long WriterEpoch, DateTimeOffset Now);
 

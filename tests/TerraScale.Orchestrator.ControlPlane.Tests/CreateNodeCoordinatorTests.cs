@@ -9,163 +9,81 @@ public sealed class CreateNodeCoordinatorTests
     private static readonly DateTimeOffset Start = new(2026, 8, 5, 12, 0, 0, TimeSpan.Zero);
 
     [Test]
-    public async Task ReceiptIsSignedPersistedAndRejectsTamperExpiryAndWrongBindings()
+    public async Task ReceiptBindsEveryImmutableProviderAndAuthorizationFieldAndSupportsRetainedOldKey()
     {
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var signer = new CreateNodeHandoffReceiptSigner("handoff-key-1", key);
-        var receipt = signer.Sign("op-1", "tenant-a", "node-request-1", "create-key-1", Start, Start.AddMinutes(5));
-        var publicKey = signer.ExportPublicKey();
-
-        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, publicKey,
-            "op-1", "tenant-a", "node-request-1", "create-key-1", Start.AddMinutes(1))).IsTrue();
-        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt with { TenantId = "tenant-b" }, publicKey,
-            "op-1", "tenant-b", "node-request-1", "create-key-1", Start.AddMinutes(1))).IsFalse();
-        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, publicKey,
-            "op-1", "tenant-a", "other-request", "create-key-1", Start.AddMinutes(1))).IsFalse();
-        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, publicKey,
-            "op-1", "tenant-a", "node-request-1", "create-key-1", Start.AddMinutes(5))).IsFalse();
+        using var old = ECDsa.Create(ECCurve.NamedCurves.nistP256); using var current = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var oldSigner = new CreateNodeHandoffReceiptSigner("old", old); var signer = new CreateNodeHandoffReceiptSigner("current", current);
+        var keys = new CreateNodeReceiptKeyRing(new Dictionary<string, byte[]> { ["old"] = oldSigner.ExportPublicKey(), ["current"] = signer.ExportPublicKey() });
+        var binding = Binding(); var receipt = oldSigner.Sign(binding, Start, Start.AddMinutes(5));
+        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, keys, binding, Start.AddMinutes(1))).IsTrue();
+        foreach (var changed in Variants(binding)) await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, keys, changed, Start.AddMinutes(1))).IsFalse();
+        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt with { KeyId = "missing" }, keys, binding, Start.AddMinutes(1))).IsFalse();
+        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt with { Algorithm = "RSA" }, keys, binding, Start.AddMinutes(1))).IsFalse();
+        await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, keys, binding, Start.AddMinutes(5))).IsFalse();
     }
 
     [Test]
-    public async Task DuplicateAndRestartResumeUseOnePersistedProviderSideEffect()
+    public async Task CrashAfterProviderSuccessReconcilesWithoutSecondCreateAgainstNonDeduplicatingProvider()
     {
-        var clock = new FixedTimeProvider(Start);
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var signer = new CreateNodeHandoffReceiptSigner("handoff-key-1", key);
-        var provider = new DeterministicCreateNodeProvider(signer.ExportPublicKey(), clock);
-        var directory = Path.Combine(Path.GetTempPath(), $"terrascale-create-node-{Guid.NewGuid():N}");
+        var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer);
+        var provider = new NonDeduplicatingProvider(keys, clock); var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal());
+        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, clock); var first = await coordinator.ExecuteAsync(Dispatch());
+        await Assert.That(first.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.InProgress);
+        clock.Advance(TimeSpan.FromMinutes(2)); var recovered = await coordinator.ExecuteAsync(Dispatch());
+        await Assert.That(recovered.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.Completed);
+        await Assert.That(provider.CreateCalls).IsEqualTo(1); await Assert.That(provider.ReconcileCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task ExpiredInFlightLeaseNotFoundRequiresManualRecoveryAndNeverCreatesAgain()
+    {
+        var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer);
+        var provider = new NonDeduplicatingProvider(keys, clock) { ReturnNotFound = true }; var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal());
+        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, clock); await coordinator.ExecuteAsync(Dispatch());
+        clock.Advance(TimeSpan.FromMinutes(2)); var held = await coordinator.ExecuteAsync(Dispatch());
+        await Assert.That(held.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.RequiresManualRecovery);
+        await Assert.That(provider.CreateCalls).IsEqualTo(1); await Assert.That(provider.ReconcileCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task DevelopmentJournalRejectsTamperedFullRecord()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"create-node-{Guid.NewGuid():N}"); var key = RandomNumberGenerator.GetBytes(32);
         try
         {
-            var first = new CreateNodeCoordinator(new FileCreateNodeOperationJournal(directory), provider, signer, clock);
-            var dispatch = Dispatch();
-            var completed = await first.ExecuteAsync(dispatch);
-            var resumed = new CreateNodeCoordinator(new FileCreateNodeOperationJournal(directory), provider, signer, clock);
-            var duplicate = await resumed.ExecuteAsync(dispatch);
-
-            await Assert.That(completed.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.Completed);
-            await Assert.That(duplicate.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.Completed);
-            await Assert.That(duplicate.Entry.Receipt.Signature).IsEqualTo(completed.Entry.Receipt.Signature);
-            await Assert.That(provider.SideEffectCount).IsEqualTo(1);
+            var keys = new CreateNodeJournalTagKeyRing(new Dictionary<string, byte[]> { ["journal"] = key });
+            var journal = new DevelopmentFileCreateNodeOperationJournal(directory, "journal", key, keys);
+            var signerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("receipt", signerKey);
+            var binding = Binding(); var entry = new CreateNodeOperationJournalEntry(0, "fingerprint", binding, signer.Sign(binding, Start, Start.AddMinutes(5)), CreateNodeJournalStage.Prepared, null, 0, null);
+            await journal.CompareExchangeAsync(null, entry, default);
+            var file = Directory.EnumerateFiles(directory, "*.json").Single(); var bytes = await File.ReadAllBytesAsync(file); bytes[^1] ^= 1; await File.WriteAllBytesAsync(file, bytes);
+            await Assert.That(() => journal.ReadAsync(binding.OperationId, default).AsTask()).Throws<InvalidDataException>();
+            signerKey.Dispose();
         }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
     [Test]
-    public async Task ConcurrentCoordinatorsUseCasToSuppressTheSecondProviderCall()
+    public async Task OciAdapterIsDisabledBeforeAnyClientCall()
     {
-        var clock = new FixedTimeProvider(Start);
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var signer = new CreateNodeHandoffReceiptSigner("handoff-key-1", key);
-        var deterministic = new DeterministicCreateNodeProvider(signer.ExportPublicKey(), clock);
-        var blocking = new BlockingProvider(deterministic);
-        var journal = new InMemoryCreateNodeOperationJournal();
-        var first = new CreateNodeCoordinator(journal, blocking, signer, clock);
-        var second = new CreateNodeCoordinator(journal, blocking, signer, clock);
-        var dispatch = Dispatch();
-
-        var executing = first.ExecuteAsync(dispatch).AsTask();
-        await blocking.Started.Task;
-        var contender = await second.ExecuteAsync(dispatch);
-        blocking.Release.TrySetResult();
-        var completed = await executing;
-
-        await Assert.That(contender.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.InProgress);
-        await Assert.That(completed.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.Completed);
-        await Assert.That(blocking.CallCount).IsEqualTo(1);
-        await Assert.That(deterministic.SideEffectCount).IsEqualTo(1);
+        var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer); var client = new OciClient();
+        var provider = new OciCreateNodeProvider(new(false), client, keys, clock); var dispatch = Dispatch(); var binding = Binding(); var request = new CreateNodeProviderRequest(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, signer.Sign(binding, Start, Start.AddMinutes(5)));
+        Func<Task> call = async () => { await provider.CreateNodeAsync(request, default); }; await Assert.That(call).Throws<InvalidOperationException>(); await Assert.That(client.Calls).IsEqualTo(0);
     }
 
-    [Test]
-    public async Task CompareExchangeRejectsConcurrentStaleJournalTransitions()
-    {
-        var journal = new InMemoryCreateNodeOperationJournal();
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var signer = new CreateNodeHandoffReceiptSigner("handoff-key-1", key);
-        var receipt = signer.Sign("op-1", "tenant-a", "node-request-1", "create-key-1", Start, Start.AddMinutes(5));
-        var prepared = new CreateNodeOperationJournalEntry(0, "fingerprint", "op-1", "tenant-a", "node-request-1",
-            "create-key-1", receipt, CreateNodeJournalStage.Prepared, null, 0, null);
-        await Assert.That(await journal.CompareExchangeAsync(null, prepared, default)).IsTrue();
-        var stored = (await journal.ReadAsync("op-1", default))!;
-        var one = stored with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = Start, ProviderAttempts = 1 };
-        var two = stored with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = Start.AddSeconds(1), ProviderAttempts = 1 };
-
-        var results = await Task.WhenAll(
-            journal.CompareExchangeAsync(stored, one, default).AsTask(),
-            journal.CompareExchangeAsync(stored, two, default).AsTask());
-        await Assert.That(results.Count(static result => result)).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task OciAdapterFailsClosedBeforeCallingItsClientWhenDisabled()
-    {
-        var clock = new FixedTimeProvider(Start);
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var signer = new CreateNodeHandoffReceiptSigner("handoff-key-1", key);
-        var client = new CountingOciClient();
-        var provider = new OciCreateNodeProvider(new(false), client, signer.ExportPublicKey(), clock);
-        var dispatch = Dispatch();
-        var receipt = signer.Sign("op-1", "tenant-a", "node-request-1", "create-key-1", Start, Start.AddMinutes(5));
-        var request = new CreateNodeProviderRequest(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters,
-            dispatch.TenantId, dispatch.NodeRequestId, receipt);
-
-        Func<Task> invoke = async () => { await provider.CreateNodeAsync(request, default); };
-        await Assert.That(invoke).Throws<InvalidOperationException>();
-        await Assert.That(client.CallCount).IsEqualTo(0);
-    }
-
+    private static ICreateNodeReceiptKeyResolver Keys(CreateNodeHandoffReceiptSigner signer) => new CreateNodeReceiptKeyRing(new Dictionary<string, byte[]> { [signer.KeyId] = signer.ExportPublicKey() });
+    private static CreateNodeReceiptBinding Binding() => new("op-1", "tenant-a", "node-request-1", "idempotency-1", "create-key-1", "cell-a", "compartment-a", 7, 12, "template-a", "placement-a", new string('a', 64), 2, "authorization-digest");
+    private static IEnumerable<CreateNodeReceiptBinding> Variants(CreateNodeReceiptBinding value) => [value with { OperationId = "op-2" }, value with { TenantId = "tenant-b" }, value with { NodeRequestId = "node-2" }, value with { IdempotencyKey = "idempotency-2" }, value with { CreateKey = "create-key-2" }, value with { CellId = "cell-b" }, value with { CompartmentId = "compartment-b" }, value with { Generation = 8 }, value with { Epoch = 13 }, value with { TemplateId = "template-b" }, value with { PlacementId = "placement-b" }, value with { BootstrapEnvelopeDigest = new string('b', 64) }, value with { AuthorizationSequence = 3 }, value with { AuthorizationDigest = "other-digest" }];
     private static CreateNodeDispatch Dispatch()
     {
-        var desired = new DesiredOperation("aggregate-a", 7, "desired-rv-7", "create-node", "node-request-1", "present",
-            "payload-sha256", "idempotency-1", Start.AddMinutes(5));
-        var expected = new ObservedResource("aggregate-a", 7, "expected-rv-1", "expected-observation", "node-request-1", "absent", true);
-        var prepared = OperationEngine.Decide([], new PrepareOperation("op-1", 10, Start, desired, expected, ["observe-only"])).EventsToAppend.ToList();
-        var evidence = new AuthorizationEvidence(new("aggregate-a", 7, "authorized-rv-2", "authorized-observation", "node-request-1", "absent", true),
-            "approval-sha256", "evidence-sha256", true, true, true, true);
-        prepared.AddRange(OperationEngine.Decide(prepared, new AuthorizeOperation("op-1", 11, Start.AddMinutes(1), evidence)).EventsToAppend);
-        var operationIntent = (DispatchProviderIntent)OperationEngine.Decide(prepared,
-            new RecordDispatch("op-1", 12, Start.AddMinutes(2), "coordinator", 1)).Intents.Single();
-        var context = new ProviderOperationContext(new("op-1"), new("cell-a"), new("compartment-a"), new(12),
-            ProviderResourceKind.Node, ProviderAction.CreateNode, new IdempotentProviderCreate(new("create-key-1")), new(7),
-            ProviderObservedState.Absent, ProviderTerminalState.Present, [ProviderApproval.RegionalAuthority],
-            new(DeadlineEvidenceStatus.Valid, new(7)), new("idempotency-1"), [ProviderCompensation.ObserveOnly],
-            new CreateNodeProviderParameters(new("template-a"), new("placement-a"), new(new string('a', 64))));
-        var authorization = ProviderOwnershipEngine.Authorize(new ProviderAuthorizationRequest(context,
-            new(new("cell-a"), new("compartment-a"), new(12)), [], [], ProviderObservationCompleteness.Complete, [],
-            [new ProviderCreateObservation(new("create-key-1"), new("cell-a"), new("compartment-a"), new(7), ProviderObservedState.Absent, null)],
-            [ProviderApproval.RegionalAuthority], null, new(context, ProviderCallStatus.NotCalled, null)));
-        return new(operationIntent, (CreateNodeProviderIntent)authorization.Intents.Single(), "tenant-a", "node-request-1");
+        var desired = new DesiredOperation("aggregate", 7, "rv", "create-node", "node-request-1", "present", "payload", "idempotency-1", Start.AddMinutes(5)); var observed = new ObservedResource("aggregate", 7, "rv-1", "obs-1", "node-request-1", "absent", true);
+        var history = OperationEngine.Decide([], new PrepareOperation("op-1", 10, Start, desired, observed, ["observe"])).EventsToAppend.ToList(); var evidence = new AuthorizationEvidence(new("aggregate", 7, "rv-2", "obs-2", "node-request-1", "absent", true), "approval", "evidence", true, true, true, true) { TenantId = "tenant-a" };
+        history.AddRange(OperationEngine.Decide(history, new AuthorizeOperation("op-1", 11, Start.AddMinutes(1), evidence)).EventsToAppend); var authorization = (OperationAuthorized)history.Last(); var intent = (DispatchProviderIntent)OperationEngine.Decide(history, new RecordDispatch("op-1", 12, Start.AddMinutes(2), "executor", 1)).Intents.Single();
+        var context = new ProviderOperationContext(new("op-1"), new("cell-a"), new("compartment-a"), new(12), ProviderResourceKind.Node, ProviderAction.CreateNode, new IdempotentProviderCreate(new("create-key-1")), new(7), ProviderObservedState.Absent, ProviderTerminalState.Present, [ProviderApproval.RegionalAuthority], new(DeadlineEvidenceStatus.Valid, new(7)), new("idempotency-1"), [ProviderCompensation.ObserveOnly], new CreateNodeProviderParameters(new("template-a"), new("placement-a"), new(new string('a', 64))));
+        var provider = (CreateNodeProviderIntent)ProviderOwnershipEngine.Authorize(new ProviderAuthorizationRequest(context, new(new("cell-a"), new("compartment-a"), new(12)), [], [], ProviderObservationCompleteness.Complete, [], [new ProviderCreateObservation(new("create-key-1"), new("cell-a"), new("compartment-a"), new(7), ProviderObservedState.Absent, null)], [ProviderApproval.RegionalAuthority], null, new(context, ProviderCallStatus.NotCalled, null))).Intents.Single(); return new(intent, authorization, provider, "node-request-1");
     }
-
-    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => now;
-    }
-
-    private sealed class BlockingProvider(DeterministicCreateNodeProvider inner) : ICreateNodeProvider
-    {
-        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int CallCount { get; private set; }
-
-        public async ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
-        {
-            CallCount++;
-            Started.TrySetResult();
-            await Release.Task.WaitAsync(cancellationToken);
-            return await inner.CreateNodeAsync(request, cancellationToken);
-        }
-    }
-
-    private sealed class CountingOciClient : IOciCreateNodeClient
-    {
-        public int CallCount { get; private set; }
-        public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
-        {
-            CallCount++;
-            throw new InvalidOperationException("The disabled adapter must never call this client.");
-        }
-    }
+    private sealed class MutableTime(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; public void Advance(TimeSpan value) => now += value; }
+    private sealed class NonDeduplicatingProvider(ICreateNodeReceiptKeyResolver keys, TimeProvider clock) : ICreateNodeProvider { private CreateNodeProviderResponse? response; public int CreateCalls { get; private set; } public int ReconcileCalls { get; private set; } public bool ReturnNotFound { get; init; } public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken token) { DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); CreateCalls++; return ValueTask.FromResult(response = new(new("node-1"), new("work-1"))); } public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken token) { DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); ReconcileCalls++; return ValueTask.FromResult(ReturnNotFound ? new CreateNodeReconciliation(CreateNodeReconciliationStatus.NotFound, null) : CreateNodeReconciliation.Found(response!)); } }
+    private sealed class DropCompletionJournal(ICreateNodeOperationJournal inner) : ICreateNodeOperationJournal { private bool drop = true; public ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string id, CancellationToken token) => inner.ReadAsync(id, token); public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken token) { if (drop && replacement.Stage == CreateNodeJournalStage.Completed) { drop = false; return ValueTask.FromResult(false); } return inner.CompareExchangeAsync(expected, replacement, token); } }
+    private sealed class OciClient : IOciCreateNodeClient { public int Calls { get; private set; } public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest r, CancellationToken t) { Calls++; throw new InvalidOperationException(); } public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest r, CancellationToken t) { Calls++; throw new InvalidOperationException(); } }
 }

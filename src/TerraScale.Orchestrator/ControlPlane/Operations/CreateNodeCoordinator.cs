@@ -4,117 +4,80 @@ using TerraScale.Orchestrator.ControlPlane.Providers;
 
 namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
-public sealed record CreateNodeDispatch(
-    DispatchProviderIntent OperationIntent,
-    CreateNodeProviderIntent ProviderIntent,
-    string TenantId,
-    string NodeRequestId);
-
-public enum CreateNodeCoordinationDisposition { Completed = 1, InProgress = 2 }
-public sealed record CreateNodeCoordinationResult(
-    CreateNodeCoordinationDisposition Disposition,
-    CreateNodeOperationJournalEntry Entry);
-
+public sealed record CreateNodeDispatch(DispatchProviderIntent OperationIntent, OperationAuthorized Authorization,
+    CreateNodeProviderIntent ProviderIntent, string NodeRequestId);
+public enum CreateNodeCoordinationDisposition { Completed = 1, InProgress = 2, RequiresManualRecovery = 3 }
+public sealed record CreateNodeCoordinationResult(CreateNodeCoordinationDisposition Disposition, CreateNodeOperationJournalEntry Entry);
 public sealed record CreateNodeCoordinatorOptions(TimeSpan ProviderInvocationLease)
-{
-    public static CreateNodeCoordinatorOptions Default { get; } = new(TimeSpan.FromMinutes(1));
-    public void Validate()
-    {
-        if (ProviderInvocationLease <= TimeSpan.Zero || ProviderInvocationLease > TimeSpan.FromMinutes(10))
-            throw new ArgumentOutOfRangeException(nameof(ProviderInvocationLease));
-    }
-}
+{ public static CreateNodeCoordinatorOptions Default { get; } = new(TimeSpan.FromMinutes(1)); public void Validate() { if (ProviderInvocationLease <= TimeSpan.Zero || ProviderInvocationLease > TimeSpan.FromMinutes(10)) throw new ArgumentOutOfRangeException(nameof(ProviderInvocationLease)); } }
 
-/// <summary>Wires existing operation/provider decisions through a durable, replay-safe CreateNode provider boundary.</summary>
-public sealed class CreateNodeCoordinator(
-    ICreateNodeOperationJournal journal,
-    ICreateNodeProvider provider,
-    CreateNodeHandoffReceiptSigner signer,
-    TimeProvider clock,
+/// <summary>Never retries a recorded CreateNode call. Recovery only reconciles its durable create key, then holds on uncertainty.</summary>
+public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, ICreateNodeProvider provider,
+    CreateNodeHandoffReceiptSigner signer, ICreateNodeReceiptKeyResolver receiptKeys, TimeProvider clock,
     CreateNodeCoordinatorOptions? options = null)
 {
     private readonly ICreateNodeOperationJournal journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly ICreateNodeProvider provider = provider ?? throw new ArgumentNullException(nameof(provider));
     private readonly CreateNodeHandoffReceiptSigner signer = signer ?? throw new ArgumentNullException(nameof(signer));
+    private readonly ICreateNodeReceiptKeyResolver receiptKeys = receiptKeys ?? throw new ArgumentNullException(nameof(receiptKeys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
-
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
-        var specification = Validate(dispatch);
-        options.Validate();
+        var spec = Validate(dispatch); options.Validate();
         while (true)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var now = clock.GetUtcNow();
-            var current = await journal.ReadAsync(specification.OperationId, cancellationToken);
+            var now = clock.GetUtcNow(); var current = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken);
             if (current is null)
             {
-                var receipt = signer.Sign(specification.OperationId, specification.TenantId, specification.NodeRequestId,
-                    specification.CreateKey, now, dispatch.OperationIntent.Deadline);
-                var prepared = new CreateNodeOperationJournalEntry(0, specification.Fingerprint, specification.OperationId,
-                    specification.TenantId, specification.NodeRequestId, specification.CreateKey, receipt,
-                    CreateNodeJournalStage.Prepared, null, 0, null);
-                if (!await journal.CompareExchangeAsync(null, prepared, cancellationToken)) continue;
-                continue;
+                var prepared = new CreateNodeOperationJournalEntry(0, spec.Fingerprint, spec.Binding,
+                    signer.Sign(spec.Binding, now, dispatch.OperationIntent.Deadline), CreateNodeJournalStage.Prepared, null, 0, null);
+                if (!await journal.CompareExchangeAsync(null, prepared, cancellationToken)) continue; continue;
             }
-
-            if (!StringComparer.Ordinal.Equals(current.OperationFingerprint, specification.Fingerprint) ||
-                !CreateNodeHandoffReceiptVerifier.Verify(current.Receipt, signer.ExportPublicKey(), specification.OperationId,
-                    specification.TenantId, specification.NodeRequestId, specification.CreateKey, now))
-                throw new InvalidOperationException("CreateNode journal entry is not an exact, current signed handoff.");
-
-            if (current.Stage == CreateNodeJournalStage.Completed)
-                return new(CreateNodeCoordinationDisposition.Completed, current);
-
-            if (current.Stage == CreateNodeJournalStage.ProviderCallStarted && current.ProviderCallStartedAt is not null &&
-                now - current.ProviderCallStartedAt < options.ProviderInvocationLease)
-                return new(CreateNodeCoordinationDisposition.InProgress, current);
-
-            var invocation = current with
+            if (current.OperationFingerprint != spec.Fingerprint || current.Binding != spec.Binding ||
+                !CreateNodeHandoffReceiptVerifier.Verify(current.Receipt, receiptKeys, spec.Binding, now))
+                throw new InvalidOperationException("CreateNode journal does not contain the exact current signed authorization.");
+            if (current.Stage == CreateNodeJournalStage.Completed) return new(CreateNodeCoordinationDisposition.Completed, current);
+            if (current.Stage == CreateNodeJournalStage.RequiresManualRecovery) return new(CreateNodeCoordinationDisposition.RequiresManualRecovery, current);
+            if (current.Stage == CreateNodeJournalStage.ProviderCallStarted)
             {
-                Stage = CreateNodeJournalStage.ProviderCallStarted,
-                ProviderCallStartedAt = now,
-                ProviderAttempts = checked(current.ProviderAttempts + 1),
-            };
-            if (!await journal.CompareExchangeAsync(current, invocation, cancellationToken)) continue;
-
-            var persistedInvocation = await journal.ReadAsync(specification.OperationId, cancellationToken)
-                ?? throw new InvalidOperationException("CreateNode provider invocation was not durably persisted.");
-
-            var response = await provider.CreateNodeAsync(new(
-                dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, specification.TenantId,
-                specification.NodeRequestId, persistedInvocation.Receipt), cancellationToken);
-            var completed = persistedInvocation with { Stage = CreateNodeJournalStage.Completed, Response = response };
-            if (!await journal.CompareExchangeAsync(persistedInvocation, completed, cancellationToken)) continue;
-            var persisted = await journal.ReadAsync(specification.OperationId, cancellationToken)
-                ?? throw new InvalidOperationException("CreateNode completion was not durably persisted.");
-            return new(CreateNodeCoordinationDisposition.Completed, persisted);
+                if (now - current.ProviderCallStartedAt!.Value < options.ProviderInvocationLease) return new(CreateNodeCoordinationDisposition.InProgress, current);
+                var reconciliation = await provider.ReconcileCreateNodeAsync(Request(dispatch, current.Receipt, spec.Binding), cancellationToken);
+                if (reconciliation.Status == CreateNodeReconciliationStatus.Found && reconciliation.Response is not null)
+                {
+                    var completed = current with { Stage = CreateNodeJournalStage.Completed, Response = reconciliation.Response };
+                    if (!await journal.CompareExchangeAsync(current, completed, cancellationToken)) continue; continue;
+                }
+                var held = current with { Stage = CreateNodeJournalStage.RequiresManualRecovery };
+                if (!await journal.CompareExchangeAsync(current, held, cancellationToken)) continue; continue;
+            }
+            var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1) };
+            if (!await journal.CompareExchangeAsync(current, started, cancellationToken)) continue;
+            var persisted = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) ?? throw new InvalidOperationException("Invocation checkpoint was not persisted.");
+            var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, spec.Binding), cancellationToken);
+            var completedNow = persisted with { Stage = CreateNodeJournalStage.Completed, Response = response };
+            if (!await journal.CompareExchangeAsync(persisted, completedNow, cancellationToken)) continue;
         }
     }
-
-    private static CreateNodeSpecification Validate(CreateNodeDispatch dispatch)
+    private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeReceiptBinding binding) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt);
+    private static Specification Validate(CreateNodeDispatch dispatch)
     {
-        ArgumentNullException.ThrowIfNull(dispatch);
-        ArgumentNullException.ThrowIfNull(dispatch.OperationIntent);
-        ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);
-        var operation = dispatch.OperationIntent;
-        var context = dispatch.ProviderIntent.Context;
-        if (operation.OperationKind != "create-node" || operation.OperationId != context.OperationId.Value ||
-            operation.IdempotencyKey != context.IdempotencyKey.Value || operation.DesiredGeneration != (long)context.ExpectedGeneration.Value ||
-            operation.TargetIdentity != dispatch.NodeRequestId || context.Action != ProviderAction.CreateNode ||
-            context.ResourceKind != ProviderResourceKind.Node || context.Target is not IdempotentProviderCreate create ||
-            string.IsNullOrWhiteSpace(dispatch.TenantId) || string.IsNullOrWhiteSpace(dispatch.NodeRequestId))
-            throw new ArgumentException("CreateNode coordinator requires exact existing operation and provider authorization intents.", nameof(dispatch));
-
-        var fingerprint = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
-            "create-node-v1", operation.OperationId, operation.IdempotencyKey, operation.DesiredGeneration,
-            operation.TargetIdentity, operation.AuthorizationSequence, operation.AuthorizationDigest,
-            context.CellId.Value, context.CompartmentId.Value, context.ControllerEpoch.Value, create.Key.Value,
-            dispatch.ProviderIntent.Parameters.TemplateId.Value, dispatch.ProviderIntent.Parameters.PlacementId.Value,
-            dispatch.ProviderIntent.Parameters.BootstrapEnvelopeDigest.Sha256, dispatch.TenantId, dispatch.NodeRequestId))));
-        return new(fingerprint, operation.OperationId, dispatch.TenantId, dispatch.NodeRequestId, create.Key.Value);
+        ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);
+        var op = dispatch.OperationIntent; var auth = dispatch.Authorization; var context = dispatch.ProviderIntent.Context; var parameters = dispatch.ProviderIntent.Parameters;
+        var tenant = auth.Evidence.TenantId;
+        if (op.OperationKind != "create-node" || string.IsNullOrWhiteSpace(tenant) || op.TargetIdentity != dispatch.NodeRequestId ||
+            auth.OperationId != op.OperationId || auth.Sequence != op.AuthorizationSequence || auth.AuthorizationDigest != op.AuthorizationDigest ||
+            auth.EventDigest != OperationDigest.Event(auth) || context.OperationId.Value != op.OperationId || context.IdempotencyKey.Value != op.IdempotencyKey ||
+            context.ExpectedGeneration.Value != (ulong)op.DesiredGeneration || context.Action != ProviderAction.CreateNode || context.ResourceKind != ProviderResourceKind.Node ||
+            context.Target is not IdempotentProviderCreate create)
+            throw new ArgumentException("CreateNode requires an exact authenticated operation authorization and provider intent.", nameof(dispatch));
+        var binding = new CreateNodeReceiptBinding(op.OperationId, tenant, dispatch.NodeRequestId, op.IdempotencyKey, create.Key.Value,
+            context.CellId.Value, context.CompartmentId.Value, context.ExpectedGeneration.Value, context.ControllerEpoch.Value,
+            parameters.TemplateId.Value, parameters.PlacementId.Value, parameters.BootstrapEnvelopeDigest.Sha256,
+            op.AuthorizationSequence, op.AuthorizationDigest);
+        CreateNodeHandoffReceiptSigner.Validate(binding, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddTicks(1));
+        var fingerprint = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-journal-v2", binding.OperationId, binding.TenantId, binding.NodeRequestId, binding.IdempotencyKey, binding.CreateKey, binding.CellId, binding.CompartmentId, binding.Generation, binding.Epoch, binding.TemplateId, binding.PlacementId, binding.BootstrapEnvelopeDigest, binding.AuthorizationSequence, binding.AuthorizationDigest))));
+        return new(fingerprint, binding);
     }
-
-    private sealed record CreateNodeSpecification(string Fingerprint, string OperationId, string TenantId, string NodeRequestId, string CreateKey);
+    private sealed record Specification(string Fingerprint, CreateNodeReceiptBinding Binding);
 }

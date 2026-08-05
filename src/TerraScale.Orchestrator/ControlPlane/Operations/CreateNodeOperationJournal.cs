@@ -1,120 +1,80 @@
-using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 
 namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
-public enum CreateNodeJournalStage { Prepared = 1, ProviderCallStarted = 2, Completed = 3 }
-
-public sealed record CreateNodeOperationJournalEntry(
-    long Version,
-    string OperationFingerprint,
-    string OperationId,
-    string TenantId,
-    string NodeRequestId,
-    string CreateKey,
-    CreateNodeHandoffReceipt Receipt,
-    CreateNodeJournalStage Stage,
-    DateTimeOffset? ProviderCallStartedAt,
-    int ProviderAttempts,
-    CreateNodeProviderResponse? Response);
-
-/// <summary>Authoritative compare-and-swap store for the provider side-effect checkpoint.</summary>
+public enum CreateNodeJournalStage { Prepared = 1, ProviderCallStarted = 2, Completed = 3, RequiresManualRecovery = 4 }
+public sealed record CreateNodeOperationJournalEntry(long Version, string OperationFingerprint, CreateNodeReceiptBinding Binding,
+    CreateNodeHandoffReceipt Receipt, CreateNodeJournalStage Stage, DateTimeOffset? ProviderCallStartedAt,
+    int ProviderAttempts, CreateNodeProviderResponse? Response);
 public interface ICreateNodeOperationJournal
 {
     ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken);
-    ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement,
-        CancellationToken cancellationToken);
+    ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken);
 }
-
 public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJournal
 {
-    private readonly object gate = new();
-    private readonly Dictionary<string, CreateNodeOperationJournalEntry> entries = new(StringComparer.Ordinal);
-
+    private readonly object gate = new(); private readonly Dictionary<string, CreateNodeOperationJournalEntry> entries = new(StringComparer.Ordinal);
     public ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken)
+    { cancellationToken.ThrowIfCancellationRequested(); lock (gate) return ValueTask.FromResult(entries.GetValueOrDefault(operationId)); }
+    public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken)
+    { cancellationToken.ThrowIfCancellationRequested(); Validate(replacement); lock (gate) { var current = entries.GetValueOrDefault(replacement.Binding.OperationId); if (current != expected) return ValueTask.FromResult(false); entries[replacement.Binding.OperationId] = replacement with { Version = checked((current?.Version ?? 0) + 1) }; return ValueTask.FromResult(true); } }
+    internal static void Validate(CreateNodeOperationJournalEntry entry)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (gate) return ValueTask.FromResult(entries.GetValueOrDefault(operationId));
-    }
-
-    public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected,
-        CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (gate)
-        {
-            var current = entries.GetValueOrDefault(replacement.OperationId);
-            if (!ReferenceEquals(current, expected) && current != expected) return ValueTask.FromResult(false);
-            entries[replacement.OperationId] = replacement with { Version = checked((current?.Version ?? 0) + 1) };
-            return ValueTask.FromResult(true);
-        }
+        if (entry.Version < 0 || string.IsNullOrWhiteSpace(entry.OperationFingerprint) || !Enum.IsDefined(entry.Stage) || entry.ProviderAttempts < 0 ||
+            (entry.Stage == CreateNodeJournalStage.Completed) != (entry.Response is not null) ||
+            (entry.Stage != CreateNodeJournalStage.Prepared) != (entry.ProviderCallStartedAt is not null))
+            throw new InvalidDataException("CreateNode journal entry is structurally invalid.");
     }
 }
 
-/// <summary>Single-operation durable journal. Replacement is atomic and the receipt is stored in the same flushed write.</summary>
-public sealed class FileCreateNodeOperationJournal(string directory) : ICreateNodeOperationJournal
+public interface ICreateNodeJournalTagKeyResolver { bool TryResolve(string keyId, string algorithm, out byte[] key); }
+public sealed class CreateNodeJournalTagKeyRing(IReadOnlyDictionary<string, byte[]> keys) : ICreateNodeJournalTagKeyResolver
 {
-    private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<string, byte[]> keys = keys.ToDictionary(static p => p.Key, static p => p.Value.ToArray(), StringComparer.Ordinal);
+    public bool TryResolve(string keyId, string algorithm, out byte[] key)
+    { if (algorithm != "HMAC-SHA256" || !keys.TryGetValue(keyId, out var value)) { key = []; return false; } key = value.ToArray(); return true; }
+}
+
+/// <summary>Development/test-only local journal. Production must inject a reviewed R3 CAS journal.</summary>
+public sealed class DevelopmentFileCreateNodeOperationJournal(string directory, string activeKeyId, byte[] activeKey,
+    ICreateNodeJournalTagKeyResolver verificationKeys) : ICreateNodeOperationJournal
+{
     private readonly string directory = Path.GetFullPath(directory ?? throw new ArgumentNullException(nameof(directory)));
-
+    private readonly string activeKeyId = string.IsNullOrWhiteSpace(activeKeyId) ? throw new ArgumentException("Key ID required.", nameof(activeKeyId)) : activeKeyId;
+    private readonly byte[] activeKey = activeKey?.ToArray() ?? throw new ArgumentNullException(nameof(activeKey));
+    private readonly ICreateNodeJournalTagKeyResolver verificationKeys = verificationKeys ?? throw new ArgumentNullException(nameof(verificationKeys));
+    private readonly object gate = new();
     public ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken)
+    { cancellationToken.ThrowIfCancellationRequested(); lock (gate) return ValueTask.FromResult(Read(operationId)); }
+    public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (Gate(operationId)) return ValueTask.FromResult(Read(operationId));
+        cancellationToken.ThrowIfCancellationRequested(); InMemoryCreateNodeOperationJournal.Validate(replacement); lock (gate)
+        { var current = Read(replacement.Binding.OperationId); if (current != expected) return ValueTask.FromResult(false); Write(replacement with { Version = checked((current?.Version ?? 0) + 1) }); return ValueTask.FromResult(true); }
     }
-
-    public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected,
-        CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (Gate(replacement.OperationId))
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                using var exclusive = new FileStream(LockPath(replacement.OperationId), FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough);
-                var current = Read(replacement.OperationId);
-                if (current != expected) return ValueTask.FromResult(false);
-                Write(replacement with { Version = checked((current?.Version ?? 0) + 1) });
-                return ValueTask.FromResult(true);
-            }
-            catch (IOException) { return ValueTask.FromResult(false); }
-        }
-    }
-
-    private object Gate(string operationId) => Gates.GetOrAdd(Path.Combine(directory, FileName(operationId)), static _ => new object());
-    private string LockPath(string operationId) => Path.Combine(directory, string.Concat(FileName(operationId), ".lock"));
     private CreateNodeOperationJournalEntry? Read(string operationId)
     {
-        var path = Path.Combine(directory, FileName(operationId));
-        if (!File.Exists(path)) return null;
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-        return JsonSerializer.Deserialize<CreateNodeOperationJournalEntry>(stream)
-            ?? throw new InvalidDataException("CreateNode operation journal contains no entry.");
+        var path = PathFor(operationId); if (!File.Exists(path)) return null;
+        Envelope envelope;
+        try { envelope = JsonSerializer.Deserialize<Envelope>(File.ReadAllBytes(path)) ?? throw new InvalidDataException("Missing journal envelope."); }
+        catch (JsonException exception) { throw new InvalidDataException("Journal envelope is malformed.", exception); }
+        if (!verificationKeys.TryResolve(envelope.KeyId, envelope.Algorithm, out var key)) throw new InvalidDataException("Unknown journal tag key.");
+        var payload = Convert.FromBase64String(envelope.Payload); var tag = Convert.FromBase64String(envelope.Tag);
+        using var hmac = new HMACSHA256(key); if (!CryptographicOperations.FixedTimeEquals(tag, hmac.ComputeHash(payload))) throw new InvalidDataException("Journal integrity tag is invalid.");
+        var entry = JsonSerializer.Deserialize<CreateNodeOperationJournalEntry>(payload) ?? throw new InvalidDataException("Missing journal entry."); InMemoryCreateNodeOperationJournal.Validate(entry); return entry;
     }
-
     private void Write(CreateNodeOperationJournalEntry entry)
     {
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, FileName(entry.OperationId));
-        var temporary = string.Concat(path, ".", Guid.NewGuid().ToString("N"), ".tmp");
-        try
-        {
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
-            {
-                JsonSerializer.Serialize(stream, entry);
-                stream.Flush(flushToDisk: true);
-            }
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(entry); using var hmac = new HMACSHA256(activeKey);
+        var data = JsonSerializer.SerializeToUtf8Bytes(new Envelope("HMAC-SHA256", activeKeyId, Convert.ToBase64String(payload), Convert.ToBase64String(hmac.ComputeHash(payload))));
+        var path = PathFor(entry.Binding.OperationId); var temporary = path + ".tmp";
+        using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+        { if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite); stream.Write(data); stream.Flush(true); }
+        File.Move(temporary, path, true);
     }
-
-    private static string FileName(string operationId) => string.Concat(
-        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(operationId))).ToLowerInvariant(), ".json");
+    private string PathFor(string operationId) => Path.Combine(directory, Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(operationId))) + ".json");
+    private sealed record Envelope(string Algorithm, string KeyId, string Payload, string Tag);
 }

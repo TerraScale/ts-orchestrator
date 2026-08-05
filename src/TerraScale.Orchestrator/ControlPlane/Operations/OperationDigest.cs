@@ -123,7 +123,7 @@ public static class OperationDigest
             case AuthorizationEvidence evidence:
                 Append(builder, Encode("authorization-evidence-v1", evidence.Observation,
                     evidence.ApprovalDigest, evidence.EvidenceDigest, evidence.ApprovalsSatisfied,
-                    evidence.PolicySatisfied, evidence.QuorumSatisfied, evidence.BudgetSatisfied));
+                evidence.PolicySatisfied, evidence.QuorumSatisfied, evidence.BudgetSatisfied, evidence.TenantId));
                 return;
             case OperationError error:
                 Append(builder, Encode("error-v1", error.Code, error.Requirement, error.Message));
