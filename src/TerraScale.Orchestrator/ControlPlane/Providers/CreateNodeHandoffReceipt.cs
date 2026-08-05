@@ -35,8 +35,12 @@ public interface ICreateNodeReceiptKeyResolver
 {
     bool TryResolve(string keyId, string algorithm, out byte[] subjectPublicKeyInfo);
 }
+public interface ICreateNodePublicKeySource
+{
+    IReadOnlyDictionary<string, byte[]> ExportPublicKeys();
+}
 
-public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
+public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver, ICreateNodePublicKeySource
 {
     private readonly IReadOnlyDictionary<string, byte[]> keys;
     public CreateNodeReceiptKeyRing(IReadOnlyDictionary<string, byte[]> keys) => this.keys = keys.ToDictionary(
@@ -47,6 +51,7 @@ public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
         { subjectPublicKeyInfo = []; return false; }
         subjectPublicKeyInfo = key.ToArray(); return true;
     }
+    public IReadOnlyDictionary<string, byte[]> ExportPublicKeys() => keys.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray(), StringComparer.Ordinal);
 }
 public interface ICreateNodeTenantAuthorityKeyResolver : ICreateNodeReceiptKeyResolver { }
 public interface ICreateNodeProviderAttestationKeyResolver : ICreateNodeReceiptKeyResolver { }
@@ -54,6 +59,27 @@ public interface ICreateNodeRecoveryLookupKeyResolver : ICreateNodeReceiptKeyRes
 public sealed class CreateNodeTenantAuthorityKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeTenantAuthorityKeyResolver { }
 public sealed class CreateNodeProviderAttestationKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeProviderAttestationKeyResolver { }
 public sealed class CreateNodeRecoveryLookupKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeRecoveryLookupKeyResolver { }
+public interface ICreateNodeAuthoritativeInvocationCapabilityKeyResolver : ICreateNodeReceiptKeyResolver { }
+public sealed class CreateNodeAuthoritativeInvocationCapabilityKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeAuthoritativeInvocationCapabilityKeyResolver { }
+
+public static class CreateNodeKeyDomainValidator
+{
+    public static void EnsureDistinct(params ICreateNodeReceiptKeyResolver[] domains)
+    {
+        ArgumentNullException.ThrowIfNull(domains);
+        for (var left = 0; left < domains.Length; left++)
+        {
+            if (domains[left] is not ICreateNodePublicKeySource leftKeys) throw new ArgumentException("CreateNode key domains must expose their configured public keys.", nameof(domains));
+            foreach (var right in domains.Skip(left + 1))
+            {
+                if (right is not ICreateNodePublicKeySource rightKeys) throw new ArgumentException("CreateNode key domains must expose their configured public keys.", nameof(domains));
+                foreach (var first in leftKeys.ExportPublicKeys()) foreach (var second in rightKeys.ExportPublicKeys())
+                    if (first.Key == second.Key || CryptographicOperations.FixedTimeEquals(first.Value, second.Value))
+                        throw new ArgumentException("CreateNode trust domains cannot share a key ID or public key material.", nameof(domains));
+            }
+        }
+    }
+}
 
 public sealed class CreateNodeHandoffReceiptSigner
 {
@@ -69,8 +95,6 @@ public sealed class CreateNodeHandoffReceiptSigner
         var unsigned = new CreateNodeHandoffReceipt(Algorithm, KeyId, binding, issuedAt, expiresAt, string.Empty);
         return unsigned with { Signature = Convert.ToBase64String(signingKey.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) };
     }
-    public CreateNodeTenantAuthorizationProof SignTenantProof(string tenant, string operation, string authorizationDigest, DateTimeOffset expiresAt)
-    { var unsigned = new CreateNodeTenantAuthorizationProof(Algorithm, KeyId, tenant, operation, "CreateNode", authorizationDigest, expiresAt, string.Empty); return unsigned with { Signature = Convert.ToBase64String(signingKey.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) }; }
     internal static void Validate(CreateNodeReceiptBinding binding, DateTimeOffset issuedAt, DateTimeOffset expiresAt)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -95,8 +119,8 @@ public sealed class CreateNodeRecoveryLookupSigner(string keyId, ECDsa key)
 }
 public static class CreateNodeRecoveryLookupVerifier
 {
-    public static bool Verify(CreateNodeRecoveryLookupAuthority authority, ICreateNodeRecoveryLookupKeyResolver keys, CreateNodeReceiptBinding binding, DateTimeOffset now)
-    { try { if (authority.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || authority.Audience != "create-node-provider-lookup" || authority.BindingDigest != binding.Digest || now < authority.IssuedAt || now >= authority.ExpiresAt || authority.ExpiresAt - authority.IssuedAt > TimeSpan.FromDays(7) || !keys.TryResolve(authority.KeyId, authority.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); return key.VerifyData(authority.Payload(), Convert.FromBase64String(authority.Signature), HashAlgorithmName.SHA256); } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
+    public static bool Verify(CreateNodeRecoveryLookupAuthority? authority, ICreateNodeRecoveryLookupKeyResolver keys, CreateNodeReceiptBinding binding, DateTimeOffset now)
+    { try { if (authority is null || binding is null || authority.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || authority.Audience != "create-node-provider-lookup" || authority.BindingDigest != binding.Digest || now < authority.IssuedAt || now >= authority.ExpiresAt || authority.ExpiresAt - authority.IssuedAt > TimeSpan.FromDays(7) || !keys.TryResolve(authority.KeyId, authority.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); return key.VerifyData(authority.Payload(), Convert.FromBase64String(authority.Signature), HashAlgorithmName.SHA256); } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
 }
 
 public static class CreateNodeHandoffReceiptVerifier
@@ -119,19 +143,33 @@ public static class CreateNodeHandoffReceiptVerifier
     }
 }
 
-public sealed record CreateNodeTenantAuthorizationProof(string Algorithm, string KeyId, string TenantId, string OperationId,
+public sealed record CreateNodeTenantAuthorizationProof(string Algorithm, string KeyId, string Audience, string TenantId, string OperationId,
     string Action, string AuthorizationDigest, DateTimeOffset ExpiresAt, string Signature)
 {
-    internal byte[] Payload() => Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-tenant-proof-v1", Algorithm, KeyId, TenantId, OperationId, Action, AuthorizationDigest, ExpiresAt.ToUniversalTime().Ticks));
+    internal byte[] Payload() => Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-tenant-proof-v2", Algorithm, KeyId, Audience, TenantId, OperationId, Action, AuthorizationDigest, ExpiresAt.ToUniversalTime().Ticks));
 }
 public sealed class CreateNodeTenantAuthorizationSigner(string keyId, ECDsa key)
 {
     private readonly ECDsa key = CreateNodeHandoffReceiptSigner.RequireP256(key); public string KeyId { get; } = string.IsNullOrWhiteSpace(keyId) ? throw new ArgumentException("Key ID required.", nameof(keyId)) : keyId;
     public CreateNodeTenantAuthorizationProof Sign(string tenant, string operation, string digest, DateTimeOffset expiry)
-    { var unsigned = new CreateNodeTenantAuthorizationProof(CreateNodeHandoffReceiptSigner.Algorithm, KeyId, tenant, operation, "CreateNode", digest, expiry, string.Empty); return unsigned with { Signature = Convert.ToBase64String(key.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) }; }
+    { var unsigned = new CreateNodeTenantAuthorizationProof(CreateNodeHandoffReceiptSigner.Algorithm, KeyId, "create-node-tenant-authorization", tenant, operation, "CreateNode", digest, expiry, string.Empty); return unsigned with { Signature = Convert.ToBase64String(key.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) }; }
 }
 public static class CreateNodeTenantAuthorizationVerifier
 {
     public static bool Verify(CreateNodeTenantAuthorizationProof proof, ICreateNodeTenantAuthorityKeyResolver keys, string operation, string digest, DateTimeOffset now, out string tenant)
-    { tenant = string.Empty; try { if (proof.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || proof.Action != "CreateNode" || proof.OperationId != operation || proof.AuthorizationDigest != digest || now >= proof.ExpiresAt || string.IsNullOrWhiteSpace(proof.TenantId) || !keys.TryResolve(proof.KeyId, proof.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); if (!key.VerifyData(proof.Payload(), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256)) return false; tenant = proof.TenantId; return true; } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
+    { tenant = string.Empty; try { if (proof.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || proof.Audience != "create-node-tenant-authorization" || proof.Action != "CreateNode" || proof.OperationId != operation || proof.AuthorizationDigest != digest || now >= proof.ExpiresAt || string.IsNullOrWhiteSpace(proof.TenantId) || !keys.TryResolve(proof.KeyId, proof.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); if (!key.VerifyData(proof.Payload(), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256)) return false; tenant = proof.TenantId; return true; } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
+}
+
+public sealed record CreateNodeAuthoritativeInvocationCapability(string Algorithm, string KeyId, string Audience, string BindingDigest, long JournalVersion, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string Signature)
+{ internal byte[] Payload() => Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-authoritative-invocation-v1", Algorithm, KeyId, Audience, BindingDigest, JournalVersion, IssuedAt.ToUniversalTime().Ticks, ExpiresAt.ToUniversalTime().Ticks)); }
+internal sealed class CreateNodeAuthoritativeInvocationCapabilitySigner(string keyId, ECDsa key)
+{
+    private readonly ECDsa key = CreateNodeHandoffReceiptSigner.RequireP256(key); public string KeyId { get; } = string.IsNullOrWhiteSpace(keyId) ? throw new ArgumentException("Key ID required.", nameof(keyId)) : keyId;
+    internal CreateNodeAuthoritativeInvocationCapability Sign(CreateNodeReceiptBinding binding, long journalVersion, DateTimeOffset issuedAt, DateTimeOffset expiresAt)
+    { if (journalVersion <= 0 || expiresAt <= issuedAt || expiresAt - issuedAt > TimeSpan.FromMinutes(10)) throw new ArgumentOutOfRangeException(nameof(expiresAt)); var unsigned = new CreateNodeAuthoritativeInvocationCapability(CreateNodeHandoffReceiptSigner.Algorithm, KeyId, "create-node-authoritative-invocation", binding.Digest, journalVersion, issuedAt, expiresAt, string.Empty); return unsigned with { Signature = Convert.ToBase64String(key.SignData(unsigned.Payload(), HashAlgorithmName.SHA256)) }; }
+}
+public static class CreateNodeAuthoritativeInvocationCapabilityVerifier
+{
+    public static bool Verify(CreateNodeAuthoritativeInvocationCapability? capability, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver keys, CreateNodeReceiptBinding binding, DateTimeOffset now)
+    { try { if (capability is null || binding is null || capability.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || capability.Audience != "create-node-authoritative-invocation" || capability.BindingDigest != binding.Digest || capability.JournalVersion <= 0 || now < capability.IssuedAt || now >= capability.ExpiresAt || capability.ExpiresAt - capability.IssuedAt > TimeSpan.FromMinutes(10) || !keys.TryResolve(capability.KeyId, capability.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); return key.VerifyData(capability.Payload(), Convert.FromBase64String(capability.Signature), HashAlgorithmName.SHA256); } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
 }

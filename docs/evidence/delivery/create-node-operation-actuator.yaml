@@ -18,8 +18,9 @@ invariants:
   - INV-006: a stale invocation reconciles only by the durable create key; unknown/not-found transitions to manual recovery.
 security:
   receipt: ECDSA P-256 SHA-256, bound to operation/action, authenticated authorization tenant, node request, idempotency/create key, cell, compartment, generation/epoch, template, placement, bootstrap digest, authorization sequence/digest, issue time, and expiry
-  recoveryLookup: separately signed, provider-audience-limited, binding-digest lookup authority persists at dispatch for at most seven days; every ProviderCallStarted reconciliation requires it independently, even while the mutation receipt remains valid; it can validate only a recorded provider lookup and cannot authorize CreateNode
-  keyLifecycle: strict NIST P-256 algorithm/curve allowlist plus distinct typed receipt, tenant-authority, and provider-attestation key resolver domains
+  recoveryLookup: separately signed, provider-audience-limited, binding-digest lookup authority persists at dispatch for at most seven days; every ProviderCallStarted reconciliation requires it independently, even while the mutation receipt remains valid; missing, null, malformed, or expired authority holds manual recovery without lookup
+  invocationPermit: an enabled external actuator verifies a separately keyed, audience-bound, signed invocation permit before mutation; only an authoritative crash-durable R3-style journal contract may mint it after the persisted ProviderCallStarted CAS checkpoint
+  keyLifecycle: strict NIST P-256 algorithm/curve allowlist plus distinct receipt, tenant-authority, provider-attestation, recovery, and invocation key material/key-ID domains; composition rejects shared public material or kid across domains
   tamperHandling: receipt and full development-journal record tags are verified before any provider call
   secrets: no credential, private key, or receipt payload is logged or included in this evidence
 validation:
@@ -36,7 +37,10 @@ validation:
     - OCI adapter disabled fail-closed without invoking its client
     - expired recovery authority holds manual recovery without provider lookup even while its mutation receipt remains valid
     - enabled OCI provider is rejected without client invocation when the journal is not authoritative crash-durable
+    - direct enabled OCI CreateNode without a valid authoritative invocation permit is rejected before its client call
+    - shared receipt/tenant trust material is rejected at coordinator composition; tenant proofs are issued only by the tenant-authority signer
+    - missing persisted recovery authority holds manual recovery without provider lookup
 limitations:
   - The two-process proof establishes Development file-journal mutual exclusion only. Its missing parent-directory fsync means it does not establish crash-persistent ProviderCallStarted; it is explicitly marked non-crash-durable and cannot be paired with an external CreateNode mutation provider.
-  - No reviewed R3/CAS journal adapter or tenant-authorization composition is available in the current tree. Only an authoritative crash-durable journal may enable an external provider; CreateNode is not production enabled pending that R3 capability and its evidence gate.
+  - No reviewed R3/CAS journal adapter, invocation-permit issuer, or tenant-authorization composition is available in the current tree. Only that authoritative crash-durable R3 implementation may mint an OCI mutation permit; CreateNode is not production enabled pending its evidence gate.
   - OCI mutation remains deliberately unavailable until a separately reviewed OCI client, scoped identity, authoritative R3 journal, and L4 evidence gate exist.

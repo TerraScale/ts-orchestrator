@@ -14,7 +14,7 @@ public sealed record CreateNodeCoordinatorOptions(TimeSpan ProviderInvocationLea
 /// <summary>Never retries a recorded CreateNode call. Recovery only reconciles its durable create key, then holds on uncertainty.</summary>
 public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, ICreateNodeProvider provider,
     CreateNodeHandoffReceiptSigner signer, ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeTenantAuthorityKeyResolver tenantKeys,
-    ICreateNodeProviderAttestationKeyResolver providerKeys, CreateNodeRecoveryLookupSigner recoverySigner, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, TimeProvider clock,
+    ICreateNodeProviderAttestationKeyResolver providerKeys, CreateNodeRecoveryLookupSigner recoverySigner, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys, TimeProvider clock,
     CreateNodeCoordinatorOptions? options = null)
 {
     private readonly ICreateNodeOperationJournal journal = journal ?? throw new ArgumentNullException(nameof(journal));
@@ -27,6 +27,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
+    private readonly bool distinctKeyDomains = ValidateKeyDomains(receiptKeys, tenantKeys, providerKeys, recoveryKeys, invocationCapabilityKeys);
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
         if (provider.IsExternalMutationProvider && journal.Durability != CreateNodeJournalDurability.AuthoritativeCrashDurable)
@@ -72,12 +73,15 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
             var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1) };
             if (!await journal.CompareExchangeAsync(current, started, cancellationToken)) continue;
             var persisted = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) ?? throw new InvalidOperationException("Invocation checkpoint was not persisted.");
-            var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, persisted.RecoveryAuthority, spec.Binding), cancellationToken);
+            var capability = provider.IsExternalMutationProvider ? await journal.MintInvocationCapabilityAsync(persisted, now, cancellationToken) : null;
+            var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, persisted.RecoveryAuthority, spec.Binding, capability), cancellationToken);
             var completedNow = persisted with { Stage = CreateNodeJournalStage.Completed, Response = response };
             if (!await journal.CompareExchangeAsync(persisted, completedNow, cancellationToken)) continue;
         }
     }
-    private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeRecoveryLookupAuthority recovery, CreateNodeReceiptBinding binding) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt, recovery);
+    private static bool ValidateKeyDomains(ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeTenantAuthorityKeyResolver tenantKeys, ICreateNodeProviderAttestationKeyResolver providerKeys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys)
+    { CreateNodeKeyDomainValidator.EnsureDistinct(receiptKeys, tenantKeys, providerKeys, recoveryKeys, invocationCapabilityKeys); return true; }
+    private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeRecoveryLookupAuthority recovery, CreateNodeReceiptBinding binding, CreateNodeAuthoritativeInvocationCapability? capability = null) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt, recovery, capability);
     private Specification Validate(CreateNodeDispatch dispatch, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);

@@ -14,6 +14,8 @@ public interface ICreateNodeOperationJournal
     CreateNodeJournalDurability Durability => CreateNodeJournalDurability.DevelopmentNonCrashDurable;
     ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken);
     ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken);
+    ValueTask<CreateNodeAuthoritativeInvocationCapability> MintInvocationCapabilityAsync(CreateNodeOperationJournalEntry persistedCheckpoint, DateTimeOffset now, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Only an authoritative crash-durable CreateNode journal can mint an invocation permit.");
 }
 public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJournal
 {
