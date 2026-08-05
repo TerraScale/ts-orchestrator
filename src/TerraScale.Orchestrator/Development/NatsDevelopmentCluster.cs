@@ -87,6 +87,18 @@ internal static class NatsDevelopmentCluster
             $"{root}.desired.>", $"{root}.event.>", $"{root}.operation.>", $"{root}.query.>",
             $"{root}.internal.operation-journal.create", $"{root}.internal.operation-journal.update"
         };
+        var controllerJetStreamSubjects = new[]
+        {
+            "CELL_SPEC", "CELL_OPERATIONS", "CELL_EVENTS", "KV_ORCH_LEADERS", "KV_ORCH_RUNTIME",
+            "KV_ORCH_DELIVERY", "OBJ_CELL_BUNDLES"
+        }.SelectMany(stream => new[]
+        {
+            $"$JS.API.STREAM.CREATE.{stream}", $"$JS.API.STREAM.UPDATE.{stream}", $"$JS.API.STREAM.INFO.{stream}"
+        }).Concat(new[]
+        {
+            "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.>",
+            "$JS.ACK.CELL_EVENTS.>", "$JS.FC.CELL_EVENTS.>"
+        }).ToArray();
         var journalJetStreamDenials = string.Join(", ", new[]
         {
             "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
@@ -128,8 +140,8 @@ internal static class NatsDevelopmentCluster
             Environment.NewLine,
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
-                      publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "$JS.>", "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATION_PROOFS", {{journalJetStreamDenials}}] }
-                      subscribe: { allow: ["{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", "$JS.>", "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
+                      publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATION_PROOFS", {{journalJetStreamDenials}}] }
+                      subscribe: { allow: ["{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
                     } },
                 """));
         return $$"""

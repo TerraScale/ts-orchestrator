@@ -42,7 +42,7 @@ public sealed class NatsJournalWriterRuntime : IAsyncDisposable
         });
         try
         {
-            await client.ConnectAsync();
+            await client.ConnectAsync().AsTask().WaitAsync(cancellationToken);
             var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
             var keyValue = client.CreateJetStreamContext().CreateKeyValueStoreContext();
             var operations = await NatsOperationJournalStore.OpenAsync(keyValue, topology.Operations, cancellationToken, client);

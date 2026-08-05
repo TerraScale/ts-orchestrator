@@ -47,26 +47,55 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(replies);
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = lifetime.Token;
-        var service = await writer.CreateServicesContext().AddServiceAsync(
-            new NatsSvcConfig($"terrascale_orchestrator_journal_writer_{topology.Cell}", "1.0.0")
+        INatsSvcServer? service = null;
+        try
+        {
+            service = await writer.CreateServicesContext().AddServiceAsync(
+                new NatsSvcConfig($"terrascale_orchestrator_journal_writer_{topology.Cell}", "1.0.0")
+                {
+                    Description = "Private typed CreateNode journal mutation service",
+                    QueueGroup = topology.OperationJournalWriterQueueGroup,
+                },
+                cancellationToken);
+            await service.AddEndpointAsync<NatsOperationJournalCreateRequest>(
+                message => CreateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                name: "create",
+                subject: topology.OperationJournalCreateSubject,
+                metadata: new Dictionary<string, string> { ["private"] = "true" },
+                cancellationToken: token);
+            await service.AddEndpointAsync<NatsOperationJournalUpdateRequest>(
+                message => UpdateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                name: "update",
+                subject: topology.OperationJournalUpdateSubject,
+                metadata: new Dictionary<string, string> { ["private"] = "true" },
+                cancellationToken: token);
+            return new(service, replies, lifetime);
+        }
+        catch
+        {
+            lifetime.Cancel();
+            if (service is not null)
             {
-                Description = "Private typed CreateNode journal mutation service",
-                QueueGroup = topology.OperationJournalWriterQueueGroup,
-            },
-            cancellationToken);
-        await service.AddEndpointAsync<NatsOperationJournalCreateRequest>(
-            message => CreateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
-            name: "create",
-            subject: topology.OperationJournalCreateSubject,
-            metadata: new Dictionary<string, string> { ["private"] = "true" },
-            cancellationToken: token);
-        await service.AddEndpointAsync<NatsOperationJournalUpdateRequest>(
-            message => UpdateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
-            name: "update",
-            subject: topology.OperationJournalUpdateSubject,
-            metadata: new Dictionary<string, string> { ["private"] = "true" },
-            cancellationToken: token);
-        return new(service, replies, lifetime);
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try
+                {
+                    await service.StopAsync(cleanup.Token).AsTask().WaitAsync(cleanup.Token);
+                }
+                catch
+                {
+                }
+                try
+                {
+                    await service.DisposeAsync().AsTask().WaitAsync(cleanup.Token);
+                }
+                catch
+                {
+                }
+            }
+            lifetime.Dispose();
+            replies.Dispose();
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()

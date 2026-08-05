@@ -429,6 +429,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                          ("$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.STREAM.LIST", new NatsHeaders()),
+                         ("$JS.API.STREAM.NAMES", new NatsHeaders()),
                          ("$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.RESTORE.KV_ORCH_OPERATIONS", new NatsHeaders()),
@@ -454,6 +456,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             foreach (var subject in new[]
                      {
                          "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS",
+                         "$JS.API.STREAM.LIST",
+                         "$JS.API.STREAM.NAMES",
                          "$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATIONS",
                          "$JS.API.STREAM.RESTORE.KV_ORCH_OPERATIONS",
                          "$JS.SNAPSHOT.RESTORE.KV_ORCH_OPERATIONS.>",
@@ -492,6 +496,81 @@ public sealed class NatsCreateNodeOperationJournalTests
         finally
         {
             if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task MutationServiceCancellationBeforeRegistrationDisposesItsReplySigner()
+    {
+        await using var server = await OneNodeJetStream.StartAsync();
+        await using var writer = await server.ConnectAsAsync(port => new NatsOpts
+        {
+            Url = $"nats://127.0.0.1:{port}",
+            RequestTimeout = TimeSpan.FromSeconds(1),
+        });
+        var topology = new NatsTopology("cleanup", 1);
+        var operations = await writer.CreateJetStreamContext().CreateKeyValueStoreContext()
+            .CreateOrUpdateStoreAsync(Rf1Operations(topology.Cell));
+        var proofs = await writer.CreateJetStreamContext().CreateKeyValueStoreContext()
+            .CreateOrUpdateStoreAsync(Rf1ProofConsumptions(topology.Cell));
+        using var authorityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var replyKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var replies = new NatsOperationJournalMutationReplySigner(replyKey);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Func<Task> start = async () => _ = await NatsOperationJournalMutationService.StartAsync(
+            writer,
+            operations,
+            proofs,
+            topology,
+            new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
+            new HashSet<string>(StringComparer.Ordinal) { "controller" },
+            replies,
+            cancellation.Token);
+        await Assert.That(start).Throws<OperationCanceledException>();
+        await Assert.That(() => replies.ExportPublicKey()).Throws<ObjectDisposedException>();
+
+        Func<Task> ping = async () => _ = await writer.RequestAsync<string, string>(
+            $"$SRV.PING.terrascale_orchestrator_journal_writer_{topology.Cell}", string.Empty);
+        await Assert.That(ping).Throws<NatsNoRespondersException>();
+    }
+
+    [Test]
+    public async Task JournalWriterStartupCancellationDisposesItsRetryingUnavailableClient()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-writer-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        try
+        {
+            var nkey = Path.Combine(directory, "writer.nk");
+            await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            var options = new OrchestratorOptions(
+                OrchestratorCommand.JournalWriter,
+                "cleanup",
+                $"nats://127.0.0.1:{port}",
+                3,
+                AuthoritativeJournal: new NatsAuthoritativeJournalConfiguration(
+                    nkey,
+                    new NatsTlsFiles("unused-ca.pem", "unused-cert.pem", "unused-key.pem"),
+                    Array.Empty<byte>(),
+                    "unused-reply.pem",
+                    Array.Empty<byte>(),
+                    new HashSet<string>(StringComparer.Ordinal) { "controller" }));
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            var startup = NatsJournalWriterRuntime.StartAsync(options, cancellation.Token);
+
+            await Assert.That(async () => await startup.WaitAsync(TimeSpan.FromSeconds(2)))
+                .Throws<OperationCanceledException>();
+            await Assert.That(startup.IsCompleted).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
 
