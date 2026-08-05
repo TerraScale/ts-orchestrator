@@ -77,6 +77,19 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         NumberOfReplicas = 3
     };
 
+    /// <summary>Expiry-bounded R3 records that make each private journal authority proof single-use.</summary>
+    public NatsKVConfig OperationProofConsumptions => new("ORCH_OPERATION_PROOFS")
+    {
+        Description = $"Expiry-bounded single-use operation journal authority proofs for {Cell}",
+        History = 1,
+        MaxAge = TimeSpan.FromMinutes(5),
+        MaxValueSize = 256,
+        MaxBytes = 8 * 1024 * 1024,
+        // As with ORCH_OPERATIONS, this is provisioned only by infrastructure
+        // and must never inherit the controller's development replica count.
+        NumberOfReplicas = 3
+    };
+
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
         Description = $"Signed regional control and protocol bundles for {Cell}",

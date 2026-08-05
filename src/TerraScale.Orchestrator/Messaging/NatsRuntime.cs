@@ -116,9 +116,15 @@ public sealed class NatsRuntime : IAsyncDisposable
                     topology.Operations,
                     cancellationToken,
                     journalWriter);
+                var proofConsumptions = await NatsOperationJournalStore.OpenAsync(
+                    journalWriter.CreateJetStreamContext().CreateKeyValueStoreContext(),
+                    topology.OperationProofConsumptions,
+                    cancellationToken,
+                    journalWriter);
                 journalMutations = await NatsOperationJournalMutationService.StartAsync(
                     journalWriter,
                     writerStore,
+                    proofConsumptions,
                     topology,
                     new NatsOperationJournalMutationAuthorityVerifier(journal.AuthorityPublicKey),
                     journal.EligibleControllerIdentities,

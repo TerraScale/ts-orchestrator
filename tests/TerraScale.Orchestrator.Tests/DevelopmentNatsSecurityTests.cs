@@ -65,10 +65,13 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(authorization).Contains(gru.Infrastructure.PublicKey);
             await Assert.That(authorization).Contains("\"$KV.ORCH_LEADERS.>\"");
             await Assert.That(authorization).Contains("\"$KV.ORCH_OPERATIONS.>\"");
+            await Assert.That(authorization).Contains("\"$KV.ORCH_OPERATION_PROOFS.>\"");
             await Assert.That(authorization).DoesNotContain("\"$KV.>\"");
             await Assert.That(authorization).Contains("\"$O.>\"");
             await Assert.That(authorization).Contains("$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS");
+            await Assert.That(authorization).Contains("$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS");
+            await Assert.That(authorization).Contains("$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS");

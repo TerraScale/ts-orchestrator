@@ -23,6 +23,7 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     internal static async Task<NatsOperationJournalMutationService> StartAsync(
         NatsClient writer,
         INatsKVStore store,
+        INatsKVStore proofConsumptions,
         NatsTopology topology,
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
@@ -31,6 +32,7 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(proofConsumptions);
         ArgumentNullException.ThrowIfNull(topology);
         ArgumentNullException.ThrowIfNull(authority);
         if (controllerIdentities is null || controllerIdentities.Count == 0 || controllerIdentities.Any(string.IsNullOrWhiteSpace))
@@ -44,13 +46,13 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
             },
             cancellationToken);
         await service.AddEndpointAsync<NatsOperationJournalCreateRequest>(
-            message => CreateAsync(message, store, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
+            message => CreateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
             name: "create",
             subject: topology.OperationJournalCreateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
             cancellationToken: cancellationToken);
         await service.AddEndpointAsync<NatsOperationJournalUpdateRequest>(
-            message => UpdateAsync(message, store, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
+            message => UpdateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
             name: "update",
             subject: topology.OperationJournalUpdateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
@@ -67,6 +69,7 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     private static async ValueTask CreateAsync(
         NatsSvcMsg<NatsOperationJournalCreateRequest> message,
         INatsKVStore store,
+        INatsKVStore proofConsumptions,
         string cell,
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
@@ -79,6 +82,11 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         {
             if (request is not null)
                 await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
+            return;
+        }
+        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
+        {
+            await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
             return;
         }
         try
@@ -95,6 +103,7 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     private static async ValueTask UpdateAsync(
         NatsSvcMsg<NatsOperationJournalUpdateRequest> message,
         INatsKVStore store,
+        INatsKVStore proofConsumptions,
         string cell,
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
@@ -107,6 +116,11 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         {
             if (request is not null)
                 await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
+            return;
+        }
+        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
+        {
+            await ReplyAsync(message, request.Authority, false, 0, replies, cancellationToken);
             return;
         }
         try
@@ -135,6 +149,51 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     {
         var digest = NatsOperationJournalMutationRequestDigest.Create(authority);
         return message.ReplyAsync(replies.Sign(succeeded, revision, digest), cancellationToken: cancellationToken);
+    }
+}
+
+/// <summary>R3 create-only proof ledger. Entries expire within the maximum accepted proof lifetime.</summary>
+internal static class NatsOperationJournalMutationProofConsumption
+{
+    private const string MarkerValue = "consumed";
+
+    internal static async ValueTask<bool> TryConsumeAsync(
+        INatsKVStore store,
+        NatsOperationJournalMutationAuthorityProof proof,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await store.CreateAsync(Key(proof), MarkerValue, cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (NatsKVCreateException)
+        {
+            return false;
+        }
+        catch (NatsKVWrongLastRevisionException)
+        {
+            return false;
+        }
+        // A failed proof-ledger write must fail closed before the operation KV is
+        // touched; providers never receive a mutation reply that authorizes reuse.
+        catch (NatsException)
+        {
+            return false;
+        }
+    }
+
+    internal static string Key(NatsOperationJournalMutationAuthorityProof proof)
+    {
+        ArgumentNullException.ThrowIfNull(proof);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var value in new[] { proof.Cell, proof.CallerIdentity, proof.Lease, proof.Nonce })
+        {
+            var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+            hash.AppendData(BitConverter.GetBytes(bytes.Length));
+            hash.AppendData(bytes);
+        }
+        return "proof." + Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 }
 

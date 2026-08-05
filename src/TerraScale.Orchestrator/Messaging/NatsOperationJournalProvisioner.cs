@@ -38,5 +38,11 @@ internal static class NatsOperationJournalProvisioner
             jetStream.CreateKeyValueStoreContext(),
             topology.Operations,
             cancellationToken);
+        await NatsOperationJournalStore.ProvisionAsync(
+            client,
+            jetStream,
+            jetStream.CreateKeyValueStoreContext(),
+            topology.OperationProofConsumptions,
+            cancellationToken);
     }
 }

@@ -100,6 +100,13 @@ public sealed class NatsCreateNodeOperationJournalTests
         await Assert.That(operations.MaxAge).IsEqualTo(TimeSpan.Zero);
         await Assert.That(operations.MaxValueSize).IsEqualTo(16 * 1024);
         await Assert.That(operations.MaxBytes).IsEqualTo(256 * 1024 * 1024);
+        var proofs = new NatsTopology("gru", 1).OperationProofConsumptions;
+        await Assert.That(proofs.Bucket).IsEqualTo("ORCH_OPERATION_PROOFS");
+        await Assert.That(proofs.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(proofs.History).IsEqualTo(1);
+        await Assert.That(proofs.MaxAge).IsEqualTo(TimeSpan.FromMinutes(5));
+        await Assert.That(proofs.MaxValueSize).IsEqualTo(256);
+        await Assert.That(proofs.MaxBytes).IsEqualTo(8 * 1024 * 1024);
     }
 
     [Test]
@@ -145,11 +152,37 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    public async Task ProofConsumptionIsAtomicAcrossWritersAndSurvivesRestart()
+    {
+        await using var server = await OneNodeJetStream.StartAsync();
+        var proofStore = await server.OpenAsync(Rf1ProofConsumptions());
+        await using var secondWriter = await server.ConnectAsAsync(port => new NatsOpts
+        {
+            Url = $"nats://127.0.0.1:{port}",
+            RequestTimeout = TimeSpan.FromSeconds(1),
+        });
+        var secondProofStore = await secondWriter.CreateJetStreamContext().CreateKeyValueStoreContext()
+            .GetStoreAsync("ORCH_OPERATION_PROOFS");
+        using var authority = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var proof = new NatsOperationJournalMutationAuthoritySigner("controller", authority).Issue(
+            "journal", "create", "operation." + new string('a', 64), 0, "ciphertext");
+
+        var results = await Task.WhenAll(
+            NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofStore, proof, default).AsTask(),
+            NatsOperationJournalMutationProofConsumption.TryConsumeAsync(secondProofStore, proof, default).AsTask());
+        await Assert.That(results.Count(static result => result)).IsEqualTo(1);
+        await server.RestartAsync();
+        var afterRestart = await server.OpenAsync(Rf1ProofConsumptions());
+        await Assert.That(await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(afterRestart, proof, default)).IsFalse();
+    }
+
+    [Test]
     public async Task ConfiguredCellValidationAcceptsOnlyItsExactR3Configuration()
     {
         var gru = new NatsTopology("gru", 3).Operations;
         var sfo = new NatsTopology("sfo", 3).Operations;
         var rf1 = Rf1Operations("gru");
+        var proofConsumptions = new NatsTopology("gru", 3).OperationProofConsumptions;
 
         NatsOperationJournalStore.ValidateConfiguration(NatsOperationJournalStore.CanonicalStream(gru), gru);
         await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
@@ -162,6 +195,11 @@ public sealed class NatsCreateNodeOperationJournalTests
         NatsOperationJournalStore.ValidateConfiguration(NatsOperationJournalStore.CanonicalStream(r5), r5);
         await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
                 NatsOperationJournalStore.CanonicalStream(sfo), r5))
+            .Throws<InvalidOperationException>();
+        NatsOperationJournalStore.ValidateConfiguration(
+            NatsOperationJournalStore.CanonicalStream(proofConsumptions), proofConsumptions);
+        await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
+                NatsOperationJournalStore.CanonicalStream(Rf1ProofConsumptions("gru")), proofConsumptions))
             .Throws<InvalidOperationException>();
     }
 
@@ -220,6 +258,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             });
             await infrastructure.CreateJetStreamContext().CreateOrUpdateStreamAsync(
                 NatsOperationJournalStore.CanonicalStream(Rf1Operations(cell.Cell)));
+            await infrastructure.CreateJetStreamContext().CreateOrUpdateStreamAsync(
+                NatsOperationJournalStore.CanonicalStream(Rf1ProofConsumptions(cell.Cell)));
 
             await using var writer = await server.ConnectAsAsync(port => new NatsOpts
             {
@@ -229,6 +269,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             });
             var writerStore = await writer.CreateJetStreamContext().CreateKeyValueStoreContext()
                 .GetStoreAsync("ORCH_OPERATIONS");
+            var writerProofs = await writer.CreateJetStreamContext().CreateKeyValueStoreContext()
+                .GetStoreAsync("ORCH_OPERATION_PROOFS");
             var key = "operation." + new string('a', 64);
 
             await using var controller = await server.ConnectAsAsync(port => new NatsOpts
@@ -251,6 +293,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             });
             var writerStoreTwo = await writerTwo.CreateJetStreamContext().CreateKeyValueStoreContext()
                 .GetStoreAsync("ORCH_OPERATIONS");
+            var writerProofsTwo = await writerTwo.CreateJetStreamContext().CreateKeyValueStoreContext()
+                .GetStoreAsync("ORCH_OPERATION_PROOFS");
             var journalTopology = new NatsTopology(cell.Cell, 1);
             var controllerIdentity = cellSecurity.Controllers[1].PublicKey;
             var secondControllerIdentity = cellSecurity.Controllers[2].PublicKey;
@@ -263,6 +307,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var mutations = await NatsOperationJournalMutationService.StartAsync(
                 writer,
                 writerStore,
+                writerProofs,
                 journalTopology,
                 new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
                 new HashSet<string>(StringComparer.Ordinal) { controllerIdentity, secondControllerIdentity },
@@ -271,6 +316,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var mutationsTwo = await NatsOperationJournalMutationService.StartAsync(
                 writerTwo,
                 writerStoreTwo,
+                writerProofsTwo,
                 journalTopology,
                 new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
                 new HashSet<string>(StringComparer.Ordinal) { controllerIdentity, secondControllerIdentity },
@@ -348,6 +394,17 @@ public sealed class NatsCreateNodeOperationJournalTests
             var secondReplay = await RequestPrivateAsync(controller, journalTopology, controllerIdentity,
                 journalTopology.OperationJournalCreateSubject, replayRequest);
             await Assert.That(secondReplay.Succeeded).IsFalse();
+
+            var consumedKey = "operation." + new string('7', 64);
+            var consumedProof = authoritySigner.Issue(cell.Cell, "create", consumedKey, 0, "must-not-mutate");
+            await writerProofs.CreateAsync(NatsOperationJournalMutationProofConsumption.Key(consumedProof), "consumed");
+            var consumedBeforeMutation = await RequestPrivateAsync(
+                controller, journalTopology, controllerIdentity,
+                journalTopology.OperationJournalCreateSubject,
+                new NatsOperationJournalCreateRequest(consumedKey, "must-not-mutate", consumedProof));
+            await Assert.That(consumedBeforeMutation.Succeeded).IsFalse();
+            Func<Task> readUnmutated = async () => _ = await writerStore.GetEntryAsync<string>(consumedKey);
+            await Assert.That(readUnmutated).Throws<NatsKVKeyNotFoundException>();
 
             foreach (var (subject, headers) in new[]
                      {
@@ -442,6 +499,16 @@ public sealed class NatsCreateNodeOperationJournalTests
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
+        NumberOfReplicas = 1,
+    };
+
+    private static NatsKVConfig Rf1ProofConsumptions(string cell = "journal") => new("ORCH_OPERATION_PROOFS")
+    {
+        Description = $"Expiry-bounded single-use operation journal authority proofs for {cell}",
+        History = 1,
+        MaxAge = TimeSpan.FromMinutes(5),
+        MaxValueSize = 256,
+        MaxBytes = 8 * 1024 * 1024,
         NumberOfReplicas = 1,
     };
 

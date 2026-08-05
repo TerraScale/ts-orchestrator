@@ -52,7 +52,7 @@ internal static class NatsOperationJournalStore
         ValidateExpected(configuration);
         var status = await store.GetStatusAsync(cancellationToken);
         if (status.Bucket != configuration.Bucket)
-            throw new InvalidOperationException("ORCH_OPERATIONS is absent or does not have its immutable authoritative R3 configuration.");
+            throw new InvalidOperationException("The authoritative CreateNode journal store is absent or does not have its immutable R3 configuration.");
         ValidateConfiguration(status.Info.Config, configuration);
         if (client is not null)
             await ValidateBatchPublishDisabledAsync(client, configuration, cancellationToken);
@@ -90,7 +90,7 @@ internal static class NatsOperationJournalStore
             actual.AllowMsgSchedules != expected.AllowMsgSchedules ||
             actual.AllowAtomicPublish != expected.AllowAtomicPublish || actual.PersistMode is not null ||
             (metadata is not null && metadata.Keys.Any(key => !key.StartsWith("_nats.", StringComparison.Ordinal))))
-            throw new InvalidOperationException("ORCH_OPERATIONS is absent or does not have its immutable authoritative R3 configuration.");
+            throw new InvalidOperationException("The authoritative CreateNode journal store is absent or does not have its immutable R3 configuration.");
     }
 
     internal static StreamConfig CanonicalStream(NatsKVConfig configuration) => new(
@@ -166,7 +166,7 @@ internal static class NatsOperationJournalStore
     {
         if (!response.TryGetProperty("config", out var config) ||
             !config.TryGetProperty("allow_batch_publish", out var enabled) || enabled.ValueKind != JsonValueKind.False)
-            throw new InvalidOperationException("ORCH_OPERATIONS must set allow_batch_publish to false.");
+            throw new InvalidOperationException("Authoritative CreateNode journal stores must set allow_batch_publish to false.");
     }
 
     private static void ThrowIfJetStreamError(JsonElement response)
@@ -177,10 +177,15 @@ internal static class NatsOperationJournalStore
 
     private static void ValidateExpected(NatsKVConfig configuration)
     {
-        if (configuration.Bucket != "ORCH_OPERATIONS" || configuration.NumberOfReplicas != 3 ||
-            configuration.History != 2 || configuration.MaxAge != TimeSpan.Zero ||
-            configuration.MaxValueSize != 16 * 1024 || configuration.MaxBytes != 256 * 1024 * 1024 ||
-            configuration.Storage != NatsKVStorageType.File)
-            throw new ArgumentException("The authoritative CreateNode journal configuration must be exact R3.", nameof(configuration));
+        var isOperationJournal = configuration.Bucket == "ORCH_OPERATIONS" &&
+            configuration.History == 2 && configuration.MaxAge == TimeSpan.Zero &&
+            configuration.MaxValueSize == 16 * 1024 && configuration.MaxBytes == 256 * 1024 * 1024;
+        var isProofConsumption = configuration.Bucket == "ORCH_OPERATION_PROOFS" &&
+            configuration.History == 1 && configuration.MaxAge == TimeSpan.FromMinutes(5) &&
+            configuration.MaxValueSize == 256 && configuration.MaxBytes == 8 * 1024 * 1024;
+        if ((isOperationJournal || isProofConsumption) && configuration.NumberOfReplicas == 3 &&
+            configuration.Storage == NatsKVStorageType.File)
+            return;
+        throw new ArgumentException("The authoritative CreateNode journal store configuration must be exact R3.", nameof(configuration));
     }
 }
