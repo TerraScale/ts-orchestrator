@@ -360,21 +360,50 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task TerraBaseRuntimeUsesAPrivateWritableOverlay()
+    public async Task TerraBaseRuntimeUsesAPrivateWritableCopy()
     {
         var topology = DevelopmentTopology.CreateRegional();
+        var root = Path.Combine(Path.GetTempPath(), "terrascale-runtime-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runtime = DevelopmentProcessSupervisor.WritableRuntimeVolume(
+                topology,
+                "gru-terrabase-1",
+                root);
 
-        await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
-            topology,
-            "gru-terrabase-1",
-            "/profile"))
-            .IsEqualTo(
-                "/profile/artifacts/dotnet/bin/TerraBase.Server/release:" +
-                "/profile/artifacts/dotnet/bin/TerraBase.Server/release:O");
-        await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeOverlay(
-            topology,
-            "gru-platform",
-            "/profile"))
-            .IsNull();
+            await Assert.That(runtime).IsNotNull();
+            await Assert.That(runtime!.Destination).IsEqualTo(
+                Path.Combine(root, "artifacts", "dotnet", "bin", "TerraBase.Server", "release"));
+            await Assert.That(runtime.Source).IsEqualTo(
+                Path.Combine(root, "workloads", "gru-terrabase-1", "runtime"));
+
+            Directory.CreateDirectory(Path.Combine(runtime.Destination, "nested"));
+            File.WriteAllText(Path.Combine(runtime.Destination, "TerraBase.Server.dll"), "first");
+            File.WriteAllText(Path.Combine(runtime.Destination, "nested", "asset.json"), "asset");
+            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtime);
+
+            await Assert.That(File.ReadAllText(
+                Path.Combine(runtime.Source, "TerraBase.Server.dll"))).IsEqualTo("first");
+            await Assert.That(File.ReadAllText(
+                Path.Combine(runtime.Source, "nested", "asset.json"))).IsEqualTo("asset");
+
+            File.WriteAllText(Path.Combine(runtime.Destination, "TerraBase.Server.dll"), "second");
+            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtime);
+            await Assert.That(File.ReadAllText(
+                Path.Combine(runtime.Source, "TerraBase.Server.dll"))).IsEqualTo("second");
+
+            await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeVolume(
+                topology,
+                "gru-platform",
+                root))
+                .IsNull();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 }

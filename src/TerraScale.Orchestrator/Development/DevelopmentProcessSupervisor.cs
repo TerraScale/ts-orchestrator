@@ -401,9 +401,10 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--volume", $"{workspaceRoot}:{workspaceRoot}:ro",
             "--volume", $"{dataDirectory}:{dataDirectory}:rw"
         ]);
-        if (WritableRuntimeOverlay(topology, specification.Name, dataDirectory) is { } overlay)
+        if (WritableRuntimeVolume(topology, specification.Name, dataDirectory) is { } runtime)
         {
-            Add(process.StartInfo, ["--volume", overlay]);
+            PrepareWritableRuntimeVolume(runtime);
+            Add(process.StartInfo, ["--volume", $"{runtime.Source}:{runtime.Destination}:rw"]);
         }
         Add(process.StartInfo, ["--workdir", specification.WorkingDirectory, specification.Image]);
         Add(process.StartInfo, specification.Arguments);
@@ -566,7 +567,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         "--memory-swap", memory,
     ];
 
-    internal static string? WritableRuntimeOverlay(
+    internal static DevelopmentWritableRuntimeVolume? WritableRuntimeVolume(
         DevelopmentTopology topology,
         string resourceName,
         string dataDirectory)
@@ -578,11 +579,70 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         {
             return null;
         }
-        var runtime = Path.GetFullPath(DevelopmentArtifactBuilder.DotNetOutputDirectory(
+        var destination = Path.GetFullPath(DevelopmentArtifactBuilder.DotNetOutputDirectory(
             dataDirectory,
             "TerraBase.Server"));
-        return $"{runtime}:{runtime}:O";
+        var source = Path.GetFullPath(Path.Combine(
+            dataDirectory,
+            "workloads",
+            resourceName,
+            "runtime"));
+        return new DevelopmentWritableRuntimeVolume(source, destination);
     }
+
+    internal static void PrepareWritableRuntimeVolume(DevelopmentWritableRuntimeVolume runtime)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        if (!Directory.Exists(runtime.Destination))
+        {
+            throw new DirectoryNotFoundException(
+                $"Published TerraBase runtime does not exist: {runtime.Destination}");
+        }
+
+        var parent = Path.GetDirectoryName(runtime.Source)
+            ?? throw new InvalidOperationException("TerraBase private runtime has no parent directory.");
+        Directory.CreateDirectory(parent);
+        var staging = runtime.Source + ".new-" + Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(staging);
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(
+                         runtime.Destination,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(Path.Combine(
+                    staging,
+                    Path.GetRelativePath(runtime.Destination, directory)));
+            }
+            foreach (var file in Directory.EnumerateFiles(
+                         runtime.Destination,
+                         "*",
+                         SearchOption.AllDirectories))
+            {
+                var destination = Path.Combine(
+                    staging,
+                    Path.GetRelativePath(runtime.Destination, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(file, destination, overwrite: true);
+            }
+
+            if (Directory.Exists(runtime.Source))
+            {
+                Directory.Delete(runtime.Source, recursive: true);
+            }
+            Directory.Move(staging, runtime.Source);
+        }
+        finally
+        {
+            if (Directory.Exists(staging))
+            {
+                Directory.Delete(staging, recursive: true);
+            }
+        }
+    }
+
+    internal sealed record DevelopmentWritableRuntimeVolume(string Source, string Destination);
 
     internal static IReadOnlyList<string> PodCreationArguments(
         DevelopmentTopology topology,
