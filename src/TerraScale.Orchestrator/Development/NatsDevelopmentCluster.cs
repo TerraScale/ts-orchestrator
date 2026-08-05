@@ -96,8 +96,11 @@ internal static class NatsDevelopmentCluster
             $"$JS.API.STREAM.CREATE.{stream}", $"$JS.API.STREAM.UPDATE.{stream}", $"$JS.API.STREAM.INFO.{stream}"
         }).Concat(new[]
         {
-            "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.>",
-            "$JS.ACK.CELL_EVENTS.>", "$JS.FC.CELL_EVENTS.>"
+            "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.>",
+            "$JS.ACK.CELL_EVENTS.>", "$JS.FC.CELL_EVENTS.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
+            "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>", "$JS.FC.OBJ_CELL_BUNDLES.>",
+            "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>", "$JS.FC.KV_ORCH_RUNTIME.>",
+            "$JS.API.DIRECT.GET.KV_ORCH_LEADERS", "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>"
         }).ToArray();
         var journalJetStreamDenials = string.Join(", ", new[]
         {

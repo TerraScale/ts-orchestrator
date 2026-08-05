@@ -77,9 +77,33 @@ public sealed record OrchestratorOptions(
             environment("TS_ORCH_NATS_TLS_CERT_FILE"),
             environment("TS_ORCH_NATS_TLS_KEY_FILE")
         };
-        if (command == OrchestratorCommand.JournalWriter &&
-            (!string.IsNullOrWhiteSpace(controllerNkey) || controllerTlsValues.Any(static value => !string.IsNullOrWhiteSpace(value))))
-            throw new ArgumentException("The journal-writer role must not receive controller NATS credentials.");
+        var globalNkey = environment("TS_ORCH_GLOBAL_NATS_NKEY_FILE");
+        var globalTlsValues = new[]
+        {
+            environment("TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"),
+            environment("TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"),
+            environment("TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE")
+        };
+        var infrastructureNkey = environment("TS_ORCH_INFRA_NATS_NKEY_FILE");
+        var infrastructureTlsValues = new[]
+        {
+            environment("TS_ORCH_INFRA_NATS_TLS_CA_FILE"),
+            environment("TS_ORCH_INFRA_NATS_TLS_CERT_FILE"),
+            environment("TS_ORCH_INFRA_NATS_TLS_KEY_FILE")
+        };
+        var journalValues = new[]
+        {
+            environment("TS_ORCH_JOURNAL_NATS_NKEY_FILE"),
+            environment("TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"),
+            environment("TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"),
+            environment("TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"),
+            environment("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"),
+            environment("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"),
+            environment("TS_ORCH_JOURNAL_CONTROLLER_NKEYS")
+        };
+        RejectUnownedCredentials(
+            command, controllerNkey, controllerTlsValues, globalNkey, globalTlsValues,
+            infrastructureNkey, infrastructureTlsValues, journalValues);
         var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check;
         var natsNKeyFile = controllerCredentialsRequired
             ? Messaging.NatsCredentialFile.Resolve(controllerNkey, "TS_ORCH_NATS_NKEY_FILE")
@@ -115,14 +139,14 @@ public sealed record OrchestratorOptions(
         }
         var infrastructureNatsNKeyFile = command == OrchestratorCommand.ProvisionJournal
             ? Messaging.NatsCredentialFile.Resolve(
-                environment("TS_ORCH_INFRA_NATS_NKEY_FILE"),
+                infrastructureNkey,
                 "TS_ORCH_INFRA_NATS_NKEY_FILE")
             : null;
         var infrastructureNatsTls = command == OrchestratorCommand.ProvisionJournal
             ? Messaging.NatsTlsFiles.Resolve(
-                environment("TS_ORCH_INFRA_NATS_TLS_CA_FILE"),
-                environment("TS_ORCH_INFRA_NATS_TLS_CERT_FILE"),
-                environment("TS_ORCH_INFRA_NATS_TLS_KEY_FILE"),
+                infrastructureTlsValues[0],
+                infrastructureTlsValues[1],
+                infrastructureTlsValues[2],
                 "TS_ORCH_INFRA_NATS_TLS")
             : null;
         if (command == OrchestratorCommand.ProvisionJournal &&
@@ -143,11 +167,8 @@ public sealed record OrchestratorOptions(
         }
         var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_NATS_URL"),
-                environment("TS_ORCH_GLOBAL_NATS_NKEY_FILE"),
-                environment("TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"),
-                environment("TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"),
-                environment("TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"),
+                environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey,
+                globalTlsValues[0], globalTlsValues[1], globalTlsValues[2],
                 replicas)
             : null;
         if (globalNats is not null &&
@@ -155,26 +176,10 @@ public sealed record OrchestratorOptions(
                 Messaging.NatsCredentialFile.SameIdentity(globalNats.NKeyFile, natsNKeyFile) ||
                 globalNats.Tls.SameIdentity(natsTls)))
             throw new ArgumentException("Global and regional control NATS require distinct complete identities.");
-        var journalSecretValues = new[]
-        {
-            environment("TS_ORCH_JOURNAL_NATS_NKEY_FILE"),
-            environment("TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"),
-            environment("TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"),
-            environment("TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"),
-            environment("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE")
-        };
-        if (command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
-            journalSecretValues.Any(static value => !string.IsNullOrWhiteSpace(value)))
-            throw new ArgumentException("Controller roles must not receive journal-writer NKey, mTLS, or reply-signing private-key material.");
         var authoritativeJournal = command == OrchestratorCommand.JournalWriter
             ? Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
-                journalSecretValues[0],
-                journalSecretValues[1],
-                journalSecretValues[2],
-                journalSecretValues[3],
-                environment("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"),
-                journalSecretValues[4],
-                environment("TS_ORCH_JOURNAL_CONTROLLER_NKEYS"))
+                journalValues[0], journalValues[1], journalValues[2], journalValues[3],
+                journalValues[4], journalValues[5], journalValues[6])
             : null;
         if (command == OrchestratorCommand.JournalWriter &&
             (uri.Scheme != "tls" || replicas < 3 || authoritativeJournal is null))
@@ -347,6 +352,37 @@ public sealed record OrchestratorOptions(
         values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : fallback;
+
+    private static void RejectUnownedCredentials(
+        OrchestratorCommand command,
+        string? controllerNkey,
+        IReadOnlyList<string?> controllerTls,
+        string? globalNkey,
+        IReadOnlyList<string?> globalTls,
+        string? infrastructureNkey,
+        IReadOnlyList<string?> infrastructureTls,
+        IReadOnlyList<string?> journal)
+    {
+        var hasController = !string.IsNullOrWhiteSpace(controllerNkey) ||
+            controllerTls.Any(static value => !string.IsNullOrWhiteSpace(value)) ||
+            !string.IsNullOrWhiteSpace(globalNkey) ||
+            globalTls.Any(static value => !string.IsNullOrWhiteSpace(value));
+        var hasInfrastructure = !string.IsNullOrWhiteSpace(infrastructureNkey) || infrastructureTls.Any(static value => !string.IsNullOrWhiteSpace(value));
+        var hasJournal = journal.Any(static value => !string.IsNullOrWhiteSpace(value));
+        if (hasController && command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
+            throw new ArgumentException($"The {CommandName(command)} role must not receive controller NATS credentials.");
+        if (hasInfrastructure && command is not OrchestratorCommand.ProvisionJournal)
+            throw new ArgumentException($"The {CommandName(command)} role must not receive infrastructure NATS credentials.");
+        if (hasJournal && command is not OrchestratorCommand.JournalWriter)
+            throw new ArgumentException($"The {CommandName(command)} role must not receive journal-writer credentials.");
+    }
+
+    private static string CommandName(OrchestratorCommand command) => command switch
+    {
+        OrchestratorCommand.ProvisionJournal => "provision-journal",
+        OrchestratorCommand.JournalWriter => "journal-writer",
+        _ => command.ToString().ToLowerInvariant()
+    };
 
     private static bool IsSubjectToken(string value) =>
         value.Length is > 0 and <= 32 &&

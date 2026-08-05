@@ -125,20 +125,58 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task ControllerAndJournalWriterRolesRejectEachOthersCredentialMounts()
-    {
-        var controller = await Assert.That(() => OrchestratorOptions.Parse(
-                ["check"],
-                name => name == "TS_ORCH_JOURNAL_NATS_NKEY_FILE" ? "/unmounted/writer.nk" : null))
-            .Throws<ArgumentException>();
-        await Assert.That(controller!.Message).Contains("Controller roles must not receive journal-writer");
+    public async Task RunRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("run", "infrastructure");
 
-        var writer = await Assert.That(() => OrchestratorOptions.Parse(
-                ["journal-writer"],
-                name => name == "TS_ORCH_NATS_NKEY_FILE" ? "/unmounted/controller.nk" : null))
-            .Throws<ArgumentException>();
-        await Assert.That(writer!.Message).Contains("journal-writer role must not receive controller");
-    }
+    [Test]
+    public async Task RunRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("run", "journal-writer");
+
+    [Test]
+    public async Task CheckRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("check", "infrastructure");
+
+    [Test]
+    public async Task CheckRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("check", "journal-writer");
+
+    [Test]
+    public async Task ProvisionJournalRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("provision-journal", "controller");
+
+    [Test]
+    public async Task ProvisionJournalRejectsGlobalControllerCredentials() => await RejectsUnownedCredentialsAsync("provision-journal", "global-controller");
+
+    [Test]
+    public async Task ProvisionJournalRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("provision-journal", "journal-writer");
+
+    [Test]
+    public async Task JournalWriterRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("journal-writer", "controller");
+
+    [Test]
+    public async Task JournalWriterRejectsGlobalControllerCredentials() => await RejectsUnownedCredentialsAsync("journal-writer", "global-controller");
+
+    [Test]
+    public async Task JournalWriterRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("journal-writer", "infrastructure");
+
+    [Test]
+    public async Task LabRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("lab", "controller");
+
+    [Test]
+    public async Task LabRejectsGlobalControllerCredentials() => await RejectsUnownedCredentialsAsync("lab", "global-controller");
+
+    [Test]
+    public async Task LabRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("lab", "infrastructure");
+
+    [Test]
+    public async Task LabRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("lab", "journal-writer");
+
+    [Test]
+    public async Task CatalogRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("catalog", "controller");
+
+    [Test]
+    public async Task CatalogRejectsGlobalControllerCredentials() => await RejectsUnownedCredentialsAsync("catalog", "global-controller");
+
+    [Test]
+    public async Task CatalogRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("catalog", "infrastructure");
+
+    [Test]
+    public async Task CatalogRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("catalog", "journal-writer");
 
     [Test]
     public async Task JournalWriterRoleLoadsOnlyWriterCredentialConfiguration()
@@ -290,7 +328,7 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task ProvisionJournalDoesNotLoadJournalWriterOrControllerPrivateConfiguration()
+    public async Task ProvisionJournalLoadsOnlyInfrastructureCredentialConfiguration()
     {
         if (!OperatingSystem.IsLinux()) return;
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-provision-identity-{Guid.NewGuid():N}");
@@ -311,12 +349,6 @@ public sealed class OrchestratorOptionsTests
                 ["TS_ORCH_INFRA_NATS_TLS_CA_FILE"] = infrastructure.Certificate,
                 ["TS_ORCH_INFRA_NATS_TLS_CERT_FILE"] = infrastructure.Certificate,
                 ["TS_ORCH_INFRA_NATS_TLS_KEY_FILE"] = infrastructure.PrivateKey,
-                ["TS_ORCH_NATS_NKEY_FILE"] = "/unmounted/controller.nk",
-                ["TS_ORCH_NATS_TLS_CA_FILE"] = "/unmounted/controller-ca.pem",
-                ["TS_ORCH_JOURNAL_NATS_NKEY_FILE"] = "/unmounted/writer.nk",
-                ["TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"] = "/unmounted/writer-ca.pem",
-                ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = "/unmounted/authority.pem",
-                ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = "/unmounted/reply.pem",
             };
             var options = OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault);
             await Assert.That(options.NatsNKeyFile).IsNull();
@@ -406,5 +438,21 @@ public sealed class OrchestratorOptionsTests
         await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
         File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         return (certificatePath, keyPath);
+    }
+
+    private static async Task RejectsUnownedCredentialsAsync(string command, string family)
+    {
+        var variable = family switch
+        {
+            "controller" => "TS_ORCH_NATS_NKEY_FILE",
+            "global-controller" => "TS_ORCH_GLOBAL_NATS_NKEY_FILE",
+            "infrastructure" => "TS_ORCH_INFRA_NATS_NKEY_FILE",
+            "journal-writer" => "TS_ORCH_JOURNAL_NATS_NKEY_FILE",
+            _ => throw new ArgumentOutOfRangeException(nameof(family))
+        };
+        var exception = await Assert.That(() => OrchestratorOptions.Parse(
+                [command], name => name == variable ? "/unmounted/private-material" : null))
+            .Throws<ArgumentException>();
+        await Assert.That(exception!.Message).Contains(family == "global-controller" ? "controller" : family);
     }
 }

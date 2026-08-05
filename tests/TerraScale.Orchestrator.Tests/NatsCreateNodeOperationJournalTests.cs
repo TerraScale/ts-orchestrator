@@ -500,6 +500,59 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    public async Task CredentialedR3ControllerStartsWhileProtectedJournalInfoRemainsDenied()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        var securityDirectory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-controller-{Guid.NewGuid():N}");
+        try
+        {
+            var cell = DevelopmentTopology.CreateRegional().Cells.Single(candidate => candidate.Cell == "gru");
+            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), securityDirectory).Cell(cell.Cell);
+            await using var server = await ThreeNodeJetStream.StartAsync(
+                NatsDevelopmentCluster.ControlAuthorization(cell, security), security.Controllers[1].SeedFile);
+            await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromMilliseconds(250),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
+            });
+            var journalTopology = new NatsTopology(cell.Cell, 3, "controller-1");
+            var jetStream = infrastructure.CreateJetStreamContext();
+            await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
+                NatsOperationJournalStore.CanonicalStream(journalTopology.Operations)));
+            await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
+                NatsOperationJournalStore.CanonicalStream(journalTopology.OperationProofConsumptions)));
+            var provisionedOperations = await jetStream.GetStreamAsync("KV_ORCH_OPERATIONS");
+            await Assert.That(provisionedOperations.Info.Config.NumReplicas).IsEqualTo(3);
+
+            using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await using var runtime = await NatsRuntime.StartAsync(new OrchestratorOptions(
+                OrchestratorCommand.Check,
+                cell.Cell,
+                $"nats://127.0.0.1:{server.Port}",
+                3,
+                Instance: "controller-1",
+                NatsNKeyFile: security.Controllers[1].SeedFile), startup.Token);
+            await Assert.That(runtime.AuthoritySnapshot.Ready).IsTrue();
+
+            await using var controller = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Controllers[1].SeedFile },
+            });
+            Func<Task> journalInfo = async () =>
+                _ = await controller.RequestAsync<string, string>("$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "{}");
+            await Assert.That(journalInfo).Throws<NatsException>();
+        }
+        finally
+        {
+            if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task MutationServiceCancellationBeforeRegistrationDisposesItsReplySigner()
     {
         await using var server = await OneNodeJetStream.StartAsync();
@@ -664,6 +717,26 @@ public sealed class NatsCreateNodeOperationJournalTests
         return new(key);
     }
 
+    private static async Task EventuallyAsync(Func<Task> action)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await action();
+                return;
+            }
+            catch (NatsJSApiException) when (attempt < 49)
+            {
+                await Task.Delay(100);
+            }
+            catch (NatsJSApiNoResponseException) when (attempt < 49)
+            {
+                await Task.Delay(100);
+            }
+        }
+    }
+
     private static NatsKVConfig Rf1Operations(string cell = "journal") => new("ORCH_OPERATIONS")
     {
         Description = $"Authoritative encrypted regional operation journal for {cell}",
@@ -807,6 +880,118 @@ public sealed class NatsCreateNodeOperationJournalTests
                 }
             }
             throw new InvalidOperationException("nats-server did not accept a local JetStream connection.");
+        }
+    }
+
+    private sealed class ThreeNodeJetStream : IAsyncDisposable
+    {
+        private readonly string directory;
+        private readonly int[] ports;
+        private readonly Process[] processes;
+
+        private ThreeNodeJetStream(string directory, int[] ports, Process[] processes)
+        {
+            this.directory = directory;
+            this.ports = ports;
+            this.processes = processes;
+        }
+
+        public int Port => ports[0];
+
+        public static async Task<ThreeNodeJetStream> StartAsync(string authorization, string readinessNkeyFile)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-journal-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            var clientPorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
+            var routePorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
+            var configurations = clientPorts.Select((port, index) => Path.Combine(directory, $"nats-{index}.conf")).ToArray();
+            for (var index = 0; index < 3; index++)
+            {
+                var routes = string.Join(", ", routePorts.Where((_, candidate) => candidate != index)
+                    .Select(route => $"\"nats-route://127.0.0.1:{route}\""));
+                await File.WriteAllTextAsync(configurations[index], $$"""
+                    server_name: "journal-{{index}}"
+                    port: {{clientPorts[index]}}
+                    {{authorization}}
+                    jetstream { store_dir: "{{Path.Combine(directory, $"store-{index}")}}" }
+                    cluster {
+                      name: "journal-r3"
+                      host: "127.0.0.1"
+                      port: {{routePorts[index]}}
+                      routes: [{{routes}}]
+                    }
+                    """);
+            }
+
+            var processes = configurations.Select(configuration => Process.Start(new ProcessStartInfo("nats-server", $"-c {configuration}")
+            {
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            }) ?? throw new InvalidOperationException("nats-server did not start.")).ToArray();
+            var server = new ThreeNodeJetStream(directory, clientPorts, processes);
+            try
+            {
+                for (var attempt = 0; attempt < 50; attempt++)
+                {
+                    try
+                    {
+                        await using var client = await server.ConnectAsAsync(port => new NatsOpts
+                        {
+                            Url = $"nats://127.0.0.1:{port}",
+                            ConnectTimeout = TimeSpan.FromSeconds(1),
+                            AuthOpts = new NatsAuthOpts { NKeyFile = readinessNkeyFile },
+                        });
+                        return server;
+                    }
+                    catch (NatsException) when (attempt < 49)
+                    {
+                        await Task.Delay(50);
+                    }
+                }
+                throw new InvalidOperationException("Three-node NATS cluster did not accept a local JetStream connection.");
+            }
+            catch
+            {
+                await server.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async Task<NatsClient> ConnectAsAsync(Func<int, NatsOpts> options)
+        {
+            var client = new NatsClient(options(Port));
+            try
+            {
+                await client.ConnectAsync();
+                return client;
+            }
+            catch
+            {
+                await client.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            foreach (var process in processes)
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+            }
+            foreach (var process in processes)
+            {
+                await process.WaitForExitAsync();
+                process.Dispose();
+            }
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+
+        private static int FreePort()
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
         }
     }
 }

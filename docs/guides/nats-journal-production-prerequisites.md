@@ -25,14 +25,15 @@ client placeholder is an acceptable substitute.
 ## Process and credential boundary
 
 Run the controller (`run` or `check`) and writer (`journal-writer`) as separate
-native workload roles. The controller command rejects journal-writer NKey,
-mTLS, and reply-private-key environment values before any file resolution. The
-writer command rejects controller NKey/mTLS values and is the only command that
-opens writer credentials or starts the mutation service. A controller uses its
-own scoped request/reply NATS identity and only public reply-verification
-material. `provision-journal` runs with only its infrastructure NKey and mTLS
-identity; it must not receive or open controller or writer private material,
-and it does not load the generic Infisical runtime secret environment.
+native workload roles. Every command rejects every NATS credential family it
+does not own before any file resolution: controllers own controller credentials,
+`provision-journal` owns infrastructure credentials, the writer owns writer
+credentials plus its necessary public authority/controller identity inputs, and
+`lab`/`catalog` own none. The writer alone opens writer credentials or starts
+the mutation service. A controller uses its own scoped request/reply NATS
+identity and only public reply-verification material; it never opens, reads, or
+validates either protected journal store during readiness. `provision-journal`
+does not load the generic Infisical runtime secret environment.
 The development fixture models those identities and permissions but does not
 establish a deployed workload, host mount policy, or R3 boundary.
 
@@ -73,3 +74,8 @@ eligible controllers through multiple writer instances; one atomic proof-ledger
 consume across writers and restart before a journal mutation; key rotation; and
 the full CreateNode crash/recovery flow against an approved provider. This is
 an evidence gate, not a local RF1 or OCI claim.
+
+A local three-node development NATS/NKey ACL regression may prove that a
+credentialed controller starts while direct protected-stream `STREAM.INFO`
+remains denied. It is not a substitute for the production TLS/JWT,
+credential-delivery, or R3 member-loss qualification above.
