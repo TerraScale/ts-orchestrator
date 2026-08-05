@@ -14,6 +14,7 @@ internal static class ToolDispatcher
             ["phase0-evidence"] = arguments => Task.FromResult(Phase0EvidenceCommand.Run(arguments)),
             ["json-format"] = arguments => Task.FromResult(JsonFormatCommand.Run(arguments)),
             ["test"] = arguments => Task.FromResult(ToolingTests.Run(arguments)),
+            ["workspace-topology-lease-holder"] = WorkspaceTopologyLeaseHolderCommand.RunAsync,
         };
 
     public static async Task<int> RunAsync(string[] arguments)

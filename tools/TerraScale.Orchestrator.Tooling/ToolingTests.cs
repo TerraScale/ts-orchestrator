@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using TerraScale.Orchestrator.Development;
 
@@ -536,11 +537,65 @@ internal static class ToolingTests
             var second = WorkspaceTopologyLease.AcquireAsync(
                 "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
             second.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+            using var holder = StartWorkspaceTopologyLeaseHolder(leaseNamespace);
+            try
+            {
+                var status = holder.StandardOutput.ReadLine()
+                    ?? throw new InvalidOperationException("The workspace topology lease holder exited before admission.");
+                AssertEqual("held", status);
+                try
+                {
+                    WorkspaceTopologyLease.AcquireAsync(
+                        "development-lab", TimeSpan.FromMilliseconds(50)).GetAwaiter().GetResult();
+                    throw new InvalidOperationException("The child process did not hold the workspace topology lease.");
+                }
+                catch (InvalidOperationException exception)
+                {
+                    AssertEqual("Timed out acquiring the workspace topology lease.", exception.Message);
+                }
+            }
+            finally
+            {
+                holder.StandardInput.Close();
+                if (!holder.WaitForExit(5_000))
+                {
+                    holder.Kill(entireProcessTree: true);
+                    holder.WaitForExit();
+                }
+            }
+
+            var afterChildExit = WorkspaceTopologyLease.AcquireAsync(
+                "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            afterChildExit.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         finally
         {
             Environment.SetEnvironmentVariable(namespaceVariable, previousNamespace);
         }
+    }
+
+    private static Process StartWorkspaceTopologyLeaseHolder(string leaseNamespace)
+    {
+        var processPath = Environment.ProcessPath
+            ?? throw new InvalidOperationException("The tooling test host path is unavailable.");
+        var holder = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = processPath,
+                WorkingDirectory = ToolingSupport.Root,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            }
+        };
+        holder.StartInfo.ArgumentList.Add("workspace-topology-lease-holder");
+        holder.StartInfo.ArgumentList.Add("--namespace");
+        holder.StartInfo.ArgumentList.Add(leaseNamespace);
+        holder.Start();
+        return holder;
     }
 
     private static void DevelopmentBoundedProcessObservation()
