@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json.Nodes;
 using TerraScale.Orchestrator.Development;
 
@@ -538,10 +539,11 @@ internal static class ToolingTests
                 "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
             second.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
-            using var holder = StartWorkspaceTopologyLeaseHolder(leaseNamespace);
+            using var holder = StartWorkspaceTopologyLeaseHolder(
+                leaseNamespace, noisyStderr: false, ignoreStandardInput: false, out var holderStandardError);
             try
             {
-                var status = ReadWorkspaceTopologyLeaseHolderReady(holder);
+                var status = ReadWorkspaceTopologyLeaseHolderReady(holder, holderStandardError);
                 AssertEqual("held", status);
                 try
                 {
@@ -556,9 +558,22 @@ internal static class ToolingTests
             }
             finally
             {
-                StopWorkspaceTopologyLeaseHolder(holder);
+                StopWorkspaceTopologyLeaseHolder(holder, holderStandardError);
             }
             AssertEqual(0, holder.ExitCode);
+
+            using var hostileHolder = StartWorkspaceTopologyLeaseHolder(
+                leaseNamespace, noisyStderr: true, ignoreStandardInput: true, out var hostileStandardError);
+            try
+            {
+                AssertEqual("held", ReadWorkspaceTopologyLeaseHolderReady(hostileHolder, hostileStandardError));
+            }
+            finally
+            {
+                StopWorkspaceTopologyLeaseHolder(
+                    hostileHolder, hostileStandardError, TimeSpan.FromMilliseconds(50));
+            }
+            AssertEqual(256, ReadBoundedStandardError(hostileStandardError).Length);
 
             var afterChildExit = WorkspaceTopologyLease.AcquireAsync(
                 "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
@@ -570,7 +585,11 @@ internal static class ToolingTests
         }
     }
 
-    private static Process StartWorkspaceTopologyLeaseHolder(string leaseNamespace)
+    private static Process StartWorkspaceTopologyLeaseHolder(
+        string leaseNamespace,
+        bool noisyStderr,
+        bool ignoreStandardInput,
+        out Task<string> standardError)
     {
         var processPath = Environment.ProcessPath
             ?? throw new InvalidOperationException("The tooling test host path is unavailable.");
@@ -589,11 +608,17 @@ internal static class ToolingTests
         holder.StartInfo.ArgumentList.Add("workspace-topology-lease-holder");
         holder.StartInfo.ArgumentList.Add("--namespace");
         holder.StartInfo.ArgumentList.Add(leaseNamespace);
+        if (noisyStderr)
+        {
+            holder.StartInfo.ArgumentList.Add("--noisy-stderr");
+            holder.StartInfo.ArgumentList.Add("--ignore-stdin");
+        }
         holder.Start();
+        standardError = CaptureBoundedStandardErrorAsync(holder.StandardError);
         return holder;
     }
 
-    private static string ReadWorkspaceTopologyLeaseHolderReady(Process holder)
+    private static string ReadWorkspaceTopologyLeaseHolderReady(Process holder, Task<string> standardError)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
@@ -603,21 +628,17 @@ internal static class ToolingTests
         }
         catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException)
         {
-            StopWorkspaceTopologyLeaseHolder(holder);
-            var stderr = holder.StandardError.ReadToEnd()
-                .Replace(Environment.NewLine, " ", StringComparison.Ordinal)
-                .Trim();
-            if (stderr.Length > 256)
-            {
-                stderr = stderr[..256];
-            }
+            StopWorkspaceTopologyLeaseHolder(holder, standardError);
             throw new InvalidOperationException(
-                $"The workspace topology lease holder did not become ready (exit {holder.ExitCode}): {stderr}",
+                $"The workspace topology lease holder did not become ready (exit {holder.ExitCode}): {ReadBoundedStandardError(standardError)}",
                 exception);
         }
     }
 
-    private static void StopWorkspaceTopologyLeaseHolder(Process holder)
+    private static void StopWorkspaceTopologyLeaseHolder(
+        Process holder,
+        Task<string> standardError,
+        TimeSpan? gracefulTimeout = null)
     {
         if (holder.HasExited)
         {
@@ -625,10 +646,50 @@ internal static class ToolingTests
         }
 
         holder.StandardInput.Close();
-        if (!holder.WaitForExit(5_000))
+        var timeout = gracefulTimeout ?? TimeSpan.FromSeconds(5);
+        if (!holder.WaitForExit(timeout))
         {
             holder.Kill(entireProcessTree: true);
-            holder.WaitForExit();
+            if (!holder.WaitForExit(TimeSpan.FromSeconds(5)))
+            {
+                throw new InvalidOperationException(
+                    $"The workspace topology lease holder did not exit after termination: {ReadBoundedStandardError(standardError)}");
+            }
+        }
+    }
+
+    private static async Task<string> CaptureBoundedStandardErrorAsync(StreamReader standardError)
+    {
+        const int maximumLength = 256;
+        var captured = new StringBuilder(maximumLength);
+        var buffer = new char[maximumLength];
+        while (true)
+        {
+            var read = await standardError.ReadAsync(buffer);
+            if (read == 0)
+            {
+                return captured.ToString();
+            }
+
+            var remaining = maximumLength - captured.Length;
+            if (remaining > 0)
+            {
+                captured.Append(buffer, 0, Math.Min(remaining, read));
+            }
+        }
+    }
+
+    private static string ReadBoundedStandardError(Task<string> standardError)
+    {
+        try
+        {
+            return standardError.WaitAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult()
+                .Replace(Environment.NewLine, " ", StringComparison.Ordinal)
+                .Trim();
+        }
+        catch (Exception exception) when (exception is TimeoutException or IOException)
+        {
+            return "stderr unavailable";
         }
     }
 
