@@ -72,6 +72,8 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(authorization).DoesNotContain("\"$O.>\"");
             await Assert.That(authorization).Contains("$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>");
             await Assert.That(authorization).Contains("$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.runtime_startup.>");
+            await Assert.That(authorization).DoesNotContain("$JS.API.CONSUMER.CREATE.CELL_EVENTS.>");
+            await Assert.That(authorization).DoesNotContain("$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.>");
             await Assert.That(authorization).Contains("$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS");

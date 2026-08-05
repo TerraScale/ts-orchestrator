@@ -500,7 +500,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
-    public async Task CredentialedR3ControllerStartsWhileProtectedJournalInfoRemainsDenied()
+    public async Task CredentialedR3ControllersConcurrentlyStartWithOneCanonicalConsumerWhileProtectedJournalApisRemainDenied()
     {
         if (!OperatingSystem.IsLinux()) return;
 
@@ -508,7 +508,14 @@ public sealed class NatsCreateNodeOperationJournalTests
         try
         {
             var cell = DevelopmentTopology.CreateRegional().Cells.Single(candidate => candidate.Cell == "gru");
-            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), securityDirectory).Cell(cell.Cell);
+            var primarySecurity = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), securityDirectory).Cell(cell.Cell);
+            var security = primarySecurity with
+            {
+                Controllers = new Dictionary<int, DevelopmentNKeyIdentity>(primarySecurity.Controllers)
+                {
+                    [2] = DevelopmentNatsSecurity.EnsureNKey(Path.Combine(securityDirectory, "controller-2.nk")),
+                },
+            };
             await using var server = await ThreeNodeJetStream.StartAsync(
                 NatsDevelopmentCluster.ControlAuthorization(cell, security), security.Controllers[1].SeedFile);
             await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
@@ -530,38 +537,55 @@ public sealed class NatsCreateNodeOperationJournalTests
             await Assert.That((await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config.NumReplicas).IsEqualTo(3);
 
             using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await using var runtime = await NatsRuntime.StartAsync(new OrchestratorOptions(
+            var firstRuntime = NatsRuntime.StartAsync(new OrchestratorOptions(
                 OrchestratorCommand.Check,
                 cell.Cell,
                 $"nats://127.0.0.1:{server.Port}",
                 3,
                 Instance: "controller-1",
                 NatsNKeyFile: security.Controllers[1].SeedFile), startup.Token);
+            var secondRuntime = NatsRuntime.StartAsync(new OrchestratorOptions(
+                OrchestratorCommand.Check,
+                cell.Cell,
+                $"nats://127.0.0.1:{server.Port}",
+                3,
+                Instance: "controller-2",
+                NatsNKeyFile: security.Controllers[2].SeedFile), startup.Token);
+            var runtimes = await Task.WhenAll(firstRuntime, secondRuntime);
+            await using var runtime = runtimes[0];
+            await using var runtimeTwo = runtimes[1];
             await Assert.That(runtime.AuthoritySnapshot.Ready).IsTrue();
+            await Assert.That(runtimeTwo.AuthoritySnapshot.Ready).IsTrue();
+            var startupConsumer = await jetStream.GetConsumerAsync("CELL_EVENTS", "runtime_startup");
+            await startupConsumer.RefreshAsync();
+            await Assert.That(CiRunnerConsumerReconciler.Matches(
+                startupConsumer.Info, journalTopology.StartupConsumer, "CELL_EVENTS")).IsTrue();
 
-            await using var controller = await server.ConnectAsAsync(port => new NatsOpts
+            foreach (var subject in new[]
+                     {
+                         "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
+                         "$JS.API.CONSUMER.LIST.KV_ORCH_OPERATIONS",
+                         "$JS.API.CONSUMER.INFO.KV_ORCH_OPERATIONS.exfiltration",
+                         "$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.exfiltration",
+                         "$JS.API.CONSUMER.CREATE.CELL_EVENTS.exfiltration.>",
+                         "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.exfiltration.>",
+                         "$JS.API.STREAM.CREATE.journal_exfiltration",
+                     })
             {
-                Url = $"nats://127.0.0.1:{port}",
-                RequestTimeout = TimeSpan.FromSeconds(1),
-                AuthOpts = new NatsAuthOpts { NKeyFile = security.Controllers[1].SeedFile },
-            });
-            Func<Task> journalInfo = async () =>
-                _ = await controller.RequestAsync<string, string>("$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "{}");
-            await Assert.That(journalInfo).Throws<NatsException>();
+                await Assert.That(await PublishDeniedAsync(
+                    server.Port, security.Controllers[1].SeedFile, subject, "{}"))
+                    .Contains("Permissions Violation for Publish");
+            }
             var cellEventsBefore = System.Text.Json.JsonSerializer.Serialize(
                 (await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config);
-            Func<Task> cellEventsMirror = async () =>
-                _ = await controller.RequestAsync<string, string>(
-                    "$JS.API.STREAM.UPDATE.CELL_EVENTS",
-                    "{\"name\":\"CELL_EVENTS\",\"sources\":[{\"name\":\"KV_ORCH_OPERATIONS\"}],\"mirror\":{\"name\":\"KV_ORCH_OPERATIONS\"}}");
-            await Assert.That(cellEventsMirror).Throws<NatsException>();
+            await Assert.That(await PublishDeniedAsync(
+                server.Port,
+                security.Controllers[1].SeedFile,
+                "$JS.API.STREAM.UPDATE.CELL_EVENTS",
+                "{\"name\":\"CELL_EVENTS\",\"sources\":[{\"name\":\"KV_ORCH_OPERATIONS\"}],\"mirror\":{\"name\":\"KV_ORCH_OPERATIONS\"}}"))
+                .Contains("Permissions Violation for Publish");
             await Assert.That(System.Text.Json.JsonSerializer.Serialize(
                 (await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config)).IsEqualTo(cellEventsBefore);
-            Func<Task> journalSource = async () =>
-                _ = await controller.RequestAsync<string, string>(
-                    "$JS.API.STREAM.CREATE.journal_exfiltration",
-                    "{\"config\":{\"name\":\"journal_exfiltration\",\"sources\":[{\"name\":\"KV_ORCH_OPERATIONS\"}]}}");
-            await Assert.That(journalSource).Throws<NatsException>();
             var otherObjectSubject = "$O.OTHER_BUCKET.C.denied";
             await Assert.That(await SubscribeDeniedAsync(server.Port, security.Controllers[1].SeedFile, otherObjectSubject))
                 .Contains("Permissions Violation");

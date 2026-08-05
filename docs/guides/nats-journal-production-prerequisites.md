@@ -47,7 +47,12 @@ must not be written into this repository.
 
 That external artifact must grant each eligible controller only its named
 runtime subjects, the exact journal `create`/`update` publish subjects, and its
-own reply namespace. It must deny both journal KV stores, both JetStream
+own reply namespace. The one startup consumer is fixed to the
+`runtime_startup` durable name: NATS consumer-create APIs require its filter
+suffix after that fixed token, so the permitted subjects are only
+`$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>` (and the durable API
+form when the client uses it), never `CELL_EVENTS.>` or another consumer name.
+It must deny both journal KV stores, both JetStream
 `DIRECT.GET`, `STREAM.MSG.GET`, stream-info, snapshot, restore, and snapshot
 transfer APIs, and every consumer create/list/info/delete/fetch/
 acknowledgement/flow-control path for the operation and proof streams; it must
@@ -75,7 +80,9 @@ consume across writers and restart before a journal mutation; key rotation; and
 the full CreateNode crash/recovery flow against an approved provider. This is
 an evidence gate, not a local RF1 or OCI claim.
 
-A local three-node development NATS/NKey ACL regression may prove that a
-credentialed controller starts while direct protected-stream `STREAM.INFO`
-remains denied. It is not a substitute for the production TLS/JWT,
+A local three-node development NATS/NKey ACL regression proves two credentialed
+controllers can concurrently create/open the one canonical startup consumer,
+and uses raw NKey wire publishes to prove broker denial of protected direct,
+consumer/list, alternate-consumer-name, and source/mirror stream-mutation
+subjects. It is not a substitute for the production TLS/JWT,
 credential-delivery, or R3 member-loss qualification above.
