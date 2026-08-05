@@ -202,6 +202,7 @@ public sealed class OrchestratorOptionsTests
             using var writerKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             using var infrastructureKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             using var authorityKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var safeReplyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var controllerCa = await WriteCertificateAsync(directory, "controller-ca", controllerKey, isAuthority: true);
             var controllerRenewed = await WriteCertificateAsync(directory, "controller-renewed", controllerKey, isAuthority: false);
             var writer = await WriteCertificateAsync(directory, "writer", writerKey, isAuthority: true);
@@ -210,11 +211,13 @@ public sealed class OrchestratorOptionsTests
             var writerNkey = Path.Combine(directory, "writer.nk");
             var infrastructureNkey = Path.Combine(directory, "infrastructure.nk");
             var authority = Path.Combine(directory, "authority.pem");
+            var safeReply = Path.Combine(directory, "safe-reply.pem");
             await File.WriteAllTextAsync(controllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(writerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(infrastructureNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
-            foreach (var path in new[] { controllerNkey, writerNkey, infrastructureNkey }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            await File.WriteAllTextAsync(safeReply, safeReplyKey.ExportPkcs8PrivateKeyPem());
+            foreach (var path in new[] { controllerNkey, writerNkey, infrastructureNkey, safeReply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["TS_ORCH_CELL"] = "gru",
@@ -238,6 +241,13 @@ public sealed class OrchestratorOptionsTests
             values["TS_ORCH_INFRA_NATS_TLS_CA_FILE"] = infrastructure.Certificate;
             values["TS_ORCH_INFRA_NATS_TLS_CERT_FILE"] = infrastructure.Certificate;
             values["TS_ORCH_INFRA_NATS_TLS_KEY_FILE"] = infrastructure.PrivateKey;
+            await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
+            values["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = safeReply;
+            values["TS_ORCH_NATS_NKEY_FILE"] = writerNkey;
+            values["TS_ORCH_NATS_TLS_CA_FILE"] = writer.Certificate;
+            values["TS_ORCH_NATS_TLS_CERT_FILE"] = writer.Certificate;
+            values["TS_ORCH_NATS_TLS_KEY_FILE"] = writer.PrivateKey;
             await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
                 .Throws<ArgumentException>();
         }
