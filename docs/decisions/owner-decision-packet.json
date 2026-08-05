@@ -15,11 +15,11 @@
     "status": "accepted-owner-policy",
     "acceptedOn": "2026-07-16",
     "authority": "owner",
-    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-48"],
+    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"],
     "supersession": "An explicit superseding owner decision and architecture review are required to change an A choice."
   },
   "atomicPolicyRecords": [
-    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-48"]}
+    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"]}
   ],
   "controllingInputAliases": {
     "owner-questions-1A-10A-accepted": ["accepted-owner-policy"],
@@ -28,6 +28,7 @@
     "audit-retention-policy": ["audit-hot-retention", "audit-immutable-retention"],
     "memory-and-density-slo": ["memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling"],
     "security-slo": ["security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation"],
+    "maximum-survival-window": ["maximum-regional-survival-window"],
     "artifact-and-evidence-signing-selection": ["artifact-and-evidence-signing"],
     "dns-implementation-selection": ["dns-implementation"],
     "vpn-implementation-selection": ["vpn-implementation"],
