@@ -91,7 +91,9 @@ internal static class ToolingTests
             ("workaround archival anchor drift", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround malformed archival anchor", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:unknown/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround archival receipt swap", WorkaroundArchivalReceiptSwap),
+            ("workaround archival receipt commit retarget", WorkaroundArchivalReceiptCommitRetarget),
             ("workaround archival anchor line bounds", WorkaroundArchivalAnchorLineBounds),
+            ("workaround archival oversized anchor range end", WorkaroundArchivalOversizedAnchorRangeEnd),
             ("workaround archival anchor and receipt retarget", WorkaroundArchivalAnchorAndReceiptRetarget),
             ("git bytes preserve non UTF-8 blob", GitBytesPreserveNonUtf8Blob),
             ("no python sources", NoPythonSources),
@@ -267,10 +269,28 @@ internal static class ToolingTests
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 
+    private static void WorkaroundArchivalReceiptCommitRetarget()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        var receipt = document["archivalSourceEvidence"]!["WRK-001"]![0]!.AsObject();
+        receipt["commit"] = "3bfdb4ee0124fbcce43e7db57cf00045f374fbcb";
+        receipt["sha256"] = "f6b47e51a041bda7633dcc5a8f24e840604c1c85c98c8b742289c1c32868c462";
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
     private static void WorkaroundArchivalAnchorLineBounds()
     {
         var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
         const string anchor = "archive:TerraScale.Infrastructure/AGENTS.md:999999";
+        document["entries"]![0]!["source_anchors"]![0] = anchor;
+        document["archivalSourceEvidence"]!["WRK-001"]![0]!["anchor"] = anchor;
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundArchivalOversizedAnchorRangeEnd()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        const string anchor = "archive:TerraScale.Infrastructure/AGENTS.md:66-2147483648";
         document["entries"]![0]!["source_anchors"]![0] = anchor;
         document["archivalSourceEvidence"]!["WRK-001"]![0]!["anchor"] = anchor;
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));

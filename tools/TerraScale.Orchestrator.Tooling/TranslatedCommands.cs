@@ -126,28 +126,28 @@ internal static class Phase0EvidenceCommand
     private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256", "anchor_sha256"];
     private static readonly Dictionary<string, string[]> ArchivalReceiptIdentities = new(StringComparer.Ordinal)
     {
-        ["WRK-001"] = ["archive:TerraScale.Infrastructure/AGENTS.md:66|5255536e3df2504021a4062ba63796e604b30e637c48b9995886cf6999854591", "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13|14355c61e5cd5a2ab933ae49bb9fecfb1aad66b1c1d63755f47135c217c61b8a"],
-        ["WRK-002"] = ["archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70|1597fd2d8689c55dd63efd4a920f3ccb7fa7d4d98e63c6ec09337de7e4b7da5a"],
-        ["WRK-003"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959|7022c405edaa049877f7d1d305111dc17e8f13872fb6ba5e87c2a91380d0b914"],
-        ["WRK-004"] = ["archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45|9d66be2cf5a9426a19d3b4df69caa8fc62c098a39da7d3416977fe01ee37f969"],
-        ["WRK-005"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280|2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"],
-        ["WRK-006"] = ["archive:Terrabase.Operator/api/v1/cluster_types.go:7|b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"],
-        ["WRK-007"] = ["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101|d36b85c97864094a1cae0e705bb5cf196629561bf01393e1cd4f6a6ba09947a4"],
-        ["WRK-008"] = ["archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2|aed02990c9edd8692808020fb476cc0ab417a493681bc5bbab67def5908aefb2"],
-        ["WRK-009"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124|5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"],
-        ["WRK-010"] = ["archive:Terrabase.Operator/api/v1/storage_types.go:79|fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"],
-        ["WRK-011"] = ["archive:TerraScale.Infrastructure/AGENTS.md:69|8f8f7f6150ce721a043902faa349c1149cea6ec9f3495887b3a8cdd140bd6597"],
-        ["WRK-012"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253|091723c95dca86a1170f997ac62fe5cd28de11e9aaab1cff67018fd39575ea57"],
-        ["WRK-013"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7|f9c44d76011cbbc7757e8aa1118166d7b9616225f671725d653e6c4bf52f6138"],
-        ["WRK-014"] = ["archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20|18fedfa76062642c684e536ad9d256cb01d4e1c2abe33ea756472782e1dcba46"],
-        ["WRK-015"] = ["archive:TerraScale.TypeScript/src/regions.ts:15|7c34f2c8ad226806e74ad057dec21eca12952b9224a2be6c244cc74a06eaf83c"],
-        ["WRK-016"] = ["current+archive:TerraScale.Internals/.terrascale/deploy.json:17|360d386fc6ff18dfc06eb82163666bd0db260d7417133c3d94a157ccc61499ed"],
-        ["WRK-017"] = ["archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74|f3c66a5bdf719d4576668876917c0bc982c6ae8cd9d2a5e37c8b713406bf18cf"],
-        ["WRK-018"] = ["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366|0096393fdcae599d1fae6fa7111b6ff51c3ef89bb999e718eba6a7bff4a41ca7"],
-        ["WRK-019"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7|54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"],
-        ["WRK-020"] = ["archive:Terrabase.Operator/cmd/main.go:93|c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"],
-        ["WRK-021"] = ["archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20|a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"],
-        ["WRK-022"] = ["archive:TerraScale.TypeScript/src/regions.ts:81|3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"],
+        ["WRK-001"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|AGENTS.md|08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5|archive:TerraScale.Infrastructure/AGENTS.md:66|5255536e3df2504021a4062ba63796e604b30e637c48b9995886cf6999854591", "TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/Program.cs|f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13|14355c61e5cd5a2ab933ae49bb9fecfb1aad66b1c1d63755f47135c217c61b8a"],
+        ["WRK-002"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/clusters/production-gru/reconciliation.yaml|5471818590e70e54874e76593e0fbd251022d12ffed56e72574f5b18473b6205|archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70|1597fd2d8689c55dd63efd4a920f3ccb7fa7d4d98e63c6ec09337de7e4b7da5a"],
+        ["WRK-003"] = ["TerraScale.Deploy|bd5ecec12efa857d098dfe12584c9a548eb3d06b|src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs|5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959|7022c405edaa049877f7d1d305111dc17e8f13872fb6ba5e87c2a91380d0b914"],
+        ["WRK-004"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml|17ad31816802f0276645546f3bfe3202304114b3e236c74bc10a378e11d31633|archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45|9d66be2cf5a9426a19d3b4df69caa8fc62c098a39da7d3416977fe01ee37f969"],
+        ["WRK-005"] = ["TerraScale.Deploy|bd5ecec12efa857d098dfe12584c9a548eb3d06b|src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs|5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280|2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"],
+        ["WRK-006"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|api/v1/cluster_types.go|b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4|archive:Terrabase.Operator/api/v1/cluster_types.go:7|b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"],
+        ["WRK-007"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/ObservabilityIngestTls.cs|0f4c9137ce89e21508a7e90b877a3cf05d87a06960b1b3758364f51ffe4a5837|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101|d36b85c97864094a1cae0e705bb5cf196629561bf01393e1cd4f6a6ba09947a4"],
+        ["WRK-008"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/runtime-secrets/production/external-secrets.yaml|6e80f0e86dbed4228040597b6a2a283874f1140f9f23a48547e92c8f71a8ee5f|archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2|aed02990c9edd8692808020fb476cc0ab417a493681bc5bbab67def5908aefb2"],
+        ["WRK-009"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/prometheus-rules.yaml|efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215|archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124|5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"],
+        ["WRK-010"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|api/v1/storage_types.go|fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749|archive:Terrabase.Operator/api/v1/storage_types.go:79|fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"],
+        ["WRK-011"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|AGENTS.md|08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5|archive:TerraScale.Infrastructure/AGENTS.md:69|8f8f7f6150ce721a043902faa349c1149cea6ec9f3495887b3a8cdd140bd6597"],
+        ["WRK-012"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/prometheus-rules.yaml|efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215|archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253|091723c95dca86a1170f997ac62fe5cd28de11e9aaab1cff67018fd39575ea57"],
+        ["WRK-013"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/terrascale-service-dashboards.yaml|5f5ed9947f09663166c4abf6585cdef1cdc00157f224758af505fc9277d3b834|archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7|f9c44d76011cbbc7757e8aa1118166d7b9616225f671725d653e6c4bf52f6138"],
+        ["WRK-014"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|Pulumi.production-sfo.yaml|c2372cc5bcdf9f2950fa43bcd472fb0d4ceb9bfc93946fdaceee4dc5d8d22dc8|archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20|18fedfa76062642c684e536ad9d256cb01d4e1c2abe33ea756472782e1dcba46"],
+        ["WRK-015"] = ["TerraScale.TypeScript|cd7da11eac891ea2a39eb12014b3abc35d45a412|src/regions.ts|f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57|archive:TerraScale.TypeScript/src/regions.ts:15|7c34f2c8ad226806e74ad057dec21eca12952b9224a2be6c244cc74a06eaf83c"],
+        ["WRK-016"] = ["TerraScale.Internals|88cc11fa9562b8c71dadfa6b0515a3d6ec32aacf|.terrascale/deploy.json|aab0bf12783784e19ae95df2c2513cf818001413b85e9e15e5c02f32a6a3e048|current+archive:TerraScale.Internals/.terrascale/deploy.json:17|360d386fc6ff18dfc06eb82163666bd0db260d7417133c3d94a157ccc61499ed"],
+        ["WRK-017"] = ["Terrascale.Documentation|03287808a23cadad5dd83309df8cc63b5d5c46d7|src/content/docs/en/reference/regions.svx|2c95e7cb4b8c730fab5e24b15d51787212dea0fc27a28634476e1179f858066f|archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74|f3c66a5bdf719d4576668876917c0bc982c6ae8cd9d2a5e37c8b713406bf18cf"],
+        ["WRK-018"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/Program.cs|f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366|0096393fdcae599d1fae6fa7111b6ff51c3ef89bb999e718eba6a7bff4a41ca7"],
+        ["WRK-019"] = ["TerraScale.Deploy|6d56564e16308e2334f76a8635c01f7a621e76da|src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs|e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7|54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"],
+        ["WRK-020"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|cmd/main.go|ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a|archive:Terrabase.Operator/cmd/main.go:93|c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"],
+        ["WRK-021"] = ["Terrascale.Documentation|03287808a23cadad5dd83309df8cc63b5d5c46d7|src/content/docs/en/reference/api/index.svx|e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462|archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20|a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"],
+        ["WRK-022"] = ["TerraScale.TypeScript|cd7da11eac891ea2a39eb12014b3abc35d45a412|src/regions.ts|f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57|archive:TerraScale.TypeScript/src/regions.ts:81|3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"],
     };
 
     public static int Run(string[] arguments)
@@ -378,7 +378,7 @@ internal static class Phase0EvidenceCommand
         if (!recorded.SequenceEqual(declared, StringComparer.Ordinal))
             errors.Add($"{id}: archivalSourceEvidence must exactly match declared source_anchors");
         var identities = sources.Select(source => source is JsonObject receipt
-            ? $"{StringValue(receipt["anchor"])}|{StringValue(receipt["anchor_sha256"])}"
+            ? $"{StringValue(receipt["repository"])}|{StringValue(receipt["commit"])}|{StringValue(receipt["path"])}|{StringValue(receipt["sha256"])}|{StringValue(receipt["anchor"])}|{StringValue(receipt["anchor_sha256"])}"
             : string.Empty).ToArray();
         if (!ArchivalReceiptIdentities.TryGetValue(id, out var expected) || !identities.SequenceEqual(expected, StringComparer.Ordinal))
             errors.Add($"{id}: archivalSourceEvidence must match its canonical immutable anchor receipts");
@@ -466,8 +466,10 @@ internal static class Phase0EvidenceCommand
     {
         var match = Regex.Match(anchor, "^(?:archive|current\\+archive):(?<repository>[A-Za-z0-9.]+)/(?<path>[A-Za-z0-9._/-]+):(?<start>[1-9]\\d*)(?:-(?<end>[1-9]\\d*))?$");
         if (!match.Success || !IsKnownRepository(match.Groups["repository"].Value) || !IsPath(match.Groups["path"].Value)
-            || !int.TryParse(match.Groups["start"].Value, out var start)) return null;
-        var end = match.Groups["end"].Success ? int.Parse(match.Groups["end"].Value, System.Globalization.CultureInfo.InvariantCulture) : start;
+            || !int.TryParse(match.Groups["start"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var start)) return null;
+        var end = start;
+        if (match.Groups["end"].Success
+            && !int.TryParse(match.Groups["end"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out end)) return null;
         return end < start ? null : (match.Groups["repository"].Value, match.Groups["path"].Value, start, end);
     }
 
