@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Diagnostics;
 using TerraScale.Orchestrator.ControlPlane.Operations;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 
@@ -94,6 +95,33 @@ public sealed class CreateNodeCoordinatorTests
         var keys = new CreateNodeJournalTagKeyRing(new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) });
         await Assert.That(() => new DevelopmentFileCreateNodeOperationJournal("Production", Path.GetTempPath(), "key", RandomNumberGenerator.GetBytes(32), keys)).Throws<InvalidOperationException>();
     }
+
+    [Test]
+    public async Task DevelopmentJournalUsesFilesystemCasAcrossTwoProcesses()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"create-node-process-{Guid.NewGuid():N}"); Directory.CreateDirectory(root);
+        try
+        {
+            var project = Path.Combine(RepositoryRoot(), "tests", "TerraScale.Orchestrator.ControlPlane.JournalChild", "TerraScale.Orchestrator.ControlPlane.JournalChild.csproj");
+            await Run("dotnet", ["build", project], TimeSpan.FromSeconds(30));
+            var child = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net10.0", "linux-x64", "TerraScale.Orchestrator.ControlPlane.JournalChild.dll");
+            var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)); var barrier = Path.Combine(root, "go"); var one = Path.Combine(root, "one"); var two = Path.Combine(root, "two");
+            using var first = StartChild(child, root, key, barrier, one, "one"); using var second = StartChild(child, root, key, barrier, two, "two");
+            await Task.Delay(100); await File.WriteAllTextAsync(barrier, "go");
+            await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15)); await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            var results = new[] { await File.ReadAllTextAsync(one), await File.ReadAllTextAsync(two) };
+            await Assert.That(results.Count(static value => value.Contains("|True|1|op-contention", StringComparison.Ordinal))).IsEqualTo(1);
+            await Assert.That(results.Count(static value => value.Contains("|False|1|op-contention", StringComparison.Ordinal))).IsEqualTo(1);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static Process StartChild(string child, params string[] arguments)
+    { var info = new ProcessStartInfo("dotnet") { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false }; info.ArgumentList.Add(child); foreach (var argument in arguments) info.ArgumentList.Add(argument); return Process.Start(info) ?? throw new InvalidOperationException("Child process did not start."); }
+    private static async Task Run(string executable, IEnumerable<string> arguments, TimeSpan timeout)
+    { var info = new ProcessStartInfo(executable) { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false }; foreach (var argument in arguments) info.ArgumentList.Add(argument); using var process = Process.Start(info) ?? throw new InvalidOperationException("Build process did not start."); await process.WaitForExitAsync().WaitAsync(timeout); if (process.ExitCode != 0) throw new InvalidOperationException((await process.StandardOutput.ReadToEndAsync()) + (await process.StandardError.ReadToEndAsync())); }
+    private static string RepositoryRoot()
+    { for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent) if (File.Exists(Path.Combine(directory.FullName, "TerraScale.Orchestrator.slnx"))) return directory.FullName; throw new DirectoryNotFoundException("Repository root not found."); }
 
     [Test]
     public async Task OciAdapterIsDisabledBeforeAnyClientCall()

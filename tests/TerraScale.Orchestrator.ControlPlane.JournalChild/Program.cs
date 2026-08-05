@@ -1,0 +1,19 @@
+using TerraScale.Orchestrator.ControlPlane.Operations;
+using TerraScale.Orchestrator.ControlPlane.Providers;
+
+if (args.Length != 5) return 64;
+var (directory, keyText, barrier, result, actor) = (args[0], args[1], args[2], args[3], args[4]);
+var key = Convert.FromBase64String(keyText);
+var keys = new CreateNodeJournalTagKeyRing(new Dictionary<string, byte[]> { ["test"] = key });
+var journal = new DevelopmentFileCreateNodeOperationJournal("Development", directory, "test", key, keys);
+var binding = new CreateNodeReceiptBinding("op-contention", "tenant", "node", "idempotency", "create", "cell", "compartment", 1, 1, "template", "placement", new string('a', 64), 1, "authorization", "context");
+var receipt = new CreateNodeHandoffReceipt("test", "test", binding, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddDays(1), "test");
+var recovery = new CreateNodeRecoveryLookupAuthority("test", "test", "create-node-provider-lookup", "test", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddDays(1), "test");
+var entry = new CreateNodeOperationJournalEntry(0, "fingerprint", binding, receipt, recovery, CreateNodeJournalStage.Prepared, null, 0, null);
+var deadline = DateTime.UtcNow.AddSeconds(10);
+while (!File.Exists(barrier) && DateTime.UtcNow < deadline) Thread.Sleep(5);
+if (!File.Exists(barrier)) return 65;
+var wrote = await journal.CompareExchangeAsync(null, entry, default);
+var observed = await journal.ReadAsync(binding.OperationId, default);
+await File.WriteAllTextAsync(result, $"{actor}|{wrote}|{observed?.Version}|{observed?.Binding.OperationId}");
+return wrote ? 0 : 1;
