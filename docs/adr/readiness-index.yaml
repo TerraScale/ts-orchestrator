@@ -5,10 +5,12 @@
   "normalizationEvidence": "GOAL.md:190-207",
   "status": "readiness-map-not-decision-record",
   "openOwnerQuestions": [],
-  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:12-30"]},
+  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-31"]},
   "openInputs": {
     "status": "open-no-defaults",
-    "source": "docs/decisions/owner-decision-packet.json:58-70",
+    "source": "docs/decisions/owner-decision-packet.json:33-105",
+    "ownershipRegister": "docs/decisions/owner-decision-packet.json:73-105",
+    "unvalidatedInvariantGap": "docs/decisions/owner-decision-packet.json:107-109",
     "planning": ["team-size", "first-production-date"],
     "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
     "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
@@ -37,6 +39,7 @@
         "owner-questions-1A-10A-accepted",
         "regional-rpo-rto"
       ],
+      "openInputOwnershipReferences": ["regional-rpo", "regional-rto"],
       "resolvedDecisionContext": ["1A and 2A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:89-90"],
       "availableEvidence": [
         "ORCHESTRATOR.md:30-39",
@@ -63,6 +66,7 @@
         "owner-questions-1A-10A-accepted",
         "storage-slo"
       ],
+      "openInputOwnershipReferences": ["storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency"],
       "resolvedDecisionContext": ["1A and 8A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:89-96"],
       "availableEvidence": [
         "ORCHESTRATOR.md:492-517",
@@ -98,6 +102,7 @@
         "storage-slo",
         "audit-retention-policy"
       ],
+      "openInputOwnershipReferences": ["regional-rpo", "regional-rto", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "audit-hot-retention", "audit-immutable-retention"],
       "availableEvidence": [
         "ORCHESTRATOR.md:461-489",
         "ORCHESTRATOR.md:535-552",
@@ -158,6 +163,7 @@
         "maximum-three-region-pre-user-cost",
         "storage-slo"
       ],
+      "openInputOwnershipReferences": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency"],
       "availableEvidence": [
         "ORCHESTRATOR.md:687-709",
         "ORCHESTRATOR.md:711-754"
@@ -220,6 +226,7 @@
       "controllingInputs": [
         "memory-and-density-slo"
       ],
+      "openInputOwnershipReferences": ["memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling"],
       "availableEvidence": [
         "ORCHESTRATOR.md:850-857",
         "ORCHESTRATOR.md:873-879"
@@ -254,6 +261,7 @@
         "storage-slo",
         "memory-and-density-slo"
       ],
+      "openInputOwnershipReferences": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling"],
       "resolvedDecisionContext": ["8A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:96-96"],
       "availableEvidence": [
         "ORCHESTRATOR.md:503-517",
@@ -289,6 +297,7 @@
         "storage-slo",
         "regional-rpo-rto"
       ],
+      "openInputOwnershipReferences": ["storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto"],
       "resolvedDecisionContext": ["5A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:93-93"],
       "availableEvidence": [
         "ORCHESTRATOR.md:758-840"
@@ -323,6 +332,7 @@
         "storage-slo",
         "regional-rpo-rto"
       ],
+      "openInputOwnershipReferences": ["storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto"],
       "resolvedDecisionContext": ["4A, 5A, and 10A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:92-98"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1012-1039"
@@ -356,6 +366,7 @@
         "security-slo",
         "maximum-survival-window"
       ],
+      "openInputOwnershipReferences": ["security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "maximum-regional-survival-window"],
       "availableEvidence": [
         "ORCHESTRATOR.md:41-51",
         "ORCHESTRATOR.md:881-902"
@@ -391,6 +402,7 @@
         "regional-rpo-rto",
         "maximum-survival-window"
       ],
+      "openInputOwnershipReferences": ["regional-rpo", "regional-rto", "maximum-regional-survival-window"],
       "resolvedDecisionContext": ["3A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:91-91"],
       "availableEvidence": [
         "ORCHESTRATOR.md:904-922"
@@ -452,6 +464,7 @@
         "owner-questions-1A-10A-accepted",
         "artifact-and-evidence-signing-selection"
       ],
+      "openInputOwnershipReferences": ["artifact-and-evidence-signing"],
       "resolvedDecisionContext": ["7A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:95-95"],
       "availableEvidence": [
         "ORCHESTRATOR.md:961-1010"
@@ -485,6 +498,7 @@
       "controllingInputs": [
         "dns-implementation-selection"
       ],
+      "openInputOwnershipReferences": ["dns-implementation"],
       "availableEvidence": [
         "ORCHESTRATOR.md:873-879"
       ],
@@ -518,6 +532,7 @@
         "owner-questions-1A-10A-accepted",
         "vpn-implementation-selection"
       ],
+      "openInputOwnershipReferences": ["vpn-implementation"],
       "resolvedDecisionContext": ["6A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:94-94"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1096-1110",
@@ -552,6 +567,7 @@
         "operator-identity-provider-selection",
         "security-slo"
       ],
+      "openInputOwnershipReferences": ["operator-identity-provider", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation"],
       "resolvedDecisionContext": ["9A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:97-97"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1065-1094"
@@ -617,6 +633,7 @@
         "team-size",
         "first-production-date"
       ],
+      "openInputOwnershipReferences": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "team-size", "first-production-date"],
       "resolvedDecisionContext": ["6A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:94-94"],
       "availableEvidence": [
         "ORCHESTRATOR.md:248-256",
@@ -685,6 +702,7 @@
         "maximum-survival-window",
         "regional-artifact-mirror-selection"
       ],
+      "openInputOwnershipReferences": ["regional-rpo", "regional-rto", "maximum-regional-survival-window", "regional-artifact-mirror"],
       "resolvedDecisionContext": ["2A and 3A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:90-91"],
       "availableEvidence": [
         "ORCHESTRATOR.md:673-685"
@@ -722,6 +740,7 @@
         "arm64-host-image-selection",
         "nats-n-minus-one-policy"
       ],
+      "openInputOwnershipReferences": ["arm64-host-image", "nats-n-minus-one-policy"],
       "availableEvidence": [
         "ORCHESTRATOR.md:333-382"
       ],
@@ -756,6 +775,7 @@
       "controllingInputs": [
         "artifact-and-evidence-signing-selection"
       ],
+      "openInputOwnershipReferences": ["artifact-and-evidence-signing"],
       "availableEvidence": [
         "ORCHESTRATOR.md:1114-1179",
         "Directory.Packages.props:1-9",
@@ -793,6 +813,7 @@
         "maximum-three-region-pre-user-cost",
         "regional-rpo-rto"
       ],
+      "openInputOwnershipReferences": ["maximum-three-region-pre-user-cost", "regional-rpo", "regional-rto"],
       "availableEvidence": [
         "ORCHESTRATOR.md:54-66",
         "ORCHESTRATOR.md:1579-1630"
