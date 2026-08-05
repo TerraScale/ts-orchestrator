@@ -252,70 +252,39 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task JournalProvisioningRejectsControllerReplyAndIndependentWriterIdentityCollisions()
+    public async Task ProvisionJournalDoesNotLoadJournalWriterOrControllerPrivateConfiguration()
     {
         if (!OperatingSystem.IsLinux()) return;
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-reply-identity-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-provision-identity-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
-            using var controllerKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            using var writerKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             using var infrastructureKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            using var authorityKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            using var safeReplyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            var controllerCa = await WriteCertificateAsync(directory, "controller-ca", controllerKey, isAuthority: true);
-            var controllerRenewed = await WriteCertificateAsync(directory, "controller-renewed", controllerKey, isAuthority: false);
-            var writer = await WriteCertificateAsync(directory, "writer", writerKey, isAuthority: true);
             var infrastructure = await WriteCertificateAsync(directory, "infrastructure", infrastructureKey, isAuthority: true);
-            var controllerNkey = Path.Combine(directory, "controller.nk");
-            var writerNkey = Path.Combine(directory, "writer.nk");
-            var distinctControllerNkey = Path.Combine(directory, "distinct-controller.nk");
             var infrastructureNkey = Path.Combine(directory, "infrastructure.nk");
-            var authority = Path.Combine(directory, "authority.pem");
-            var safeReply = Path.Combine(directory, "safe-reply.pem");
-            await File.WriteAllTextAsync(controllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
-            await File.WriteAllTextAsync(writerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
-            await File.WriteAllTextAsync(distinctControllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(infrastructureNkey, NATS.Client.Core.NKeys.CreateUserSeed());
-            await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
-            await File.WriteAllTextAsync(safeReply, safeReplyKey.ExportPkcs8PrivateKeyPem());
-            foreach (var path in new[] { controllerNkey, writerNkey, distinctControllerNkey, infrastructureNkey, safeReply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.SetUnixFileMode(infrastructureNkey, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["TS_ORCH_CELL"] = "gru",
                 ["TS_ORCH_REPLICAS"] = "3",
                 ["TS_ORCH_NATS_URL"] = "tls://control.example:4222",
-                ["TS_ORCH_NATS_NKEY_FILE"] = controllerNkey,
-                ["TS_ORCH_NATS_TLS_CA_FILE"] = controllerCa.Certificate,
-                ["TS_ORCH_NATS_TLS_CERT_FILE"] = controllerRenewed.Certificate,
-                ["TS_ORCH_NATS_TLS_KEY_FILE"] = controllerRenewed.PrivateKey,
-                ["TS_ORCH_JOURNAL_NATS_NKEY_FILE"] = writerNkey,
-                ["TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"] = writer.Certificate,
-                ["TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"] = writer.Certificate,
-                ["TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"] = writer.PrivateKey,
-                ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = authority,
-                ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = controllerRenewed.PrivateKey,
-                ["TS_ORCH_JOURNAL_CONTROLLER_NKEYS"] = NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(controllerNkey)),
+                ["TS_ORCH_INFRA_NATS_NKEY_FILE"] = infrastructureNkey,
+                ["TS_ORCH_INFRA_NATS_TLS_CA_FILE"] = infrastructure.Certificate,
+                ["TS_ORCH_INFRA_NATS_TLS_CERT_FILE"] = infrastructure.Certificate,
+                ["TS_ORCH_INFRA_NATS_TLS_KEY_FILE"] = infrastructure.PrivateKey,
+                ["TS_ORCH_NATS_NKEY_FILE"] = "/unmounted/controller.nk",
+                ["TS_ORCH_NATS_TLS_CA_FILE"] = "/unmounted/controller-ca.pem",
+                ["TS_ORCH_JOURNAL_NATS_NKEY_FILE"] = "/unmounted/writer.nk",
+                ["TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"] = "/unmounted/writer-ca.pem",
+                ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = "/unmounted/authority.pem",
+                ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = "/unmounted/reply.pem",
             };
-            await Assert.That(() => OrchestratorOptions.Parse(["check"], values.GetValueOrDefault))
-                .Throws<ArgumentException>();
-            values["TS_ORCH_INFRA_NATS_NKEY_FILE"] = infrastructureNkey;
-            values["TS_ORCH_INFRA_NATS_TLS_CA_FILE"] = infrastructure.Certificate;
-            values["TS_ORCH_INFRA_NATS_TLS_CERT_FILE"] = infrastructure.Certificate;
-            values["TS_ORCH_INFRA_NATS_TLS_KEY_FILE"] = infrastructure.PrivateKey;
-            await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
-                .Throws<ArgumentException>();
-            values["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = safeReply;
-            values["TS_ORCH_NATS_NKEY_FILE"] = writerNkey;
-            await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
-                .Throws<ArgumentException>();
-            values["TS_ORCH_NATS_NKEY_FILE"] = distinctControllerNkey;
-            values["TS_ORCH_NATS_TLS_CA_FILE"] = writer.Certificate;
-            values["TS_ORCH_NATS_TLS_CERT_FILE"] = writer.Certificate;
-            values["TS_ORCH_NATS_TLS_KEY_FILE"] = writer.PrivateKey;
-            await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
-                .Throws<ArgumentException>();
+            var options = OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault);
+            await Assert.That(options.NatsNKeyFile).IsNull();
+            await Assert.That(options.NatsTls).IsNull();
+            await Assert.That(options.AuthoritativeJournal).IsNull();
+            await Assert.That(options.InfrastructureNatsNKeyFile).IsEqualTo(infrastructureNkey);
         }
         finally
         {

@@ -80,7 +80,7 @@ public sealed record OrchestratorOptions(
         if (command == OrchestratorCommand.JournalWriter &&
             (!string.IsNullOrWhiteSpace(controllerNkey) || controllerTlsValues.Any(static value => !string.IsNullOrWhiteSpace(value))))
             throw new ArgumentException("The journal-writer role must not receive controller NATS credentials.");
-        var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check or OrchestratorCommand.ProvisionJournal;
+        var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check;
         var natsNKeyFile = controllerCredentialsRequired
             ? Messaging.NatsCredentialFile.Resolve(controllerNkey, "TS_ORCH_NATS_NKEY_FILE")
             : null;
@@ -166,7 +166,7 @@ public sealed record OrchestratorOptions(
         if (command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
             journalSecretValues.Any(static value => !string.IsNullOrWhiteSpace(value)))
             throw new ArgumentException("Controller roles must not receive journal-writer NKey, mTLS, or reply-signing private-key material.");
-        var authoritativeJournal = command is OrchestratorCommand.JournalWriter or OrchestratorCommand.ProvisionJournal
+        var authoritativeJournal = command == OrchestratorCommand.JournalWriter
             ? Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
                 journalSecretValues[0],
                 journalSecretValues[1],
@@ -179,26 +179,6 @@ public sealed record OrchestratorOptions(
         if (command == OrchestratorCommand.JournalWriter &&
             (uri.Scheme != "tls" || replicas < 3 || authoritativeJournal is null))
             throw new ArgumentException("The journal-writer command requires R3/R5 tls:// control NATS and complete TS_ORCH_JOURNAL writer credentials.");
-        if (authoritativeJournal is not null)
-        {
-            var invalidProvisionAdmission = command == OrchestratorCommand.ProvisionJournal &&
-                (natsNKeyFile is not null &&
-                 Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, natsNKeyFile) ||
-                 natsTls is not null &&
-                 (authoritativeJournal.Tls.SameIdentity(natsTls) ||
-                  natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
-                  natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey)) ||
-                 infrastructureNatsNKeyFile is not null &&
-                 Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, infrastructureNatsNKeyFile) ||
-                 infrastructureNatsTls is not null &&
-                 (authoritativeJournal.Tls.SameIdentity(infrastructureNatsTls) ||
-                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
-                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey)));
-            if (invalidProvisionAdmission)
-                throw new ArgumentException(
-                    "The authoritative journal requires distinct writer/controller/infrastructure identities.");
-        }
-
         if (command is not OrchestratorCommand.Lab)
         {
             if (args.Count > 1)

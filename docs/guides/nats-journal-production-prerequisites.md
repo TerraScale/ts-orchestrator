@@ -30,8 +30,10 @@ mTLS, and reply-private-key environment values before any file resolution. The
 writer command rejects controller NKey/mTLS values and is the only command that
 opens writer credentials or starts the mutation service. A controller uses its
 own scoped request/reply NATS identity and only public reply-verification
-material. The development fixture models those identities and permissions but
-does not establish a deployed workload, host mount policy, or R3 boundary.
+material. `provision-journal` runs with only its infrastructure NKey and mTLS
+identity; it must not receive or open controller or writer private material.
+The development fixture models those identities and permissions but does not
+establish a deployed workload, host mount policy, or R3 boundary.
 
 ## Required external bootstrap
 
@@ -46,11 +48,13 @@ runtime subjects, the exact journal `create`/`update` publish subjects, and its
 own reply namespace. It must deny both journal KV stores and all stream mutation
 subjects, and must not grant broad `_INBOX` access. The regional writer queue
 identity alone may publish `ORCH_OPERATIONS`, `ORCH_OPERATION_PROOFS`, and
-journal replies; infrastructure alone may create or update either stream. The
+journal replies; infrastructure alone may create or update either stream.
+`provision-journal` cannot attest cross-workload private identity separation,
+so that admission belongs to the external credential-delivery policy. The
 proof ledger must retain a successful create for five minutes and reject a
 duplicate `(cell, controller, lease, nonce)` before the writer attempts a
 journal mutation. Controller, writer, infrastructure, authority, and reply
-signing identities must satisfy the code-level NKey/TLS/SPKI separation checks.
+signing identities must be independently separated by that policy.
 
 ## Required qualification evidence
 

@@ -230,7 +230,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
-    public async Task CredentialedControllerCannotDeletePurgeOrRollupJournalWhileWriterCasPersists()
+    public async Task CredentialedControllerReceivesImmediateRejectionsAndStopsBothWritersBeforeFixtureTeardown()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -343,11 +343,14 @@ public sealed class NatsCreateNodeOperationJournalTests
                 journalTopology,
                 secondAuthoritySigner,
                 new NatsOperationJournalMutationReplyVerifier(replyPublicKey));
-            await Assert.That((await mutationClient.CreateAsync("operation.invalid", "invalid")).Succeeded).IsFalse();
+            var immediateRejections = await Task.WhenAll(Enumerable.Range(0, 8)
+                .Select(_ => mutationClient.CreateAsync("operation.invalid", "invalid")));
+            await Assert.That(immediateRejections.All(result => !result.Succeeded)).IsTrue();
             var create = await mutationClient.CreateAsync(key, "ProviderCallStarted");
             await Assert.That(create.Succeeded).IsTrue();
             var update = await mutationClient.UpdateAsync(key, "ProviderCallStarted;CAS", create.Revision);
             await Assert.That(update.Succeeded).IsTrue();
+            await Assert.That((await mutationClient.CreateAsync(key, "reprepared")).Succeeded).IsFalse();
             var firstControllerKey = "operation." + new string('f', 64);
             var secondControllerKey = "operation." + new string('0', 64);
             var parallel = await Task.WhenAll(
@@ -447,7 +450,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             persisted.EnsureSuccess();
             await Assert.That(persisted.Value).IsEqualTo("ProviderCallStarted;CAS");
             await Assert.That(persisted.Revision).IsEqualTo(update.Revision);
-            await Assert.That((await mutationClient.CreateAsync(key, "reprepared")).Succeeded).IsFalse();
+            await Task.WhenAll(mutations.DisposeAsync().AsTask(), mutationsTwo.DisposeAsync().AsTask())
+                .WaitAsync(TimeSpan.FromSeconds(3));
         }
         finally
         {
@@ -489,12 +493,15 @@ public sealed class NatsCreateNodeOperationJournalTests
         TRequest request)
     {
         var reply = topology.OperationJournalReplySubject(callerIdentity, Guid.NewGuid().ToString("N"));
-        await using var subscription = client.SubscribeAsync<NatsOperationJournalMutationReply>(
+        using var responseTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var subscription = await client.Connection.SubscribeCoreAsync<NatsOperationJournalMutationReply>(
             reply,
-            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(2) }).GetAsyncEnumerator();
-        await client.PublishAsync(subject, request, replyTo: reply);
-        if (!await subscription.MoveNextAsync()) throw new InvalidOperationException("Private journal response was not received.");
-        return subscription.Current.Data ?? throw new InvalidOperationException("Private journal response was empty.");
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(2) },
+            cancellationToken: responseTimeout.Token);
+        await client.PingAsync(responseTimeout.Token);
+        await client.PublishAsync(subject, request, replyTo: reply, cancellationToken: responseTimeout.Token);
+        return (await subscription.Msgs.ReadAsync(responseTimeout.Token)).Data
+            ?? throw new InvalidOperationException("Private journal response was empty.");
     }
 
     private static NatsOperationJournalMutationReplySigner CreateReplySigner(byte[] privateKey)

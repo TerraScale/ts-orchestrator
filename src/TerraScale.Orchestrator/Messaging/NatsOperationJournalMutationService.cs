@@ -14,11 +14,17 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     private const int MaximumValueBytes = 16 * 1024;
     private readonly INatsSvcServer service;
     private readonly NatsOperationJournalMutationReplySigner replies;
+    private readonly CancellationTokenSource lifetime;
+    private int disposed;
 
-    private NatsOperationJournalMutationService(INatsSvcServer service, NatsOperationJournalMutationReplySigner replies)
+    private NatsOperationJournalMutationService(
+        INatsSvcServer service,
+        NatsOperationJournalMutationReplySigner replies,
+        CancellationTokenSource lifetime)
     {
         this.service = service;
         this.replies = replies;
+        this.lifetime = lifetime;
     }
 
     internal static async Task<NatsOperationJournalMutationService> StartAsync(
@@ -39,6 +45,8 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         if (controllerIdentities is null || controllerIdentities.Count == 0 || controllerIdentities.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("At least one controller identity is required.", nameof(controllerIdentities));
         ArgumentNullException.ThrowIfNull(replies);
+        var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var token = lifetime.Token;
         var service = await writer.CreateServicesContext().AddServiceAsync(
             new NatsSvcConfig($"terrascale_orchestrator_journal_writer_{topology.Cell}", "1.0.0")
             {
@@ -47,24 +55,48 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
             },
             cancellationToken);
         await service.AddEndpointAsync<NatsOperationJournalCreateRequest>(
-            message => CreateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
+            message => CreateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
             name: "create",
             subject: topology.OperationJournalCreateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
-            cancellationToken: cancellationToken);
+            cancellationToken: token);
         await service.AddEndpointAsync<NatsOperationJournalUpdateRequest>(
-            message => UpdateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, cancellationToken),
+            message => UpdateAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
             name: "update",
             subject: topology.OperationJournalUpdateSubject,
             metadata: new Dictionary<string, string> { ["private"] = "true" },
-            cancellationToken: cancellationToken);
-        return new(service, replies);
+            cancellationToken: token);
+        return new(service, replies, lifetime);
     }
 
     public async ValueTask DisposeAsync()
     {
-        await service.DisposeAsync();
-        replies.Dispose();
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        lifetime.Cancel();
+        using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
+        {
+            await service.StopAsync(shutdown.Token).AsTask().WaitAsync(shutdown.Token);
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            try
+            {
+                await service.DisposeAsync().AsTask().WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (cleanup.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                lifetime.Dispose();
+                replies.Dispose();
+            }
+        }
     }
 
     private static async ValueTask CreateAsync(
@@ -227,14 +259,16 @@ internal sealed class NatsOperationJournalMutationClient(
         CancellationToken cancellationToken) where TRequest : INatsOperationJournalMutationRequest
     {
         var replySubject = topology.OperationJournalReplySubject(authority.CallerIdentity, Guid.NewGuid().ToString("N"));
-        await using var subscription = client.SubscribeAsync<NatsOperationJournalMutationReply>(
+        using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        responseTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var subscription = await client.Connection.SubscribeCoreAsync<NatsOperationJournalMutationReply>(
             replySubject,
-            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(15) })
-            .GetAsyncEnumerator(cancellationToken);
-        await client.PublishAsync(subject, request, replyTo: replySubject, cancellationToken: cancellationToken);
-        if (!await subscription.MoveNextAsync())
-            throw new InvalidOperationException("The private journal mutation service returned no reply.");
-        var response = subscription.Current.Data ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(15) },
+            cancellationToken: responseTimeout.Token);
+        await client.PingAsync(responseTimeout.Token);
+        await client.PublishAsync(subject, request, replyTo: replySubject, cancellationToken: responseTimeout.Token);
+        var response = (await subscription.Msgs.ReadAsync(responseTimeout.Token)).Data
+            ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
         if (!replies.Verify(response, NatsOperationJournalMutationRequestDigest.Create(((INatsOperationJournalMutationRequest)request).Authority)))
             throw new InvalidOperationException("The private journal mutation service reply failed authority verification.");
         return response;
