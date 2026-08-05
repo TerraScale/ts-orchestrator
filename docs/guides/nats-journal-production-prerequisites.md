@@ -47,8 +47,10 @@ must not be written into this repository.
 That external artifact must grant each eligible controller only its named
 runtime subjects, the exact journal `create`/`update` publish subjects, and its
 own reply namespace. It must deny both journal KV stores, both JetStream
-`DIRECT.GET` and `STREAM.MSG.GET` APIs for the operation and proof streams, and
-all stream mutation subjects; it must not grant broad `_INBOX` access. The regional writer queue
+`DIRECT.GET` and `STREAM.MSG.GET` APIs, and every consumer create/list/info/
+delete/fetch/acknowledgement/flow-control path for the operation and proof
+streams; it must also deny push delivery to controller-readable subjects and
+must not grant broad `_INBOX` access. The regional writer queue
 identity alone may publish `ORCH_OPERATIONS`, `ORCH_OPERATION_PROOFS`, and
 journal replies; infrastructure alone may create or update either stream.
 `provision-journal` cannot attest cross-workload private identity separation,

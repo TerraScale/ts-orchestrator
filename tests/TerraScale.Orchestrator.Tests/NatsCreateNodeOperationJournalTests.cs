@@ -431,6 +431,10 @@ public sealed class NatsCreateNodeOperationJournalTests
                          ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.DIRECT.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
                          ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
+                         ("$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.controller-push", new NatsHeaders()),
+                         ("$JS.API.CONSUMER.MSG.NEXT.KV_ORCH_OPERATIONS.controller-pull", new NatsHeaders()),
+                         ("$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATION_PROOFS.controller-push", new NatsHeaders()),
+                         ("$JS.API.CONSUMER.MSG.NEXT.KV_ORCH_OPERATION_PROOFS.controller-pull", new NatsHeaders()),
                      })
             {
                 Func<Task> publish = async () =>
