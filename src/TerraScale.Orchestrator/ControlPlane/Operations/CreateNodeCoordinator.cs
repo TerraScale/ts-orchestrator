@@ -5,7 +5,7 @@ using TerraScale.Orchestrator.ControlPlane.Providers;
 namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
 public sealed record CreateNodeDispatch(DispatchProviderIntent OperationIntent, OperationAuthorized Authorization,
-    CreateNodeProviderIntent ProviderIntent, string NodeRequestId);
+    CreateNodeProviderIntent ProviderIntent, string NodeRequestId, CreateNodeTenantAuthorizationProof TenantProof);
 public enum CreateNodeCoordinationDisposition { Completed = 1, InProgress = 2, RequiresManualRecovery = 3 }
 public sealed record CreateNodeCoordinationResult(CreateNodeCoordinationDisposition Disposition, CreateNodeOperationJournalEntry Entry);
 public sealed record CreateNodeCoordinatorOptions(TimeSpan ProviderInvocationLease)
@@ -24,7 +24,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
-        var spec = Validate(dispatch); options.Validate();
+        var spec = Validate(dispatch, clock.GetUtcNow()); options.Validate();
         while (true)
         {
             var now = clock.GetUtcNow(); var current = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken);
@@ -43,7 +43,9 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
             {
                 if (now - current.ProviderCallStartedAt!.Value < options.ProviderInvocationLease) return new(CreateNodeCoordinationDisposition.InProgress, current);
                 var reconciliation = await provider.ReconcileCreateNodeAsync(Request(dispatch, current.Receipt, spec.Binding), cancellationToken);
-                if (reconciliation.Status == CreateNodeReconciliationStatus.Found && reconciliation.Response is not null)
+                if (reconciliation.Status == CreateNodeReconciliationStatus.Found && reconciliation.Response is not null && reconciliation.Proof is not null &&
+                    CreateNodeProviderProofVerifier.Verify(reconciliation.Proof, receiptKeys, spec.Binding) &&
+                    reconciliation.Proof.NodeId == reconciliation.Response.NodeId && reconciliation.Proof.WorkRequestId == reconciliation.Response.WorkRequestId)
                 {
                     var completed = current with { Stage = CreateNodeJournalStage.Completed, Response = reconciliation.Response };
                     if (!await journal.CompareExchangeAsync(current, completed, cancellationToken)) continue; continue;
@@ -60,12 +62,13 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
         }
     }
     private static CreateNodeProviderRequest Request(CreateNodeDispatch dispatch, CreateNodeHandoffReceipt receipt, CreateNodeReceiptBinding binding) => new(dispatch.ProviderIntent.Context, dispatch.ProviderIntent.Parameters, binding, receipt);
-    private static Specification Validate(CreateNodeDispatch dispatch)
+    private Specification Validate(CreateNodeDispatch dispatch, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);
         var op = dispatch.OperationIntent; var auth = dispatch.Authorization; var context = dispatch.ProviderIntent.Context; var parameters = dispatch.ProviderIntent.Parameters;
-        var tenant = auth.Evidence.TenantId;
-        if (op.OperationKind != "create-node" || string.IsNullOrWhiteSpace(tenant) || op.TargetIdentity != dispatch.NodeRequestId ||
+        if (op.OperationKind != "create-node" || !CreateNodeTenantAuthorizationVerifier.Verify(dispatch.TenantProof, receiptKeys, op.OperationId, op.AuthorizationDigest, now, out var tenant))
+            throw new ArgumentException("CreateNode requires a verified tenant authorization proof.", nameof(dispatch));
+        if (op.OperationKind != "create-node" || op.TargetIdentity != dispatch.NodeRequestId ||
             auth.OperationId != op.OperationId || auth.Sequence != op.AuthorizationSequence || auth.AuthorizationDigest != op.AuthorizationDigest ||
             auth.EventDigest != OperationDigest.Event(auth) || context.OperationId.Value != op.OperationId || context.IdempotencyKey.Value != op.IdempotencyKey ||
             context.ExpectedGeneration.Value != (ulong)op.DesiredGeneration || context.Action != ProviderAction.CreateNode || context.ResourceKind != ProviderResourceKind.Node ||
@@ -74,7 +77,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
         var binding = new CreateNodeReceiptBinding(op.OperationId, tenant, dispatch.NodeRequestId, op.IdempotencyKey, create.Key.Value,
             context.CellId.Value, context.CompartmentId.Value, context.ExpectedGeneration.Value, context.ControllerEpoch.Value,
             parameters.TemplateId.Value, parameters.PlacementId.Value, parameters.BootstrapEnvelopeDigest.Sha256,
-            op.AuthorizationSequence, op.AuthorizationDigest);
+            op.AuthorizationSequence, op.AuthorizationDigest, context.Fingerprint);
         CreateNodeHandoffReceiptSigner.Validate(binding, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddTicks(1));
         var fingerprint = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical("create-node-journal-v2", binding.OperationId, binding.TenantId, binding.NodeRequestId, binding.IdempotencyKey, binding.CreateKey, binding.CellId, binding.CompartmentId, binding.Generation, binding.Epoch, binding.TemplateId, binding.PlacementId, binding.BootstrapEnvelopeDigest, binding.AuthorizationSequence, binding.AuthorizationDigest))));
         return new(fingerprint, binding);

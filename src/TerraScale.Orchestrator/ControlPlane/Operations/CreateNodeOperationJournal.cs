@@ -38,10 +38,10 @@ public sealed class CreateNodeJournalTagKeyRing(IReadOnlyDictionary<string, byte
 }
 
 /// <summary>Development/test-only local journal. Production must inject a reviewed R3 CAS journal.</summary>
-public sealed class DevelopmentFileCreateNodeOperationJournal(string directory, string activeKeyId, byte[] activeKey,
+public sealed class DevelopmentFileCreateNodeOperationJournal(string environmentName, string directory, string activeKeyId, byte[] activeKey,
     ICreateNodeJournalTagKeyResolver verificationKeys) : ICreateNodeOperationJournal
 {
-    private readonly string directory = Path.GetFullPath(directory ?? throw new ArgumentNullException(nameof(directory)));
+    private readonly string directory = string.Equals(environmentName, "Development", StringComparison.Ordinal) ? Path.GetFullPath(directory ?? throw new ArgumentNullException(nameof(directory))) : throw new InvalidOperationException("Development file journal is rejected outside Development.");
     private readonly string activeKeyId = string.IsNullOrWhiteSpace(activeKeyId) ? throw new ArgumentException("Key ID required.", nameof(activeKeyId)) : activeKeyId;
     private readonly byte[] activeKey = activeKey?.ToArray() ?? throw new ArgumentNullException(nameof(activeKey));
     private readonly ICreateNodeJournalTagKeyResolver verificationKeys = verificationKeys ?? throw new ArgumentNullException(nameof(verificationKeys));
@@ -51,7 +51,7 @@ public sealed class DevelopmentFileCreateNodeOperationJournal(string directory, 
     public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested(); InMemoryCreateNodeOperationJournal.Validate(replacement); lock (gate)
-        { var current = Read(replacement.Binding.OperationId); if (current != expected) return ValueTask.FromResult(false); Write(replacement with { Version = checked((current?.Version ?? 0) + 1) }); return ValueTask.FromResult(true); }
+        { using var exclusive = AcquireLock(replacement.Binding.OperationId, cancellationToken); var current = Read(replacement.Binding.OperationId); if (current != expected) return ValueTask.FromResult(false); Write(replacement with { Version = checked((current?.Version ?? 0) + 1) }); return ValueTask.FromResult(true); }
     }
     private CreateNodeOperationJournalEntry? Read(string operationId)
     {
@@ -70,11 +70,13 @@ public sealed class DevelopmentFileCreateNodeOperationJournal(string directory, 
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var payload = JsonSerializer.SerializeToUtf8Bytes(entry); using var hmac = new HMACSHA256(activeKey);
         var data = JsonSerializer.SerializeToUtf8Bytes(new Envelope("HMAC-SHA256", activeKeyId, Convert.ToBase64String(payload), Convert.ToBase64String(hmac.ComputeHash(payload))));
-        var path = PathFor(entry.Binding.OperationId); var temporary = path + ".tmp";
+        var path = PathFor(entry.Binding.OperationId); var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
         { if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite); stream.Write(data); stream.Flush(true); }
         File.Move(temporary, path, true);
     }
     private string PathFor(string operationId) => Path.Combine(directory, Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(operationId))) + ".json");
+    private FileStream AcquireLock(string operationId, CancellationToken token)
+    { Directory.CreateDirectory(directory); var path = PathFor(operationId) + ".lock"; for (var attempt = 0; ; attempt++) { token.ThrowIfCancellationRequested(); try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough); } catch (IOException) when (attempt < 40) { Thread.Sleep(5); } } }
     private sealed record Envelope(string Algorithm, string KeyId, string Payload, string Tag);
 }
