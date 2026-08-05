@@ -29,6 +29,8 @@ internal sealed record DevelopmentNatsTlsSecurity(
 internal sealed record DevelopmentNatsCellSecurity(
     string Cell,
     IReadOnlyDictionary<int, DevelopmentNKeyIdentity> Controllers,
+    DevelopmentNKeyIdentity JournalWriter,
+    DevelopmentNKeyIdentity Infrastructure,
     DevelopmentNKeyIdentity Operator,
     DevelopmentProductNatsIdentity Product,
     DevelopmentNatsTlsSecurity Tls);
@@ -70,6 +72,8 @@ internal sealed class DevelopmentNatsSecurity
             var security = new DevelopmentNatsCellSecurity(
                 cell.Cell,
                 controllers,
+                EnsureNKey(Path.Combine(cellRoot, "journal-writer.nk")),
+                EnsureNKey(Path.Combine(cellRoot, "infrastructure.nk")),
                 EnsureNKey(Path.Combine(cellRoot, "operator-read.nk")),
                 EnsureProductIdentity(Path.Combine(cellRoot, "product.json"), cell.Cell),
                 tls[cell.Cell]);

@@ -48,7 +48,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         afterRejectedOpen.EnsureSuccess();
         await Assert.That(afterRejectedOpen.Revision).IsEqualTo(reloaded.Revision);
 
-        var journal = new NatsCreateNodeOperationJournal(store,
+        var journal = new NatsCreateNodeOperationJournal(store, topology,
             new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) }), signer);
         await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
             .Throws<InvalidOperationException>();
@@ -64,7 +64,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         var key = RandomNumberGenerator.GetBytes(32);
 
         var healthy = false;
-        var journal = new NatsCreateNodeOperationJournal(store,
+        var journal = new NatsCreateNodeOperationJournal(store, new NatsTopology("journal", 1),
             new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = key }, () => healthy), signer);
         await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
             .Throws<InvalidOperationException>();
@@ -111,7 +111,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         await Assert.That(stream.Sealed).IsFalse();
         await Assert.That(stream.DenyDelete).IsTrue();
         await Assert.That(stream.DenyPurge).IsTrue();
-        await Assert.That(stream.AllowRollupHdrs).IsTrue();
+        await Assert.That(stream.AllowRollupHdrs).IsFalse();
         await Assert.That(stream.AllowDirect).IsTrue();
         await Assert.That(stream.Mirror).IsNull();
         await Assert.That(stream.Sources).IsNull();
@@ -128,7 +128,23 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
-    public async Task CredentialedDevelopmentControllerCannotDeleteOrPurgeOperationStream()
+    public async Task ConfiguredCellValidationAcceptsOnlyItsExactR3Configuration()
+    {
+        var gru = new NatsTopology("gru", 3).Operations;
+        var sfo = new NatsTopology("sfo", 3).Operations;
+        var rf1 = Rf1Operations("gru");
+
+        NatsOperationJournalStore.ValidateConfiguration(NatsOperationJournalStore.CanonicalStream(gru), gru);
+        await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
+                NatsOperationJournalStore.CanonicalStream(sfo), gru))
+            .Throws<InvalidOperationException>();
+        await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
+                NatsOperationJournalStore.CanonicalStream(rf1), gru))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task CredentialedControllerCannotDeletePurgeOrRollupJournalWhileWriterCasPersists()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -141,27 +157,85 @@ public sealed class NatsCreateNodeOperationJournalTests
             var topology = DevelopmentTopology.CreateRegional();
             var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
             var security = DevelopmentNatsSecurity.Create(topology, securityDirectory);
-            var controller = security.Cell(cell.Cell).Controllers.Single().Value;
+            var cellSecurity = security.Cell(cell.Cell);
             await using var server = await OneNodeJetStream.StartAsync(
-                NatsDevelopmentCluster.ControlAuthorization(cell, security.Cell(cell.Cell)),
+                NatsDevelopmentCluster.ControlAuthorization(cell, cellSecurity),
                 port => new NatsOpts
                 {
                     Url = $"nats://127.0.0.1:{port}",
                     ConnectTimeout = TimeSpan.FromSeconds(1),
                     RequestTimeout = TimeSpan.FromSeconds(1),
-                    AuthOpts = new NatsAuthOpts { NKeyFile = controller.SeedFile },
+                    AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Infrastructure.SeedFile },
                 });
+            await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Infrastructure.SeedFile },
+            });
+            await infrastructure.CreateJetStreamContext().CreateOrUpdateStreamAsync(
+                NatsOperationJournalStore.CanonicalStream(Rf1Operations(cell.Cell)));
 
-            foreach (var subject in new[]
+            await using var writer = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.JournalWriter.SeedFile },
+            });
+            var writerStore = await writer.CreateJetStreamContext().CreateKeyValueStoreContext()
+                .GetStoreAsync("ORCH_OPERATIONS");
+            var key = "operation." + new string('a', 64);
+
+            await using var controller = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Controllers.Single().Value.SeedFile },
+            });
+            var journalTopology = new NatsTopology(cell.Cell, 1);
+            await using var mutations = await NatsOperationJournalMutationService.StartAsync(
+                writer,
+                writerStore,
+                journalTopology,
+                default);
+            var mutationClient = new NatsOperationJournalMutationClient(controller, journalTopology);
+            await Assert.That((await mutationClient.CreateAsync("operation.invalid", "invalid")).Succeeded).IsFalse();
+            var create = await mutationClient.CreateAsync(key, "ProviderCallStarted");
+            await Assert.That(create.Succeeded).IsTrue();
+            var update = await mutationClient.UpdateAsync(key, "ProviderCallStarted;CAS", create.Revision);
+            await Assert.That(update.Succeeded).IsTrue();
+
+            foreach (var (subject, headers) in new[]
                      {
-                         "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS",
-                         "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS",
+                         ("$KV.ORCH_OPERATIONS.operation.delete", new NatsHeaders { ["KV-Operation"] = "DEL" }),
+                         ("$KV.ORCH_OPERATIONS.operation.purge", new NatsHeaders { ["KV-Operation"] = "PURGE" }),
+                         ("$KV.ORCH_OPERATIONS.operation.rollup", new NatsHeaders { ["Nats-Rollup"] = "sub" }),
+                         ("$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", new NatsHeaders()),
                      })
             {
                 Func<Task> publish = async () =>
-                    await server.RequestAsync(subject, "{}");
+                    _ = await controller.RequestAsync<string, string>(subject, "{}", headers: headers);
                 await Assert.That(publish).Throws<NatsException>();
             }
+            Func<Task> genericMutation = async () =>
+                _ = await controller.RequestAsync<string, string>(
+                    $"ts.orch.v1.{cell.Cell}.internal.operation-journal.mutate",
+                    "{}");
+            await Assert.That(genericMutation).Throws<NatsException>();
+
+            Func<Task> writerRollup = async () =>
+                (await writer.CreateJetStreamContext().PublishAsync(
+                    "$KV.ORCH_OPERATIONS.operation.writer-rollup",
+                    "{}",
+                    headers: new NatsHeaders { ["Nats-Rollup"] = "sub" })).EnsureSuccess();
+            await Assert.That(writerRollup).Throws<NatsException>();
+
+            var persisted = await writerStore.GetEntryAsync<string>(key);
+            persisted.EnsureSuccess();
+            await Assert.That(persisted.Value).IsEqualTo("ProviderCallStarted;CAS");
+            await Assert.That(persisted.Revision).IsEqualTo(update.Revision);
+            await Assert.That((await mutationClient.CreateAsync(key, "reprepared")).Succeeded).IsFalse();
         }
         finally
         {
@@ -195,9 +269,9 @@ public sealed class NatsCreateNodeOperationJournalTests
         }
     }
 
-    private static NatsKVConfig Rf1Operations() => new("ORCH_OPERATIONS")
+    private static NatsKVConfig Rf1Operations(string cell = "journal") => new("ORCH_OPERATIONS")
     {
-        Description = "one-node RF1 evidence only",
+        Description = $"Authoritative encrypted regional operation journal for {cell}",
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
@@ -256,6 +330,21 @@ public sealed class NatsCreateNodeOperationJournalTests
 
         public async Task RequestAsync(string subject, string payload) =>
             _ = await client!.RequestAsync<string, string>(subject, payload);
+
+        public async Task<NatsClient> ConnectAsAsync(Func<int, NatsOpts> options)
+        {
+            var additional = new NatsClient(options(port));
+            try
+            {
+                await additional.ConnectAsync();
+                return additional;
+            }
+            catch
+            {
+                await additional.DisposeAsync();
+                throw;
+            }
+        }
 
         public async Task RestartAsync()
         {

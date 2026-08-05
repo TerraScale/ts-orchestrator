@@ -37,11 +37,17 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(gru.Controllers.Values.Select(value => value.PublicKey).Distinct().Count())
                 .IsEqualTo(1);
             await Assert.That(gru.Operator.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
+            await Assert.That(gru.JournalWriter.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
+            await Assert.That(gru.Infrastructure.PublicKey).IsNotEqualTo(gru.Controllers[1].PublicKey);
+            await Assert.That(gru.JournalWriter.PublicKey).IsNotEqualTo(gru.Infrastructure.PublicKey);
             await Assert.That(gru.Product.Password).IsNotEqualTo(sfo.Product.Password);
             await Assert.That(File.ReadAllText(gru.Tls.Control.Clients["operator-read"].CaFile))
                 .IsNotEqualTo(File.ReadAllText(gru.Tls.Product.Clients["gru-platform"].CaFile));
 
-            foreach (var identity in gru.Controllers.Values.Append(gru.Operator))
+            foreach (var identity in gru.Controllers.Values
+                         .Append(gru.JournalWriter)
+                         .Append(gru.Infrastructure)
+                         .Append(gru.Operator))
             {
                 await Assert.That(File.GetUnixFileMode(identity.SeedFile))
                     .IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
@@ -55,7 +61,11 @@ public sealed class DevelopmentNatsSecurityTests
                 gru);
             await Assert.That(authorization).Contains(gru.Operator.PublicKey);
             await Assert.That(authorization).Contains(gru.Controllers[1].PublicKey);
-            await Assert.That(authorization).Contains("\"$KV.>\"");
+            await Assert.That(authorization).Contains(gru.JournalWriter.PublicKey);
+            await Assert.That(authorization).Contains(gru.Infrastructure.PublicKey);
+            await Assert.That(authorization).Contains("\"$KV.ORCH_LEADERS.>\"");
+            await Assert.That(authorization).Contains("\"$KV.ORCH_OPERATIONS.>\"");
+            await Assert.That(authorization).DoesNotContain("\"$KV.>\"");
             await Assert.That(authorization).Contains("\"$O.>\"");
             await Assert.That(authorization).Contains("$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS");
             await Assert.That(authorization).Contains("$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS");

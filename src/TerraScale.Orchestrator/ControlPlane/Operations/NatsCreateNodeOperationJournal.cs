@@ -59,15 +59,22 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
     private const string Domain = "terrascale-create-node-journal-v1";
     private const int MaximumEnvelopeBytes = 16 * 1024;
     private readonly INatsKVStore store;
+    private readonly NatsKVConfig configuration;
+    private readonly NatsOperationJournalMutationClient? mutations;
     private readonly ICreateNodeJournalEncryptionKeyService keys;
     private readonly CreateNodeAuthoritativeInvocationCapabilitySigner capabilitySigner;
 
     public NatsCreateNodeOperationJournal(
         INatsKVStore store,
+        NatsTopology topology,
         ICreateNodeJournalEncryptionKeyService keys,
-        CreateNodeAuthoritativeInvocationCapabilitySigner capabilitySigner)
+        CreateNodeAuthoritativeInvocationCapabilitySigner capabilitySigner,
+        NatsOperationJournalMutationClient? mutations = null)
     {
         this.store = store ?? throw new ArgumentNullException(nameof(store));
+        ArgumentNullException.ThrowIfNull(topology);
+        configuration = topology.Operations;
+        this.mutations = mutations;
         this.keys = keys ?? throw new ArgumentNullException(nameof(keys));
         this.capabilitySigner = capabilitySigner ?? throw new ArgumentNullException(nameof(capabilitySigner));
     }
@@ -92,22 +99,12 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         await RequireMutationEnabledAsync(cancellationToken);
 
         var value = Encrypt(replacement with { Version = 0 }, key, expected?.Version ?? 0);
-        try
-        {
-            if (expected is null)
-                await store.CreateAsync(key, value, cancellationToken: cancellationToken);
-            else
-                await store.UpdateAsync(key, value, checked((ulong)expected.Version), cancellationToken: cancellationToken);
-            return true;
-        }
-        catch (NatsKVCreateException)
-        {
-            return false;
-        }
-        catch (NatsKVWrongLastRevisionException)
-        {
-            return false;
-        }
+        var client = mutations ?? throw new InvalidOperationException(
+            "CreateNode journal mutation requires the private NATS journal mutation client.");
+        var result = expected is null
+            ? await client.CreateAsync(key, value, cancellationToken)
+            : await client.UpdateAsync(key, value, checked((ulong)expected.Version), cancellationToken);
+        return result.Succeeded;
     }
 
     public async ValueTask<CreateNodeAuthoritativeInvocationCapability> MintInvocationCapabilityAsync(
@@ -250,7 +247,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         // Peer status is only a sampled readiness observation. Any subsequent
         // Create/Update CAS acknowledgement, not this sample, is the durable
         // JetStream Raft-quorum commit boundary.
-        await NatsOperationJournalStore.ValidateAsync(store, new NatsTopology("journal", 1).Operations, cancellationToken);
+        await NatsOperationJournalStore.ValidateAsync(store, configuration, cancellationToken);
     }
 
     private static bool CanInvoke(CreateNodeOperationJournalEntry entry, DateTimeOffset now) =>

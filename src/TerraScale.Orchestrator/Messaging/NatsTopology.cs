@@ -14,6 +14,10 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string StatusSubject => $"{Root}.query.status";
 
+    public string OperationJournalCreateSubject => $"{Root}.internal.operation-journal.create";
+
+    public string OperationJournalUpdateSubject => $"{Root}.internal.operation-journal.update";
+
     public string CellSpecSubject => $"{Root}.desired.gitops";
 
     public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";

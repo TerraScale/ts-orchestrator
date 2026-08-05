@@ -82,18 +82,27 @@ internal static class NatsDevelopmentCluster
             throw new InvalidOperationException("Control NATS security must match the exact lean regional topology.");
         }
         var root = $"ts.orch.v1.{cell.Cell}.>";
+        var privateJournalRoot = $"ts.orch.v1.{cell.Cell}.internal.operation-journal.>";
         var controllerUsers = string.Join(
             Environment.NewLine,
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
-                      publish: { allow: ["{{root}}", "$JS.>", "$KV.>", "$O.>", "$SRV.>", "_INBOX.>"], deny: ["$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS"] }
-                      subscribe: { allow: ["{{root}}", "$JS.>", "$KV.>", "$O.>", "$SRV.>", "_INBOX.>"] }
+                      publish: { allow: ["{{root}}", "$JS.>", "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>", "_INBOX.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS"] }
+                      subscribe: { allow: ["{{root}}", "$JS.>", "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>", "_INBOX.>"] }
                     } },
                 """));
         return $$"""
                 authorization {
                   users: [
                 {{controllerUsers}}
+                    { nkey: "{{security.JournalWriter.PublicKey}}", permissions: {
+                      publish: { allow: ["$KV.ORCH_OPERATIONS.>", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", "$SRV.>", "_INBOX.>"] }
+                      subscribe: { allow: ["$KV.ORCH_OPERATIONS.>", "{{privateJournalRoot}}", "$SRV.>", "_INBOX.>"] }
+                    } },
+                    { nkey: "{{security.Infrastructure.PublicKey}}", permissions: {
+                      publish: { allow: ["$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS"] }
+                      subscribe: { allow: ["_INBOX.>"] }
+                    } },
                     { nkey: "{{security.Operator.PublicKey}}", permissions: {
                       publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status"] }
                       subscribe: { allow: ["_INBOX.>"] }

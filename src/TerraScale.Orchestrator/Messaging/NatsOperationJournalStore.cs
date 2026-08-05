@@ -38,14 +38,21 @@ internal static class NatsOperationJournalStore
     {
         ValidateExpected(configuration);
         var status = await store.GetStatusAsync(cancellationToken);
-        var actual = status.Info.Config;
+        if (status.Bucket != configuration.Bucket)
+            throw new InvalidOperationException("ORCH_OPERATIONS is absent or does not have its immutable authoritative R3 configuration.");
+        ValidateConfiguration(status.Info.Config, configuration);
+    }
+
+    internal static void ValidateConfiguration(StreamConfig actual, NatsKVConfig configuration)
+    {
+        ArgumentNullException.ThrowIfNull(actual);
+        ValidateExpected(configuration);
         var expected = CanonicalStream(configuration);
         var actualSubjects = actual.Subjects;
         var expectedSubjects = expected.Subjects;
         var actualSources = actual.Sources;
         var metadata = actual.Metadata;
-        if (status.Bucket != configuration.Bucket ||
-            actual.Name != expected.Name ||
+        if (actual.Name != expected.Name ||
             actual.Description != expected.Description ||
             actualSubjects is null || expectedSubjects is null ||
             !actualSubjects.Order(StringComparer.Ordinal).SequenceEqual(expectedSubjects.Order(StringComparer.Ordinal)) ||
@@ -92,7 +99,9 @@ internal static class NatsOperationJournalStore
         Sealed = false,
         DenyDelete = true,
         DenyPurge = true,
-        AllowRollupHdrs = true,
+        // CAS uses Nats-Expected-Last-Subject-Sequence, not rollups. Refuse any
+        // Nats-Rollup header so a writer cannot erase retained operation history.
+        AllowRollupHdrs = false,
         AllowDirect = true,
         MirrorDirect = false,
         DiscardNewPerSubject = false,
