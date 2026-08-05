@@ -6,7 +6,7 @@ scope:
   included:
     - existing OperationEngine dispatch intent is required as the operation authority
     - existing ProviderOwnershipEngine CreateNode intent is required as the provider authority
-    - injected authoritative compare-and-swap journal contract; no local journal is a production default
+    - dedicated regional ORCH_OPERATIONS JetStream KV journal with bounded encrypted envelopes, CAS, and retained replay/recovery state
     - signed persisted handoff receipt with full immutable provider/authorization binding and kid-based verification
     - deterministic fake provider and disabled-by-default OCI client boundary
   excluded:
@@ -19,9 +19,11 @@ invariants:
 security:
   receipt: ECDSA P-256 SHA-256, bound to operation/action, authenticated authorization tenant, node request, idempotency/create key, cell, compartment, generation/epoch, template, placement, bootstrap digest, authorization sequence/digest, issue time, and expiry; signed tenant proof must exactly equal the nonempty authenticated authorization-evidence tenant before binding or journaling
   recoveryLookup: separately signed, provider-audience-limited, binding-digest lookup authority persists at dispatch for at most seven days; every ProviderCallStarted reconciliation requires it independently, even while the mutation receipt remains valid; missing, null, malformed, or expired authority holds manual recovery without lookup
-  invocationCapability: an enabled external actuator verifies a separately keyed, audience-bound capability bound to operation, checkpoint version, lease owner/token, nonce, binding digest, and lease expiry; immediately before mutation it must atomically consume that capability through the same authoritative R3-style journal, which rejects expired, finalized, stale-version, or already-consumed claims
+  invocationCapability: an enabled external actuator verifies a separately keyed, audience-bound capability bound to operation, checkpoint version, lease owner/token, nonce, binding digest, and lease expiry; immediately before mutation it must atomically consume that capability through the same authoritative R3 journal, which rereads the ProviderCallStarted checkpoint and rejects expired, finalized, stale-version, binding, lease-owner/token, nonce, or already-consumed claims
+  journalEnvelope: one bounded AES-256-GCM envelope per operation key, with AAD binding the CreateNode journal domain, hashed operation key, key ID, and CAS precondition version; a rotation-aware injected regional key service supplies the active key and retained verification keys, and unknown/retired keys fail closed
+  mutationGate: CreateNode journal mutation, capability minting, and capability consumption require exactly regional R3 configuration and a healthy injected journal-key service; no RF1 fallback is permitted
   keyLifecycle: strict NIST P-256 algorithm/curve allowlist plus distinct receipt, tenant-authority, provider-attestation, recovery, and invocation key material/key-ID domains; composition rejects shared public material or kid across domains
-  tamperHandling: receipt and full development-journal record tags are verified before any provider call
+  tamperHandling: receipt and every authoritative journal envelope are authenticated before any provider call
   secrets: no credential, private key, or receipt payload is logged or included in this evidence
 validation:
   command: dotnet run --project tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj --no-build --no-restore -- --maximum-parallel-tests 4 --no-progress
@@ -32,7 +34,7 @@ validation:
     - expired in-flight lease with not-found reconciliation enters manual recovery without a second CreateNode
     - full immutable receipt binding-field tamper, P-384 rejection, and key-rotation/unknown-kid checks
     - verified tenant-authorization proof and malicious provider reconciliation-proof rejection; provider proof signs the full canonical request binding digest
-    - HMAC-tagged development-journal tamper rejection
+    - AES-GCM authoritative journal envelope tamper rejection and retained-key rotation rejection/acceptance behavior
     - two independent child processes contend through the actual development filesystem lock/CAS path; exactly one writes version 1 and the other observes the committed version without overwrite
     - OCI adapter disabled fail-closed without invoking its client
     - expired recovery authority holds manual recovery without provider lookup even while its mutation receipt remains valid
@@ -40,9 +42,12 @@ validation:
     - direct enabled OCI CreateNode without a valid authoritative invocation capability is rejected before its client call
     - shared receipt/tenant trust material is rejected at coordinator composition; tenant proofs are issued only by the tenant-authority signer and must equal authenticated authorization evidence
     - missing persisted recovery authority holds manual recovery without provider lookup
+    - actual local one-node JetStream KV persistence across nats-server restart, CAS conflict convergence, single invocation consume, stale-version rejection, and envelope tamper failure
     - authoritative invocation consume is single-use and checkpoint-version-bound; a crash after consume recovers only by reconciliation without another CreateNode
+    - configuration rejects RF1 CreateNode mutation and an unhealthy injected journal-key service before a KV write
     - delayed first worker capability after lease expiry and post-lease recovery/finalization is rejected before OCI client invocation
 limitations:
   - The two-process proof establishes Development file-journal mutual exclusion only. Its missing parent-directory fsync means it does not establish crash-persistent ProviderCallStarted; it is explicitly marked non-crash-durable and cannot be paired with an external CreateNode mutation provider.
-  - No reviewed R3/CAS journal adapter, atomic invocation-consume implementation, or tenant-authorization composition is available in the current tree. Only that authoritative crash-durable R3 implementation may mint and consume an OCI mutation capability; CreateNode is not production enabled pending its evidence gate.
-  - OCI mutation remains deliberately unavailable until a separately reviewed OCI client, scoped identity, authoritative R3 journal, and L4 evidence gate exist.
+  - The local JetStream test is one-node persistence/CAS evidence only. It does not prove R3 replication, quorum loss/recovery, JetStream placement, cross-host disk behavior, or production mTLS/NKey authorization.
+  - Production qualification still requires a targeted regional three-server JetStream proof for ORCH_OPERATIONS (replicas=3): authenticated mTLS/NKey controller identity, tenant/provider authorization prerequisites, healthy rotation-aware journal-key service, one-member-loss recovery, retained-key rotation, and capability-consume fencing under quorum.
+  - OCI mutation remains deliberately unavailable and unwired until a separately reviewed OCI client, scoped provider identity, complete external composition, and L4 evidence gate exist.

@@ -57,6 +57,16 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         NumberOfReplicas = Replicas
     };
 
+    public NatsKVConfig Operations => new("ORCH_OPERATIONS")
+    {
+        Description = $"Authoritative encrypted regional operation journal for {Cell}",
+        History = 2,
+        MaxAge = TimeSpan.FromDays(7),
+        MaxValueSize = 16 * 1024,
+        MaxBytes = 256 * 1024 * 1024,
+        NumberOfReplicas = Replicas
+    };
+
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
         Description = $"Signed regional control and protocol bundles for {Cell}",

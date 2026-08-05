@@ -363,6 +363,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
         var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
         var delivery = await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
+        var operations = await keyValue.CreateOrUpdateStoreAsync(topology.Operations, cancellationToken);
 
         var objects = jetStream.CreateObjectStoreContext();
         INatsObjStore bundles;
@@ -379,7 +380,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             "CELL_EVENTS",
             topology.StartupConsumer,
             cancellationToken);
-        return new(startupConsumer, leaders, runtime, delivery, bundles);
+        return new(startupConsumer, leaders, runtime, delivery, operations, bundles);
     }
 
     private static async Task VerifyProtocolPackageAsync(
@@ -449,6 +450,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore Leaders,
         INatsKVStore Runtime,
         INatsKVStore Delivery,
+        INatsKVStore Operations,
         INatsObjStore Bundles);
 
     private sealed class RuntimeRegistration : IAsyncDisposable
