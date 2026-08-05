@@ -23,11 +23,15 @@ internal static class ToolingTests
             ("adr executable self dependency", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "executableDependencies"], new[] { 1 }), AdrReadinessCommand.Validate)),
             ("adr malformed anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "https://example.test/a:1-2"), AdrReadinessCommand.Validate)),
             ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
+            ("adr absolute source anchor", AbsoluteSourceAnchor),
+            ("adr source anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "README.md:999999-999999"), AdrReadinessCommand.Validate)),
+            ("adr whitespace source anchor", WhitespaceSourceAnchor),
             ("adr symlink escape anchor", SymlinkEscapeAnchor),
             ("adr symlinked workspace Goal", SymlinkedWorkspaceGoal),
             ("adr canonical lane substitution", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["canonicalOwnerLanes", 0], "other"), AdrReadinessCommand.Validate)),
             ("adr normalization provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "GOAL.md:1-1"), AdrReadinessCommand.Validate)),
             ("adr Goal anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "../GOAL.md:999-999"), AdrReadinessCommand.Validate)),
+            ("adr canonical Goal anchor range", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "../GOAL.md:70-76"), AdrReadinessCommand.Validate)),
             ("adr open-input provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["openInputs", "source"], "README.md:1-1"), AdrReadinessCommand.Validate)),
             ("packet alias unknown target", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 0], "unknown-input"), OwnerDecisionCommand.Validate)),
             ("packet alias duplicate expansion", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 1], "storage-minimum-iops-per-member"), OwnerDecisionCommand.Validate)),
@@ -89,6 +93,30 @@ internal static class ToolingTests
             .ToArray();
         if (python.Length != 0)
             throw new InvalidOperationException($"Python sources remain: {string.Join(',', python)}");
+    }
+
+    private static void AbsoluteSourceAnchor()
+    {
+        var errors = new List<string>();
+        Validation.ValidateLocalAnchors(new JsonArray(JsonValue.Create("/tmp/tooling-anchor.md:1-1")), "source", errors);
+        AssertInvalid(errors);
+    }
+
+    private static void WhitespaceSourceAnchor()
+    {
+        var name = $"tooling-anchor-whitespace-{Guid.NewGuid():N}.md";
+        var path = Path.Combine(ToolingSupport.Root, name);
+        File.WriteAllText(path, " \n\t\n");
+        try
+        {
+            var errors = new List<string>();
+            Validation.ValidateLocalAnchors(new JsonArray(JsonValue.Create($"{name}:1-2")), "source", errors);
+            AssertInvalid(errors);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static void SymlinkEscapeAnchor()
