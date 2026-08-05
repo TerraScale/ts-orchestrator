@@ -15,11 +15,11 @@
     "status": "accepted-owner-policy",
     "acceptedOn": "2026-07-16",
     "authority": "owner",
-    "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"],
+    "sourceAnchors": ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"],
     "supersession": "An explicit superseding owner decision and architecture review are required to change an A choice."
   },
   "atomicPolicyRecords": [
-    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"]}
+    {"id": "accepted-owner-policy", "status": "accepted", "kind": "owner-policy", "sourceAnchors": ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"]}
   ],
   "controllingInputAliases": {
     "owner-questions-1A-10A-accepted": ["accepted-owner-policy"],
@@ -83,7 +83,7 @@
   "openInputRegister": {
     "status": "open-no-defaults",
     "authorityRequired": "Named product, operations, and security owners for unresolved measurable inputs and later selections.",
-    "sourceAnchors": ["ORCHESTRATOR.md:100-105", "GOAL.md:190-207"],
+    "sourceAnchors": ["ORCHESTRATOR.md:100-105", "../GOAL.md:194-195"],
     "planning": ["team-size", "first-production-date"],
     "measurableQualification": ["maximum-three-region-pre-user-cost", "storage-minimum-iops-per-member", "storage-minimum-throughput-per-member", "storage-p95-read-latency", "storage-p99-read-latency", "storage-p95-write-latency", "storage-p99-write-latency", "regional-rpo", "regional-rto", "security-credential-revocation", "security-workload-certificate-ttl", "security-certificate-renewal-lead", "security-break-glass-session-ttl", "security-critical-remediation", "memory-orchestrator-rss-per-host", "density-compact-post-failure-utilization-ceiling", "audit-hot-retention", "audit-immutable-retention", "maximum-regional-survival-window"],
     "laterSelections": ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"]
@@ -123,7 +123,7 @@
     ]
   },
   "unvalidatedInvariantGaps": [
-    {"id": "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT", "status": "open", "invariant": "Accepted-decision source anchors, exhaustive open-input ownership records, and readiness ownership cross-references must be schema-validated for completeness and consistency.", "currentEvidenceLimit": "Current owner-decisions and adr-readiness validators do not enforce these added data fields; their pass result is not proof of this invariant.", "requiredFutureExactPaths": ["tools/TerraScale.Orchestrator.Tooling/TranslatedCommands.cs", "tools/TerraScale.Orchestrator.Tooling/ToolingTests.cs"], "prerequisite": "A later work package with explicit ownership for tooling and tests; P0-01 may not modify those paths."}
+    {"id": "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT", "status": "open-independent-review-required", "invariant": "P0-01V enforces accepted-policy provenance, alias expansion, ownership-reference coverage, required ADR record fields, and acyclic executable dependencies.", "currentEvidenceLimit": "Validator success proves only checked-in schema consistency; it does not establish external owner assignment or approval, measured evidence, ADR acceptance, or independent P0-01/P0-01V review.", "requiredFutureExactPaths": [], "prerequisite": "Independent P0-01/P0-01V review remains required before any acceptance claim."}
   ],
   "recordedCompactResponse": "all A; reliability first"
 }
