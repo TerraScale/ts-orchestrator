@@ -82,5 +82,20 @@ internal static class NatsOperationJournalProvisioner
         {
             bundles = await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
         }
+
+        byte[] stored;
+        try
+        {
+            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+        }
+        catch (NatsObjNotFoundException)
+        {
+            await bundles.PutAsync(topology.ProtocolObject, NatsProtocolPackage.Bytes, cancellationToken);
+            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+        }
+        if (!stored.AsSpan().SequenceEqual(NatsProtocolPackage.Bytes))
+        {
+            throw new InvalidOperationException("NATS protocol package failed its integrity check.");
+        }
     }
 }

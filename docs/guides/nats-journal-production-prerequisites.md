@@ -10,8 +10,9 @@ The production composition root must create and retain all of the following as
 one reviewed lifecycle:
 
 - R3/R5-validated `ORCH_OPERATIONS` and `ORCH_OPERATION_PROOFS` stores, plus
-  `NatsCreateNodeOperationJournal`; the latter is a five-minute, create-only
-  nonce/lease consumption ledger for private mutation authority proofs;
+  `NatsCreateNodeOperationJournal`. `NatsOperationJournalMutationProofConsumption`
+  is the five-minute, create-only nonce/lease consumption ledger for private
+  mutation authority proofs;
 - a rotation-aware regional envelope-key service, receipt signer/resolver,
   recovery lookup signer/resolver, and invocation-capability signer/resolver;
 - a mutation authority issuer available only to the authorized controller flow,
@@ -47,7 +48,10 @@ must not be written into this repository.
 
 That external artifact must grant each eligible controller only its named
 runtime subjects, the exact journal `create`/`update` publish subjects, and its
-own reply namespace. The one startup consumer is fixed to the
+own reply namespace. Infrastructure must create `CELL_BUNDLES` and seed its
+canonical protocol package before controllers start; controllers may read and
+byte-exact validate that package but receive no object publication permission.
+The one startup consumer is fixed to the
 `runtime_startup` durable name: NATS consumer-create APIs require its filter
 suffix after that fixed token, so the permitted subjects are only
 `$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>` (and the durable API
@@ -83,6 +87,8 @@ an evidence gate, not a local RF1 or OCI claim.
 A local three-node development NATS/NKey ACL regression proves two credentialed
 controllers can concurrently create/open the one canonical startup consumer,
 and uses raw NKey wire publishes to prove broker denial of protected direct,
-consumer/list, alternate-consumer-name, and source/mirror stream-mutation
-subjects. It is not a substitute for the production TLS/JWT,
+consumer/list, alternate-consumer-name, source/mirror stream-mutation, and
+canonical/other-bucket object-publication subjects. The fixture directly creates
+the protected journal streams only for its local NATS 2.14 compatibility setup;
+production still uses the complete `provision-journal` path. It is not a substitute for the production TLS/JWT,
 credential-delivery, or R3 member-loss qualification above.

@@ -12,10 +12,6 @@ namespace TerraScale.Orchestrator.Messaging;
 
 public sealed class NatsRuntime : IAsyncDisposable
 {
-    private static readonly byte[] ProtocolPackage = """
-        {"name":"terrascale-orchestrator","protocol":1}
-        """u8.ToArray();
-
     private readonly NatsClient client;
     private readonly RuntimeRegistration registration;
     private readonly RegionalAuthorityCoordinator authority;
@@ -411,32 +407,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsTopology topology,
         CancellationToken cancellationToken)
     {
-        byte[] stored;
-        try
-        {
-            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
-        }
-        catch (NatsObjNotFoundException)
-        {
-            try
-            {
-                await bundles.PutAsync(topology.ProtocolObject, ProtocolPackage, cancellationToken);
-            }
-            catch (NatsJSApiNoResponseException)
-            {
-                // A concurrent controller can commit the immutable package before
-                // this request receives its API response. Accept only the exact
-                // package it actually committed; all other failures still escape.
-            }
-            catch (NatsObjException exception) when (exception.Message.Contains(
-                       "already exists", StringComparison.OrdinalIgnoreCase))
-            {
-                // NATS may report the same concurrent immutable-object race
-                // explicitly rather than as a missing API response.
-            }
-            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
-        }
-        if (!stored.AsSpan().SequenceEqual(ProtocolPackage))
+        var stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+        if (!stored.AsSpan().SequenceEqual(NatsProtocolPackage.Bytes))
         {
             throw new InvalidOperationException("NATS protocol package failed its integrity check.");
         }

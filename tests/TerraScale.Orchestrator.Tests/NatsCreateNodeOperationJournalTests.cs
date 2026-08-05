@@ -500,6 +500,42 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    public async Task InfrastructureProvisionerRejectsAndDoesNotReplaceACorruptExistingProtocolPackage()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        var securityDirectory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-protocol-{Guid.NewGuid():N}");
+        try
+        {
+            var cell = DevelopmentTopology.CreateRegional().Cells.Single(candidate => candidate.Cell == "gru");
+            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), securityDirectory).Cell(cell.Cell);
+            await using var server = await ThreeNodeJetStream.StartAsync(
+                NatsDevelopmentCluster.ControlAuthorization(cell, security), security.Controllers[1].SeedFile);
+            await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromMilliseconds(250),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
+            });
+            var topology = new NatsTopology(cell.Cell, 3, "controller-1");
+            var objects = infrastructure.CreateJetStreamContext().CreateObjectStoreContext();
+            NATS.Client.ObjectStore.INatsObjStore? bundles = null;
+            await EventuallyAsync(async () => bundles = await objects.CreateObjectStoreAsync(topology.Bundles));
+            var corrupt = "corrupt"u8.ToArray();
+            await bundles!.PutAsync(topology.ProtocolObject, corrupt);
+
+            await Assert.That(async () => await NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
+                    infrastructure, topology, default))
+                .Throws<InvalidOperationException>();
+            await Assert.That(await bundles.GetBytesAsync(topology.ProtocolObject)).IsEquivalentTo(corrupt);
+        }
+        finally
+        {
+            if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task CredentialedR3ControllersConcurrentlyStartWithOneCanonicalConsumerWhileProtectedJournalApisRemainDenied()
     {
         if (!OperatingSystem.IsLinux()) return;
@@ -528,6 +564,9 @@ public sealed class NatsCreateNodeOperationJournalTests
             await EventuallyAsync(() => NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
                 infrastructure, journalTopology, default));
             var jetStream = infrastructure.CreateJetStreamContext();
+            var bundles = await jetStream.CreateObjectStoreContext().GetObjectStoreAsync("CELL_BUNDLES");
+            await Assert.That(await bundles.GetBytesAsync(journalTopology.ProtocolObject))
+                .IsEquivalentTo(NatsProtocolPackage.Bytes);
             await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
                 NatsOperationJournalStore.CanonicalStream(journalTopology.Operations)));
             await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
@@ -586,10 +625,20 @@ public sealed class NatsCreateNodeOperationJournalTests
                 .Contains("Permissions Violation for Publish");
             await Assert.That(System.Text.Json.JsonSerializer.Serialize(
                 (await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config)).IsEqualTo(cellEventsBefore);
-            var otherObjectSubject = "$O.OTHER_BUCKET.C.denied";
-            await Assert.That(await SubscribeDeniedAsync(server.Port, security.Controllers[1].SeedFile, otherObjectSubject))
-                .Contains("Permissions Violation");
-            await Assert.That(await PublishDeniedAsync(server.Port, security.Controllers[1].SeedFile, otherObjectSubject, "denied"))
+            var protocol = await bundles.GetInfoAsync(journalTopology.ProtocolObject);
+            foreach (var subject in new[]
+                     {
+                         "$O.CELL_BUNDLES.M.orchestrator-protocol-v1",
+                         $"$O.CELL_BUNDLES.C.{protocol.Nuid}",
+                         "$O.OTHER_BUCKET.C.denied",
+                     })
+            {
+                await Assert.That(await PublishDeniedAsync(
+                    server.Port, security.Controllers[1].SeedFile, subject, "denied"))
+                    .Contains("Permissions Violation for Publish");
+            }
+            await Assert.That(await SubscribeDeniedAsync(
+                server.Port, security.Controllers[1].SeedFile, "$O.OTHER_BUCKET.C.denied"))
                 .Contains("Permissions Violation");
         }
         finally
