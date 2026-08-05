@@ -1,3 +1,5 @@
+using TerraScale.Orchestrator.ControlPlane.Operations;
+
 namespace TerraScale.Orchestrator.ControlPlane.Providers;
 
 public sealed record CreateNodeProviderRequest(ProviderOperationContext Context, CreateNodeProviderParameters Parameters,
@@ -21,6 +23,7 @@ public sealed record CreateNodeReconciliation(CreateNodeReconciliationStatus Sta
 public interface ICreateNodeProvider
 {
     bool IsExternalMutationProvider => false;
+    ICreateNodeOperationJournal? InvocationJournal => null;
     ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
     ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
 }
@@ -73,18 +76,20 @@ public interface IOciCreateNodeClient
 }
 /// <summary>Disabled by default; no production OCI mutation client is wired in this slice.</summary>
 public sealed class OciCreateNodeProvider(OciCreateNodeProviderOptions options, IOciCreateNodeClient client,
-    ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys, TimeProvider clock) : ICreateNodeProvider
+    ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys, ICreateNodeOperationJournal invocationJournal, TimeProvider clock) : ICreateNodeProvider
 {
     private readonly OciCreateNodeProviderOptions options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly IOciCreateNodeClient client = client ?? throw new ArgumentNullException(nameof(client));
     private readonly ICreateNodeReceiptKeyResolver keys = keys ?? throw new ArgumentNullException(nameof(keys));
     private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys = invocationCapabilityKeys ?? throw new ArgumentNullException(nameof(invocationCapabilityKeys));
+    private readonly ICreateNodeOperationJournal invocationJournal = invocationJournal ?? throw new ArgumentNullException(nameof(invocationJournal));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly bool distinctKeyDomains = ValidateKeyDomains(keys, recoveryKeys, invocationCapabilityKeys);
     public bool IsExternalMutationProvider => true;
-    public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
-    { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); if (!CreateNodeAuthoritativeInvocationCapabilityVerifier.Verify(request.InvocationCapability, invocationCapabilityKeys, request.Binding, clock.GetUtcNow())) throw new InvalidOperationException("OCI CreateNode requires an authoritative persisted invocation capability."); return client.CreateNodeAsync(request, cancellationToken); }
+    public ICreateNodeOperationJournal InvocationJournal => invocationJournal;
+    public async ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
+    { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); var now = clock.GetUtcNow(); if (invocationJournal.Durability != CreateNodeJournalDurability.AuthoritativeCrashDurable || !CreateNodeAuthoritativeInvocationCapabilityVerifier.Verify(request.InvocationCapability, invocationCapabilityKeys, request.Binding, now) || !await invocationJournal.TryConsumeInvocationCapabilityAsync(request.InvocationCapability!, request.Binding, now, cancellationToken)) throw new InvalidOperationException("OCI CreateNode requires an unconsumed authoritative invocation capability."); return await client.CreateNodeAsync(request, cancellationToken); }
     public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
     { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.ValidateRecovery(request, keys, recoveryKeys, clock.GetUtcNow()); return client.ReconcileCreateNodeAsync(request, cancellationToken); }
     private static bool ValidateKeyDomains(ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys)

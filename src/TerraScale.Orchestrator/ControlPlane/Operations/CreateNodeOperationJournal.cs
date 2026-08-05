@@ -8,14 +8,17 @@ public enum CreateNodeJournalStage { Prepared = 1, ProviderCallStarted = 2, Comp
 public enum CreateNodeJournalDurability { DevelopmentNonCrashDurable = 1, AuthoritativeCrashDurable = 2 }
 public sealed record CreateNodeOperationJournalEntry(long Version, string OperationFingerprint, CreateNodeReceiptBinding Binding,
     CreateNodeHandoffReceipt Receipt, CreateNodeRecoveryLookupAuthority RecoveryAuthority, CreateNodeJournalStage Stage, DateTimeOffset? ProviderCallStartedAt,
-    int ProviderAttempts, CreateNodeProviderResponse? Response);
+    int ProviderAttempts, CreateNodeProviderResponse? Response, string? InvocationLeaseOwner = null, string? InvocationLeaseToken = null,
+    string? InvocationCapabilityNonce = null, DateTimeOffset? InvocationLeaseExpiresAt = null, DateTimeOffset? InvocationConsumedAt = null);
 public interface ICreateNodeOperationJournal
 {
     CreateNodeJournalDurability Durability => CreateNodeJournalDurability.DevelopmentNonCrashDurable;
     ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken);
     ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken);
     ValueTask<CreateNodeAuthoritativeInvocationCapability> MintInvocationCapabilityAsync(CreateNodeOperationJournalEntry persistedCheckpoint, DateTimeOffset now, CancellationToken cancellationToken)
-        => throw new InvalidOperationException("Only an authoritative crash-durable CreateNode journal can mint an invocation permit.");
+        => throw new InvalidOperationException("Only an authoritative crash-durable CreateNode journal can mint an invocation capability.");
+    ValueTask<bool> TryConsumeInvocationCapabilityAsync(CreateNodeAuthoritativeInvocationCapability capability, CreateNodeReceiptBinding binding, DateTimeOffset now, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Only an authoritative crash-durable CreateNode journal can consume an invocation capability.");
 }
 public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJournal
 {
@@ -29,7 +32,8 @@ public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJou
     {
         if (entry.Version < 0 || string.IsNullOrWhiteSpace(entry.OperationFingerprint) || entry.RecoveryAuthority is null || !Enum.IsDefined(entry.Stage) || entry.ProviderAttempts < 0 ||
             (entry.Stage == CreateNodeJournalStage.Completed) != (entry.Response is not null) ||
-            (entry.Stage != CreateNodeJournalStage.Prepared) != (entry.ProviderCallStartedAt is not null))
+            (entry.Stage != CreateNodeJournalStage.Prepared) != (entry.ProviderCallStartedAt is not null) ||
+            (entry.Stage == CreateNodeJournalStage.ProviderCallStarted && (string.IsNullOrWhiteSpace(entry.InvocationLeaseOwner) || string.IsNullOrWhiteSpace(entry.InvocationLeaseToken) || string.IsNullOrWhiteSpace(entry.InvocationCapabilityNonce) || entry.InvocationLeaseExpiresAt is null || entry.InvocationLeaseExpiresAt <= entry.ProviderCallStartedAt)))
             throw new InvalidDataException("CreateNode journal entry is structurally invalid.");
     }
 }

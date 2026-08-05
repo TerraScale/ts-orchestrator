@@ -28,10 +28,13 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     private readonly bool distinctKeyDomains = ValidateKeyDomains(receiptKeys, tenantKeys, providerKeys, recoveryKeys, invocationCapabilityKeys);
+    private readonly string invocationLeaseOwner = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
         if (provider.IsExternalMutationProvider && journal.Durability != CreateNodeJournalDurability.AuthoritativeCrashDurable)
             throw new InvalidOperationException("External CreateNode mutation requires an authoritative crash-durable journal.");
+        if (provider.IsExternalMutationProvider && !ReferenceEquals(provider.InvocationJournal, journal))
+            throw new InvalidOperationException("External CreateNode mutation must consume invocation capability from its coordination journal.");
         var spec = Validate(dispatch, clock.GetUtcNow()); options.Validate();
         while (true)
         {
@@ -70,13 +73,15 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
                 var held = current with { Stage = CreateNodeJournalStage.RequiresManualRecovery };
                 if (!await journal.CompareExchangeAsync(current, held, cancellationToken)) continue; continue;
             }
-            var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1) };
+            var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1), InvocationLeaseOwner = invocationLeaseOwner, InvocationLeaseToken = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), InvocationCapabilityNonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), InvocationLeaseExpiresAt = now.Add(options.ProviderInvocationLease) };
             if (!await journal.CompareExchangeAsync(current, started, cancellationToken)) continue;
             var persisted = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) ?? throw new InvalidOperationException("Invocation checkpoint was not persisted.");
             var capability = provider.IsExternalMutationProvider ? await journal.MintInvocationCapabilityAsync(persisted, now, cancellationToken) : null;
             var response = await provider.CreateNodeAsync(Request(dispatch, persisted.Receipt, persisted.RecoveryAuthority, spec.Binding, capability), cancellationToken);
-            var completedNow = persisted with { Stage = CreateNodeJournalStage.Completed, Response = response };
-            if (!await journal.CompareExchangeAsync(persisted, completedNow, cancellationToken)) continue;
+            var checkpoint = provider.IsExternalMutationProvider ? await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) : persisted;
+            if (checkpoint?.Stage != CreateNodeJournalStage.ProviderCallStarted) continue;
+            var completedNow = checkpoint with { Stage = CreateNodeJournalStage.Completed, Response = response };
+            if (!await journal.CompareExchangeAsync(checkpoint, completedNow, cancellationToken)) continue;
         }
     }
     private static bool ValidateKeyDomains(ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeTenantAuthorityKeyResolver tenantKeys, ICreateNodeProviderAttestationKeyResolver providerKeys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys)
@@ -86,7 +91,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     {
         ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);
         var op = dispatch.OperationIntent; var auth = dispatch.Authorization; var context = dispatch.ProviderIntent.Context; var parameters = dispatch.ProviderIntent.Parameters;
-        if (op.OperationKind != "create-node" || !CreateNodeTenantAuthorizationVerifier.Verify(dispatch.TenantProof, tenantKeys, op.OperationId, op.AuthorizationDigest, now, out var tenant))
+        if (op.OperationKind != "create-node" || string.IsNullOrWhiteSpace(auth.Evidence.TenantId) || !CreateNodeTenantAuthorizationVerifier.Verify(dispatch.TenantProof, tenantKeys, op.OperationId, op.AuthorizationDigest, now, out var tenant) || tenant != auth.Evidence.TenantId)
             throw new ArgumentException("CreateNode requires a verified tenant authorization proof.", nameof(dispatch));
         if (op.OperationKind != "create-node" || op.TargetIdentity != dispatch.NodeRequestId ||
             auth.OperationId != op.OperationId || auth.Sequence != op.AuthorizationSequence || auth.AuthorizationDigest != op.AuthorizationDigest ||
