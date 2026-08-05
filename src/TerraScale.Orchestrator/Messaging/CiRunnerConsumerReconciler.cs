@@ -40,12 +40,15 @@ internal sealed class CiRunnerConsumerReconciler
         return new(zone, expected.Name!, expected.FilterSubject!);
     }
 
-    internal static bool Matches(ConsumerInfo observed, ConsumerConfig expected)
+    internal static bool Matches(
+        ConsumerInfo observed,
+        ConsumerConfig expected,
+        string expectedStream = GlobalNatsTopology.CiStream)
     {
         ArgumentNullException.ThrowIfNull(observed);
         ArgumentNullException.ThrowIfNull(expected);
         var actual = observed.Config;
-        return observed.StreamName == GlobalNatsTopology.CiStream &&
+        return observed.StreamName == expectedStream &&
                observed.Name == expected.Name &&
                !observed.IsPaused &&
                !observed.PushBound &&

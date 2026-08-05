@@ -518,6 +518,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                 AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
             });
             var journalTopology = new NatsTopology(cell.Cell, 3, "controller-1");
+            await EventuallyAsync(() => NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
+                infrastructure, journalTopology, default));
             var jetStream = infrastructure.CreateJetStreamContext();
             await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
                 NatsOperationJournalStore.CanonicalStream(journalTopology.Operations)));
@@ -525,6 +527,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                 NatsOperationJournalStore.CanonicalStream(journalTopology.OperationProofConsumptions)));
             var provisionedOperations = await jetStream.GetStreamAsync("KV_ORCH_OPERATIONS");
             await Assert.That(provisionedOperations.Info.Config.NumReplicas).IsEqualTo(3);
+            await Assert.That((await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config.NumReplicas).IsEqualTo(3);
 
             using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await using var runtime = await NatsRuntime.StartAsync(new OrchestratorOptions(
@@ -545,6 +548,25 @@ public sealed class NatsCreateNodeOperationJournalTests
             Func<Task> journalInfo = async () =>
                 _ = await controller.RequestAsync<string, string>("$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "{}");
             await Assert.That(journalInfo).Throws<NatsException>();
+            var cellEventsBefore = System.Text.Json.JsonSerializer.Serialize(
+                (await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config);
+            Func<Task> cellEventsMirror = async () =>
+                _ = await controller.RequestAsync<string, string>(
+                    "$JS.API.STREAM.UPDATE.CELL_EVENTS",
+                    "{\"name\":\"CELL_EVENTS\",\"sources\":[{\"name\":\"KV_ORCH_OPERATIONS\"}],\"mirror\":{\"name\":\"KV_ORCH_OPERATIONS\"}}");
+            await Assert.That(cellEventsMirror).Throws<NatsException>();
+            await Assert.That(System.Text.Json.JsonSerializer.Serialize(
+                (await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config)).IsEqualTo(cellEventsBefore);
+            Func<Task> journalSource = async () =>
+                _ = await controller.RequestAsync<string, string>(
+                    "$JS.API.STREAM.CREATE.journal_exfiltration",
+                    "{\"config\":{\"name\":\"journal_exfiltration\",\"sources\":[{\"name\":\"KV_ORCH_OPERATIONS\"}]}}");
+            await Assert.That(journalSource).Throws<NatsException>();
+            var otherObjectSubject = "$O.OTHER_BUCKET.C.denied";
+            await Assert.That(await SubscribeDeniedAsync(server.Port, security.Controllers[1].SeedFile, otherObjectSubject))
+                .Contains("Permissions Violation");
+            await Assert.That(await PublishDeniedAsync(server.Port, security.Controllers[1].SeedFile, otherObjectSubject, "denied"))
+                .Contains("Permissions Violation");
         }
         finally
         {
@@ -707,6 +729,35 @@ public sealed class NatsCreateNodeOperationJournalTests
             {
                 return response;
             }
+        }
+    }
+
+    private static async Task<string> PublishDeniedAsync(int port, string seedFile, string subject, string payload)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
+        await using var stream = tcp.GetStream();
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        await using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false), leaveOpen: true)
+        {
+            NewLine = "\r\n",
+            AutoFlush = true,
+        };
+        var info = await reader.ReadLineAsync(timeout.Token)
+            ?? throw new InvalidOperationException("NATS server did not send its connection info.");
+        using var infoDocument = JsonDocument.Parse(info["INFO ".Length..]);
+        var nonce = infoDocument.RootElement.GetProperty("nonce").GetString()
+            ?? throw new InvalidOperationException("NATS server did not provide an NKey nonce.");
+        var seed = File.ReadLines(seedFile).First(line => !string.IsNullOrWhiteSpace(line)).Trim();
+        using var pair = NATS.Client.Core.NKeys.FromSeed(seed);
+        await writer.WriteLineAsync($"CONNECT {JsonSerializer.Serialize(new { nkey = NATS.Client.Core.NKeys.PublicKeyFromSeed(seed), sig = Convert.ToBase64String(pair.Sign(System.Text.Encoding.UTF8.GetBytes(nonce))) })}");
+        await writer.WriteLineAsync($"PUB {subject} {System.Text.Encoding.UTF8.GetByteCount(payload)}\r\n{payload}");
+        while (true)
+        {
+            var response = await reader.ReadLineAsync(timeout.Token)
+                ?? throw new InvalidOperationException("NATS server closed before reporting the publish result.");
+            if (response.StartsWith("-ERR", StringComparison.Ordinal)) return response;
         }
     }
 

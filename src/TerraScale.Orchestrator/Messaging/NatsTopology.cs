@@ -97,10 +97,10 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         NumberOfReplicas = Replicas
     };
 
-    public ConsumerConfig StartupConsumer => new($"runtime_startup_{Instance}")
+    public ConsumerConfig StartupConsumer => new("runtime_startup")
     {
-        Description = $"Acknowledged runtime startup events for {Cell}/{Instance}",
-        FilterSubject = StartupSubject,
+        Description = $"Acknowledged runtime startup events for {Cell}",
+        FilterSubject = $"{Root}.event.runtime.started.>",
         AckWait = TimeSpan.FromSeconds(15),
         MaxDeliver = 5,
         MaxAckPending = 32,
@@ -136,12 +136,30 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     private StreamConfig Stream(string name, string subject, long maxBytes) => new(name, [subject])
     {
         Description = $"TerraScale Orchestrator {name} for {Cell}",
+        MaxConsumers = -1,
+        MaxMsgs = -1,
+        MaxMsgsPerSubject = -1,
         MaxBytes = maxBytes,
         MaxAge = TimeSpan.FromDays(30),
+        MaxMsgSize = -1,
         DuplicateWindow = TimeSpan.FromMinutes(2),
         NumReplicas = Replicas,
         Retention = StreamConfigRetention.Limits,
         Storage = StreamConfigStorage.File,
-        Discard = StreamConfigDiscard.Old
+        Compression = StreamConfigCompression.None,
+        NoAck = false,
+        Discard = StreamConfigDiscard.Old,
+        Sealed = false,
+        DenyDelete = false,
+        DenyPurge = false,
+        AllowRollupHdrs = false,
+        AllowDirect = false,
+        MirrorDirect = false,
+        DiscardNewPerSubject = false,
+        AllowMsgTTL = false,
+        SubjectDeleteMarkerTTL = TimeSpan.Zero,
+        AllowMsgCounter = false,
+        AllowMsgSchedules = false,
+        AllowAtomicPublish = false,
     };
 }

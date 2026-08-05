@@ -84,7 +84,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
             }
-            var state = await ReconcileStateWithRetryAsync(client, topology, cancellationToken);
+            var state = await OpenStateWithRetryAsync(client, topology, cancellationToken);
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
@@ -211,7 +211,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         }
     }
 
-    private static async Task<RuntimeState> ReconcileStateWithRetryAsync(
+    private static async Task<RuntimeState> OpenStateWithRetryAsync(
         NatsClient client,
         NatsTopology topology,
         CancellationToken cancellationToken)
@@ -220,7 +220,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             try
             {
-                return await ReconcileStateAsync(client, topology, cancellationToken);
+                return await OpenStateAsync(client, topology, cancellationToken);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -350,37 +350,60 @@ public sealed class NatsRuntime : IAsyncDisposable
         }
     }
 
-    private static async Task<RuntimeState> ReconcileStateAsync(
+    private static async Task<RuntimeState> OpenStateAsync(
         NatsClient client,
         NatsTopology topology,
         CancellationToken cancellationToken)
     {
         var jetStream = client.CreateJetStreamContext();
-        foreach (var stream in topology.Streams)
+        foreach (var expected in topology.Streams)
         {
-            await jetStream.CreateOrUpdateStreamAsync(stream, cancellationToken);
+            var stream = await jetStream.GetStreamAsync(expected.Name!, cancellationToken: cancellationToken);
+            NatsOperationJournalStore.ValidateExactStreamConfiguration(stream.Info.Config, expected);
         }
 
         var keyValue = jetStream.CreateKeyValueStoreContext();
-        var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
-        var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
-        var delivery = await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
+        var leaders = await OpenKeyValueAsync(keyValue, topology.Leaders, cancellationToken);
+        var runtime = await OpenKeyValueAsync(keyValue, topology.Runtime, cancellationToken);
+        var delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
         var objects = jetStream.CreateObjectStoreContext();
-        INatsObjStore bundles;
+        var bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+        NatsOperationJournalStore.ValidateExactObjectConfiguration(
+            (await bundles.GetStatusAsync(cancellationToken)).Info.Config, topology.Bundles);
+
+        var startupConsumer = await OpenOrCreateStartupConsumerAsync(jetStream, topology, cancellationToken);
+        return new(startupConsumer, leaders, runtime, delivery, bundles);
+    }
+
+    private static async Task<INatsKVStore> OpenKeyValueAsync(
+        INatsKVContext keyValue,
+        NatsKVConfig expected,
+        CancellationToken cancellationToken)
+    {
+        var store = await keyValue.GetStoreAsync(expected.Bucket, cancellationToken);
+        NatsOperationJournalStore.ValidatePlainTopologyKeyValueConfiguration(
+            (await store.GetStatusAsync(cancellationToken)).Info.Config,
+            expected);
+        return store;
+    }
+
+    private static async Task<INatsJSConsumer> OpenOrCreateStartupConsumerAsync(
+        INatsJSContext jetStream,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+            var consumer = await jetStream.GetConsumerAsync("CELL_EVENTS", topology.StartupConsumer.Name!, cancellationToken);
+            await consumer.RefreshAsync(cancellationToken);
+            if (!CiRunnerConsumerReconciler.Matches(consumer.Info, topology.StartupConsumer, "CELL_EVENTS"))
+                throw new InvalidOperationException("The NATS startup consumer does not match its closed profile.");
+            return consumer;
         }
         catch (NatsJSApiException exception) when (exception.Error.Code == 404)
         {
-            bundles = await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
+            return await jetStream.CreateConsumerAsync("CELL_EVENTS", topology.StartupConsumer, cancellationToken);
         }
-
-        var startupConsumer = await jetStream.CreateOrUpdateConsumerAsync(
-            "CELL_EVENTS",
-            topology.StartupConsumer,
-            cancellationToken);
-        return new(startupConsumer, leaders, runtime, delivery, bundles);
     }
 
     private static async Task VerifyProtocolPackageAsync(

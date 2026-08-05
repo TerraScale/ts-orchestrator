@@ -91,13 +91,10 @@ internal static class NatsDevelopmentCluster
         {
             "CELL_SPEC", "CELL_OPERATIONS", "CELL_EVENTS", "KV_ORCH_LEADERS", "KV_ORCH_RUNTIME",
             "KV_ORCH_DELIVERY", "OBJ_CELL_BUNDLES"
-        }.SelectMany(stream => new[]
+        }.Select(stream => $"$JS.API.STREAM.INFO.{stream}").Concat(new[]
         {
-            $"$JS.API.STREAM.CREATE.{stream}", $"$JS.API.STREAM.UPDATE.{stream}", $"$JS.API.STREAM.INFO.{stream}"
-        }).Concat(new[]
-        {
-            "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.CREATE.CELL_EVENTS.>", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.>",
-            "$JS.ACK.CELL_EVENTS.>", "$JS.FC.CELL_EVENTS.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
+            "$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.INFO.CELL_EVENTS.runtime_startup", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.runtime_startup",
+            "$JS.ACK.CELL_EVENTS.runtime_startup.>", "$JS.FC.CELL_EVENTS.runtime_startup.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
             "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>", "$JS.FC.OBJ_CELL_BUNDLES.>",
             "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>", "$JS.FC.KV_ORCH_RUNTIME.>",
             "$JS.API.DIRECT.GET.KV_ORCH_LEADERS", "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>"
@@ -143,8 +140,8 @@ internal static class NatsDevelopmentCluster
             Environment.NewLine,
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
-                      publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.PURGE.KV_ORCH_OPERATION_PROOFS", {{journalJetStreamDenials}}] }
-                      subscribe: { allow: ["{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
+                      publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.>", "$JS.API.STREAM.UPDATE.>", {{journalJetStreamDenials}}] }
+                      subscribe: { allow: ["{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
                     } },
                 """));
         return $$"""
@@ -156,7 +153,7 @@ internal static class NatsDevelopmentCluster
                       subscribe: { allow: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "{{root}}.internal.operation-journal.create", "{{root}}.internal.operation-journal.update", "$SRV.>", "_INBOX.>"] }
                     } },
                     { nkey: "{{security.Infrastructure.PublicKey}}", permissions: {
-                      publish: { allow: ["$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS"] }
+                      publish: { allow: ["$JS.API.STREAM.CREATE.CELL_SPEC", "$JS.API.STREAM.UPDATE.CELL_SPEC", "$JS.API.STREAM.INFO.CELL_SPEC", "$JS.API.STREAM.CREATE.CELL_OPERATIONS", "$JS.API.STREAM.UPDATE.CELL_OPERATIONS", "$JS.API.STREAM.INFO.CELL_OPERATIONS", "$JS.API.STREAM.CREATE.CELL_EVENTS", "$JS.API.STREAM.UPDATE.CELL_EVENTS", "$JS.API.STREAM.INFO.CELL_EVENTS", "$JS.API.STREAM.CREATE.KV_ORCH_LEADERS", "$JS.API.STREAM.UPDATE.KV_ORCH_LEADERS", "$JS.API.STREAM.INFO.KV_ORCH_LEADERS", "$JS.API.STREAM.CREATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.UPDATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME", "$JS.API.STREAM.CREATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.UPDATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY", "$JS.API.STREAM.CREATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.UPDATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS"] }
                       subscribe: { allow: ["_INBOX.>"] }
                     } },
                     { nkey: "{{security.Operator.PublicKey}}", permissions: {

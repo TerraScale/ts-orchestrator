@@ -1,4 +1,5 @@
 using NATS.Client.Core;
+using NATS.Client.ObjectStore;
 using NATS.Net;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -30,19 +31,56 @@ internal static class NatsOperationJournalProvisioner
         });
         await client.ConnectAsync();
         cancellationToken.ThrowIfCancellationRequested();
+        var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
+        await ProvisionTopologyAsync(client, topology, cancellationToken);
+    }
+
+    internal static async Task ProvisionTopologyAsync(
+        NatsClient client,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        await ProvisionControllerTopologyAsync(client, topology, cancellationToken);
         var jetStream = client.CreateJetStreamContext();
-        var topology = new NatsTopology(options.Cell, 3, options.Instance);
+        var keyValue = jetStream.CreateKeyValueStoreContext();
         await NatsOperationJournalStore.ProvisionAsync(
             client,
             jetStream,
-            jetStream.CreateKeyValueStoreContext(),
+            keyValue,
             topology.Operations,
             cancellationToken);
         await NatsOperationJournalStore.ProvisionAsync(
             client,
             jetStream,
-            jetStream.CreateKeyValueStoreContext(),
+            keyValue,
             topology.OperationProofConsumptions,
             cancellationToken);
+    }
+
+    internal static async Task ProvisionControllerTopologyAsync(
+        NatsClient client,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        var jetStream = client.CreateJetStreamContext();
+        foreach (var stream in topology.Streams)
+        {
+            await jetStream.CreateOrUpdateStreamAsync(stream, cancellationToken);
+        }
+
+        var keyValue = jetStream.CreateKeyValueStoreContext();
+        await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
+        await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
+        await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
+        var objects = jetStream.CreateObjectStoreContext();
+        INatsObjStore bundles;
+        try
+        {
+            bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+        }
+        catch (NATS.Client.JetStream.NatsJSApiException exception) when (exception.Error.Code == 404)
+        {
+            bundles = await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
+        }
     }
 }
