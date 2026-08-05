@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "inventory_id": "P0-03-runtime-build-descriptors-2026-08-05",
+  "evidence_title": "Phase 0 runtime and build descriptor inventory",
+  "captured_at": "2026-08-05",
   "discovery_date": "2026-08-05",
   "scope": {
     "method": "read-only workspace scan; current repository state plus archived historical ledger",

@@ -119,6 +119,9 @@ internal static class Phase0EvidenceCommand
         "evidence_claim_status"
     ];
     private static readonly string[] ClosureFields = ["repository", "commit", "path", "sha256", "gate", "timestamp", "authority"];
+    private static readonly string[] InventoryFields = ["repository", "branch", "source_commit", "checkout_state", "ownership", "descriptors"];
+    private static readonly string[] DescriptorFields = ["path", "type", "purpose", "classification", "production_relevance", "confidence", "source_sha256"];
+    private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256"];
 
     public static int Run(string[] arguments)
     {
@@ -132,16 +135,31 @@ internal static class Phase0EvidenceCommand
 
     public static List<string> ValidateInventory(JsonObject document)
     {
-        var errors = Validation.JsonDocument(document, "descriptor inventory", "schema_version", "repositories", "gaps");
+        var errors = Validation.JsonDocument(document, "descriptor inventory", "schema_version", "inventory_id", "evidence_title", "captured_at", "scope", "repositories", "gaps");
+        if (document["schema_version"]?.GetValue<int>() != 1) errors.Add("descriptor inventory: expected schema_version 1");
+        if (string.IsNullOrWhiteSpace(document["inventory_id"]?.GetValue<string>())) errors.Add("descriptor inventory: inventory_id is required");
+        if (string.IsNullOrWhiteSpace(document["evidence_title"]?.GetValue<string>())) errors.Add("descriptor inventory: evidence_title is required");
+        if (!DateOnly.TryParse(document["captured_at"]?.GetValue<string>(), out _)) errors.Add("descriptor inventory: captured_at must be an ISO-8601 date");
+        if (document["scope"] is not JsonObject scope || Validation.JsonDocument(scope, "descriptor inventory scope", "method", "production_contract_rule", "sensitive_data").Count != 0)
+            errors.Add("descriptor inventory: scope must contain required evidence metadata");
         var entries = document["repositories"] as JsonArray;
         if (entries is null) return errors;
         var names = entries.Select(entry => entry?["repository"]?.GetValue<string>() ?? string.Empty).ToArray();
         if (!names.SequenceEqual(Repositories, StringComparer.Ordinal)) errors.Add("descriptor inventory: repository entries must be stable and ordered");
-        foreach (var entry in entries.OfType<JsonObject>())
+        for (var entryIndex = 0; entryIndex < entries.Count; entryIndex++)
         {
+            if (entries[entryIndex] is not JsonObject entry)
+            {
+                errors.Add($"descriptor inventory: repository {entryIndex + 1} must be an object");
+                continue;
+            }
+
             var repository = entry["repository"]?.GetValue<string>() ?? string.Empty;
+            foreach (var field in InventoryFields)
+                if (!entry.ContainsKey(field)) errors.Add($"{repository}: missing field {field}");
             var commit = entry["source_commit"]?.GetValue<string>() ?? string.Empty;
             if (!IsCommit(commit)) errors.Add($"{repository}: source_commit must be a lower-case immutable commit ID");
+            else VerifyCommit(repository, commit, "repository source_commit", errors);
             var state = entry["checkout_state"]?.GetValue<string>();
             if (state is not "clean" and not "dirty") errors.Add($"{repository}: checkout_state must be clean or dirty");
             if (entry["descriptors"] is not JsonArray descriptors || descriptors.Count == 0)
@@ -150,15 +168,24 @@ internal static class Phase0EvidenceCommand
                 continue;
             }
 
-            foreach (var descriptor in descriptors.OfType<JsonObject>())
+            for (var descriptorIndex = 0; descriptorIndex < descriptors.Count; descriptorIndex++)
             {
+                if (descriptors[descriptorIndex] is not JsonObject descriptor)
+                {
+                    errors.Add($"{repository}: descriptor {descriptorIndex + 1} must be an object");
+                    continue;
+                }
+
+                foreach (var field in DescriptorFields)
+                    if (!descriptor.ContainsKey(field)) errors.Add($"{repository}: descriptor {descriptorIndex + 1} missing field {field}");
                 var path = descriptor["path"]?.GetValue<string>() ?? string.Empty;
                 var sourceCommit = descriptor["source_commit"]?.GetValue<string>() ?? commit;
                 var hash = descriptor["source_sha256"]?.GetValue<string>() ?? string.Empty;
                 if (!IsPath(path)) errors.Add($"{repository}: descriptor path must be a fixed repository-relative source path");
                 if (!IsCommit(sourceCommit)) errors.Add($"{repository}:{path}: source_commit must be a lower-case immutable commit ID");
                 if (!IsHash(hash)) errors.Add($"{repository}:{path}: source_sha256 must be a lower-case SHA-256");
-                if (IsPath(path) && IsCommit(sourceCommit) && IsHash(hash)) VerifySource(repository, sourceCommit, path, hash, errors);
+                if (IsPath(path) && IsCommit(sourceCommit) && IsHash(hash))
+                    VerifySource(repository, sourceCommit, path, hash, errors);
             }
         }
 
@@ -167,13 +194,27 @@ internal static class Phase0EvidenceCommand
 
     public static List<string> ValidateWorkaroundLedger(JsonObject document)
     {
-        var errors = Validation.JsonDocument(document, "workaround ledger", "schema_version", "required_entry_fields", "closureEvidence", "entries", "gaps");
+        var errors = Validation.JsonDocument(document, "workaround ledger", "schema_version", "required_entry_fields", "closureEvidence", "archivalSourceEvidence", "entries", "gaps");
         if (document["schema_version"]?.GetValue<int>() != 2) errors.Add("workaround ledger: expected schema_version 2");
         var required = document["required_entry_fields"] as JsonArray;
         if (required is null || !required.Select(value => value?.GetValue<string>()).SequenceEqual(WorkaroundFields))
             errors.Add("workaround ledger: required_entry_fields are incomplete");
         var closures = document["closureEvidence"] as JsonObject;
         if (closures is null) errors.Add("workaround ledger: closureEvidence must be a record map");
+        else
+        {
+            var expected = Enumerable.Range(1, 22).Select(index => $"WRK-{index:000}").ToHashSet(StringComparer.Ordinal);
+            if (closures.Count != expected.Count || closures.Any(pair => !expected.Contains(pair.Key)))
+                errors.Add("workaround ledger: closureEvidence must have exactly WRK-001 through WRK-022 keys");
+        }
+        var archives = document["archivalSourceEvidence"] as JsonObject;
+        if (archives is null) errors.Add("workaround ledger: archivalSourceEvidence must be a record map");
+        else
+        {
+            var expected = Enumerable.Range(1, 22).Select(index => $"WRK-{index:000}").ToHashSet(StringComparer.Ordinal);
+            if (archives.Count != expected.Count || archives.Any(pair => !expected.Contains(pair.Key)))
+                errors.Add("workaround ledger: archivalSourceEvidence must have exactly WRK-001 through WRK-022 keys");
+        }
         var entries = document["entries"] as JsonArray;
         if (entries is null || entries.Count != 22) return errors;
         for (var index = 0; index < entries.Count; index++)
@@ -190,6 +231,7 @@ internal static class Phase0EvidenceCommand
                 if (!entry.ContainsKey(field)) errors.Add($"{id}: missing field {field}");
             var status = entry["status"]?.GetValue<string>();
             var closure = closures?[id];
+            ValidateArchiveSource(id, archives?[id] as JsonObject, errors);
             if (status == "identified")
             {
                 if (closure is not null) errors.Add($"{id}: identified work must have empty closureEvidence");
@@ -206,11 +248,15 @@ internal static class Phase0EvidenceCommand
 
     private static void VerifySource(string repository, string commit, string path, string hash, List<string> errors)
     {
+        if (!IsKnownRepository(repository))
+        {
+            errors.Add($"{repository}:{path}: repository is not a known workspace product");
+            return;
+        }
+
         try
         {
-            var workspace = Directory.GetParent(ToolingSupport.Root)?.FullName
-                ?? throw new DirectoryNotFoundException("workspace root is unavailable");
-            var source = ToolingSupport.Git(Path.Combine(workspace, repository), "show", $"{commit}:{path}");
+            var source = ToolingSupport.Git(RepositoryPath(repository), "show", $"{commit}:{path}");
             if (!string.Equals(ToolingSupport.Sha256Text(source), hash, StringComparison.Ordinal))
                 errors.Add($"{repository}:{path}: source_sha256 does not match git show {commit}:{path}");
         }
@@ -230,11 +276,71 @@ internal static class Phase0EvidenceCommand
 
         foreach (var field in ClosureFields)
             if (string.IsNullOrWhiteSpace(closure[field]?.GetValue<string>())) errors.Add($"{id}: closureEvidence requires {field}");
-        if (!IsCommit(closure["commit"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence commit must be immutable");
-        if (!IsPath(closure["path"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence path must be repository-relative");
-        if (!IsHash(closure["sha256"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence sha256 must be lower-case");
+        var repository = closure["repository"]?.GetValue<string>() ?? string.Empty;
+        var commit = closure["commit"]?.GetValue<string>() ?? string.Empty;
+        var path = closure["path"]?.GetValue<string>() ?? string.Empty;
+        var hash = closure["sha256"]?.GetValue<string>() ?? string.Empty;
+        if (!IsKnownRepository(repository)) errors.Add($"{id}: closureEvidence repository must be a known workspace product");
+        if (!IsCommit(commit)) errors.Add($"{id}: closureEvidence commit must be immutable");
+        if (!IsPath(path)) errors.Add($"{id}: closureEvidence path must be repository-relative");
+        if (!IsHash(hash)) errors.Add($"{id}: closureEvidence sha256 must be lower-case");
         if (!DateTimeOffset.TryParse(closure["timestamp"]?.GetValue<string>(), out _)) errors.Add($"{id}: closureEvidence timestamp must be ISO-8601");
+        if (IsKnownRepository(repository) && IsCommit(commit) && IsPath(path) && IsHash(hash))
+        {
+            VerifyCommit(repository, commit, $"{id}: closureEvidence commit", errors);
+            VerifySource(repository, commit, path, hash, errors);
+        }
     }
+
+    private static void ValidateArchiveSource(string id, JsonObject? source, List<string> errors)
+    {
+        if (source is null)
+        {
+            errors.Add($"{id}: archivalSourceEvidence requires an immutable source record");
+            return;
+        }
+
+        foreach (var field in ArchiveFields)
+            if (string.IsNullOrWhiteSpace(source[field]?.GetValue<string>())) errors.Add($"{id}: archivalSourceEvidence requires {field}");
+        var repository = source["repository"]?.GetValue<string>() ?? string.Empty;
+        var commit = source["commit"]?.GetValue<string>() ?? string.Empty;
+        var path = source["path"]?.GetValue<string>() ?? string.Empty;
+        var hash = source["sha256"]?.GetValue<string>() ?? string.Empty;
+        if (!IsKnownRepository(repository)) errors.Add($"{id}: archivalSourceEvidence repository must be a known workspace product");
+        if (!IsCommit(commit)) errors.Add($"{id}: archivalSourceEvidence commit must be immutable");
+        if (!IsPath(path)) errors.Add($"{id}: archivalSourceEvidence path must be repository-relative");
+        if (!IsHash(hash)) errors.Add($"{id}: archivalSourceEvidence sha256 must be lower-case");
+        if (IsKnownRepository(repository) && IsCommit(commit) && IsPath(path) && IsHash(hash))
+        {
+            VerifyCommit(repository, commit, $"{id}: archivalSourceEvidence commit", errors);
+            VerifySource(repository, commit, path, hash, errors);
+        }
+    }
+
+    private static void VerifyCommit(string repository, string commit, string where, List<string> errors)
+    {
+        if (!IsKnownRepository(repository))
+        {
+            errors.Add($"{where}: repository is not a known workspace product");
+            return;
+        }
+
+        try
+        {
+            ToolingSupport.Git(RepositoryPath(repository), "cat-file", "-e", $"{commit}^{{commit}}");
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"{repository}: {where} is unavailable ({exception.Message})");
+        }
+    }
+
+    private static string RepositoryPath(string repository) => Path.Combine(
+        Directory.GetParent(ToolingSupport.Root)?.FullName
+            ?? throw new DirectoryNotFoundException("workspace root is unavailable"),
+        repository);
+
+    private static bool IsKnownRepository(string repository) => Repositories.Contains(repository, StringComparer.Ordinal);
 
     private static bool IsCommit(string value) => Regex.IsMatch(value, "^[0-9a-f]{40}$");
     private static bool IsHash(string value) => Regex.IsMatch(value, "^[0-9a-f]{64}$");

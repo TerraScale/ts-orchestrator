@@ -74,9 +74,17 @@ internal static class ToolingTests
             ("owner missing question", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["questions", 4]), OwnerDecisionCommand.Validate)),
             ("owner semantic drift", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "question"], "drift"), OwnerDecisionCommand.Validate)),
             ("phase 0 evidence baseline", () => AssertPhase0Valid()),
+            ("phase 0 invalid schema version", () => AssertInvalid(Mutate("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", ["schema_version"], 2), Phase0EvidenceCommand.ValidateInventory)),
+            ("phase 0 scalar descriptor", () => AssertInvalid(Mutate("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", ["repositories", 0, "descriptors", 0], "invalid"), Phase0EvidenceCommand.ValidateInventory)),
             ("phase 0 malformed descriptor hash", () => AssertInvalid(Mutate("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", ["repositories", 0, "descriptors", 0, "source_sha256"], new string('A', 64)), Phase0EvidenceCommand.ValidateInventory)),
+            ("phase 0 unavailable repository commit", () => AssertInvalid(Mutate("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", ["repositories", 0, "source_commit"], new string('0', 40)), Phase0EvidenceCommand.ValidateInventory)),
             ("workaround illicit closure", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "status"], "retired"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround identified receipt", WorkaroundIdentifiedReceipt),
+            ("workaround missing closure key", WorkaroundMissingClosureKey),
+            ("workaround extra closure key", WorkaroundExtraClosureKey),
+            ("workaround unavailable closure receipt", WorkaroundUnavailableClosureReceipt),
+            ("workaround mismatched closure receipt", WorkaroundMismatchedClosureReceipt),
+            ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
             ("development evidence profile authorization", DevelopmentEvidenceProfiles),
@@ -131,6 +139,42 @@ internal static class ToolingTests
     {
         var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
         document["closureEvidence"]!["WRK-001"] = new JsonObject { ["repository"] = "TerraScale.Infrastructure" };
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundMissingClosureKey()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        document["closureEvidence"]!.AsObject().Remove("WRK-022");
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundExtraClosureKey()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        document["closureEvidence"]!["WRK-023"] = null;
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundUnavailableClosureReceipt() => AssertInvalidClosureReceipt(new string('0', 40), new string('a', 64));
+
+    private static void WorkaroundMismatchedClosureReceipt() => AssertInvalidClosureReceipt(
+        "9653c0a337fb252602899b594b315639d32c8b20", new string('a', 64));
+
+    private static void AssertInvalidClosureReceipt(string commit, string hash)
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        document["entries"]![0]!["status"] = "retired";
+        document["closureEvidence"]!["WRK-001"] = new JsonObject
+        {
+            ["repository"] = "TerraBase",
+            ["commit"] = commit,
+            ["path"] = "TerraBase.slnx",
+            ["sha256"] = hash,
+            ["gate"] = "L1",
+            ["timestamp"] = "2026-08-05T00:00:00Z",
+            ["authority"] = "test"
+        };
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 
