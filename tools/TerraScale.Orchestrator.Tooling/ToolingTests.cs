@@ -84,7 +84,9 @@ internal static class ToolingTests
             ("workaround extra closure key", WorkaroundExtraClosureKey),
             ("workaround unavailable closure receipt", WorkaroundUnavailableClosureReceipt),
             ("workaround mismatched closure receipt", WorkaroundMismatchedClosureReceipt),
-            ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", 0, "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround archival anchor drift", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("git bytes preserve non UTF-8 blob", GitBytesPreserveNonUtf8Blob),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
             ("development evidence profile authorization", DevelopmentEvidenceProfiles),
@@ -176,6 +178,27 @@ internal static class ToolingTests
             ["authority"] = "test"
         };
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void GitBytesPreserveNonUtf8Blob()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tooling-git-bytes-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "blob.bin");
+        var expected = new byte[] { 0xff, 0x00, 0x80, 0x0a };
+        File.WriteAllBytes(path, expected);
+        try
+        {
+            AssertEqual(0, ToolingSupport.RunProcess("git", ["init", "--quiet", root]).ExitCode);
+            var hash = ToolingSupport.Git(root, "hash-object", "-w", path).Trim();
+            var actual = ToolingSupport.GitBytes(root, "cat-file", "blob", hash);
+            if (!actual.SequenceEqual(expected)) throw new InvalidOperationException("git raw bytes changed a non-UTF-8 blob");
+            AssertEqual(ToolingSupport.Sha256Bytes(expected), ToolingSupport.Sha256Bytes(actual));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     private static void NoPythonSources()

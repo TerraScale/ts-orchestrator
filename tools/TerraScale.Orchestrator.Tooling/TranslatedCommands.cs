@@ -231,7 +231,7 @@ internal static class Phase0EvidenceCommand
                 if (!entry.ContainsKey(field)) errors.Add($"{id}: missing field {field}");
             var status = entry["status"]?.GetValue<string>();
             var closure = closures?[id];
-            ValidateArchiveSource(id, archives?[id] as JsonObject, errors);
+            ValidateArchiveSources(id, entry["source_anchors"] as JsonArray, archives?[id] as JsonArray, errors);
             if (status == "identified")
             {
                 if (closure is not null) errors.Add($"{id}: identified work must have empty closureEvidence");
@@ -256,8 +256,8 @@ internal static class Phase0EvidenceCommand
 
         try
         {
-            var source = ToolingSupport.Git(RepositoryPath(repository), "show", $"{commit}:{path}");
-            if (!string.Equals(ToolingSupport.Sha256Text(source), hash, StringComparison.Ordinal))
+            var source = ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}");
+            if (!string.Equals(ToolingSupport.Sha256Bytes(source), hash, StringComparison.Ordinal))
                 errors.Add($"{repository}:{path}: source_sha256 does not match git show {commit}:{path}");
         }
         catch (Exception exception)
@@ -292,15 +292,26 @@ internal static class Phase0EvidenceCommand
         }
     }
 
-    private static void ValidateArchiveSource(string id, JsonObject? source, List<string> errors)
+    private static void ValidateArchiveSources(string id, JsonArray? anchors, JsonArray? sources, List<string> errors)
     {
-        if (source is null)
+        if (anchors is null || sources is null)
         {
             errors.Add($"{id}: archivalSourceEvidence requires an immutable source record");
             return;
         }
 
-        foreach (var field in ArchiveFields)
+        var declared = anchors.Select(anchor => anchor?.GetValue<string>() ?? string.Empty).ToArray();
+        var recorded = sources.Select(source => source?["anchor"]?.GetValue<string>() ?? string.Empty).ToArray();
+        if (!recorded.SequenceEqual(declared, StringComparer.Ordinal))
+            errors.Add($"{id}: archivalSourceEvidence must exactly match declared source_anchors");
+        foreach (var source in sources.OfType<JsonObject>()) ValidateArchiveSource(id, source, errors);
+    }
+
+    private static void ValidateArchiveSource(string id, JsonObject? source, List<string> errors)
+    {
+        if (source is null) return;
+
+        foreach (var field in ArchiveFields.Append("anchor"))
             if (string.IsNullOrWhiteSpace(source[field]?.GetValue<string>())) errors.Add($"{id}: archivalSourceEvidence requires {field}");
         var repository = source["repository"]?.GetValue<string>() ?? string.Empty;
         var commit = source["commit"]?.GetValue<string>() ?? string.Empty;

@@ -95,6 +95,33 @@ internal static class ToolingSupport
         return result.StandardOutput;
     }
 
+    public static byte[] GitBytes(string repository, params string[] arguments)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            }
+        };
+        process.StartInfo.ArgumentList.Add("-C");
+        process.StartInfo.ArgumentList.Add(repository);
+        foreach (var argument in arguments) process.StartInfo.ArgumentList.Add(argument);
+        process.Start();
+        using var stdout = new MemoryStream();
+        var copy = process.StandardOutput.BaseStream.CopyToAsync(stdout);
+        var stderr = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        Task.WaitAll(copy, stderr);
+        if (process.ExitCode != 0) throw new InvalidOperationException(stderr.Result.Trim());
+        return stdout.ToArray();
+    }
+
+    public static string Sha256Bytes(byte[] value) => Convert.ToHexStringLower(SHA256.HashData(value));
+
     private static string FindRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

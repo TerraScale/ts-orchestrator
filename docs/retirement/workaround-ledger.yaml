@@ -3,58 +3,685 @@
   "ledger_id": "P0-03-retired-workaround-ledger-2026-08-05",
   "posture": "greenfield; identified items are not retired",
   "evidence_rule": "Archive anchors are historical/source observations. A native replacement is a requirement until its gate and approved repository-local cleanup receipt pass.",
-  "required_entry_fields": ["id","status","disposition","source_anchors","original_constraint","retained_semantic_behavior","native_replacement_requirement","native_replacement_gate","owner_workstream","phase_removal_task","regression_scenario","real_boundary_needed","recovery_rollback_boundary","external_authority_dependency","evidence_claim_status"],
-  "closureEvidence": {"WRK-001":null,"WRK-002":null,"WRK-003":null,"WRK-004":null,"WRK-005":null,"WRK-006":null,"WRK-007":null,"WRK-008":null,"WRK-009":null,"WRK-010":null,"WRK-011":null,"WRK-012":null,"WRK-013":null,"WRK-014":null,"WRK-015":null,"WRK-016":null,"WRK-017":null,"WRK-018":null,"WRK-019":null,"WRK-020":null,"WRK-021":null,"WRK-022":null},
+  "required_entry_fields": [
+    "id",
+    "status",
+    "disposition",
+    "source_anchors",
+    "original_constraint",
+    "retained_semantic_behavior",
+    "native_replacement_requirement",
+    "native_replacement_gate",
+    "owner_workstream",
+    "phase_removal_task",
+    "regression_scenario",
+    "real_boundary_needed",
+    "recovery_rollback_boundary",
+    "external_authority_dependency",
+    "evidence_claim_status"
+  ],
+  "closureEvidence": {
+    "WRK-001": null,
+    "WRK-002": null,
+    "WRK-003": null,
+    "WRK-004": null,
+    "WRK-005": null,
+    "WRK-006": null,
+    "WRK-007": null,
+    "WRK-008": null,
+    "WRK-009": null,
+    "WRK-010": null,
+    "WRK-011": null,
+    "WRK-012": null,
+    "WRK-013": null,
+    "WRK-014": null,
+    "WRK-015": null,
+    "WRK-016": null,
+    "WRK-017": null,
+    "WRK-018": null,
+    "WRK-019": null,
+    "WRK-020": null,
+    "WRK-021": null,
+    "WRK-022": null
+  },
   "archivalSourceEvidence": {
-    "WRK-001":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"AGENTS.md","sha256":"08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5"},
-    "WRK-002":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/clusters/production-gru/reconciliation.yaml","sha256":"5471818590e70e54874e76593e0fbd251022d12ffed56e72574f5b18473b6205"},
-    "WRK-003":{"repository":"TerraScale.Deploy","commit":"bd5ecec12efa857d098dfe12584c9a548eb3d06b","path":"src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs","sha256":"5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a"},
-    "WRK-004":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml","sha256":"17ad31816802f0276645546f3bfe3202304114b3e236c74bc10a378e11d31633"},
-    "WRK-005":{"repository":"TerraScale.Deploy","commit":"bd5ecec12efa857d098dfe12584c9a548eb3d06b","path":"src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs","sha256":"5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a"},
-    "WRK-006":{"repository":"Terrabase.Operator","commit":"de34c93938ded3cd1c032918093ceb4e749679df","path":"api/v1/cluster_types.go","sha256":"b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4"},
-    "WRK-007":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"src/TerraScale.Infrastructure/ObservabilityIngestTls.cs","sha256":"0f4c9137ce89e21508a7e90b877a3cf05d87a06960b1b3758364f51ffe4a5837"},
-    "WRK-008":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/observability/runtime-secrets/production/external-secrets.yaml","sha256":"6e80f0e86dbed4228040597b6a2a283874f1140f9f23a48547e92c8f71a8ee5f"},
-    "WRK-009":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/observability/resources/production/prometheus-rules.yaml","sha256":"efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215"},
-    "WRK-010":{"repository":"Terrabase.Operator","commit":"de34c93938ded3cd1c032918093ceb4e749679df","path":"api/v1/storage_types.go","sha256":"fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749"},
-    "WRK-011":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"AGENTS.md","sha256":"08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5"},
-    "WRK-012":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/observability/resources/production/prometheus-rules.yaml","sha256":"efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215"},
-    "WRK-013":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"gitops/observability/resources/production/terrascale-service-dashboards.yaml","sha256":"5f5ed9947f09663166c4abf6585cdef1cdc00157f224758af505fc9277d3b834"},
-    "WRK-014":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"Pulumi.production-sfo.yaml","sha256":"c2372cc5bcdf9f2950fa43bcd472fb0d4ceb9bfc93946fdaceee4dc5d8d22dc8"},
-    "WRK-015":{"repository":"TerraScale.TypeScript","commit":"cd7da11eac891ea2a39eb12014b3abc35d45a412","path":"src/regions.ts","sha256":"f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57"},
-    "WRK-016":{"repository":"TerraScale.Internals","commit":"88cc11fa9562b8c71dadfa6b0515a3d6ec32aacf","path":".terrascale/deploy.json","sha256":"aab0bf12783784e19ae95df2c2513cf818001413b85e9e15e5c02f32a6a3e048"},
-    "WRK-017":{"repository":"Terrascale.Documentation","commit":"03287808a23cadad5dd83309df8cc63b5d5c46d7","path":"src/content/docs/en/reference/regions.svx","sha256":"2c95e7cb4b8c730fab5e24b15d51787212dea0fc27a28634476e1179f858066f"},
-    "WRK-018":{"repository":"TerraScale.Infrastructure","commit":"d924f26b5ceb2759e6143f3e90b78a019d79e73b","path":"src/TerraScale.Infrastructure/Program.cs","sha256":"f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4"},
-    "WRK-019":{"repository":"TerraScale.Deploy","commit":"6d56564e16308e2334f76a8635c01f7a621e76da","path":"src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs","sha256":"e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58"},
-    "WRK-020":{"repository":"Terrabase.Operator","commit":"de34c93938ded3cd1c032918093ceb4e749679df","path":"cmd/main.go","sha256":"ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a"},
-    "WRK-021":{"repository":"Terrascale.Documentation","commit":"03287808a23cadad5dd83309df8cc63b5d5c46d7","path":"src/content/docs/en/reference/api/index.svx","sha256":"e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462"},
-    "WRK-022":{"repository":"TerraScale.TypeScript","commit":"cd7da11eac891ea2a39eb12014b3abc35d45a412","path":"src/regions.ts","sha256":"f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57"}
+    "WRK-001": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "AGENTS.md",
+        "sha256": "08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5",
+        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:66"
+      },
+      {
+        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13",
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "src/TerraScale.Infrastructure/Program.cs",
+        "sha256": "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4"
+      }
+    ],
+    "WRK-002": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/clusters/production-gru/reconciliation.yaml",
+        "sha256": "5471818590e70e54874e76593e0fbd251022d12ffed56e72574f5b18473b6205",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70"
+      }
+    ],
+    "WRK-003": [
+      {
+        "repository": "TerraScale.Deploy",
+        "commit": "bd5ecec12efa857d098dfe12584c9a548eb3d06b",
+        "path": "src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs",
+        "sha256": "5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a",
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959"
+      }
+    ],
+    "WRK-004": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml",
+        "sha256": "17ad31816802f0276645546f3bfe3202304114b3e236c74bc10a378e11d31633",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45"
+      }
+    ],
+    "WRK-005": [
+      {
+        "repository": "TerraScale.Deploy",
+        "commit": "bd5ecec12efa857d098dfe12584c9a548eb3d06b",
+        "path": "src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs",
+        "sha256": "5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a",
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280"
+      }
+    ],
+    "WRK-006": [
+      {
+        "repository": "Terrabase.Operator",
+        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
+        "path": "api/v1/cluster_types.go",
+        "sha256": "b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4",
+        "anchor": "archive:Terrabase.Operator/api/v1/cluster_types.go:7"
+      }
+    ],
+    "WRK-007": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "src/TerraScale.Infrastructure/ObservabilityIngestTls.cs",
+        "sha256": "0f4c9137ce89e21508a7e90b877a3cf05d87a06960b1b3758364f51ffe4a5837",
+        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101"
+      }
+    ],
+    "WRK-008": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/observability/runtime-secrets/production/external-secrets.yaml",
+        "sha256": "6e80f0e86dbed4228040597b6a2a283874f1140f9f23a48547e92c8f71a8ee5f",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2"
+      }
+    ],
+    "WRK-009": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/observability/resources/production/prometheus-rules.yaml",
+        "sha256": "efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124"
+      }
+    ],
+    "WRK-010": [
+      {
+        "repository": "Terrabase.Operator",
+        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
+        "path": "api/v1/storage_types.go",
+        "sha256": "fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749",
+        "anchor": "archive:Terrabase.Operator/api/v1/storage_types.go:79"
+      }
+    ],
+    "WRK-011": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "AGENTS.md",
+        "sha256": "08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5",
+        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:69"
+      }
+    ],
+    "WRK-012": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/observability/resources/production/prometheus-rules.yaml",
+        "sha256": "efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253"
+      }
+    ],
+    "WRK-013": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "gitops/observability/resources/production/terrascale-service-dashboards.yaml",
+        "sha256": "5f5ed9947f09663166c4abf6585cdef1cdc00157f224758af505fc9277d3b834",
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7"
+      }
+    ],
+    "WRK-014": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "Pulumi.production-sfo.yaml",
+        "sha256": "c2372cc5bcdf9f2950fa43bcd472fb0d4ceb9bfc93946fdaceee4dc5d8d22dc8",
+        "anchor": "archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20"
+      }
+    ],
+    "WRK-015": [
+      {
+        "repository": "TerraScale.TypeScript",
+        "commit": "cd7da11eac891ea2a39eb12014b3abc35d45a412",
+        "path": "src/regions.ts",
+        "sha256": "f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57",
+        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:15"
+      }
+    ],
+    "WRK-016": [
+      {
+        "repository": "TerraScale.Internals",
+        "commit": "88cc11fa9562b8c71dadfa6b0515a3d6ec32aacf",
+        "path": ".terrascale/deploy.json",
+        "sha256": "aab0bf12783784e19ae95df2c2513cf818001413b85e9e15e5c02f32a6a3e048",
+        "anchor": "current+archive:TerraScale.Internals/.terrascale/deploy.json:17"
+      }
+    ],
+    "WRK-017": [
+      {
+        "repository": "Terrascale.Documentation",
+        "commit": "03287808a23cadad5dd83309df8cc63b5d5c46d7",
+        "path": "src/content/docs/en/reference/regions.svx",
+        "sha256": "2c95e7cb4b8c730fab5e24b15d51787212dea0fc27a28634476e1179f858066f",
+        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74"
+      }
+    ],
+    "WRK-018": [
+      {
+        "repository": "TerraScale.Infrastructure",
+        "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
+        "path": "src/TerraScale.Infrastructure/Program.cs",
+        "sha256": "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4",
+        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366"
+      }
+    ],
+    "WRK-019": [
+      {
+        "repository": "TerraScale.Deploy",
+        "commit": "6d56564e16308e2334f76a8635c01f7a621e76da",
+        "path": "src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs",
+        "sha256": "e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58",
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7"
+      }
+    ],
+    "WRK-020": [
+      {
+        "repository": "Terrabase.Operator",
+        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
+        "path": "cmd/main.go",
+        "sha256": "ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a",
+        "anchor": "archive:Terrabase.Operator/cmd/main.go:93"
+      }
+    ],
+    "WRK-021": [
+      {
+        "repository": "Terrascale.Documentation",
+        "commit": "03287808a23cadad5dd83309df8cc63b5d5c46d7",
+        "path": "src/content/docs/en/reference/api/index.svx",
+        "sha256": "e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462",
+        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20"
+      }
+    ],
+    "WRK-022": [
+      {
+        "repository": "TerraScale.TypeScript",
+        "commit": "cd7da11eac891ea2a39eb12014b3abc35d45a412",
+        "path": "src/regions.ts",
+        "sha256": "f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57",
+        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:81"
+      }
+    ]
   },
   "entries": [
-    {"id":"WRK-001","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/AGENTS.md:66","archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13"],"original_constraint":"OKE, CNI/CSI, pools and duplicate controllers supplied capacity.","retained_semantic_behavior":"isolated capacity, admission, spread and elastic growth.","native_replacement_requirement":"direct A1 hosts with regional scheduler/agent, cgroups, systemd and containerd.","native_replacement_gate":"L3S host admission plus L4 density/cost evidence.","owner_workstream":"Cloud","phase_removal_task":"cleanup-after-L3S-host-admission / pending-WRK-001","regression_scenario":"density, host loss, scale out/in and seven-day cost","real_boundary_needed":"OCI A1 host/cost","recovery_rollback_boundary":"Pulumi foundation; journal resumes operations.","external_authority_dependency":"P0-02/P0-04B provider access","evidence_claim_status":"archive-verified; provider cleanup unverified"},
-    {"id":"WRK-002","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70"],"original_constraint":"Flux acknowledged before dependencies were healthy.","retained_semantic_behavior":"ordered health-gated restart-safe acknowledgement.","native_replacement_requirement":"typed dependency/health state machine and journal receipt.","native_replacement_gate":"L2/L3S checkpoint crash and dependency failure proof.","owner_workstream":"Delivery","phase_removal_task":"cleanup-after-native-reconcile-L3S / pending-WRK-002","regression_scenario":"dependency failure and restart at each checkpoint","real_boundary_needed":"regional NATS/controller lab","recovery_rollback_boundary":"regional journal and last CellSpec","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-003","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959"],"original_constraint":"webhook did not prove reconciliation, causing forced kubectl and polling.","retained_semantic_behavior":"prompt trigger, durable acceptance, replay and visible failure.","native_replacement_requirement":"signed fenced reconcile command journal.","native_replacement_gate":"L2/L3S webhook/NATS/crash/duplicate/stale-writer proof.","owner_workstream":"Delivery","phase_removal_task":"cleanup-after-command-journal-L3S / pending-WRK-003","regression_scenario":"lost webhook, NATS, crash and stale replay","real_boundary_needed":"regional NATS/controller lab","recovery_rollback_boundary":"JetStream replay under generation/fence","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-004","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45"],"original_constraint":"multiple image writers raced.","retained_semantic_behavior":"build-once immutable promotion and safe rollback.","native_replacement_requirement":"fenced writer, promotion lease and digest CAS.","native_replacement_gate":"L2/L3S concurrent publisher and rollback proof.","owner_workstream":"Delivery","phase_removal_task":"cleanup-after-release-fencing-L3S / pending-WRK-004","regression_scenario":"lease expiry, stale writer, partial promotion","real_boundary_needed":"NATS/promotion store","recovery_rollback_boundary":"newer fence and immutable digest","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-005","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280"],"original_constraint":"kubectl contexts, polling and shell phases assembled rollout state.","retained_semantic_behavior":"cross-region progress, timeout, same digest and resume.","native_replacement_requirement":"typed regional operations/checkpoints/global digest barrier.","native_replacement_gate":"L2/L3S crash, timeout, WAN loss and retry proof.","owner_workstream":"Delivery","phase_removal_task":"cleanup-after-deployment-state-machine-L3S / pending-WRK-005","regression_scenario":"partial convergence and regional timeout","real_boundary_needed":"three-region RF1 lab","recovery_rollback_boundary":"regional accepted operation; global freeze","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-006","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:Terrabase.Operator/api/v1/cluster_types.go:7"],"original_constraint":"Kubernetes objects supplied database lifecycle.","retained_semantic_behavior":"stable members/volumes, safe upgrades, backup/restore.","native_replacement_requirement":"C# TerraBase member, volume, topology, upgrade and backup state machines.","native_replacement_gate":"ported operator safety tests plus destructive checkpoint proof.","owner_workstream":"TerraBase","phase_removal_task":"cleanup-after-terrabase-L3S-and-destructive-suite / pending-WRK-006","regression_scenario":"one-member upgrade and destructive crashes","real_boundary_needed":"TerraBase admin plus OCI storage","recovery_rollback_boundary":"stable identities and fenced journals","external_authority_dependency":"TerraBase admin contract","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-007","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101"],"original_constraint":"cert-manager and shared telemetry certificate.","retained_semantic_behavior":"issuance, trust, renewal, revocation and mTLS.","native_replacement_requirement":"regional PKI with unique workload identities and dual-bundle rotation.","native_replacement_gate":"L2/L3S identity/rotation/revocation/captured-output proof.","owner_workstream":"Messaging/security","phase_removal_task":"cleanup-after-PKI-rotation-L3S / pending-WRK-007","regression_scenario":"stolen certificate and renewal","real_boundary_needed":"PKI/Vault and mTLS runtime","recovery_rollback_boundary":"regional renewal; OCI root protection","external_authority_dependency":"security/OCI Vault authority","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-008","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2"],"original_constraint":"External Secrets and broad instance principals.","retained_semantic_behavior":"encrypted delivery, rotation and workload auth.","native_replacement_requirement":"closed vault lease policy and least-privilege identity.","native_replacement_gate":"L2/L3S/L4 denial, stolen-node and OCI IAM proof.","owner_workstream":"Messaging/security","phase_removal_task":"cleanup-after-vault-denial-L3S / pending-WRK-008","regression_scenario":"cross-workload denial and lease expiry","real_boundary_needed":"OCI IAM/Vault","recovery_rollback_boundary":"ciphertext/root stays in Vault/KMS","external_authority_dependency":"OCI IAM/Vault access","evidence_claim_status":"archive-verified; provider state unverified"},
-    {"id":"WRK-009","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124"],"original_constraint":"generic Kubernetes API needed admission policies.","retained_semantic_behavior":"closed role admission and capability/resource denial.","native_replacement_requirement":"exhaustive C# role catalog/schema/compiler.","native_replacement_gate":"L1/L2 invalid manifest corpus.","owner_workstream":"Runtime","phase_removal_task":"cleanup-after-admission-model-tests / pending-WRK-009","regression_scenario":"invalid role, mount, device and placement","real_boundary_needed":"compiler/persistence boundary","recovery_rollback_boundary":"last validated signed CellSpec","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-010","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:Terrabase.Operator/api/v1/storage_types.go:79"],"original_constraint":"PVC resize lacked end-to-end completion proof.","retained_semantic_behavior":"single-writer expand-only online growth/status.","native_replacement_requirement":"fenced provider/device/filesystem/TerraBase expansion journal.","native_replacement_gate":"L2/L3S/L4 crash/stale-writer real resize proof.","owner_workstream":"Storage","phase_removal_task":"cleanup-after-destructive-storage-L3S-and-L4 / pending-WRK-010","regression_scenario":"every expansion checkpoint","real_boundary_needed":"OCI block volume, filesystem, TerraBase","recovery_rollback_boundary":"no rollback/two-writer attachment","external_authority_dependency":"OCI/TerraBase access","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-011","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/AGENTS.md:69"],"original_constraint":"HPA and Cluster Autoscaler duplicated floors.","retained_semantic_behavior":"R3 floor, demand growth, safe scale-in and budget.","native_replacement_requirement":"one scheduler/provider autoscaler.","native_replacement_gate":"L2/L3S/L4 oscillation/orphan/cost proof.","owner_workstream":"Core","phase_removal_task":"cleanup-after-autoscaling-L3S-and-L4 / pending-WRK-011","regression_scenario":"burst, capacity denial, DB floor","real_boundary_needed":"OCI capacity/cost","recovery_rollback_boundary":"regional pre-authorized limits","external_authority_dependency":"approved SLOs and OCI","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-012","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253"],"original_constraint":"Kubernetes labels/monitors were inventory authority.","retained_semantic_behavior":"complete inventory, labels, discovery and cardinality.","native_replacement_requirement":"host-agent registry and generated OTel targets.","native_replacement_gate":"L2/L3S server inventory/restart/stale-target proof.","owner_workstream":"Operations","phase_removal_task":"cleanup-after-full-inventory-L3S / pending-WRK-012","regression_scenario":"label stability and cardinality","real_boundary_needed":"host agent/OTel/Grafana","recovery_rollback_boundary":"bounded regional spool/discovery","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-013","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7"],"original_constraint":"Grafana state was Kubernetes-local and metrics-inferred.","retained_semantic_behavior":"immutable dashboards, replicated availability and exact status.","native_replacement_requirement":"replicated provisioning plus sanitized freshness-aware projection.","native_replacement_gate":"L2/L3S node loss/stale projection/rebuild proof.","owner_workstream":"Operations","phase_removal_task":"cleanup-after-GRU-one-node-loss-L3S / pending-WRK-013","regression_scenario":"one node loss and unauthorized-field scan","real_boundary_needed":"Grafana/control journal","recovery_rollback_boundary":"Grafana read-only; journal authoritative","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-014","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20"],"original_constraint":"VPN lifecycle was assumed, not implemented.","retained_semantic_behavior":"private routes, least privilege and regional autonomy.","native_replacement_requirement":"selected WireGuard implementation and route-policy controller.","native_replacement_gate":"L3S/L4 GRU-loss, route denial and OCI UDP proof.","owner_workstream":"Operations","phase_removal_task":"qualification-before-production / pending-WRK-014","regression_scenario":"peer rotation/revocation/failover","real_boundary_needed":"OCI network","recovery_rollback_boundary":"existing routes continue; global policy freezes","external_authority_dependency":"network/security selection","evidence_claim_status":"archive-verified; native choice open"},
-    {"id":"WRK-015","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.TypeScript/src/regions.ts:15"],"original_constraint":"three OCI regions were compile-time constants.","retained_semantic_behavior":"stable aliases, compatibility and deterministic selection.","native_replacement_requirement":"signed provider-discovered catalog with at least 20 qualified OCI regions.","native_replacement_gate":"L1/L2/L4 signature, compatibility and eligibility proof.","owner_workstream":"Cloud","phase_removal_task":"contract-freeze-and-client-cleanup / pending-WRK-015","regression_scenario":"unknown region and catalog compatibility","real_boundary_needed":"provider region discovery","recovery_rollback_boundary":"last signed catalog","external_authority_dependency":"P0-04A","evidence_claim_status":"archive-verified; catalog unqualified"},
-    {"id":"WRK-016","status":"identified","disposition":"retain-until-native-gate","source_anchors":["current+archive:TerraScale.Internals/.terrascale/deploy.json:17"],"original_constraint":"CI evolved independently and omitted Authentication build target.","retained_semantic_behavior":"affected validation, every role build, immutable promotion and recovery exception.","native_replacement_requirement":"exhaustive role/build inventory and typed native pipeline.","native_replacement_gate":"L1/L2/L3S role matrix, digest and recovery proof.","owner_workstream":"Delivery","phase_removal_task":"native-pipeline-L3S / pending-WRK-016","regression_scenario":"every admitted role and bootstrap recovery","real_boundary_needed":"CI/Forgejo and regional runtime","recovery_rollback_boundary":"independent orchestrator bootstrap lane","external_authority_dependency":"CI/Forgejo authority","evidence_claim_status":"current source verified; not retired"},
-    {"id":"WRK-017","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74"],"original_constraint":"docs/manifests/verifiers duplicated topology claims.","retained_semantic_behavior":"public promises, validation and runbooks.","native_replacement_requirement":"versioned C# contracts generate schemas/docs/dashboards/fixtures.","native_replacement_gate":"L1/L2 deliberate drift and clean regeneration.","owner_workstream":"Integration/contract steward","phase_removal_task":"contract-freeze / pending-WRK-017","regression_scenario":"RF/minima/storage/catalog mutation","real_boundary_needed":"generation/CI boundary","recovery_rollback_boundary":"versioned generated artifacts","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-018","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366"],"original_constraint":"deleted OKE estate may leave source/cloud remnants.","retained_semantic_behavior":"inventory, ownership attribution, quarantine and auditable cleanup.","native_replacement_requirement":"greenfield Pulumi and approved positive-identity cleanup.","native_replacement_gate":"L1/L3S/L4 parser/credential scan plus provider inventory.","owner_workstream":"Cross-repository cleanup","phase_removal_task":"P0-02 then one WRK-scoped cleanup package/repository","regression_scenario":"forbidden parser/credential and orphan inventory","real_boundary_needed":"OCI read-only inventory","recovery_rollback_boundary":"independently revertible cleanup; quarantine unknowns","external_authority_dependency":"P0-02 and explicit cleanup approval","evidence_claim_status":"archive-verified; cloud remnants unverified"},
-    {"id":"WRK-019","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7"],"original_constraint":"Kubernetes discovery/Flux status forced polling/retry.","retained_semantic_behavior":"bounded wait, cancellation, progress and diagnostics.","native_replacement_requirement":"durable receipts/event watch with bounded reconnect.","native_replacement_gate":"L2/L3S disconnect/replay/cancel/deadline proof.","owner_workstream":"Operations","phase_removal_task":"cleanup-after-operation-watch-L3S / pending-WRK-019","regression_scenario":"missed event and duplicate terminal event","real_boundary_needed":"NATS/controller","recovery_rollback_boundary":"durable sequence/authoritative state","external_authority_dependency":"none","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-020","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:Terrabase.Operator/cmd/main.go:93"],"original_constraint":"webhook/Secret mount bootstrap and polling.","retained_semantic_behavior":"fail-closed plan, peer trust and bounded reconciliation.","native_replacement_requirement":"typed plans, host identity certificate delivery and admin events.","native_replacement_gate":"L1/L2/L3S invalid plan/cert/peer/restart proof.","owner_workstream":"TerraBase","phase_removal_task":"cleanup-after-terrabase-bootstrap-L3S / pending-WRK-020","regression_scenario":"rotated cert, mirror lag and stale generation","real_boundary_needed":"TerraBase admin/identity","recovery_rollback_boundary":"regional identity renewal; fenced topology","external_authority_dependency":"TerraBase contract","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-021","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20"],"original_constraint":"manual documentation/fixed OpenAPI copy list.","retained_semantic_behavior":"complete public reference and stable contracts.","native_replacement_requirement":"canonical registry generates OpenAPI/docs with drift gates.","native_replacement_gate":"L1/L2 route coverage/no internal leak/clean generation.","owner_workstream":"Integration/contract steward","phase_removal_task":"contract-generation / pending-WRK-021","regression_scenario":"all public routes/localization completeness","real_boundary_needed":"Platform/OpenAPI/Docs pipeline","recovery_rollback_boundary":"versioned published docs","external_authority_dependency":"API architecture steward","evidence_claim_status":"archive-verified; not retired"},
-    {"id":"WRK-022","status":"identified","disposition":"retain-until-native-gate","source_anchors":["archive:TerraScale.TypeScript/src/regions.ts:81"],"original_constraint":"invalid region silently fell back to GRU.","retained_semantic_behavior":"approved absent-input default, aliases and clear validation.","native_replacement_requirement":"catalog-aware typed placement errors.","native_replacement_gate":"L1/L2 absent/invalid/unavailable/stale catalog proof.","owner_workstream":"Integration/contract steward","phase_removal_task":"catalog-contract-freeze / pending-WRK-022","regression_scenario":"invalid alias and explicit GRU preference","real_boundary_needed":"catalog/SDK contract boundary","recovery_rollback_boundary":"last catalog and explicit policy","external_authority_dependency":"P0-04A/catalog authority","evidence_claim_status":"archive-verified; not retired"}
+    {
+      "id": "WRK-001",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/AGENTS.md:66",
+        "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13"
+      ],
+      "original_constraint": "OKE, CNI/CSI, pools and duplicate controllers supplied capacity.",
+      "retained_semantic_behavior": "isolated capacity, admission, spread and elastic growth.",
+      "native_replacement_requirement": "direct A1 hosts with regional scheduler/agent, cgroups, systemd and containerd.",
+      "native_replacement_gate": "L3S host admission plus L4 density/cost evidence.",
+      "owner_workstream": "Cloud",
+      "phase_removal_task": "cleanup-after-L3S-host-admission / pending-WRK-001",
+      "regression_scenario": "density, host loss, scale out/in and seven-day cost",
+      "real_boundary_needed": "OCI A1 host/cost",
+      "recovery_rollback_boundary": "Pulumi foundation; journal resumes operations.",
+      "external_authority_dependency": "P0-02/P0-04B provider access",
+      "evidence_claim_status": "archive-verified; provider cleanup unverified"
+    },
+    {
+      "id": "WRK-002",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70"
+      ],
+      "original_constraint": "Flux acknowledged before dependencies were healthy.",
+      "retained_semantic_behavior": "ordered health-gated restart-safe acknowledgement.",
+      "native_replacement_requirement": "typed dependency/health state machine and journal receipt.",
+      "native_replacement_gate": "L2/L3S checkpoint crash and dependency failure proof.",
+      "owner_workstream": "Delivery",
+      "phase_removal_task": "cleanup-after-native-reconcile-L3S / pending-WRK-002",
+      "regression_scenario": "dependency failure and restart at each checkpoint",
+      "real_boundary_needed": "regional NATS/controller lab",
+      "recovery_rollback_boundary": "regional journal and last CellSpec",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-003",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959"
+      ],
+      "original_constraint": "webhook did not prove reconciliation, causing forced kubectl and polling.",
+      "retained_semantic_behavior": "prompt trigger, durable acceptance, replay and visible failure.",
+      "native_replacement_requirement": "signed fenced reconcile command journal.",
+      "native_replacement_gate": "L2/L3S webhook/NATS/crash/duplicate/stale-writer proof.",
+      "owner_workstream": "Delivery",
+      "phase_removal_task": "cleanup-after-command-journal-L3S / pending-WRK-003",
+      "regression_scenario": "lost webhook, NATS, crash and stale replay",
+      "real_boundary_needed": "regional NATS/controller lab",
+      "recovery_rollback_boundary": "JetStream replay under generation/fence",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-004",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45"
+      ],
+      "original_constraint": "multiple image writers raced.",
+      "retained_semantic_behavior": "build-once immutable promotion and safe rollback.",
+      "native_replacement_requirement": "fenced writer, promotion lease and digest CAS.",
+      "native_replacement_gate": "L2/L3S concurrent publisher and rollback proof.",
+      "owner_workstream": "Delivery",
+      "phase_removal_task": "cleanup-after-release-fencing-L3S / pending-WRK-004",
+      "regression_scenario": "lease expiry, stale writer, partial promotion",
+      "real_boundary_needed": "NATS/promotion store",
+      "recovery_rollback_boundary": "newer fence and immutable digest",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-005",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280"
+      ],
+      "original_constraint": "kubectl contexts, polling and shell phases assembled rollout state.",
+      "retained_semantic_behavior": "cross-region progress, timeout, same digest and resume.",
+      "native_replacement_requirement": "typed regional operations/checkpoints/global digest barrier.",
+      "native_replacement_gate": "L2/L3S crash, timeout, WAN loss and retry proof.",
+      "owner_workstream": "Delivery",
+      "phase_removal_task": "cleanup-after-deployment-state-machine-L3S / pending-WRK-005",
+      "regression_scenario": "partial convergence and regional timeout",
+      "real_boundary_needed": "three-region RF1 lab",
+      "recovery_rollback_boundary": "regional accepted operation; global freeze",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-006",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:Terrabase.Operator/api/v1/cluster_types.go:7"
+      ],
+      "original_constraint": "Kubernetes objects supplied database lifecycle.",
+      "retained_semantic_behavior": "stable members/volumes, safe upgrades, backup/restore.",
+      "native_replacement_requirement": "C# TerraBase member, volume, topology, upgrade and backup state machines.",
+      "native_replacement_gate": "ported operator safety tests plus destructive checkpoint proof.",
+      "owner_workstream": "TerraBase",
+      "phase_removal_task": "cleanup-after-terrabase-L3S-and-destructive-suite / pending-WRK-006",
+      "regression_scenario": "one-member upgrade and destructive crashes",
+      "real_boundary_needed": "TerraBase admin plus OCI storage",
+      "recovery_rollback_boundary": "stable identities and fenced journals",
+      "external_authority_dependency": "TerraBase admin contract",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-007",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101"
+      ],
+      "original_constraint": "cert-manager and shared telemetry certificate.",
+      "retained_semantic_behavior": "issuance, trust, renewal, revocation and mTLS.",
+      "native_replacement_requirement": "regional PKI with unique workload identities and dual-bundle rotation.",
+      "native_replacement_gate": "L2/L3S identity/rotation/revocation/captured-output proof.",
+      "owner_workstream": "Messaging/security",
+      "phase_removal_task": "cleanup-after-PKI-rotation-L3S / pending-WRK-007",
+      "regression_scenario": "stolen certificate and renewal",
+      "real_boundary_needed": "PKI/Vault and mTLS runtime",
+      "recovery_rollback_boundary": "regional renewal; OCI root protection",
+      "external_authority_dependency": "security/OCI Vault authority",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-008",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2"
+      ],
+      "original_constraint": "External Secrets and broad instance principals.",
+      "retained_semantic_behavior": "encrypted delivery, rotation and workload auth.",
+      "native_replacement_requirement": "closed vault lease policy and least-privilege identity.",
+      "native_replacement_gate": "L2/L3S/L4 denial, stolen-node and OCI IAM proof.",
+      "owner_workstream": "Messaging/security",
+      "phase_removal_task": "cleanup-after-vault-denial-L3S / pending-WRK-008",
+      "regression_scenario": "cross-workload denial and lease expiry",
+      "real_boundary_needed": "OCI IAM/Vault",
+      "recovery_rollback_boundary": "ciphertext/root stays in Vault/KMS",
+      "external_authority_dependency": "OCI IAM/Vault access",
+      "evidence_claim_status": "archive-verified; provider state unverified"
+    },
+    {
+      "id": "WRK-009",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124"
+      ],
+      "original_constraint": "generic Kubernetes API needed admission policies.",
+      "retained_semantic_behavior": "closed role admission and capability/resource denial.",
+      "native_replacement_requirement": "exhaustive C# role catalog/schema/compiler.",
+      "native_replacement_gate": "L1/L2 invalid manifest corpus.",
+      "owner_workstream": "Runtime",
+      "phase_removal_task": "cleanup-after-admission-model-tests / pending-WRK-009",
+      "regression_scenario": "invalid role, mount, device and placement",
+      "real_boundary_needed": "compiler/persistence boundary",
+      "recovery_rollback_boundary": "last validated signed CellSpec",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-010",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:Terrabase.Operator/api/v1/storage_types.go:79"
+      ],
+      "original_constraint": "PVC resize lacked end-to-end completion proof.",
+      "retained_semantic_behavior": "single-writer expand-only online growth/status.",
+      "native_replacement_requirement": "fenced provider/device/filesystem/TerraBase expansion journal.",
+      "native_replacement_gate": "L2/L3S/L4 crash/stale-writer real resize proof.",
+      "owner_workstream": "Storage",
+      "phase_removal_task": "cleanup-after-destructive-storage-L3S-and-L4 / pending-WRK-010",
+      "regression_scenario": "every expansion checkpoint",
+      "real_boundary_needed": "OCI block volume, filesystem, TerraBase",
+      "recovery_rollback_boundary": "no rollback/two-writer attachment",
+      "external_authority_dependency": "OCI/TerraBase access",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-011",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/AGENTS.md:69"
+      ],
+      "original_constraint": "HPA and Cluster Autoscaler duplicated floors.",
+      "retained_semantic_behavior": "R3 floor, demand growth, safe scale-in and budget.",
+      "native_replacement_requirement": "one scheduler/provider autoscaler.",
+      "native_replacement_gate": "L2/L3S/L4 oscillation/orphan/cost proof.",
+      "owner_workstream": "Core",
+      "phase_removal_task": "cleanup-after-autoscaling-L3S-and-L4 / pending-WRK-011",
+      "regression_scenario": "burst, capacity denial, DB floor",
+      "real_boundary_needed": "OCI capacity/cost",
+      "recovery_rollback_boundary": "regional pre-authorized limits",
+      "external_authority_dependency": "approved SLOs and OCI",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-012",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253"
+      ],
+      "original_constraint": "Kubernetes labels/monitors were inventory authority.",
+      "retained_semantic_behavior": "complete inventory, labels, discovery and cardinality.",
+      "native_replacement_requirement": "host-agent registry and generated OTel targets.",
+      "native_replacement_gate": "L2/L3S server inventory/restart/stale-target proof.",
+      "owner_workstream": "Operations",
+      "phase_removal_task": "cleanup-after-full-inventory-L3S / pending-WRK-012",
+      "regression_scenario": "label stability and cardinality",
+      "real_boundary_needed": "host agent/OTel/Grafana",
+      "recovery_rollback_boundary": "bounded regional spool/discovery",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-013",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7"
+      ],
+      "original_constraint": "Grafana state was Kubernetes-local and metrics-inferred.",
+      "retained_semantic_behavior": "immutable dashboards, replicated availability and exact status.",
+      "native_replacement_requirement": "replicated provisioning plus sanitized freshness-aware projection.",
+      "native_replacement_gate": "L2/L3S node loss/stale projection/rebuild proof.",
+      "owner_workstream": "Operations",
+      "phase_removal_task": "cleanup-after-GRU-one-node-loss-L3S / pending-WRK-013",
+      "regression_scenario": "one node loss and unauthorized-field scan",
+      "real_boundary_needed": "Grafana/control journal",
+      "recovery_rollback_boundary": "Grafana read-only; journal authoritative",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-014",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20"
+      ],
+      "original_constraint": "VPN lifecycle was assumed, not implemented.",
+      "retained_semantic_behavior": "private routes, least privilege and regional autonomy.",
+      "native_replacement_requirement": "selected WireGuard implementation and route-policy controller.",
+      "native_replacement_gate": "L3S/L4 GRU-loss, route denial and OCI UDP proof.",
+      "owner_workstream": "Operations",
+      "phase_removal_task": "qualification-before-production / pending-WRK-014",
+      "regression_scenario": "peer rotation/revocation/failover",
+      "real_boundary_needed": "OCI network",
+      "recovery_rollback_boundary": "existing routes continue; global policy freezes",
+      "external_authority_dependency": "network/security selection",
+      "evidence_claim_status": "archive-verified; native choice open"
+    },
+    {
+      "id": "WRK-015",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.TypeScript/src/regions.ts:15"
+      ],
+      "original_constraint": "three OCI regions were compile-time constants.",
+      "retained_semantic_behavior": "stable aliases, compatibility and deterministic selection.",
+      "native_replacement_requirement": "signed provider-discovered catalog with at least 20 qualified OCI regions.",
+      "native_replacement_gate": "L1/L2/L4 signature, compatibility and eligibility proof.",
+      "owner_workstream": "Cloud",
+      "phase_removal_task": "contract-freeze-and-client-cleanup / pending-WRK-015",
+      "regression_scenario": "unknown region and catalog compatibility",
+      "real_boundary_needed": "provider region discovery",
+      "recovery_rollback_boundary": "last signed catalog",
+      "external_authority_dependency": "P0-04A",
+      "evidence_claim_status": "archive-verified; catalog unqualified"
+    },
+    {
+      "id": "WRK-016",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "current+archive:TerraScale.Internals/.terrascale/deploy.json:17"
+      ],
+      "original_constraint": "CI evolved independently and omitted Authentication build target.",
+      "retained_semantic_behavior": "affected validation, every role build, immutable promotion and recovery exception.",
+      "native_replacement_requirement": "exhaustive role/build inventory and typed native pipeline.",
+      "native_replacement_gate": "L1/L2/L3S role matrix, digest and recovery proof.",
+      "owner_workstream": "Delivery",
+      "phase_removal_task": "native-pipeline-L3S / pending-WRK-016",
+      "regression_scenario": "every admitted role and bootstrap recovery",
+      "real_boundary_needed": "CI/Forgejo and regional runtime",
+      "recovery_rollback_boundary": "independent orchestrator bootstrap lane",
+      "external_authority_dependency": "CI/Forgejo authority",
+      "evidence_claim_status": "current source verified; not retired"
+    },
+    {
+      "id": "WRK-017",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74"
+      ],
+      "original_constraint": "docs/manifests/verifiers duplicated topology claims.",
+      "retained_semantic_behavior": "public promises, validation and runbooks.",
+      "native_replacement_requirement": "versioned C# contracts generate schemas/docs/dashboards/fixtures.",
+      "native_replacement_gate": "L1/L2 deliberate drift and clean regeneration.",
+      "owner_workstream": "Integration/contract steward",
+      "phase_removal_task": "contract-freeze / pending-WRK-017",
+      "regression_scenario": "RF/minima/storage/catalog mutation",
+      "real_boundary_needed": "generation/CI boundary",
+      "recovery_rollback_boundary": "versioned generated artifacts",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-018",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366"
+      ],
+      "original_constraint": "deleted OKE estate may leave source/cloud remnants.",
+      "retained_semantic_behavior": "inventory, ownership attribution, quarantine and auditable cleanup.",
+      "native_replacement_requirement": "greenfield Pulumi and approved positive-identity cleanup.",
+      "native_replacement_gate": "L1/L3S/L4 parser/credential scan plus provider inventory.",
+      "owner_workstream": "Cross-repository cleanup",
+      "phase_removal_task": "P0-02 then one WRK-scoped cleanup package/repository",
+      "regression_scenario": "forbidden parser/credential and orphan inventory",
+      "real_boundary_needed": "OCI read-only inventory",
+      "recovery_rollback_boundary": "independently revertible cleanup; quarantine unknowns",
+      "external_authority_dependency": "P0-02 and explicit cleanup approval",
+      "evidence_claim_status": "archive-verified; cloud remnants unverified"
+    },
+    {
+      "id": "WRK-019",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7"
+      ],
+      "original_constraint": "Kubernetes discovery/Flux status forced polling/retry.",
+      "retained_semantic_behavior": "bounded wait, cancellation, progress and diagnostics.",
+      "native_replacement_requirement": "durable receipts/event watch with bounded reconnect.",
+      "native_replacement_gate": "L2/L3S disconnect/replay/cancel/deadline proof.",
+      "owner_workstream": "Operations",
+      "phase_removal_task": "cleanup-after-operation-watch-L3S / pending-WRK-019",
+      "regression_scenario": "missed event and duplicate terminal event",
+      "real_boundary_needed": "NATS/controller",
+      "recovery_rollback_boundary": "durable sequence/authoritative state",
+      "external_authority_dependency": "none",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-020",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:Terrabase.Operator/cmd/main.go:93"
+      ],
+      "original_constraint": "webhook/Secret mount bootstrap and polling.",
+      "retained_semantic_behavior": "fail-closed plan, peer trust and bounded reconciliation.",
+      "native_replacement_requirement": "typed plans, host identity certificate delivery and admin events.",
+      "native_replacement_gate": "L1/L2/L3S invalid plan/cert/peer/restart proof.",
+      "owner_workstream": "TerraBase",
+      "phase_removal_task": "cleanup-after-terrabase-bootstrap-L3S / pending-WRK-020",
+      "regression_scenario": "rotated cert, mirror lag and stale generation",
+      "real_boundary_needed": "TerraBase admin/identity",
+      "recovery_rollback_boundary": "regional identity renewal; fenced topology",
+      "external_authority_dependency": "TerraBase contract",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-021",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20"
+      ],
+      "original_constraint": "manual documentation/fixed OpenAPI copy list.",
+      "retained_semantic_behavior": "complete public reference and stable contracts.",
+      "native_replacement_requirement": "canonical registry generates OpenAPI/docs with drift gates.",
+      "native_replacement_gate": "L1/L2 route coverage/no internal leak/clean generation.",
+      "owner_workstream": "Integration/contract steward",
+      "phase_removal_task": "contract-generation / pending-WRK-021",
+      "regression_scenario": "all public routes/localization completeness",
+      "real_boundary_needed": "Platform/OpenAPI/Docs pipeline",
+      "recovery_rollback_boundary": "versioned published docs",
+      "external_authority_dependency": "API architecture steward",
+      "evidence_claim_status": "archive-verified; not retired"
+    },
+    {
+      "id": "WRK-022",
+      "status": "identified",
+      "disposition": "retain-until-native-gate",
+      "source_anchors": [
+        "archive:TerraScale.TypeScript/src/regions.ts:81"
+      ],
+      "original_constraint": "invalid region silently fell back to GRU.",
+      "retained_semantic_behavior": "approved absent-input default, aliases and clear validation.",
+      "native_replacement_requirement": "catalog-aware typed placement errors.",
+      "native_replacement_gate": "L1/L2 absent/invalid/unavailable/stale catalog proof.",
+      "owner_workstream": "Integration/contract steward",
+      "phase_removal_task": "catalog-contract-freeze / pending-WRK-022",
+      "regression_scenario": "invalid alias and explicit GRU preference",
+      "real_boundary_needed": "catalog/SDK contract boundary",
+      "recovery_rollback_boundary": "last catalog and explicit policy",
+      "external_authority_dependency": "P0-04A/catalog authority",
+      "evidence_claim_status": "archive-verified; not retired"
+    }
   ],
   "gaps": [
-    {"id":"GAP-WRK-001","detail":"No provider mutation or complete read-only provider inventory was authorized; cloud/IAM/DNS/secret cleanup cannot be claimed.","follow_up":"P0-02 then approved repository-local WRK cleanup."},
-    {"id":"GAP-WRK-002","detail":"Every native replacement gate remains pending; no item has a cleanup receipt or retirement proof.","follow_up":"Later-phase work packages and real-boundary evidence."}
+    {
+      "id": "GAP-WRK-001",
+      "detail": "No provider mutation or complete read-only provider inventory was authorized; cloud/IAM/DNS/secret cleanup cannot be claimed.",
+      "follow_up": "P0-02 then approved repository-local WRK cleanup."
+    },
+    {
+      "id": "GAP-WRK-002",
+      "detail": "Every native replacement gate remains pending; no item has a cleanup receipt or retirement proof.",
+      "follow_up": "Later-phase work packages and real-boundary evidence."
+    }
   ]
 }
