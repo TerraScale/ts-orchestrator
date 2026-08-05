@@ -37,21 +37,27 @@ internal static class Validation
 
             var match = Regex.Match(anchor, @"^(?<path>[^:]+):(?<start>[1-9]\d*)-(?<end>[1-9]\d*)$");
             var relative = match.Success ? match.Groups["path"].Value : string.Empty;
+            var isWorkspaceGoal = relative == "../GOAL.md";
             if (!match.Success || anchor.Contains("://", StringComparison.Ordinal) || Path.IsPathRooted(relative)
-                || relative.Contains('\\') || relative.Split('/').Any(part => part is "" or "." or ".."))
+                || relative.Contains('\\') || (!isWorkspaceGoal && relative.Split('/').Any(part => part is "" or "." or "..")))
             {
                 errors.Add($"{where}: invalid local evidence anchor: {anchor}");
                 continue;
             }
 
-            var path = relative == "GOAL.md"
-                ? Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, relative)
+            var path = isWorkspaceGoal
+                ? Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, "GOAL.md")
                 : Path.Combine(ToolingSupport.Root, relative);
             if (!File.Exists(path))
             {
                 errors.Add($"{where}: evidence target is missing: {anchor}");
                 continue;
             }
+
+            // GOAL.md is workspace-owned authority context, whose rendered line layout is not
+            // repository-controlled. Its exact path is constrained above; repository evidence
+            // remains line-validated below.
+            if (isWorkspaceGoal) continue;
 
             var lines = File.ReadAllLines(path);
             var start = int.Parse(match.Groups["start"].Value, System.Globalization.CultureInfo.InvariantCulture);
@@ -265,6 +271,8 @@ internal static class OwnerDecisionCommand
 
 internal static class DecisionReadinessValidator
 {
+    private static readonly HashSet<string> AcceptedPolicyProvenance =
+    ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"];
     private static readonly HashSet<string> LaterSelectionIds = ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"];
     private static readonly string[] AtomicPolicyFields = ["id", "status", "kind", "sourceAnchors"];
     private static readonly string[] OwnershipFields = ["id", "stableOwnerId", "accountableApprovalRole", "assignmentStatus", "decisionScope", "authorityDependency"];
@@ -296,12 +304,14 @@ internal static class DecisionReadinessValidator
             if (Text(policy["id"], "accepted policy id", errors) is { } id) atomic.Add(id);
             if (Text(policy["status"], "accepted policy status", errors) != "accepted") errors.Add("accepted policy: status must be accepted");
             if (Text(policy["kind"], "accepted policy kind", errors) != "owner-policy") errors.Add("accepted policy: kind must be owner-policy");
-            if (policy["sourceAnchors"] is not JsonArray anchors || anchors.Count == 0) errors.Add("accepted policy: source anchors required");
-            Validation.ValidateLocalAnchors(policy["sourceAnchors"] as JsonArray, "accepted policy", errors);
+            ValidateAcceptedPolicyProvenance(policy["sourceAnchors"], "accepted policy", errors);
         }
 
         var aliases = packet["controllingInputAliases"] as JsonObject;
         if (aliases is null) errors.Add("controllingInputAliases: required object");
+        if (aliases is not null)
+            foreach (var alias in aliases.Select(pair => pair.Key).Where(atomic.Contains))
+                errors.Add($"controllingInputAliases: alias {alias} collides with an atomic ID");
         var expanded = aliases is null ? new Dictionary<string, HashSet<string>>(StringComparer.Ordinal) : ExpandAliases(aliases, atomic, errors);
         ValidateRegisters(packet, inputs, selections, errors);
         ValidateReadinessContext(packet, readiness, errors);
@@ -409,7 +419,7 @@ internal static class DecisionReadinessValidator
         }
         var lanes = Strings(readiness["canonicalOwnerLanes"], "readiness canonicalOwnerLanes", errors);
         if (!new HashSet<string>(lanes, StringComparer.Ordinal).SetEquals(AdrReadinessCommand.Lanes)) errors.Add("readiness canonicalOwnerLanes: exact canonical set required");
-        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "GOAL.md:190-207") errors.Add("readiness normalizationEvidence: mandated Goal anchor required");
+        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "../GOAL.md:194-195") errors.Add("readiness normalizationEvidence: mandated Goal anchor required");
         var left = readiness["openInputs"] as JsonObject; var right = packet["openInputRegister"] as JsonObject;
         if (left is null || right is null || Text(left["status"], "readiness openInputs status", errors) != Text(right["status"], "packet openInputRegister status", errors)
             || !new HashSet<string>(Strings(left?["planning"], "readiness openInputs planning", errors)).SetEquals(Strings(right?["planning"], "packet openInputRegister planning", errors))
@@ -427,7 +437,20 @@ internal static class DecisionReadinessValidator
             || Text(left["acceptedOn"], "packet acceptedDecisionRegister acceptedOn", errors) != Text(right["acceptedOn"], "readiness acceptedDecisionRegister acceptedOn", errors)
             || Text(left["authority"], "packet acceptedDecisionRegister authority", errors) != Text(right["authority"], "readiness acceptedDecisionRegister authority", errors)
             || !new HashSet<string>(Strings(left?["sourceAnchors"], "packet acceptedDecisionRegister sourceAnchors", errors)).SetEquals(Strings(right?["sourceAnchors"], "readiness acceptedDecisionRegister sourceAnchors", errors))) errors.Add("acceptedDecisionRegister: packet/readiness parity failure");
-        else { if (Text(left!["status"], "acceptedDecisionRegister status", errors) != "accepted-owner-policy") errors.Add("acceptedDecisionRegister: invalid status"); Validation.ValidateLocalAnchors(left["sourceAnchors"] as JsonArray, "acceptedDecisionRegister", errors); }
+        if (left is not null)
+        {
+            if (Text(left["status"], "acceptedDecisionRegister status", errors) != "accepted-owner-policy") errors.Add("acceptedDecisionRegister: invalid status");
+            ValidateAcceptedPolicyProvenance(left["sourceAnchors"], "packet acceptedDecisionRegister", errors);
+        }
+        if (right is not null) ValidateAcceptedPolicyProvenance(right["sourceAnchors"], "readiness acceptedDecisionRegister", errors);
+    }
+
+    private static void ValidateAcceptedPolicyProvenance(JsonNode? node, string where, List<string> errors)
+    {
+        var anchors = Strings(node, $"{where} sourceAnchors", errors);
+        if (!new HashSet<string>(anchors, StringComparer.Ordinal).SetEquals(AcceptedPolicyProvenance))
+            errors.Add($"{where}: canonical accepted-policy provenance required");
+        Validation.ValidateLocalAnchors(node as JsonArray, where, errors);
     }
 
     private static HashSet<string> Ids(JsonNode? node, string name, int count, List<string> errors) => ObjectIds(node as JsonArray, name, errors, ["id"], count);

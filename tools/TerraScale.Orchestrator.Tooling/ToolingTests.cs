@@ -22,15 +22,29 @@ internal static class ToolingTests
             ("adr ownership expansion drift", () => AssertInvalid(Delete("docs/adr/readiness-index.yaml", ["entries", 0, "openInputOwnershipReferences", 0]), AdrReadinessCommand.Validate)),
             ("adr executable self dependency", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "executableDependencies"], new[] { 1 }), AdrReadinessCommand.Validate)),
             ("adr malformed anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "https://example.test/a:1-2"), AdrReadinessCommand.Validate)),
+            ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
             ("adr canonical lane substitution", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["canonicalOwnerLanes", 0], "other"), AdrReadinessCommand.Validate)),
             ("adr normalization provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "GOAL.md:1-1"), AdrReadinessCommand.Validate)),
             ("adr open-input provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["openInputs", "source"], "README.md:1-1"), AdrReadinessCommand.Validate)),
             ("packet alias unknown target", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 0], "unknown-input"), OwnerDecisionCommand.Validate)),
             ("packet alias duplicate expansion", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 1], "storage-minimum-iops-per-member"), OwnerDecisionCommand.Validate)),
+            ("packet empty alias", () => AssertInvalid(AddAlias("", ["regional-rpo"]), OwnerDecisionCommand.Validate)),
+            ("packet self alias", () => AssertInvalid(AddAlias("self-alias", ["self-alias"]), OwnerDecisionCommand.Validate)),
+            ("packet indirect alias cycle", () => AssertInvalid(AddAliases(("alias-a", new[] { "alias-b" }), ("alias-b", new[] { "alias-a" })), OwnerDecisionCommand.Validate)),
+            ("packet alias atomic collision", () => AssertInvalid(AddAlias("regional-rpo", ["regional-rpo"]), OwnerDecisionCommand.Validate)),
             ("packet ownership record missing", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["openInputOwnershipRegister", "records", 0]), OwnerDecisionCommand.Validate)),
             ("packet ownership status", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["openInputOwnershipRegister", "records", 0, "assignmentStatus"], "pending"), OwnerDecisionCommand.Validate)),
+            ("packet later selection missing id", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "id"]), OwnerDecisionCommand.Validate)),
+            ("packet later selection missing selection", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "selection"]), OwnerDecisionCommand.Validate)),
             ("packet later selection schema", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "readinessStage"]), OwnerDecisionCommand.Validate)),
+            ("packet later selection missing contract freeze", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "requiredBeforeContractFreeze"]), OwnerDecisionCommand.Validate)),
+            ("packet later selection malformed readiness stage", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "readinessStage"], "deployment-qualification"), OwnerDecisionCommand.Validate)),
+            ("packet later selection malformed contract freeze", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "requiredBeforeContractFreeze"], "false"), OwnerDecisionCommand.Validate)),
+            ("packet later selection nonobject member", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0], "invalid"), OwnerDecisionCommand.Validate)),
             ("packet policy anchors", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["atomicPolicyRecords", 0, "sourceAnchors"], Array.Empty<string>()), OwnerDecisionCommand.Validate)),
+            ("packet policy canonical anchor substitution", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["atomicPolicyRecords", 0, "sourceAnchors", 0], "ORCHESTRATOR.md:89-98"), OwnerDecisionCommand.Validate)),
+            ("packet accepted register anchors", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["acceptedDecisionRegister", "sourceAnchors"], Array.Empty<string>()), OwnerDecisionCommand.Validate)),
+            ("packet accepted canonical anchor substitution", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["acceptedDecisionRegister", "sourceAnchors", 0], "ORCHESTRATOR.md:89-98"), OwnerDecisionCommand.Validate)),
             ("owner baseline", () => AssertValid(OwnerDecisionCommand.Validate(ToolingSupport.ReadObject("docs/decisions/owner-decision-packet.json")))),
             ("owner decision drift", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "answer"], "B"), OwnerDecisionCommand.Validate)),
             ("owner invalid option", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 1, "answer"], "C"), OwnerDecisionCommand.Validate)),
@@ -190,6 +204,17 @@ internal static class ToolingTests
         var parent = Resolve(document, segments[..^1]);
         if (parent is JsonObject objectParent) objectParent.Remove((string)segments[^1]);
         else if (parent is JsonArray arrayParent) arrayParent.RemoveAt((int)segments[^1]);
+        return document;
+    }
+
+    private static JsonObject AddAlias(string alias, string[] values) => AddAliases((alias, values));
+
+    private static JsonObject AddAliases(params (string Alias, string[] Values)[] aliases)
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/decisions/owner-decision-packet.json"));
+        var target = document["controllingInputAliases"]!.AsObject();
+        foreach (var (alias, values) in aliases)
+            target[alias] = new JsonArray(values.Select(value => JsonValue.Create(value)).ToArray());
         return document;
     }
 
