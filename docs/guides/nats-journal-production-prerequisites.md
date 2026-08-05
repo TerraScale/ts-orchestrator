@@ -47,10 +47,11 @@ must not be written into this repository.
 That external artifact must grant each eligible controller only its named
 runtime subjects, the exact journal `create`/`update` publish subjects, and its
 own reply namespace. It must deny both journal KV stores, both JetStream
-`DIRECT.GET` and `STREAM.MSG.GET` APIs, and every consumer create/list/info/
-delete/fetch/acknowledgement/flow-control path for the operation and proof
-streams; it must also deny push delivery to controller-readable subjects and
-must not grant broad `_INBOX` access. The regional writer queue
+`DIRECT.GET`, `STREAM.MSG.GET`, stream-info, snapshot, restore, and snapshot
+transfer APIs, and every consumer create/list/info/delete/fetch/
+acknowledgement/flow-control path for the operation and proof streams; it must
+also deny push delivery to controller-readable subjects and must not grant broad
+`_INBOX` access. The regional writer queue
 identity alone may publish `ORCH_OPERATIONS`, `ORCH_OPERATION_PROOFS`, and
 journal replies; infrastructure alone may create or update either stream.
 `provision-journal` cannot attest cross-workload private identity separation,
@@ -58,7 +59,9 @@ so that admission belongs to the external credential-delivery policy. The
 proof ledger must retain a successful create for five minutes and reject a
 duplicate `(cell, controller, lease, nonce)` before the writer attempts a
 journal mutation. Controller, writer, infrastructure, authority, and reply
-signing identities must be independently separated by that policy.
+signing identities must be independently separated by that policy; in
+particular, the writer NKey must not appear in the configured controller NKey
+allowlist.
 
 ## Required qualification evidence
 

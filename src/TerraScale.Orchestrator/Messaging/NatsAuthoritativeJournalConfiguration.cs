@@ -53,7 +53,10 @@ public sealed record NatsAuthoritativeJournalConfiguration(
                 throw new CryptographicException("Reply signing key must be a distinct NIST P-256 key.");
             if (tls.HasSubjectPublicKeyInfo(publicKey) || tls.HasSubjectPublicKeyInfo(replyPublicKey))
                 throw new CryptographicException("Authority keys must be distinct from the journal writer TLS identity.");
-            return new(resolvedNkey, tls, publicKey, replyPath, replyPublicKey, ParseControllerIdentities(eligibleControllerIdentities!));
+            var controllers = ParseControllerIdentities(eligibleControllerIdentities!);
+            if (controllers.Contains(NatsCredentialFile.PublicKey(resolvedNkey)))
+                throw new ArgumentException("TS_ORCH_JOURNAL_CONTROLLER_NKEYS must not contain the journal writer NKey public identity.");
+            return new(resolvedNkey, tls, publicKey, replyPath, replyPublicKey, controllers);
         }
         catch (CryptographicException exception)
         {

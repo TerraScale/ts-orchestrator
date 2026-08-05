@@ -153,12 +153,14 @@ public sealed class OrchestratorOptionsTests
             using var replyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var writerTls = await WriteCertificateAsync(directory, "writer", writerTlsKey, isAuthority: true);
             var nkey = Path.Combine(directory, "writer.nk");
+            var controllerNkey = Path.Combine(directory, "controller.nk");
             var authority = Path.Combine(directory, "authority.pem");
             var reply = Path.Combine(directory, "reply.pem");
             await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(controllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
             await File.WriteAllTextAsync(reply, replyKey.ExportPkcs8PrivateKeyPem());
-            foreach (var path in new[] { nkey, reply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            foreach (var path in new[] { nkey, controllerNkey, reply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["TS_ORCH_CELL"] = "gru",
@@ -170,7 +172,7 @@ public sealed class OrchestratorOptionsTests
                 ["TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"] = writerTls.PrivateKey,
                 ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = authority,
                 ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = reply,
-                ["TS_ORCH_JOURNAL_CONTROLLER_NKEYS"] = NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(nkey)),
+                ["TS_ORCH_JOURNAL_CONTROLLER_NKEYS"] = NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(controllerNkey)),
             };
 
             var options = OrchestratorOptions.Parse(["journal-writer"], values.GetValueOrDefault);
@@ -178,6 +180,42 @@ public sealed class OrchestratorOptionsTests
             await Assert.That(options.NatsTls).IsNull();
             await Assert.That(options.AuthoritativeJournal).IsNotNull();
             await Assert.That(options.AuthoritativeJournal!.NKeyFile).IsEqualTo(nkey);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task JournalWriterNKeyCannotAlsoBeAnEligibleController()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-writer-controller-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var writerTlsKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var authorityKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var replyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var writerTls = await WriteCertificateAsync(directory, "writer", writerTlsKey, isAuthority: true);
+            var writerNkey = Path.Combine(directory, "writer.nk");
+            var authority = Path.Combine(directory, "authority.pem");
+            var reply = Path.Combine(directory, "reply.pem");
+            await File.WriteAllTextAsync(writerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
+            await File.WriteAllTextAsync(reply, replyKey.ExportPkcs8PrivateKeyPem());
+            foreach (var path in new[] { writerNkey, reply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            await Assert.That(() => Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
+                    writerNkey,
+                    writerTls.Certificate,
+                    writerTls.Certificate,
+                    writerTls.PrivateKey,
+                    authority,
+                    reply,
+                    NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(writerNkey))))
+                .Throws<ArgumentException>();
         }
         finally
         {
