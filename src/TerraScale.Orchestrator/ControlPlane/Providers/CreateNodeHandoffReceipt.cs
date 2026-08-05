@@ -7,7 +7,12 @@ public sealed record CreateNodeReceiptBinding(
     string OperationId, string TenantId, string NodeRequestId, string IdempotencyKey, string CreateKey,
     string CellId, string CompartmentId, ulong Generation, ulong Epoch, string TemplateId,
     string PlacementId, string BootstrapEnvelopeDigest, long AuthorizationSequence, string AuthorizationDigest,
-    string ProviderContextFingerprint);
+    string ProviderContextFingerprint)
+{
+    internal string Digest => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(CreateNodeHandoffReceipt.Canonical(
+        "create-node-binding-v1", OperationId, TenantId, NodeRequestId, IdempotencyKey, CreateKey, CellId, CompartmentId,
+        Generation, Epoch, TemplateId, PlacementId, BootstrapEnvelopeDigest, AuthorizationSequence, AuthorizationDigest, ProviderContextFingerprint))));
+}
 
 public sealed record CreateNodeHandoffReceipt(
     string Algorithm, string KeyId, CreateNodeReceiptBinding Binding,
@@ -31,7 +36,7 @@ public interface ICreateNodeReceiptKeyResolver
     bool TryResolve(string keyId, string algorithm, out byte[] subjectPublicKeyInfo);
 }
 
-public sealed class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
+public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
 {
     private readonly IReadOnlyDictionary<string, byte[]> keys;
     public CreateNodeReceiptKeyRing(IReadOnlyDictionary<string, byte[]> keys) => this.keys = keys.ToDictionary(
@@ -43,6 +48,10 @@ public sealed class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver
         subjectPublicKeyInfo = key.ToArray(); return true;
     }
 }
+public interface ICreateNodeTenantAuthorityKeyResolver : ICreateNodeReceiptKeyResolver { }
+public interface ICreateNodeProviderAttestationKeyResolver : ICreateNodeReceiptKeyResolver { }
+public sealed class CreateNodeTenantAuthorityKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeTenantAuthorityKeyResolver { }
+public sealed class CreateNodeProviderAttestationKeyRing(IReadOnlyDictionary<string, byte[]> keys) : CreateNodeReceiptKeyRing(keys), ICreateNodeProviderAttestationKeyResolver { }
 
 public sealed class CreateNodeHandoffReceiptSigner
 {
@@ -106,6 +115,6 @@ public sealed class CreateNodeTenantAuthorizationSigner(string keyId, ECDsa key)
 }
 public static class CreateNodeTenantAuthorizationVerifier
 {
-    public static bool Verify(CreateNodeTenantAuthorizationProof proof, ICreateNodeReceiptKeyResolver keys, string operation, string digest, DateTimeOffset now, out string tenant)
+    public static bool Verify(CreateNodeTenantAuthorizationProof proof, ICreateNodeTenantAuthorityKeyResolver keys, string operation, string digest, DateTimeOffset now, out string tenant)
     { tenant = string.Empty; try { if (proof.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm || proof.Action != "CreateNode" || proof.OperationId != operation || proof.AuthorizationDigest != digest || now >= proof.ExpiresAt || string.IsNullOrWhiteSpace(proof.TenantId) || !keys.TryResolve(proof.KeyId, proof.Algorithm, out var bytes)) return false; using var key = ECDsa.Create(); key.ImportSubjectPublicKeyInfo(bytes, out _); CreateNodeHandoffReceiptSigner.RequireP256(key); if (!key.VerifyData(proof.Payload(), Convert.FromBase64String(proof.Signature), HashAlgorithmName.SHA256)) return false; tenant = proof.TenantId; return true; } catch (CryptographicException) { return false; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
 }

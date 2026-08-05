@@ -22,6 +22,12 @@ public sealed class CreateNodeCoordinatorTests
         await Assert.That(CreateNodeHandoffReceiptVerifier.Verify(receipt, keys, binding, Start.AddMinutes(5))).IsFalse();
         using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
         await Assert.That(() => new CreateNodeHandoffReceiptSigner("p384", p384)).Throws<ArgumentException>();
+        using var tenantKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var tenantSigner = new CreateNodeTenantAuthorizationSigner("tenant", tenantKey);
+        var tenantKeys = new CreateNodeTenantAuthorityKeyRing(new Dictionary<string, byte[]> { ["tenant"] = tenantKey.ExportSubjectPublicKeyInfo() });
+        var receiptDomainProof = oldSigner.SignTenantProof("tenant-a", "op-1", "authorization-digest", Start.AddMinutes(5));
+        await Assert.That(CreateNodeTenantAuthorizationVerifier.Verify(receiptDomainProof, tenantKeys, "op-1", "authorization-digest", Start, out _)).IsFalse();
+        await Assert.That(CreateNodeTenantAuthorizationVerifier.Verify(tenantSigner.Sign("tenant-a", "op-1", "authorization-digest", Start.AddMinutes(5)), tenantKeys, "op-1", "authorization-digest", Start, out _)).IsTrue();
     }
 
     [Test]
@@ -29,7 +35,7 @@ public sealed class CreateNodeCoordinatorTests
     {
         var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer);
         var provider = new NonDeduplicatingProvider(keys, new CreateNodeProviderProofSigner("key", key), clock); var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal());
-        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, clock); var first = await coordinator.ExecuteAsync(Dispatch(signer));
+        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, TenantKeys(signer), ProviderKeys(signer), clock); var first = await coordinator.ExecuteAsync(Dispatch(signer));
         await Assert.That(first.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.InProgress);
         clock.Advance(TimeSpan.FromMinutes(2)); var recovered = await coordinator.ExecuteAsync(Dispatch(signer));
         await Assert.That(recovered.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.Completed);
@@ -41,7 +47,7 @@ public sealed class CreateNodeCoordinatorTests
     {
         var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer);
         var provider = new NonDeduplicatingProvider(keys, new CreateNodeProviderProofSigner("key", key), clock) { ReturnNotFound = true }; var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal());
-        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, clock); await coordinator.ExecuteAsync(Dispatch(signer));
+        var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, TenantKeys(signer), ProviderKeys(signer), clock); await coordinator.ExecuteAsync(Dispatch(signer));
         clock.Advance(TimeSpan.FromMinutes(2)); var held = await coordinator.ExecuteAsync(Dispatch(signer));
         await Assert.That(held.Disposition).IsEqualTo(CreateNodeCoordinationDisposition.RequiresManualRecovery);
         await Assert.That(provider.CreateCalls).IsEqualTo(1); await Assert.That(provider.ReconcileCalls).IsEqualTo(1);
@@ -52,7 +58,7 @@ public sealed class CreateNodeCoordinatorTests
     {
         var clock = new MutableTime(Start); using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("key", key); var keys = Keys(signer);
         var provider = new NonDeduplicatingProvider(keys, new CreateNodeProviderProofSigner("key", key), clock) { TamperProof = true };
-        var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal()); var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, clock);
+        var journal = new DropCompletionJournal(new InMemoryCreateNodeOperationJournal()); var coordinator = new CreateNodeCoordinator(journal, provider, signer, keys, TenantKeys(signer), ProviderKeys(signer), clock);
         await coordinator.ExecuteAsync(Dispatch(signer)); clock.Advance(TimeSpan.FromMinutes(2));
         await Assert.That((await coordinator.ExecuteAsync(Dispatch(signer))).Disposition).IsEqualTo(CreateNodeCoordinationDisposition.RequiresManualRecovery);
         var forged = Dispatch(signer) with { TenantProof = signer.SignTenantProof("tenant-b", "op-1", "wrong-digest", Start.AddMinutes(5)) };
@@ -87,6 +93,8 @@ public sealed class CreateNodeCoordinatorTests
     }
 
     private static ICreateNodeReceiptKeyResolver Keys(CreateNodeHandoffReceiptSigner signer) => new CreateNodeReceiptKeyRing(new Dictionary<string, byte[]> { [signer.KeyId] = signer.ExportPublicKey() });
+    private static ICreateNodeTenantAuthorityKeyResolver TenantKeys(CreateNodeHandoffReceiptSigner signer) => new CreateNodeTenantAuthorityKeyRing(new Dictionary<string, byte[]> { [signer.KeyId] = signer.ExportPublicKey() });
+    private static ICreateNodeProviderAttestationKeyResolver ProviderKeys(CreateNodeHandoffReceiptSigner signer) => new CreateNodeProviderAttestationKeyRing(new Dictionary<string, byte[]> { [signer.KeyId] = signer.ExportPublicKey() });
     private static CreateNodeReceiptBinding Binding() => new("op-1", "tenant-a", "node-request-1", "idempotency-1", "create-key-1", "cell-a", "compartment-a", 7, 12, "template-a", "placement-a", new string('a', 64), 2, "authorization-digest", "context-fingerprint");
     private static IEnumerable<CreateNodeReceiptBinding> Variants(CreateNodeReceiptBinding value) => [value with { OperationId = "op-2" }, value with { TenantId = "tenant-b" }, value with { NodeRequestId = "node-2" }, value with { IdempotencyKey = "idempotency-2" }, value with { CreateKey = "create-key-2" }, value with { CellId = "cell-b" }, value with { CompartmentId = "compartment-b" }, value with { Generation = 8 }, value with { Epoch = 13 }, value with { TemplateId = "template-b" }, value with { PlacementId = "placement-b" }, value with { BootstrapEnvelopeDigest = new string('b', 64) }, value with { AuthorizationSequence = 3 }, value with { AuthorizationDigest = "other-digest" }];
     private static CreateNodeDispatch Dispatch(CreateNodeHandoffReceiptSigner signer)

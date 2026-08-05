@@ -13,13 +13,16 @@ public sealed record CreateNodeCoordinatorOptions(TimeSpan ProviderInvocationLea
 
 /// <summary>Never retries a recorded CreateNode call. Recovery only reconciles its durable create key, then holds on uncertainty.</summary>
 public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, ICreateNodeProvider provider,
-    CreateNodeHandoffReceiptSigner signer, ICreateNodeReceiptKeyResolver receiptKeys, TimeProvider clock,
+    CreateNodeHandoffReceiptSigner signer, ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeTenantAuthorityKeyResolver tenantKeys,
+    ICreateNodeProviderAttestationKeyResolver providerKeys, TimeProvider clock,
     CreateNodeCoordinatorOptions? options = null)
 {
     private readonly ICreateNodeOperationJournal journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly ICreateNodeProvider provider = provider ?? throw new ArgumentNullException(nameof(provider));
     private readonly CreateNodeHandoffReceiptSigner signer = signer ?? throw new ArgumentNullException(nameof(signer));
     private readonly ICreateNodeReceiptKeyResolver receiptKeys = receiptKeys ?? throw new ArgumentNullException(nameof(receiptKeys));
+    private readonly ICreateNodeTenantAuthorityKeyResolver tenantKeys = tenantKeys ?? throw new ArgumentNullException(nameof(tenantKeys));
+    private readonly ICreateNodeProviderAttestationKeyResolver providerKeys = providerKeys ?? throw new ArgumentNullException(nameof(providerKeys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
@@ -44,7 +47,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
                 if (now - current.ProviderCallStartedAt!.Value < options.ProviderInvocationLease) return new(CreateNodeCoordinationDisposition.InProgress, current);
                 var reconciliation = await provider.ReconcileCreateNodeAsync(Request(dispatch, current.Receipt, spec.Binding), cancellationToken);
                 if (reconciliation.Status == CreateNodeReconciliationStatus.Found && reconciliation.Response is not null && reconciliation.Proof is not null &&
-                    CreateNodeProviderProofVerifier.Verify(reconciliation.Proof, receiptKeys, spec.Binding) &&
+                    CreateNodeProviderProofVerifier.Verify(reconciliation.Proof, providerKeys, spec.Binding) &&
                     reconciliation.Proof.NodeId == reconciliation.Response.NodeId && reconciliation.Proof.WorkRequestId == reconciliation.Response.WorkRequestId)
                 {
                     var completed = current with { Stage = CreateNodeJournalStage.Completed, Response = reconciliation.Response };
@@ -66,7 +69,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     {
         ArgumentNullException.ThrowIfNull(dispatch); ArgumentNullException.ThrowIfNull(dispatch.OperationIntent); ArgumentNullException.ThrowIfNull(dispatch.Authorization); ArgumentNullException.ThrowIfNull(dispatch.ProviderIntent);
         var op = dispatch.OperationIntent; var auth = dispatch.Authorization; var context = dispatch.ProviderIntent.Context; var parameters = dispatch.ProviderIntent.Parameters;
-        if (op.OperationKind != "create-node" || !CreateNodeTenantAuthorizationVerifier.Verify(dispatch.TenantProof, receiptKeys, op.OperationId, op.AuthorizationDigest, now, out var tenant))
+        if (op.OperationKind != "create-node" || !CreateNodeTenantAuthorizationVerifier.Verify(dispatch.TenantProof, tenantKeys, op.OperationId, op.AuthorizationDigest, now, out var tenant))
             throw new ArgumentException("CreateNode requires a verified tenant authorization proof.", nameof(dispatch));
         if (op.OperationKind != "create-node" || op.TargetIdentity != dispatch.NodeRequestId ||
             auth.OperationId != op.OperationId || auth.Sequence != op.AuthorizationSequence || auth.AuthorizationDigest != op.AuthorizationDigest ||
