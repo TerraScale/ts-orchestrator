@@ -163,13 +163,15 @@ public sealed record OrchestratorOptions(
                  authoritativeJournal.Tls.SameIdentity(natsTls) ||
                  authoritativeJournal.Tls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
                  natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
+                 natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey) ||
                  !authoritativeJournal.EligibleControllerIdentities.Contains(Messaging.NatsCredentialFile.PublicKey(natsNKeyFile)));
             var invalidProvisionAdmission = command == OrchestratorCommand.ProvisionJournal &&
                 (infrastructureNatsNKeyFile is not null &&
                  Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, infrastructureNatsNKeyFile) ||
                  infrastructureNatsTls is not null &&
                  (authoritativeJournal.Tls.SameIdentity(infrastructureNatsTls) ||
-                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey)));
+                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
+                  infrastructureNatsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey)));
             if (invalidRuntimeAdmission || invalidProvisionAdmission)
                 throw new ArgumentException(
                     "The authoritative journal requires R3/R5 TLS control NATS, distinct writer/controller/infrastructure identities, and an eligible controller NKey.");

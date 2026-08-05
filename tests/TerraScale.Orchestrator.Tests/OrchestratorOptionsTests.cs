@@ -191,6 +191,53 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task JournalReplySignerCannotReuseControllerTlsKeyAcrossRenewedCertificates()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-reply-identity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var controllerKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var writerKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var authorityKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var controllerCa = await WriteCertificateAsync(directory, "controller-ca", controllerKey, isAuthority: true);
+            var controllerRenewed = await WriteCertificateAsync(directory, "controller-renewed", controllerKey, isAuthority: false);
+            var writer = await WriteCertificateAsync(directory, "writer", writerKey, isAuthority: true);
+            var controllerNkey = Path.Combine(directory, "controller.nk");
+            var writerNkey = Path.Combine(directory, "writer.nk");
+            var authority = Path.Combine(directory, "authority.pem");
+            await File.WriteAllTextAsync(controllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(writerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
+            foreach (var path in new[] { controllerNkey, writerNkey }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var values = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["TS_ORCH_CELL"] = "gru",
+                ["TS_ORCH_REPLICAS"] = "3",
+                ["TS_ORCH_NATS_URL"] = "tls://control.example:4222",
+                ["TS_ORCH_NATS_NKEY_FILE"] = controllerNkey,
+                ["TS_ORCH_NATS_TLS_CA_FILE"] = controllerCa.Certificate,
+                ["TS_ORCH_NATS_TLS_CERT_FILE"] = controllerRenewed.Certificate,
+                ["TS_ORCH_NATS_TLS_KEY_FILE"] = controllerRenewed.PrivateKey,
+                ["TS_ORCH_JOURNAL_NATS_NKEY_FILE"] = writerNkey,
+                ["TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"] = writer.Certificate,
+                ["TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"] = writer.Certificate,
+                ["TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"] = writer.PrivateKey,
+                ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = authority,
+                ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = controllerRenewed.PrivateKey,
+                ["TS_ORCH_JOURNAL_CONTROLLER_NKEYS"] = NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(controllerNkey)),
+            };
+            await Assert.That(() => OrchestratorOptions.Parse(["check"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task ControllerNKeyMustBeAnExistingFile()
     {
         if (!OperatingSystem.IsLinux())
@@ -247,5 +294,24 @@ public sealed class OrchestratorOptionsTests
                 ["lab", "plan", "--base-artifact", "/tmp/base.smolmachine"],
                 _ => null))
             .Throws<ArgumentException>();
+    }
+
+    private static async Task<(string Certificate, string PrivateKey)> WriteCertificateAsync(
+        string directory,
+        string name,
+        System.Security.Cryptography.ECDsa key,
+        bool isAuthority)
+    {
+        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            $"CN={name}", key, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(isAuthority, false, 0, true));
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var certificatePath = Path.Combine(directory, $"{name}.pem");
+        var keyPath = Path.Combine(directory, $"{name}-key.pem");
+        await File.WriteAllTextAsync(certificatePath, certificate.ExportCertificatePem());
+        await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
+        File.SetUnixFileMode(keyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return (certificatePath, keyPath);
     }
 }

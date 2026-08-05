@@ -9,6 +9,7 @@ public sealed record NatsAuthoritativeJournalConfiguration(
     NatsTlsFiles Tls,
     byte[] AuthorityPublicKey,
     string ReplySigningKeyFile,
+    byte[] ReplySigningPublicKey,
     IReadOnlySet<string> EligibleControllerIdentities)
 {
     internal static NatsAuthoritativeJournalConfiguration? Resolve(
@@ -46,12 +47,13 @@ public sealed record NatsAuthoritativeJournalConfiguration(
             var replyPath = ResolveReplySigningKey(replySigningKeyFile!);
             using var reply = ECDsa.Create();
             reply.ImportFromPem(File.ReadAllText(replyPath));
+            var replyPublicKey = reply.ExportSubjectPublicKeyInfo();
             if (reply.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7" ||
-                reply.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(publicKey))
+                replyPublicKey.AsSpan().SequenceEqual(publicKey))
                 throw new CryptographicException("Reply signing key must be a distinct NIST P-256 key.");
-            if (tls.HasSubjectPublicKeyInfo(publicKey) || tls.HasSubjectPublicKeyInfo(reply.ExportSubjectPublicKeyInfo()))
+            if (tls.HasSubjectPublicKeyInfo(publicKey) || tls.HasSubjectPublicKeyInfo(replyPublicKey))
                 throw new CryptographicException("Authority keys must be distinct from the journal writer TLS identity.");
-            return new(resolvedNkey, tls, publicKey, replyPath, ParseControllerIdentities(eligibleControllerIdentities!));
+            return new(resolvedNkey, tls, publicKey, replyPath, replyPublicKey, ParseControllerIdentities(eligibleControllerIdentities!));
         }
         catch (CryptographicException exception)
         {
