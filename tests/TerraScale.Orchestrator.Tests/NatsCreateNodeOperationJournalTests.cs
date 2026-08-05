@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
@@ -66,6 +67,22 @@ public sealed class NatsCreateNodeOperationJournalTests
         var healthy = false;
         var journal = new NatsCreateNodeOperationJournal(store, new NatsTopology("journal", 1),
             new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = key }, () => healthy), signer);
+        await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task CrossCellPrepareIsRejectedBeforeJournalMutation()
+    {
+        await using var server = await OneNodeJetStream.StartAsync();
+        var store = await server.OpenAsync(Rf1Operations("sfo"));
+        using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var journal = new NatsCreateNodeOperationJournal(
+            store,
+            new NatsTopology("sfo", 1),
+            new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) }),
+            new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey));
+
         await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
             .Throws<InvalidOperationException>();
     }
@@ -141,6 +158,26 @@ public sealed class NatsCreateNodeOperationJournalTests
         await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
                 NatsOperationJournalStore.CanonicalStream(rf1), gru))
             .Throws<InvalidOperationException>();
+        var r5 = new NatsTopology("gru", 5).Operations;
+        NatsOperationJournalStore.ValidateConfiguration(NatsOperationJournalStore.CanonicalStream(r5), r5);
+        await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
+                NatsOperationJournalStore.CanonicalStream(sfo), r5))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task BatchPublishMustRemainDisabledInTheJetStreamWireConfiguration()
+    {
+        using var disabled = JsonDocument.Parse("""{"config":{"allow_batch_publish":false}}""");
+        NatsOperationJournalStore.ValidateBatchPublish(disabled.RootElement);
+
+        using var drifted = JsonDocument.Parse("""{"config":{"allow_batch_publish":true}}""");
+        await Assert.That(() => NatsOperationJournalStore.ValidateBatchPublish(drifted.RootElement))
+            .Throws<InvalidOperationException>();
+
+        using var omitted = JsonDocument.Parse("""{"config":{}}""");
+        await Assert.That(() => NatsOperationJournalStore.ValidateBatchPublish(omitted.RootElement))
+            .Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -193,17 +230,59 @@ public sealed class NatsCreateNodeOperationJournalTests
                 AuthOpts = new NatsAuthOpts { NKeyFile = cellSecurity.Controllers.Single().Value.SeedFile },
             });
             var journalTopology = new NatsTopology(cell.Cell, 1);
+            var controllerIdentity = cellSecurity.Controllers.Single().Value.PublicKey;
+            using var authorityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var authoritySigner = new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey);
             await using var mutations = await NatsOperationJournalMutationService.StartAsync(
                 writer,
                 writerStore,
                 journalTopology,
+                new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
+                controllerIdentity,
                 default);
-            var mutationClient = new NatsOperationJournalMutationClient(controller, journalTopology);
+            var mutationClient = new NatsOperationJournalMutationClient(controller, journalTopology, authoritySigner);
             await Assert.That((await mutationClient.CreateAsync("operation.invalid", "invalid")).Succeeded).IsFalse();
             var create = await mutationClient.CreateAsync(key, "ProviderCallStarted");
             await Assert.That(create.Succeeded).IsTrue();
             var update = await mutationClient.UpdateAsync(key, "ProviderCallStarted;CAS", create.Revision);
             await Assert.That(update.Succeeded).IsTrue();
+
+            var poisonedValue = "poisoned";
+            var crossCellProof = authoritySigner.Issue("sfo", "create", "operation." + new string('b', 64), 0, poisonedValue);
+            var crossCell = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+                journalTopology.OperationJournalCreateSubject,
+                new("operation." + new string('b', 64), poisonedValue, crossCellProof));
+            crossCell.EnsureSuccess();
+            await Assert.That(crossCell.Data!.Succeeded).IsFalse();
+
+            var digestMismatchProof = authoritySigner.Issue(cell.Cell, "create", "operation." + new string('c', 64), 0, "signed-value");
+            var digestMismatch = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+                journalTopology.OperationJournalCreateSubject,
+                new("operation." + new string('c', 64), poisonedValue, digestMismatchProof));
+            digestMismatch.EnsureSuccess();
+            await Assert.That(digestMismatch.Data!.Succeeded).IsFalse();
+
+            var wrongCallerSigner = new NatsOperationJournalMutationAuthoritySigner("other-controller", authorityKey);
+            var wrongCallerKey = "operation." + new string('e', 64);
+            var wrongCaller = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+                journalTopology.OperationJournalCreateSubject,
+                new(wrongCallerKey, poisonedValue,
+                    wrongCallerSigner.Issue(cell.Cell, "create", wrongCallerKey, 0, poisonedValue)));
+            wrongCaller.EnsureSuccess();
+            await Assert.That(wrongCaller.Data!.Succeeded).IsFalse();
+
+            var replayKey = "operation." + new string('d', 64);
+            var replayValue = "replay-protected";
+            var replayRequest = new NatsOperationJournalCreateRequest(replayKey, replayValue,
+                authoritySigner.Issue(cell.Cell, "create", replayKey, 0, replayValue));
+            var firstReplay = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+                journalTopology.OperationJournalCreateSubject, replayRequest);
+            firstReplay.EnsureSuccess();
+            await Assert.That(firstReplay.Data!.Succeeded).IsTrue();
+            var secondReplay = await controller.RequestAsync<NatsOperationJournalCreateRequest, NatsOperationJournalMutationReply>(
+                journalTopology.OperationJournalCreateSubject, replayRequest);
+            secondReplay.EnsureSuccess();
+            await Assert.That(secondReplay.Data!.Succeeded).IsFalse();
 
             foreach (var (subject, headers) in new[]
                      {

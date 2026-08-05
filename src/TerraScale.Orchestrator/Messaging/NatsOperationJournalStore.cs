@@ -1,6 +1,9 @@
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.JetStream;
+using NATS.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -8,6 +11,7 @@ namespace TerraScale.Orchestrator.Messaging;
 internal static class NatsOperationJournalStore
 {
     internal static async Task<INatsKVStore> ProvisionAsync(
+        NatsClient client,
         INatsJSContext jetStream,
         INatsKVContext keyValue,
         NatsKVConfig configuration,
@@ -15,25 +19,34 @@ internal static class NatsOperationJournalStore
     {
         ValidateExpected(configuration);
         await jetStream.CreateOrUpdateStreamAsync(CanonicalStream(configuration), cancellationToken);
+        await SetBatchPublishDisabledAsync(client, configuration, cancellationToken);
         var store = await keyValue.GetStoreAsync(configuration.Bucket, cancellationToken);
-        await ValidateAsync(store, configuration, cancellationToken);
+        await ValidateAsync(store, configuration, client, cancellationToken);
         return store;
     }
 
     internal static async Task<INatsKVStore> OpenAsync(
         INatsKVContext keyValue,
         NatsKVConfig configuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NatsClient? client = null)
     {
         ValidateExpected(configuration);
         var store = await keyValue.GetStoreAsync(configuration.Bucket, cancellationToken);
-        await ValidateAsync(store, configuration, cancellationToken);
+        await ValidateAsync(store, configuration, client, cancellationToken);
         return store;
     }
 
     internal static async Task ValidateAsync(
         INatsKVStore store,
         NatsKVConfig configuration,
+        CancellationToken cancellationToken) =>
+        await ValidateAsync(store, configuration, null, cancellationToken);
+
+    private static async Task ValidateAsync(
+        INatsKVStore store,
+        NatsKVConfig configuration,
+        NatsClient? client,
         CancellationToken cancellationToken)
     {
         ValidateExpected(configuration);
@@ -41,6 +54,8 @@ internal static class NatsOperationJournalStore
         if (status.Bucket != configuration.Bucket)
             throw new InvalidOperationException("ORCH_OPERATIONS is absent or does not have its immutable authoritative R3 configuration.");
         ValidateConfiguration(status.Info.Config, configuration);
+        if (client is not null)
+            await ValidateBatchPublishDisabledAsync(client, configuration, cancellationToken);
     }
 
     internal static void ValidateConfiguration(StreamConfig actual, NatsKVConfig configuration)
@@ -111,6 +126,54 @@ internal static class NatsOperationJournalStore
         AllowMsgSchedules = false,
         AllowAtomicPublish = false,
     };
+
+    private static async Task SetBatchPublishDisabledAsync(
+        NatsClient client,
+        NatsKVConfig configuration,
+        CancellationToken cancellationToken)
+    {
+        var config = JsonNode.Parse(JsonSerializer.Serialize(CanonicalStream(configuration)))?.AsObject()
+            ?? throw new InvalidOperationException("Unable to serialize the operation journal stream configuration.");
+        // NATS.Net 2.7 does not surface the NATS 2.14 allow_batch_publish field.
+        // Send it over the JetStream API explicitly so the server receives a hard false.
+        config["allow_batch_publish"] = false;
+        var response = await client.RequestAsync<string, string>(
+            $"$JS.API.STREAM.UPDATE.KV_{configuration.Bucket}",
+            JsonSerializer.Serialize(new JsonObject { ["config"] = config }),
+            cancellationToken: cancellationToken);
+        response.EnsureSuccess();
+        using var document = JsonDocument.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream update response."));
+        ThrowIfJetStreamError(document.RootElement);
+        ValidateBatchPublish(document.RootElement);
+    }
+
+    private static async Task ValidateBatchPublishDisabledAsync(
+        NatsClient client,
+        NatsKVConfig configuration,
+        CancellationToken cancellationToken)
+    {
+        var response = await client.RequestAsync<string, string>(
+            $"$JS.API.STREAM.INFO.KV_{configuration.Bucket}",
+            string.Empty,
+            cancellationToken: cancellationToken);
+        response.EnsureSuccess();
+        using var document = JsonDocument.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream information response."));
+        ThrowIfJetStreamError(document.RootElement);
+        ValidateBatchPublish(document.RootElement);
+    }
+
+    internal static void ValidateBatchPublish(JsonElement response)
+    {
+        if (!response.TryGetProperty("config", out var config) ||
+            !config.TryGetProperty("allow_batch_publish", out var enabled) || enabled.ValueKind != JsonValueKind.False)
+            throw new InvalidOperationException("ORCH_OPERATIONS must set allow_batch_publish to false.");
+    }
+
+    private static void ThrowIfJetStreamError(JsonElement response)
+    {
+        if (response.TryGetProperty("error", out var error))
+            throw new InvalidOperationException($"JetStream operation journal stream mutation failed: {error}");
+    }
 
     private static void ValidateExpected(NatsKVConfig configuration)
     {

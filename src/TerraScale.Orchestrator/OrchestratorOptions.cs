@@ -47,7 +47,8 @@ public sealed record OrchestratorOptions(
     Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null,
     ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null,
     string? InfrastructureNatsNKeyFile = null,
-    Messaging.NatsTlsFiles? InfrastructureNatsTls = null)
+    Messaging.NatsTlsFiles? InfrastructureNatsTls = null,
+    Messaging.NatsAuthoritativeJournalConfiguration? AuthoritativeJournal = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -144,6 +145,20 @@ public sealed record OrchestratorOptions(
                 Messaging.NatsCredentialFile.SameIdentity(globalNats.NKeyFile, natsNKeyFile) ||
                 globalNats.Tls.SameIdentity(natsTls)))
             throw new ArgumentException("Global and regional control NATS require distinct complete identities.");
+        var authoritativeJournal = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Messaging.NatsAuthoritativeJournalConfiguration.Resolve(
+                environment("TS_ORCH_JOURNAL_NATS_NKEY_FILE"),
+                environment("TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"),
+                environment("TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"),
+                environment("TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"),
+                environment("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"))
+            : null;
+        if (authoritativeJournal is not null &&
+            (replicas < 3 || uri.Scheme != "tls" || natsNKeyFile is null || natsTls is null ||
+             Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, natsNKeyFile) ||
+             authoritativeJournal.Tls.SameIdentity(natsTls)))
+            throw new ArgumentException(
+                "The authoritative journal requires R3/R5 TLS control NATS and a distinct writer NKey and mTLS identity.");
 
         if (command is not OrchestratorCommand.Lab)
         {
@@ -206,7 +221,8 @@ public sealed record OrchestratorOptions(
                 CiRunnerNatsIdentity: ciRunnerNatsIdentity,
                 OciCiRunnerPool: ociCiRunnerPool,
                 InfrastructureNatsNKeyFile: infrastructureNatsNKeyFile,
-                InfrastructureNatsTls: infrastructureNatsTls);
+                InfrastructureNatsTls: infrastructureNatsTls,
+                AuthoritativeJournal: authoritativeJournal);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);

@@ -20,19 +20,25 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly RuntimeRegistration registration;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly INatsSvcServer service;
+    private readonly NatsClient? journalWriter;
+    private readonly NatsOperationJournalMutationService? journalMutations;
 
     private NatsRuntime(
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
         RegionalAuthorityCoordinator authority,
-        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances)
+        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances,
+        NatsClient? journalWriter,
+        NatsOperationJournalMutationService? journalMutations)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
         NativeGitOpsCellAcceptances = nativeGitOpsCellAcceptances;
+        this.journalWriter = journalWriter;
+        this.journalMutations = journalMutations;
     }
 
     public Task Completion => authority.Completion;
@@ -74,6 +80,8 @@ public sealed class NatsRuntime : IAsyncDisposable
 
         RuntimeRegistration? registration = null;
         RegionalAuthorityCoordinator? authority = null;
+        NatsClient? journalWriter = null;
+        NatsOperationJournalMutationService? journalMutations = null;
         try
         {
             await client.ConnectAsync();
@@ -85,6 +93,36 @@ public sealed class NatsRuntime : IAsyncDisposable
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
+            if (options.AuthoritativeJournal is { } journal)
+            {
+                journalWriter = new NatsClient(new NatsOpts
+                {
+                    Url = options.NatsUrl,
+                    RetryOnInitialConnect = true,
+                    RequestTimeout = TimeSpan.FromSeconds(15),
+                    AuthOpts = new NatsAuthOpts { NKeyFile = journal.NKeyFile },
+                    TlsOpts = new NatsTlsOpts
+                    {
+                        Mode = TlsMode.Require,
+                        CaFile = journal.Tls.CaFile,
+                        CertFile = journal.Tls.CertificateFile,
+                        KeyFile = journal.Tls.KeyFile,
+                    },
+                });
+                await journalWriter.ConnectAsync();
+                var writerStore = await NatsOperationJournalStore.OpenAsync(
+                    journalWriter.CreateJetStreamContext().CreateKeyValueStoreContext(),
+                    topology.Operations,
+                    cancellationToken,
+                    journalWriter);
+                journalMutations = await NatsOperationJournalMutationService.StartAsync(
+                    journalWriter,
+                    writerStore,
+                    topology,
+                    new NatsOperationJournalMutationAuthorityVerifier(journal.AuthorityPublicKey),
+                    NatsCredentialFile.PublicKey(options.NatsNKeyFile!),
+                    cancellationToken);
+            }
             authority = await RegionalAuthorityCoordinator.StartAsync(
                 state.Leaders,
                 options.Cell,
@@ -152,6 +190,10 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 capabilities.Add("nats-mtls");
             }
+            if (journalMutations is not null)
+            {
+                capabilities.Add("authoritative-create-node-journal");
+            }
             capabilities.Sort(StringComparer.Ordinal);
             await service.AddEndpointAsync<string>(
                 message =>
@@ -191,7 +233,9 @@ public sealed class NatsRuntime : IAsyncDisposable
                 service,
                 registration,
                 authority,
-                new(deliveryLedger, bundles));
+                new(deliveryLedger, bundles),
+                journalWriter,
+                journalMutations);
         }
         catch
         {
@@ -203,7 +247,14 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 await registration.DisposeAsync();
             }
-
+            if (journalMutations is not null)
+            {
+                await journalMutations.DisposeAsync();
+            }
+            if (journalWriter is not null)
+            {
+                await journalWriter.DisposeAsync();
+            }
             await client.DisposeAsync();
             throw;
         }
@@ -342,7 +393,27 @@ public sealed class NatsRuntime : IAsyncDisposable
                 }
                 finally
                 {
-                    await client.DisposeAsync();
+                    try
+                    {
+                        if (journalMutations is not null)
+                        {
+                            await journalMutations.DisposeAsync();
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (journalWriter is not null)
+                            {
+                                await journalWriter.DisposeAsync();
+                            }
+                        }
+                        finally
+                        {
+                            await client.DisposeAsync();
+                        }
+                    }
                 }
             }
         }
@@ -365,8 +436,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         var delivery = await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
         // Development is intentionally RF1. It must not open, synthesize, or weaken
         // the authoritative R3 CreateNode journal; that capability stays unavailable.
-        var operations = topology.Replicas == 3
-            ? await NatsOperationJournalStore.OpenAsync(keyValue, topology.Operations, cancellationToken)
+        var operations = topology.Replicas >= 3
+            ? await NatsOperationJournalStore.OpenAsync(keyValue, topology.Operations, cancellationToken, client)
             : null;
 
         var objects = jetStream.CreateObjectStoreContext();

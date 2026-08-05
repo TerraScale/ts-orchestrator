@@ -33,6 +33,7 @@ internal static class NatsOperationJournalProvisioner
         var jetStream = client.CreateJetStreamContext();
         var topology = new NatsTopology(options.Cell, 3, options.Instance);
         await NatsOperationJournalStore.ProvisionAsync(
+            client,
             jetStream,
             jetStream.CreateKeyValueStoreContext(),
             topology.Operations,

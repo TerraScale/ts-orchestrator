@@ -106,6 +106,25 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task JournalWriterHostingFailsClosedForPartialAuthorityConfiguration()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-authority-{Guid.NewGuid():N}.pem");
+        try
+        {
+            using var authority = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            await File.WriteAllTextAsync(path, authority.ExportSubjectPublicKeyInfoPem());
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["check"],
+                    name => name == "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE" ? path : null))
+                .Throws<ArgumentException>();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task ControllerNKeyMustBeAnExistingFile()
     {
         if (!OperatingSystem.IsLinux())

@@ -60,6 +60,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
     private const int MaximumEnvelopeBytes = 16 * 1024;
     private readonly INatsKVStore store;
     private readonly NatsKVConfig configuration;
+    private readonly string cell;
     private readonly NatsOperationJournalMutationClient? mutations;
     private readonly ICreateNodeJournalEncryptionKeyService keys;
     private readonly CreateNodeAuthoritativeInvocationCapabilitySigner capabilitySigner;
@@ -74,6 +75,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         ArgumentNullException.ThrowIfNull(topology);
         configuration = topology.Operations;
+        cell = topology.Cell;
         this.mutations = mutations;
         this.keys = keys ?? throw new ArgumentNullException(nameof(keys));
         this.capabilitySigner = capabilitySigner ?? throw new ArgumentNullException(nameof(capabilitySigner));
@@ -91,6 +93,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        RequireCell(replacement.Binding.CellId);
         InMemoryCreateNodeOperationJournal.Validate(replacement);
         var key = OperationKey(replacement.Binding.OperationId);
         var current = await ReadAsync(key, replacement.Binding.OperationId, cancellationToken);
@@ -113,6 +116,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(persistedCheckpoint);
+        RequireCell(persistedCheckpoint.Binding.CellId);
         await RequireMutationEnabledAsync(cancellationToken);
         var current = await ReadAsync(persistedCheckpoint.Binding.OperationId, cancellationToken)
             ?? throw new InvalidOperationException("The CreateNode checkpoint no longer exists.");
@@ -129,6 +133,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
     {
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(binding);
+        RequireCell(binding.CellId);
         await RequireMutationEnabledAsync(cancellationToken);
         var current = await ReadAsync(binding.OperationId, cancellationToken);
         if (current is null || !CanInvoke(current, now) ||
@@ -163,7 +168,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
             var journal = JsonSerializer.Deserialize<CreateNodeOperationJournalEntry>(document)
                 ?? throw new InvalidDataException("CreateNode journal entry is missing.");
             InMemoryCreateNodeOperationJournal.Validate(journal);
-            if (journal.Binding.OperationId != operationId)
+            if (journal.Binding.OperationId != operationId || journal.Binding.CellId != cell)
                 throw new InvalidDataException("CreateNode journal key does not match its operation.");
             return journal with { Version = checked((long)entry.Revision) };
         }
@@ -257,6 +262,12 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         !string.IsNullOrWhiteSpace(entry.InvocationLeaseOwner) &&
         !string.IsNullOrWhiteSpace(entry.InvocationLeaseToken) &&
         !string.IsNullOrWhiteSpace(entry.InvocationCapabilityNonce);
+
+    private void RequireCell(string entryCell)
+    {
+        if (!string.Equals(entryCell, cell, StringComparison.Ordinal))
+            throw new InvalidOperationException("CreateNode journal entry cell does not match the configured regional topology.");
+    }
 
     private static string OperationKey(string operationId)
     {

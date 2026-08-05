@@ -39,6 +39,8 @@ internal static class NatsCredentialFile
         NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(first)) ==
         NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(second));
 
+    internal static string PublicKey(string path) => NATS.Client.Core.NKeys.PublicKeyFromSeed(Seed(path));
+
     private static string Seed(string path) => File.ReadLines(path)
         .FirstOrDefault(static line => !string.IsNullOrWhiteSpace(line))
         ?? throw new ArgumentException("NKey seed file is empty.");
