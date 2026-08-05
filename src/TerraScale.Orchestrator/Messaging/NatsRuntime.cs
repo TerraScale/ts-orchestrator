@@ -363,7 +363,11 @@ public sealed class NatsRuntime : IAsyncDisposable
         var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
         var runtime = await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
         var delivery = await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
-        var operations = await NatsOperationJournalStore.OpenAsync(keyValue, topology.Operations, cancellationToken);
+        // Development is intentionally RF1. It must not open, synthesize, or weaken
+        // the authoritative R3 CreateNode journal; that capability stays unavailable.
+        var operations = topology.Replicas == 3
+            ? await NatsOperationJournalStore.OpenAsync(keyValue, topology.Operations, cancellationToken)
+            : null;
 
         var objects = jetStream.CreateObjectStoreContext();
         INatsObjStore bundles;
@@ -450,7 +454,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore Leaders,
         INatsKVStore Runtime,
         INatsKVStore Delivery,
-        INatsKVStore Operations,
+        INatsKVStore? Operations,
         INatsObjStore Bundles);
 
     private sealed class RuntimeRegistration : IAsyncDisposable

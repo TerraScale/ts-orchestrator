@@ -1,5 +1,6 @@
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
+using NATS.Client.JetStream;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -7,12 +8,14 @@ namespace TerraScale.Orchestrator.Messaging;
 internal static class NatsOperationJournalStore
 {
     internal static async Task<INatsKVStore> ProvisionAsync(
+        INatsJSContext jetStream,
         INatsKVContext keyValue,
         NatsKVConfig configuration,
         CancellationToken cancellationToken)
     {
         ValidateExpected(configuration);
-        var store = await keyValue.CreateOrUpdateStoreAsync(configuration, cancellationToken);
+        await jetStream.CreateOrUpdateStreamAsync(CanonicalStream(configuration), cancellationToken);
+        var store = await keyValue.GetStoreAsync(configuration.Bucket, cancellationToken);
         await ValidateAsync(store, configuration, cancellationToken);
         return store;
     }
@@ -36,12 +39,69 @@ internal static class NatsOperationJournalStore
         ValidateExpected(configuration);
         var status = await store.GetStatusAsync(cancellationToken);
         var actual = status.Info.Config;
-        if (status.Bucket != configuration.Bucket || actual.NumReplicas != 3 ||
-            actual.MaxAge != configuration.MaxAge || actual.MaxBytes != configuration.MaxBytes ||
-            actual.MaxMsgSize != configuration.MaxValueSize || actual.MaxMsgsPerSubject != configuration.History ||
-            actual.Storage != StreamConfigStorage.File || actual.Discard != StreamConfigDiscard.New)
+        var expected = CanonicalStream(configuration);
+        var actualSubjects = actual.Subjects;
+        var expectedSubjects = expected.Subjects;
+        var actualSources = actual.Sources;
+        var metadata = actual.Metadata;
+        if (status.Bucket != configuration.Bucket ||
+            actual.Name != expected.Name ||
+            actual.Description != expected.Description ||
+            actualSubjects is null || expectedSubjects is null ||
+            !actualSubjects.Order(StringComparer.Ordinal).SequenceEqual(expectedSubjects.Order(StringComparer.Ordinal)) ||
+            actual.SubjectTransform is not null || actual.Retention != expected.Retention ||
+            actual.MaxConsumers != expected.MaxConsumers || actual.MaxMsgs != expected.MaxMsgs ||
+            actual.MaxMsgsPerSubject != expected.MaxMsgsPerSubject || actual.MaxBytes != expected.MaxBytes ||
+            actual.MaxAge != expected.MaxAge || actual.MaxMsgSize != expected.MaxMsgSize ||
+            actual.Storage != expected.Storage || actual.Compression != expected.Compression ||
+            actual.NumReplicas != expected.NumReplicas || actual.NoAck != expected.NoAck ||
+            actual.TemplateOwner is not null || actual.Discard != expected.Discard ||
+            actual.DuplicateWindow != expected.DuplicateWindow || actual.Placement is not null ||
+            actual.Mirror is not null || actualSources?.Count > 0 || actual.Sealed != expected.Sealed ||
+            actual.DenyDelete != expected.DenyDelete || actual.DenyPurge != expected.DenyPurge ||
+            actual.AllowRollupHdrs != expected.AllowRollupHdrs || actual.AllowDirect != expected.AllowDirect ||
+            actual.MirrorDirect != expected.MirrorDirect || actual.Republish is not null ||
+            actual.DiscardNewPerSubject != expected.DiscardNewPerSubject ||
+            actual.AllowMsgTTL != expected.AllowMsgTTL ||
+            actual.SubjectDeleteMarkerTTL != expected.SubjectDeleteMarkerTTL ||
+            actual.AllowMsgCounter != expected.AllowMsgCounter ||
+            actual.AllowMsgSchedules != expected.AllowMsgSchedules ||
+            actual.AllowAtomicPublish != expected.AllowAtomicPublish || actual.PersistMode is not null ||
+            (metadata is not null && metadata.Keys.Any(key => !key.StartsWith("_nats.", StringComparison.Ordinal))))
             throw new InvalidOperationException("ORCH_OPERATIONS is absent or does not have its immutable authoritative R3 configuration.");
     }
+
+    internal static StreamConfig CanonicalStream(NatsKVConfig configuration) => new(
+        $"KV_{configuration.Bucket}",
+        [$"$KV.{configuration.Bucket}.>"])
+    {
+        Description = configuration.Description,
+        Retention = StreamConfigRetention.Limits,
+        MaxConsumers = -1,
+        MaxMsgs = -1,
+        MaxMsgsPerSubject = configuration.History,
+        MaxBytes = configuration.MaxBytes,
+        MaxAge = configuration.MaxAge,
+        MaxMsgSize = configuration.MaxValueSize,
+        Storage = StreamConfigStorage.File,
+        Compression = StreamConfigCompression.None,
+        NumReplicas = configuration.NumberOfReplicas,
+        NoAck = false,
+        Discard = StreamConfigDiscard.New,
+        DuplicateWindow = TimeSpan.FromMinutes(2),
+        Sealed = false,
+        DenyDelete = true,
+        DenyPurge = true,
+        AllowRollupHdrs = true,
+        AllowDirect = true,
+        MirrorDirect = false,
+        DiscardNewPerSubject = false,
+        AllowMsgTTL = false,
+        SubjectDeleteMarkerTTL = TimeSpan.Zero,
+        AllowMsgCounter = false,
+        AllowMsgSchedules = false,
+        AllowAtomicPublish = false,
+    };
 
     private static void ValidateExpected(NatsKVConfig configuration)
     {

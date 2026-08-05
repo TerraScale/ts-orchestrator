@@ -99,6 +99,13 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task ProvisionJournalRequiresTheSeparateInfrastructureIdentity()
+    {
+        await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], _ => null))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ControllerNKeyMustBeAnExistingFile()
     {
         if (!OperatingSystem.IsLinux())

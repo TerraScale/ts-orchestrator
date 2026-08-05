@@ -40,7 +40,7 @@ try
             LocalEnvironment,
             shutdown.Token);
     }
-    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check" or "runner"
+    var infisicalConfiguration = args.FirstOrDefault() is null or "run" or "check" or "runner" or "provision-journal"
         ? InfisicalConfiguration.Resolve(LocalEnvironment)
         : null;
     using var infisicalEnvironment = infisicalConfiguration is null
@@ -69,6 +69,12 @@ try
             Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
         };
         Console.WriteLine(JsonSerializer.Serialize(AdmittedRoleCatalog.All, serializerOptions));
+        return 0;
+    }
+    if (options.Command is OrchestratorCommand.ProvisionJournal)
+    {
+        await NatsOperationJournalProvisioner.ProvisionAsync(options, shutdown.Token);
+        Console.WriteLine($"Provisioned immutable R3 ORCH_OPERATIONS journal for {options.Cell} via {options.NatsUrl}");
         return 0;
     }
 

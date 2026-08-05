@@ -6,6 +6,7 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Net;
+using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.ControlPlane.Operations;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Messaging;
@@ -15,12 +16,12 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsCreateNodeOperationJournalTests
 {
     [Test]
-    public async Task OneNodeJetStreamPersistsCasButRejectsJournalMutationWithoutActualR3()
+    public async Task OneNodeJetStreamPersistsCasButRejectsJournalMutationWhenRf1IsNotR3()
     {
         await using var server = await OneNodeJetStream.StartAsync();
         var topology = new NatsTopology("journal", 1);
-        var downgraded = DowngradedOperations();
-        var store = await server.OpenAsync(downgraded);
+        var rf1Operations = Rf1Operations();
+        var store = await server.OpenAsync(rf1Operations);
         using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
         var status = await store.GetStatusAsync();
@@ -35,7 +36,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         beforeRestart.EnsureSuccess();
 
         await server.RestartAsync();
-        store = await server.OpenAsync(downgraded);
+        store = await server.OpenAsync(rf1Operations);
         var reloaded = await store.GetEntryAsync<string>(key);
         reloaded.EnsureSuccess();
         await Assert.That(reloaded.Value).IsEqualTo("ProviderCallStarted;first");
@@ -57,7 +58,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     public async Task MutationRequiresActualR3ConfigurationAndHealthyInjectedKeyService()
     {
         await using var server = await OneNodeJetStream.StartAsync();
-        var store = await server.OpenAsync(DowngradedOperations());
+        var store = await server.OpenAsync(Rf1Operations());
         using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
         var key = RandomNumberGenerator.GetBytes(32);
@@ -82,6 +83,90 @@ public sealed class NatsCreateNodeOperationJournalTests
         await Assert.That(operations.MaxAge).IsEqualTo(TimeSpan.Zero);
         await Assert.That(operations.MaxValueSize).IsEqualTo(16 * 1024);
         await Assert.That(operations.MaxBytes).IsEqualTo(256 * 1024 * 1024);
+    }
+
+    [Test]
+    public async Task ProvisioningUsesTheCompleteImmutableKvStreamConfiguration()
+    {
+        var stream = NatsOperationJournalStore.CanonicalStream(new NatsTopology("gru", 3).Operations);
+
+        await Assert.That(stream.Name).IsEqualTo("KV_ORCH_OPERATIONS");
+        await Assert.That(stream.Subjects).IsEquivalentTo(["$KV.ORCH_OPERATIONS.>"]);
+        await Assert.That(stream.SubjectTransform).IsNull();
+        await Assert.That(stream.Retention).IsEqualTo(NATS.Client.JetStream.Models.StreamConfigRetention.Limits);
+        await Assert.That(stream.MaxConsumers).IsEqualTo(-1);
+        await Assert.That(stream.MaxMsgs).IsEqualTo(-1);
+        await Assert.That(stream.MaxMsgsPerSubject).IsEqualTo(2);
+        await Assert.That(stream.MaxBytes).IsEqualTo(256 * 1024 * 1024);
+        await Assert.That(stream.MaxAge).IsEqualTo(TimeSpan.Zero);
+        await Assert.That(stream.MaxMsgSize).IsEqualTo(16 * 1024);
+        await Assert.That(stream.Storage).IsEqualTo(NATS.Client.JetStream.Models.StreamConfigStorage.File);
+        await Assert.That(stream.Compression).IsEqualTo(NATS.Client.JetStream.Models.StreamConfigCompression.None);
+        await Assert.That(stream.NumReplicas).IsEqualTo(3);
+        await Assert.That(stream.NoAck).IsFalse();
+        await Assert.That(stream.TemplateOwner).IsNull();
+        await Assert.That(stream.Discard).IsEqualTo(NATS.Client.JetStream.Models.StreamConfigDiscard.New);
+        await Assert.That(stream.DuplicateWindow).IsEqualTo(TimeSpan.FromMinutes(2));
+        await Assert.That(stream.Placement).IsNull();
+        await Assert.That(stream.Sealed).IsFalse();
+        await Assert.That(stream.DenyDelete).IsTrue();
+        await Assert.That(stream.DenyPurge).IsTrue();
+        await Assert.That(stream.AllowRollupHdrs).IsTrue();
+        await Assert.That(stream.AllowDirect).IsTrue();
+        await Assert.That(stream.Mirror).IsNull();
+        await Assert.That(stream.Sources).IsNull();
+        await Assert.That(stream.MirrorDirect).IsFalse();
+        await Assert.That(stream.Republish).IsNull();
+        await Assert.That(stream.DiscardNewPerSubject).IsFalse();
+        await Assert.That(stream.AllowMsgTTL).IsFalse();
+        await Assert.That(stream.SubjectDeleteMarkerTTL).IsEqualTo(TimeSpan.Zero);
+        await Assert.That(stream.AllowMsgCounter).IsFalse();
+        await Assert.That(stream.AllowMsgSchedules).IsFalse();
+        await Assert.That(stream.AllowAtomicPublish).IsFalse();
+        await Assert.That(stream.PersistMode).IsNull();
+        await Assert.That(stream.Metadata).IsNull();
+    }
+
+    [Test]
+    public async Task CredentialedDevelopmentControllerCannotDeleteOrPurgeOperationStream()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var securityDirectory = Path.Combine(Path.GetTempPath(), $"ts-orch-nats-security-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateRegional();
+            var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
+            var security = DevelopmentNatsSecurity.Create(topology, securityDirectory);
+            var controller = security.Cell(cell.Cell).Controllers.Single().Value;
+            await using var server = await OneNodeJetStream.StartAsync(
+                NatsDevelopmentCluster.ControlAuthorization(cell, security.Cell(cell.Cell)),
+                port => new NatsOpts
+                {
+                    Url = $"nats://127.0.0.1:{port}",
+                    ConnectTimeout = TimeSpan.FromSeconds(1),
+                    RequestTimeout = TimeSpan.FromSeconds(1),
+                    AuthOpts = new NatsAuthOpts { NKeyFile = controller.SeedFile },
+                });
+
+            foreach (var subject in new[]
+                     {
+                         "$JS.API.STREAM.MSG.DELETE.KV_ORCH_OPERATIONS",
+                         "$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS",
+                     })
+            {
+                Func<Task> publish = async () =>
+                    await server.RequestAsync(subject, "{}");
+                await Assert.That(publish).Throws<NatsException>();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
     }
 
     private static CreateNodeOperationJournalEntry Entry()
@@ -110,9 +195,9 @@ public sealed class NatsCreateNodeOperationJournalTests
         }
     }
 
-    private static NatsKVConfig DowngradedOperations() => new("ORCH_OPERATIONS")
+    private static NatsKVConfig Rf1Operations() => new("ORCH_OPERATIONS")
     {
-        Description = "attempted downgrade",
+        Description = "one-node RF1 evidence only",
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
@@ -124,17 +209,25 @@ public sealed class NatsCreateNodeOperationJournalTests
         private readonly string directory;
         private readonly string configuration;
         private readonly int port;
+        private readonly Func<int, NatsOpts>? clientOptions;
         private Process? process;
         private NatsClient? client;
 
-        private OneNodeJetStream(string directory, string configuration, int port)
+        private OneNodeJetStream(
+            string directory,
+            string configuration,
+            int port,
+            Func<int, NatsOpts>? clientOptions)
         {
             this.directory = directory;
             this.configuration = configuration;
             this.port = port;
+            this.clientOptions = clientOptions;
         }
 
-        public static async Task<OneNodeJetStream> StartAsync()
+        public static async Task<OneNodeJetStream> StartAsync(
+            string? authorization = null,
+            Func<int, NatsOpts>? clientOptions = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-create-node-journal-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -143,8 +236,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
             var configuration = Path.Combine(directory, "nats.conf");
-            await File.WriteAllTextAsync(configuration, $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-            var server = new OneNodeJetStream(directory, configuration, port);
+            await File.WriteAllTextAsync(configuration, $"port: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+            var server = new OneNodeJetStream(directory, configuration, port, clientOptions);
             await server.ConnectAsync();
             return server;
         }
@@ -160,6 +253,9 @@ public sealed class NatsCreateNodeOperationJournalTests
                 client!.CreateJetStreamContext().CreateKeyValueStoreContext(),
                 configuration,
                 default);
+
+        public async Task RequestAsync(string subject, string payload) =>
+            _ = await client!.RequestAsync<string, string>(subject, payload);
 
         public async Task RestartAsync()
         {
@@ -197,7 +293,11 @@ public sealed class NatsCreateNodeOperationJournalTests
             }) ?? throw new InvalidOperationException("nats-server did not start.");
             for (var attempt = 0; attempt < 50; attempt++)
             {
-                client = new NatsClient(new NatsOpts { Url = $"nats://127.0.0.1:{port}", ConnectTimeout = TimeSpan.FromSeconds(1) });
+                client = new NatsClient(clientOptions?.Invoke(port) ?? new NatsOpts
+                {
+                    Url = $"nats://127.0.0.1:{port}",
+                    ConnectTimeout = TimeSpan.FromSeconds(1),
+                });
                 try
                 {
                     await client.ConnectAsync();

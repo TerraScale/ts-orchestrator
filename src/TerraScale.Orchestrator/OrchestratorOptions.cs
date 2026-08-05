@@ -5,7 +5,8 @@ public enum OrchestratorCommand
     Run,
     Check,
     Lab,
-    Catalog
+    Catalog,
+    ProvisionJournal
 }
 
 public enum OrchestratorLabCommand
@@ -44,7 +45,9 @@ public sealed record OrchestratorOptions(
     Delivery.ForgejoRepositoryCiSourceGraphConfiguration? ForgejoCiSourceGraph = null,
     Delivery.CommandIdentityConfiguration? CommandIdentity = null,
     Messaging.CiRunnerNatsIdentityConfiguration? CiRunnerNatsIdentity = null,
-    ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null)
+    ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null,
+    string? InfrastructureNatsNKeyFile = null,
+    Messaging.NatsTlsFiles? InfrastructureNatsTls = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -56,7 +59,8 @@ public sealed record OrchestratorOptions(
             "check" => OrchestratorCommand.Check,
             "lab" => OrchestratorCommand.Lab,
             "catalog" => OrchestratorCommand.Catalog,
-            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', 'catalog', or 'lab'.")
+            "provision-journal" => OrchestratorCommand.ProvisionJournal,
+            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', 'catalog', 'provision-journal', or 'lab'.")
         };
 
         var cell = environment("TS_ORCH_CELL") ?? "local";
@@ -97,6 +101,34 @@ public sealed record OrchestratorOptions(
         {
             throw new ArgumentException(
                 "The run command requires a tls:// regional control NATS URL, a private NKey seed, and complete mTLS credentials.");
+        }
+        var infrastructureNatsNKeyFile = command == OrchestratorCommand.ProvisionJournal
+            ? Messaging.NatsCredentialFile.Resolve(
+                environment("TS_ORCH_INFRA_NATS_NKEY_FILE"),
+                "TS_ORCH_INFRA_NATS_NKEY_FILE")
+            : null;
+        var infrastructureNatsTls = command == OrchestratorCommand.ProvisionJournal
+            ? Messaging.NatsTlsFiles.Resolve(
+                environment("TS_ORCH_INFRA_NATS_TLS_CA_FILE"),
+                environment("TS_ORCH_INFRA_NATS_TLS_CERT_FILE"),
+                environment("TS_ORCH_INFRA_NATS_TLS_KEY_FILE"),
+                "TS_ORCH_INFRA_NATS_TLS")
+            : null;
+        if (command == OrchestratorCommand.ProvisionJournal &&
+            (uri.Scheme != "tls" || infrastructureNatsNKeyFile is null || infrastructureNatsTls is null))
+        {
+            throw new ArgumentException(
+                "The provision-journal command requires a tls:// regional control NATS URL and complete TS_ORCH_INFRA_NATS NKey and mTLS credentials.");
+        }
+        if (infrastructureNatsNKeyFile is not null && natsNKeyFile is not null &&
+            Messaging.NatsCredentialFile.SameIdentity(infrastructureNatsNKeyFile, natsNKeyFile))
+        {
+            throw new ArgumentException("Infrastructure and controller NATS identities must be distinct.");
+        }
+        if (infrastructureNatsTls is not null && natsTls is not null &&
+            infrastructureNatsTls.SameIdentity(natsTls))
+        {
+            throw new ArgumentException("Infrastructure and controller NATS mTLS identities must be distinct.");
         }
         var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalNatsConfiguration.Resolve(
@@ -172,7 +204,9 @@ public sealed record OrchestratorOptions(
                 ForgejoCiSourceGraph: forgejoCiSourceGraph,
                 CommandIdentity: commandIdentity,
                 CiRunnerNatsIdentity: ciRunnerNatsIdentity,
-                OciCiRunnerPool: ociCiRunnerPool);
+                OciCiRunnerPool: ociCiRunnerPool,
+                InfrastructureNatsNKeyFile: infrastructureNatsNKeyFile,
+                InfrastructureNatsTls: infrastructureNatsTls);
         }
 
         return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);
