@@ -429,10 +429,18 @@ public sealed class NatsCreateNodeOperationJournalTests
                          ("$JS.API.STREAM.PURGE.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", new NatsHeaders()),
                          ("$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.API.STREAM.RESTORE.KV_ORCH_OPERATIONS", new NatsHeaders()),
+                         ("$JS.SNAPSHOT.RESTORE.KV_ORCH_OPERATIONS.snapshot", new NatsHeaders()),
+                         ("$JS.SNAPSHOT.ACK.KV_ORCH_OPERATIONS.snapshot", new NatsHeaders()),
                          ("$JS.API.DIRECT.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
                          ("$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
+                         ("$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
                          ("$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
+                         ("$JS.API.STREAM.RESTORE.KV_ORCH_OPERATION_PROOFS", new NatsHeaders()),
+                         ("$JS.SNAPSHOT.RESTORE.KV_ORCH_OPERATION_PROOFS.snapshot", new NatsHeaders()),
+                         ("$JS.SNAPSHOT.ACK.KV_ORCH_OPERATION_PROOFS.snapshot", new NatsHeaders()),
                          ("$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.controller-push", new NatsHeaders()),
                          ("$JS.API.CONSUMER.MSG.NEXT.KV_ORCH_OPERATIONS.controller-pull", new NatsHeaders()),
                          ("$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATION_PROOFS.controller-push", new NatsHeaders()),
@@ -442,6 +450,24 @@ public sealed class NatsCreateNodeOperationJournalTests
                 Func<Task> publish = async () =>
                     _ = await controller.RequestAsync<string, string>(subject, "{}", headers: headers);
                 await Assert.That(publish).Throws<NatsException>();
+            }
+            foreach (var subject in new[]
+                     {
+                         "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS",
+                         "$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATIONS",
+                         "$JS.API.STREAM.RESTORE.KV_ORCH_OPERATIONS",
+                         "$JS.SNAPSHOT.RESTORE.KV_ORCH_OPERATIONS.>",
+                         "$JS.SNAPSHOT.ACK.KV_ORCH_OPERATIONS.>",
+                         "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS",
+                         "$JS.API.STREAM.SNAPSHOT.KV_ORCH_OPERATION_PROOFS",
+                         "$JS.API.STREAM.RESTORE.KV_ORCH_OPERATION_PROOFS",
+                         "$JS.SNAPSHOT.RESTORE.KV_ORCH_OPERATION_PROOFS.>",
+                         "$JS.SNAPSHOT.ACK.KV_ORCH_OPERATION_PROOFS.>",
+                     })
+            {
+                var permissionError = await SubscribeDeniedAsync(
+                    server.Port, cellSecurity.Controllers[2].SeedFile, subject);
+                await Assert.That(permissionError).Contains("Permissions Violation for Subscription");
             }
             Func<Task> genericMutation = async () =>
                 _ = await controller.RequestAsync<string, string>(
@@ -514,6 +540,44 @@ public sealed class NatsCreateNodeOperationJournalTests
             ?? throw new InvalidOperationException("Private journal response was empty.");
     }
 
+    private static async Task<string> SubscribeDeniedAsync(int port, string seedFile, string subject)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
+        await using var stream = tcp.GetStream();
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        await using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false), leaveOpen: true)
+        {
+            NewLine = "\r\n",
+            AutoFlush = true,
+        };
+        var info = await reader.ReadLineAsync(timeout.Token)
+            ?? throw new InvalidOperationException("NATS server did not send its connection info.");
+        using var infoDocument = JsonDocument.Parse(info["INFO ".Length..]);
+        var nonce = infoDocument.RootElement.GetProperty("nonce").GetString()
+            ?? throw new InvalidOperationException("NATS server did not provide an NKey nonce.");
+        var seed = File.ReadLines(seedFile).First(line => !string.IsNullOrWhiteSpace(line)).Trim();
+        using var pair = NATS.Client.Core.NKeys.FromSeed(seed);
+        var connect = JsonSerializer.Serialize(new
+        {
+            nkey = NATS.Client.Core.NKeys.PublicKeyFromSeed(seed),
+            sig = Convert.ToBase64String(pair.Sign(System.Text.Encoding.UTF8.GetBytes(nonce))),
+        });
+        await writer.WriteLineAsync($"CONNECT {connect}");
+        await writer.WriteLineAsync($"SUB {subject} 1");
+
+        while (true)
+        {
+            var response = await reader.ReadLineAsync(timeout.Token)
+                ?? throw new InvalidOperationException("NATS server closed before reporting the subscription result.");
+            if (!response.StartsWith("+OK", StringComparison.Ordinal))
+            {
+                return response;
+            }
+        }
+    }
+
     private static NatsOperationJournalMutationReplySigner CreateReplySigner(byte[] privateKey)
     {
         var key = ECDsa.Create();
@@ -548,6 +612,8 @@ public sealed class NatsCreateNodeOperationJournalTests
         private readonly Func<int, NatsOpts>? clientOptions;
         private Process? process;
         private NatsClient? client;
+
+        public int Port => port;
 
         private OneNodeJetStream(
             string directory,
