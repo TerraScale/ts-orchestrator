@@ -166,7 +166,10 @@ public sealed record OrchestratorOptions(
                  natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey) ||
                  !authoritativeJournal.EligibleControllerIdentities.Contains(Messaging.NatsCredentialFile.PublicKey(natsNKeyFile)));
             var invalidProvisionAdmission = command == OrchestratorCommand.ProvisionJournal &&
-                (infrastructureNatsNKeyFile is not null &&
+                (natsTls is not null &&
+                 (natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.AuthorityPublicKey) ||
+                  natsTls.HasSubjectPublicKeyInfo(authoritativeJournal.ReplySigningPublicKey)) ||
+                 infrastructureNatsNKeyFile is not null &&
                  Messaging.NatsCredentialFile.SameIdentity(authoritativeJournal.NKeyFile, infrastructureNatsNKeyFile) ||
                  infrastructureNatsTls is not null &&
                  (authoritativeJournal.Tls.SameIdentity(infrastructureNatsTls) ||
