@@ -54,11 +54,6 @@ internal static class Validation
                 continue;
             }
 
-            // GOAL.md is workspace-owned authority context, whose rendered line layout is not
-            // repository-controlled. Its exact path is constrained above; repository evidence
-            // remains line-validated below.
-            if (isWorkspaceGoal) continue;
-
             var lines = File.ReadAllLines(path);
             var start = int.Parse(match.Groups["start"].Value, System.Globalization.CultureInfo.InvariantCulture);
             var end = int.Parse(match.Groups["end"].Value, System.Globalization.CultureInfo.InvariantCulture);
@@ -272,7 +267,7 @@ internal static class OwnerDecisionCommand
 internal static class DecisionReadinessValidator
 {
     private static readonly HashSet<string> AcceptedPolicyProvenance =
-    ["../GOAL.md:194-195", "docs/decisions/owner-decision-packet.json:13-49"];
+    ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"];
     private static readonly HashSet<string> LaterSelectionIds = ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"];
     private static readonly string[] AtomicPolicyFields = ["id", "status", "kind", "sourceAnchors"];
     private static readonly string[] OwnershipFields = ["id", "stableOwnerId", "accountableApprovalRole", "assignmentStatus", "decisionScope", "authorityDependency"];
@@ -419,7 +414,7 @@ internal static class DecisionReadinessValidator
         }
         var lanes = Strings(readiness["canonicalOwnerLanes"], "readiness canonicalOwnerLanes", errors);
         if (!new HashSet<string>(lanes, StringComparer.Ordinal).SetEquals(AdrReadinessCommand.Lanes)) errors.Add("readiness canonicalOwnerLanes: exact canonical set required");
-        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "../GOAL.md:194-195") errors.Add("readiness normalizationEvidence: mandated Goal anchor required");
+        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "../GOAL.md:70-77") errors.Add("readiness normalizationEvidence: mandated Goal anchor required");
         var left = readiness["openInputs"] as JsonObject; var right = packet["openInputRegister"] as JsonObject;
         if (left is null || right is null || Text(left["status"], "readiness openInputs status", errors) != Text(right["status"], "packet openInputRegister status", errors)
             || !new HashSet<string>(Strings(left?["planning"], "readiness openInputs planning", errors)).SetEquals(Strings(right?["planning"], "packet openInputRegister planning", errors))

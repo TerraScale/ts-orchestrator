@@ -25,6 +25,7 @@ internal static class ToolingTests
             ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
             ("adr canonical lane substitution", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["canonicalOwnerLanes", 0], "other"), AdrReadinessCommand.Validate)),
             ("adr normalization provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "GOAL.md:1-1"), AdrReadinessCommand.Validate)),
+            ("adr Goal anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "../GOAL.md:999-999"), AdrReadinessCommand.Validate)),
             ("adr open-input provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["openInputs", "source"], "README.md:1-1"), AdrReadinessCommand.Validate)),
             ("packet alias unknown target", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 0], "unknown-input"), OwnerDecisionCommand.Validate)),
             ("packet alias duplicate expansion", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["controllingInputAliases", "storage-slo", 1], "storage-minimum-iops-per-member"), OwnerDecisionCommand.Validate)),
