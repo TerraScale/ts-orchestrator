@@ -541,8 +541,7 @@ internal static class ToolingTests
             using var holder = StartWorkspaceTopologyLeaseHolder(leaseNamespace);
             try
             {
-                var status = holder.StandardOutput.ReadLine()
-                    ?? throw new InvalidOperationException("The workspace topology lease holder exited before admission.");
+                var status = ReadWorkspaceTopologyLeaseHolderReady(holder);
                 AssertEqual("held", status);
                 try
                 {
@@ -557,13 +556,9 @@ internal static class ToolingTests
             }
             finally
             {
-                holder.StandardInput.Close();
-                if (!holder.WaitForExit(5_000))
-                {
-                    holder.Kill(entireProcessTree: true);
-                    holder.WaitForExit();
-                }
+                StopWorkspaceTopologyLeaseHolder(holder);
             }
+            AssertEqual(0, holder.ExitCode);
 
             var afterChildExit = WorkspaceTopologyLease.AcquireAsync(
                 "development-lab", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
@@ -596,6 +591,45 @@ internal static class ToolingTests
         holder.StartInfo.ArgumentList.Add(leaseNamespace);
         holder.Start();
         return holder;
+    }
+
+    private static string ReadWorkspaceTopologyLeaseHolderReady(Process holder)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            return holder.StandardOutput.ReadLineAsync(timeout.Token).AsTask().GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("The workspace topology lease holder exited before admission.");
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException)
+        {
+            StopWorkspaceTopologyLeaseHolder(holder);
+            var stderr = holder.StandardError.ReadToEnd()
+                .Replace(Environment.NewLine, " ", StringComparison.Ordinal)
+                .Trim();
+            if (stderr.Length > 256)
+            {
+                stderr = stderr[..256];
+            }
+            throw new InvalidOperationException(
+                $"The workspace topology lease holder did not become ready (exit {holder.ExitCode}): {stderr}",
+                exception);
+        }
+    }
+
+    private static void StopWorkspaceTopologyLeaseHolder(Process holder)
+    {
+        if (holder.HasExited)
+        {
+            return;
+        }
+
+        holder.StandardInput.Close();
+        if (!holder.WaitForExit(5_000))
+        {
+            holder.Kill(entireProcessTree: true);
+            holder.WaitForExit();
+        }
     }
 
     private static void DevelopmentBoundedProcessObservation()
