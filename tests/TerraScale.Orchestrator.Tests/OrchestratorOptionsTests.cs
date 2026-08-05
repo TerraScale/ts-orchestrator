@@ -163,6 +163,34 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task TlsIdentityComparisonRejectsDistinctCertificatesWithTheSameKey()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-tls-identity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var first = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                "CN=first", key, System.Security.Cryptography.HashAlgorithmName.SHA256)
+                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            using var second = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+                "CN=second", key, System.Security.Cryptography.HashAlgorithmName.SHA256)
+                .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+            var firstPath = Path.Combine(directory, "first.pem");
+            var secondPath = Path.Combine(directory, "second.pem");
+            await File.WriteAllTextAsync(firstPath, first.ExportCertificatePem());
+            await File.WriteAllTextAsync(secondPath, second.ExportCertificatePem());
+
+            await Assert.That(new Messaging.NatsTlsFiles(firstPath, firstPath, firstPath)
+                .SameIdentity(new Messaging.NatsTlsFiles(secondPath, secondPath, secondPath))).IsTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task ControllerNKeyMustBeAnExistingFile()
     {
         if (!OperatingSystem.IsLinux())
