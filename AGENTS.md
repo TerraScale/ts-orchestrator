@@ -36,11 +36,11 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 ## Payment and Polar operator safety gate
 
-- Only the Orchestrator may bind production payment secret references or admit payment workload configuration.
+- Payment providers remain external, non-admitted workloads; their integration belongs to Platform production adapters. The Orchestrator may bind only the production secret-reference/config admission boundary for Platform workloads, and must never introduce or admit a provider or payment role.
 - Do not create or rotate payment providers, catalogs, or webhooks, or create production mounts; do not mutate provider or cloud state without explicit authorization and a live, target-scoped lease.
 - Sandbox payment work requires explicit non-production opt-in. Never place raw secrets, card data, or payment payloads in source, reports, logs, or commands.
-- A live billing claim requires redacted immutable provenance; a partial or skipped flow is not billing evidence.
-- Every validation handoff records the source revision, owned paths, exact commands and results, lease outcome, applicable immutable artifact/config identity, and known gaps.
+- Every validation or release handoff is redacted and binds the source revision, owned paths, lease outcome, immutable evidence/artifact/config identity when applicable, and known gaps; exact commands and results must exclude sensitive output.
+- A live billing claim requires complete redacted evidence; a partial or skipped flow is not billing evidence.
 
 ## Sibling repository ownership
 
