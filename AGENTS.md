@@ -34,6 +34,14 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Never emit plaintext secrets or private keys to Git, NATS, logs, traces, metrics, test output, or Grafana fixtures.
 - Use `apply_patch` for edits and preserve unrelated user changes.
 
+## Payment and Polar operator safety gate
+
+- Only the Orchestrator may bind production payment secret references or admit payment workload configuration.
+- Do not create or rotate payment providers, catalogs, or webhooks, or create production mounts; do not mutate provider or cloud state without explicit authorization and a live, target-scoped lease.
+- Sandbox payment work requires explicit non-production opt-in. Never place raw secrets, card data, or payment payloads in source, reports, logs, or commands.
+- A live billing claim requires redacted immutable provenance; a partial or skipped flow is not billing evidence.
+- Every validation handoff records the source revision, owned paths, exact commands and results, lease outcome, applicable immutable artifact/config identity, and known gaps.
+
 ## Sibling repository ownership
 
 - `TerraScale.Infrastructure` and `Terrabase.Operator` are **retired stubs**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
