@@ -103,6 +103,144 @@ internal static class Validation
     }
 }
 
+internal static class Phase0EvidenceCommand
+{
+    private static readonly string[] Repositories =
+    [
+        "TerraBase", "TerraBase.Benchmark", "TerraScale.Deploy", "TerraScale.DotNet", "TerraScale.TypeScript",
+        "TerraScale.Internals", "TerraScale.DevHost", "Terrascale.Documentation", "Terrascale.Landingpage",
+        "TerraScale.Infrastructure", "Terrabase.Operator"
+    ];
+    private static readonly string[] WorkaroundFields =
+    [
+        "id", "status", "disposition", "source_anchors", "original_constraint", "retained_semantic_behavior",
+        "native_replacement_requirement", "native_replacement_gate", "owner_workstream", "phase_removal_task",
+        "regression_scenario", "real_boundary_needed", "recovery_rollback_boundary", "external_authority_dependency",
+        "evidence_claim_status"
+    ];
+    private static readonly string[] ClosureFields = ["repository", "commit", "path", "sha256", "gate", "timestamp", "authority"];
+
+    public static int Run(string[] arguments)
+    {
+        if (arguments.Length != 0) throw new ToolValidationException(["phase0-evidence accepts no arguments"]);
+        var errors = ValidateInventory(ToolingSupport.ReadObject("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml"));
+        errors.AddRange(ValidateWorkaroundLedger(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml")));
+        ToolingSupport.RequireNoErrors(errors);
+        Console.WriteLine("Phase 0 descriptor inventory and workaround ledger valid; evidence remains unclosed.");
+        return 0;
+    }
+
+    public static List<string> ValidateInventory(JsonObject document)
+    {
+        var errors = Validation.JsonDocument(document, "descriptor inventory", "schema_version", "repositories", "gaps");
+        var entries = document["repositories"] as JsonArray;
+        if (entries is null) return errors;
+        var names = entries.Select(entry => entry?["repository"]?.GetValue<string>() ?? string.Empty).ToArray();
+        if (!names.SequenceEqual(Repositories, StringComparer.Ordinal)) errors.Add("descriptor inventory: repository entries must be stable and ordered");
+        foreach (var entry in entries.OfType<JsonObject>())
+        {
+            var repository = entry["repository"]?.GetValue<string>() ?? string.Empty;
+            var commit = entry["source_commit"]?.GetValue<string>() ?? string.Empty;
+            if (!IsCommit(commit)) errors.Add($"{repository}: source_commit must be a lower-case immutable commit ID");
+            var state = entry["checkout_state"]?.GetValue<string>();
+            if (state is not "clean" and not "dirty") errors.Add($"{repository}: checkout_state must be clean or dirty");
+            if (entry["descriptors"] is not JsonArray descriptors || descriptors.Count == 0)
+            {
+                errors.Add($"{repository}: descriptors are required");
+                continue;
+            }
+
+            foreach (var descriptor in descriptors.OfType<JsonObject>())
+            {
+                var path = descriptor["path"]?.GetValue<string>() ?? string.Empty;
+                var sourceCommit = descriptor["source_commit"]?.GetValue<string>() ?? commit;
+                var hash = descriptor["source_sha256"]?.GetValue<string>() ?? string.Empty;
+                if (!IsPath(path)) errors.Add($"{repository}: descriptor path must be a fixed repository-relative source path");
+                if (!IsCommit(sourceCommit)) errors.Add($"{repository}:{path}: source_commit must be a lower-case immutable commit ID");
+                if (!IsHash(hash)) errors.Add($"{repository}:{path}: source_sha256 must be a lower-case SHA-256");
+                if (IsPath(path) && IsCommit(sourceCommit) && IsHash(hash)) VerifySource(repository, sourceCommit, path, hash, errors);
+            }
+        }
+
+        return errors;
+    }
+
+    public static List<string> ValidateWorkaroundLedger(JsonObject document)
+    {
+        var errors = Validation.JsonDocument(document, "workaround ledger", "schema_version", "required_entry_fields", "closureEvidence", "entries", "gaps");
+        if (document["schema_version"]?.GetValue<int>() != 2) errors.Add("workaround ledger: expected schema_version 2");
+        var required = document["required_entry_fields"] as JsonArray;
+        if (required is null || !required.Select(value => value?.GetValue<string>()).SequenceEqual(WorkaroundFields))
+            errors.Add("workaround ledger: required_entry_fields are incomplete");
+        var closures = document["closureEvidence"] as JsonObject;
+        if (closures is null) errors.Add("workaround ledger: closureEvidence must be a record map");
+        var entries = document["entries"] as JsonArray;
+        if (entries is null || entries.Count != 22) return errors;
+        for (var index = 0; index < entries.Count; index++)
+        {
+            if (entries[index] is not JsonObject entry)
+            {
+                errors.Add($"workaround {index + 1}: record must be an object");
+                continue;
+            }
+
+            var id = $"WRK-{index + 1:000}";
+            if (entry["id"]?.GetValue<string>() != id) errors.Add($"workaround {index + 1}: IDs must be stable and ordered");
+            foreach (var field in WorkaroundFields)
+                if (!entry.ContainsKey(field)) errors.Add($"{id}: missing field {field}");
+            var status = entry["status"]?.GetValue<string>();
+            var closure = closures?[id];
+            if (status == "identified")
+            {
+                if (closure is not null) errors.Add($"{id}: identified work must have empty closureEvidence");
+            }
+            else if (status is "retired" or "closed")
+            {
+                ValidateClosure(id, closure as JsonObject, errors);
+            }
+            else errors.Add($"{id}: status must be identified, retired, or closed");
+        }
+
+        return errors;
+    }
+
+    private static void VerifySource(string repository, string commit, string path, string hash, List<string> errors)
+    {
+        try
+        {
+            var workspace = Directory.GetParent(ToolingSupport.Root)?.FullName
+                ?? throw new DirectoryNotFoundException("workspace root is unavailable");
+            var source = ToolingSupport.Git(Path.Combine(workspace, repository), "show", $"{commit}:{path}");
+            if (!string.Equals(ToolingSupport.Sha256Text(source), hash, StringComparison.Ordinal))
+                errors.Add($"{repository}:{path}: source_sha256 does not match git show {commit}:{path}");
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"{repository}:{path}: pinned source is unavailable ({exception.Message})");
+        }
+    }
+
+    private static void ValidateClosure(string id, JsonObject? closure, List<string> errors)
+    {
+        if (closure is null)
+        {
+            errors.Add($"{id}: retired/closed work requires complete closureEvidence");
+            return;
+        }
+
+        foreach (var field in ClosureFields)
+            if (string.IsNullOrWhiteSpace(closure[field]?.GetValue<string>())) errors.Add($"{id}: closureEvidence requires {field}");
+        if (!IsCommit(closure["commit"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence commit must be immutable");
+        if (!IsPath(closure["path"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence path must be repository-relative");
+        if (!IsHash(closure["sha256"]?.GetValue<string>() ?? string.Empty)) errors.Add($"{id}: closureEvidence sha256 must be lower-case");
+        if (!DateTimeOffset.TryParse(closure["timestamp"]?.GetValue<string>(), out _)) errors.Add($"{id}: closureEvidence timestamp must be ISO-8601");
+    }
+
+    private static bool IsCommit(string value) => Regex.IsMatch(value, "^[0-9a-f]{40}$");
+    private static bool IsHash(string value) => Regex.IsMatch(value, "^[0-9a-f]{64}$");
+    private static bool IsPath(string value) => Regex.IsMatch(value, "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._/-]+$");
+}
+
 internal static class AdrReadinessCommand
 {
     internal static readonly HashSet<string> Lanes =

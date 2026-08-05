@@ -21,10 +21,13 @@ internal static class ToolingTests
             ("adr unknown controlling input", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "controllingInputs", 0], "unknown-input"), AdrReadinessCommand.Validate)),
             ("adr ownership expansion drift", () => AssertInvalid(Delete("docs/adr/readiness-index.yaml", ["entries", 0, "openInputOwnershipReferences", 0]), AdrReadinessCommand.Validate)),
             ("adr executable self dependency", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "executableDependencies"], new[] { 1 }), AdrReadinessCommand.Validate)),
+            ("adr executable dependency cycle", AdrExecutableDependencyCycle),
             ("adr malformed anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "https://example.test/a:1-2"), AdrReadinessCommand.Validate)),
             ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
             ("adr absolute source anchor", AbsoluteSourceAnchor),
             ("adr source anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "README.md:999999-999999"), AdrReadinessCommand.Validate)),
+            ("adr evidence location bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "evidenceLocations", 0], "README.md:999999-999999"), AdrReadinessCommand.Validate)),
+            ("adr invalid closure reference", AdrInvalidClosureReference),
             ("adr whitespace source anchor", WhitespaceSourceAnchor),
             ("adr symlink escape anchor", SymlinkEscapeAnchor),
             ("adr symlinked workspace Goal", SymlinkedWorkspaceGoal),
@@ -70,6 +73,10 @@ internal static class ToolingTests
             ("owner later selection default", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["laterImplementationSelections", 0, "selection"], "cosign"), OwnerDecisionCommand.Validate)),
             ("owner missing question", () => AssertInvalid(Delete("docs/decisions/owner-decision-packet.json", ["questions", 4]), OwnerDecisionCommand.Validate)),
             ("owner semantic drift", () => AssertInvalid(Mutate("docs/decisions/owner-decision-packet.json", ["questions", 0, "question"], "drift"), OwnerDecisionCommand.Validate)),
+            ("phase 0 evidence baseline", () => AssertPhase0Valid()),
+            ("phase 0 malformed descriptor hash", () => AssertInvalid(Mutate("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml", ["repositories", 0, "descriptors", 0, "source_sha256"], new string('A', 64)), Phase0EvidenceCommand.ValidateInventory)),
+            ("workaround illicit closure", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "status"], "retired"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
+            ("workaround identified receipt", WorkaroundIdentifiedReceipt),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
             ("development evidence profile authorization", DevelopmentEvidenceProfiles),
@@ -95,6 +102,36 @@ internal static class ToolingTests
         if (failures.Count != 0) throw new ToolValidationException(failures);
         Console.WriteLine($"Passed {tests.Count} C# tooling tests.");
         return 0;
+    }
+
+    private static void AssertPhase0Valid()
+    {
+        AssertValid(Phase0EvidenceCommand.ValidateInventory(
+            ToolingSupport.ReadObject("docs/evidence/phase0/runtime-build-descriptor-inventory.yaml")));
+        AssertValid(Phase0EvidenceCommand.ValidateWorkaroundLedger(
+            ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml")));
+    }
+
+    private static void AdrExecutableDependencyCycle()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/adr/readiness-index.yaml"));
+        document["entries"]![0]!["executableDependencies"] = new JsonArray(2);
+        document["entries"]![1]!["executableDependencies"] = new JsonArray(1);
+        AssertInvalid(AdrReadinessCommand.Validate(document));
+    }
+
+    private static void AdrInvalidClosureReference()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/adr/readiness-index.yaml"));
+        document["entries"]![0]!["closureEvidence"] = new JsonArray(99);
+        AssertInvalid(AdrReadinessCommand.Validate(document));
+    }
+
+    private static void WorkaroundIdentifiedReceipt()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        document["closureEvidence"]!["WRK-001"] = new JsonObject { ["repository"] = "TerraScale.Infrastructure" };
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 
     private static void NoPythonSources()
