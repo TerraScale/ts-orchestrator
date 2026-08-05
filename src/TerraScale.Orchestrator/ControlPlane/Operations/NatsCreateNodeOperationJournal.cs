@@ -63,15 +63,12 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
 
     public NatsCreateNodeOperationJournal(
         INatsKVStore store,
-        int replicas,
         ICreateNodeJournalEncryptionKeyService keys,
         CreateNodeAuthoritativeInvocationCapabilitySigner capabilitySigner)
     {
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.keys = keys ?? throw new ArgumentNullException(nameof(keys));
         this.capabilitySigner = capabilitySigner ?? throw new ArgumentNullException(nameof(capabilitySigner));
-        if (replicas != 3)
-            throw new InvalidOperationException("Authoritative CreateNode mutation requires exactly regional R3 JetStream KV.");
     }
 
     public CreateNodeJournalDurability Durability => CreateNodeJournalDurability.AuthoritativeCrashDurable;
@@ -86,12 +83,12 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        RequireMutationEnabled();
         InMemoryCreateNodeOperationJournal.Validate(replacement);
         var key = OperationKey(replacement.Binding.OperationId);
         var current = await ReadAsync(key, replacement.Binding.OperationId, cancellationToken);
         if (current != expected)
             return false;
+        await RequireMutationEnabledAsync(cancellationToken);
 
         var value = Encrypt(replacement with { Version = 0 }, key, expected?.Version ?? 0);
         try
@@ -118,7 +115,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(persistedCheckpoint);
-        RequireMutationEnabled();
+        await RequireMutationEnabledAsync(cancellationToken);
         var current = await ReadAsync(persistedCheckpoint.Binding.OperationId, cancellationToken)
             ?? throw new InvalidOperationException("The CreateNode checkpoint no longer exists.");
         if (current != persistedCheckpoint || !CanInvoke(current, now))
@@ -134,7 +131,7 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
     {
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(binding);
-        RequireMutationEnabled();
+        await RequireMutationEnabledAsync(cancellationToken);
         var current = await ReadAsync(binding.OperationId, cancellationToken);
         if (current is null || !CanInvoke(current, now) ||
             capability.Algorithm != CreateNodeHandoffReceiptSigner.Algorithm ||
@@ -245,10 +242,15 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
         }
     }
 
-    private void RequireMutationEnabled()
+    private async ValueTask RequireMutationEnabledAsync(CancellationToken cancellationToken)
     {
         if (!keys.IsHealthy)
             throw new InvalidOperationException("CreateNode mutation is disabled while the journal key service is unhealthy.");
+        var info = (await store.GetStatusAsync(cancellationToken)).Info;
+        if (info.Config.NumReplicas != 3 || string.IsNullOrWhiteSpace(info.Cluster?.Leader) ||
+            info.Cluster.Replicas is not { Count: 2 } replicas ||
+            replicas.Any(static replica => replica.Offline || !replica.Current || replica.Lag != 0))
+            throw new InvalidOperationException("CreateNode mutation requires a current healthy R3 JetStream KV quorum.");
     }
 
     private static bool CanInvoke(CreateNodeOperationJournalEntry entry, DateTimeOffset now) =>

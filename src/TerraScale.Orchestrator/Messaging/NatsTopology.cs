@@ -61,7 +61,6 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     {
         Description = $"Authoritative encrypted regional operation journal for {Cell}",
         History = 2,
-        MaxAge = TimeSpan.FromDays(7),
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
         NumberOfReplicas = Replicas

@@ -15,59 +15,35 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsCreateNodeOperationJournalTests
 {
     [Test]
-    public async Task OneNodeJetStreamPersistsEncryptedCasJournalButDoesNotClaimR3()
+    public async Task OneNodeJetStreamPersistsCasButRejectsJournalMutationWithoutActualR3()
     {
         await using var server = await OneNodeJetStream.StartAsync();
         var topology = new NatsTopology("journal", 1);
         var store = await server.OpenAsync(topology.Operations);
         using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
-        var oldKey = RandomNumberGenerator.GetBytes(32);
-        var newKey = RandomNumberGenerator.GetBytes(32);
-        var oldOnly = new CreateNodeJournalEncryptionKeyRing("old", new Dictionary<string, byte[]> { ["old"] = oldKey });
-        var journal = new NatsCreateNodeOperationJournal(store, 3, oldOnly, signer);
-        var prepared = Entry();
+        var status = await store.GetStatusAsync();
+        await Assert.That(status.Info.Config.NumReplicas).IsEqualTo(1);
+        await Assert.That(status.Info.Config.MaxAge).IsEqualTo(TimeSpan.Zero);
+        var key = "operation.cas-journal";
+        var revision = await store.CreateAsync(key, "ProviderCallStarted");
+        await Assert.That(await TryUpdateAsync(store, key, "ProviderCallStarted;first", revision)).IsTrue();
+        await Assert.That(await TryUpdateAsync(store, key, "ProviderCallStarted;second", revision)).IsFalse();
 
-        await Assert.That(await journal.CompareExchangeAsync(null, prepared, default)).IsTrue();
-        var beforeRestart = (await journal.ReadAsync(prepared.Binding.OperationId, default))!;
-        await Assert.That(beforeRestart.Version).IsGreaterThan(0);
+        var beforeRestart = await store.GetEntryAsync<string>(key);
+        beforeRestart.EnsureSuccess();
 
         await server.RestartAsync();
         store = await server.OpenAsync(topology.Operations);
-        var rotated = new CreateNodeJournalEncryptionKeyRing("new", new Dictionary<string, byte[]>
-        {
-            ["old"] = oldKey,
-            ["new"] = newKey,
-        });
-        journal = new NatsCreateNodeOperationJournal(store, 3, rotated, signer);
-        var reloaded = (await journal.ReadAsync(prepared.Binding.OperationId, default))!;
-        await Assert.That(reloaded.Version).IsEqualTo(beforeRestart.Version);
-        var onlyNew = new CreateNodeJournalEncryptionKeyRing("new", new Dictionary<string, byte[]> { ["new"] = newKey });
-        await Assert.That(() => new NatsCreateNodeOperationJournal(store, 3, onlyNew, signer)
-                .ReadAsync(prepared.Binding.OperationId, default).AsTask())
-            .Throws<InvalidDataException>();
+        var reloaded = await store.GetEntryAsync<string>(key);
+        reloaded.EnsureSuccess();
+        await Assert.That(reloaded.Value).IsEqualTo("ProviderCallStarted;first");
+        await Assert.That(reloaded.Revision).IsEqualTo(beforeRestart.Revision);
 
-        var started = Started(reloaded);
-        await Assert.That(await journal.CompareExchangeAsync(reloaded, started, default)).IsTrue();
-        var checkpoint = (await journal.ReadAsync(prepared.Binding.OperationId, default))!;
-
-        var capability = await journal.MintInvocationCapabilityAsync(checkpoint, DateTimeOffset.UtcNow, default);
-        var stale = capability with { JournalVersion = capability.JournalVersion + 1 };
-        await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(stale, checkpoint.Binding, DateTimeOffset.UtcNow, default)).IsFalse();
-        var consumed = await Task.WhenAll(
-            journal.TryConsumeInvocationCapabilityAsync(capability, checkpoint.Binding, DateTimeOffset.UtcNow, default).AsTask(),
-            journal.TryConsumeInvocationCapabilityAsync(capability, checkpoint.Binding, DateTimeOffset.UtcNow, default).AsTask());
-        await Assert.That(consumed.Count(result => result)).IsEqualTo(1);
-
-        var encrypted = await store.GetEntryAsync<string>(OperationKey(prepared.Binding.OperationId));
-        encrypted.EnsureSuccess();
-        const string ciphertext = "\"Ciphertext\":\"";
-        var offset = encrypted.Value!.IndexOf(ciphertext, StringComparison.Ordinal) + ciphertext.Length;
-        var tampered = encrypted.Value[..offset] +
-            (encrypted.Value[offset] == 'A' ? 'B' : 'A') + encrypted.Value[(offset + 1)..];
-        await store.UpdateAsync(OperationKey(prepared.Binding.OperationId), tampered, encrypted.Revision);
-        await Assert.That(() => journal.ReadAsync(prepared.Binding.OperationId, default).AsTask())
-            .Throws<InvalidDataException>();
+        var journal = new NatsCreateNodeOperationJournal(store,
+            new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) }), signer);
+        await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
+            .Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -79,25 +55,22 @@ public sealed class NatsCreateNodeOperationJournalTests
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
         var key = RandomNumberGenerator.GetBytes(32);
 
-        await Assert.That(() => new NatsCreateNodeOperationJournal(store, 1,
-                new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = key }), signer))
-            .Throws<InvalidOperationException>();
         var healthy = false;
-        var journal = new NatsCreateNodeOperationJournal(store, 3,
+        var journal = new NatsCreateNodeOperationJournal(store,
             new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = key }, () => healthy), signer);
         await Assert.That(() => journal.CompareExchangeAsync(null, Entry(), default).AsTask())
             .Throws<InvalidOperationException>();
     }
 
     [Test]
-    public async Task DedicatedOperationKvIsBoundedRetainedAndR3Configured()
+    public async Task DedicatedOperationKvNeverExpiresTombstonesAndIsR3Configured()
     {
         var operations = new NatsTopology("gru", 3).Operations;
 
         await Assert.That(operations.Bucket).IsEqualTo("ORCH_OPERATIONS");
         await Assert.That(operations.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(operations.History).IsEqualTo(2);
-        await Assert.That(operations.MaxAge).IsEqualTo(TimeSpan.FromDays(7));
+        await Assert.That(operations.MaxAge).IsEqualTo(TimeSpan.Zero);
         await Assert.That(operations.MaxValueSize).IsEqualTo(16 * 1024);
         await Assert.That(operations.MaxBytes).IsEqualTo(256 * 1024 * 1024);
     }
@@ -115,23 +88,18 @@ public sealed class NatsCreateNodeOperationJournalTests
             CreateNodeJournalStage.Prepared, null, 0, null);
     }
 
-    private static CreateNodeOperationJournalEntry Started(CreateNodeOperationJournalEntry entry)
+    private static async Task<bool> TryUpdateAsync(INatsKVStore store, string key, string value, ulong revision)
     {
-        var now = DateTimeOffset.UtcNow;
-        return entry with
+        try
         {
-            Stage = CreateNodeJournalStage.ProviderCallStarted,
-            ProviderCallStartedAt = now,
-            ProviderAttempts = 1,
-            InvocationLeaseOwner = "owner-1",
-            InvocationLeaseToken = "token-1",
-            InvocationCapabilityNonce = "nonce-1",
-            InvocationLeaseExpiresAt = now.AddMinutes(1),
-        };
+            await store.UpdateAsync(key, value, revision);
+            return true;
+        }
+        catch (NatsKVWrongLastRevisionException)
+        {
+            return false;
+        }
     }
-
-    private static string OperationKey(string operationId) => "operation." + Convert.ToHexStringLower(
-        SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(operationId)));
 
     private sealed class OneNodeJetStream : IAsyncDisposable
     {
