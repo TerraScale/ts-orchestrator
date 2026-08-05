@@ -21,6 +21,9 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo(RuntimeDriver.OciContainer);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.ControlNatsServer).MinimumReplicas).IsEqualTo(3);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.ProductNatsServer).MinimumReplicas).IsEqualTo(3);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.JournalWriter).DefaultDriver)
+            .IsEqualTo(RuntimeDriver.NativeSystemd);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.JournalWriter).OnePerHost).IsTrue();
     }
 
     [Test]

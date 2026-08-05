@@ -22,6 +22,17 @@ one reviewed lifecycle:
 No in-memory key ring, development journal, generic NATS request, or OCI
 client placeholder is an acceptable substitute.
 
+## Process and credential boundary
+
+Run the controller (`run` or `check`) and writer (`journal-writer`) as separate
+native workload roles. The controller command rejects journal-writer NKey,
+mTLS, and reply-private-key environment values before any file resolution. The
+writer command rejects controller NKey/mTLS values and is the only command that
+opens writer credentials or starts the mutation service. A controller uses its
+own scoped request/reply NATS identity and only public reply-verification
+material. The development fixture models those identities and permissions but
+does not establish a deployed workload, host mount policy, or R3 boundary.
+
 ## Required external bootstrap
 
 Production NATS ACL/bootstrap is intentionally not emitted by this repository

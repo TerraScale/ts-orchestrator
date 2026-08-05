@@ -74,7 +74,14 @@ try
     if (options.Command is OrchestratorCommand.ProvisionJournal)
     {
         await NatsOperationJournalProvisioner.ProvisionAsync(options, shutdown.Token);
-        Console.WriteLine($"Provisioned immutable R3 ORCH_OPERATIONS journal for {options.Cell} via {options.NatsUrl}");
+        Console.WriteLine($"Provisioned immutable R3 CreateNode journal stores for {options.Cell} via {options.NatsUrl}");
+        return 0;
+    }
+    if (options.Command is OrchestratorCommand.JournalWriter)
+    {
+        await using var writer = await NatsJournalWriterRuntime.StartAsync(options, shutdown.Token);
+        Console.WriteLine($"{BuildVersion.Current.DisplayName} isolated journal writer ready in {options.Cell} via {options.NatsUrl}");
+        await writer.Completion.WaitAsync(shutdown.Token);
         return 0;
     }
 

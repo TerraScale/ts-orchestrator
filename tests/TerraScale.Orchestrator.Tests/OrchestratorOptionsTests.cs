@@ -114,13 +114,74 @@ public sealed class OrchestratorOptionsTests
             using var authority = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             await File.WriteAllTextAsync(path, authority.ExportSubjectPublicKeyInfoPem());
             await Assert.That(() => OrchestratorOptions.Parse(
-                    ["check"],
+                    ["journal-writer"],
                     name => name == "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE" ? path : null))
                 .Throws<ArgumentException>();
         }
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task ControllerAndJournalWriterRolesRejectEachOthersCredentialMounts()
+    {
+        var controller = await Assert.That(() => OrchestratorOptions.Parse(
+                ["check"],
+                name => name == "TS_ORCH_JOURNAL_NATS_NKEY_FILE" ? "/unmounted/writer.nk" : null))
+            .Throws<ArgumentException>();
+        await Assert.That(controller!.Message).Contains("Controller roles must not receive journal-writer");
+
+        var writer = await Assert.That(() => OrchestratorOptions.Parse(
+                ["journal-writer"],
+                name => name == "TS_ORCH_NATS_NKEY_FILE" ? "/unmounted/controller.nk" : null))
+            .Throws<ArgumentException>();
+        await Assert.That(writer!.Message).Contains("journal-writer role must not receive controller");
+    }
+
+    [Test]
+    public async Task JournalWriterRoleLoadsOnlyWriterCredentialConfiguration()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-role-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var writerTlsKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var authorityKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            using var replyKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var writerTls = await WriteCertificateAsync(directory, "writer", writerTlsKey, isAuthority: true);
+            var nkey = Path.Combine(directory, "writer.nk");
+            var authority = Path.Combine(directory, "authority.pem");
+            var reply = Path.Combine(directory, "reply.pem");
+            await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
+            await File.WriteAllTextAsync(reply, replyKey.ExportPkcs8PrivateKeyPem());
+            foreach (var path in new[] { nkey, reply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var values = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["TS_ORCH_CELL"] = "gru",
+                ["TS_ORCH_REPLICAS"] = "3",
+                ["TS_ORCH_NATS_URL"] = "tls://control.example:4222",
+                ["TS_ORCH_JOURNAL_NATS_NKEY_FILE"] = nkey,
+                ["TS_ORCH_JOURNAL_NATS_TLS_CA_FILE"] = writerTls.Certificate,
+                ["TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE"] = writerTls.Certificate,
+                ["TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE"] = writerTls.PrivateKey,
+                ["TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE"] = authority,
+                ["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = reply,
+                ["TS_ORCH_JOURNAL_CONTROLLER_NKEYS"] = NATS.Client.Core.NKeys.PublicKeyFromSeed(File.ReadAllText(nkey)),
+            };
+
+            var options = OrchestratorOptions.Parse(["journal-writer"], values.GetValueOrDefault);
+            await Assert.That(options.NatsNKeyFile).IsNull();
+            await Assert.That(options.NatsTls).IsNull();
+            await Assert.That(options.AuthoritativeJournal).IsNotNull();
+            await Assert.That(options.AuthoritativeJournal!.NKeyFile).IsEqualTo(nkey);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
 

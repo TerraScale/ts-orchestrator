@@ -20,25 +20,19 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly RuntimeRegistration registration;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly INatsSvcServer service;
-    private readonly NatsClient? journalWriter;
-    private readonly NatsOperationJournalMutationService? journalMutations;
 
     private NatsRuntime(
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
         RegionalAuthorityCoordinator authority,
-        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances,
-        NatsClient? journalWriter,
-        NatsOperationJournalMutationService? journalMutations)
+        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
         NativeGitOpsCellAcceptances = nativeGitOpsCellAcceptances;
-        this.journalWriter = journalWriter;
-        this.journalMutations = journalMutations;
     }
 
     public Task Completion => authority.Completion;
@@ -49,6 +43,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         OrchestratorOptions options,
         CancellationToken cancellationToken)
     {
+        if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
+            throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var clientOptions = new NatsOpts
         {
@@ -81,8 +77,6 @@ public sealed class NatsRuntime : IAsyncDisposable
 
         RuntimeRegistration? registration = null;
         RegionalAuthorityCoordinator? authority = null;
-        NatsClient? journalWriter = null;
-        NatsOperationJournalMutationService? journalMutations = null;
         try
         {
             await client.ConnectAsync();
@@ -94,43 +88,6 @@ public sealed class NatsRuntime : IAsyncDisposable
             await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
-            if (options.AuthoritativeJournal is { } journal)
-            {
-                journalWriter = new NatsClient(new NatsOpts
-                {
-                    Url = options.NatsUrl,
-                    RetryOnInitialConnect = true,
-                    RequestTimeout = TimeSpan.FromSeconds(15),
-                    AuthOpts = new NatsAuthOpts { NKeyFile = journal.NKeyFile },
-                    TlsOpts = new NatsTlsOpts
-                    {
-                        Mode = TlsMode.Require,
-                        CaFile = journal.Tls.CaFile,
-                        CertFile = journal.Tls.CertificateFile,
-                        KeyFile = journal.Tls.KeyFile,
-                    },
-                });
-                await journalWriter.ConnectAsync();
-                var writerStore = await NatsOperationJournalStore.OpenAsync(
-                    journalWriter.CreateJetStreamContext().CreateKeyValueStoreContext(),
-                    topology.Operations,
-                    cancellationToken,
-                    journalWriter);
-                var proofConsumptions = await NatsOperationJournalStore.OpenAsync(
-                    journalWriter.CreateJetStreamContext().CreateKeyValueStoreContext(),
-                    topology.OperationProofConsumptions,
-                    cancellationToken,
-                    journalWriter);
-                journalMutations = await NatsOperationJournalMutationService.StartAsync(
-                    journalWriter,
-                    writerStore,
-                    proofConsumptions,
-                    topology,
-                    new NatsOperationJournalMutationAuthorityVerifier(journal.AuthorityPublicKey),
-                    journal.EligibleControllerIdentities,
-                    NatsOperationJournalMutationReplySigner.Load(journal.ReplySigningKeyFile),
-                    cancellationToken);
-            }
             authority = await RegionalAuthorityCoordinator.StartAsync(
                 state.Leaders,
                 options.Cell,
@@ -237,9 +194,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 service,
                 registration,
                 authority,
-                new(deliveryLedger, bundles),
-                journalWriter,
-                journalMutations);
+                new(deliveryLedger, bundles));
         }
         catch
         {
@@ -250,14 +205,6 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (registration is not null)
             {
                 await registration.DisposeAsync();
-            }
-            if (journalMutations is not null)
-            {
-                await journalMutations.DisposeAsync();
-            }
-            if (journalWriter is not null)
-            {
-                await journalWriter.DisposeAsync();
             }
             await client.DisposeAsync();
             throw;
@@ -397,27 +344,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 }
                 finally
                 {
-                    try
-                    {
-                        if (journalMutations is not null)
-                        {
-                            await journalMutations.DisposeAsync();
-                        }
-                    }
-                    finally
-                    {
-                        try
-                        {
-                            if (journalWriter is not null)
-                            {
-                                await journalWriter.DisposeAsync();
-                            }
-                        }
-                        finally
-                        {
-                            await client.DisposeAsync();
-                        }
-                    }
+                    await client.DisposeAsync();
                 }
             }
         }

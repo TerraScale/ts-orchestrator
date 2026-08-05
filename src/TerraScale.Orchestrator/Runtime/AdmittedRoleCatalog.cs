@@ -19,7 +19,8 @@ public enum AdmittedRole
     RegionalTelemetryAgent,
     VpnCoordinationRelay,
     RoutePolicyController,
-    CiRunner
+    CiRunner,
+    JournalWriter
 }
 
 public enum RuntimeDriver
@@ -118,6 +119,7 @@ public static class AdmittedRoleCatalog
         yield return Oci(AdmittedRole.VpnCoordinationRelay, "netbird-relay", RoleCapability.NetworkCoordination);
         yield return Native(AdmittedRole.RoutePolicyController, "terrascale-route-policy", false, 1, RoleCapability.RoutePolicy);
         yield return Oci(AdmittedRole.CiRunner, "terrascale-ci-runner", RoleCapability.IsolatedBuild);
+        yield return Native(AdmittedRole.JournalWriter, "terrascale-orchestrator", true, 3, RoleCapability.ControlMessaging);
     }
 
     private static AdmittedRoleDescriptor Native(

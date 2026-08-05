@@ -177,6 +177,17 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    public async Task ProofConsumptionKeyUsesFixedBigEndianLengthFraming()
+    {
+        var proof = new NatsOperationJournalMutationAuthorityProof(
+            "gru", "UABC", "create", "operation." + new string('a', 64), 0, "digest", "lease-1",
+            DateTimeOffset.UnixEpoch, "nonce-1", "signature");
+
+        await Assert.That(NatsOperationJournalMutationProofConsumption.Key(proof))
+            .IsEqualTo("proof.2fdbaac398c661e3f4d4157ab02eaab163880552274115dceaae5a4ebdb5d529");
+    }
+
+    [Test]
     public async Task ConfiguredCellValidationAcceptsOnlyItsExactR3Configuration()
     {
         var gru = new NatsTopology("gru", 3).Operations;

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Security.Cryptography;
+using System.Buffers.Binary;
 using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
@@ -187,10 +188,12 @@ internal static class NatsOperationJournalMutationProofConsumption
     {
         ArgumentNullException.ThrowIfNull(proof);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> length = stackalloc byte[sizeof(int)];
         foreach (var value in new[] { proof.Cell, proof.CallerIdentity, proof.Lease, proof.Nonce })
         {
             var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
-            hash.AppendData(BitConverter.GetBytes(bytes.Length));
+            BinaryPrimitives.WriteInt32BigEndian(length, bytes.Length);
+            hash.AppendData(length);
             hash.AppendData(bytes);
         }
         return "proof." + Convert.ToHexStringLower(hash.GetHashAndReset());
