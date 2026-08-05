@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using NATS.Client.KeyValueStore;
 using TerraScale.Orchestrator.ControlPlane.Providers;
+using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
@@ -246,12 +247,10 @@ internal sealed class NatsCreateNodeOperationJournal : ICreateNodeOperationJourn
     {
         if (!keys.IsHealthy)
             throw new InvalidOperationException("CreateNode mutation is disabled while the journal key service is unhealthy.");
-        var info = (await store.GetStatusAsync(cancellationToken)).Info;
         // Peer status is only a sampled readiness observation. Any subsequent
         // Create/Update CAS acknowledgement, not this sample, is the durable
         // JetStream Raft-quorum commit boundary.
-        if (info.Config.NumReplicas != 3)
-            throw new InvalidOperationException("CreateNode mutation requires an actual R3 JetStream KV stream.");
+        await NatsOperationJournalStore.ValidateAsync(store, new NatsTopology("journal", 1).Operations, cancellationToken);
     }
 
     private static bool CanInvoke(CreateNodeOperationJournalEntry entry, DateTimeOffset now) =>

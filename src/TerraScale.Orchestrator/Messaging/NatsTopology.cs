@@ -63,7 +63,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
-        NumberOfReplicas = Replicas
+        // This authoritative journal is provisioned only by the infrastructure
+        // identity; controller TS_ORCH_REPLICAS must never reconfigure it.
+        NumberOfReplicas = 3
     };
 
     public NatsObjConfig Bundles => new("CELL_BUNDLES")

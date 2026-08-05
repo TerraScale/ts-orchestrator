@@ -19,7 +19,8 @@ public sealed class NatsCreateNodeOperationJournalTests
     {
         await using var server = await OneNodeJetStream.StartAsync();
         var topology = new NatsTopology("journal", 1);
-        var store = await server.OpenAsync(topology.Operations);
+        var downgraded = DowngradedOperations();
+        var store = await server.OpenAsync(downgraded);
         using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
         var status = await store.GetStatusAsync();
@@ -34,11 +35,17 @@ public sealed class NatsCreateNodeOperationJournalTests
         beforeRestart.EnsureSuccess();
 
         await server.RestartAsync();
-        store = await server.OpenAsync(topology.Operations);
+        store = await server.OpenAsync(downgraded);
         var reloaded = await store.GetEntryAsync<string>(key);
         reloaded.EnsureSuccess();
         await Assert.That(reloaded.Value).IsEqualTo("ProviderCallStarted;first");
         await Assert.That(reloaded.Revision).IsEqualTo(beforeRestart.Revision);
+
+        Func<Task> openAuthoritative = async () => { await server.OpenAuthoritativeAsync(topology.Operations); };
+        await Assert.That(openAuthoritative).Throws<InvalidOperationException>();
+        var afterRejectedOpen = await store.GetEntryAsync<string>(key);
+        afterRejectedOpen.EnsureSuccess();
+        await Assert.That(afterRejectedOpen.Revision).IsEqualTo(reloaded.Revision);
 
         var journal = new NatsCreateNodeOperationJournal(store,
             new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) }), signer);
@@ -50,7 +57,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     public async Task MutationRequiresActualR3ConfigurationAndHealthyInjectedKeyService()
     {
         await using var server = await OneNodeJetStream.StartAsync();
-        var store = await server.OpenAsync(new NatsTopology("gate", 1).Operations);
+        var store = await server.OpenAsync(DowngradedOperations());
         using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var signer = new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey);
         var key = RandomNumberGenerator.GetBytes(32);
@@ -66,6 +73,8 @@ public sealed class NatsCreateNodeOperationJournalTests
     public async Task DedicatedOperationKvNeverExpiresTombstonesAndIsR3Configured()
     {
         var operations = new NatsTopology("gru", 3).Operations;
+
+        await Assert.That(new NatsTopology("gru", 1).Operations.NumberOfReplicas).IsEqualTo(3);
 
         await Assert.That(operations.Bucket).IsEqualTo("ORCH_OPERATIONS");
         await Assert.That(operations.NumberOfReplicas).IsEqualTo(3);
@@ -100,6 +109,15 @@ public sealed class NatsCreateNodeOperationJournalTests
             return false;
         }
     }
+
+    private static NatsKVConfig DowngradedOperations() => new("ORCH_OPERATIONS")
+    {
+        Description = "attempted downgrade",
+        History = 2,
+        MaxValueSize = 16 * 1024,
+        MaxBytes = 256 * 1024 * 1024,
+        NumberOfReplicas = 1,
+    };
 
     private sealed class OneNodeJetStream : IAsyncDisposable
     {
@@ -136,6 +154,12 @@ public sealed class NatsCreateNodeOperationJournalTests
             var jetStream = client!.CreateJetStreamContext();
             return await jetStream.CreateKeyValueStoreContext().CreateOrUpdateStoreAsync(configuration);
         }
+
+        public async ValueTask<INatsKVStore> OpenAuthoritativeAsync(NatsKVConfig configuration) =>
+            await NatsOperationJournalStore.OpenAsync(
+                client!.CreateJetStreamContext().CreateKeyValueStoreContext(),
+                configuration,
+                default);
 
         public async Task RestartAsync()
         {

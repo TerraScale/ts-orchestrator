@@ -86,7 +86,7 @@ internal static class NatsDevelopmentCluster
             Environment.NewLine,
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
-                      publish: { allow: ["{{root}}", "$JS.>", "$KV.>", "$O.>", "$SRV.>", "_INBOX.>"] }
+                      publish: { allow: ["{{root}}", "$JS.>", "$KV.>", "$O.>", "$SRV.>", "_INBOX.>"] deny: ["$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.DELETE.KV_ORCH_OPERATIONS"] }
                       subscribe: { allow: ["{{root}}", "$JS.>", "$KV.>", "$O.>", "$SRV.>", "_INBOX.>"] }
                     } },
                 """));
