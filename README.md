@@ -53,10 +53,17 @@ TS_ORCH_NATS_URL=nats://127.0.0.1:4222 \
 TS_ORCH_REPLICAS=1 \
 dotnet run --project src/TerraScale.Orchestrator -- check
 
+TS_ORCH_CELL=gru \
+TS_ORCH_NATS_URL=tls://control-nats-gru.internal:4222 \
+TS_ORCH_REPLICAS=3 \
+TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.nk \
+TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
+TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
+TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller.key.pem \
 dotnet run --project src/TerraScale.Orchestrator -- run
 
 dotnet run --project src/TerraScale.Orchestrator.CLI -- \
-  status --cell gru --nats-url nats://127.0.0.1:4222 \
+  status --cell gru --nats-url tls://control-nats-gru.internal:4222 \
   --nkey-file /run/credentials/terrascale/operator-read.nk \
   --tls-ca-file /run/credentials/terrascale/ca.pem \
   --tls-cert-file /run/credentials/terrascale/operator.pem \

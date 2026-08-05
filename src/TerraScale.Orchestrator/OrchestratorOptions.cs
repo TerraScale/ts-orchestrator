@@ -92,6 +92,12 @@ public sealed record OrchestratorOptions(
         natsNKeyFile = Messaging.NatsCredentialFile.Resolve(
             natsNKeyFile,
             "TS_ORCH_NATS_NKEY_FILE");
+        if (command == OrchestratorCommand.Run &&
+            (uri.Scheme != "tls" || natsNKeyFile is null || natsTls is null))
+        {
+            throw new ArgumentException(
+                "The run command requires a tls:// regional control NATS URL, a private NKey seed, and complete mTLS credentials.");
+        }
         var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalNatsConfiguration.Resolve(
                 environment("TS_ORCH_GLOBAL_NATS_URL"),

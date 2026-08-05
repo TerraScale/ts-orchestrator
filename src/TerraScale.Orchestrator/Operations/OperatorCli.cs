@@ -34,6 +34,12 @@ public static class OperatorCli
             ValueOrNull(values, "--tls-cert-file", environment("TS_ORCH_NATS_TLS_CERT_FILE")),
             ValueOrNull(values, "--tls-key-file", environment("TS_ORCH_NATS_TLS_KEY_FILE")),
             "operator TLS");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "tls" ||
+            nkeyFile is null || tls is null)
+        {
+            throw new ArgumentException(
+                "operator status requires a tls:// NATS URL, a private NKey seed, and complete mTLS credentials.");
+        }
         _ = OrchestratorOptions.Parse(
             ["check"],
             key => key switch

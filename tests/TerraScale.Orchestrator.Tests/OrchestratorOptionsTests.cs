@@ -82,12 +82,19 @@ public sealed class OrchestratorOptionsTests
             ["TS_ORCH_INSTANCE"] = "controller-2"
         };
 
-        var options = OrchestratorOptions.Parse(["run"], name => values.GetValueOrDefault(name));
+        var options = OrchestratorOptions.Parse(["check"], name => values.GetValueOrDefault(name));
 
         await Assert.That(options.Instance).IsEqualTo("controller-2");
         await Assert.That(() => OrchestratorOptions.Parse(
-                ["run"],
+                ["check"],
                 name => name == "TS_ORCH_INSTANCE" ? "Controller/2" : null))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task RunRequiresAuthenticatedTlsRegionalControlNats()
+    {
+        await Assert.That(() => OrchestratorOptions.Parse(["run"], _ => null))
             .Throws<ArgumentException>();
     }
 
@@ -104,23 +111,23 @@ public sealed class OrchestratorOptionsTests
             await File.WriteAllTextAsync(path, NATS.Client.Core.NKeys.CreateUserSeed());
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var options = OrchestratorOptions.Parse(
-                ["run"],
+                ["check"],
                 name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null);
 
             await Assert.That(options.NatsNKeyFile).IsEqualTo(path);
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.OtherRead);
             await Assert.That(() => OrchestratorOptions.Parse(
-                    ["run"],
+                    ["check"],
                     name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null))
                 .Throws<ArgumentException>();
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             await File.WriteAllTextAsync(path, "not-an-nkey-seed");
             await Assert.That(() => OrchestratorOptions.Parse(
-                    ["run"],
+                    ["check"],
                     name => name == "TS_ORCH_NATS_NKEY_FILE" ? path : null))
                 .Throws<ArgumentException>();
             await Assert.That(() => OrchestratorOptions.Parse(
-                    ["run"],
+                    ["check"],
                     name => name == "TS_ORCH_NATS_NKEY_FILE" ? path + ".missing" : null))
                 .Throws<ArgumentException>();
         }

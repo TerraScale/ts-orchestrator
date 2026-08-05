@@ -5,6 +5,16 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OperatorCliTests
 {
     [Test]
+    public async Task OperatorStatusRequiresAuthenticatedTlsBeforeConnecting()
+    {
+        await Assert.That(async () => await OperatorCli.ExecuteAsync(
+                ["status"],
+                _ => null,
+                CancellationToken.None))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task OperatorOptionsAreClosedAndRejectDuplicates()
     {
         var parsed = OperatorCli.ParseValues([

@@ -128,7 +128,7 @@ public sealed class GlobalNatsTopologyTests
             values["TS_ORCH_FORGEJO_API_TOKEN_FILE"] = forgejoToken;
 
             var options = OrchestratorOptions.Parse(
-                ["check"],
+                ["run"],
                 name => values.GetValueOrDefault(name));
 
             await Assert.That(options.GlobalNats).IsNotNull();
