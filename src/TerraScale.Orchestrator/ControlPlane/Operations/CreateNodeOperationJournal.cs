@@ -5,16 +5,19 @@ using TerraScale.Orchestrator.ControlPlane.Providers;
 namespace TerraScale.Orchestrator.ControlPlane.Operations;
 
 public enum CreateNodeJournalStage { Prepared = 1, ProviderCallStarted = 2, Completed = 3, RequiresManualRecovery = 4 }
+public enum CreateNodeJournalDurability { DevelopmentNonCrashDurable = 1, AuthoritativeCrashDurable = 2 }
 public sealed record CreateNodeOperationJournalEntry(long Version, string OperationFingerprint, CreateNodeReceiptBinding Binding,
     CreateNodeHandoffReceipt Receipt, CreateNodeRecoveryLookupAuthority RecoveryAuthority, CreateNodeJournalStage Stage, DateTimeOffset? ProviderCallStartedAt,
     int ProviderAttempts, CreateNodeProviderResponse? Response);
 public interface ICreateNodeOperationJournal
 {
+    CreateNodeJournalDurability Durability => CreateNodeJournalDurability.DevelopmentNonCrashDurable;
     ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken);
     ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken cancellationToken);
 }
 public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJournal
 {
+    public CreateNodeJournalDurability Durability => CreateNodeJournalDurability.DevelopmentNonCrashDurable;
     private readonly object gate = new(); private readonly Dictionary<string, CreateNodeOperationJournalEntry> entries = new(StringComparer.Ordinal);
     public ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string operationId, CancellationToken cancellationToken)
     { cancellationToken.ThrowIfCancellationRequested(); lock (gate) return ValueTask.FromResult(entries.GetValueOrDefault(operationId)); }
@@ -41,6 +44,7 @@ public sealed class CreateNodeJournalTagKeyRing(IReadOnlyDictionary<string, byte
 public sealed class DevelopmentFileCreateNodeOperationJournal(string environmentName, string directory, string activeKeyId, byte[] activeKey,
     ICreateNodeJournalTagKeyResolver verificationKeys) : ICreateNodeOperationJournal
 {
+    public CreateNodeJournalDurability Durability => CreateNodeJournalDurability.DevelopmentNonCrashDurable;
     private readonly string directory = string.Equals(environmentName, "Development", StringComparison.Ordinal) ? Path.GetFullPath(directory ?? throw new ArgumentNullException(nameof(directory))) : throw new InvalidOperationException("Development file journal is rejected outside Development.");
     private readonly string activeKeyId = string.IsNullOrWhiteSpace(activeKeyId) ? throw new ArgumentException("Key ID required.", nameof(activeKeyId)) : activeKeyId;
     private readonly byte[] activeKey = activeKey?.ToArray() ?? throw new ArgumentNullException(nameof(activeKey));

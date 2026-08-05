@@ -29,6 +29,8 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
+        if (provider.IsExternalMutationProvider && journal.Durability != CreateNodeJournalDurability.AuthoritativeCrashDurable)
+            throw new InvalidOperationException("External CreateNode mutation requires an authoritative crash-durable journal.");
         var spec = Validate(dispatch, clock.GetUtcNow()); options.Validate();
         while (true)
         {
@@ -43,6 +45,8 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
                 throw new InvalidOperationException("CreateNode journal does not contain the exact current signed authorization.");
             if (current.Stage == CreateNodeJournalStage.Completed) return new(CreateNodeCoordinationDisposition.Completed, current);
             if (current.Stage == CreateNodeJournalStage.RequiresManualRecovery) return new(CreateNodeCoordinationDisposition.RequiresManualRecovery, current);
+            if (current.Stage == CreateNodeJournalStage.ProviderCallStarted && !CreateNodeRecoveryLookupVerifier.Verify(current.RecoveryAuthority, recoveryKeys, spec.Binding, now))
+            { var held = current with { Stage = CreateNodeJournalStage.RequiresManualRecovery }; if (!await journal.CompareExchangeAsync(current, held, cancellationToken)) continue; continue; }
             var mutationAuthority = CreateNodeHandoffReceiptVerifier.Verify(current.Receipt, receiptKeys, spec.Binding, now);
             var recoveryAuthority = current.Stage == CreateNodeJournalStage.ProviderCallStarted && CreateNodeRecoveryLookupVerifier.Verify(current.RecoveryAuthority, recoveryKeys, spec.Binding, now);
             if (!mutationAuthority && !recoveryAuthority)

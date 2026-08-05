@@ -19,6 +19,7 @@ public sealed record CreateNodeReconciliation(CreateNodeReconciliationStatus Sta
 /// <summary>A provider must reconcile a recorded create key; the coordinator never retries a CreateNode mutation.</summary>
 public interface ICreateNodeProvider
 {
+    bool IsExternalMutationProvider => false;
     ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
     ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
 }
@@ -30,6 +31,7 @@ public sealed class DeterministicCreateNodeProvider(ICreateNodeReceiptKeyResolve
     private readonly CreateNodeProviderProofSigner proofSigner = proofSigner ?? throw new ArgumentNullException(nameof(proofSigner));
     private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly Dictionary<string, CreateNodeProviderResponse> results = new(StringComparer.Ordinal);
+    public bool IsExternalMutationProvider => false;
     public int CreateCallCount { get; private set; }
     public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
     {
@@ -70,14 +72,16 @@ public interface IOciCreateNodeClient
 }
 /// <summary>Disabled by default; no production OCI mutation client is wired in this slice.</summary>
 public sealed class OciCreateNodeProvider(OciCreateNodeProviderOptions options, IOciCreateNodeClient client,
-    ICreateNodeReceiptKeyResolver keys, TimeProvider clock) : ICreateNodeProvider
+    ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, TimeProvider clock) : ICreateNodeProvider
 {
     private readonly OciCreateNodeProviderOptions options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly IOciCreateNodeClient client = client ?? throw new ArgumentNullException(nameof(client));
     private readonly ICreateNodeReceiptKeyResolver keys = keys ?? throw new ArgumentNullException(nameof(keys));
+    private readonly ICreateNodeRecoveryLookupKeyResolver recoveryKeys = recoveryKeys ?? throw new ArgumentNullException(nameof(recoveryKeys));
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
+    public bool IsExternalMutationProvider => true;
     public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
     { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); return client.CreateNodeAsync(request, cancellationToken); }
     public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken)
-    { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.Validate(request, keys, clock.GetUtcNow()); return client.ReconcileCreateNodeAsync(request, cancellationToken); }
+    { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.ValidateRecovery(request, keys, recoveryKeys, clock.GetUtcNow()); return client.ReconcileCreateNodeAsync(request, cancellationToken); }
 }
