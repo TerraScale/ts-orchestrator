@@ -20,6 +20,9 @@ internal static class Validation
     }
 
     public static void ValidateLocalAnchors(JsonArray? anchors, string where, List<string> errors)
+        => ValidateLocalAnchors(anchors, where, errors, ToolingSupport.Root);
+
+    internal static void ValidateLocalAnchors(JsonArray? anchors, string where, List<string> errors, string root)
     {
         if (anchors is null)
         {
@@ -45,9 +48,8 @@ internal static class Validation
                 continue;
             }
 
-            var path = isWorkspaceGoal
-                ? Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, "GOAL.md")
-                : Path.Combine(ToolingSupport.Root, relative);
+            var workspaceGoal = Path.Combine(Directory.GetParent(root)!.FullName, "GOAL.md");
+            var path = isWorkspaceGoal ? workspaceGoal : Path.Combine(root, relative);
             if (!File.Exists(path))
             {
                 errors.Add($"{where}: evidence target is missing: {anchor}");
@@ -55,10 +57,10 @@ internal static class Validation
             }
 
             var resolvedPath = ResolveExistingPath(path);
-            var resolvedWorkspaceGoal = ResolveExistingPath(Path.Combine(Directory.GetParent(ToolingSupport.Root)!.FullName, "GOAL.md"));
             if (isWorkspaceGoal
-                ? !string.Equals(resolvedPath, resolvedWorkspaceGoal, StringComparison.Ordinal)
-                : !IsWithin(ResolveExistingPath(ToolingSupport.Root), resolvedPath))
+                ? new FileInfo(workspaceGoal).LinkTarget is not null
+                    || !string.Equals(resolvedPath, Path.GetFullPath(workspaceGoal), StringComparison.Ordinal)
+                : !IsWithin(ResolveExistingPath(root), resolvedPath))
             {
                 errors.Add($"{where}: evidence target escapes the repository: {anchor}");
                 continue;

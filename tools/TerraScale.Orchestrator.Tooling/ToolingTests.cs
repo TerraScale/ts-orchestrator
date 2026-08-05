@@ -24,6 +24,7 @@ internal static class ToolingTests
             ("adr malformed anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "https://example.test/a:1-2"), AdrReadinessCommand.Validate)),
             ("adr traversal anchor", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["entries", 0, "sourceAnchors", 0], "../ORCHESTRATOR.md:1-2"), AdrReadinessCommand.Validate)),
             ("adr symlink escape anchor", SymlinkEscapeAnchor),
+            ("adr symlinked workspace Goal", SymlinkedWorkspaceGoal),
             ("adr canonical lane substitution", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["canonicalOwnerLanes", 0], "other"), AdrReadinessCommand.Validate)),
             ("adr normalization provenance", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "GOAL.md:1-1"), AdrReadinessCommand.Validate)),
             ("adr Goal anchor bounds", () => AssertInvalid(Mutate("docs/adr/readiness-index.yaml", ["normalizationEvidence"], "../GOAL.md:999-999"), AdrReadinessCommand.Validate)),
@@ -120,6 +121,39 @@ internal static class ToolingTests
         {
             if (Directory.Exists(link)) Directory.Delete(link);
             Directory.Delete(target, recursive: true);
+        }
+    }
+
+    private static void SymlinkedWorkspaceGoal()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"tooling-workspace-{Guid.NewGuid():N}");
+        var root = Path.Combine(workspace, "repository");
+        var target = Path.Combine(Path.GetTempPath(), $"tooling-goal-target-{Guid.NewGuid():N}.md");
+        var goal = Path.Combine(workspace, "GOAL.md");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(target, "outside workspace");
+        try
+        {
+            try
+            {
+                File.CreateSymbolicLink(goal, target);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                Console.WriteLine("SKIP adr symlinked workspace Goal: symbolic links are unavailable on this platform");
+                return;
+            }
+
+            var errors = new List<string>();
+            Validation.ValidateLocalAnchors(new JsonArray(JsonValue.Create("../GOAL.md:1-1")), "Goal", errors, root);
+            if (!errors.Any(error => error.Contains("escapes the repository", StringComparison.Ordinal)))
+                throw new InvalidOperationException("validator accepted a symlinked workspace Goal");
+        }
+        finally
+        {
+            if (File.Exists(goal)) File.Delete(goal);
+            Directory.Delete(workspace, recursive: true);
+            File.Delete(target);
         }
     }
 
