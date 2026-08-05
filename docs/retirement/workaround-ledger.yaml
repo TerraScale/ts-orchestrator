@@ -51,14 +51,16 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "AGENTS.md",
         "sha256": "08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5",
-        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:66"
+        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:66",
+        "anchor_sha256": "5255536e3df2504021a4062ba63796e604b30e637c48b9995886cf6999854591"
       },
       {
         "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13",
         "repository": "TerraScale.Infrastructure",
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "src/TerraScale.Infrastructure/Program.cs",
-        "sha256": "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4"
+        "sha256": "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4",
+        "anchor_sha256": "14355c61e5cd5a2ab933ae49bb9fecfb1aad66b1c1d63755f47135c217c61b8a"
       }
     ],
     "WRK-002": [
@@ -67,7 +69,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/clusters/production-gru/reconciliation.yaml",
         "sha256": "5471818590e70e54874e76593e0fbd251022d12ffed56e72574f5b18473b6205",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70",
+        "anchor_sha256": "1597fd2d8689c55dd63efd4a920f3ccb7fa7d4d98e63c6ec09337de7e4b7da5a"
       }
     ],
     "WRK-003": [
@@ -76,7 +79,8 @@
         "commit": "bd5ecec12efa857d098dfe12584c9a548eb3d06b",
         "path": "src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs",
         "sha256": "5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a",
-        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959"
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959",
+        "anchor_sha256": "7022c405edaa049877f7d1d305111dc17e8f13872fb6ba5e87c2a91380d0b914"
       }
     ],
     "WRK-004": [
@@ -85,7 +89,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml",
         "sha256": "17ad31816802f0276645546f3bfe3202304114b3e236c74bc10a378e11d31633",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45",
+        "anchor_sha256": "9d66be2cf5a9426a19d3b4df69caa8fc62c098a39da7d3416977fe01ee37f969"
       }
     ],
     "WRK-005": [
@@ -94,7 +99,8 @@
         "commit": "bd5ecec12efa857d098dfe12584c9a548eb3d06b",
         "path": "src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs",
         "sha256": "5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a",
-        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280"
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280",
+        "anchor_sha256": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"
       }
     ],
     "WRK-006": [
@@ -103,7 +109,8 @@
         "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
         "path": "api/v1/cluster_types.go",
         "sha256": "b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4",
-        "anchor": "archive:Terrabase.Operator/api/v1/cluster_types.go:7"
+        "anchor": "archive:Terrabase.Operator/api/v1/cluster_types.go:7",
+        "anchor_sha256": "b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"
       }
     ],
     "WRK-007": [
@@ -112,7 +119,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "src/TerraScale.Infrastructure/ObservabilityIngestTls.cs",
         "sha256": "0f4c9137ce89e21508a7e90b877a3cf05d87a06960b1b3758364f51ffe4a5837",
-        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101"
+        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101",
+        "anchor_sha256": "d36b85c97864094a1cae0e705bb5cf196629561bf01393e1cd4f6a6ba09947a4"
       }
     ],
     "WRK-008": [
@@ -121,7 +129,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/observability/runtime-secrets/production/external-secrets.yaml",
         "sha256": "6e80f0e86dbed4228040597b6a2a283874f1140f9f23a48547e92c8f71a8ee5f",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2",
+        "anchor_sha256": "aed02990c9edd8692808020fb476cc0ab417a493681bc5bbab67def5908aefb2"
       }
     ],
     "WRK-009": [
@@ -130,7 +139,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/observability/resources/production/prometheus-rules.yaml",
         "sha256": "efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124",
+        "anchor_sha256": "5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"
       }
     ],
     "WRK-010": [
@@ -139,7 +149,8 @@
         "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
         "path": "api/v1/storage_types.go",
         "sha256": "fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749",
-        "anchor": "archive:Terrabase.Operator/api/v1/storage_types.go:79"
+        "anchor": "archive:Terrabase.Operator/api/v1/storage_types.go:79",
+        "anchor_sha256": "fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"
       }
     ],
     "WRK-011": [
@@ -148,7 +159,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "AGENTS.md",
         "sha256": "08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5",
-        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:69"
+        "anchor": "archive:TerraScale.Infrastructure/AGENTS.md:69",
+        "anchor_sha256": "8f8f7f6150ce721a043902faa349c1149cea6ec9f3495887b3a8cdd140bd6597"
       }
     ],
     "WRK-012": [
@@ -157,7 +169,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/observability/resources/production/prometheus-rules.yaml",
         "sha256": "efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253",
+        "anchor_sha256": "091723c95dca86a1170f997ac62fe5cd28de11e9aaab1cff67018fd39575ea57"
       }
     ],
     "WRK-013": [
@@ -166,7 +179,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "gitops/observability/resources/production/terrascale-service-dashboards.yaml",
         "sha256": "5f5ed9947f09663166c4abf6585cdef1cdc00157f224758af505fc9277d3b834",
-        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7"
+        "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7",
+        "anchor_sha256": "f9c44d76011cbbc7757e8aa1118166d7b9616225f671725d653e6c4bf52f6138"
       }
     ],
     "WRK-014": [
@@ -175,7 +189,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "Pulumi.production-sfo.yaml",
         "sha256": "c2372cc5bcdf9f2950fa43bcd472fb0d4ceb9bfc93946fdaceee4dc5d8d22dc8",
-        "anchor": "archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20"
+        "anchor": "archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20",
+        "anchor_sha256": "18fedfa76062642c684e536ad9d256cb01d4e1c2abe33ea756472782e1dcba46"
       }
     ],
     "WRK-015": [
@@ -184,7 +199,8 @@
         "commit": "cd7da11eac891ea2a39eb12014b3abc35d45a412",
         "path": "src/regions.ts",
         "sha256": "f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57",
-        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:15"
+        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:15",
+        "anchor_sha256": "7c34f2c8ad226806e74ad057dec21eca12952b9224a2be6c244cc74a06eaf83c"
       }
     ],
     "WRK-016": [
@@ -193,7 +209,8 @@
         "commit": "88cc11fa9562b8c71dadfa6b0515a3d6ec32aacf",
         "path": ".terrascale/deploy.json",
         "sha256": "aab0bf12783784e19ae95df2c2513cf818001413b85e9e15e5c02f32a6a3e048",
-        "anchor": "current+archive:TerraScale.Internals/.terrascale/deploy.json:17"
+        "anchor": "current+archive:TerraScale.Internals/.terrascale/deploy.json:17",
+        "anchor_sha256": "360d386fc6ff18dfc06eb82163666bd0db260d7417133c3d94a157ccc61499ed"
       }
     ],
     "WRK-017": [
@@ -202,7 +219,8 @@
         "commit": "03287808a23cadad5dd83309df8cc63b5d5c46d7",
         "path": "src/content/docs/en/reference/regions.svx",
         "sha256": "2c95e7cb4b8c730fab5e24b15d51787212dea0fc27a28634476e1179f858066f",
-        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74"
+        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74",
+        "anchor_sha256": "f3c66a5bdf719d4576668876917c0bc982c6ae8cd9d2a5e37c8b713406bf18cf"
       }
     ],
     "WRK-018": [
@@ -211,7 +229,8 @@
         "commit": "d924f26b5ceb2759e6143f3e90b78a019d79e73b",
         "path": "src/TerraScale.Infrastructure/Program.cs",
         "sha256": "f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4",
-        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366"
+        "anchor": "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366",
+        "anchor_sha256": "0096393fdcae599d1fae6fa7111b6ff51c3ef89bb999e718eba6a7bff4a41ca7"
       }
     ],
     "WRK-019": [
@@ -220,7 +239,8 @@
         "commit": "6d56564e16308e2334f76a8635c01f7a621e76da",
         "path": "src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs",
         "sha256": "e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58",
-        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7"
+        "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7",
+        "anchor_sha256": "54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"
       }
     ],
     "WRK-020": [
@@ -229,7 +249,8 @@
         "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
         "path": "cmd/main.go",
         "sha256": "ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a",
-        "anchor": "archive:Terrabase.Operator/cmd/main.go:93"
+        "anchor": "archive:Terrabase.Operator/cmd/main.go:93",
+        "anchor_sha256": "c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"
       }
     ],
     "WRK-021": [
@@ -238,7 +259,8 @@
         "commit": "03287808a23cadad5dd83309df8cc63b5d5c46d7",
         "path": "src/content/docs/en/reference/api/index.svx",
         "sha256": "e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462",
-        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20"
+        "anchor": "archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20",
+        "anchor_sha256": "a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"
       }
     ],
     "WRK-022": [
@@ -247,7 +269,8 @@
         "commit": "cd7da11eac891ea2a39eb12014b3abc35d45a412",
         "path": "src/regions.ts",
         "sha256": "f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57",
-        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:81"
+        "anchor": "archive:TerraScale.TypeScript/src/regions.ts:81",
+        "anchor_sha256": "3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"
       }
     ]
   },

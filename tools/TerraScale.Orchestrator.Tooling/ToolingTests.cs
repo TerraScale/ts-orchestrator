@@ -85,12 +85,14 @@ internal static class ToolingTests
             ("workaround unavailable closure receipt", WorkaroundUnavailableClosureReceipt),
             ("workaround mismatched closure receipt", WorkaroundMismatchedClosureReceipt),
             ("workaround unbound real closure receipt", WorkaroundUnboundRealClosureReceipt),
+            ("workaround unrelated real closure receipt", WorkaroundUnrelatedRealClosureReceipt),
             ("workaround archival source mismatch", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["archivalSourceEvidence", "WRK-001", 0, "sha256"], new string('a', 64)), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround missing archival source evidence", WorkaroundMissingArchivalSourceEvidence),
             ("workaround archival anchor drift", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:TerraScale.Infrastructure/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround malformed archival anchor", () => AssertInvalid(Mutate("docs/retirement/workaround-ledger.yaml", ["entries", 0, "source_anchors", 0], "archive:unknown/AGENTS.md:1"), Phase0EvidenceCommand.ValidateWorkaroundLedger)),
             ("workaround archival receipt swap", WorkaroundArchivalReceiptSwap),
             ("workaround archival anchor line bounds", WorkaroundArchivalAnchorLineBounds),
+            ("workaround archival anchor and receipt retarget", WorkaroundArchivalAnchorAndReceiptRetarget),
             ("git bytes preserve non UTF-8 blob", GitBytesPreserveNonUtf8Blob),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
@@ -205,6 +207,28 @@ internal static class ToolingTests
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 
+    private static void WorkaroundUnrelatedRealClosureReceipt()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        var unrelated = document["archivalSourceEvidence"]!["WRK-002"]![0]!.AsObject();
+        document["entries"]![0]!["status"] = "retired";
+        document["closureEvidence"]!["WRK-001"] = new JsonObject
+        {
+            ["workaround_id"] = "WRK-001",
+            ["native_replacement_gate"] = document["entries"]![0]!["native_replacement_gate"]!.DeepClone(),
+            ["removal_assertion"] = "The retired implementation and its authority were removed.",
+            ["approved_cleanup_authority"] = "approved test authority",
+            ["affected_safe_paths"] = new JsonArray("safe/path"),
+            ["approval_identity"] = "test approver",
+            ["repository"] = unrelated["repository"]!.DeepClone(),
+            ["commit"] = unrelated["commit"]!.DeepClone(),
+            ["path"] = unrelated["path"]!.DeepClone(),
+            ["sha256"] = unrelated["sha256"]!.DeepClone(),
+            ["timestamp"] = "2026-08-05T00:00:00Z"
+        };
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
     private static void WorkaroundMissingArchivalSourceEvidence()
     {
         var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
@@ -249,6 +273,17 @@ internal static class ToolingTests
         const string anchor = "archive:TerraScale.Infrastructure/AGENTS.md:999999";
         document["entries"]![0]!["source_anchors"]![0] = anchor;
         document["archivalSourceEvidence"]!["WRK-001"]![0]!["anchor"] = anchor;
+        AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
+    }
+
+    private static void WorkaroundArchivalAnchorAndReceiptRetarget()
+    {
+        var document = Clone(ToolingSupport.ReadObject("docs/retirement/workaround-ledger.yaml"));
+        const string anchor = "archive:TerraScale.Infrastructure/AGENTS.md:65";
+        document["entries"]![0]!["source_anchors"]![0] = anchor;
+        var receipt = document["archivalSourceEvidence"]!["WRK-001"]![0]!.AsObject();
+        receipt["anchor"] = anchor;
+        receipt["anchor_sha256"] = "f288db607b8e7372ebff2a7dd7d8e39700ba65451d1445b2063fa300177ca7ab";
         AssertInvalid(Phase0EvidenceCommand.ValidateWorkaroundLedger(document));
     }
 

@@ -120,10 +120,35 @@ internal static class Phase0EvidenceCommand
         "evidence_claim_status"
     ];
     private static readonly string[] ClosureFields =
-        ["workaround_id", "native_replacement_gate", "removal_assertion", "approved_cleanup_authority", "repository", "commit", "path", "sha256", "timestamp"];
+        ["workaround_id", "native_replacement_gate", "removal_assertion", "approved_cleanup_authority", "affected_safe_paths", "approval_identity", "repository", "commit", "path", "sha256", "timestamp"];
     private static readonly string[] InventoryFields = ["repository", "branch", "source_commit", "checkout_state", "ownership", "descriptors"];
     private static readonly string[] DescriptorFields = ["path", "type", "purpose", "classification", "production_relevance", "confidence", "source_sha256"];
-    private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256"];
+    private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256", "anchor_sha256"];
+    private static readonly Dictionary<string, string[]> ArchivalReceiptIdentities = new(StringComparer.Ordinal)
+    {
+        ["WRK-001"] = ["archive:TerraScale.Infrastructure/AGENTS.md:66|5255536e3df2504021a4062ba63796e604b30e637c48b9995886cf6999854591", "archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13|14355c61e5cd5a2ab933ae49bb9fecfb1aad66b1c1d63755f47135c217c61b8a"],
+        ["WRK-002"] = ["archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70|1597fd2d8689c55dd63efd4a920f3ccb7fa7d4d98e63c6ec09337de7e4b7da5a"],
+        ["WRK-003"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959|7022c405edaa049877f7d1d305111dc17e8f13872fb6ba5e87c2a91380d0b914"],
+        ["WRK-004"] = ["archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45|9d66be2cf5a9426a19d3b4df69caa8fc62c098a39da7d3416977fe01ee37f969"],
+        ["WRK-005"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280|2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"],
+        ["WRK-006"] = ["archive:Terrabase.Operator/api/v1/cluster_types.go:7|b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"],
+        ["WRK-007"] = ["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101|d36b85c97864094a1cae0e705bb5cf196629561bf01393e1cd4f6a6ba09947a4"],
+        ["WRK-008"] = ["archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2|aed02990c9edd8692808020fb476cc0ab417a493681bc5bbab67def5908aefb2"],
+        ["WRK-009"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124|5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"],
+        ["WRK-010"] = ["archive:Terrabase.Operator/api/v1/storage_types.go:79|fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"],
+        ["WRK-011"] = ["archive:TerraScale.Infrastructure/AGENTS.md:69|8f8f7f6150ce721a043902faa349c1149cea6ec9f3495887b3a8cdd140bd6597"],
+        ["WRK-012"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253|091723c95dca86a1170f997ac62fe5cd28de11e9aaab1cff67018fd39575ea57"],
+        ["WRK-013"] = ["archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7|f9c44d76011cbbc7757e8aa1118166d7b9616225f671725d653e6c4bf52f6138"],
+        ["WRK-014"] = ["archive:TerraScale.Infrastructure/Pulumi.production-sfo.yaml:20|18fedfa76062642c684e536ad9d256cb01d4e1c2abe33ea756472782e1dcba46"],
+        ["WRK-015"] = ["archive:TerraScale.TypeScript/src/regions.ts:15|7c34f2c8ad226806e74ad057dec21eca12952b9224a2be6c244cc74a06eaf83c"],
+        ["WRK-016"] = ["current+archive:TerraScale.Internals/.terrascale/deploy.json:17|360d386fc6ff18dfc06eb82163666bd0db260d7417133c3d94a157ccc61499ed"],
+        ["WRK-017"] = ["archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74|f3c66a5bdf719d4576668876917c0bc982c6ae8cd9d2a5e37c8b713406bf18cf"],
+        ["WRK-018"] = ["archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366|0096393fdcae599d1fae6fa7111b6ff51c3ef89bb999e718eba6a7bff4a41ca7"],
+        ["WRK-019"] = ["archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7|54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"],
+        ["WRK-020"] = ["archive:Terrabase.Operator/cmd/main.go:93|c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"],
+        ["WRK-021"] = ["archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20|a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"],
+        ["WRK-022"] = ["archive:TerraScale.TypeScript/src/regions.ts:81|3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"],
+    };
 
     public static int Run(string[] arguments)
     {
@@ -277,7 +302,10 @@ internal static class Phase0EvidenceCommand
         }
 
         foreach (var field in ClosureFields)
-            if (string.IsNullOrWhiteSpace(closure[field]?.GetValue<string>())) errors.Add($"{id}: closureEvidence requires {field}");
+            if (field == "affected_safe_paths"
+                ? closure[field] is not JsonArray paths || paths.Count == 0 || paths.Any(pathNode => !IsPath(StringValue(pathNode) ?? string.Empty))
+                : string.IsNullOrWhiteSpace(StringValue(closure[field])))
+                errors.Add($"{id}: closureEvidence requires {field}");
         var repository = closure["repository"]?.GetValue<string>() ?? string.Empty;
         var commit = closure["commit"]?.GetValue<string>() ?? string.Empty;
         var path = closure["path"]?.GetValue<string>() ?? string.Empty;
@@ -295,6 +323,41 @@ internal static class Phase0EvidenceCommand
         {
             VerifyCommit(repository, commit, $"{id}: closureEvidence commit", errors);
             VerifySource(repository, commit, path, hash, errors);
+            VerifyClosureReceipt(id, closure, repository, commit, path, errors);
+        }
+    }
+
+    private static void VerifyClosureReceipt(string id, JsonObject closure, string repository, string commit, string path, List<string> errors)
+    {
+        try
+        {
+            var receipt = JsonNode.Parse(new UTF8Encoding(false, true).GetString(
+                ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}"))) as JsonObject;
+            if (receipt is null || StringValue(receipt["receipt_type"]) != "terrascale.workaround-closure-receipt/v1")
+            {
+                errors.Add($"{id}: closureEvidence immutable artifact must be a dedicated structured receipt");
+                return;
+            }
+
+            foreach (var field in ClosureFields.TakeWhile(field => field is not "repository"))
+            {
+                if (field == "affected_safe_paths")
+                {
+                    if (receipt[field] is not JsonArray paths || paths.Count == 0 || paths.Any(pathNode => !IsPath(StringValue(pathNode) ?? string.Empty))
+                        || !JsonNode.DeepEquals(paths, closure[field]))
+                        errors.Add($"{id}: closureEvidence affected_safe_paths must match the immutable receipt");
+                }
+                else if (!string.Equals(StringValue(receipt[field]), StringValue(closure[field]), StringComparison.Ordinal))
+                {
+                    errors.Add($"{id}: closureEvidence {field} must match the immutable receipt");
+                }
+            }
+            if (!string.Equals(StringValue(receipt["timestamp"]), StringValue(closure["timestamp"]), StringComparison.Ordinal))
+                errors.Add($"{id}: closureEvidence timestamp must match the immutable receipt");
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"{id}: closureEvidence immutable artifact is not valid receipt JSON ({exception.Message})");
         }
     }
 
@@ -314,6 +377,11 @@ internal static class Phase0EvidenceCommand
         var recorded = sources.Select(source => source is JsonObject receipt ? StringValue(receipt["anchor"]) ?? string.Empty : string.Empty).ToArray();
         if (!recorded.SequenceEqual(declared, StringComparer.Ordinal))
             errors.Add($"{id}: archivalSourceEvidence must exactly match declared source_anchors");
+        var identities = sources.Select(source => source is JsonObject receipt
+            ? $"{StringValue(receipt["anchor"])}|{StringValue(receipt["anchor_sha256"])}"
+            : string.Empty).ToArray();
+        if (!ArchivalReceiptIdentities.TryGetValue(id, out var expected) || !identities.SequenceEqual(expected, StringComparer.Ordinal))
+            errors.Add($"{id}: archivalSourceEvidence must match its canonical immutable anchor receipts");
         foreach (var source in sources)
         {
             if (source is not JsonObject receipt)
@@ -337,6 +405,7 @@ internal static class Phase0EvidenceCommand
         var path = source["path"]?.GetValue<string>() ?? string.Empty;
         var hash = source["sha256"]?.GetValue<string>() ?? string.Empty;
         var anchor = source["anchor"]?.GetValue<string>() ?? string.Empty;
+        var anchorHash = source["anchor_sha256"]?.GetValue<string>() ?? string.Empty;
         var parsedAnchor = ParseArchiveAnchor(anchor);
         if (parsedAnchor is null) errors.Add($"{id}: archivalSourceEvidence anchor is malformed");
         else if (parsedAnchor.Value.Repository != repository || parsedAnchor.Value.Path != path)
@@ -345,23 +414,25 @@ internal static class Phase0EvidenceCommand
         if (!IsCommit(commit)) errors.Add($"{id}: archivalSourceEvidence commit must be immutable");
         if (!IsPath(path)) errors.Add($"{id}: archivalSourceEvidence path must be repository-relative");
         if (!IsHash(hash)) errors.Add($"{id}: archivalSourceEvidence sha256 must be lower-case");
-        if (IsKnownRepository(repository) && IsCommit(commit) && IsPath(path) && IsHash(hash))
+        if (!IsHash(anchorHash)) errors.Add($"{id}: archivalSourceEvidence anchor_sha256 must be lower-case");
+        if (IsKnownRepository(repository) && IsCommit(commit) && IsPath(path) && IsHash(hash) && IsHash(anchorHash))
         {
             VerifyCommit(repository, commit, $"{id}: archivalSourceEvidence commit", errors);
             VerifySource(repository, commit, path, hash, errors);
-            if (parsedAnchor is not null) VerifyAnchorLine(id, repository, commit, path, parsedAnchor.Value.Line, errors);
+            if (parsedAnchor is not null) VerifyAnchorLine(id, repository, commit, path, parsedAnchor.Value.Start, parsedAnchor.Value.End, anchorHash, errors);
         }
     }
 
-    private static void VerifyAnchorLine(string id, string repository, string commit, string path, int line, List<string> errors)
+    private static void VerifyAnchorLine(string id, string repository, string commit, string path, int start, int end, string hash, List<string> errors)
     {
         try
         {
-            var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
-                .GetString(ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}"));
-            var lines = text.Split('\n');
-            if (line > lines.Length || string.IsNullOrWhiteSpace(lines[line - 1]))
+            var bytes = ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}");
+            var rawLines = GetRawLines(bytes, start, end);
+            if (rawLines is null || string.IsNullOrWhiteSpace(new UTF8Encoding(false, true).GetString(rawLines)))
                 errors.Add($"{id}: archivalSourceEvidence anchor line is out of bounds or blank");
+            else if (!string.Equals(ToolingSupport.Sha256Bytes(rawLines), hash, StringComparison.Ordinal))
+                errors.Add($"{id}: archivalSourceEvidence anchor_sha256 does not match raw pinned line/range bytes");
         }
         catch (Exception exception)
         {
@@ -369,12 +440,35 @@ internal static class Phase0EvidenceCommand
         }
     }
 
-    private static (string Repository, string Path, int Line)? ParseArchiveAnchor(string anchor)
+    private static byte[]? GetRawLines(byte[] bytes, int startLine, int endLine)
     {
-        var match = Regex.Match(anchor, "^(?:archive|current\\+archive):(?<repository>[A-Za-z0-9.]+)/(?<path>[A-Za-z0-9._/-]+):(?<line>[1-9]\\d*)$");
+        var start = 0;
+        for (var current = 1; current < startLine; current++)
+        {
+            start = Array.IndexOf(bytes, (byte)'\n', start);
+            if (start < 0) return null;
+            start++;
+        }
+
+        var end = start;
+        for (var current = startLine; current <= endLine; current++)
+        {
+            end = Array.IndexOf(bytes, (byte)'\n', end);
+            if (end < 0) return current == endLine ? bytes[start..] : null;
+            if (current == endLine) return bytes[start..end];
+            end++;
+        }
+
+        return null;
+    }
+
+    private static (string Repository, string Path, int Start, int End)? ParseArchiveAnchor(string anchor)
+    {
+        var match = Regex.Match(anchor, "^(?:archive|current\\+archive):(?<repository>[A-Za-z0-9.]+)/(?<path>[A-Za-z0-9._/-]+):(?<start>[1-9]\\d*)(?:-(?<end>[1-9]\\d*))?$");
         if (!match.Success || !IsKnownRepository(match.Groups["repository"].Value) || !IsPath(match.Groups["path"].Value)
-            || !int.TryParse(match.Groups["line"].Value, out var line)) return null;
-        return (match.Groups["repository"].Value, match.Groups["path"].Value, line);
+            || !int.TryParse(match.Groups["start"].Value, out var start)) return null;
+        var end = match.Groups["end"].Success ? int.Parse(match.Groups["end"].Value, System.Globalization.CultureInfo.InvariantCulture) : start;
+        return end < start ? null : (match.Groups["repository"].Value, match.Groups["path"].Value, start, end);
     }
 
     private static string? StringValue(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
