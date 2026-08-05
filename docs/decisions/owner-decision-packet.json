@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "status": "owner-choices-accepted-measurable-targets-pending",
   "contract": "ORCHESTRATOR.md decisions 1A-10A accepted 2026-07-16",
+  "lastNormalizedOn": "2026-08-05",
   "source": {"path": "ORCHESTRATOR.md", "questionTableLines": "87-98", "planningInputLines": "100-105"},
   "decisionPolicy": {
     "recommendationIsNotDefault": true,

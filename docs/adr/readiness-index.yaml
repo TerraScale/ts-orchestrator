@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "contract": "ORCHESTRATOR.md proposed architecture dated 2026-07-13",
-  "generatedAt": "2026-07-17",
+  "generatedAt": "2026-08-05",
+  "normalizationEvidence": "GOAL.md:190-207",
   "status": "readiness-map-not-decision-record",
   "openOwnerQuestions": [],
   "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:12-30"]},
