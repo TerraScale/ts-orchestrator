@@ -191,7 +191,7 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task JournalReplySignerCannotReuseControllerTlsKeyAcrossRenewedCertificatesInRuntimeOrProvisioning()
+    public async Task JournalProvisioningRejectsControllerReplyAndIndependentWriterIdentityCollisions()
     {
         if (!OperatingSystem.IsLinux()) return;
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-journal-reply-identity-{Guid.NewGuid():N}");
@@ -209,15 +209,17 @@ public sealed class OrchestratorOptionsTests
             var infrastructure = await WriteCertificateAsync(directory, "infrastructure", infrastructureKey, isAuthority: true);
             var controllerNkey = Path.Combine(directory, "controller.nk");
             var writerNkey = Path.Combine(directory, "writer.nk");
+            var distinctControllerNkey = Path.Combine(directory, "distinct-controller.nk");
             var infrastructureNkey = Path.Combine(directory, "infrastructure.nk");
             var authority = Path.Combine(directory, "authority.pem");
             var safeReply = Path.Combine(directory, "safe-reply.pem");
             await File.WriteAllTextAsync(controllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(writerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            await File.WriteAllTextAsync(distinctControllerNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(infrastructureNkey, NATS.Client.Core.NKeys.CreateUserSeed());
             await File.WriteAllTextAsync(authority, authorityKey.ExportSubjectPublicKeyInfoPem());
             await File.WriteAllTextAsync(safeReply, safeReplyKey.ExportPkcs8PrivateKeyPem());
-            foreach (var path in new[] { controllerNkey, writerNkey, infrastructureNkey, safeReply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            foreach (var path in new[] { controllerNkey, writerNkey, distinctControllerNkey, infrastructureNkey, safeReply }) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             var values = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["TS_ORCH_CELL"] = "gru",
@@ -245,6 +247,9 @@ public sealed class OrchestratorOptionsTests
                 .Throws<ArgumentException>();
             values["TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE"] = safeReply;
             values["TS_ORCH_NATS_NKEY_FILE"] = writerNkey;
+            await Assert.That(() => OrchestratorOptions.Parse(["provision-journal"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
+            values["TS_ORCH_NATS_NKEY_FILE"] = distinctControllerNkey;
             values["TS_ORCH_NATS_TLS_CA_FILE"] = writer.Certificate;
             values["TS_ORCH_NATS_TLS_CERT_FILE"] = writer.Certificate;
             values["TS_ORCH_NATS_TLS_KEY_FILE"] = writer.PrivateKey;
