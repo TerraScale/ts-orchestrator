@@ -44,5 +44,5 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 ## Sibling repository ownership
 
-- `TerraScale.Infrastructure` and `Terrabase.Operator` are **retired stubs**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
+- `TerraScale.Infrastructure` is a **retired stub**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
 - Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.

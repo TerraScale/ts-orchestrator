@@ -110,7 +110,7 @@ internal static class Phase0EvidenceCommand
     [
         "TerraBase", "TerraBase.Benchmark", "TerraScale.Deploy", "TerraScale.DotNet", "TerraScale.TypeScript",
         "TerraScale.Internals", "TerraScale.DevHost", "Terrascale.Documentation", "Terrascale.Landingpage",
-        "TerraScale.Infrastructure", "Terrabase.Operator"
+        "TerraScale.Infrastructure"
     ];
     private static readonly string[] WorkaroundFields =
     [
@@ -131,11 +131,9 @@ internal static class Phase0EvidenceCommand
         ["WRK-003"] = ["TerraScale.Deploy|bd5ecec12efa857d098dfe12584c9a548eb3d06b|src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs|5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:959|7022c405edaa049877f7d1d305111dc17e8f13872fb6ba5e87c2a91380d0b914"],
         ["WRK-004"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml|17ad31816802f0276645546f3bfe3202304114b3e236c74bc10a378e11d31633|archive:TerraScale.Infrastructure/gitops/controllers/flux-image-automation/production-gru/image-update-automation.yaml:45|9d66be2cf5a9426a19d3b4df69caa8fc62c098a39da7d3416977fe01ee37f969"],
         ["WRK-005"] = ["TerraScale.Deploy|bd5ecec12efa857d098dfe12584c9a548eb3d06b|src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs|5d6a669fed73fcb7f1946057fc19708b5d1fae572c8efa329247827278b1327a|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Services/ServiceReleasePipeline.cs:280|2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"],
-        ["WRK-006"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|api/v1/cluster_types.go|b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4|archive:Terrabase.Operator/api/v1/cluster_types.go:7|b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"],
         ["WRK-007"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/ObservabilityIngestTls.cs|0f4c9137ce89e21508a7e90b877a3cf05d87a06960b1b3758364f51ffe4a5837|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/ObservabilityIngestTls.cs:101|d36b85c97864094a1cae0e705bb5cf196629561bf01393e1cd4f6a6ba09947a4"],
         ["WRK-008"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/runtime-secrets/production/external-secrets.yaml|6e80f0e86dbed4228040597b6a2a283874f1140f9f23a48547e92c8f71a8ee5f|archive:TerraScale.Infrastructure/gitops/observability/runtime-secrets/production/external-secrets.yaml:2|aed02990c9edd8692808020fb476cc0ab417a493681bc5bbab67def5908aefb2"],
         ["WRK-009"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/prometheus-rules.yaml|efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215|archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124|5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"],
-        ["WRK-010"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|api/v1/storage_types.go|fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749|archive:Terrabase.Operator/api/v1/storage_types.go:79|fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"],
         ["WRK-011"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|AGENTS.md|08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5|archive:TerraScale.Infrastructure/AGENTS.md:69|8f8f7f6150ce721a043902faa349c1149cea6ec9f3495887b3a8cdd140bd6597"],
         ["WRK-012"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/prometheus-rules.yaml|efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215|archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:253|091723c95dca86a1170f997ac62fe5cd28de11e9aaab1cff67018fd39575ea57"],
         ["WRK-013"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/observability/resources/production/terrascale-service-dashboards.yaml|5f5ed9947f09663166c4abf6585cdef1cdc00157f224758af505fc9277d3b834|archive:TerraScale.Infrastructure/gitops/observability/resources/production/terrascale-service-dashboards.yaml:7|f9c44d76011cbbc7757e8aa1118166d7b9616225f671725d653e6c4bf52f6138"],
@@ -145,10 +143,15 @@ internal static class Phase0EvidenceCommand
         ["WRK-017"] = ["Terrascale.Documentation|03287808a23cadad5dd83309df8cc63b5d5c46d7|src/content/docs/en/reference/regions.svx|2c95e7cb4b8c730fab5e24b15d51787212dea0fc27a28634476e1179f858066f|archive:Terrascale.Documentation/src/content/docs/en/reference/regions.svx:74|f3c66a5bdf719d4576668876917c0bc982c6ae8cd9d2a5e37c8b713406bf18cf"],
         ["WRK-018"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/Program.cs|f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:366|0096393fdcae599d1fae6fa7111b6ff51c3ef89bb999e718eba6a7bff4a41ca7"],
         ["WRK-019"] = ["TerraScale.Deploy|6d56564e16308e2334f76a8635c01f7a621e76da|src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs|e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7|54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"],
-        ["WRK-020"] = ["Terrabase.Operator|de34c93938ded3cd1c032918093ceb4e749679df|cmd/main.go|ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a|archive:Terrabase.Operator/cmd/main.go:93|c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"],
         ["WRK-021"] = ["Terrascale.Documentation|03287808a23cadad5dd83309df8cc63b5d5c46d7|src/content/docs/en/reference/api/index.svx|e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462|archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20|a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"],
         ["WRK-022"] = ["TerraScale.TypeScript|cd7da11eac891ea2a39eb12014b3abc35d45a412|src/regions.ts|f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57|archive:TerraScale.TypeScript/src/regions.ts:81|3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"],
     };
+    private static readonly string[] WorkaroundIds =
+    [
+        "WRK-001", "WRK-002", "WRK-003", "WRK-004", "WRK-005", "WRK-007", "WRK-008", "WRK-009",
+        "WRK-011", "WRK-012", "WRK-013", "WRK-014", "WRK-015", "WRK-016", "WRK-017", "WRK-018",
+        "WRK-019", "WRK-021", "WRK-022"
+    ];
 
     public static int Run(string[] arguments)
     {
@@ -230,20 +233,20 @@ internal static class Phase0EvidenceCommand
         if (closures is null) errors.Add("workaround ledger: closureEvidence must be a record map");
         else
         {
-            var expected = Enumerable.Range(1, 22).Select(index => $"WRK-{index:000}").ToHashSet(StringComparer.Ordinal);
+            var expected = WorkaroundIds.ToHashSet(StringComparer.Ordinal);
             if (closures.Count != expected.Count || closures.Any(pair => !expected.Contains(pair.Key)))
-                errors.Add("workaround ledger: closureEvidence must have exactly WRK-001 through WRK-022 keys");
+                errors.Add("workaround ledger: closureEvidence must have exactly the active workaround keys");
         }
         var archives = document["archivalSourceEvidence"] as JsonObject;
         if (archives is null) errors.Add("workaround ledger: archivalSourceEvidence must be a record map");
         else
         {
-            var expected = Enumerable.Range(1, 22).Select(index => $"WRK-{index:000}").ToHashSet(StringComparer.Ordinal);
+            var expected = WorkaroundIds.ToHashSet(StringComparer.Ordinal);
             if (archives.Count != expected.Count || archives.Any(pair => !expected.Contains(pair.Key)))
-                errors.Add("workaround ledger: archivalSourceEvidence must have exactly WRK-001 through WRK-022 keys");
+                errors.Add("workaround ledger: archivalSourceEvidence must have exactly the active workaround keys");
         }
         var entries = document["entries"] as JsonArray;
-        if (entries is null || entries.Count != 22) return errors;
+        if (entries is null || entries.Count != WorkaroundIds.Length) return errors;
         for (var index = 0; index < entries.Count; index++)
         {
             if (entries[index] is not JsonObject entry)
@@ -252,7 +255,7 @@ internal static class Phase0EvidenceCommand
                 continue;
             }
 
-            var id = $"WRK-{index + 1:000}";
+            var id = WorkaroundIds[index];
             if (entry["id"]?.GetValue<string>() != id) errors.Add($"workaround {index + 1}: IDs must be stable and ordered");
             foreach (var field in WorkaroundFields)
                 if (!entry.ContainsKey(field)) errors.Add($"{id}: missing field {field}");

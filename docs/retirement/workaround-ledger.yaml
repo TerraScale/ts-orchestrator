@@ -26,11 +26,9 @@
     "WRK-003": null,
     "WRK-004": null,
     "WRK-005": null,
-    "WRK-006": null,
     "WRK-007": null,
     "WRK-008": null,
     "WRK-009": null,
-    "WRK-010": null,
     "WRK-011": null,
     "WRK-012": null,
     "WRK-013": null,
@@ -40,7 +38,6 @@
     "WRK-017": null,
     "WRK-018": null,
     "WRK-019": null,
-    "WRK-020": null,
     "WRK-021": null,
     "WRK-022": null
   },
@@ -103,16 +100,6 @@
         "anchor_sha256": "2a44168318e224e1f830fe9ab620aa00dd4f7b3fb19ef4399abf59593cf0756d"
       }
     ],
-    "WRK-006": [
-      {
-        "repository": "Terrabase.Operator",
-        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
-        "path": "api/v1/cluster_types.go",
-        "sha256": "b54e2a8c91b6cac3f1622f28f008aa8a4d6c352d1d2b98d89750285be7bbded4",
-        "anchor": "archive:Terrabase.Operator/api/v1/cluster_types.go:7",
-        "anchor_sha256": "b9f936ae9c6198c690377dae5728ecc262def782a64340577ceefc550754dd81"
-      }
-    ],
     "WRK-007": [
       {
         "repository": "TerraScale.Infrastructure",
@@ -141,16 +128,6 @@
         "sha256": "efac7ead84a30bb5b53725de3b23d5ff082739dd95f900be6be091bfcbe02215",
         "anchor": "archive:TerraScale.Infrastructure/gitops/observability/resources/production/prometheus-rules.yaml:124",
         "anchor_sha256": "5ec0e8548a47dd15a659db626a84fe9116a1512490d882d29800fcf36d1c535d"
-      }
-    ],
-    "WRK-010": [
-      {
-        "repository": "Terrabase.Operator",
-        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
-        "path": "api/v1/storage_types.go",
-        "sha256": "fa04178ba4d74f2cdb90b19f2d8d6898046cfbbe992a1b36e5b313d88c9f1749",
-        "anchor": "archive:Terrabase.Operator/api/v1/storage_types.go:79",
-        "anchor_sha256": "fbef638d972db9f1cdbe29badbd5fbe37cea4bba8437802c80c9ee07c53866bb"
       }
     ],
     "WRK-011": [
@@ -241,16 +218,6 @@
         "sha256": "e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58",
         "anchor": "archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7",
         "anchor_sha256": "54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"
-      }
-    ],
-    "WRK-020": [
-      {
-        "repository": "Terrabase.Operator",
-        "commit": "de34c93938ded3cd1c032918093ceb4e749679df",
-        "path": "cmd/main.go",
-        "sha256": "ab7ad12a32444df662475af0f6fee77ad76deb3899b0d740bb67da826f9fcc7a",
-        "anchor": "archive:Terrabase.Operator/cmd/main.go:93",
-        "anchor_sha256": "c711bb6d9eeefa779846f3daa5098fce267bde9c6efc97635c6928882c1654c1"
       }
     ],
     "WRK-021": [
@@ -372,25 +339,6 @@
       "evidence_claim_status": "archive-verified; not retired"
     },
     {
-      "id": "WRK-006",
-      "status": "identified",
-      "disposition": "retain-until-native-gate",
-      "source_anchors": [
-        "archive:Terrabase.Operator/api/v1/cluster_types.go:7"
-      ],
-      "original_constraint": "Kubernetes objects supplied database lifecycle.",
-      "retained_semantic_behavior": "stable members/volumes, safe upgrades, backup/restore.",
-      "native_replacement_requirement": "C# TerraBase member, volume, topology, upgrade and backup state machines.",
-      "native_replacement_gate": "ported operator safety tests plus destructive checkpoint proof.",
-      "owner_workstream": "TerraBase",
-      "phase_removal_task": "cleanup-after-terrabase-L3S-and-destructive-suite / pending-WRK-006",
-      "regression_scenario": "one-member upgrade and destructive crashes",
-      "real_boundary_needed": "TerraBase admin plus OCI storage",
-      "recovery_rollback_boundary": "stable identities and fenced journals",
-      "external_authority_dependency": "TerraBase admin contract",
-      "evidence_claim_status": "archive-verified; not retired"
-    },
-    {
       "id": "WRK-007",
       "status": "identified",
       "disposition": "retain-until-native-gate",
@@ -445,25 +393,6 @@
       "real_boundary_needed": "compiler/persistence boundary",
       "recovery_rollback_boundary": "last validated signed CellSpec",
       "external_authority_dependency": "none",
-      "evidence_claim_status": "archive-verified; not retired"
-    },
-    {
-      "id": "WRK-010",
-      "status": "identified",
-      "disposition": "retain-until-native-gate",
-      "source_anchors": [
-        "archive:Terrabase.Operator/api/v1/storage_types.go:79"
-      ],
-      "original_constraint": "PVC resize lacked end-to-end completion proof.",
-      "retained_semantic_behavior": "single-writer expand-only online growth/status.",
-      "native_replacement_requirement": "fenced provider/device/filesystem/TerraBase expansion journal.",
-      "native_replacement_gate": "L2/L3S/L4 crash/stale-writer real resize proof.",
-      "owner_workstream": "Storage",
-      "phase_removal_task": "cleanup-after-destructive-storage-L3S-and-L4 / pending-WRK-010",
-      "regression_scenario": "every expansion checkpoint",
-      "real_boundary_needed": "OCI block volume, filesystem, TerraBase",
-      "recovery_rollback_boundary": "no rollback/two-writer attachment",
-      "external_authority_dependency": "OCI/TerraBase access",
       "evidence_claim_status": "archive-verified; not retired"
     },
     {
@@ -635,25 +564,6 @@
       "real_boundary_needed": "NATS/controller",
       "recovery_rollback_boundary": "durable sequence/authoritative state",
       "external_authority_dependency": "none",
-      "evidence_claim_status": "archive-verified; not retired"
-    },
-    {
-      "id": "WRK-020",
-      "status": "identified",
-      "disposition": "retain-until-native-gate",
-      "source_anchors": [
-        "archive:Terrabase.Operator/cmd/main.go:93"
-      ],
-      "original_constraint": "webhook/Secret mount bootstrap and polling.",
-      "retained_semantic_behavior": "fail-closed plan, peer trust and bounded reconciliation.",
-      "native_replacement_requirement": "typed plans, host identity certificate delivery and admin events.",
-      "native_replacement_gate": "L1/L2/L3S invalid plan/cert/peer/restart proof.",
-      "owner_workstream": "TerraBase",
-      "phase_removal_task": "cleanup-after-terrabase-bootstrap-L3S / pending-WRK-020",
-      "regression_scenario": "rotated cert, mirror lag and stale generation",
-      "real_boundary_needed": "TerraBase admin/identity",
-      "recovery_rollback_boundary": "regional identity renewal; fenced topology",
-      "external_authority_dependency": "TerraBase contract",
       "evidence_claim_status": "archive-verified; not retired"
     },
     {

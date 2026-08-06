@@ -186,7 +186,6 @@ The plan is based on the ten pre-existing TerraScale repositories beside this ne
 | Repository | Preserve | Port or retire |
 |---|---|---|
 | `TerraBase` | Native Linux packaging, systemd unit behavior, storage signals, health, TLS/client-certificate behavior, backup/restore, admin APIs | Add an orchestrator-facing typed admin client/contract; do not fork its storage engine into the orchestrator |
-| `Terrabase.Operator` | Spec/status semantics, topology safety, replication ownership, one-member upgrades, autoscaling holds, certificate naming, tests as executable specifications | Port behavioral rules to C#; delete obsolete Kubernetes actors, StatefulSets, PVCs, Jobs, webhooks, cert-manager, and `kubectl` scripts after their rules have matching native tests |
 | `TerraScale.Internals` | Platform/Auth/Dashboard runtime graph, health endpoints, project placement, release manifests, region headers, OTel contract | Add native workload descriptors; fix the missing Auth build target; keep project placement separate from machine scheduling |
 | `TerraScale.DotNet` | Public API and queue SDK compatibility, idempotency, preferred-region behavior, errors and receipts | No operator/host APIs in the customer SDK; create a separate operator client if needed |
 | `TerraScale.TypeScript` | Public API contract, OpenAPI/route drift tests, Dashboard runtime | Replace hard-coded OCI-specific three-region constants with discovered provider-neutral data without breaking clients |
@@ -225,11 +224,9 @@ The initial seed ledger is:
 | `WRK-003` | Flux Receivers/webhook tokens followed by forced `kubectl` reconcile in `TerraScale.Deploy/ServiceReleasePipeline.cs` | One native signed reconcile command journaled before acknowledgement; webhook/NATS/controller-loss tests |
 | `WRK-004` | ImageUpdateAutomation writer suspension and `terrascale-rollout-guard` shell/controller coordination | One fenced release writer, immutable candidate and promotion lease; concurrent-publisher/adversarial rollback tests |
 | `WRK-005` | `kubectl` rollout guards, polling, shell phase recovery and Kubernetes-context fan-out in `TerraScale.Deploy` | Typed regional deployment operations, explicit checkpoints, idempotent resume and same-digest barrier |
-| `WRK-006` | TerraBase StatefulSets/PVCs/Jobs/webhooks/bootstrap scripts in `Terrabase.Operator` | C# TerraBase/member/volume/upgrade/backup state machines; port behavioral tests, then delete obsolete Kubernetes actors |
 | `WRK-007` | cert-manager/cainjector and shared edge OTLP client certificate | Regional PKI, unique workload identity, dual-bundle rotation/revocation; captured-output and mTLS identity tests |
 | `WRK-008` | external-secrets and broad instance-principal secret access | Closed vault policy/lease delivery and compartment/workload-scoped identities; denial and stolen-node tests |
 | `WRK-009` | Kyverno/admission policies used to constrain generic Kubernetes objects | Closed C# role catalog/schema/compiler; invalid role/capability/host-path manifests fail before persistence |
-| `WRK-010` | PVC/CSI storage expansion promise without end-to-end cloud/device/filesystem/TerraBase resize | Journaled expand-only provider/device/filesystem/application state machine; pure checkpoint crashes plus real L1R/L4 boundaries |
 | `WRK-011` | HPA plus Cluster Autoscaler and contradictory pool/replica minima | One scheduler/provider autoscaler with resource/SLO/budget inputs and explicit R3 floors; oscillation/orphan/cost tests |
 | `WRK-012` | ServiceMonitor/PodMonitor/kube-state/pod-label discovery and Kubernetes observability glue | Host agent + OTel discovery, stable TerraScale labels, generated targets/dashboards/alerts; full server inventory/cardinality tests |
 | `WRK-013` | Kubernetes-local Grafana provisioning/persistence assumptions and dashboard state inferred only from metrics | Immutable replicated Grafana provisioning plus mandatory exact read-only operator projection/data source; one-node-loss and stale-state tests |
@@ -1738,7 +1735,6 @@ These files are the starting executable specifications. Paths are relative to th
 - Product regions/replication: `../TerraScale.Internals/docs/databases/regions-and-replication.md` and the project placement implementation.
 - Queue contract: `../TerraScale.Internals/docs/queue/architecture.md` and `src/Core/TerraScale.Queue/`.
 - Health/OTel/runtime contracts: Internals ServiceDefaults, Platform/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.
-- TerraBase operator behavior: `../Terrabase.Operator/api/v1/`, `pkg/upgrade/`, `pkg/autoscaling/`, `pkg/replication/`, and `docs/autoscaling.md`.
 - Native TerraBase unit: `../TerraBase/scripts/linux/pkg/deb/assets/terrabase/debian/terrabase.service` and `../TerraBase/docs/linux.md`.
 - Public compatibility: `../TerraScale.DotNet/src/`, `../TerraScale.TypeScript/src/`, their E2E tests, and `../Terrascale.Documentation/src/content/docs/`.
 
