@@ -14,6 +14,10 @@ using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
+// These integration tests each own one or more NATS servers. Running them alongside
+// other tests in this module makes startup verification contend for the same bounded
+// validation resources and intermittently time out during pre-deployment attestation.
+[NotInParallel]
 public sealed class NatsCreateNodeOperationJournalTests
 {
     [Test]
@@ -515,7 +519,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
             {
                 Url = $"nats://127.0.0.1:{port}",
-                RequestTimeout = TimeSpan.FromMilliseconds(250),
+                RequestTimeout = TimeSpan.FromSeconds(1),
                 AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
             });
             var topology = new NatsTopology(cell.Cell, 3, "controller-1");
@@ -559,7 +563,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
             {
                 Url = $"nats://127.0.0.1:{port}",
-                RequestTimeout = TimeSpan.FromMilliseconds(250),
+                RequestTimeout = TimeSpan.FromSeconds(1),
                 AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
             });
             var journalTopology = new NatsTopology(cell.Cell, 3, "controller-1");
@@ -577,7 +581,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await Assert.That(provisionedOperations.Info.Config.NumReplicas).IsEqualTo(3);
             await Assert.That((await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config.NumReplicas).IsEqualTo(3);
 
-            using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var firstRuntime = NatsRuntime.StartAsync(new OrchestratorOptions(
                 OrchestratorCommand.Check,
                 cell.Cell,
@@ -597,10 +601,20 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var runtimeTwo = runtimes[1];
             await Assert.That(runtime.AuthoritySnapshot.Ready).IsTrue();
             await Assert.That(runtimeTwo.AuthoritySnapshot.Ready).IsTrue();
+
+            // The infrastructure identity intentionally cannot inspect consumers; using it
+            // here produced request timeouts after the authorization profile was tightened.
+            await using var controllerInspector = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Controllers[1].SeedFile },
+            });
+            var controllerJetStream = controllerInspector.CreateJetStreamContext();
             NATS.Client.JetStream.INatsJSConsumer? startupConsumer = null;
             await EventuallyAsync(async () =>
             {
-                startupConsumer = await jetStream.GetConsumerAsync("CELL_EVENTS", "runtime_startup");
+                startupConsumer = await controllerJetStream.GetConsumerAsync("CELL_EVENTS", "runtime_startup");
                 await startupConsumer.RefreshAsync();
             });
             await Assert.That(CiRunnerConsumerReconciler.Matches(

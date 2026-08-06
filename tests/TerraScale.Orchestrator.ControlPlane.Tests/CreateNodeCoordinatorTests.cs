@@ -195,6 +195,7 @@ public sealed class CreateNodeCoordinatorTests
     }
 
     [Test]
+    [NotInParallel]
     public async Task DevelopmentJournalUsesFilesystemCasAcrossTwoProcesses()
     {
         var root = Path.Combine(Path.GetTempPath(), $"create-node-process-{Guid.NewGuid():N}"); Directory.CreateDirectory(root);

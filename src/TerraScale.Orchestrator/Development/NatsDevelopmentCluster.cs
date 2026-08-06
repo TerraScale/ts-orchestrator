@@ -141,7 +141,8 @@ internal static class NatsDevelopmentCluster
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
                       publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.>", "$JS.API.STREAM.UPDATE.>", {{journalJetStreamDenials}}] }
-                      subscribe: { allow: ["{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
+                      subscribe: { allow: ["_INBOX.>", "{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
+                      allow_responses: { max: 1, expires: "2s" }
                     } },
                 """));
         return $$"""

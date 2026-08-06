@@ -61,6 +61,13 @@ public sealed class DevelopmentNatsSecurityTests
                 gru);
             await Assert.That(authorization).Contains(gru.Operator.PublicKey);
             await Assert.That(authorization).Contains(gru.Controllers[1].PublicKey);
+            var controllerStart = authorization.IndexOf(gru.Controllers[1].PublicKey, StringComparison.Ordinal);
+            var controllerEnd = authorization.IndexOf("} },", controllerStart, StringComparison.Ordinal);
+            await Assert.That(controllerStart).IsGreaterThanOrEqualTo(0);
+            await Assert.That(controllerEnd).IsGreaterThan(controllerStart);
+            await Assert.That(authorization[controllerStart..controllerEnd]).Contains("\"_INBOX.>\"");
+            await Assert.That(authorization[controllerStart..controllerEnd])
+                .Contains("allow_responses: { max: 1, expires: \"2s\" }");
             await Assert.That(authorization).Contains(gru.JournalWriter.PublicKey);
             await Assert.That(authorization).Contains(gru.Infrastructure.PublicKey);
             await Assert.That(authorization).Contains("\"$KV.ORCH_LEADERS.>\"");
