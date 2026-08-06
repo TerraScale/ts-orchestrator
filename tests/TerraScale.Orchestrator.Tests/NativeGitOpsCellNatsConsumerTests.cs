@@ -17,7 +17,7 @@ public sealed class NativeGitOpsCellNatsConsumerTests
         await Assert.That(consumer.Name).IsEqualTo("gitops_cell_spec_controller-1");
         await Assert.That(consumer.DurableName).IsEqualTo(consumer.Name);
         await Assert.That(consumer.FilterSubject).IsEqualTo(topology.CellSpecSubject);
-        await Assert.That(consumer.AckWait).IsEqualTo(TimeSpan.FromSeconds(15));
+        await Assert.That(consumer.AckWait).IsEqualTo(TimeSpan.FromSeconds(1));
         await Assert.That(consumer.MaxDeliver).IsEqualTo(5);
         await Assert.That(consumer.MaxAckPending).IsEqualTo(8);
         await Assert.That(consumer.MaxWaiting).IsEqualTo(8);

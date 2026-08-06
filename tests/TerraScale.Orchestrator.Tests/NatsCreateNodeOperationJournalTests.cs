@@ -626,8 +626,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                          "$JS.API.CONSUMER.LIST.KV_ORCH_OPERATIONS",
                          "$JS.API.CONSUMER.INFO.KV_ORCH_OPERATIONS.exfiltration",
                          "$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.exfiltration",
-                         "$JS.API.CONSUMER.CREATE.CELL_EVENTS.exfiltration.>",
-                         "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.exfiltration.>",
+                         "$JS.API.CONSUMER.CREATE.CELL_EVENTS.exfiltration.denied",
+                         "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.exfiltration.denied",
                          "$JS.API.STREAM.CREATE.journal_exfiltration",
                      })
             {

@@ -101,7 +101,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     {
         Description = $"Acknowledged runtime startup events for {Cell}",
         FilterSubject = $"{Root}.event.runtime.started.>",
-        AckWait = TimeSpan.FromSeconds(15),
+        // JetStream derives the effective acknowledgement wait from the first
+        // backoff interval, so declare the value it will return on readback.
+        AckWait = TimeSpan.FromSeconds(1),
         MaxDeliver = 5,
         MaxAckPending = 32,
         MaxWaiting = 16,
@@ -119,7 +121,8 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     {
         Description = $"Durable signed native GitOps CellSpecs for {Cell}/{Instance}",
         FilterSubject = CellSpecSubject,
-        AckWait = TimeSpan.FromSeconds(15),
+        // Keep the declared value aligned with the first backoff interval.
+        AckWait = TimeSpan.FromSeconds(1),
         MaxDeliver = 5,
         MaxAckPending = 8,
         MaxWaiting = 8,

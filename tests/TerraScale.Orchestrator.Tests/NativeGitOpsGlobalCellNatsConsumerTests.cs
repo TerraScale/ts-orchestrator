@@ -18,7 +18,7 @@ public sealed class NativeGitOpsGlobalCellNatsConsumerTests
         await Assert.That(consumer.FilterSubject)
             .IsEqualTo("ts.orch.v1.global.desired.gitops.gru");
         await Assert.That(consumer.AckPolicy).IsEqualTo(NATS.Client.JetStream.Models.ConsumerConfigAckPolicy.Explicit);
-        await Assert.That(consumer.AckWait).IsEqualTo(TimeSpan.FromSeconds(15));
+        await Assert.That(consumer.AckWait).IsEqualTo(TimeSpan.FromSeconds(1));
         await Assert.That(consumer.MaxDeliver).IsEqualTo(5);
         await Assert.That(consumer.MaxAckPending).IsEqualTo(8);
         await Assert.That(consumer.MaxWaiting).IsEqualTo(8);

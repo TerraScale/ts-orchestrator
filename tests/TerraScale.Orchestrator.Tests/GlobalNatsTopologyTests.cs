@@ -60,7 +60,7 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(runner.DeliverPolicy).IsEqualTo(ConsumerConfigDeliverPolicy.All);
         await Assert.That(runner.AckPolicy).IsEqualTo(ConsumerConfigAckPolicy.Explicit);
         await Assert.That(runner.ReplayPolicy).IsEqualTo(ConsumerConfigReplayPolicy.Instant);
-        await Assert.That(runner.AckWait).IsEqualTo(TimeSpan.FromSeconds(30));
+        await Assert.That(runner.AckWait).IsEqualTo(TimeSpan.FromSeconds(1));
         await Assert.That(runner.MaxDeliver).IsEqualTo(5);
         await Assert.That(runner.MaxAckPending).IsEqualTo(1);
         await Assert.That(runner.MaxWaiting).IsEqualTo(4);
