@@ -500,6 +500,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    [NotInParallel("NatsR3")]
     public async Task InfrastructureProvisionerRejectsAndDoesNotReplaceACorruptExistingProtocolPackage()
     {
         if (!OperatingSystem.IsLinux()) return;
@@ -536,6 +537,7 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    [NotInParallel("NatsR3")]
     public async Task CredentialedR3ControllersConcurrentlyStartWithOneCanonicalConsumerWhileProtectedJournalApisRemainDenied()
     {
         if (!OperatingSystem.IsLinux()) return;
@@ -595,10 +597,14 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var runtimeTwo = runtimes[1];
             await Assert.That(runtime.AuthoritySnapshot.Ready).IsTrue();
             await Assert.That(runtimeTwo.AuthoritySnapshot.Ready).IsTrue();
-            var startupConsumer = await jetStream.GetConsumerAsync("CELL_EVENTS", "runtime_startup");
-            await startupConsumer.RefreshAsync();
+            NATS.Client.JetStream.INatsJSConsumer? startupConsumer = null;
+            await EventuallyAsync(async () =>
+            {
+                startupConsumer = await jetStream.GetConsumerAsync("CELL_EVENTS", "runtime_startup");
+                await startupConsumer.RefreshAsync();
+            });
             await Assert.That(CiRunnerConsumerReconciler.Matches(
-                startupConsumer.Info, journalTopology.StartupConsumer, "CELL_EVENTS")).IsTrue();
+                startupConsumer!.Info, journalTopology.StartupConsumer, "CELL_EVENTS")).IsTrue();
 
             foreach (var subject in new[]
                      {

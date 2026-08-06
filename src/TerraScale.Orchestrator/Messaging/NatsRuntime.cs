@@ -268,6 +268,27 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsTopology topology,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await VerifyServiceOnceAsync(client, topology, cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (attempt < 5 &&
+                (exception is NatsNoReplyException ||
+                 exception is InvalidOperationException { Message: "NATS health service returned an invalid response." }))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    private static async Task VerifyServiceOnceAsync(
+        NatsClient client,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
         var health = await client.RequestAsync<string, string>(
             topology.InstanceHealthSubject,
             "health",
