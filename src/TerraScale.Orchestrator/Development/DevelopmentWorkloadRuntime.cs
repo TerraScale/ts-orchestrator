@@ -231,6 +231,7 @@ internal static class DevelopmentWorkloadRuntime
             ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = DevelopmentPublicSurfaces.ResolveDashboardPublicUrl(
                 dashboard.Port,
                 getEnvironmentVariable),
+            ["TERRASCALE_DEVELOPMENT_PAYMENT_BYPASS"] = "true",
             ["TERRASCALE_REGIONS"] = string.Join(',', topology.Cells.Select(candidate => candidate.Cell))
         };
 

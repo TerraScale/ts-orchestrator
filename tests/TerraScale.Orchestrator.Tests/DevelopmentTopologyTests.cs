@@ -183,6 +183,7 @@ public sealed class DevelopmentTopologyTests
             .IsEqualTo("/runtime/gru-dashboard/vite-task-cache");
         await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"])
             .IsEqualTo($"http://127.0.0.1:{dashboard.Port}");
+        await Assert.That(environment["TERRASCALE_DEVELOPMENT_PAYMENT_BYPASS"]).IsEqualTo("true");
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_CLIENT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_PROJECT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_TENANT_ID")).IsFalse();
