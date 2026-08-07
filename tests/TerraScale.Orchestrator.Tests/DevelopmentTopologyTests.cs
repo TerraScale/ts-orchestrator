@@ -241,6 +241,13 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task ControllerUsesTlsForRegionalControlNats()
+    {
+        await Assert.That(DevelopmentLab.ControllerNatsUrl(18_600))
+            .IsEqualTo("tls://127.0.0.1:18600");
+    }
+
+    [Test]
     public async Task ContainerImagesAndPodBudgetAreClosed()
     {
         await Assert.That(DevelopmentContainerImages.All).IsEquivalentTo([

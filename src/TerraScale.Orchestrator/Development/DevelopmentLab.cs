@@ -4809,7 +4809,7 @@ public static class DevelopmentLab
                     new Dictionary<string, string?>
                     {
                         ["TS_ORCH_CELL"] = cell.Cell,
-                        ["TS_ORCH_NATS_URL"] = $"nats://127.0.0.1:{controlNats.Port}",
+                        ["TS_ORCH_NATS_URL"] = ControllerNatsUrl(controlNats.Port),
                         ["TS_ORCH_REPLICAS"] = "1",
                         ["TS_ORCH_NATS_NKEY_FILE"] = cellSecurity.Controllers[controller.Replica].SeedFile,
                         ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.CaFile,
@@ -4821,6 +4821,8 @@ public static class DevelopmentLab
             }
         }
     }
+
+    internal static string ControllerNatsUrl(int port) => $"tls://127.0.0.1:{port}";
 
     private static async Task<IReadOnlyDictionary<string, DevelopmentResourceHealth>> WaitForInitialHealthAsync(
         OrchestratorOptions options,
