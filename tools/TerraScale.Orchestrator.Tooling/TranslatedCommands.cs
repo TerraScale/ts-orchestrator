@@ -706,9 +706,9 @@ internal static class OwnerDecisionCommand
 internal static class DecisionReadinessValidator
 {
     private static readonly HashSet<string> AcceptedPolicyProvenance =
-    ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"];
+    ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"];
     private static readonly HashSet<string> OpenInputProvenance =
-    ["ORCHESTRATOR.md:100-105", "../GOAL.md:70-77"];
+    ["ORCHESTRATOR.md:100-105", "docs/decisions/owner-decision-packet.json:51-122"];
     private static readonly HashSet<string> LaterSelectionIds = ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"];
     private static readonly IReadOnlyDictionary<int, (int[] Adrs, string[] Gates)> QuestionMappings = new Dictionary<int, (int[], string[])>
     {
@@ -953,7 +953,7 @@ internal static class DecisionReadinessValidator
         }
         var lanes = Strings(readiness["canonicalOwnerLanes"], "readiness canonicalOwnerLanes", errors);
         if (!new HashSet<string>(lanes, StringComparer.Ordinal).SetEquals(AdrReadinessCommand.Lanes)) errors.Add("readiness canonicalOwnerLanes: exact canonical set required");
-        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "../GOAL.md:70-77") errors.Add("readiness normalizationEvidence: mandated Goal anchor required");
+        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "ORCHESTRATOR.md:83-105") errors.Add("readiness normalizationEvidence: canonical decision context required");
         var left = readiness["openInputs"] as JsonObject; var right = packet["openInputRegister"] as JsonObject;
         if (left is null || right is null || Text(left["status"], "readiness openInputs status", errors) != Text(right["status"], "packet openInputRegister status", errors)
             || !new HashSet<string>(Strings(left?["planning"], "readiness openInputs planning", errors)).SetEquals(Strings(right?["planning"], "packet openInputRegister planning", errors))

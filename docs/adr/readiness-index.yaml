@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "contract": "ORCHESTRATOR.md proposed architecture dated 2026-07-13",
   "generatedAt": "2026-08-05",
-  "normalizationEvidence": "../GOAL.md:70-77",
+  "normalizationEvidence": "ORCHESTRATOR.md:83-105",
   "status": "readiness-map-not-decision-record",
   "openOwnerQuestions": [],
-  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["../GOAL.md:70-77", "docs/decisions/owner-decision-packet.json:13-49"]},
+  "acceptedDecisionRegister": {"status": "accepted-owner-policy", "acceptedOn": "2026-07-16", "authority": "owner", "sourceAnchors": ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"]},
   "openInputs": {
     "status": "open-no-defaults",
     "source": "docs/decisions/owner-decision-packet.json:51-122",
@@ -678,7 +678,7 @@
       "resolvedDecisionContext": ["6A accepted by the owner on 2026-07-16; ORCHESTRATOR.md:94-94"],
       "availableEvidence": [
         "ORCHESTRATOR.md:248-256",
-        "ORCHESTRATOR.md:756-756"
+        "ORCHESTRATOR.md:757-757"
       ],
       "missingEvidence": [
         "All planning values",
