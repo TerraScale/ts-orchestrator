@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text;
@@ -239,11 +240,11 @@ internal static class NativeGitOpsCellWireCodec
     private static InvalidDataException Invalid() =>
         new("A native GitOps cell wire command is invalid.");
 
-    private static readonly HashSet<string> ExpectedHeaders =
-    [
+    private static readonly FrozenSet<string> ExpectedHeaders = new[]
+    {
         Schema, Protocol, Cell, Aggregate, Generation, Epoch, Operation, Idempotency, Issued, Expires,
         Attempt, PayloadDigest, Signature, GlobalPlan, Handoff, HandoffCells,
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     private sealed class StructuralSignatureVerifier : ICommandSignatureVerifier
     {

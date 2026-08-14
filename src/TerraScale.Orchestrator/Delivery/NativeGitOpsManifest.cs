@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Buffers;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
@@ -59,11 +60,12 @@ public static class NativeGitOpsManifest
     public const int MaximumReplicas = 1024;
     private const int MaximumDepth = 16;
 
-    private static readonly HashSet<string> RootProperties =
-        ["apiVersion", "kind", "generation", "workloads"];
+    private static readonly FrozenSet<string> RootProperties =
+        new[] { "apiVersion", "kind", "generation", "workloads" }.ToFrozenSet(StringComparer.Ordinal);
 
-    private static readonly HashSet<string> WorkloadProperties =
-        ["id", "role", "artifactDigest", "runtime", "replicas", "cells", "dependsOn", "suspended"];
+    private static readonly FrozenSet<string> WorkloadProperties =
+        new[] { "id", "role", "artifactDigest", "runtime", "replicas", "cells", "dependsOn", "suspended" }
+            .ToFrozenSet(StringComparer.Ordinal);
 
     public static NativeGitOpsPlan Parse(ReadOnlyMemory<byte> manifest)
     {
@@ -257,7 +259,7 @@ public static class NativeGitOpsManifest
         }
     }
 
-    private static void RejectUnknownProperties(JsonElement value, HashSet<string> allowed, string context)
+    private static void RejectUnknownProperties(JsonElement value, IReadOnlySet<string> allowed, string context)
     {
         foreach (var property in value.EnumerateObject())
         {

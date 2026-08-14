@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -26,17 +27,17 @@ internal sealed record NativeGitOpsParsedCellSpec(
 /// <summary>Rehydrates one immutable, signed CellSpec without trusting lossy runtime labels.</summary>
 internal static class NativeGitOpsCellPayload
 {
-    private static readonly HashSet<string> RootProperties =
-    [
+    private static readonly FrozenSet<string> RootProperties = new[]
+    {
         "schemaVersion", "repository", "commit", "tree", "filePath", "blob", "contentSha256",
         "acceptedGeneration", "acceptedGlobalPlanDigest", "generation", "globalPlanDigest", "cell",
         "desiredWorkloads", "changes",
-    ];
-    private static readonly HashSet<string> WorkloadProperties =
-    [
+    }.ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> WorkloadProperties = new[]
+    {
         "id", "role", "artifactDigest", "runtime", "replicas", "cells", "dependsOn", "suspended",
         "childOwnership", "removalPolicy",
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
     private static readonly HashSet<string> ChangeProperties =
     [
         "kind", "workloadId", "childOwnership", "removalPolicy", "acceptedWorkloadSha256",

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text.Json;
 using TerraScale.Orchestrator.Contracts;
@@ -35,12 +36,12 @@ public sealed record NativeGitOpsCellEnvelopeValidation(
 public static class NativeGitOpsCellEnvelope
 {
     public const int MaximumSignatureBytes = 16 * 1024;
-    private static readonly HashSet<string> CellPayloadProperties =
-    [
+    private static readonly FrozenSet<string> CellPayloadProperties = new[]
+    {
         "schemaVersion", "repository", "commit", "tree", "filePath", "blob", "contentSha256",
         "acceptedGeneration", "acceptedGlobalPlanDigest", "generation", "globalPlanDigest", "cell",
         "desiredWorkloads", "changes",
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     public static CommandEnvelope Sign(
         NativeGitOpsCellHandoff handoff,
