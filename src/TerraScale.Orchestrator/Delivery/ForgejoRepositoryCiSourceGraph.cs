@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -46,11 +47,11 @@ public sealed class ForgejoRepositoryCiSourceGraphConfiguration
 internal sealed class ForgejoRepositoryCiSourceGraph : IAsyncDisposable
 {
     private readonly ForgejoSourceConfiguration rootConfiguration;
-    private readonly IReadOnlyDictionary<string, IForgejoRepositorySourceClient> sources;
+    private readonly FrozenDictionary<string, IForgejoRepositorySourceClient> sources;
 
     private ForgejoRepositoryCiSourceGraph(
         ForgejoSourceConfiguration rootConfiguration,
-        IReadOnlyDictionary<string, IForgejoRepositorySourceClient> sources,
+        FrozenDictionary<string, IForgejoRepositorySourceClient> sources,
         ForgejoSourceClient? rootClient)
     {
         this.rootConfiguration = rootConfiguration;
@@ -76,7 +77,7 @@ internal sealed class ForgejoRepositoryCiSourceGraph : IAsyncDisposable
                 clients.Add(repository, client);
                 if (repository == source.Repository) root = client;
             }
-            return new(source, clients, root ?? throw new InvalidDataException(
+            return new(source, clients.ToFrozenDictionary(StringComparer.Ordinal), root ?? throw new InvalidDataException(
                 "The Forgejo CI source graph omitted its root client."));
         }
         catch
@@ -96,7 +97,7 @@ internal sealed class ForgejoRepositoryCiSourceGraph : IAsyncDisposable
             static repository => repository,
             repository => create(source.ForRepository(repository)),
             StringComparer.Ordinal);
-        return new(source, clients, null);
+        return new(source, clients.ToFrozenDictionary(StringComparer.Ordinal), null);
     }
 
     internal async Task<RepositoryCiPipelineGraph> ResolvePipelineAsync(
