@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -339,25 +340,32 @@ internal sealed class DevelopmentControlSocket : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         using var content = new MemoryStream();
-        var buffer = new byte[4096];
-        while (true)
+        var buffer = ArrayPool<byte>.Shared.Rent(4096);
+        try
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken);
-            if (read == 0)
+            while (true)
             {
-                break;
+                var read = await stream.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                {
+                    break;
+                }
+                if (content.Length + read > MaximumRequestBytes)
+                {
+                    throw new InvalidDataException("The reconciliation request exceeds the size limit.");
+                }
+                content.Write(buffer, 0, read);
+                if (buffer.AsSpan(0, read).Contains((byte)'\n'))
+                {
+                    break;
+                }
             }
-            if (content.Length + read > MaximumRequestBytes)
-            {
-                throw new InvalidDataException("The reconciliation request exceeds the size limit.");
-            }
-            content.Write(buffer, 0, read);
-            if (buffer.AsSpan(0, read).Contains((byte)'\n'))
-            {
-                break;
-            }
+            return content.ToArray();
         }
-        return content.ToArray();
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     private static void ValidateDocument(ReadOnlySpan<byte> bytes)

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Security.Cryptography;
 using NATS.Client.Core;
@@ -247,13 +248,20 @@ internal sealed class ForgejoWebhookServer : IAsyncDisposable
             ? checked((int)contentLength)
             : 0;
         await using var output = new MemoryStream(capacity);
-        var buffer = new byte[64 * 1024];
-        while (true)
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
         {
-            var read = await input.ReadAsync(buffer, cancellationToken);
-            if (read == 0) return output.ToArray();
-            if (output.Length + read > ForgejoWebhookVerifier.MaximumPayloadBytes) return null;
-            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            while (true)
+            {
+                var read = await input.ReadAsync(buffer, cancellationToken);
+                if (read == 0) return output.ToArray();
+                if (output.Length + read > ForgejoWebhookVerifier.MaximumPayloadBytes) return null;
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }
