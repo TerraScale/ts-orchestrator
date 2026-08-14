@@ -229,10 +229,18 @@ public static class ForgejoWebhookVerifier
 
     private static bool VerifySignature(byte[] payload, byte[] secret, string? signature)
     {
-        if (signature is not { Length: 64 } || signature.Any(static value => !IsHex(value))) return false;
-        Span<byte> supplied = stackalloc byte[32];
-        for (var index = 0; index < supplied.Length; index++)
-            supplied[index] = (byte)((HexValue(signature[index * 2]) << 4) | HexValue(signature[index * 2 + 1]));
+        if (signature is not { Length: 64 }) return false;
+        byte[] supplied;
+        try
+        {
+            supplied = Convert.FromHexString(signature);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (supplied.Length != 32) return false;
         Span<byte> expected = stackalloc byte[32];
         HMACSHA256.HashData(secret, payload, expected);
         return CryptographicOperations.FixedTimeEquals(supplied, expected);
@@ -345,13 +353,6 @@ public static class ForgejoWebhookVerifier
 
     private static bool IsHex(char value) => value is
         >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
-
-    private static int HexValue(char value) => value switch
-    {
-        >= '0' and <= '9' => value - '0',
-        >= 'a' and <= 'f' => value - 'a' + 10,
-        _ => value - 'A' + 10,
-    };
 
     private static ForgejoWebhookVerification Reject(ForgejoWebhookError error) => ForgejoWebhookVerification.Reject(error);
 }
