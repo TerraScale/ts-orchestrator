@@ -28,7 +28,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
     private readonly TimeProvider clock = clock ?? throw new ArgumentNullException(nameof(clock));
     private readonly CreateNodeCoordinatorOptions options = options ?? CreateNodeCoordinatorOptions.Default;
     private readonly bool distinctKeyDomains = ValidateKeyDomains(receiptKeys, tenantKeys, providerKeys, recoveryKeys, invocationCapabilityKeys);
-    private readonly string invocationLeaseOwner = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+    private readonly string invocationLeaseOwner = RandomNumberGenerator.GetHexString(32, lowercase: true);
     public async ValueTask<CreateNodeCoordinationResult> ExecuteAsync(CreateNodeDispatch dispatch, CancellationToken cancellationToken = default)
     {
         if (provider.IsExternalMutationProvider && journal.Durability != CreateNodeJournalDurability.AuthoritativeCrashDurable)
@@ -73,7 +73,7 @@ public sealed class CreateNodeCoordinator(ICreateNodeOperationJournal journal, I
                 var held = current with { Stage = CreateNodeJournalStage.RequiresManualRecovery };
                 if (!await journal.CompareExchangeAsync(current, held, cancellationToken)) continue; continue;
             }
-            var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1), InvocationLeaseOwner = invocationLeaseOwner, InvocationLeaseToken = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), InvocationCapabilityNonce = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)), InvocationLeaseExpiresAt = now.Add(options.ProviderInvocationLease) };
+            var started = current with { Stage = CreateNodeJournalStage.ProviderCallStarted, ProviderCallStartedAt = now, ProviderAttempts = checked(current.ProviderAttempts + 1), InvocationLeaseOwner = invocationLeaseOwner, InvocationLeaseToken = RandomNumberGenerator.GetHexString(64, lowercase: true), InvocationCapabilityNonce = RandomNumberGenerator.GetHexString(64, lowercase: true), InvocationLeaseExpiresAt = now.Add(options.ProviderInvocationLease) };
             if (!await journal.CompareExchangeAsync(current, started, cancellationToken)) continue;
             var persisted = await journal.ReadAsync(spec.Binding.OperationId, cancellationToken) ?? throw new InvalidOperationException("Invocation checkpoint was not persisted.");
             var capability = provider.IsExternalMutationProvider ? await journal.MintInvocationCapabilityAsync(persisted, now, cancellationToken) : null;
