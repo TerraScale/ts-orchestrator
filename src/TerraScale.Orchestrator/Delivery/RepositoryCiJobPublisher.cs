@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -413,10 +414,10 @@ internal static class RepositoryCiJobWireCodec
 
     private static InvalidDataException Invalid() => new("The CI job wire message is invalid.");
 
-    private static readonly HashSet<string> ExpectedHeaders =
-    [
+    private static readonly FrozenSet<string> ExpectedHeaders = new[]
+    {
         Schema, Protocol, Type, Pipeline, Job, Attempt, Fence, Runner, Issued, Expires, PayloadSha256, Signature,
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     private sealed record CommandIdentities(
         ProtocolRevision Protocol,
