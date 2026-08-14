@@ -11,6 +11,7 @@ namespace TerraScale.Orchestrator.Security;
 
 internal sealed class InfisicalConfiguration
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private const UnixFileMode ForbiddenCredentialMode =
         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
         UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
@@ -127,7 +128,7 @@ internal sealed class InfisicalConfiguration
         var bytes = File.ReadAllBytes(ResolveCredentialFile(path, name));
         try
         {
-            var value = new UTF8Encoding(false, true).GetString(bytes);
+            var value = StrictUtf8.GetString(bytes);
             if (value.Length is < 1 or > 4096 || value.Any(static character =>
                     char.IsWhiteSpace(character) || char.IsControl(character)))
                 throw new InvalidDataException($"The {name} file is invalid.");

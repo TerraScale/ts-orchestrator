@@ -9,6 +9,7 @@ namespace TerraScale.Orchestrator.ControlPlane.Providers;
 
 public sealed class OciCiRunnerPoolConfiguration
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private const int MaximumConfigurationBytes = 256 * 1024;
     private const int MaximumBootstrapBytes = 32 * 1024;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
@@ -93,7 +94,7 @@ public sealed class OciCiRunnerPoolConfiguration
         if (!file.Exists || file.LinkTarget is not null || file.Length is < 1 or > MaximumBootstrapBytes)
             throw new InvalidDataException("An OCI CI runner bootstrap must be a bounded regular file.");
         var content = File.ReadAllBytes(path);
-        var text = new UTF8Encoding(false, true).GetString(content);
+        var text = StrictUtf8.GetString(content);
         if (!text.StartsWith("#cloud-config", StringComparison.Ordinal) &&
             !text.StartsWith("#!", StringComparison.Ordinal))
             throw new InvalidDataException("An OCI CI runner bootstrap must be cloud-init or an executable script.");

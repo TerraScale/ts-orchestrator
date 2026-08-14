@@ -22,6 +22,7 @@ internal interface IForgejoRepositorySourceClient : IAsyncDisposable
 
 public sealed class ForgejoSourceConfiguration
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private ForgejoSourceConfiguration(Uri server, string repository, string tokenFile)
     {
         Server = server;
@@ -59,7 +60,7 @@ public sealed class ForgejoSourceConfiguration
         var bytes = File.ReadAllBytes(path);
         try
         {
-            var token = new UTF8Encoding(false, true).GetString(bytes);
+            var token = StrictUtf8.GetString(bytes);
             if (token.Length is < 20 or > 4096 || token.Any(static value => char.IsWhiteSpace(value) || char.IsControl(value)))
                 throw new InvalidOperationException("The Forgejo API token file is invalid.");
             return token;

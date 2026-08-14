@@ -200,6 +200,7 @@ internal sealed class ProcessCiRunnerBuildKitProcess : ICiRunnerBuildKitProcess
 
 internal static class CiRunnerLogRedactor
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly string[] Markers =
     [
         "authorization", "bearer ", "password", "passwd", "secret", "token",
@@ -211,7 +212,7 @@ internal static class CiRunnerLogRedactor
         string text;
         try
         {
-            text = new UTF8Encoding(false, true).GetString(content);
+            text = StrictUtf8.GetString(content);
         }
         catch (DecoderFallbackException)
         {

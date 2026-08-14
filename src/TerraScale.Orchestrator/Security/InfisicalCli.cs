@@ -5,6 +5,7 @@ namespace TerraScale.Orchestrator.Security;
 
 internal static class InfisicalCli
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private const UnixFileMode ForbiddenMode =
         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
         UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
@@ -84,7 +85,7 @@ internal static class InfisicalCli
         var bytes = File.ReadAllBytes(path);
         try
         {
-            return new UTF8Encoding(false, true).GetString(bytes);
+            return StrictUtf8.GetString(bytes);
         }
         catch (DecoderFallbackException)
         {
