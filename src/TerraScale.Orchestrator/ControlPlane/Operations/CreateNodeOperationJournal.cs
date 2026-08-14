@@ -71,15 +71,15 @@ public sealed class DevelopmentFileCreateNodeOperationJournal(string environment
         catch (JsonException exception) { throw new InvalidDataException("Journal envelope is malformed.", exception); }
         if (!verificationKeys.TryResolve(envelope.KeyId, envelope.Algorithm, out var key)) throw new InvalidDataException("Unknown journal tag key.");
         var payload = Convert.FromBase64String(envelope.Payload); var tag = Convert.FromBase64String(envelope.Tag);
-        using var hmac = new HMACSHA256(key); if (!CryptographicOperations.FixedTimeEquals(tag, hmac.ComputeHash(payload))) throw new InvalidDataException("Journal integrity tag is invalid.");
+        if (!CryptographicOperations.FixedTimeEquals(tag, HMACSHA256.HashData(key, payload))) throw new InvalidDataException("Journal integrity tag is invalid.");
         var entry = JsonSerializer.Deserialize<CreateNodeOperationJournalEntry>(payload) ?? throw new InvalidDataException("Missing journal entry."); InMemoryCreateNodeOperationJournal.Validate(entry); return entry;
     }
     private void Write(CreateNodeOperationJournalEntry entry)
     {
         Directory.CreateDirectory(directory);
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        var payload = JsonSerializer.SerializeToUtf8Bytes(entry); using var hmac = new HMACSHA256(activeKey);
-        var data = JsonSerializer.SerializeToUtf8Bytes(new Envelope("HMAC-SHA256", activeKeyId, Convert.ToBase64String(payload), Convert.ToBase64String(hmac.ComputeHash(payload))));
+        var payload = JsonSerializer.SerializeToUtf8Bytes(entry);
+        var data = JsonSerializer.SerializeToUtf8Bytes(new Envelope("HMAC-SHA256", activeKeyId, Convert.ToBase64String(payload), Convert.ToBase64String(HMACSHA256.HashData(activeKey, payload))));
         var path = PathFor(entry.Binding.OperationId); var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
         { if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite); stream.Write(data); stream.Flush(true); }
