@@ -320,8 +320,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             return false;
         }
 
-        using var document = JsonDocument.Parse(response);
-        var root = document.RootElement;
+        var root = JsonElement.Parse(response);
         if (!root.TryGetProperty("name", out var name) || name.GetString() != topology.ServiceName ||
             !root.TryGetProperty("endpoints", out var endpoints))
         {

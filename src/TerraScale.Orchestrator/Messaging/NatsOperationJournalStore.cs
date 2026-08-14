@@ -246,9 +246,9 @@ internal static class NatsOperationJournalStore
             JsonSerializer.Serialize(config),
             cancellationToken: cancellationToken);
         response.EnsureSuccess();
-        using var document = JsonDocument.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream update response."));
-        ThrowIfJetStreamError(document.RootElement);
-        ValidateBatchPublish(document.RootElement);
+        var root = JsonElement.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream update response."));
+        ThrowIfJetStreamError(root);
+        ValidateBatchPublish(root);
     }
 
     private static async Task ValidateBatchPublishDisabledAsync(
@@ -261,9 +261,9 @@ internal static class NatsOperationJournalStore
             string.Empty,
             cancellationToken: cancellationToken);
         response.EnsureSuccess();
-        using var document = JsonDocument.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream information response."));
-        ThrowIfJetStreamError(document.RootElement);
-        ValidateBatchPublish(document.RootElement);
+        var root = JsonElement.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream information response."));
+        ThrowIfJetStreamError(root);
+        ValidateBatchPublish(root);
     }
 
     internal static void ValidateBatchPublish(JsonElement response)

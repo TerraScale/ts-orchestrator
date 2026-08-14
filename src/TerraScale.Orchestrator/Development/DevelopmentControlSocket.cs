@@ -362,12 +362,12 @@ internal sealed class DevelopmentControlSocket : IAsyncDisposable
 
     private static void ValidateDocument(ReadOnlySpan<byte> bytes)
     {
-        using var document = JsonDocument.Parse(bytes.ToArray());
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        var root = JsonElement.Parse(bytes);
+        if (root.ValueKind != JsonValueKind.Object)
         {
             throw new InvalidDataException("The reconciliation request must be a JSON object.");
         }
-        var names = document.RootElement.EnumerateObject()
+        var names = root.EnumerateObject()
             .Select(property => property.Name)
             .ToArray();
         var expected = new[]
