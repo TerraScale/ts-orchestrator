@@ -425,7 +425,7 @@ internal static class ToolingTests
             AssertEqual(0, CiResultManifestCommand.Run([
                 "--job", "pipeline:job", "--plan-digest", digest, "--trx", trx,
                 "--artifact", "TerraScale/Orchestrator|LinuxX64|linux-x64|bin/app", "--output", output]));
-            var document = JsonNode.Parse(File.ReadAllText(output))!.AsObject();
+            var document = JsonNode.Parse(File.ReadAllBytes(output))!.AsObject();
             AssertEqual(2, document["schemaVersion"]!.GetValue<int>());
             AssertEqual("pipeline:job", document["job"]!.GetValue<string>());
             AssertEqual(digest, document["planDigest"]!.GetValue<string>());
