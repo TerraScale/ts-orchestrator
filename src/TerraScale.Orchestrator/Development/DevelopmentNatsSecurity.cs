@@ -127,7 +127,7 @@ internal sealed class DevelopmentNatsSecurity
         if (File.Exists(path))
         {
             RequirePrivateFile(path);
-            var existing = JsonSerializer.Deserialize<DevelopmentProductNatsIdentity>(File.ReadAllText(path))
+            var existing = JsonSerializer.Deserialize<DevelopmentProductNatsIdentity>(File.ReadAllBytes(path))
                 ?? throw new InvalidOperationException("A development product NATS identity is empty.");
             ValidateProduct(existing, cell);
             return existing;
