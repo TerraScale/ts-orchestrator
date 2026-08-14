@@ -92,8 +92,16 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public NatsObjConfig Bundles => new("CELL_BUNDLES")
     {
-        Description = $"Signed regional control and protocol bundles for {Cell}",
+        Description = $"Signed regional control bundles for {Cell}",
         MaxBytes = 256 * 1024 * 1024,
+        NumberOfReplicas = Replicas
+    };
+
+    /// <summary>The controller may read only this immutable canonical protocol package.</summary>
+    public NatsObjConfig ProtocolPackage => new("ORCH_PROTOCOL_PACKAGE")
+    {
+        Description = $"Immutable canonical orchestrator protocol package for {Cell}",
+        MaxBytes = 256 * 1024,
         NumberOfReplicas = Replicas
     };
 

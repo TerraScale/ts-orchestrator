@@ -90,13 +90,13 @@ internal static class NatsDevelopmentCluster
         var controllerJetStreamSubjects = new[]
         {
             "CELL_SPEC", "CELL_OPERATIONS", "CELL_EVENTS", "KV_ORCH_LEADERS", "KV_ORCH_RUNTIME",
-            "KV_ORCH_DELIVERY", "OBJ_CELL_BUNDLES"
+            "KV_ORCH_DELIVERY", "OBJ_ORCH_PROTOCOL_PACKAGE"
         }.Select(stream => $"$JS.API.STREAM.INFO.{stream}").Concat(new[]
         {
             "$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.INFO.CELL_EVENTS.runtime_startup", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.runtime_startup",
             "$JS.ACK.CELL_EVENTS.runtime_startup.>", "$JS.FC.CELL_EVENTS.runtime_startup.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
-            "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>", "$JS.FC.OBJ_CELL_BUNDLES.>",
-            "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>", "$JS.FC.KV_ORCH_RUNTIME.>",
+            "$JS.API.CONSUMER.CREATE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.FC.OBJ_ORCH_PROTOCOL_PACKAGE.>",
+            "$JS.API.CONSUMER.DELETE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.FC.KV_ORCH_RUNTIME.>",
             "$JS.API.DIRECT.GET.KV_ORCH_LEADERS", "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>"
         }).ToArray();
         var journalJetStreamDenials = string.Join(", ", new[]
@@ -135,13 +135,25 @@ internal static class NatsDevelopmentCluster
             "$JS.API.CONSUMER.MSG.NEXT.KV_ORCH_OPERATION_PROOFS.>",
             "$JS.ACK.KV_ORCH_OPERATION_PROOFS.>",
             "$JS.FC.KV_ORCH_OPERATION_PROOFS.>",
+            "$JS.API.DIRECT.GET.OBJ_CELL_BUNDLES",
+            "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
+            "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
+            "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>",
+            "$JS.API.CONSUMER.DURABLE.CREATE.OBJ_CELL_BUNDLES.>",
+            "$JS.API.CONSUMER.INFO.OBJ_CELL_BUNDLES.>",
+            "$JS.API.CONSUMER.LIST.OBJ_CELL_BUNDLES",
+            "$JS.API.CONSUMER.NAMES.OBJ_CELL_BUNDLES",
+            "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>",
+            "$JS.API.CONSUMER.MSG.NEXT.OBJ_CELL_BUNDLES.>",
+            "$JS.ACK.OBJ_CELL_BUNDLES.>",
+            "$JS.FC.OBJ_CELL_BUNDLES.>",
         }.Select(subject => $"\"{subject}\""));
         var controllerUsers = string.Join(
             Environment.NewLine,
             security.Controllers.OrderBy(pair => pair.Key).Select(pair => $$"""
                     { nkey: "{{pair.Value.PublicKey}}", permissions: {
                       publish: { allow: [{{string.Join(", ", controllerSubjects.Select(subject => $"\"{subject}\""))}}, "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$SRV.>"], deny: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "$JS.API.STREAM.CREATE.>", "$JS.API.STREAM.UPDATE.>", {{journalJetStreamDenials}}] }
-                      subscribe: { allow: ["_INBOX.>", "{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
+                      subscribe: { allow: ["_INBOX.>", "{{root}}.desired.>", "{{root}}.event.>", "{{root}}.operation.>", "{{root}}.query.>", "{{root}}.internal.reply.{{pair.Value.PublicKey}}.>", "{{root}}.internal.operation-journal.reply.{{pair.Value.PublicKey}}.>", {{string.Join(", ", controllerJetStreamSubjects.Select(subject => $"\"{subject}\""))}}, "$KV.ORCH_LEADERS.>", "$KV.ORCH_RUNTIME.>", "$KV.ORCH_DELIVERY.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$O.ORCH_PROTOCOL_PACKAGE.C.>", "$O.ORCH_PROTOCOL_PACKAGE.M.>", "$SRV.>"], deny: [{{journalJetStreamDenials}}] }
                       allow_responses: { max: 1, expires: "2s" }
                     } },
                 """));
@@ -154,8 +166,8 @@ internal static class NatsDevelopmentCluster
                       subscribe: { allow: ["$KV.ORCH_OPERATIONS.>", "$KV.ORCH_OPERATION_PROOFS.>", "{{root}}.internal.operation-journal.create", "{{root}}.internal.operation-journal.update", "$SRV.>", "_INBOX.>"] }
                     } },
                     { nkey: "{{security.Infrastructure.PublicKey}}", permissions: {
-                      publish: { allow: ["$JS.API.STREAM.CREATE.CELL_SPEC", "$JS.API.STREAM.UPDATE.CELL_SPEC", "$JS.API.STREAM.INFO.CELL_SPEC", "$JS.API.STREAM.CREATE.CELL_OPERATIONS", "$JS.API.STREAM.UPDATE.CELL_OPERATIONS", "$JS.API.STREAM.INFO.CELL_OPERATIONS", "$JS.API.STREAM.CREATE.CELL_EVENTS", "$JS.API.STREAM.UPDATE.CELL_EVENTS", "$JS.API.STREAM.INFO.CELL_EVENTS", "$JS.API.STREAM.CREATE.KV_ORCH_LEADERS", "$JS.API.STREAM.UPDATE.KV_ORCH_LEADERS", "$JS.API.STREAM.INFO.KV_ORCH_LEADERS", "$JS.API.STREAM.CREATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.UPDATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME", "$JS.API.STREAM.CREATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.UPDATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY", "$JS.API.STREAM.CREATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.UPDATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES", "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>", "$JS.FC.OBJ_CELL_BUNDLES.>", "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>"] }
-                      subscribe: { allow: ["_INBOX.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>"] }
+                      publish: { allow: ["$JS.API.STREAM.CREATE.CELL_SPEC", "$JS.API.STREAM.UPDATE.CELL_SPEC", "$JS.API.STREAM.INFO.CELL_SPEC", "$JS.API.STREAM.CREATE.CELL_OPERATIONS", "$JS.API.STREAM.UPDATE.CELL_OPERATIONS", "$JS.API.STREAM.INFO.CELL_OPERATIONS", "$JS.API.STREAM.CREATE.CELL_EVENTS", "$JS.API.STREAM.UPDATE.CELL_EVENTS", "$JS.API.STREAM.INFO.CELL_EVENTS", "$JS.API.STREAM.CREATE.KV_ORCH_LEADERS", "$JS.API.STREAM.UPDATE.KV_ORCH_LEADERS", "$JS.API.STREAM.INFO.KV_ORCH_LEADERS", "$JS.API.STREAM.CREATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.UPDATE.KV_ORCH_RUNTIME", "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME", "$JS.API.STREAM.CREATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.UPDATE.KV_ORCH_DELIVERY", "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY", "$JS.API.STREAM.CREATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.UPDATE.OBJ_CELL_BUNDLES", "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES", "$JS.API.STREAM.CREATE.OBJ_ORCH_PROTOCOL_PACKAGE", "$JS.API.STREAM.UPDATE.OBJ_ORCH_PROTOCOL_PACKAGE", "$JS.API.STREAM.INFO.OBJ_ORCH_PROTOCOL_PACKAGE", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATIONS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS", "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES", "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>", "$JS.FC.OBJ_CELL_BUNDLES.>", "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>", "$JS.API.STREAM.MSG.GET.OBJ_ORCH_PROTOCOL_PACKAGE", "$JS.API.CONSUMER.CREATE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.FC.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.API.CONSUMER.DELETE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$O.ORCH_PROTOCOL_PACKAGE.C.>", "$O.ORCH_PROTOCOL_PACKAGE.M.>"] }
+                      subscribe: { allow: ["_INBOX.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$O.ORCH_PROTOCOL_PACKAGE.C.>", "$O.ORCH_PROTOCOL_PACKAGE.M.>"] }
                     } },
                     { nkey: "{{security.Operator.PublicKey}}", permissions: {
                       publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status"] }

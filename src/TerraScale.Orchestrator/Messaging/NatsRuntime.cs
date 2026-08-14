@@ -5,7 +5,6 @@ using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
 using System.Text.Json;
-using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Operations;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -21,18 +20,15 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
-        RegionalAuthorityCoordinator authority,
-        NativeGitOpsCellAcceptanceJournal nativeGitOpsCellAcceptances)
+        RegionalAuthorityCoordinator authority)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
-        NativeGitOpsCellAcceptances = nativeGitOpsCellAcceptances;
     }
 
     public Task Completion => authority.Completion;
-    internal NativeGitOpsCellAcceptanceJournal NativeGitOpsCellAcceptances { get; }
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
     public static async Task<NatsRuntime> StartAsync(
@@ -81,7 +77,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
             }
             var state = await OpenStateWithRetryAsync(client, topology, cancellationToken);
-            await VerifyProtocolPackageAsync(state.Bundles, topology, cancellationToken);
+            await VerifyProtocolPackageAsync(state.ProtocolPackage, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
             authority = await RegionalAuthorityCoordinator.StartAsync(
@@ -183,14 +179,11 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
-            var deliveryLedger = new NatsForgejoDeliveryLedger(state.Delivery);
-            var bundles = new NatsDeliveryObjectStore(state.Bundles);
             return new(
                 client,
                 service,
                 registration,
-                authority,
-                new(deliveryLedger, bundles));
+                authority);
         }
         catch
         {
@@ -382,14 +375,13 @@ public sealed class NatsRuntime : IAsyncDisposable
         var keyValue = jetStream.CreateKeyValueStoreContext();
         var leaders = await OpenKeyValueAsync(keyValue, topology.Leaders, cancellationToken);
         var runtime = await OpenKeyValueAsync(keyValue, topology.Runtime, cancellationToken);
-        var delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
         var objects = jetStream.CreateObjectStoreContext();
-        var bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+        var protocolPackage = await objects.GetObjectStoreAsync(topology.ProtocolPackage.Bucket, cancellationToken);
         NatsOperationJournalStore.ValidateExactObjectConfiguration(
-            (await bundles.GetStatusAsync(cancellationToken)).Info.Config, topology.Bundles);
+            (await protocolPackage.GetStatusAsync(cancellationToken)).Info.Config, topology.ProtocolPackage);
 
         var startupConsumer = await OpenOrCreateStartupConsumerAsync(jetStream, topology, cancellationToken);
-        return new(startupConsumer, leaders, runtime, delivery, bundles);
+        return new(startupConsumer, leaders, runtime, protocolPackage);
     }
 
     private static async Task<INatsKVStore> OpenKeyValueAsync(
@@ -488,8 +480,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsJSConsumer StartupConsumer,
         INatsKVStore Leaders,
         INatsKVStore Runtime,
-        INatsKVStore Delivery,
-        INatsObjStore Bundles);
+        INatsObjStore ProtocolPackage);
 
     private sealed class RuntimeRegistration : IAsyncDisposable
     {

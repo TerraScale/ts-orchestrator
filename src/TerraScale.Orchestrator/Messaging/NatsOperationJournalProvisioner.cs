@@ -73,29 +73,42 @@ internal static class NatsOperationJournalProvisioner
         await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
         await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
         var objects = jetStream.CreateObjectStoreContext();
-        INatsObjStore bundles;
-        try
-        {
-            bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
-        }
-        catch (NATS.Client.JetStream.NatsJSApiException exception) when (exception.Error.Code == 404)
-        {
-            bundles = await objects.CreateObjectStoreAsync(topology.Bundles, cancellationToken);
-        }
+        await OpenOrCreateAndValidateObjectStoreAsync(objects, topology.Bundles, cancellationToken);
+        var protocolPackage = await OpenOrCreateAndValidateObjectStoreAsync(
+            objects, topology.ProtocolPackage, cancellationToken);
 
         byte[] stored;
         try
         {
-            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+            stored = await protocolPackage.GetBytesAsync(topology.ProtocolObject, cancellationToken);
         }
         catch (NatsObjNotFoundException)
         {
-            await bundles.PutAsync(topology.ProtocolObject, NatsProtocolPackage.Bytes, cancellationToken);
-            stored = await bundles.GetBytesAsync(topology.ProtocolObject, cancellationToken);
+            await protocolPackage.PutAsync(topology.ProtocolObject, NatsProtocolPackage.Bytes, cancellationToken);
+            stored = await protocolPackage.GetBytesAsync(topology.ProtocolObject, cancellationToken);
         }
         if (!stored.AsSpan().SequenceEqual(NatsProtocolPackage.Bytes))
         {
             throw new InvalidOperationException("NATS protocol package failed its integrity check.");
         }
+    }
+
+    private static async Task<INatsObjStore> OpenOrCreateAndValidateObjectStoreAsync(
+        INatsObjContext objects,
+        NatsObjConfig configuration,
+        CancellationToken cancellationToken)
+    {
+        INatsObjStore store;
+        try
+        {
+            store = await objects.GetObjectStoreAsync(configuration.Bucket, cancellationToken);
+        }
+        catch (NATS.Client.JetStream.NatsJSApiException exception) when (exception.Error.Code == 404)
+        {
+            store = await objects.CreateObjectStoreAsync(configuration, cancellationToken);
+        }
+        NatsOperationJournalStore.ValidateExactObjectConfiguration(
+            (await store.GetStatusAsync(cancellationToken)).Info.Config, configuration);
+        return store;
     }
 }
