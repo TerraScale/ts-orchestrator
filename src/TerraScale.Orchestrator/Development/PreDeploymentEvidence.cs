@@ -15,7 +15,7 @@ internal sealed record PreDeploymentEvidence(
     IReadOnlyList<PreDeploymentTestModule>? TestInventory,
     IReadOnlyList<PreDeploymentProcessObservation>? ProcessObservations)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions SerializerOptions = JsonSerializerOptions.Web;
 
     public static async Task RequireAsync(
         string? evidenceFile,
