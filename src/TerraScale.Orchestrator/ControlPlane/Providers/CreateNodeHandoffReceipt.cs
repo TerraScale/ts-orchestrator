@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.ControlPlane.Operations;
@@ -43,8 +44,8 @@ public interface ICreateNodePublicKeySource
 
 public class CreateNodeReceiptKeyRing : ICreateNodeReceiptKeyResolver, ICreateNodePublicKeySource
 {
-    private readonly IReadOnlyDictionary<string, byte[]> keys;
-    public CreateNodeReceiptKeyRing(IReadOnlyDictionary<string, byte[]> keys) => this.keys = keys.ToDictionary(
+    private readonly FrozenDictionary<string, byte[]> keys;
+    public CreateNodeReceiptKeyRing(IReadOnlyDictionary<string, byte[]> keys) => this.keys = keys.ToFrozenDictionary(
         static pair => pair.Key, static pair => pair.Value.ToArray(), StringComparer.Ordinal);
     public bool TryResolve(string keyId, string algorithm, out byte[] subjectPublicKeyInfo)
     {

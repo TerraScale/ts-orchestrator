@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Providers;
@@ -41,7 +42,7 @@ public sealed class InMemoryCreateNodeOperationJournal : ICreateNodeOperationJou
 public interface ICreateNodeJournalTagKeyResolver { bool TryResolve(string keyId, string algorithm, out byte[] key); }
 public sealed class CreateNodeJournalTagKeyRing(IReadOnlyDictionary<string, byte[]> keys) : ICreateNodeJournalTagKeyResolver
 {
-    private readonly IReadOnlyDictionary<string, byte[]> keys = keys.ToDictionary(static p => p.Key, static p => p.Value.ToArray(), StringComparer.Ordinal);
+    private readonly FrozenDictionary<string, byte[]> keys = keys.ToFrozenDictionary(static p => p.Key, static p => p.Value.ToArray(), StringComparer.Ordinal);
     public bool TryResolve(string keyId, string algorithm, out byte[] key)
     { if (algorithm != "HMAC-SHA256" || !keys.TryGetValue(keyId, out var value)) { key = []; return false; } key = value.ToArray(); return true; }
 }

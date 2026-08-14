@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,7 +23,7 @@ internal sealed class CreateNodeJournalEncryptionKeyRing(
     IReadOnlyDictionary<string, byte[]> keys,
     Func<bool>? health = null) : ICreateNodeJournalEncryptionKeyService
 {
-    private readonly IReadOnlyDictionary<string, byte[]> keys = keys.ToDictionary(
+    private readonly FrozenDictionary<string, byte[]> keys = keys.ToFrozenDictionary(
         static pair => pair.Key,
         static pair => pair.Value.ToArray(),
         StringComparer.Ordinal);
