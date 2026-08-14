@@ -38,11 +38,11 @@ internal static class NativeGitOpsCellPayload
         "id", "role", "artifactDigest", "runtime", "replicas", "cells", "dependsOn", "suspended",
         "childOwnership", "removalPolicy",
     }.ToFrozenSet(StringComparer.Ordinal);
-    private static readonly HashSet<string> ChangeProperties =
-    [
+    private static readonly FrozenSet<string> ChangeProperties = new[]
+    {
         "kind", "workloadId", "childOwnership", "removalPolicy", "acceptedWorkloadSha256",
         "proposedWorkloadSha256",
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     internal static NativeGitOpsParsedCellSpec Parse(NativeGitOpsAcceptedCellSpec accepted)
     {
