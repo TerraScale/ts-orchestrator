@@ -194,7 +194,7 @@ public sealed class DevelopmentControlSocketTests
         using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         await socket.ConnectAsync(new UnixDomainSocketEndPoint(path));
         await using var stream = new NetworkStream(socket, ownsSocket: false);
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var options = JsonSerializerOptions.Web;
         await JsonSerializer.SerializeAsync(stream, request, options);
         await stream.WriteAsync("\n"u8.ToArray());
         await stream.FlushAsync();
