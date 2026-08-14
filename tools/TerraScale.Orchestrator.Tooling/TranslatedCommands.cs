@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -124,7 +125,7 @@ internal static class Phase0EvidenceCommand
     private static readonly string[] InventoryFields = ["repository", "branch", "source_commit", "checkout_state", "ownership", "descriptors"];
     private static readonly string[] DescriptorFields = ["path", "type", "purpose", "classification", "production_relevance", "confidence", "source_sha256"];
     private static readonly string[] ArchiveFields = ["repository", "commit", "path", "sha256", "anchor_sha256"];
-    private static readonly Dictionary<string, string[]> ArchivalReceiptIdentities = new(StringComparer.Ordinal)
+    private static readonly FrozenDictionary<string, string[]> ArchivalReceiptIdentities = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["WRK-001"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|AGENTS.md|08d99c7181085edc0678715ac7f3973577bbcbb8a7bc06214c7d9b9fa7d46bd5|archive:TerraScale.Infrastructure/AGENTS.md:66|5255536e3df2504021a4062ba63796e604b30e637c48b9995886cf6999854591", "TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|src/TerraScale.Infrastructure/Program.cs|f3e4bcaa12717c06f2d54e98089c34effcb032d458e259ca425c2fa2fa381be4|archive:TerraScale.Infrastructure/src/TerraScale.Infrastructure/Program.cs:13|14355c61e5cd5a2ab933ae49bb9fecfb1aad66b1c1d63755f47135c217c61b8a"],
         ["WRK-002"] = ["TerraScale.Infrastructure|d924f26b5ceb2759e6143f3e90b78a019d79e73b|gitops/clusters/production-gru/reconciliation.yaml|5471818590e70e54874e76593e0fbd251022d12ffed56e72574f5b18473b6205|archive:TerraScale.Infrastructure/gitops/clusters/production-gru/reconciliation.yaml:70|1597fd2d8689c55dd63efd4a920f3ccb7fa7d4d98e63c6ec09337de7e4b7da5a"],
@@ -145,7 +146,7 @@ internal static class Phase0EvidenceCommand
         ["WRK-019"] = ["TerraScale.Deploy|6d56564e16308e2334f76a8635c01f7a621e76da|src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs|e71cc30d0b673fbbcf72055f6f41c70b4c6e700fe470f8d4dda4abd3db531b58|archive:TerraScale.Deploy/src/TerraScale.Deploy.Cli/Kubernetes/KubectlRetry.cs:7|54e16f538e3fc0a9c4d4e7ed920ecd82de96e3dc49aeec49e5c453cbac6f49d9"],
         ["WRK-021"] = ["Terrascale.Documentation|03287808a23cadad5dd83309df8cc63b5d5c46d7|src/content/docs/en/reference/api/index.svx|e1826ed2b231365074c633ccc5d9e69de037946abad43efa0bb2181661287462|archive:Terrascale.Documentation/src/content/docs/en/reference/api/index.svx:20|a122d239d7e365b369572a5e2064c0abc3f2fce7f3dffb310c6c1a45a4686f8e"],
         ["WRK-022"] = ["TerraScale.TypeScript|cd7da11eac891ea2a39eb12014b3abc35d45a412|src/regions.ts|f9e518460351b571659996851a7fd2bd62ca4045eb34cc9a14b861a71bffdc57|archive:TerraScale.TypeScript/src/regions.ts:81|3e94bb98c794d747ecb1ad9a02ab88aab87c254b1e99afcc4fd98e213df7e476"],
-    };
+    }.ToFrozenDictionary(StringComparer.Ordinal);
     private static readonly string[] WorkaroundIds =
     [
         "WRK-001", "WRK-002", "WRK-003", "WRK-004", "WRK-005", "WRK-007", "WRK-008", "WRK-009",
@@ -510,14 +511,15 @@ internal static class Phase0EvidenceCommand
 
 internal static class AdrReadinessCommand
 {
-    internal static readonly HashSet<string> Lanes =
-    [
+    internal static readonly FrozenSet<string> Lanes = new[]
+    {
         "Integration/contract steward", "Core", "Messaging/security", "Runtime", "Cloud", "Storage",
         "TerraBase", "Delivery", "Operations", "Cross-repository cleanup", "Verification"
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
-    private static readonly HashSet<string> Statuses =
-        ["draft-ready", "owner-input-required", "evidence-required", "accepted"];
+    private static readonly FrozenSet<string> Statuses = new[]
+        { "draft-ready", "owner-input-required", "evidence-required", "accepted" }
+        .ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly string[] RequiredFields =
     [
@@ -705,11 +707,15 @@ internal static class OwnerDecisionCommand
 
 internal static class DecisionReadinessValidator
 {
-    private static readonly HashSet<string> AcceptedPolicyProvenance =
-    ["ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49"];
-    private static readonly HashSet<string> OpenInputProvenance =
-    ["ORCHESTRATOR.md:100-105", "docs/decisions/owner-decision-packet.json:51-122"];
-    private static readonly HashSet<string> LaterSelectionIds = ["artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy"];
+    private static readonly FrozenSet<string> AcceptedPolicyProvenance = new[]
+        { "ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49" }
+        .ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> OpenInputProvenance = new[]
+        { "ORCHESTRATOR.md:100-105", "docs/decisions/owner-decision-packet.json:51-122" }
+        .ToFrozenSet(StringComparer.Ordinal);
+    private static readonly FrozenSet<string> LaterSelectionIds = new[]
+        { "artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy" }
+        .ToFrozenSet(StringComparer.Ordinal);
     private static readonly IReadOnlyDictionary<int, (int[] Adrs, string[] Gates)> QuestionMappings = new Dictionary<int, (int[], string[])>
     {
         [1] = ([1, 2], ["contract-freeze", "phase-0-exit", "L0", "L0C", "L3S"]), [2] = ([1, 21], ["contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"]),
