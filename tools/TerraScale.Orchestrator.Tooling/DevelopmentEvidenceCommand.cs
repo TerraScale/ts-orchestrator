@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TerraScale.Orchestrator.Development;
@@ -22,12 +23,12 @@ internal static class DevelopmentEvidenceCommand
         new("TerraScale.Orchestrator.Scheduler.Tests", "tests/TerraScale.Orchestrator.Scheduler.Tests"),
         new("TerraScale.Orchestrator.Tests", "tests/TerraScale.Orchestrator.Tests")
     ];
-    private static readonly HashSet<string> AllowedProfiles =
-    [
+    private static readonly FrozenSet<string> AllowedProfiles = new[]
+    {
         DefaultProfile,
         "regional",
         "control"
-    ];
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     public static int Run(string[] arguments)
     {
