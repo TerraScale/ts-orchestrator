@@ -12,6 +12,8 @@ public sealed class OpaquePayload : IEquatable<OpaquePayload>
 
     public ReadOnlySpan<byte> Bytes => _bytes;
 
+    internal ReadOnlyMemory<byte> Memory => _bytes;
+
     public static OpaquePayload CopyFrom(ReadOnlySpan<byte> bytes) => new(bytes);
 
     public bool Equals(OpaquePayload? other) =>

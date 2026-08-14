@@ -187,7 +187,7 @@ public static class NativeGitOpsCellEnvelope
             Convert.ToHexStringLower(digestBytes) != expected.PayloadSha256 ||
             !exactExpectedPayload.IsEmpty && !envelope.Payload.Bytes.SequenceEqual(exactExpectedPayload) ||
             !envelope.PayloadDigest.Equals(digest) ||
-            !ValidPayloadIdentity(envelope.Payload.Bytes, expectedHandoff, expectedCell))
+            !ValidPayloadIdentity(envelope.Payload.Memory, expectedHandoff, expectedCell))
             return new(
                 NativeGitOpsCellEnvelopeError.WrongCellSpec,
                 CommandValidationError.MalformedEnvelope,
@@ -276,14 +276,14 @@ public static class NativeGitOpsCellEnvelope
             handoff.Cells);
 
     private static bool ValidPayloadIdentity(
-        ReadOnlySpan<byte> payload,
+        ReadOnlyMemory<byte> payload,
         NativeGitOpsCellHandoffDescriptor handoff,
         string cell)
     {
         try
         {
-            RejectDuplicateProperties(payload);
-            using var parsed = JsonDocument.Parse(payload.ToArray(), new JsonDocumentOptions
+            RejectDuplicateProperties(payload.Span);
+            using var parsed = JsonDocument.Parse(payload, new JsonDocumentOptions
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
