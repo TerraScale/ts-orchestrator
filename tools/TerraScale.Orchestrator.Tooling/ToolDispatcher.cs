@@ -54,7 +54,7 @@ internal static class JsonFormatCommand
     {
         if (arguments.Length != 1) throw new ToolValidationException(["json-format requires exactly one file"]);
         var path = Path.GetFullPath(arguments[0], ToolingSupport.Root);
-        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllBytes(path))
             ?? throw new InvalidDataException("empty JSON document");
         Console.Write(ToolingSupport.Serialize(node));
         return 0;

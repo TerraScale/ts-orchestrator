@@ -22,7 +22,7 @@ internal static class ToolingSupport
     public static string Root => FindRoot();
 
     public static JsonNode ReadJson(string relativePath) =>
-        JsonNode.Parse(File.ReadAllText(Path.Combine(Root, relativePath), Encoding.UTF8),
+        JsonNode.Parse(File.ReadAllBytes(Path.Combine(Root, relativePath)),
             documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 })
         ?? throw new InvalidDataException($"{relativePath}: empty JSON document");
 
