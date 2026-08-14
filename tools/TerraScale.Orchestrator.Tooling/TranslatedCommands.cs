@@ -334,8 +334,8 @@ internal static class Phase0EvidenceCommand
     {
         try
         {
-            var receipt = JsonNode.Parse(new UTF8Encoding(false, true).GetString(
-                ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}"))) as JsonObject;
+            var receipt = JsonNode.Parse(
+                ToolingSupport.GitBytes(RepositoryPath(repository), "show", $"{commit}:{path}")) as JsonObject;
             if (receipt is null || StringValue(receipt["receipt_type"]) != "terrascale.workaround-closure-receipt/v1")
             {
                 errors.Add($"{id}: closureEvidence immutable artifact must be a dedicated structured receipt");
