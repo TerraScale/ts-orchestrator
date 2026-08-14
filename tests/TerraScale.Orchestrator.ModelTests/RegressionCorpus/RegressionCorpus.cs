@@ -112,7 +112,7 @@ public static class RegressionCorpusLoader
         return new string(buffer, 0, count);
     }
 
-    public static string Digest(CorpusEntry entry) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(entry)))).ToLowerInvariant();
+    public static string Digest(CorpusEntry entry) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical(entry))));
     public static string Canonical(CorpusEntry entry)
     {
         using var builder = ZString.CreateStringBuilder();

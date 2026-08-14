@@ -30,7 +30,7 @@ internal static class ControlOperationCorpus
         if (!stream.CanSeek || stream.Length is <= 0 or > MaximumBytes) return Result(CorpusCode.TooLarge, []);
         var bytes = new byte[checked((int)stream.Length)];
         stream.ReadExactly(bytes);
-        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var digest = Convert.ToHexStringLower(SHA256.HashData(bytes));
         if (!string.Equals(digest, ResourceDigest, StringComparison.Ordinal))
             return Result(CorpusCode.InvalidDigest, []);
         try { return Load(new UTF8Encoding(false, true).GetString(bytes)); }

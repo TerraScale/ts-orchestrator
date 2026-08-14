@@ -61,7 +61,7 @@ internal static class StorageComputeReplayCorpus
     {
         ArgumentNullException.ThrowIfNull(bytes);
         if (bytes.Length is 0 or > MaximumBytes) throw new InvalidDataException("Replay corpus byte bound violated.");
-        if (requireContentAddress && !StringComparer.Ordinal.Equals(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), ContentSha256))
+            if (requireContentAddress && !StringComparer.Ordinal.Equals(Convert.ToHexStringLower(SHA256.HashData(bytes)), ContentSha256))
             throw new InvalidDataException("Replay corpus content address mismatch.");
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions
         { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 8 });

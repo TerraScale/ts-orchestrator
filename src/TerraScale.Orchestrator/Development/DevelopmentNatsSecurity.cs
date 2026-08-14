@@ -135,7 +135,7 @@ internal sealed class DevelopmentNatsSecurity
 
         var identity = new DevelopmentProductNatsIdentity(
             $"product-{cell}",
-            Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant());
+            Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32)));
         WriteSecret(path, JsonSerializer.Serialize(identity));
         return identity;
     }

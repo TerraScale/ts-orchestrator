@@ -66,7 +66,7 @@ internal static class ProtocolRegressionCorpus
     {
         if (source.IsEmpty || source.Length > MaximumBytes) return Result(CorpusLoadCode.TooLarge, []);
         if (requireContentAddress && !string.Equals(
-            Convert.ToHexString(SHA256.HashData(source)).ToLowerInvariant(), ContentSha256, StringComparison.Ordinal))
+            Convert.ToHexStringLower(SHA256.HashData(source)), ContentSha256, StringComparison.Ordinal))
             return Result(CorpusLoadCode.ContentAddressMismatch, []);
         try
         {

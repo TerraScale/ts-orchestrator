@@ -39,7 +39,7 @@ internal static class SchedulerReplayCorpus
         }
         if(entries.Count==0||entries.Select(entry=>entry.Identity).Distinct(StringComparer.Ordinal).Count()!=entries.Count||entries.Select(entry=>entry.Seed).Distinct().Count()!=entries.Count)
             throw new InvalidOperationException("Scheduler replay identities and seeds must be nonempty and unique.");
-        return new(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),Array.AsReadOnly(entries.ToArray()));
+        return new(Convert.ToHexStringLower(SHA256.HashData(bytes)),Array.AsReadOnly(entries.ToArray()));
     }
     private static byte[] ReadBounded(Stream stream)
     {

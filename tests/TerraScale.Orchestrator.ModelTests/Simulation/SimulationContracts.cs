@@ -277,7 +277,7 @@ public sealed class ModelState
         }
         return builder.ToString();
     }
-    public string Digest() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical()))).ToLowerInvariant();
+    public string Digest() => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(Canonical())));
     public static string EventCanonical(ModelEvent item)
     {
         using var builder = new ZStringWriter();

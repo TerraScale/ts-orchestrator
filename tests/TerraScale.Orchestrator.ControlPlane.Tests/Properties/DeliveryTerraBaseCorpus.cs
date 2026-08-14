@@ -28,7 +28,7 @@ internal static class DeliveryTerraBaseCorpus
         if (stream is null) return Result(DeliveryTerraBaseCorpusCode.Missing, []);
         if (!stream.CanSeek || stream.Length is <= 0 or > MaximumBytes) return Result(DeliveryTerraBaseCorpusCode.TooLarge, []);
         var bytes = new byte[checked((int)stream.Length)]; stream.ReadExactly(bytes);
-        if (!string.Equals(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), ResourceDigest, StringComparison.Ordinal))
+        if (!string.Equals(Convert.ToHexStringLower(SHA256.HashData(bytes)), ResourceDigest, StringComparison.Ordinal))
             return Result(DeliveryTerraBaseCorpusCode.InvalidDigest, []);
         try { return Load(new UTF8Encoding(false, true).GetString(bytes)); }
         catch (DecoderFallbackException) { return Result(DeliveryTerraBaseCorpusCode.InvalidJson, []); }

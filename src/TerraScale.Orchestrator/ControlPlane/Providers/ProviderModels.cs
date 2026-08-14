@@ -582,7 +582,7 @@ public sealed record HandoffInventoryFingerprint
             .ThenBy(item => item.Kind).ThenBy(item => item.Generation.Value)
             .Select(item => string.Join('|', item.ResourceId.Value, item.Kind,
                 item.Generation.Value.ToString(CultureInfo.InvariantCulture))));
-        return new(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(projection))).ToLowerInvariant());
+        return new(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(projection))));
     }
 }
 

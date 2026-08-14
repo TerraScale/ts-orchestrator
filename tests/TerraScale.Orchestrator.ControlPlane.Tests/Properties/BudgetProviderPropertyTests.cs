@@ -325,7 +325,7 @@ internal static class BudgetProviderReplayCorpus
         using var stream = typeof(BudgetProviderReplayCorpus).Assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidDataException("Replay corpus resource is missing.");
         var bytes = ReadBounded(stream);
-        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var digest = Convert.ToHexStringLower(SHA256.HashData(bytes));
         if (!string.Equals(digest, Sha256, StringComparison.Ordinal)) throw new InvalidDataException("Replay corpus digest mismatch.");
         return Parse(bytes);
     }

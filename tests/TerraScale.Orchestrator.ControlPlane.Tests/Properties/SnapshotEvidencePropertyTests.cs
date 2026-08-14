@@ -328,7 +328,7 @@ internal static class SnapshotEvidenceReplayCorpus
         using var memory = new MemoryStream(); var buffer = new byte[4096];
         while (true) { var read = stream.Read(buffer); if (read == 0) break; if (memory.Length + read > MaximumBytes) throw Invalid(); memory.Write(buffer, 0, read); }
         var bytes = memory.ToArray();
-        if (!string.Equals(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), ExpectedSha256, StringComparison.Ordinal)) throw Invalid();
+        if (!string.Equals(Convert.ToHexStringLower(SHA256.HashData(bytes)), ExpectedSha256, StringComparison.Ordinal)) throw Invalid();
         return Parse(bytes);
     }
     internal static IReadOnlyList<SnapshotEvidenceReplayItem> ParseForTest(byte[] bytes)
