@@ -236,7 +236,7 @@ internal static class NatsOperationJournalStore
         NatsKVConfig configuration,
         CancellationToken cancellationToken)
     {
-        var config = JsonNode.Parse(JsonSerializer.Serialize(CanonicalStream(configuration)))?.AsObject()
+        var config = JsonSerializer.SerializeToNode(CanonicalStream(configuration))?.AsObject()
             ?? throw new InvalidOperationException("Unable to serialize the operation journal stream configuration.");
         // NATS.Net 2.7 does not surface the NATS 2.14 allow_batch_publish field.
         // Send it over the JetStream API explicitly so the server receives a hard false.
