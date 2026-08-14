@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace TerraScale.Orchestrator.Runtime;
 
 public enum AdmittedRole
@@ -56,8 +58,8 @@ public sealed record AdmittedRoleDescriptor(
 
 public static class AdmittedRoleCatalog
 {
-    private static readonly IReadOnlyDictionary<AdmittedRole, AdmittedRoleDescriptor> Descriptors =
-        CreateDescriptors().ToDictionary(descriptor => descriptor.Role);
+    private static readonly FrozenDictionary<AdmittedRole, AdmittedRoleDescriptor> Descriptors =
+        CreateDescriptors().ToFrozenDictionary(descriptor => descriptor.Role);
 
     public static IReadOnlyList<AdmittedRoleDescriptor> All { get; } = Descriptors.Values
         .OrderBy(descriptor => descriptor.Role)
