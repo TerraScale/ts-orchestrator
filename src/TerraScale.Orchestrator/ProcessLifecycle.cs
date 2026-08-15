@@ -21,7 +21,11 @@ internal static class ProcessLifecycle
                 // The process exited between cancellation and the kill request.
             }
 
-            await process.WaitForExitAsync();
+            // The cancellation-aware overload can leave Process' async wait
+            // state unusable after the kill. A synchronous wait is safe here:
+            // the process has already been terminated and this keeps cleanup
+            // deterministic without surfacing an unrelated runtime exception.
+            process.WaitForExit();
             throw;
         }
     }

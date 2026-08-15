@@ -525,7 +525,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             var topology = new NatsTopology(cell.Cell, 3, "controller-1");
             var objects = infrastructure.CreateJetStreamContext().CreateObjectStoreContext();
             NATS.Client.ObjectStore.INatsObjStore? bundles = null;
-            await EventuallyAsync(async () => bundles = await objects.CreateObjectStoreAsync(topology.Bundles));
+            await EventuallyAsync(async () => bundles = await objects.CreateObjectStoreAsync(topology.ProtocolPackage));
             var corrupt = "corrupt"u8.ToArray();
             await bundles!.PutAsync(topology.ProtocolObject, corrupt);
 
@@ -570,7 +570,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             await EventuallyAsync(() => NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
                 infrastructure, journalTopology, default));
             var jetStream = infrastructure.CreateJetStreamContext();
-            var bundles = await jetStream.CreateObjectStoreContext().GetObjectStoreAsync("CELL_BUNDLES");
+            var bundles = await jetStream.CreateObjectStoreContext().GetObjectStoreAsync(journalTopology.ProtocolPackage.Bucket);
             await Assert.That(await bundles.GetBytesAsync(journalTopology.ProtocolObject))
                 .IsEquivalentTo(NatsProtocolPackage.Bytes);
             await EventuallyAsync(async () => _ = await jetStream.CreateOrUpdateStreamAsync(
@@ -648,8 +648,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             var protocol = await bundles.GetInfoAsync(journalTopology.ProtocolObject);
             foreach (var subject in new[]
                      {
-                         "$O.CELL_BUNDLES.M.orchestrator-protocol-v1",
-                         $"$O.CELL_BUNDLES.C.{protocol.Nuid}",
+                         "$O.ORCH_PROTOCOL_PACKAGE.M.orchestrator-protocol-v1",
+                         $"$O.ORCH_PROTOCOL_PACKAGE.C.{protocol.Nuid}",
                          "$O.OTHER_BUCKET.C.denied",
                      })
             {

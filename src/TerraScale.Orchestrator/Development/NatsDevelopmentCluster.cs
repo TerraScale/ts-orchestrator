@@ -94,7 +94,7 @@ internal static class NatsDevelopmentCluster
         }.Select(stream => $"$JS.API.STREAM.INFO.{stream}").Concat(new[]
         {
             "$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.runtime_startup.>", "$JS.API.CONSUMER.INFO.CELL_EVENTS.runtime_startup", "$JS.API.CONSUMER.MSG.NEXT.CELL_EVENTS.runtime_startup",
-            "$JS.ACK.CELL_EVENTS.runtime_startup.>", "$JS.FC.CELL_EVENTS.runtime_startup.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
+            "$JS.ACK.CELL_EVENTS.runtime_startup.>", "$JS.FC.CELL_EVENTS.runtime_startup.>", "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES", "$JS.API.STREAM.MSG.GET.OBJ_ORCH_PROTOCOL_PACKAGE",
             "$JS.API.CONSUMER.CREATE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.FC.OBJ_ORCH_PROTOCOL_PACKAGE.>",
             "$JS.API.CONSUMER.DELETE.OBJ_ORCH_PROTOCOL_PACKAGE.>", "$JS.FC.KV_ORCH_RUNTIME.>",
             "$JS.API.DIRECT.GET.KV_ORCH_LEADERS", "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>"
