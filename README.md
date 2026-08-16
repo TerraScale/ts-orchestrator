@@ -404,10 +404,15 @@ package API under the exact candidate version. That coordinator reopens and
 verifies every content-addressed runner archive before the first upload, streams only the matching
 durable object under current authority, reconciles immutable retries by exact
 digest and length readback, and emits stable publication evidence. OCI registry
-and Pages publishers, the live regional actuator implementation, runtime
-wiring, and live-verification implementations remain separate gates. The
-promotion adapter already composes Forgejo publication before SFO and retains
-immutable archives during rollback.
+publication is now a first-class closed strategy: it accepts exactly one
+non-executable `Any` artifact, reopens its exact verified outer archive,
+checks the nested OCI layout/index for Linux amd64 and arm64, and uploads
+through a bounded skopeo process using the candidate digest as its immutable
+tag. Exact registry readback is required before regional rollout; duplicate
+and rollback paths retain immutable content. Pages publishers, the live
+regional actuator implementation, runtime wiring, and live-verification
+implementations remain separate gates. The promotion adapter composes package
+and OCI publication before SFO and retains immutable archives during rollback.
 
 Candidates and their later main-tree qualifications survive controller restart.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
@@ -481,7 +486,7 @@ configurable from 30 to 900 seconds. Controller-side runner-result projection
 and candidate recording are part of the production loop when an artifact-
 attestation signer and trust sets are supplied. Package publication and signed
 artifact-attestation verification are implemented behind the qualified-candidate
-boundary; promotion runtime wiring, non-package publishers, live regional
+boundary; promotion runtime wiring, Pages publishing, live regional
 actuation, and real-architecture runtime observations remain separate release
 gates.
 No result is acknowledged unless its exact durable sink completed first.

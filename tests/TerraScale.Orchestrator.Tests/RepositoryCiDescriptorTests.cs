@@ -48,6 +48,16 @@ public sealed class RepositoryCiDescriptorTests
     }
 
     [Test]
+    public async Task OciImagePolicyIsClosedToOneAnyArtifact()
+    {
+        var descriptor = Parse(ValidDescriptor().Replace("NativeBlueGreen", "OciImage", StringComparison.Ordinal));
+
+        await Assert.That(descriptor.Promotion).IsEqualTo(RepositoryCiPromotionStrategy.OciImage);
+        await Assert.That(descriptor.Nodes.Single(static value => value.Id == "candidate").Architectures)
+            .IsEquivalentTo([RepositoryCiArchitecture.Any]);
+    }
+
+    [Test]
     public async Task CanonicalDigestIgnoresJsonAndSetOrdering()
     {
         var first = Parse(ValidDescriptor());

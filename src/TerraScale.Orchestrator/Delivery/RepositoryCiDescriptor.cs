@@ -35,6 +35,7 @@ public enum RepositoryCiPromotionStrategy
     Unspecified,
     None,
     Package,
+    OciImage,
     Pages,
     NativeRolling,
     NativeBlueGreen,
@@ -257,7 +258,8 @@ public static class RepositoryCiDescriptor
             if (!ParseEnum(value, out RepositoryCiArchitecture architecture) || !architectures.Add(architecture))
                 throw new InvalidDataException("A repository CI architecture is invalid.");
         var expected = kind != RepositoryCiNodeKind.Artifact || promotion is
-            RepositoryCiPromotionStrategy.Package or RepositoryCiPromotionStrategy.Pages
+            RepositoryCiPromotionStrategy.Package or RepositoryCiPromotionStrategy.OciImage or
+            RepositoryCiPromotionStrategy.Pages
                 ? [RepositoryCiArchitecture.Any]
                 : IsNative(promotion)
                     ? [RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]

@@ -270,6 +270,76 @@ public sealed class RepositoryCiPromotionCoordinatorTests
         await Assert.That(regions.Calls).IsEmpty();
     }
 
+    [Test]
+    public async Task PackageAndOciPublicationBothCompleteBeforeRegionalRollout()
+    {
+        var publications = new TestPackagePublications(RepositoryCiPackagePublicationDisposition.NotApplicable);
+        var oci = new TestOciPublications(RepositoryCiOciImagePublicationDisposition.Published);
+        var regions = new TestActuator();
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            new RepositoryCiForgejoPromotionActuator(publications, regions, oci));
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.Completed);
+        await Assert.That(publications.Calls).IsEqualTo(1);
+        await Assert.That(oci.Calls).IsEqualTo(1);
+        await Assert.That(regions.Calls.Select(static call => call.Operation).SequenceEqual(new[]
+        {
+            RepositoryCiPromotionOperation.DeploySfo,
+            RepositoryCiPromotionOperation.DeployFra,
+            RepositoryCiPromotionOperation.DeployGru,
+        })).IsTrue();
+    }
+
+    [Test]
+    public async Task FailedOciPublicationRollsBackWithoutRegionalCalls()
+    {
+        var publications = new TestPackagePublications(RepositoryCiPackagePublicationDisposition.NotApplicable);
+        var oci = new TestOciPublications(RepositoryCiOciImagePublicationDisposition.IdentityConflict);
+        var regions = new TestActuator();
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            new RepositoryCiForgejoPromotionActuator(publications, regions, oci));
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.RolledBack);
+        await Assert.That(regions.Calls).IsEmpty();
+    }
+
+    [Test]
+    public async Task NoApplicablePublisherRollsBackWithoutRegionalCalls()
+    {
+        var publications = new TestPackagePublications(RepositoryCiPackagePublicationDisposition.NotApplicable);
+        var oci = new TestOciPublications(RepositoryCiOciImagePublicationDisposition.NotApplicable);
+        var regions = new TestActuator();
+        var coordinator = new RepositoryCiPromotionCoordinator(
+            new RepositoryCiPromotionJournal(new ForgejoWebhookJournalTests.TestLedger()),
+            new RepositoryCiForgejoPromotionActuator(publications, regions, oci));
+
+        var receipt = await coordinator.CoordinateAsync(
+            Authorization(),
+            "gru-controller-1",
+            7,
+            static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiPromotionCoordinationDisposition.RolledBack);
+        await Assert.That(regions.Calls).IsEmpty();
+    }
+
     private static RepositoryCiPromotionAuthorization Authorization()
     {
         var qualified = RepositoryCiCandidateResolverTests.QualifiedCandidate();
@@ -375,6 +445,28 @@ public sealed class RepositoryCiPromotionCoordinatorTests
                 disposition is RepositoryCiPackagePublicationDisposition.Published or
                     RepositoryCiPackagePublicationDisposition.Duplicate
                         ? Digest(998)
+                        : string.Empty,
+                []));
+        }
+    }
+
+    private sealed class TestOciPublications(RepositoryCiOciImagePublicationDisposition disposition)
+        : IRepositoryCiOciImagePublicationCoordinator
+    {
+        internal int Calls { get; private set; }
+
+        public Task<RepositoryCiOciImagePublicationReceipt> PublishAsync(
+            RepositoryCiQualifiedCandidate qualified,
+            Func<bool> authorityStillValid,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls++;
+            return Task.FromResult(new RepositoryCiOciImagePublicationReceipt(
+                disposition,
+                disposition is RepositoryCiOciImagePublicationDisposition.Published or
+                    RepositoryCiOciImagePublicationDisposition.Duplicate
+                        ? Digest(997)
                         : string.Empty,
                 []));
         }
