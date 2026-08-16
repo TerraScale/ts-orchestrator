@@ -7,6 +7,7 @@ internal enum NativeGitOpsCellDeliveryDisposition
     Unspecified,
     Malformed,
     Rejected,
+    ConvergenceNotRecorded,
     AuthorityLostAfterAcceptance,
     Acknowledged,
 }
@@ -38,6 +39,47 @@ internal sealed class NativeGitOpsCellInbox(NativeGitOpsCellAcceptanceJournal jo
         Func<bool> authorityStillValid,
         Func<CancellationToken, Task> acknowledge,
         CancellationToken cancellationToken = default)
+        => await ProcessCoreAsync(
+            payload, headers, streamSequence, expectedCell, expectedWriterEpoch, now, allowedClockSkew,
+            signatureVerifier, authorityStillValid, null, acknowledge, cancellationToken);
+
+    /// <summary>
+    /// Uses the same durable acceptance path but requires a second durable evidence checkpoint
+    /// before acknowledgement. The callback is intentionally an evidence gate, not a dispatcher.
+    /// </summary>
+    internal async Task<NativeGitOpsCellDeliveryReceipt> ProcessWithConvergenceAsync(
+        ReadOnlyMemory<byte> payload,
+        IEnumerable<KeyValuePair<string, string>> headers,
+        ulong streamSequence,
+        string expectedCell,
+        long expectedWriterEpoch,
+        DateTimeOffset now,
+        TimeSpan allowedClockSkew,
+        ICommandSignatureVerifier signatureVerifier,
+        Func<bool> authorityStillValid,
+        Func<NativeGitOpsAcceptedCellSpec, CancellationToken, Task<bool>> convergenceRecorded,
+        Func<CancellationToken, Task> acknowledge,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(convergenceRecorded);
+        return await ProcessCoreAsync(
+            payload, headers, streamSequence, expectedCell, expectedWriterEpoch, now, allowedClockSkew,
+            signatureVerifier, authorityStillValid, convergenceRecorded, acknowledge, cancellationToken);
+    }
+
+    private async Task<NativeGitOpsCellDeliveryReceipt> ProcessCoreAsync(
+        ReadOnlyMemory<byte> payload,
+        IEnumerable<KeyValuePair<string, string>> headers,
+        ulong streamSequence,
+        string expectedCell,
+        long expectedWriterEpoch,
+        DateTimeOffset now,
+        TimeSpan allowedClockSkew,
+        ICommandSignatureVerifier signatureVerifier,
+        Func<bool> authorityStillValid,
+        Func<NativeGitOpsAcceptedCellSpec, CancellationToken, Task<bool>>? convergenceRecorded,
+        Func<CancellationToken, Task> acknowledge,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(headers);
         ArgumentNullException.ThrowIfNull(signatureVerifier);
@@ -86,6 +128,13 @@ internal sealed class NativeGitOpsCellInbox(NativeGitOpsCellAcceptanceJournal jo
                 acceptance.Disposition,
                 acceptance.ProtocolError,
                 null);
+        if (convergenceRecorded is not null &&
+            !await convergenceRecorded(acceptance.Acceptance!, cancellationToken))
+            return new(
+                NativeGitOpsCellDeliveryDisposition.ConvergenceNotRecorded,
+                acceptance.Disposition,
+                acceptance.ProtocolError,
+                acceptance.Acceptance);
         if (!authorityStillValid())
             return new(
                 NativeGitOpsCellDeliveryDisposition.AuthorityLostAfterAcceptance,

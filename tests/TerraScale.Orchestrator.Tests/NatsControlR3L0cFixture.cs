@@ -106,46 +106,64 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             CreatePrivateDirectory(directory);
             var pki = CreatePki(directory);
             var identities = CreateIdentities(directory, pki);
-            var clientPorts = Enumerable.Range(0, MemberCount).Select(static _ => FreePort()).ToArray();
-            var routePorts = Enumerable.Range(0, MemberCount).Select(static _ => FreePort()).ToArray();
             var configurations = new string[MemberCount];
             var processes = new Process?[MemberCount];
             var processOutput = new Task<string>?[MemberCount];
 
-            fixture = new NatsControlR3L0cFixture(
-                directory,
-                configurations,
-                processes,
-                processOutput,
-                lease,
-                clientPorts,
-                identities.Controller,
-                identities.ControllerTwo,
-                identities.Infrastructure,
-                identities.JournalWriter,
-                identities.Operator,
-                identities.WrongAccount);
+            var portReservations = ReserveLoopbackPorts(MemberCount * 2);
+            try
+            {
+                var clientPorts = portReservations
+                    .Take(MemberCount)
+                    .Select(static listener => GetReservedPort(listener))
+                    .ToArray();
+                var routePorts = portReservations
+                    .Skip(MemberCount)
+                    .Select(static listener => GetReservedPort(listener))
+                    .ToArray();
+
+                fixture = new NatsControlR3L0cFixture(
+                    directory,
+                    configurations,
+                    processes,
+                    processOutput,
+                    lease,
+                    clientPorts,
+                    identities.Controller,
+                    identities.ControllerTwo,
+                    identities.Infrastructure,
+                    identities.JournalWriter,
+                    identities.Operator,
+                    identities.WrongAccount);
+
+                for (var member = 0; member < MemberCount; member++)
+                {
+                    configurations[member] = WriteConfiguration(
+                        directory,
+                        member,
+                        clientPorts[member],
+                        routePorts[member],
+                        clientPorts,
+                        routePorts,
+                        pki.ServerCertificates[member],
+                        identities.OperatorJwtFile,
+                        identities.AccountPublicKey,
+                        identities.AccountJwt,
+                        identities.SystemAccountPublicKey,
+                        identities.SystemAccountJwt,
+                        identities.WrongAccountPublicKey,
+                        identities.WrongAccountJwt,
+                        pki.CaFile);
+                }
+            }
+            finally
+            {
+                foreach (var listener in portReservations)
+                    listener.Stop();
+            }
 
             for (var member = 0; member < MemberCount; member++)
-            {
-                configurations[member] = WriteConfiguration(
-                    directory,
-                    member,
-                    clientPorts[member],
-                    routePorts[member],
-                    clientPorts,
-                    routePorts,
-                    pki.ServerCertificates[member],
-                    identities.OperatorJwtFile,
-                    identities.AccountPublicKey,
-                    identities.AccountJwt,
-                    identities.SystemAccountPublicKey,
-                    identities.SystemAccountJwt,
-                    identities.WrongAccountPublicKey,
-                    identities.WrongAccountJwt,
-                    pki.CaFile);
                 fixture.StartMember(member, natsServer);
-            }
 
             await fixture.WaitForClusterAsync(cancellationToken);
             return fixture;
@@ -482,6 +500,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var diagnostics = output.Result
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(IsDiagnosticLine)
+            .OrderByDescending(IsPriorityDiagnosticLine)
             .Select(SanitizeDiagnosticLine)
             .Take(8)
             .ToArray();
@@ -492,15 +511,21 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     }
 
     private static bool IsDiagnosticLine(string line) =>
+        IsPriorityDiagnosticLine(line) ||
+        line.Contains("tls", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("resolver", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("jetstream", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPriorityDiagnosticLine(string line) =>
         line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("fatal", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("invalid", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("panic", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("parse", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("tls", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("resolver", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("jetstream", StringComparison.OrdinalIgnoreCase);
+        line.Contains("address", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("listen", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("bind", StringComparison.OrdinalIgnoreCase);
 
     private static string SanitizeDiagnosticLine(string line)
     {
@@ -879,6 +904,19 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.internal.operation-journal.update",
                     $"{root}.internal.runtime-lifecycle-journal.read",
                     $"{root}.internal.runtime-lifecycle-journal.write",
+                    $"$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
+                    $"$JS.API.CONSUMER.MSG.NEXT.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
+                    $"$JS.ACK.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}.>",
+                    "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY",
+                    "$JS.API.DIRECT.GET.KV_ORCH_DELIVERY",
+                    "$KV.ORCH_DELIVERY.>",
+                    "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
+                    "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
+                    "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>",
+                    "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>",
+                    "$JS.FC.OBJ_CELL_BUNDLES.>",
+                    "$O.CELL_BUNDLES.C.>",
+                    "$O.CELL_BUNDLES.M.>",
                 ],
                 [
                     "_INBOX.>",
@@ -900,6 +938,12 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$JS.API.STREAM.CREATE.CELL_EVENTS",
                     "$JS.API.STREAM.UPDATE.CELL_EVENTS",
                     "$JS.API.STREAM.INFO.CELL_EVENTS",
+                    "$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>",
+                    "$JS.API.CONSUMER.DURABLE.CREATE.CELL_EVENTS.runtime_startup.>",
+                    "$JS.API.CONSUMER.INFO.CELL_EVENTS.runtime_startup",
+                    "$JS.API.CONSUMER.CREATE.CELL_SPEC.gitops_cell_spec_controller-1.>",
+                    "$JS.API.CONSUMER.DURABLE.CREATE.CELL_SPEC.gitops_cell_spec_controller-1.>",
+                    "$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-1",
                     "$JS.API.STREAM.CREATE.KV_ORCH_LEADERS",
                     "$JS.API.STREAM.UPDATE.KV_ORCH_LEADERS",
                     "$JS.API.STREAM.INFO.KV_ORCH_LEADERS",
@@ -1162,12 +1206,29 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         File.SetUnixFileMode(path, PrivateFileMode);
     }
 
-    private static int FreePort()
+    private static TcpListener[] ReserveLoopbackPorts(int count)
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        var listeners = new List<TcpListener>(count);
+        try
+        {
+            for (var index = 0; index < count; index++)
+            {
+                var listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                listeners.Add(listener);
+            }
+            return listeners.ToArray();
+        }
+        catch
+        {
+            foreach (var listener in listeners)
+                listener.Stop();
+            throw;
+        }
     }
+
+    private static int GetReservedPort(TcpListener listener) =>
+        ((IPEndPoint)listener.LocalEndpoint).Port;
 
     private static void ValidateMember(int member)
     {

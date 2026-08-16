@@ -193,6 +193,111 @@ public sealed class NativeGitOpsCellInboxTests
         await Assert.That(recovered.IsAcknowledged).IsTrue();
     }
 
+    [Test]
+    public async Task ConvergenceCheckpointMustPersistBeforeAckAndDuplicateRecovery()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var payloads = new TestPayloadStore();
+        var inbox = new NativeGitOpsCellInbox(new(ledger, payloads));
+        var wire = Wire([5]);
+        var steps = new List<string>();
+        var acknowledgements = 0;
+
+        var crashed = await inbox.ProcessWithConvergenceAsync(
+            wire.Payload, wire.Headers, 71, "gru", 7, Now, TimeSpan.Zero,
+            new TestVerifier([5]), () => true,
+            (_, _) =>
+            {
+                steps.Add("convergence-failed");
+                return Task.FromResult(false);
+            },
+            _ =>
+            {
+                acknowledgements++;
+                return Task.CompletedTask;
+            });
+        var accepted = await new NativeGitOpsCellAcceptanceJournal(ledger, payloads).ReadAsync("gru");
+        var recovered = await new NativeGitOpsCellInbox(new(ledger, payloads)).ProcessWithConvergenceAsync(
+            wire.Payload, wire.Headers, 71, "gru", 7, Now, TimeSpan.Zero,
+            new TestVerifier([5]), () => true,
+            (_, _) =>
+            {
+                steps.Add("convergence-recorded");
+                return Task.FromResult(true);
+            },
+            _ =>
+            {
+                steps.Add("ack");
+                acknowledgements++;
+                return Task.CompletedTask;
+            });
+
+        await Assert.That(crashed.Disposition)
+            .IsEqualTo(NativeGitOpsCellDeliveryDisposition.ConvergenceNotRecorded);
+        await Assert.That(crashed.IsAcknowledged).IsFalse();
+        await Assert.That(accepted).IsNotNull();
+        await Assert.That(recovered.AcceptanceDisposition)
+            .IsEqualTo(NativeGitOpsCellAcceptanceDisposition.Duplicate);
+        await Assert.That(recovered.IsAcknowledged).IsTrue();
+        await Assert.That(steps).IsEquivalentTo(["convergence-failed", "convergence-recorded", "ack"]);
+        await Assert.That(acknowledgements).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task RealConvergenceJournalCrashLeavesUnackedAndRedeliveryRecordsBeforeAck()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 2);
+        var payloads = new TestPayloadStore();
+        var wire = Wire([6]);
+        var acknowledgements = 0;
+        var crashingInbox = new NativeGitOpsCellInbox(new(ledger, payloads));
+        var crashingConvergence = new NativeGitOpsCellConvergenceJournal(ledger);
+
+        await Assert.That(async () => await crashingInbox.ProcessWithConvergenceAsync(
+                wire.Payload, wire.Headers, 81, "gru", 7, Now, TimeSpan.Zero,
+                new TestVerifier([6]), () => true,
+                (accepted, token) => RecordConvergenceAsync(crashingConvergence, accepted, token),
+                _ =>
+                {
+                    acknowledgements++;
+                    return Task.CompletedTask;
+                }))
+            .Throws<IOException>();
+        await Assert.That(await new NativeGitOpsCellAcceptanceJournal(ledger, payloads).ReadAsync("gru"))
+            .IsNotNull();
+        await Assert.That(await crashingConvergence.ReadAsync("gru")).IsNull();
+        await Assert.That(acknowledgements).IsEqualTo(0);
+
+        var recoveredConvergence = new NativeGitOpsCellConvergenceJournal(ledger);
+        var recovered = await new NativeGitOpsCellInbox(new(ledger, payloads)).ProcessWithConvergenceAsync(
+            wire.Payload, wire.Headers, 81, "gru", 7, Now, TimeSpan.Zero,
+            new TestVerifier([6]), () => true,
+            (accepted, token) => RecordConvergenceAsync(recoveredConvergence, accepted, token),
+            async _ =>
+            {
+                await Assert.That(await new NativeGitOpsCellAcceptanceJournal(ledger, payloads).ReadAsync("gru"))
+                    .IsNotNull();
+                await Assert.That(await recoveredConvergence.ReadAsync("gru")).IsNotNull();
+                acknowledgements++;
+            });
+
+        await Assert.That(recovered.AcceptanceDisposition)
+            .IsEqualTo(NativeGitOpsCellAcceptanceDisposition.Duplicate);
+        await Assert.That(recovered.IsAcknowledged).IsTrue();
+        await Assert.That(acknowledgements).IsEqualTo(1);
+    }
+
+    private static async Task<bool> RecordConvergenceAsync(
+        NativeGitOpsCellConvergenceJournal convergence,
+        NativeGitOpsAcceptedCellSpec accepted,
+        CancellationToken cancellationToken)
+    {
+        var receipt = await convergence.AdvanceAsync(
+            accepted, [], [], null, Math.Max(1, (long)accepted.StreamSequence), () => true, cancellationToken);
+        return receipt.Disposition is NativeGitOpsCellConvergenceJournalDisposition.Recorded or
+            NativeGitOpsCellConvergenceJournalDisposition.Duplicate;
+    }
+
     private static NativeGitOpsCellInbox Inbox() => new(new(
         new ForgejoWebhookJournalTests.TestLedger(),
         new TestPayloadStore()));

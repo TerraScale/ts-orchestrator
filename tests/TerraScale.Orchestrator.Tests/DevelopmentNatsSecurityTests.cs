@@ -68,6 +68,38 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(authorization[controllerStart..controllerEnd]).Contains("\"_INBOX.>\"");
             await Assert.That(authorization[controllerStart..controllerEnd])
                 .Contains("allow_responses: { max: 1, expires: \"2s\" }");
+            await Assert.That(authorization[controllerStart..controllerEnd])
+                .Contains("$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES");
+            await Assert.That(authorization[controllerStart..controllerEnd])
+                .DoesNotContain("$JS.API.CONSUMER.CREATE.CELL_SPEC");
+            await Assert.That(authorization[controllerStart..controllerEnd])
+                .DoesNotContain("$JS.API.CONSUMER.DURABLE.CREATE.CELL_SPEC");
+            var infrastructureStart = authorization.IndexOf(
+                gru.Infrastructure.PublicKey,
+                StringComparison.Ordinal);
+            var infrastructureEnd = authorization.IndexOf(
+                "} },",
+                infrastructureStart,
+                StringComparison.Ordinal);
+            await Assert.That(infrastructureStart).IsGreaterThanOrEqualTo(0);
+            await Assert.That(infrastructureEnd).IsGreaterThan(infrastructureStart);
+            var infrastructurePermissions = authorization[infrastructureStart..infrastructureEnd];
+            await Assert.That(infrastructurePermissions)
+                .DoesNotContain("$JS.API.CONSUMER.CREATE.CELL_SPEC.gitops_cell_spec_controller-*");
+            await Assert.That(infrastructurePermissions)
+                .DoesNotContain("$JS.API.CONSUMER.DURABLE.CREATE.CELL_SPEC.gitops_cell_spec_controller-*");
+            await Assert.That(infrastructurePermissions)
+                .DoesNotContain("$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-*");
+            foreach (var controller in gru.Controllers.OrderBy(pair => pair.Key))
+            {
+                var consumerName = $"gitops_cell_spec_controller-{controller.Key}";
+                await Assert.That(infrastructurePermissions)
+                    .Contains($"\"$JS.API.CONSUMER.CREATE.CELL_SPEC.{consumerName}.>\"");
+                await Assert.That(infrastructurePermissions)
+                    .Contains($"\"$JS.API.CONSUMER.DURABLE.CREATE.CELL_SPEC.{consumerName}.>\"");
+                await Assert.That(infrastructurePermissions)
+                    .Contains($"\"$JS.API.CONSUMER.INFO.CELL_SPEC.{consumerName}\"");
+            }
             await Assert.That(authorization).Contains(gru.JournalWriter.PublicKey);
             await Assert.That(authorization).Contains(gru.Infrastructure.PublicKey);
             await Assert.That(authorization).Contains("\"$KV.ORCH_LEADERS.>\"");

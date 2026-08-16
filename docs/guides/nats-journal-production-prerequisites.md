@@ -56,6 +56,14 @@ The one startup consumer is fixed to the
 suffix after that fixed token, so the permitted subjects are only
 `$JS.API.CONSUMER.CREATE.CELL_EVENTS.runtime_startup.>` (and the durable API
 form when the client uses it), never `CELL_EVENTS.>` or another consumer name.
+Infrastructure must reconcile that shared consumer and each controller's exact
+`gitops_cell_spec_<instance>` `CELL_SPEC` consumer before any controller starts.
+Controller identities only open, validate, pull, and acknowledge their named
+consumer; they never create or update it. The rollout order is therefore:
+update the infrastructure and controller ACLs, run `provision-journal` once for
+each active `TS_ORCH_INSTANCE`, verify the returned closed consumer profiles,
+then deploy controller binaries. A missing or mismatched consumer makes
+controller `check` and `run` fail closed rather than creating it at runtime.
 It must deny both journal KV stores, both JetStream
 `DIRECT.GET`, `STREAM.MSG.GET`, stream-info, snapshot, restore, and snapshot
 transfer APIs, and every consumer create/list/info/delete/fetch/

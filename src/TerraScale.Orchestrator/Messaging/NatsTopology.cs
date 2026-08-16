@@ -128,12 +128,17 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     public ConsumerConfig CellSpecConsumer => new($"gitops_cell_spec_{Instance}")
     {
         Description = $"Durable signed native GitOps CellSpecs for {Cell}/{Instance}",
+        DeliverPolicy = ConsumerConfigDeliverPolicy.All,
+        AckPolicy = ConsumerConfigAckPolicy.Explicit,
         FilterSubject = CellSpecSubject,
+        ReplayPolicy = ConsumerConfigReplayPolicy.Instant,
         // Keep the declared value aligned with the first backoff interval.
         AckWait = TimeSpan.FromSeconds(1),
         MaxDeliver = 5,
         MaxAckPending = 8,
         MaxWaiting = 8,
+        MaxBatch = 1,
+        MaxExpires = TimeSpan.FromSeconds(30),
         Backoff =
         [
             TimeSpan.FromSeconds(1),

@@ -91,6 +91,23 @@ internal static class NatsOperationJournalProvisioner
         {
             throw new InvalidOperationException("NATS protocol package failed its integrity check.");
         }
+
+        await CreateOrUpdateAndValidateConsumerAsync(
+            jetStream, "CELL_EVENTS", topology.StartupConsumer, cancellationToken);
+        await CreateOrUpdateAndValidateConsumerAsync(
+            jetStream, "CELL_SPEC", topology.CellSpecConsumer, cancellationToken);
+    }
+
+    private static async Task CreateOrUpdateAndValidateConsumerAsync(
+        NATS.Client.JetStream.INatsJSContext jetStream,
+        string stream,
+        NATS.Client.JetStream.Models.ConsumerConfig configuration,
+        CancellationToken cancellationToken)
+    {
+        var consumer = await jetStream.CreateOrUpdateConsumerAsync(stream, configuration, cancellationToken);
+        await consumer.RefreshAsync(cancellationToken);
+        if (!CiRunnerConsumerReconciler.Matches(consumer.Info, configuration, stream))
+            throw new InvalidOperationException("An infrastructure-provisioned NATS consumer does not match its closed profile.");
     }
 
     private static async Task<INatsObjStore> OpenOrCreateAndValidateObjectStoreAsync(

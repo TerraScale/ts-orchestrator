@@ -74,7 +74,9 @@ try
     if (options.Command is OrchestratorCommand.ProvisionJournal)
     {
         await NatsOperationJournalProvisioner.ProvisionAsync(options, shutdown.Token);
-        Console.WriteLine($"Provisioned immutable R3 CreateNode journal stores for {options.Cell} via {options.NatsUrl}");
+        Console.WriteLine(
+            $"Provisioned regional control topology, exact durable startup and CellSpec consumers for " +
+            $"{options.Cell}/{options.Instance}, and immutable R3 operation journal stores via {options.NatsUrl}");
         return 0;
     }
     if (options.Command is OrchestratorCommand.JournalWriter)
@@ -92,13 +94,21 @@ try
     var startupTimestamp = Stopwatch.GetTimestamp();
     NatsRuntime? runtime = null;
     GlobalNatsRuntime? globalRuntime = null;
+    NativeGitOpsRuntime? nativeGitOpsRuntime = null;
     try
     {
         runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
         if (options.GlobalNats is not null)
+        {
+            var verifier = commandIdentity?.Verifier;
+            NativeGitOpsRuntime.ValidateConfiguration(
+                globalNatsConfigured: true,
+                nativeGitOpsPublicationConfigured: commandIdentity?.Signer is not null,
+                trustedVerifierConfigured: verifier is not null);
             globalRuntime = await GlobalNatsRuntime.StartAsync(
                 options.GlobalNats,
                 options.Instance,
+                options.Cell,
                 ciRunnerNatsIdentity,
                 shutdown.Token,
                 options.ForgejoSource,
@@ -108,7 +118,14 @@ try
                 commandIdentity?.Signer,
                 commandIdentity?.Verifier,
                 commandIdentity?.Verifier,
-                commandIdentity?.Signer);
+                commandIdentity?.Signer,
+                verifier is not null);
+            if (options.Command is OrchestratorCommand.Run && NativeGitOpsRuntime.IsEnabled(
+                    globalNatsConfigured: true,
+                    trustedVerifierConfigured: verifier is not null))
+                nativeGitOpsRuntime = NativeGitOpsRuntime.Start(
+                    runtime, globalRuntime, verifier ?? throw new InvalidOperationException("Native GitOps verifier is unavailable."));
+        }
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
     {
@@ -116,6 +133,7 @@ try
     }
     catch (Exception exception)
     {
+        if (nativeGitOpsRuntime is not null) await nativeGitOpsRuntime.DisposeAsync();
         if (globalRuntime is not null) await globalRuntime.DisposeAsync();
         if (runtime is not null) await runtime.DisposeAsync();
         telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
@@ -124,6 +142,7 @@ try
     }
     await using var ownedRuntime = runtime;
     await using var ownedGlobalRuntime = globalRuntime;
+    await using var ownedNativeGitOpsRuntime = nativeGitOpsRuntime;
     ForgejoWebhookServer? webhookServer = null;
     ForgejoSourcePoller? sourcePoller = null;
     try
@@ -162,6 +181,7 @@ try
         {
             ownedRuntime.Completion,
             ownedGlobalRuntime?.Completion,
+            ownedNativeGitOpsRuntime?.Completion,
             webhooks?.Completion,
             sources?.Completion,
         }.Where(static task => task is not null).Cast<Task>();

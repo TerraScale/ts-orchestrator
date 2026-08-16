@@ -16,6 +16,56 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsControlR3L0cTests
 {
     [Test]
+    public async Task ControllerNativeGitOpsPermissionsAreExactAndProtectedJournalsStayDenied()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionAsync();
+        await using var controller = await fixture.ConnectAsync(fixture.Controller);
+        var topology = fixture.Topology;
+        var jetStream = controller.CreateJetStreamContext();
+        var consumer = await jetStream.GetConsumerAsync("CELL_SPEC", topology.CellSpecConsumer.Name!);
+        await consumer.RefreshAsync();
+        var publish = await jetStream.PublishAsync<byte[]>(
+            topology.CellSpecSubject,
+            new byte[] { 1 },
+            opts: new NatsJSPubOpts { ExpectedStream = "CELL_SPEC" });
+        publish.EnsureSuccess();
+        var delivery = await consumer.NextAsync<byte[]>(
+            opts: new NatsJSNextOpts { Expires = TimeSpan.FromSeconds(1) });
+        await Assert.That(delivery).IsNotNull();
+        await delivery!.AckAsync(new AckOpts { DoubleAck = true });
+
+        var deliveryStore = await jetStream.CreateKeyValueStoreContext().GetStoreAsync(topology.Delivery.Bucket);
+        var revision = await deliveryStore.CreateAsync(
+            "gitops.acl", "regional", cancellationToken: CancellationToken.None);
+        var entry = await deliveryStore.GetEntryAsync<string>("gitops.acl");
+        entry.EnsureSuccess();
+        await Assert.That(entry.Revision).IsEqualTo(revision);
+        await Assert.That(entry.Value).IsEqualTo("regional");
+
+        var bundles = await jetStream.CreateObjectStoreContext().GetObjectStoreAsync(topology.Bundles.Bucket);
+        _ = await bundles.PutAsync(
+            "gitops-acl", new byte[] { 2, 3, 5 }, cancellationToken: CancellationToken.None);
+        await Assert.That(await bundles.GetBytesAsync("gitops-acl")).IsEquivalentTo(new byte[] { 2, 3, 5 });
+
+        foreach (var subject in new[]
+                 {
+                     "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
+                     "$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS",
+                     "$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.exfiltration",
+                     "$JS.API.DIRECT.GET.KV_ORCH_OPERATION_PROOFS",
+                     "$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATION_PROOFS",
+                     "$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATION_PROOFS.exfiltration",
+                 })
+        {
+            await Assert.That(async () => _ = await controller.RequestAsync<string, string>(subject, "{}"))
+                .Throws<NatsException>();
+        }
+    }
+
+    [Test]
     public async Task FixtureDisposesEveryServerProcessAndPrivateRoot()
     {
         if (!OperatingSystem.IsLinux()) return;

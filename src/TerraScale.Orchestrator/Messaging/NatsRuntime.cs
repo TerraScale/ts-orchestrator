@@ -6,6 +6,7 @@ using NATS.Client.Services;
 using NATS.Net;
 using System.Text.Json;
 using TerraScale.Orchestrator.Operations;
+using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -15,21 +16,53 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly RuntimeRegistration registration;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly INatsSvcServer service;
+    private readonly INatsJSConsumer? cellSpecConsumer;
+    private readonly INatsKVStore? delivery;
+    private readonly INatsObjStore? bundles;
+    private readonly NatsTopology topology;
 
     private NatsRuntime(
         NatsClient client,
         INatsSvcServer service,
         RuntimeRegistration registration,
-        RegionalAuthorityCoordinator authority)
+        RegionalAuthorityCoordinator authority,
+        INatsJSConsumer? cellSpecConsumer,
+        INatsKVStore? delivery,
+        INatsObjStore? bundles,
+        NatsTopology topology)
     {
         this.client = client;
         this.service = service;
         this.registration = registration;
         this.authority = authority;
+        this.cellSpecConsumer = cellSpecConsumer;
+        this.delivery = delivery;
+        this.bundles = bundles;
+        this.topology = topology;
     }
 
     public Task Completion => authority.Completion;
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
+    internal string Cell => topology.Cell;
+
+    internal NativeGitOpsCellNatsConsumer CreateNativeGitOpsConsumer()
+    {
+        var ledger = new NatsForgejoDeliveryLedger(delivery
+            ?? throw new InvalidOperationException("Native GitOps delivery storage is not configured."));
+        var objects = new NatsDeliveryObjectStore(bundles
+            ?? throw new InvalidOperationException("Native GitOps bundle storage is not configured."));
+        return new NativeGitOpsCellNatsConsumer(
+            cellSpecConsumer ?? throw new InvalidOperationException("Native GitOps consumer is not configured."),
+            new NativeGitOpsCellInbox(new NativeGitOpsCellAcceptanceJournal(ledger, objects)),
+            topology);
+    }
+
+    internal NativeGitOpsCellConvergenceJournal CreateNativeGitOpsConvergenceJournal() =>
+        new(new NatsForgejoDeliveryLedger(delivery
+            ?? throw new InvalidOperationException("Native GitOps delivery storage is not configured.")));
+
+    internal NativeGitOpsCellPublisher CreateNativeGitOpsPublisher() =>
+        new(new NatsNativeGitOpsCellTransport(client));
 
     public static async Task<NatsRuntime> StartAsync(
         OrchestratorOptions options,
@@ -76,7 +109,11 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
             }
-            var state = await OpenStateWithRetryAsync(client, topology, cancellationToken);
+            var nativeGitOpsEnabled = NativeGitOpsRuntime.IsEnabled(
+                options.GlobalNats is not null,
+                options.CommandIdentity?.TrustKeyFiles.Count > 0);
+            var state = await OpenStateWithRetryAsync(
+                client, topology, nativeGitOpsEnabled, cancellationToken);
             await VerifyProtocolPackageAsync(state.ProtocolPackage, topology, cancellationToken);
             registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
@@ -183,7 +220,11 @@ public sealed class NatsRuntime : IAsyncDisposable
                 client,
                 service,
                 registration,
-                authority);
+                authority,
+                state.CellSpecConsumer,
+                state.Delivery,
+                state.Bundles,
+                topology);
         }
         catch
         {
@@ -203,13 +244,14 @@ public sealed class NatsRuntime : IAsyncDisposable
     private static async Task<RuntimeState> OpenStateWithRetryAsync(
         NatsClient client,
         NatsTopology topology,
+        bool nativeGitOpsEnabled,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
         {
             try
             {
-                return await OpenStateAsync(client, topology, cancellationToken);
+                return await OpenStateAsync(client, topology, nativeGitOpsEnabled, cancellationToken);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -362,6 +404,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private static async Task<RuntimeState> OpenStateAsync(
         NatsClient client,
         NatsTopology topology,
+        bool nativeGitOpsEnabled,
         CancellationToken cancellationToken)
     {
         var jetStream = client.CreateJetStreamContext();
@@ -379,8 +422,21 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsOperationJournalStore.ValidateExactObjectConfiguration(
             (await protocolPackage.GetStatusAsync(cancellationToken)).Info.Config, topology.ProtocolPackage);
 
-        var startupConsumer = await OpenOrCreateStartupConsumerAsync(jetStream, topology, cancellationToken);
-        return new(startupConsumer, leaders, runtime, protocolPackage);
+        var startupConsumer = await OpenExactConsumerAsync(
+            jetStream, "CELL_EVENTS", topology.StartupConsumer, cancellationToken);
+        INatsKVStore? delivery = null;
+        INatsObjStore? bundles = null;
+        INatsJSConsumer? cellSpecConsumer = null;
+        if (nativeGitOpsEnabled)
+        {
+            delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
+            bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
+            NatsOperationJournalStore.ValidateExactObjectConfiguration(
+                (await bundles.GetStatusAsync(cancellationToken)).Info.Config, topology.Bundles);
+            cellSpecConsumer = await OpenExactConsumerAsync(
+                jetStream, "CELL_SPEC", topology.CellSpecConsumer, cancellationToken);
+        }
+        return new(startupConsumer, cellSpecConsumer, leaders, runtime, delivery, bundles, protocolPackage);
     }
 
     private static async Task<INatsKVStore> OpenKeyValueAsync(
@@ -395,23 +451,17 @@ public sealed class NatsRuntime : IAsyncDisposable
         return store;
     }
 
-    private static async Task<INatsJSConsumer> OpenOrCreateStartupConsumerAsync(
+    private static async Task<INatsJSConsumer> OpenExactConsumerAsync(
         INatsJSContext jetStream,
-        NatsTopology topology,
+        string stream,
+        NATS.Client.JetStream.Models.ConsumerConfig expected,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var consumer = await jetStream.GetConsumerAsync("CELL_EVENTS", topology.StartupConsumer.Name!, cancellationToken);
-            await consumer.RefreshAsync(cancellationToken);
-            if (!CiRunnerConsumerReconciler.Matches(consumer.Info, topology.StartupConsumer, "CELL_EVENTS"))
-                throw new InvalidOperationException("The NATS startup consumer does not match its closed profile.");
-            return consumer;
-        }
-        catch (NatsJSApiException exception) when (exception.Error.Code == 404)
-        {
-            return await jetStream.CreateConsumerAsync("CELL_EVENTS", topology.StartupConsumer, cancellationToken);
-        }
+        var consumer = await jetStream.GetConsumerAsync(stream, expected.Name!, cancellationToken);
+        await consumer.RefreshAsync(cancellationToken);
+        if (!CiRunnerConsumerReconciler.Matches(consumer.Info, expected, stream))
+            throw new InvalidOperationException("The infrastructure-provisioned NATS consumer does not match its closed profile.");
+        return consumer;
     }
 
     private static async Task VerifyProtocolPackageAsync(
@@ -509,8 +559,11 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     private sealed record RuntimeState(
         INatsJSConsumer StartupConsumer,
+        INatsJSConsumer? CellSpecConsumer,
         INatsKVStore Leaders,
         INatsKVStore Runtime,
+        INatsKVStore? Delivery,
+        INatsObjStore? Bundles,
         INatsObjStore ProtocolPackage);
 
     private sealed class RuntimeRegistration : IAsyncDisposable

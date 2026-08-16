@@ -16,6 +16,9 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs;
     private readonly RepositoryCiCandidateRetentionWorker retention;
     private readonly RepositoryCiController? ciController;
+    private readonly INatsJSConsumer? cellSpecConsumer;
+    private readonly GlobalNatsTopology topology;
+    private readonly string cell;
 
     private GlobalNatsRuntime(
         NatsClient client,
@@ -33,7 +36,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RepositoryCiJobJournal jobs,
         RepositoryCiPromotionJournal promotions,
         RepositoryCiCandidateJournal candidates,
-        NativeGitOpsGlobalHandoffRuntime? nativeGitOpsHandoffs)
+        NativeGitOpsGlobalHandoffRuntime? nativeGitOpsHandoffs,
+        INatsJSConsumer? cellSpecConsumer,
+        GlobalNatsTopology topology,
+        string cell)
     {
         this.client = client;
         this.authority = authority;
@@ -51,6 +57,9 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         Promotions = promotions;
         Candidates = candidates;
         NativeGitOpsHandoffs = nativeGitOpsHandoffs;
+        this.cellSpecConsumer = cellSpecConsumer;
+        this.topology = topology;
+        this.cell = cell;
     }
 
     public Task Completion => Task.WhenAny(
@@ -70,9 +79,21 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     internal NativeGitOpsGlobalHandoffRuntime? NativeGitOpsHandoffs { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
 
+    internal NativeGitOpsGlobalCellNatsConsumer CreateNativeGitOpsConsumer(
+        NativeGitOpsCellPublisher regionalPublisher,
+        string expectedCell)
+    {
+        if (!string.Equals(cell, expectedCell, StringComparison.Ordinal))
+            throw new InvalidOperationException("The global CellSpec consumer does not match the regional cell.");
+        return new NativeGitOpsGlobalCellNatsConsumer(
+            cellSpecConsumer ?? throw new InvalidOperationException("Native GitOps global consumer is not configured."),
+            new NativeGitOpsGlobalCellRelay(regionalPublisher), topology, cell);
+    }
+
     public static async Task<GlobalNatsRuntime> StartAsync(
         GlobalNatsConfiguration configuration,
         string instance,
+        string cell,
         INatsAccountJwtSigner? ciRunnerNatsSigner,
         CancellationToken cancellationToken,
         ForgejoSourceConfiguration? ciSource = null,
@@ -82,7 +103,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
         IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
         IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null,
-        INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null)
+        INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
+        bool nativeGitOpsConsumerEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         if (ciPool is not null && (ciArtifactSigner is null || ciArtifactSignatures is null ||
@@ -112,7 +134,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         {
             await client.ConnectAsync();
             await NatsRuntime.VerifyAnonymousDeniedAsync(configuration.Url, configuration.Tls, cancellationToken);
-            var state = await ReconcileStateWithRetryAsync(client, topology, cancellationToken);
+            var state = await ReconcileStateWithRetryAsync(
+                client, topology, cell, nativeGitOpsConsumerEnabled, cancellationToken);
             authority = await RegionalAuthorityCoordinator.StartGlobalAsync(
                 state.Leaders,
                 instance,
@@ -316,7 +339,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 new(ledger),
                 new(ledger),
                 candidates,
-                nativeGitOpsHandoffs);
+                nativeGitOpsHandoffs,
+                state.CellSpecConsumer,
+                topology,
+                cell);
         }
         catch
         {
@@ -331,6 +357,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private static async Task<GlobalState> ReconcileStateWithRetryAsync(
         NatsClient client,
         GlobalNatsTopology topology,
+        string cell,
+        bool nativeGitOpsConsumerEnabled,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; ; attempt++)
@@ -355,6 +383,20 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     GlobalNatsTopology.CiStream,
                     topology.CiRuntimeProofConsumer,
                     cancellationToken);
+                INatsJSConsumer? cellSpecConsumer = null;
+                if (nativeGitOpsConsumerEnabled)
+                {
+                    // The established global topology reconciler is the reachable bootstrap
+                    // authority for this global durable consumer, matching CI consumers.
+                    var expectedCellSpecConsumer = topology.CellSpecConsumer(cell);
+                    cellSpecConsumer = await jetStream.CreateOrUpdateConsumerAsync(
+                        GlobalNatsTopology.CellSpecStream, expectedCellSpecConsumer, cancellationToken);
+                    await cellSpecConsumer.RefreshAsync(cancellationToken);
+                    if (!CiRunnerConsumerReconciler.Matches(
+                            cellSpecConsumer.Info, expectedCellSpecConsumer, GlobalNatsTopology.CellSpecStream))
+                        throw new InvalidOperationException(
+                            "The reconciled global CellSpec consumer does not match its closed profile.");
+                }
                 return new(
                     leaders,
                     releases,
@@ -362,7 +404,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     bundles,
                     runnerBundles,
                     ciConsumer,
-                    ciRuntimeProofConsumer);
+                    ciRuntimeProofConsumer,
+                    cellSpecConsumer);
             }
             catch (Exception exception) when (
                 attempt < 5 &&
@@ -435,5 +478,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INatsObjStore Bundles,
         INatsObjStore RunnerBundles,
         INatsJSConsumer CiConsumer,
-        INatsJSConsumer CiRuntimeProofConsumer);
+        INatsJSConsumer CiRuntimeProofConsumer,
+        INatsJSConsumer? CellSpecConsumer);
 }
