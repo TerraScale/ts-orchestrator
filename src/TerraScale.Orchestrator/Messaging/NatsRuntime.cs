@@ -454,11 +454,43 @@ public sealed class NatsRuntime : IAsyncDisposable
             cancellationToken: cancellationToken);
         acknowledgement.EnsureSuccess();
 
-        var message = await consumer.NextAsync<string>(
-            opts: new NatsJSNextOpts { Expires = TimeSpan.FromSeconds(5) },
-            cancellationToken: cancellationToken)
-            ?? throw new InvalidOperationException("Durable NATS startup event was not delivered.");
+        // NextAsync creates a new reply subscription per pull. With an R3 consumer,
+        // its leader can deliver before interest for that reply subject has converged
+        // to the leader. Keep one subscription and allow its pull loop to recover
+        // from that transient reply loss; the five-second verification bound and
+        // the acknowledgement and metadata checks remain unchanged.
+        using var deliveryTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deliveryTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+        await using var deliveries = consumer.ConsumeAsync<string>(
+                opts: new NatsJSConsumeOpts
+                {
+                    MaxMsgs = 1,
+                    Expires = TimeSpan.FromSeconds(1)
+                },
+                cancellationToken: deliveryTimeout.Token)
+            .GetAsyncEnumerator(deliveryTimeout.Token);
+        INatsJSMsg<string>? message;
+        try
+        {
+            message = await deliveries.MoveNextAsync()
+                ? deliveries.Current
+                : null;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            message = null;
+        }
 
+        if (message is null)
+        {
+            throw new InvalidOperationException("Durable NATS startup event was not delivered.");
+        }
+
+        // PublishAsync already proved this runtime's event is durable. The canonical
+        // consumer is intentionally shared by all controllers, so requiring this
+        // pull to return eventId could steal a peer's event and leave both runtimes
+        // waiting for redelivery. A self-consistent event for this cell instead
+        // proves the shared delivery-and-ack path without changing its ownership.
         if (string.IsNullOrWhiteSpace(message.Data) ||
             !HeaderEquals(message.Headers, "TS-Protocol-Version", "1") ||
             !HeaderEquals(message.Headers, "TS-Cell", topology.Cell) ||
