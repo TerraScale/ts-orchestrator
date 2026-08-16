@@ -605,6 +605,22 @@ internal static class ToolingTests
                 UseShellExecute = false,
             }
         };
+        // Environment.ProcessPath is the dotnet host when this assembly was
+        // launched with `dotnet <assembly.dll>`. In that mode the assembly
+        // path must be passed before the tooling command; apphost and
+        // self-contained launches already point at the executable directly.
+        if (string.Equals(
+                Path.GetFileName(processPath),
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var assemblyPath = typeof(ToolingTests).Assembly.Location;
+            if (string.IsNullOrWhiteSpace(assemblyPath))
+                throw new InvalidOperationException("The tooling assembly path is unavailable.");
+
+            holder.StartInfo.ArgumentList.Add(assemblyPath);
+        }
+
         holder.StartInfo.ArgumentList.Add("workspace-topology-lease-holder");
         holder.StartInfo.ArgumentList.Add("--namespace");
         holder.StartInfo.ArgumentList.Add(leaseNamespace);
