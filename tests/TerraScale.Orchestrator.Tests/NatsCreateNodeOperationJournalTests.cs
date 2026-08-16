@@ -10,7 +10,12 @@ using NATS.Net;
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.ControlPlane.Operations;
 using TerraScale.Orchestrator.ControlPlane.Providers;
+using TerraScale.Orchestrator.ControlPlane.Runtime;
 using TerraScale.Orchestrator.Messaging;
+using HostArchitecture = TerraScale.Orchestrator.Runtime.HostArchitecture;
+using HostRuntimeDriver = TerraScale.Orchestrator.Runtime.RuntimeDriver;
+using HostRuntimePlan = TerraScale.Orchestrator.Runtime.HostRuntimePlan;
+using HostRole = TerraScale.Orchestrator.Runtime.AdmittedRole;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -20,6 +25,56 @@ namespace TerraScale.Orchestrator.Tests;
 [NotInParallel]
 public sealed class NatsCreateNodeOperationJournalTests
 {
+    [Test]
+    public async Task RuntimeLifecycleBridgeUsesPrivateWriterForMissingCreateCasReadRestartAndTamper()
+    {
+        await using var server = await OneNodeJetStream.StartAsync();
+        var topology = new NatsTopology("journal", 1);
+        await using var writer = await server.ConnectAsAsync(port => new NatsOpts { Url = $"nats://127.0.0.1:{port}" });
+        await using var controller = await server.ConnectAsAsync(port => new NatsOpts { Url = $"nats://127.0.0.1:{port}" });
+        var writerKeyValue = writer.CreateJetStreamContext().CreateKeyValueStoreContext();
+        var store = await writerKeyValue.CreateOrUpdateStoreAsync(Rf1Operations());
+        var proofs = await writerKeyValue.CreateOrUpdateStoreAsync(Rf1ProofConsumptions());
+        using var authorityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var replyKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var controllerIdentity = "controller";
+        await using var service = await NatsOperationJournalMutationService.StartAsync(
+            writer, store, proofs, topology,
+            new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
+            new HashSet<string>(StringComparer.Ordinal) { controllerIdentity },
+            CreateReplySigner(replyKey.ExportPkcs8PrivateKey()), default, enableRuntimeLifecycleProtocol: true);
+        var journal = new NatsRuntimeLifecycleJournal(new("journal"), new NatsOperationJournalMutationClient(
+            controller, topology, new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey),
+            new NatsOperationJournalMutationReplyVerifier(replyKey.ExportSubjectPublicKeyInfo())));
+        var proposed = RuntimeLifecycleCheckpoint.Proposed(RuntimeRequest("journal"));
+
+        await Assert.That((await journal.ReadAsync(proposed.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Missing);
+        var created = await journal.CompareExchangeAsync(proposed.OperationKey, null, proposed, default);
+        await Assert.That(created.Status).IsEqualTo(RuntimeLifecycleJournalWriteStatus.Applied);
+        await Assert.That(created.Checkpoint?.JournalRevision).IsEqualTo(1UL);
+        var next = created.Checkpoint! with
+        {
+            JournalRevision = 2,
+            PreviousEventDigest = created.Checkpoint.EventDigest,
+            Phase = RuntimeLifecyclePhase.Authorized,
+        };
+        next = next with { EventDigest = RuntimeLifecycleFingerprint.Event(next) };
+        var updated = await journal.CompareExchangeAsync(next.OperationKey, 1, next, default);
+        await Assert.That(updated.Status).IsEqualTo(RuntimeLifecycleJournalWriteStatus.Applied);
+        await Assert.That((await journal.CompareExchangeAsync(next.OperationKey, 1, next, default)).Status)
+            .IsEqualTo(RuntimeLifecycleJournalWriteStatus.Conflict);
+        var loaded = await journal.ReadAsync(next.OperationKey, default);
+        await Assert.That(loaded.Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
+        await Assert.That(loaded.Checkpoint).IsEqualTo(updated.Checkpoint);
+
+        await server.RestartAsync();
+        await Assert.That((await journal.ReadAsync(next.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
+        store = await server.OpenAsync(Rf1Operations());
+        var key = RuntimeLifecycleNatsProtocol.Key(next.OperationKey);
+        await store.UpdateAsync(key, "{}", 2);
+        await Assert.That((await journal.ReadAsync(next.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Ambiguous);
+    }
+
     [Test]
     public async Task OneNodeJetStreamPersistsCasButRejectsJournalMutationWhenRf1IsNotR3()
     {
@@ -753,6 +808,16 @@ public sealed class NatsCreateNodeOperationJournalTests
             new CreateNodeHandoffReceiptSigner("receipt", receiptKey).Sign(binding, now, now.AddMinutes(5)),
             new CreateNodeRecoveryLookupSigner("recovery", recoveryKey).Sign(binding, now, now.AddDays(1)),
             CreateNodeJournalStage.Prepared, null, 0, null);
+    }
+
+    private static RuntimeLifecycleOperationRequest RuntimeRequest(string cell)
+    {
+        var plan = HostRuntimePlan.Create(HostRole.Platform, HostRuntimeDriver.OciContainer,
+            new TerraScale.Orchestrator.Runtime.RuntimeAllocationId("platform-a"),
+            new TerraScale.Orchestrator.Runtime.ArtifactDigest(RuntimeLifecycleFingerprint.Hash("artifact")), HostArchitecture.Arm64);
+        return new(new(cell), new("node-a"), new(7), new(RuntimeLifecycleFingerprint.Hash("convergence")), plan,
+            LifecycleAction.Converge, new(7), new(RuntimeLifecycleFingerprint.Hash("authorization")),
+            new(new(RuntimeLifecycleFingerprint.Hash("deadline")), 9));
     }
 
     private static async Task<bool> TryUpdateAsync(INatsKVStore store, string key, string value, ulong revision)

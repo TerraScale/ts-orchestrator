@@ -5,6 +5,7 @@ using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
 using NATS.Net;
+using TerraScale.Orchestrator.ControlPlane.Runtime;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -35,7 +36,8 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
         NatsOperationJournalMutationReplySigner replies,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool enableRuntimeLifecycleProtocol = false)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(store);
@@ -69,6 +71,21 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
                 subject: topology.OperationJournalUpdateSubject,
                 metadata: new Dictionary<string, string> { ["private"] = "true" },
                 cancellationToken: token);
+            if (enableRuntimeLifecycleProtocol)
+            {
+                await service.AddEndpointAsync<NatsRuntimeLifecycleJournalReadRequest>(
+                    message => ReadRuntimeLifecycleAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                    name: "runtime-lifecycle-read",
+                    subject: RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "read"),
+                    metadata: new Dictionary<string, string> { ["private"] = "true" },
+                    cancellationToken: token);
+                await service.AddEndpointAsync<NatsRuntimeLifecycleJournalWriteRequest>(
+                    message => WriteRuntimeLifecycleAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                    name: "runtime-lifecycle-write",
+                    subject: RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "write"),
+                    metadata: new Dictionary<string, string> { ["private"] = "true" },
+                    cancellationToken: token);
+            }
             return new(service, replies, lifetime);
         }
         catch
@@ -212,6 +229,136 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         var digest = NatsOperationJournalMutationRequestDigest.Create(authority);
         return message.ReplyAsync(replies.Sign(succeeded, revision, digest), cancellationToken: cancellationToken);
     }
+
+    private static async ValueTask ReadRuntimeLifecycleAsync(
+        NatsSvcMsg<NatsRuntimeLifecycleJournalReadRequest> message,
+        INatsKVStore store,
+        INatsKVStore proofConsumptions,
+        string cell,
+        NatsOperationJournalMutationAuthorityVerifier authority,
+        IReadOnlySet<string> controllerIdentities,
+        NatsOperationJournalMutationReplySigner replies,
+        CancellationToken cancellationToken)
+    {
+        var request = message.Data;
+        if (request is null || !RuntimeLifecycleNatsProtocol.IsRequest(request.SchemaVersion, request.Cell, request.Key, request.RequestId) ||
+            request.Cell != cell || request.Authority is null || !authority.Verify(request.Authority, cell, controllerIdentities,
+                RuntimeLifecycleNatsProtocol.ReadAction, request.Key, 0,
+                RuntimeLifecycleNatsProtocol.ProofBinding(RuntimeLifecycleNatsProtocol.ReadAction, request.SchemaVersion, request.Cell, request.Key, 0, 0, request.RequestId, null)))
+            return;
+        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+            return;
+        }
+        try
+        {
+            var entry = await store.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
+            entry.EnsureSuccess();
+            if (!RuntimeLifecycleNatsProtocol.TryDeserialize(entry.Value, out var checkpoint) ||
+                !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, cell, request.Key, entry.Revision))
+            {
+                await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+                return;
+            }
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Found, entry.Revision, entry.Value, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsKVKeyNotFoundException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Missing, 0, null, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsKVKeyDeletedException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Missing, 0, null, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+        }
+    }
+
+    private static async ValueTask WriteRuntimeLifecycleAsync(
+        NatsSvcMsg<NatsRuntimeLifecycleJournalWriteRequest> message,
+        INatsKVStore store,
+        INatsKVStore proofConsumptions,
+        string cell,
+        NatsOperationJournalMutationAuthorityVerifier authority,
+        IReadOnlySet<string> controllerIdentities,
+        NatsOperationJournalMutationReplySigner replies,
+        CancellationToken cancellationToken)
+    {
+        var request = message.Data;
+        var action = request?.ExpectedRevision == 0 ? RuntimeLifecycleNatsProtocol.CreateAction : RuntimeLifecycleNatsProtocol.UpdateAction;
+        if (request is null || !RuntimeLifecycleNatsProtocol.IsRequest(request.SchemaVersion, request.Cell, request.Key, request.RequestId) ||
+            request.Cell != cell || request.Authority is null || !RuntimeLifecycleNatsProtocol.TryDeserialize(request.Checkpoint, out var checkpoint) ||
+            request.ExpectedRevision == ulong.MaxValue || request.WriterEpoch == 0 || request.WriterEpoch != checkpoint.WriterEpoch.Value ||
+            !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, cell, request.Key, checked(request.ExpectedRevision + 1)) ||
+            !authority.Verify(request.Authority, cell, controllerIdentities, action, request.Key, request.ExpectedRevision,
+                RuntimeLifecycleNatsProtocol.ProofBinding(action, request.SchemaVersion, request.Cell, request.Key, request.ExpectedRevision, request.WriterEpoch, request.RequestId, request.Checkpoint)))
+            return;
+        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+            return;
+        }
+        try
+        {
+            if (request.ExpectedRevision == 0)
+            {
+                if (!RuntimeLifecycleNatsProtocol.IsGenesis(checkpoint))
+                {
+                    await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+                    return;
+                }
+                var revision = await store.CreateAsync(request.Key, request.Checkpoint, cancellationToken: cancellationToken);
+                await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Applied, revision, request.Checkpoint, request.Authority, replies, cancellationToken);
+                return;
+            }
+            var current = await store.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
+            current.EnsureSuccess();
+            if (current.Revision != request.ExpectedRevision)
+            {
+                await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Conflict, 0, null, request.Authority, replies, cancellationToken);
+                return;
+            }
+            if (!RuntimeLifecycleNatsProtocol.TryDeserialize(current.Value, out var prior) ||
+                !RuntimeLifecycleNatsProtocol.IsCheckpoint(prior, cell, request.Key, current.Revision) ||
+                !RuntimeLifecycleNatsProtocol.IsChained(prior, checkpoint))
+            {
+                await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+                return;
+            }
+            var updated = await store.UpdateAsync(request.Key, request.Checkpoint, request.ExpectedRevision, cancellationToken: cancellationToken);
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Applied, updated, request.Checkpoint, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsKVCreateException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Conflict, 0, null, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsKVWrongLastRevisionException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Conflict, 0, null, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsKVKeyNotFoundException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Missing, 0, null, request.Authority, replies, cancellationToken);
+        }
+        catch (NatsException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+        }
+    }
+
+    private static ValueTask ReplyRuntimeAsync<TRequest>(
+        NatsSvcMsg<TRequest> message,
+        Enum status,
+        ulong revision,
+        string? checkpoint,
+        NatsOperationJournalMutationAuthorityProof authority,
+        NatsOperationJournalMutationReplySigner replies,
+        CancellationToken cancellationToken) =>
+        message.ReplyAsync(replies.SignRuntime(Convert.ToInt32(status, System.Globalization.CultureInfo.InvariantCulture), revision,
+            checkpoint, NatsOperationJournalMutationRequestDigest.Create(authority)), cancellationToken: cancellationToken);
 }
 
 /// <summary>R3 create-only proof ledger. Entries expire within the maximum accepted proof lifetime.</summary>
@@ -282,6 +429,51 @@ internal sealed class NatsOperationJournalMutationClient(
         RequestAsync(topology.OperationJournalUpdateSubject, new NatsOperationJournalUpdateRequest(key, value, revision,
             authority.Issue(topology.Cell, "update", key, revision, value)), cancellationToken);
 
+    internal async Task<NatsRuntimeLifecycleJournalReply> ReadRuntimeLifecycleAsync(
+        string cell,
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        while (true)
+        {
+            deadline.Token.ThrowIfCancellationRequested();
+            var requestId = Guid.NewGuid().ToString("N");
+            var binding = RuntimeLifecycleNatsProtocol.ProofBinding(RuntimeLifecycleNatsProtocol.ReadAction,
+                RuntimeLifecycleNatsProtocol.SchemaVersion, cell, key, 0, 0, requestId, null);
+            var request = new NatsRuntimeLifecycleJournalReadRequest(RuntimeLifecycleNatsProtocol.SchemaVersion, cell, key,
+                requestId, authority.Issue(cell, RuntimeLifecycleNatsProtocol.ReadAction, key, 0, binding));
+            try
+            {
+                return await RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "read"), cell, request, deadline.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (NatsException) when (!deadline.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), deadline.Token).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal Task<NatsRuntimeLifecycleJournalReply> WriteRuntimeLifecycleAsync(
+        string cell,
+        string key,
+        ulong expectedRevision,
+        string checkpoint,
+        CancellationToken cancellationToken = default)
+    {
+        var action = expectedRevision == 0 ? RuntimeLifecycleNatsProtocol.CreateAction : RuntimeLifecycleNatsProtocol.UpdateAction;
+        var requestId = Guid.NewGuid().ToString("N");
+        if (!RuntimeLifecycleNatsProtocol.TryDeserialize(checkpoint, out var parsed))
+            throw new ArgumentException("Runtime lifecycle checkpoint is not canonical.", nameof(checkpoint));
+        var binding = RuntimeLifecycleNatsProtocol.ProofBinding(action, RuntimeLifecycleNatsProtocol.SchemaVersion,
+            cell, key, expectedRevision, parsed.WriterEpoch.Value, requestId, checkpoint);
+        var request = new NatsRuntimeLifecycleJournalWriteRequest(RuntimeLifecycleNatsProtocol.SchemaVersion, cell, key,
+            expectedRevision, parsed.WriterEpoch.Value, checkpoint, requestId, authority.Issue(cell, action, key, expectedRevision, binding));
+        return RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "write"), cell, request, cancellationToken);
+    }
+
     private async Task<NatsOperationJournalMutationReply> RequestAsync<TRequest>(
         string subject,
         TRequest request,
@@ -300,6 +492,28 @@ internal sealed class NatsOperationJournalMutationClient(
             ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
         if (!replies.Verify(response, NatsOperationJournalMutationRequestDigest.Create(((INatsOperationJournalMutationRequest)request).Authority)))
             throw new InvalidOperationException("The private journal mutation service reply failed authority verification.");
+        return response;
+    }
+
+    private async Task<NatsRuntimeLifecycleJournalReply> RequestRuntimeAsync<TRequest>(
+        string subject,
+        string cell,
+        TRequest request,
+        CancellationToken cancellationToken) where TRequest : INatsOperationJournalMutationRequest
+    {
+        var replySubject = RuntimeLifecycleNatsProtocol.ReplySubject(cell, authority.CallerIdentity, Guid.NewGuid().ToString("N"));
+        using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        responseTimeout.CancelAfter(TimeSpan.FromSeconds(15));
+        await using var subscription = await client.Connection.SubscribeCoreAsync<NatsRuntimeLifecycleJournalReply>(
+            replySubject,
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(15) },
+            cancellationToken: responseTimeout.Token);
+        await client.PingAsync(responseTimeout.Token);
+        await client.PublishAsync(subject, request, replyTo: replySubject, cancellationToken: responseTimeout.Token);
+        var response = (await subscription.Msgs.ReadAsync(responseTimeout.Token)).Data
+            ?? throw new InvalidOperationException("The private runtime lifecycle journal service returned no reply.");
+        if (!replies.VerifyRuntime(response, NatsOperationJournalMutationRequestDigest.Create(request.Authority)))
+            throw new InvalidOperationException("The private runtime lifecycle journal reply failed authority verification.");
         return response;
     }
 }
@@ -394,6 +608,13 @@ internal sealed class NatsOperationJournalMutationReplySigner(ECDsa key) : IDisp
         return reply with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(reply.Payload()), HashAlgorithmName.SHA256)) };
     }
 
+    internal NatsRuntimeLifecycleJournalReply SignRuntime(int status, ulong revision, string? checkpoint, string requestDigest)
+    {
+        var reply = new NatsRuntimeLifecycleJournalReply(RuntimeLifecycleNatsProtocol.SchemaVersion, status, revision,
+            checkpoint, requestDigest, string.Empty);
+        return reply with { Signature = Convert.ToBase64String(key.SignData(Encoding.UTF8.GetBytes(reply.Payload()), HashAlgorithmName.SHA256)) };
+    }
+
     internal byte[] ExportPublicKey() => key.ExportSubjectPublicKeyInfo();
     public void Dispose() => key.Dispose();
 }
@@ -407,6 +628,20 @@ internal sealed class NatsOperationJournalMutationReplyVerifier(byte[] publicKey
         try
         {
             if (reply is null || reply.RequestDigest != requestDigest || string.IsNullOrWhiteSpace(reply.Signature)) return false;
+            using var key = ECDsa.Create();
+            key.ImportSubjectPublicKeyInfo(publicKey, out _);
+            return key.VerifyData(Encoding.UTF8.GetBytes(reply.Payload()), Convert.FromBase64String(reply.Signature), HashAlgorithmName.SHA256);
+        }
+        catch (CryptographicException) { return false; }
+        catch (FormatException) { return false; }
+    }
+
+    internal bool VerifyRuntime(NatsRuntimeLifecycleJournalReply? reply, string requestDigest)
+    {
+        try
+        {
+            if (reply is null || reply.SchemaVersion != RuntimeLifecycleNatsProtocol.SchemaVersion ||
+                reply.RequestDigest != requestDigest || string.IsNullOrWhiteSpace(reply.Signature)) return false;
             using var key = ECDsa.Create();
             key.ImportSubjectPublicKeyInfo(publicKey, out _);
             return key.VerifyData(Encoding.UTF8.GetBytes(reply.Payload()), Convert.FromBase64String(reply.Signature), HashAlgorithmName.SHA256);
