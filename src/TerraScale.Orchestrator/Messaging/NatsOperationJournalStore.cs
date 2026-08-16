@@ -5,12 +5,21 @@ using NATS.Client.ObjectStore;
 using NATS.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace TerraScale.Orchestrator.Messaging;
 
 /// <summary>Infrastructure provisions this bucket; controller identities only open and validate it.</summary>
 internal static class NatsOperationJournalStore
 {
+    // The NATS source-generated serializer is internal to NATS.Net. Its public
+    // stream API uses snake-case enum strings, so retain that exact wire shape
+    // for the one raw field NATS.Net 3.0 does not expose.
+    private static readonly JsonSerializerOptions JetStreamWireJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+    };
+
     internal static async Task<INatsKVStore> ProvisionAsync(
         NatsClient client,
         INatsJSContext jetStream,
@@ -236,11 +245,16 @@ internal static class NatsOperationJournalStore
         NatsKVConfig configuration,
         CancellationToken cancellationToken)
     {
-        var config = JsonSerializer.SerializeToNode(CanonicalStream(configuration))?.AsObject()
+        var config = JsonSerializer.SerializeToNode(
+                CanonicalStream(configuration),
+                JetStreamWireJsonOptions)?.AsObject()
             ?? throw new InvalidOperationException("Unable to serialize the operation journal stream configuration.");
-        // NATS.Net 2.7 does not surface the NATS 2.14 allow_batch_publish field.
-        // Send it over the JetStream API explicitly so the server receives a hard false.
-        config["allow_batch_publish"] = false;
+        // NATS.Net serializes the default enum value as persist_mode: 0, whereas
+        // nats-server 2.14 requires its named wire value. The same server revision
+        // exposes batch publishing as allow_batched rather than the older
+        // allow_batch_publish spelling. Send the explicit, fail-closed wire form.
+        config["persist_mode"] = "default";
+        config["allow_batched"] = false;
         var response = await client.RequestAsync<string, string>(
             $"$JS.API.STREAM.UPDATE.KV_{configuration.Bucket}",
             JsonSerializer.Serialize(config),
@@ -248,7 +262,7 @@ internal static class NatsOperationJournalStore
         response.EnsureSuccess();
         var root = JsonElement.Parse(response.Data ?? throw new InvalidOperationException("JetStream returned no stream update response."));
         ThrowIfJetStreamError(root);
-        ValidateBatchPublish(root);
+        await ValidateBatchPublishDisabledAsync(client, configuration, cancellationToken);
     }
 
     private static async Task ValidateBatchPublishDisabledAsync(
@@ -268,9 +282,17 @@ internal static class NatsOperationJournalStore
 
     internal static void ValidateBatchPublish(JsonElement response)
     {
-        if (!response.TryGetProperty("config", out var config) ||
-            !config.TryGetProperty("allow_batch_publish", out var enabled) || enabled.ValueKind != JsonValueKind.False)
+        if (!response.TryGetProperty("config", out var config))
             throw new InvalidOperationException("Authoritative CreateNode journal stores must set allow_batch_publish to false.");
+        // nats-server 2.14 omits the false default from STREAM.INFO. An explicit
+        // value is still required to be false; omission therefore denotes that
+        // documented, fail-closed server default rather than an unknown value.
+        // Production server-version approval remains tracked by HN-008.
+        if ((!config.TryGetProperty("allow_batched", out var enabled) &&
+             !config.TryGetProperty("allow_batch_publish", out enabled)) ||
+            enabled.ValueKind == JsonValueKind.False)
+            return;
+        throw new InvalidOperationException("Authoritative CreateNode journal stores must set allow_batch_publish to false.");
     }
 
     private static void ThrowIfJetStreamError(JsonElement response)

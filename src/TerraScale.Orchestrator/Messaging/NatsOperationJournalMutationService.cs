@@ -73,14 +73,17 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
                 cancellationToken: token);
             if (enableRuntimeLifecycleProtocol)
             {
+                if (store.Bucket != topology.Operations.Bucket ||
+                    proofConsumptions.Bucket != topology.OperationProofConsumptions.Bucket)
+                    throw new InvalidOperationException("The runtime lifecycle journal requires the dedicated operation and proof stores.");
                 await service.AddEndpointAsync<NatsRuntimeLifecycleJournalReadRequest>(
-                    message => ReadRuntimeLifecycleAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                    message => ReadRuntimeLifecycleAsync(message, writer, topology, authority, controllerIdentities, replies, token),
                     name: "runtime-lifecycle-read",
                     subject: RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "read"),
                     metadata: new Dictionary<string, string> { ["private"] = "true" },
                     cancellationToken: token);
                 await service.AddEndpointAsync<NatsRuntimeLifecycleJournalWriteRequest>(
-                    message => WriteRuntimeLifecycleAsync(message, store, proofConsumptions, topology.Cell, authority, controllerIdentities, replies, token),
+                    message => WriteRuntimeLifecycleAsync(message, writer, topology, authority, controllerIdentities, replies, token),
                     name: "runtime-lifecycle-write",
                     subject: RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "write"),
                     metadata: new Dictionary<string, string> { ["private"] = "true" },
@@ -232,9 +235,8 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
 
     private static async ValueTask ReadRuntimeLifecycleAsync(
         NatsSvcMsg<NatsRuntimeLifecycleJournalReadRequest> message,
-        INatsKVStore store,
-        INatsKVStore proofConsumptions,
-        string cell,
+        NatsClient writer,
+        NatsTopology topology,
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
         NatsOperationJournalMutationReplySigner replies,
@@ -242,21 +244,26 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
     {
         var request = message.Data;
         if (request is null || !RuntimeLifecycleNatsProtocol.IsRequest(request.SchemaVersion, request.Cell, request.Key, request.RequestId) ||
-            request.Cell != cell || request.Authority is null || !authority.Verify(request.Authority, cell, controllerIdentities,
+            request.Cell != topology.Cell || request.Authority is null || !authority.Verify(request.Authority, topology.Cell, controllerIdentities,
                 RuntimeLifecycleNatsProtocol.ReadAction, request.Key, 0,
                 RuntimeLifecycleNatsProtocol.ProofBinding(RuntimeLifecycleNatsProtocol.ReadAction, request.SchemaVersion, request.Cell, request.Key, 0, 0, request.RequestId, null)))
             return;
-        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
-        {
-            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
-            return;
-        }
         try
         {
-            var entry = await store.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
+            var stores = await OpenRuntimeLifecycleStoresAsync(writer, topology, cancellationToken);
+            switch (await NatsOperationJournalMutationProofConsumption.ConsumeAsync(stores.ProofConsumptions, request.Authority, cancellationToken))
+            {
+                case NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed:
+                    await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+                    return;
+                case NatsOperationJournalMutationProofConsumptionResult.Unavailable:
+                    await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+                    return;
+            }
+            var entry = await stores.Operations.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
             entry.EnsureSuccess();
             if (!RuntimeLifecycleNatsProtocol.TryDeserialize(entry.Value, out var checkpoint) ||
-                !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, cell, request.Key, entry.Revision))
+                !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, topology.Cell, request.Key, entry.Revision))
             {
                 await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
                 return;
@@ -275,13 +282,16 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         {
             await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
         }
+        catch (InvalidOperationException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalReadStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+        }
     }
 
     private static async ValueTask WriteRuntimeLifecycleAsync(
         NatsSvcMsg<NatsRuntimeLifecycleJournalWriteRequest> message,
-        INatsKVStore store,
-        INatsKVStore proofConsumptions,
-        string cell,
+        NatsClient writer,
+        NatsTopology topology,
         NatsOperationJournalMutationAuthorityVerifier authority,
         IReadOnlySet<string> controllerIdentities,
         NatsOperationJournalMutationReplySigner replies,
@@ -290,19 +300,24 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         var request = message.Data;
         var action = request?.ExpectedRevision == 0 ? RuntimeLifecycleNatsProtocol.CreateAction : RuntimeLifecycleNatsProtocol.UpdateAction;
         if (request is null || !RuntimeLifecycleNatsProtocol.IsRequest(request.SchemaVersion, request.Cell, request.Key, request.RequestId) ||
-            request.Cell != cell || request.Authority is null || !RuntimeLifecycleNatsProtocol.TryDeserialize(request.Checkpoint, out var checkpoint) ||
+            request.Cell != topology.Cell || request.Authority is null || !RuntimeLifecycleNatsProtocol.TryDeserialize(request.Checkpoint, out var checkpoint) ||
             request.ExpectedRevision == ulong.MaxValue || request.WriterEpoch == 0 || request.WriterEpoch != checkpoint.WriterEpoch.Value ||
-            !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, cell, request.Key, checked(request.ExpectedRevision + 1)) ||
-            !authority.Verify(request.Authority, cell, controllerIdentities, action, request.Key, request.ExpectedRevision,
+            !RuntimeLifecycleNatsProtocol.IsCheckpoint(checkpoint, topology.Cell, request.Key, checked(request.ExpectedRevision + 1)) ||
+            !authority.Verify(request.Authority, topology.Cell, controllerIdentities, action, request.Key, request.ExpectedRevision,
                 RuntimeLifecycleNatsProtocol.ProofBinding(action, request.SchemaVersion, request.Cell, request.Key, request.ExpectedRevision, request.WriterEpoch, request.RequestId, request.Checkpoint)))
             return;
-        if (!await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofConsumptions, request.Authority, cancellationToken))
-        {
-            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
-            return;
-        }
         try
         {
+            var stores = await OpenRuntimeLifecycleStoresAsync(writer, topology, cancellationToken);
+            switch (await NatsOperationJournalMutationProofConsumption.ConsumeAsync(stores.ProofConsumptions, request.Authority, cancellationToken))
+            {
+                case NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed:
+                    await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
+                    return;
+                case NatsOperationJournalMutationProofConsumptionResult.Unavailable:
+                    await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+                    return;
+            }
             if (request.ExpectedRevision == 0)
             {
                 if (!RuntimeLifecycleNatsProtocol.IsGenesis(checkpoint))
@@ -310,11 +325,11 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
                     await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
                     return;
                 }
-                var revision = await store.CreateAsync(request.Key, request.Checkpoint, cancellationToken: cancellationToken);
+                var revision = await stores.Operations.CreateAsync(request.Key, request.Checkpoint, cancellationToken: cancellationToken);
                 await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Applied, revision, request.Checkpoint, request.Authority, replies, cancellationToken);
                 return;
             }
-            var current = await store.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
+            var current = await stores.Operations.GetEntryAsync<string>(request.Key, cancellationToken: cancellationToken);
             current.EnsureSuccess();
             if (current.Revision != request.ExpectedRevision)
             {
@@ -322,13 +337,13 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
                 return;
             }
             if (!RuntimeLifecycleNatsProtocol.TryDeserialize(current.Value, out var prior) ||
-                !RuntimeLifecycleNatsProtocol.IsCheckpoint(prior, cell, request.Key, current.Revision) ||
+                !RuntimeLifecycleNatsProtocol.IsCheckpoint(prior, topology.Cell, request.Key, current.Revision) ||
                 !RuntimeLifecycleNatsProtocol.IsChained(prior, checkpoint))
             {
                 await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Ambiguous, 0, null, request.Authority, replies, cancellationToken);
                 return;
             }
-            var updated = await store.UpdateAsync(request.Key, request.Checkpoint, request.ExpectedRevision, cancellationToken: cancellationToken);
+            var updated = await stores.Operations.UpdateAsync(request.Key, request.Checkpoint, request.ExpectedRevision, cancellationToken: cancellationToken);
             await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Applied, updated, request.Checkpoint, request.Authority, replies, cancellationToken);
         }
         catch (NatsKVCreateException)
@@ -347,6 +362,10 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         {
             await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
         }
+        catch (InvalidOperationException)
+        {
+            await ReplyRuntimeAsync(message, RuntimeLifecycleJournalWriteStatus.Unavailable, 0, null, request.Authority, replies, cancellationToken);
+        }
     }
 
     private static ValueTask ReplyRuntimeAsync<TRequest>(
@@ -359,9 +378,32 @@ internal sealed class NatsOperationJournalMutationService : IAsyncDisposable
         CancellationToken cancellationToken) =>
         message.ReplyAsync(replies.SignRuntime(Convert.ToInt32(status, System.Globalization.CultureInfo.InvariantCulture), revision,
             checkpoint, NatsOperationJournalMutationRequestDigest.Create(authority)), cancellationToken: cancellationToken);
+
+    private static async ValueTask<NatsRuntimeLifecycleJournalStores> OpenRuntimeLifecycleStoresAsync(
+        NatsClient writer,
+        NatsTopology topology,
+        CancellationToken cancellationToken)
+    {
+        var keyValue = writer.CreateJetStreamContext().CreateKeyValueStoreContext();
+        var operations = await NatsOperationJournalStore.OpenAsync(
+            keyValue,
+            topology.Operations,
+            cancellationToken,
+            writer);
+        var proofConsumptions = await NatsOperationJournalStore.OpenAsync(
+            keyValue,
+            topology.OperationProofConsumptions,
+            cancellationToken,
+            writer);
+        return new(operations, proofConsumptions);
+    }
+
+    private sealed record NatsRuntimeLifecycleJournalStores(INatsKVStore Operations, INatsKVStore ProofConsumptions);
 }
 
 /// <summary>R3 create-only proof ledger. Entries expire within the maximum accepted proof lifetime.</summary>
+internal enum NatsOperationJournalMutationProofConsumptionResult { Consumed = 1, AlreadyConsumed = 2, Unavailable = 3 }
+
 internal static class NatsOperationJournalMutationProofConsumption
 {
     private const string MarkerValue = "consumed";
@@ -369,26 +411,32 @@ internal static class NatsOperationJournalMutationProofConsumption
     internal static async ValueTask<bool> TryConsumeAsync(
         INatsKVStore store,
         NatsOperationJournalMutationAuthorityProof proof,
+        CancellationToken cancellationToken) =>
+        await ConsumeAsync(store, proof, cancellationToken) == NatsOperationJournalMutationProofConsumptionResult.Consumed;
+
+    internal static async ValueTask<NatsOperationJournalMutationProofConsumptionResult> ConsumeAsync(
+        INatsKVStore store,
+        NatsOperationJournalMutationAuthorityProof proof,
         CancellationToken cancellationToken)
     {
         try
         {
             await store.CreateAsync(Key(proof), MarkerValue, cancellationToken: cancellationToken);
-            return true;
+            return NatsOperationJournalMutationProofConsumptionResult.Consumed;
         }
         catch (NatsKVCreateException)
         {
-            return false;
+            return NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed;
         }
         catch (NatsKVWrongLastRevisionException)
         {
-            return false;
+            return NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed;
         }
         // A failed proof-ledger write must fail closed before the operation KV is
         // touched; providers never receive a mutation reply that authorizes reuse.
         catch (NatsException)
         {
-            return false;
+            return NatsOperationJournalMutationProofConsumptionResult.Unavailable;
         }
     }
 
@@ -446,7 +494,7 @@ internal sealed class NatsOperationJournalMutationClient(
                 requestId, authority.Issue(cell, RuntimeLifecycleNatsProtocol.ReadAction, key, 0, binding));
             try
             {
-                var response = await RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "read"), cell, request, deadline.Token)
+                var response = await RequestRuntimeReadAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "read"), cell, request, deadline.Token)
                     .ConfigureAwait(false);
                 if (response.SchemaVersion == RuntimeLifecycleNatsProtocol.SchemaVersion &&
                     response.Status == (int)RuntimeLifecycleJournalReadStatus.Unavailable)
@@ -458,6 +506,10 @@ internal sealed class NatsOperationJournalMutationClient(
                 return response;
             }
             catch (NatsException) when (!deadline.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), deadline.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !deadline.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100), deadline.Token).ConfigureAwait(false);
             }
@@ -480,6 +532,19 @@ internal sealed class NatsOperationJournalMutationClient(
         var request = new NatsRuntimeLifecycleJournalWriteRequest(RuntimeLifecycleNatsProtocol.SchemaVersion, cell, key,
             expectedRevision, parsed.WriterEpoch.Value, checkpoint, requestId, authority.Issue(cell, action, key, expectedRevision, binding));
         return RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "write"), cell, request, cancellationToken);
+    }
+
+    private async Task<NatsRuntimeLifecycleJournalReply> RequestRuntimeReadAsync(
+        string subject,
+        string cell,
+        NatsRuntimeLifecycleJournalReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        // NATS.Client reconnects asynchronously. Do not register a one-shot reply
+        // subscription against a closing command writer; first await an open
+        // connection, then retain the later ping that flushes subscription interest.
+        await client.PingAsync(cancellationToken).ConfigureAwait(false);
+        return await RequestRuntimeAsync(subject, cell, request, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<NatsOperationJournalMutationReply> RequestAsync<TRequest>(

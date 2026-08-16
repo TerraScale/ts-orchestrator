@@ -31,13 +31,15 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     private readonly string[] configurations;
     private readonly Process?[] processes;
     private readonly Task<string>?[] processOutput;
-    private bool disposed;
+    private readonly LocalNatsServerLease.Handle lease;
+    private int disposed;
 
     private NatsControlR3L0cFixture(
         string directory,
         string[] configurations,
         Process?[] processes,
         Task<string>?[] processOutput,
+        LocalNatsServerLease.Handle lease,
         IReadOnlyList<int> clientPorts,
         NatsControlR3L0cIdentity controller,
         NatsControlR3L0cIdentity controllerTwo,
@@ -50,6 +52,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         this.configurations = configurations;
         this.processes = processes;
         this.processOutput = processOutput;
+        this.lease = lease;
         Controller = controller;
         ControllerTwo = controllerTwo;
         Infrastructure = infrastructure;
@@ -94,12 +97,13 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("The real NATS L0C fixture requires Linux.");
 
-        var natsServer = ResolveNatsServer();
+        var lease = await LocalNatsServerLease.AcquireAsync(cancellationToken);
         var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-nats-r3-l0c-{Guid.NewGuid():N}");
-        CreatePrivateDirectory(directory);
         NatsControlR3L0cFixture? fixture = null;
         try
         {
+            var natsServer = ResolveNatsServer();
+            CreatePrivateDirectory(directory);
             var pki = CreatePki(directory);
             var identities = CreateIdentities(directory, pki);
             var clientPorts = Enumerable.Range(0, MemberCount).Select(static _ => FreePort()).ToArray();
@@ -113,6 +117,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 configurations,
                 processes,
                 processOutput,
+                lease,
                 clientPorts,
                 identities.Controller,
                 identities.ControllerTwo,
@@ -145,12 +150,33 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             await fixture.WaitForClusterAsync(cancellationToken);
             return fixture;
         }
-        catch
+        catch (Exception startupFailure)
         {
+            Exception? cleanupFailure = null;
             if (fixture is not null)
-                await fixture.DisposeAsync();
+            {
+                try
+                {
+                    await fixture.DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
+            }
             else
-                await TryDeleteAsync(directory);
+            {
+                try
+                {
+                    await new LocalNatsServerLease.DirectoryCleanupOwner(directory, lease).DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
+            }
+            if (cleanupFailure is not null)
+                throw new AggregateException(startupFailure, cleanupFailure);
             throw;
         }
     }
@@ -346,37 +372,47 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (disposed) return;
-        disposed = true;
-        for (var member = 0; member < processes.Length; member++)
+        if (Interlocked.CompareExchange(ref disposed, 1, 0) != 0) return;
+        var cleanup = new LocalNatsServerLease.Cleanup();
+        try
         {
-            var process = processes[member];
-            if (process is null) continue;
-            try
+            for (var member = 0; member < processes.Length; member++)
             {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                var process = processes[member];
+                if (process is null) continue;
+                cleanup.Attempt(() =>
+                {
+                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                });
             }
-            catch (InvalidOperationException)
+            for (var member = 0; member < processes.Length; member++)
             {
+                var process = processes[member];
+                if (process is null) continue;
+                if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                    cleanup.Attempt(process.Dispose))
+                    processes[member] = null;
             }
-            finally
+            foreach (var task in processOutput.Where(static task => task is not null))
             {
-                process.Dispose();
-                processes[member] = null;
+                await cleanup.AttemptAsync(() => task!.WaitAsync(TimeSpan.FromSeconds(1)));
+            }
+            await cleanup.AttemptAsync(() => DeleteDirectoryWithRetryAsync(directory));
+            if (await lease.ReleaseIfCleanAsync(cleanup))
+            {
+                Volatile.Write(ref disposed, 2);
+                LocalNatsServerLease.CompleteRetention(this);
+            }
+            cleanup.ThrowIfFailed();
+        }
+        finally
+        {
+            if (Volatile.Read(ref disposed) == 1)
+            {
+                LocalNatsServerLease.Retain(this);
+                Volatile.Write(ref disposed, 0);
             }
         }
-        foreach (var task in processOutput.Where(static task => task is not null))
-        {
-            try
-            {
-                await task!.WaitAsync(TimeSpan.FromSeconds(1));
-            }
-            catch
-            {
-            }
-        }
-        await DeleteDirectoryWithRetryAsync(directory);
     }
 
     private async Task WaitForClusterAsync(CancellationToken cancellationToken)
@@ -841,6 +877,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.query.>",
                     $"{root}.internal.operation-journal.create",
                     $"{root}.internal.operation-journal.update",
+                    $"{root}.internal.runtime-lifecycle-journal.read",
+                    $"{root}.internal.runtime-lifecycle-journal.write",
                 ],
                 [
                     "_INBOX.>",
@@ -849,6 +887,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.operation.>",
                     $"{root}.query.>",
                     $"{root}.internal.operation-journal.reply.{publicKey}.>",
+                    $"{root}.internal.runtime-lifecycle-journal.reply.{publicKey}.>",
                 ]),
             Role.Infrastructure => new(
                 [
@@ -907,6 +946,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$KV.ORCH_OPERATIONS.>",
                     "$KV.ORCH_OPERATION_PROOFS.>",
                     $"{root}.internal.operation-journal.reply.>",
+                    $"{root}.internal.runtime-lifecycle-journal.reply.>",
                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS",
                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS",
                     "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
@@ -919,6 +959,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$KV.ORCH_OPERATION_PROOFS.>",
                     $"{root}.internal.operation-journal.create",
                     $"{root}.internal.operation-journal.update",
+                    $"{root}.internal.runtime-lifecycle-journal.read",
+                    $"{root}.internal.runtime-lifecycle-journal.write",
                     "$SRV.>",
                 ]),
             Role.Operator => new(

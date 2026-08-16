@@ -55,7 +55,8 @@ public sealed class NatsJournalWriterRuntime : IAsyncDisposable
                 new NatsOperationJournalMutationAuthorityVerifier(journal.AuthorityPublicKey),
                 journal.EligibleControllerIdentities,
                 NatsOperationJournalMutationReplySigner.Load(journal.ReplySigningKeyFile),
-                cancellationToken);
+                cancellationToken,
+                enableRuntimeLifecycleProtocol: true);
             return new(client, mutations);
         }
         catch

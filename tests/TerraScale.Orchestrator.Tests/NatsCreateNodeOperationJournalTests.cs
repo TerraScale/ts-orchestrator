@@ -26,7 +26,7 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsCreateNodeOperationJournalTests
 {
     [Test]
-    public async Task RuntimeLifecycleBridgeUsesPrivateWriterForMissingCreateCasReadRestartAndTamper()
+    public async Task RuntimeLifecycleBridgeRejectsRf1StoresBeforeConsumingItsProof()
     {
         await using var server = await OneNodeJetStream.StartAsync();
         var topology = new NatsTopology("journal", 1);
@@ -43,36 +43,233 @@ public sealed class NatsCreateNodeOperationJournalTests
             new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
             new HashSet<string>(StringComparer.Ordinal) { controllerIdentity },
             CreateReplySigner(replyKey.ExportPkcs8PrivateKey()), default, enableRuntimeLifecycleProtocol: true);
-        var journal = new NatsRuntimeLifecycleJournal(new("journal"), new NatsOperationJournalMutationClient(
-            controller, topology, new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey),
-            new NatsOperationJournalMutationReplyVerifier(replyKey.ExportSubjectPublicKeyInfo())));
         var proposed = RuntimeLifecycleCheckpoint.Proposed(RuntimeRequest("journal"));
+        var signer = new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey);
+        var requestId = Guid.NewGuid().ToString("N");
+        var key = RuntimeLifecycleNatsProtocol.Key(proposed.OperationKey);
+        var request = new NatsRuntimeLifecycleJournalReadRequest(
+            RuntimeLifecycleNatsProtocol.SchemaVersion,
+            topology.Cell,
+            key,
+            requestId,
+            signer.Issue(
+                topology.Cell,
+                RuntimeLifecycleNatsProtocol.ReadAction,
+                key,
+                0,
+                RuntimeLifecycleNatsProtocol.ProofBinding(
+                    RuntimeLifecycleNatsProtocol.ReadAction,
+                    RuntimeLifecycleNatsProtocol.SchemaVersion,
+                    topology.Cell,
+                    key,
+                    0,
+                    0,
+                    requestId,
+                    null)));
 
-        await Assert.That((await journal.ReadAsync(proposed.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Missing);
-        var created = await journal.CompareExchangeAsync(proposed.OperationKey, null, proposed, default);
-        await Assert.That(created.Status).IsEqualTo(RuntimeLifecycleJournalWriteStatus.Applied);
-        await Assert.That(created.Checkpoint?.JournalRevision).IsEqualTo(1UL);
-        var next = created.Checkpoint! with
+        var response = await RequestRuntimePrivateAsync(
+            controller,
+            topology.Cell,
+            controllerIdentity,
+            RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "read"),
+            request);
+        await Assert.That(response.Status).IsEqualTo((int)RuntimeLifecycleJournalReadStatus.Unavailable);
+        await Assert.That(await NatsOperationJournalMutationProofConsumption.ConsumeAsync(proofs, request.Authority, default))
+            .IsEqualTo(NatsOperationJournalMutationProofConsumptionResult.Consumed);
+    }
+
+    [Test]
+    public async Task AuthenticatedR3JournalWriterComposesRuntimeEndpointsRestartsAndRejectsDrift()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        var securityDirectory = Path.Combine(Path.GetTempPath(), $"ts-orch-runtime-journal-r3-{Guid.NewGuid():N}");
+        try
         {
-            JournalRevision = 2,
-            PreviousEventDigest = created.Checkpoint.EventDigest,
-            Phase = RuntimeLifecyclePhase.Authorized,
-        };
-        next = next with { EventDigest = RuntimeLifecycleFingerprint.Event(next) };
-        var updated = await journal.CompareExchangeAsync(next.OperationKey, 1, next, default);
-        await Assert.That(updated.Status).IsEqualTo(RuntimeLifecycleJournalWriteStatus.Applied);
-        await Assert.That((await journal.CompareExchangeAsync(next.OperationKey, 1, next, default)).Status)
-            .IsEqualTo(RuntimeLifecycleJournalWriteStatus.Conflict);
-        var loaded = await journal.ReadAsync(next.OperationKey, default);
-        await Assert.That(loaded.Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
-        await Assert.That(loaded.Checkpoint).IsEqualTo(updated.Checkpoint);
+            var development = DevelopmentTopology.CreateRegional();
+            var cell = development.Cells.Single(candidate => candidate.Cell == "gru");
+            var security = DevelopmentNatsSecurity.Create(development, securityDirectory).Cell(cell.Cell);
+            var serverTls = security.Tls.Control.Servers[cell.OfKind(DevelopmentResourceKind.ControlNats).Single().Name].Client;
+            var controllerTls = security.Tls.Control.Clients[cell.OfKind(DevelopmentResourceKind.ControllerAgent).Single().Name];
+            await using var server = await ThreeNodeJetStream.StartAsync(
+                NatsDevelopmentCluster.ControlAuthorization(cell, security),
+                security.Infrastructure.SeedFile,
+                port => SecureNatsOptions(port, security.Infrastructure, controllerTls),
+                NatsDevelopmentCluster.TlsConfiguration(serverTls));
+            var topology = new NatsTopology(cell.Cell, 3, "controller-1");
+            await using var infrastructure = await server.ConnectAsAsync(
+                port => SecureNatsOptions(port, security.Infrastructure, controllerTls));
+            await EventuallyAsync(() => NatsOperationJournalProvisioner.ProvisionTopologyAsync(
+                infrastructure, topology, default));
 
-        await server.RestartAsync();
-        await Assert.That((await journal.ReadAsync(next.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
-        store = await server.OpenAsync(Rf1Operations());
-        var key = RuntimeLifecycleNatsProtocol.Key(next.OperationKey);
-        await store.UpdateAsync(key, "{}", 2);
-        await Assert.That((await journal.ReadAsync(next.OperationKey, default)).Status).IsEqualTo(RuntimeLifecycleJournalReadStatus.Ambiguous);
+            using var authority = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var reply = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var replyKeyFile = Path.Combine(securityDirectory, "runtime-journal-reply.pem");
+            await File.WriteAllTextAsync(replyKeyFile, reply.ExportPkcs8PrivateKeyPem());
+            File.SetUnixFileMode(replyKeyFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var options = new OrchestratorOptions(
+                OrchestratorCommand.JournalWriter,
+                cell.Cell,
+                $"tls://127.0.0.1:{server.Port}",
+                3,
+                Instance: "journal-writer",
+                AuthoritativeJournal: new NatsAuthoritativeJournalConfiguration(
+                    security.JournalWriter.SeedFile,
+                    new NatsTlsFiles(
+                        controllerTls.CaFile,
+                        controllerTls.CertificateFile,
+                        controllerTls.KeyFile),
+                    authority.ExportSubjectPublicKeyInfo(),
+                    replyKeyFile,
+                    reply.ExportSubjectPublicKeyInfo(),
+                    new HashSet<string>(StringComparer.Ordinal) { security.Controllers[1].PublicKey }));
+            await using var controller = await server.ConnectAsAsync(
+                port => SecureNatsOptions(port, security.Controllers[1], controllerTls));
+            var journal = new NatsRuntimeLifecycleJournal(
+                new(cell.Cell),
+                new NatsOperationJournalMutationClient(
+                    controller,
+                    topology,
+                    new NatsOperationJournalMutationAuthoritySigner(security.Controllers[1].PublicKey, authority),
+                    new NatsOperationJournalMutationReplyVerifier(reply.ExportSubjectPublicKeyInfo())));
+            var checkpoint = RuntimeLifecycleCheckpoint.Proposed(RuntimeRequest(cell.Cell));
+            var writer = await NatsJournalWriterRuntime.StartAsync(options, default);
+            try
+            {
+                await Assert.That((await journal.ReadAsync(checkpoint.OperationKey, default)).Status)
+                    .IsEqualTo(RuntimeLifecycleJournalReadStatus.Missing);
+                var created = await journal.CompareExchangeAsync(checkpoint.OperationKey, null, checkpoint, default);
+                await Assert.That(created.Status).IsEqualTo(RuntimeLifecycleJournalWriteStatus.Applied);
+                await Assert.That((await journal.ReadAsync(checkpoint.OperationKey, default)).Status)
+                    .IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
+                await Assert.That(async () => _ = await controller.RequestAsync<string, string>(
+                        "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
+                        "{}"))
+                    .Throws<NatsException>();
+
+                await writer.DisposeAsync();
+                writer = await NatsJournalWriterRuntime.StartAsync(options, default);
+                await Assert.That((await journal.ReadAsync(checkpoint.OperationKey, default)).Status)
+                    .IsEqualTo(RuntimeLifecycleJournalReadStatus.Found);
+
+                var drifted = NatsOperationJournalStore.CanonicalStream(topology.Operations);
+                drifted.AllowDirect = false;
+                await infrastructure.CreateJetStreamContext().CreateOrUpdateStreamAsync(drifted);
+                var requestId = Guid.NewGuid().ToString("N");
+                var key = RuntimeLifecycleNatsProtocol.Key(checkpoint.OperationKey);
+                var request = new NatsRuntimeLifecycleJournalReadRequest(
+                    RuntimeLifecycleNatsProtocol.SchemaVersion,
+                    topology.Cell,
+                    key,
+                    requestId,
+                    new NatsOperationJournalMutationAuthoritySigner(security.Controllers[1].PublicKey, authority).Issue(
+                        topology.Cell,
+                        RuntimeLifecycleNatsProtocol.ReadAction,
+                        key,
+                        0,
+                        RuntimeLifecycleNatsProtocol.ProofBinding(
+                            RuntimeLifecycleNatsProtocol.ReadAction,
+                            RuntimeLifecycleNatsProtocol.SchemaVersion,
+                            topology.Cell,
+                            key,
+                            0,
+                            0,
+                            requestId,
+                            null)));
+                var unavailable = await RequestRuntimePrivateAsync(
+                    controller,
+                    topology.Cell,
+                    security.Controllers[1].PublicKey,
+                    RuntimeLifecycleNatsProtocol.Subject(topology.Cell, "read"),
+                    request);
+                await Assert.That(unavailable.Status).IsEqualTo((int)RuntimeLifecycleJournalReadStatus.Unavailable);
+            }
+            finally
+            {
+                await writer.DisposeAsync();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task LocalNatsServerLeaseWaitsForReleaseAndIsIdempotent()
+    {
+        var first = await LocalNatsServerLease.AcquireAsync();
+        using var canceledWait = new CancellationTokenSource();
+        var canceled = LocalNatsServerLease.AcquireAsync(canceledWait.Token).AsTask();
+        canceledWait.Cancel();
+        await Assert.That(canceled).Throws<OperationCanceledException>();
+        var contenderStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contender = Task.Run(async () =>
+        {
+            contenderStarted.SetResult();
+            await using var second = await LocalNatsServerLease.AcquireAsync();
+            return true;
+        });
+
+        await contenderStarted.Task;
+        await Task.Yield();
+        await Assert.That(contender.IsCompleted).IsFalse();
+        await first.DisposeAsync();
+        await first.DisposeAsync();
+        await Assert.That(await contender).IsTrue();
+    }
+
+    [Test]
+    public async Task LocalNatsServerCleanupAttemptsEveryStepBeforeReportingFailures()
+    {
+        var cleanup = new LocalNatsServerLease.Cleanup();
+        var steps = new List<int>();
+        cleanup.Attempt(() =>
+        {
+            steps.Add(1);
+            throw new InvalidOperationException("first");
+        });
+        await cleanup.AttemptAsync(() =>
+        {
+            steps.Add(2);
+            return Task.CompletedTask;
+        });
+        cleanup.Attempt(() =>
+        {
+            steps.Add(3);
+            throw new IOException("third");
+        });
+
+        await Assert.That(steps.Count).IsEqualTo(3);
+        await Assert.That(steps[0]).IsEqualTo(1);
+        await Assert.That(steps[1]).IsEqualTo(2);
+        await Assert.That(steps[2]).IsEqualTo(3);
+        await Assert.That(() => cleanup.ThrowIfFailed()).Throws<AggregateException>();
+    }
+
+    [Test]
+    public async Task LocalNatsServerLeaseRetainsQuarantineUntilCleanupCanBeRetried()
+    {
+        var retained = await LocalNatsServerLease.AcquireAsync();
+        var owner = new RetriableLeaseOwner(retained);
+        LocalNatsServerLease.Retain(owner);
+
+        var contenderStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contender = Task.Run(async () =>
+        {
+            contenderStarted.SetResult();
+            await using var acquired = await LocalNatsServerLease.AcquireAsync();
+            return true;
+        });
+        await contenderStarted.Task;
+        await Task.Yield();
+        await Assert.That(contender.IsCompleted).IsFalse();
+
+        Func<Task> firstRecovery = () => LocalNatsServerLease.RetryRetainedAsync().AsTask();
+        await Assert.That(firstRecovery).Throws<IOException>();
+        await Assert.That(contender.IsCompleted).IsFalse();
+        await LocalNatsServerLease.RetryRetainedAsync();
+        await Assert.That(await contender).IsTrue();
     }
 
     [Test]
@@ -227,12 +424,14 @@ public sealed class NatsCreateNodeOperationJournalTests
             "journal", "create", "operation." + new string('a', 64), 0, "ciphertext");
 
         var results = await Task.WhenAll(
-            NatsOperationJournalMutationProofConsumption.TryConsumeAsync(proofStore, proof, default).AsTask(),
-            NatsOperationJournalMutationProofConsumption.TryConsumeAsync(secondProofStore, proof, default).AsTask());
-        await Assert.That(results.Count(static result => result)).IsEqualTo(1);
+            NatsOperationJournalMutationProofConsumption.ConsumeAsync(proofStore, proof, default).AsTask(),
+            NatsOperationJournalMutationProofConsumption.ConsumeAsync(secondProofStore, proof, default).AsTask());
+        await Assert.That(results.Count(static result => result == NatsOperationJournalMutationProofConsumptionResult.Consumed)).IsEqualTo(1);
+        await Assert.That(results.Count(static result => result == NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed)).IsEqualTo(1);
         await server.RestartAsync();
         var afterRestart = await server.OpenAsync(Rf1ProofConsumptions());
-        await Assert.That(await NatsOperationJournalMutationProofConsumption.TryConsumeAsync(afterRestart, proof, default)).IsFalse();
+        await Assert.That(await NatsOperationJournalMutationProofConsumption.ConsumeAsync(afterRestart, proof, default))
+            .IsEqualTo(NatsOperationJournalMutationProofConsumptionResult.AlreadyConsumed);
     }
 
     [Test]
@@ -276,15 +475,21 @@ public sealed class NatsCreateNodeOperationJournalTests
     [Test]
     public async Task BatchPublishMustRemainDisabledInTheJetStreamWireConfiguration()
     {
-        using var disabled = JsonDocument.Parse("""{"config":{"allow_batch_publish":false}}""");
-        NatsOperationJournalStore.ValidateBatchPublish(disabled.RootElement);
+        using var currentDisabled = JsonDocument.Parse("""{"config":{"allow_batched":false}}""");
+        NatsOperationJournalStore.ValidateBatchPublish(currentDisabled.RootElement);
 
-        using var drifted = JsonDocument.Parse("""{"config":{"allow_batch_publish":true}}""");
+        using var legacyDisabled = JsonDocument.Parse("""{"config":{"allow_batch_publish":false}}""");
+        NatsOperationJournalStore.ValidateBatchPublish(legacyDisabled.RootElement);
+
+        using var drifted = JsonDocument.Parse("""{"config":{"allow_batched":true}}""");
         await Assert.That(() => NatsOperationJournalStore.ValidateBatchPublish(drifted.RootElement))
             .Throws<InvalidOperationException>();
 
         using var omitted = JsonDocument.Parse("""{"config":{}}""");
-        await Assert.That(() => NatsOperationJournalStore.ValidateBatchPublish(omitted.RootElement))
+        NatsOperationJournalStore.ValidateBatchPublish(omitted.RootElement);
+
+        using var malformed = JsonDocument.Parse("""{"config":{"allow_batched":"false"}}""");
+        await Assert.That(() => NatsOperationJournalStore.ValidateBatchPublish(malformed.RootElement))
             .Throws<InvalidOperationException>();
     }
 
@@ -852,6 +1057,57 @@ public sealed class NatsCreateNodeOperationJournalTests
             ?? throw new InvalidOperationException("Private journal response was empty.");
     }
 
+    private static async Task<NatsRuntimeLifecycleJournalReply> RequestRuntimePrivateAsync<TRequest>(
+        NatsClient client,
+        string cell,
+        string callerIdentity,
+        string subject,
+        TRequest request)
+        where TRequest : INatsOperationJournalMutationRequest
+    {
+        var reply = RuntimeLifecycleNatsProtocol.ReplySubject(cell, callerIdentity, Guid.NewGuid().ToString("N"));
+        using var responseTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var subscription = await client.Connection.SubscribeCoreAsync<NatsRuntimeLifecycleJournalReply>(
+            reply,
+            opts: new NatsSubOpts { MaxMsgs = 1, Timeout = TimeSpan.FromSeconds(2) },
+            cancellationToken: responseTimeout.Token);
+        await client.PingAsync(responseTimeout.Token);
+        await client.PublishAsync(subject, request, replyTo: reply, cancellationToken: responseTimeout.Token);
+        return (await subscription.Msgs.ReadAsync(responseTimeout.Token)).Data
+            ?? throw new InvalidOperationException("Private runtime journal response was empty.");
+    }
+
+    private static NatsOpts SecureNatsOptions(
+        int port,
+        DevelopmentNKeyIdentity identity,
+        DevelopmentTlsIdentity tls) => new()
+    {
+        Url = $"tls://127.0.0.1:{port}",
+        ConnectTimeout = TimeSpan.FromSeconds(2),
+        RequestTimeout = TimeSpan.FromSeconds(3),
+        AuthOpts = new NatsAuthOpts { NKeyFile = identity.SeedFile },
+        TlsOpts = new NatsTlsOpts
+        {
+            Mode = TlsMode.Require,
+            CaFile = tls.CaFile,
+            CertFile = tls.CertificateFile,
+            KeyFile = tls.KeyFile,
+        },
+    };
+
+    private sealed class RetriableLeaseOwner(LocalNatsServerLease.Handle lease) : IAsyncDisposable
+    {
+        private int attempts;
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Increment(ref attempts) == 1)
+                throw new IOException("private root remains");
+            await lease.ReleaseIfCleanAsync(new LocalNatsServerLease.Cleanup());
+            LocalNatsServerLease.CompleteRetention(this);
+        }
+    }
+
     private static async Task<string> SubscribeDeniedAsync(int port, string seedFile, string subject)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -971,8 +1227,11 @@ public sealed class NatsCreateNodeOperationJournalTests
         private readonly string configuration;
         private readonly int port;
         private readonly Func<int, NatsOpts>? clientOptions;
+        private readonly LocalNatsServerLease.Handle lease;
         private Process? process;
         private NatsClient? client;
+        private Task? processOutput;
+        private int disposed;
 
         public int Port => port;
 
@@ -980,29 +1239,63 @@ public sealed class NatsCreateNodeOperationJournalTests
             string directory,
             string configuration,
             int port,
-            Func<int, NatsOpts>? clientOptions)
+            Func<int, NatsOpts>? clientOptions,
+            LocalNatsServerLease.Handle lease)
         {
             this.directory = directory;
             this.configuration = configuration;
             this.port = port;
             this.clientOptions = clientOptions;
+            this.lease = lease;
         }
 
         public static async Task<OneNodeJetStream> StartAsync(
             string? authorization = null,
             Func<int, NatsOpts>? clientOptions = null)
         {
+            var lease = await LocalNatsServerLease.AcquireAsync();
             var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-create-node-journal-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(directory);
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            var configuration = Path.Combine(directory, "nats.conf");
-            await File.WriteAllTextAsync(configuration, $"port: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-            var server = new OneNodeJetStream(directory, configuration, port, clientOptions);
-            await server.ConnectAsync();
-            return server;
+            OneNodeJetStream? server = null;
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                listener.Stop();
+                var configuration = Path.Combine(directory, "nats.conf");
+                await File.WriteAllTextAsync(configuration, $"port: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+                server = new OneNodeJetStream(directory, configuration, port, clientOptions, lease);
+                await server.ConnectAsync();
+                return server;
+            }
+            catch (Exception startupFailure)
+            {
+                if (server is not null)
+                {
+                    try
+                    {
+                        await server.DisposeAsync();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(startupFailure, cleanupFailure);
+                    }
+                }
+                else
+                {
+                    var owner = new LocalNatsServerLease.DirectoryCleanupOwner(directory, lease);
+                    try
+                    {
+                        await owner.DisposeAsync();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(startupFailure, cleanupFailure);
+                    }
+                }
+                throw;
+            }
         }
 
         public async Task<INatsKVStore> OpenAsync(NatsKVConfig configuration)
@@ -1046,19 +1339,55 @@ public sealed class NatsCreateNodeOperationJournalTests
                 process.Dispose();
                 process = null;
             }
+            if (processOutput is not null)
+            {
+                await processOutput.WaitAsync(TimeSpan.FromSeconds(1));
+                processOutput = null;
+            }
             await ConnectAsync();
         }
 
         public async ValueTask DisposeAsync()
         {
-            if (client is not null) await client.DisposeAsync();
-            if (process is not null)
+            if (Interlocked.CompareExchange(ref disposed, 1, 0) != 0) return;
+            var cleanup = new LocalNatsServerLease.Cleanup();
+            try
             {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
-                process.Dispose();
+                if (client is not null &&
+                    await cleanup.AttemptAsync(() => client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5))))
+                    client = null;
+                if (process is not null)
+                {
+                    cleanup.Attempt(() =>
+                    {
+                        if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    });
+                    if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                        cleanup.Attempt(process.Dispose))
+                        process = null;
+                }
+                if (processOutput is not null &&
+                    await cleanup.AttemptAsync(() => processOutput.WaitAsync(TimeSpan.FromSeconds(1))))
+                    processOutput = null;
+                cleanup.Attempt(() =>
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+                });
+                if (await lease.ReleaseIfCleanAsync(cleanup))
+                {
+                    Volatile.Write(ref disposed, 2);
+                    LocalNatsServerLease.CompleteRetention(this);
+                }
+                cleanup.ThrowIfFailed();
             }
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            finally
+            {
+                if (Volatile.Read(ref disposed) == 1)
+                {
+                    LocalNatsServerLease.Retain(this);
+                    Volatile.Write(ref disposed, 0);
+                }
+            }
         }
 
         private async Task ConnectAsync()
@@ -1069,6 +1398,9 @@ public sealed class NatsCreateNodeOperationJournalTests
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
             }) ?? throw new InvalidOperationException("nats-server did not start.");
+            processOutput = Task.WhenAll(
+                process.StandardOutput.ReadToEndAsync(),
+                process.StandardError.ReadToEndAsync());
             for (var attempt = 0; attempt < 50; attempt++)
             {
                 client = new NatsClient(clientOptions?.Invoke(port) ?? new NatsOpts
@@ -1096,61 +1428,86 @@ public sealed class NatsCreateNodeOperationJournalTests
     {
         private readonly string directory;
         private readonly int[] ports;
-        private readonly Process[] processes;
+        private readonly Process?[] processes;
+        private readonly Task?[] processOutput;
+        private readonly LocalNatsServerLease.Handle lease;
+        private int disposed;
 
-        private ThreeNodeJetStream(string directory, int[] ports, Process[] processes)
+        private ThreeNodeJetStream(
+            string directory,
+            int[] ports,
+            Process?[] processes,
+            Task?[] processOutput,
+            LocalNatsServerLease.Handle lease)
         {
             this.directory = directory;
             this.ports = ports;
             this.processes = processes;
+            this.processOutput = processOutput;
+            this.lease = lease;
         }
 
         public int Port => ports[0];
 
-        public static async Task<ThreeNodeJetStream> StartAsync(string authorization, string readinessNkeyFile)
+        public static async Task<ThreeNodeJetStream> StartAsync(
+            string authorization,
+            string readinessNkeyFile,
+            Func<int, NatsOpts>? readinessOptions = null,
+            string? transportConfiguration = null)
         {
+            var lease = await LocalNatsServerLease.AcquireAsync();
             var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-journal-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(directory);
-            var clientPorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
-            var routePorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
-            var configurations = clientPorts.Select((port, index) => Path.Combine(directory, $"nats-{index}.conf")).ToArray();
-            for (var index = 0; index < 3; index++)
-            {
-                var routes = string.Join(", ", routePorts.Where((_, candidate) => candidate != index)
-                    .Select(route => $"\"nats-route://127.0.0.1:{route}\""));
-                await File.WriteAllTextAsync(configurations[index], $$"""
-                    server_name: "journal-{{index}}"
-                    port: {{clientPorts[index]}}
-                    {{authorization}}
-                    jetstream { store_dir: "{{Path.Combine(directory, $"store-{index}")}}" }
-                    cluster {
-                      name: "journal-r3"
-                      host: "127.0.0.1"
-                      port: {{routePorts[index]}}
-                      routes: [{{routes}}]
-                    }
-                    """);
-            }
-
-            var processes = configurations.Select(configuration => Process.Start(new ProcessStartInfo("nats-server", $"-c {configuration}")
-            {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-            }) ?? throw new InvalidOperationException("nats-server did not start.")).ToArray();
-            var server = new ThreeNodeJetStream(directory, clientPorts, processes);
+            ThreeNodeJetStream? server = null;
+            var processes = new Process?[3];
+            var processOutput = new Task?[3];
             try
             {
+                Directory.CreateDirectory(directory);
+                var clientPorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
+                var routePorts = Enumerable.Range(0, 3).Select(_ => FreePort()).ToArray();
+                var configurations = clientPorts.Select((port, index) => Path.Combine(directory, $"nats-{index}.conf")).ToArray();
+                for (var index = 0; index < 3; index++)
+                {
+                    var routes = string.Join(", ", routePorts.Where((_, candidate) => candidate != index)
+                        .Select(route => $"\"nats-route://127.0.0.1:{route}\""));
+                    await File.WriteAllTextAsync(configurations[index], $$"""
+                        server_name: "journal-{{index}}"
+                        port: {{clientPorts[index]}}
+                        {{authorization}}
+                        {{transportConfiguration}}
+                        jetstream { store_dir: "{{Path.Combine(directory, $"store-{index}")}}" }
+                        cluster {
+                          name: "journal-r3"
+                          host: "127.0.0.1"
+                          port: {{routePorts[index]}}
+                          routes: [{{routes}}]
+                        }
+                        """);
+                }
+
+                server = new ThreeNodeJetStream(directory, clientPorts, processes, processOutput, lease);
+                for (var index = 0; index < configurations.Length; index++)
+                {
+                    processes[index] = Process.Start(new ProcessStartInfo("nats-server", $"-c {configurations[index]}")
+                    {
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false,
+                    }) ?? throw new InvalidOperationException("nats-server did not start.");
+                    processOutput[index] = Task.WhenAll(
+                        processes[index]!.StandardOutput.ReadToEndAsync(),
+                        processes[index]!.StandardError.ReadToEndAsync());
+                }
                 for (var attempt = 0; attempt < 50; attempt++)
                 {
                     try
                     {
-                        await using var client = await server.ConnectAsAsync(port => new NatsOpts
+                        await using var client = await server.ConnectAsAsync(readinessOptions ?? (port => new NatsOpts
                         {
                             Url = $"nats://127.0.0.1:{port}",
                             ConnectTimeout = TimeSpan.FromSeconds(1),
                             AuthOpts = new NatsAuthOpts { NKeyFile = readinessNkeyFile },
-                        });
+                        }));
                         return server;
                     }
                     catch (NatsException) when (attempt < 49)
@@ -1160,9 +1517,31 @@ public sealed class NatsCreateNodeOperationJournalTests
                 }
                 throw new InvalidOperationException("Three-node NATS cluster did not accept a local JetStream connection.");
             }
-            catch
+            catch (Exception startupFailure)
             {
-                await server.DisposeAsync();
+                if (server is not null)
+                {
+                    try
+                    {
+                        await server.DisposeAsync();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(startupFailure, cleanupFailure);
+                    }
+                }
+                else
+                {
+                    var owner = new LocalNatsServerLease.DirectoryCleanupOwner(directory, lease);
+                    try
+                    {
+                        await owner.DisposeAsync();
+                    }
+                    catch (Exception cleanupFailure)
+                    {
+                        throw new AggregateException(startupFailure, cleanupFailure);
+                    }
+                }
                 throw;
             }
         }
@@ -1184,16 +1563,53 @@ public sealed class NatsCreateNodeOperationJournalTests
 
         public async ValueTask DisposeAsync()
         {
-            foreach (var process in processes)
+            if (Interlocked.CompareExchange(ref disposed, 1, 0) != 0) return;
+            var cleanup = new LocalNatsServerLease.Cleanup();
+            try
             {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                for (var index = 0; index < processes.Length; index++)
+                {
+                    var process = processes[index];
+                    if (process is null) continue;
+                    cleanup.Attempt(() =>
+                    {
+                        if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    });
+                }
+                for (var index = 0; index < processes.Length; index++)
+                {
+                    var process = processes[index];
+                    if (process is null) continue;
+                    if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                        cleanup.Attempt(process.Dispose))
+                        processes[index] = null;
+                }
+                for (var index = 0; index < processOutput.Length; index++)
+                {
+                    var output = processOutput[index];
+                    if (output is not null &&
+                        await cleanup.AttemptAsync(() => output.WaitAsync(TimeSpan.FromSeconds(1))))
+                        processOutput[index] = null;
+                }
+                cleanup.Attempt(() =>
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+                });
+                if (await lease.ReleaseIfCleanAsync(cleanup))
+                {
+                    Volatile.Write(ref disposed, 2);
+                    LocalNatsServerLease.CompleteRetention(this);
+                }
+                cleanup.ThrowIfFailed();
             }
-            foreach (var process in processes)
+            finally
             {
-                await process.WaitForExitAsync();
-                process.Dispose();
+                if (Volatile.Read(ref disposed) == 1)
+                {
+                    LocalNatsServerLease.Retain(this);
+                    Volatile.Write(ref disposed, 0);
+                }
             }
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
 
         private static int FreePort()
