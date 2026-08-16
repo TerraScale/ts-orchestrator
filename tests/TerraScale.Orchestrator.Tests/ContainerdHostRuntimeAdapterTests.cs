@@ -81,6 +81,18 @@ public sealed class ContainerdHostRuntimeAdapterTests
             .Throws<InvalidOperationException>();
     }
 
+    [Test]
+    public async Task WrongSchemaVersionIsRejectedBeforeAnyClientOperation()
+    {
+        var client = new RecordingContainerdClient();
+        var tampered = OciPlan() with { SchemaVersion = 1 };
+
+        await Assert.That(() => new ContainerdHostRuntimeAdapter(client)
+                .ConvergeAsync(tampered, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(client.Operations).IsEquivalentTo(Array.Empty<string>());
+    }
+
     private static HostRuntimePlan OciPlan() => HostRuntimePlan.Create(
         AdmittedRole.Platform,
         RuntimeDriver.OciContainer,

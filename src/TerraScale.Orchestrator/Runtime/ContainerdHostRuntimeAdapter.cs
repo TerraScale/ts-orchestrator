@@ -172,7 +172,8 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
             plan.Resources);
         var actualOci = plan.Oci;
         var expectedOci = expected.Oci!;
-        if (actualOci.ContainerId != expectedOci.ContainerId ||
+        if (plan.SchemaVersion != expected.SchemaVersion ||
+            actualOci.ContainerId != expectedOci.ContainerId ||
             actualOci.ImageReference != expectedOci.ImageReference ||
             actualOci.Platform != expectedOci.Platform ||
             actualOci.Resources != expectedOci.Resources ||
