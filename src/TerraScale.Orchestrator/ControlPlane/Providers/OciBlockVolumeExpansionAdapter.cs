@@ -38,8 +38,9 @@ internal sealed class OciBlockVolumeExpansionAdapter(
         try
         {
             var response = await transport.UpdateVolumeAsync(update, cancellationToken);
-            return response?.WorkRequestId is not null
-                ? OciBlockVolumeExpansionResult.UpdateAccepted(request, observed, response.WorkRequestId)
+            var updated = ExactObservation(request, response);
+            return updated is { Size: { } updatedSize } && updatedSize.Value >= request.NewSize.Value
+                ? OciBlockVolumeExpansionResult.Converged(request, updated)
                 : await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
         }
         catch (OciBlockVolumeResponseLostException)
@@ -54,6 +55,16 @@ internal sealed class OciBlockVolumeExpansionAdapter(
         {
             // A transport timeout may surface as cancellation. Caller cancellation is always propagated.
             return await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            // A malformed or wrong-scope synchronous response follows a possible mutation. It
+            // cannot be reported as a safe-to-retry failure or as success.
+            return OciBlockVolumeExpansionResult.OutcomeUnknown(request, observed);
         }
     }
 
@@ -90,6 +101,13 @@ internal sealed class OciBlockVolumeExpansionAdapter(
     {
         var observed = await transport.GetVolumeAsync(
             new(request.VolumeId, request.CompartmentId), cancellationToken);
+        return ExactObservation(request, observed);
+    }
+
+    private static OciBlockVolumeObservation? ExactObservation(
+        OciBlockVolumeExpansionRequest request,
+        OciBlockVolumeObservation? observed)
+    {
         if (observed is null || observed.VolumeId is null || observed.CompartmentId is null ||
             observed.Size is null || string.IsNullOrWhiteSpace(observed.ETag))
             return null;
@@ -166,8 +184,6 @@ internal sealed record OciBlockVolumeObservation(
     ProviderByteCount? Size,
     string? ETag);
 
-internal sealed record OciBlockVolumeUpdateResponse(ProviderWorkRequestId? WorkRequestId);
-
 /// <summary>Tiny typed seam for an OCI SDK implementation; no factory or external client is wired here.</summary>
 internal interface IOciBlockVolumeExpansionTransport
 {
@@ -175,7 +191,7 @@ internal interface IOciBlockVolumeExpansionTransport
         OciBlockVolumeReadRequest request,
         CancellationToken cancellationToken);
 
-    ValueTask<OciBlockVolumeUpdateResponse?> UpdateVolumeAsync(
+    ValueTask<OciBlockVolumeObservation?> UpdateVolumeAsync(
         OciBlockVolumeUpdateRequest request,
         CancellationToken cancellationToken);
 }
@@ -185,7 +201,7 @@ internal sealed class OciBlockVolumeResponseLostException : Exception
     internal OciBlockVolumeResponseLostException() : base("The OCI Block Volume update response was lost.") { }
 }
 
-internal enum OciBlockVolumeExpansionOutcome { Converged = 1, UpdateAccepted = 2, OutcomeUnknown = 3 }
+internal enum OciBlockVolumeExpansionOutcome { Converged = 1, OutcomeUnknown = 2 }
 internal enum OciBlockVolumeExpansionCleanup { None = 1 }
 
 internal sealed record OciBlockVolumeExpansionResult(
@@ -193,25 +209,17 @@ internal sealed record OciBlockVolumeExpansionResult(
     ProviderIdempotencyKey IdempotencyKey,
     ProviderByteCount? ObservedSize,
     string? ObservedETag,
-    ProviderWorkRequestId? WorkRequestId,
     OciBlockVolumeExpansionCleanup Cleanup)
 {
     internal static OciBlockVolumeExpansionResult Converged(
         OciBlockVolumeExpansionRequest request,
         OciBlockVolumeObservation observed) =>
-        new(OciBlockVolumeExpansionOutcome.Converged, request.IdempotencyKey, observed.Size, observed.ETag, null,
+        new(OciBlockVolumeExpansionOutcome.Converged, request.IdempotencyKey, observed.Size, observed.ETag,
             OciBlockVolumeExpansionCleanup.None);
-
-    internal static OciBlockVolumeExpansionResult UpdateAccepted(
-        OciBlockVolumeExpansionRequest request,
-        OciBlockVolumeObservation observed,
-        ProviderWorkRequestId workRequestId) =>
-        new(OciBlockVolumeExpansionOutcome.UpdateAccepted, request.IdempotencyKey, observed.Size, observed.ETag,
-            workRequestId, OciBlockVolumeExpansionCleanup.None);
 
     internal static OciBlockVolumeExpansionResult OutcomeUnknown(
         OciBlockVolumeExpansionRequest request,
         OciBlockVolumeObservation? observed) =>
-        new(OciBlockVolumeExpansionOutcome.OutcomeUnknown, request.IdempotencyKey, observed?.Size, observed?.ETag, null,
+        new(OciBlockVolumeExpansionOutcome.OutcomeUnknown, request.IdempotencyKey, observed?.Size, observed?.ETag,
             OciBlockVolumeExpansionCleanup.None);
 }

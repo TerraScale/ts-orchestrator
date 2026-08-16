@@ -9,20 +9,21 @@ public sealed class OciBlockVolumeExpansionAdapterTests
     private static readonly ProviderResourceId Volume = new("ocid1.volume.oc1.sa-saopaulo-1.terrascale");
 
     [Test]
-    public async Task ExactExpansionMapsAbsoluteSizeFenceAndRetryIdentity()
+    public async Task ExactSynchronousExpansionResponseConvergesWithAbsoluteSizeFenceAndLogicalIdentity()
     {
         var transport = new Transport(Observation(1_000));
-        transport.UpdateResult = new(new("ocid1.workrequest.oc1.sa-saopaulo-1.expand"));
+        transport.UpdateResult = Observation(2_000, "etag-2");
         var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
         var update = transport.Updates.Single();
 
-        await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.UpdateAccepted);
+        await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.Converged);
         await Assert.That(update.VolumeId).IsEqualTo(Volume);
         await Assert.That(update.CompartmentId).IsEqualTo(Compartment);
         await Assert.That(update.NewSize.Value).IsEqualTo(2_000UL);
         await Assert.That(update.IfMatch).IsEqualTo("etag-1");
         await Assert.That(result.IdempotencyKey.Value).IsEqualTo("expand-idempotency-1");
-        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-2");
+        await Assert.That(transport.Reads).IsEqualTo(1);
         await Assert.That(result.Cleanup).IsEqualTo(OciBlockVolumeExpansionCleanup.None);
     }
 
@@ -91,26 +92,52 @@ public sealed class OciBlockVolumeExpansionAdapterTests
     }
 
     [Test]
-    public async Task MissingOrMalformedProviderResponsesAreOutcomeUnknownAndNeverSuccess()
+    public async Task NullMalformedOrNotYetTargetUpdateResponsesReadBackOnceWithoutDuplicateMutation()
     {
-        var missingRead = new Transport((OciBlockVolumeObservation?)null);
-        var missingReadResult = await Adapter(missingRead).ExpandAsync(Intent(2_000), default);
+        var nullResponse = new Transport(Observation(1_000), Observation(2_000));
+        nullResponse.UpdateResult = null;
+        var malformedResponse = new Transport(Observation(1_000), Observation(2_000));
+        malformedResponse.UpdateResult = new(null, null, null, null);
+        var notYetTarget = new Transport(Observation(1_000), Observation(2_000));
+        notYetTarget.UpdateResult = Observation(1_500, "etag-2");
 
-        var missingUpdate = new Transport(Observation(1_000), Observation(1_000));
-        missingUpdate.UpdateResult = new(null);
-        var missingUpdateResult = await Adapter(missingUpdate).ExpandAsync(Intent(2_000), default);
+        foreach (var transport in new[] { nullResponse, malformedResponse, notYetTarget })
+        {
+            var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
+            await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.Converged);
+            await Assert.That(transport.Updates).Count().IsEqualTo(1);
+            await Assert.That(transport.Reads).IsEqualTo(2);
+            await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
+        }
+    }
 
-        var malformedRead = new Transport(new OciBlockVolumeObservation(Volume, Compartment, new(1_000), null));
-        var malformedReadResult = await Adapter(malformedRead).ExpandAsync(Intent(2_000), default);
+    [Test]
+    public async Task WrongScopeSynchronousUpdateResponseIsNeverSuccess()
+    {
+        var transport = new Transport(Observation(1_000))
+        {
+            UpdateResult = new(new("ocid1.volume.oc1.sa-saopaulo-1.other"), Compartment, new(2_000), "etag-2"),
+        };
 
-        await Assert.That(missingReadResult.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
-        await Assert.That(missingRead.Updates).IsEmpty();
-        await Assert.That(missingUpdateResult.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
-        await Assert.That(missingUpdate.Updates).Count().IsEqualTo(1);
-        await Assert.That(missingUpdate.Reads).IsEqualTo(2);
-        await Assert.That(missingUpdateResult.ObservedETag).IsEqualTo("etag-1");
-        await Assert.That(malformedReadResult.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
-        await Assert.That(malformedRead.Updates).IsEmpty();
+        var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
+
+        await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
+        await Assert.That(transport.Updates).Count().IsEqualTo(1);
+        await Assert.That(transport.Reads).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task MissingInitialProviderReadIsOutcomeUnknownWithoutMutation()
+    {
+        var transport = new Transport((OciBlockVolumeObservation?)null);
+
+        var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
+
+        await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
+        await Assert.That(result.ObservedSize).IsNull();
+        await Assert.That(result.ObservedETag).IsNull();
+        await Assert.That(transport.Updates).IsEmpty();
     }
 
     [Test]
@@ -166,7 +193,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
     public async Task ExpansionDeclaresNoCleanupSideEffects()
     {
         var transport = new Transport(Observation(1_000));
-        transport.UpdateResult = new(new("ocid1.workrequest.oc1.sa-saopaulo-1.expand"));
+        transport.UpdateResult = Observation(2_000, "etag-2");
 
         var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
 
@@ -209,8 +236,8 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         return new(context);
     }
 
-    private static OciBlockVolumeObservation Observation(ulong size) =>
-        new(Volume, Compartment, new(size), "etag-1");
+    private static OciBlockVolumeObservation Observation(ulong size, string eTag = "etag-1") =>
+        new(Volume, Compartment, new(size), eTag);
 
     private sealed class Transport(params OciBlockVolumeObservation?[] observations) : IOciBlockVolumeExpansionTransport
     {
@@ -218,7 +245,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         internal int Reads { get; private set; }
         internal int CleanupCalls { get; private set; }
         internal List<OciBlockVolumeUpdateRequest> Updates { get; } = [];
-        internal OciBlockVolumeUpdateResponse? UpdateResult { get; set; }
+        internal OciBlockVolumeObservation? UpdateResult { get; set; }
         internal Exception? UpdateFailure { get; set; }
         internal Exception? ReadFailure { get; set; }
         internal int? ThrowReadOnCall { get; set; }
@@ -237,7 +264,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
             return ValueTask.FromResult(observations.Count == 0 ? null : observations.Dequeue());
         }
 
-        public ValueTask<OciBlockVolumeUpdateResponse?> UpdateVolumeAsync(
+        public ValueTask<OciBlockVolumeObservation?> UpdateVolumeAsync(
             OciBlockVolumeUpdateRequest request,
             CancellationToken cancellationToken)
         {
