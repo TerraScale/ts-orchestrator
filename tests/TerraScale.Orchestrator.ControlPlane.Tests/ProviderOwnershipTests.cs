@@ -378,6 +378,20 @@ public sealed class ProviderOwnershipTests
         await Assert.That(Throws<ArgumentException>(() => new ProviderCallEvidence(Context(), ProviderCallStatus.NotCalled, new("impossible-work")))).IsTrue();
     }
 
+    [Test]
+    public async Task ProviderCompartmentIdPreservesExactOciNativeIdentityAndRejectsUnsafeInput()
+    {
+        const string compartmentOcid = "ocid1.compartment.oc1..a1b2c3d4e5f6g7h8i9j0";
+        var first = new ProviderCompartmentId(compartmentOcid);
+        var second = new ProviderCompartmentId(compartmentOcid);
+
+        await Assert.That(first.Value).IsEqualTo(compartmentOcid);
+        await Assert.That(first).IsEqualTo(second);
+        await Assert.That(Throws<ArgumentException>(() => new ProviderCompartmentId(compartmentOcid + " "))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new ProviderCompartmentId(compartmentOcid + "\u001f"))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new ProviderCompartmentId(new string('a', 257)))).IsTrue();
+    }
+
     private static ProviderCellId Cell { get; } = new("gru");
     private static ProviderCompartmentId Compartment { get; } = new("gru-compartment");
     private static ProviderResourceId Resource { get; } = new("node-1");

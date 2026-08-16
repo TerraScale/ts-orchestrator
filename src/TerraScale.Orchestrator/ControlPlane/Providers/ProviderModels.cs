@@ -78,7 +78,7 @@ public abstract record ProviderToken
 
 public sealed record ProviderOperationId : ProviderToken { public ProviderOperationId(string value) : base(value, nameof(value)) { } }
 public sealed record ProviderCellId : ProviderToken { public ProviderCellId(string value) : base(value, nameof(value)) { } }
-public sealed record ProviderCompartmentId : ProviderToken { public ProviderCompartmentId(string value) : base(value, nameof(value)) { } }
+public sealed record ProviderCompartmentId : ProviderToken { public ProviderCompartmentId(string value) : base(value, nameof(value), providerNative: true) { } }
 public sealed record ProviderResourceId : ProviderToken { public ProviderResourceId(string value) : base(value, nameof(value), providerNative: true) { } }
 public sealed record ProviderCreateKey : ProviderToken { public ProviderCreateKey(string value) : base(value, nameof(value)) { } }
 public sealed record ProviderTemplateId : ProviderToken { public ProviderTemplateId(string value) : base(value, nameof(value)) { } }
