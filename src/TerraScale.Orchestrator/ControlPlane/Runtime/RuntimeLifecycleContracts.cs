@@ -183,6 +183,7 @@ public sealed record RuntimeLifecycleObservationRequest(
     HostRuntimePlan Plan,
     LifecycleAction Action,
     RuntimeLifecyclePlanFingerprint PlanFingerprint,
+    ulong PreviousObservationWatermark,
     RuntimeEpoch WriterEpoch,
     RuntimeDigest DispatchToken);
 public sealed record RuntimeLifecycleObservation(

@@ -133,11 +133,12 @@ public sealed class RuntimeLifecycleCoordinator(
     private async ValueTask<RuntimeLifecycleResult> RecoverByObservationAsync(RuntimeLifecycleOperationRequest request, RuntimeLifecycleCheckpoint checkpoint, CancellationToken cancellationToken)
     {
         RuntimeLifecycleObservation observation;
-        try { observation = await _executor.ObserveAsync(new(checkpoint.OperationKey, request.Plan, checkpoint.Action, checkpoint.PlanFingerprint, checkpoint.WriterEpoch, checkpoint.DispatchToken), cancellationToken).ConfigureAwait(false); }
+        var observationRequest = new RuntimeLifecycleObservationRequest(checkpoint.OperationKey, request.Plan, checkpoint.Action, checkpoint.PlanFingerprint, checkpoint.LastObservationWatermark, checkpoint.WriterEpoch, checkpoint.DispatchToken);
+        try { observation = await _executor.ObserveAsync(observationRequest, cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, RuntimeLifecycleErrorCode.CancelledAfterDispatch); }
         catch { return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ObservationMismatch).ConfigureAwait(false); }
 
-        if (observation is null || !ValidObservation(checkpoint, observation))
+        if (observation is null || !ValidObservation(checkpoint, observationRequest, observation))
             return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ObservationMismatch).ConfigureAwait(false);
         var authority = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
         if (authority != RuntimeLifecycleErrorCode.None)
@@ -243,9 +244,9 @@ public sealed class RuntimeLifecycleCoordinator(
         checkpoint.CompensationPolicy == RuntimeLifecycleCompensationPolicy.None && checkpoint.JournalRevision <= ulong.MaxValue - 1 &&
         checkpoint.EventDigest == RuntimeLifecycleFingerprint.Event(checkpoint);
 
-    private static bool ValidObservation(RuntimeLifecycleCheckpoint checkpoint, RuntimeLifecycleObservation observation) =>
+    private static bool ValidObservation(RuntimeLifecycleCheckpoint checkpoint, RuntimeLifecycleObservationRequest request, RuntimeLifecycleObservation observation) =>
         observation is not null && Enum.IsDefined(observation.Action) && Enum.IsDefined(observation.Status) && observation.Watermark > checkpoint.LastObservationWatermark &&
-        observation.OperationKey == checkpoint.OperationKey && observation.AllocationId == checkpoint.AllocationId && observation.PlanFingerprint == checkpoint.PlanFingerprint && observation.Action == checkpoint.Action;
+        request.PreviousObservationWatermark == checkpoint.LastObservationWatermark && observation.OperationKey == checkpoint.OperationKey && observation.AllocationId == checkpoint.AllocationId && observation.PlanFingerprint == checkpoint.PlanFingerprint && observation.Action == checkpoint.Action;
 
     private static RuntimeLifecycleResult Result(RuntimeLifecycleCheckpoint? checkpoint, RuntimeLifecycleTerminalStatus status, RuntimeLifecycleErrorCode error) => new(checkpoint, status, error);
 }

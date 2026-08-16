@@ -71,7 +71,13 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(first.RequiresReconciliation).IsTrue();
         await Assert.That(originalExecutor.Calls).IsEqualTo(1);
 
-        var restartedExecutor = new Executor { Observation = Observation(request, RuntimeLifecycleObservationStatus.Converged, 2) };
+        var persisted = journal.Checkpoint! with
+        {
+            LastObservationFingerprint = new RuntimeLifecycleHostObservationFingerprint(Digest("persisted-observation")),
+            LastObservationWatermark = 41
+        };
+        journal.Put(request.OperationKey, persisted with { EventDigest = RuntimeLifecycleFingerprint.Event(persisted) });
+        var restartedExecutor = new Executor { Observation = Observation(request, RuntimeLifecycleObservationStatus.Converged, 42) };
         var recovery = new RuntimeLifecycleCoordinator(journal, new Authority(), restartedExecutor);
         _ = await recovery.ExecuteAsync(request, CancellationToken.None);
         var terminal = await recovery.ExecuteAsync(request, CancellationToken.None);
@@ -81,6 +87,7 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(restartedExecutor.LastObservationRequest!.Plan).IsSameReferenceAs(request.Plan);
         await Assert.That(restartedExecutor.LastObservationRequest.Action).IsEqualTo(request.Action);
         await Assert.That(restartedExecutor.LastObservationRequest.PlanFingerprint).IsEqualTo(request.PlanFingerprint);
+        await Assert.That(restartedExecutor.LastObservationRequest.PreviousObservationWatermark).IsEqualTo(41UL);
         await Assert.That(restartedExecutor.LastObservationRequest.WriterEpoch).IsEqualTo(request.WriterEpoch);
     }
 
