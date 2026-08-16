@@ -23,7 +23,7 @@ internal sealed class OciBlockVolumeExpansionAdapter(
 
         var observedSize = observed.Size!;
         if (observedSize.Value == request.NewSize.Value)
-            return OciBlockVolumeExpansionResult.Converged(request, observedSize);
+            return OciBlockVolumeExpansionResult.Converged(request, observed);
 
         // A lower absolute target is a shrink request. OCI Block Volume expansion is irreversible.
         if (observedSize.Value > request.NewSize.Value)
@@ -33,41 +33,55 @@ internal sealed class OciBlockVolumeExpansionAdapter(
             request.VolumeId,
             request.CompartmentId,
             request.NewSize,
-            request.IdempotencyKey,
             observed.ETag!);
 
         try
         {
             var response = await transport.UpdateVolumeAsync(update, cancellationToken);
             return response?.WorkRequestId is not null
-                ? OciBlockVolumeExpansionResult.UpdateAccepted(request, observedSize, response.WorkRequestId)
-                : await ReobserveAfterIndeterminateUpdateAsync(request, cancellationToken);
+                ? OciBlockVolumeExpansionResult.UpdateAccepted(request, observed, response.WorkRequestId)
+                : await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
         }
         catch (OciBlockVolumeResponseLostException)
         {
-            return await ReobserveAfterIndeterminateUpdateAsync(request, cancellationToken);
+            return await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
         }
         catch (TimeoutException)
         {
-            return await ReobserveAfterIndeterminateUpdateAsync(request, cancellationToken);
+            return await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // A transport timeout may surface as cancellation. Caller cancellation is always propagated.
-            return await ReobserveAfterIndeterminateUpdateAsync(request, cancellationToken);
+            return await ReobserveAfterIndeterminateUpdateAsync(request, observed, cancellationToken);
         }
     }
 
     private async ValueTask<OciBlockVolumeExpansionResult> ReobserveAfterIndeterminateUpdateAsync(
         OciBlockVolumeExpansionRequest request,
+        OciBlockVolumeObservation lastKnownObservation,
         CancellationToken cancellationToken)
     {
-        var observed = await ReadExactAsync(request, cancellationToken);
-        // Never issue a second logical mutation after an indeterminate result. The stable retry
-        // identity remains available in the returned result for durable reconciliation.
-        return observed is { Size: { } observedSize } && observedSize.Value >= request.NewSize.Value
-            ? OciBlockVolumeExpansionResult.Converged(request, observedSize)
-            : OciBlockVolumeExpansionResult.OutcomeUnknown(request, observed?.Size);
+        try
+        {
+            var observed = await ReadExactAsync(request, cancellationToken);
+            // Never issue a second logical mutation after an indeterminate result. The stable
+            // TerraScale operation identity and the last observed fence remain available for
+            // durable reconciliation; they are not represented as an OCI retry header.
+            return observed is { Size: { } observedSize } && observedSize.Value >= request.NewSize.Value
+                ? OciBlockVolumeExpansionResult.Converged(request, observed)
+                : OciBlockVolumeExpansionResult.OutcomeUnknown(request, observed ?? lastKnownObservation);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            // Once UpdateVolume might have reached OCI, even failed readback is indeterminate.
+            // Do not leak a restart-safe failure signal to a caller that could issue a new grow.
+            return OciBlockVolumeExpansionResult.OutcomeUnknown(request, lastKnownObservation);
+        }
     }
 
     private async ValueTask<OciBlockVolumeObservation?> ReadExactAsync(
@@ -144,7 +158,6 @@ internal sealed record OciBlockVolumeUpdateRequest(
     ProviderResourceId VolumeId,
     ProviderCompartmentId CompartmentId,
     ProviderByteCount NewSize,
-    ProviderIdempotencyKey OpcRetryToken,
     string IfMatch);
 
 internal sealed record OciBlockVolumeObservation(
@@ -179,25 +192,26 @@ internal sealed record OciBlockVolumeExpansionResult(
     OciBlockVolumeExpansionOutcome Outcome,
     ProviderIdempotencyKey IdempotencyKey,
     ProviderByteCount? ObservedSize,
+    string? ObservedETag,
     ProviderWorkRequestId? WorkRequestId,
     OciBlockVolumeExpansionCleanup Cleanup)
 {
     internal static OciBlockVolumeExpansionResult Converged(
         OciBlockVolumeExpansionRequest request,
-        ProviderByteCount observedSize) =>
-        new(OciBlockVolumeExpansionOutcome.Converged, request.IdempotencyKey, observedSize, null,
+        OciBlockVolumeObservation observed) =>
+        new(OciBlockVolumeExpansionOutcome.Converged, request.IdempotencyKey, observed.Size, observed.ETag, null,
             OciBlockVolumeExpansionCleanup.None);
 
     internal static OciBlockVolumeExpansionResult UpdateAccepted(
         OciBlockVolumeExpansionRequest request,
-        ProviderByteCount observedSize,
+        OciBlockVolumeObservation observed,
         ProviderWorkRequestId workRequestId) =>
-        new(OciBlockVolumeExpansionOutcome.UpdateAccepted, request.IdempotencyKey, observedSize,
+        new(OciBlockVolumeExpansionOutcome.UpdateAccepted, request.IdempotencyKey, observed.Size, observed.ETag,
             workRequestId, OciBlockVolumeExpansionCleanup.None);
 
     internal static OciBlockVolumeExpansionResult OutcomeUnknown(
         OciBlockVolumeExpansionRequest request,
-        ProviderByteCount? observedSize) =>
-        new(OciBlockVolumeExpansionOutcome.OutcomeUnknown, request.IdempotencyKey, observedSize, null,
+        OciBlockVolumeObservation? observed) =>
+        new(OciBlockVolumeExpansionOutcome.OutcomeUnknown, request.IdempotencyKey, observed?.Size, observed?.ETag, null,
             OciBlockVolumeExpansionCleanup.None);
 }

@@ -20,8 +20,9 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         await Assert.That(update.VolumeId).IsEqualTo(Volume);
         await Assert.That(update.CompartmentId).IsEqualTo(Compartment);
         await Assert.That(update.NewSize.Value).IsEqualTo(2_000UL);
-        await Assert.That(update.OpcRetryToken.Value).IsEqualTo("expand-idempotency-1");
         await Assert.That(update.IfMatch).IsEqualTo("etag-1");
+        await Assert.That(result.IdempotencyKey.Value).IsEqualTo("expand-idempotency-1");
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
         await Assert.That(result.Cleanup).IsEqualTo(OciBlockVolumeExpansionCleanup.None);
     }
 
@@ -34,6 +35,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
 
         await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.Converged);
         await Assert.That(transport.Updates).IsEmpty();
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
         await Assert.That(result.Cleanup).IsEqualTo(OciBlockVolumeExpansionCleanup.None);
     }
 
@@ -74,7 +76,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
     }
 
     [Test]
-    public async Task ResponseLossReobservesWithTheSameIdentityAndNeverIssuesSecondUpdate()
+    public async Task ResponseLossReobservesWithTheSameLogicalIdentityAndNeverIssuesSecondUpdate()
     {
         var transport = new Transport(Observation(1_000), Observation(2_000));
         transport.UpdateFailure = new OciBlockVolumeResponseLostException();
@@ -84,8 +86,8 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.Converged);
         await Assert.That(transport.Reads).IsEqualTo(2);
         await Assert.That(transport.Updates).Count().IsEqualTo(1);
-        await Assert.That(transport.Updates.Single().OpcRetryToken.Value).IsEqualTo("expand-idempotency-1");
         await Assert.That(result.IdempotencyKey.Value).IsEqualTo("expand-idempotency-1");
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
     }
 
     [Test]
@@ -106,6 +108,7 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         await Assert.That(missingUpdateResult.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
         await Assert.That(missingUpdate.Updates).Count().IsEqualTo(1);
         await Assert.That(missingUpdate.Reads).IsEqualTo(2);
+        await Assert.That(missingUpdateResult.ObservedETag).IsEqualTo("etag-1");
         await Assert.That(malformedReadResult.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
         await Assert.That(malformedRead.Updates).IsEmpty();
     }
@@ -121,6 +124,42 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         await Assert.That(expand).Throws<OperationCanceledException>();
         await Assert.That(transport.Reads).IsEqualTo(0);
         await Assert.That(transport.Updates).IsEmpty();
+    }
+
+    [Test]
+    public async Task IndeterminateUpdateReadbackFailureReturnsUnknownWithLastKnownFence()
+    {
+        var transport = new Transport(Observation(1_000))
+        {
+            UpdateFailure = new OciBlockVolumeResponseLostException(),
+            ReadFailure = new TimeoutException(),
+            ThrowReadOnCall = 2,
+        };
+
+        var result = await Adapter(transport).ExpandAsync(Intent(2_000), default);
+
+        await Assert.That(result.Outcome).IsEqualTo(OciBlockVolumeExpansionOutcome.OutcomeUnknown);
+        await Assert.That(result.IdempotencyKey.Value).IsEqualTo("expand-idempotency-1");
+        await Assert.That(result.ObservedSize!.Value).IsEqualTo(1_000UL);
+        await Assert.That(result.ObservedETag).IsEqualTo("etag-1");
+        await Assert.That(transport.Updates).Count().IsEqualTo(1);
+        await Assert.That(transport.Reads).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task CallerCancellationDuringIndeterminateReadbackIsPropagated()
+    {
+        using var source = new CancellationTokenSource();
+        var transport = new Transport(Observation(1_000))
+        {
+            UpdateFailure = new OciBlockVolumeResponseLostException(),
+            OnRead = read => { if (read == 2) source.Cancel(); },
+        };
+        Func<Task> expand = async () => await Adapter(transport).ExpandAsync(Intent(2_000), source.Token);
+
+        await Assert.That(expand).Throws<OperationCanceledException>();
+        await Assert.That(transport.Updates).Count().IsEqualTo(1);
+        await Assert.That(transport.Reads).IsEqualTo(2);
     }
 
     [Test]
@@ -181,6 +220,9 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         internal List<OciBlockVolumeUpdateRequest> Updates { get; } = [];
         internal OciBlockVolumeUpdateResponse? UpdateResult { get; set; }
         internal Exception? UpdateFailure { get; set; }
+        internal Exception? ReadFailure { get; set; }
+        internal int? ThrowReadOnCall { get; set; }
+        internal Action<int>? OnRead { get; set; }
 
         public ValueTask<OciBlockVolumeObservation?> GetVolumeAsync(
             OciBlockVolumeReadRequest request,
@@ -188,6 +230,10 @@ public sealed class OciBlockVolumeExpansionAdapterTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Reads++;
+            OnRead?.Invoke(Reads);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ReadFailure is not null && ThrowReadOnCall == Reads)
+                throw ReadFailure;
             return ValueTask.FromResult(observations.Count == 0 ? null : observations.Dequeue());
         }
 
