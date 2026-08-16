@@ -446,8 +446,16 @@ internal sealed class NatsOperationJournalMutationClient(
                 requestId, authority.Issue(cell, RuntimeLifecycleNatsProtocol.ReadAction, key, 0, binding));
             try
             {
-                return await RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "read"), cell, request, deadline.Token)
+                var response = await RequestRuntimeAsync(RuntimeLifecycleNatsProtocol.Subject(cell, "read"), cell, request, deadline.Token)
                     .ConfigureAwait(false);
+                if (response.SchemaVersion == RuntimeLifecycleNatsProtocol.SchemaVersion &&
+                    response.Status == (int)RuntimeLifecycleJournalReadStatus.Unavailable)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), deadline.Token).ConfigureAwait(false);
+                    continue;
+                }
+
+                return response;
             }
             catch (NatsException) when (!deadline.IsCancellationRequested)
             {
