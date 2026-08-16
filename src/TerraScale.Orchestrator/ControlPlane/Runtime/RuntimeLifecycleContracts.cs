@@ -177,6 +177,14 @@ public interface IRuntimeLifecycleAuthorityGate
 
 public sealed record RuntimeLifecycleExecutionRequest(RuntimeLifecycleOperationKey OperationKey, RuntimeDigest DispatchToken, HostRuntimePlan Plan, LifecycleAction Action, RuntimeEpoch WriterEpoch);
 public sealed record RuntimeLifecycleExecutorResponse(RuntimeLifecycleExecutorStatus Status);
+/// <summary>Transient recovery context. The plan is supplied by the exact caller, never retained in the checkpoint.</summary>
+public sealed record RuntimeLifecycleObservationRequest(
+    RuntimeLifecycleOperationKey OperationKey,
+    HostRuntimePlan Plan,
+    LifecycleAction Action,
+    RuntimeLifecyclePlanFingerprint PlanFingerprint,
+    RuntimeEpoch WriterEpoch,
+    RuntimeDigest DispatchToken);
 public sealed record RuntimeLifecycleObservation(
     RuntimeLifecycleOperationKey OperationKey,
     string AllocationId,
@@ -189,7 +197,7 @@ public sealed record RuntimeLifecycleObservation(
 public interface IRuntimeLifecycleHostExecutor
 {
     ValueTask<RuntimeLifecycleExecutorResponse> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken);
-    ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleOperationKey operationKey, CancellationToken cancellationToken);
+    ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken);
 }
 
 public sealed record RuntimeLifecycleResult(RuntimeLifecycleCheckpoint? Checkpoint, RuntimeLifecycleTerminalStatus Status, RuntimeLifecycleErrorCode ErrorCode)

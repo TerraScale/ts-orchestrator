@@ -78,6 +78,10 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(terminal.Status).IsEqualTo(RuntimeLifecycleTerminalStatus.Converged);
         await Assert.That(restartedExecutor.Calls).IsEqualTo(0);
         await Assert.That(restartedExecutor.Observations).IsEqualTo(1);
+        await Assert.That(restartedExecutor.LastObservationRequest!.Plan).IsSameReferenceAs(request.Plan);
+        await Assert.That(restartedExecutor.LastObservationRequest.Action).IsEqualTo(request.Action);
+        await Assert.That(restartedExecutor.LastObservationRequest.PlanFingerprint).IsEqualTo(request.PlanFingerprint);
+        await Assert.That(restartedExecutor.LastObservationRequest.WriterEpoch).IsEqualTo(request.WriterEpoch);
     }
 
     [Test]
@@ -115,7 +119,7 @@ public sealed class RuntimeLifecycleCoordinatorTests
     }
 
     [Test]
-    public async Task ForeignOrStaleObservationIsFencedAndCleanupCannotBeRequested()
+    public async Task ForeignWrongActionAndNullObservationsAreFencedAndCleanupCannotBeRequested()
     {
         var request = Request();
         var journal = new Journal();
@@ -125,6 +129,19 @@ public sealed class RuntimeLifecycleCoordinatorTests
         var result = await new RuntimeLifecycleCoordinator(journal, new Authority(), executor).ExecuteAsync(request, CancellationToken.None);
         await Assert.That(result.RequiresReconciliation).IsTrue();
         await Assert.That(result.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.ObservationMismatch);
+
+        var wrongActionJournal = new Journal();
+        var wrongActionExecutor = new Executor { Response = new(RuntimeLifecycleExecutorStatus.ResponseLost) };
+        _ = await new RuntimeLifecycleCoordinator(wrongActionJournal, new Authority(), wrongActionExecutor).ExecuteAsync(request, CancellationToken.None);
+        wrongActionExecutor.Observation = Observation(request, RuntimeLifecycleObservationStatus.Converged, 1) with { Action = LifecycleAction.Stop };
+        var wrongAction = await new RuntimeLifecycleCoordinator(wrongActionJournal, new Authority(), wrongActionExecutor).ExecuteAsync(request, CancellationToken.None);
+        await Assert.That(wrongAction.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.ObservationMismatch);
+
+        var nullObservationJournal = new Journal();
+        var nullObservationExecutor = new Executor { Response = new(RuntimeLifecycleExecutorStatus.ResponseLost), ReturnNullObservation = true };
+        _ = await new RuntimeLifecycleCoordinator(nullObservationJournal, new Authority(), nullObservationExecutor).ExecuteAsync(request, CancellationToken.None);
+        var nullObservation = await new RuntimeLifecycleCoordinator(nullObservationJournal, new Authority(), nullObservationExecutor).ExecuteAsync(request, CancellationToken.None);
+        await Assert.That(nullObservation.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.ObservationMismatch);
         await Assert.That(() => Request(compensation: RuntimeLifecycleCompensationPolicy.AuthorizedCleanup)).Throws<ArgumentOutOfRangeException>();
         await Assert.That(() => new RuntimeLifecycleOperationRequest(new("gru"), new("node-a"), new(7), new(Digest("convergence")), Request().Plan, LifecycleAction.Cleanup, new(7), new(Digest("authorization")), new(new(Digest("deadline")), 9))).Throws<ArgumentOutOfRangeException>();
     }
@@ -138,6 +155,16 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(result.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.CasExhausted);
         await Assert.That(executor.Calls).IsEqualTo(0);
         await Assert.That(journal.Writes).IsLessThanOrEqualTo(RuntimeLifecycleContract.MaximumCoordinatorSteps);
+    }
+
+    [Test]
+    public async Task NullExecutorResponseFailsClosedAfterDurableDispatch()
+    {
+        var executor = new Executor { Response = null! };
+        var result = await new RuntimeLifecycleCoordinator(new Journal(), new Authority(), executor).ExecuteAsync(Request(), CancellationToken.None);
+        await Assert.That(result.RequiresReconciliation).IsTrue();
+        await Assert.That(result.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.ExecutorFailed);
+        await Assert.That(executor.Calls).IsEqualTo(1);
     }
 
     [Test]
@@ -204,16 +231,18 @@ public sealed class RuntimeLifecycleCoordinatorTests
         public int Observations { get; private set; }
         public bool SeenDispatchPersisted { get; set; }
         public Action? BeforeExecute { get; set; }
-        public RuntimeLifecycleExecutorResponse Response { get; set; } = new(RuntimeLifecycleExecutorStatus.ResponseLost);
+        public RuntimeLifecycleExecutorResponse? Response { get; set; } = new(RuntimeLifecycleExecutorStatus.ResponseLost);
         public RuntimeLifecycleObservation? Observation { get; set; }
+        public RuntimeLifecycleObservationRequest? LastObservationRequest { get; private set; }
+        public bool ReturnNullObservation { get; set; }
         public ValueTask<RuntimeLifecycleExecutorResponse> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken)
         {
-            Calls++; BeforeExecute?.Invoke(); return ValueTask.FromResult(Response);
+            Calls++; BeforeExecute?.Invoke(); return ValueTask.FromResult(Response!);
         }
-        public ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleOperationKey operationKey, CancellationToken cancellationToken)
+        public ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken)
         {
-            Observations++;
-            return ValueTask.FromResult(Observation ?? new(operationKey, "unknown", new RuntimeLifecyclePlanFingerprint(Digest("unknown")), LifecycleAction.Converge, new RuntimeLifecycleHostObservationFingerprint(Digest("unknown-observation")), 1, RuntimeLifecycleObservationStatus.Unknown));
+            Observations++; LastObservationRequest = request;
+            return ValueTask.FromResult(ReturnNullObservation ? null! : Observation ?? new(request.OperationKey, "unknown", new RuntimeLifecyclePlanFingerprint(Digest("unknown")), LifecycleAction.Converge, new RuntimeLifecycleHostObservationFingerprint(Digest("unknown-observation")), 1, RuntimeLifecycleObservationStatus.Unknown));
         }
     }
 }

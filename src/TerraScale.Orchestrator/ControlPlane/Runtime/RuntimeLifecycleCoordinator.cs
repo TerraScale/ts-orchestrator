@@ -118,7 +118,7 @@ public sealed class RuntimeLifecycleCoordinator(
 
         if (cancellationToken.IsCancellationRequested)
             return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.CancelledAfterDispatch).ConfigureAwait(false);
-        if (!Enum.IsDefined(response.Status)) return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ExecutorFailed).ConfigureAwait(false);
+        if (response is null || !Enum.IsDefined(response.Status)) return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ExecutorFailed).ConfigureAwait(false);
         var authority = await ExactAuthorityAsync(request, CancellationToken.None).ConfigureAwait(false);
         if (authority != RuntimeLifecycleErrorCode.None)
             return await MarkUncertainAsync(checkpoint, authority).ConfigureAwait(false);
@@ -133,11 +133,11 @@ public sealed class RuntimeLifecycleCoordinator(
     private async ValueTask<RuntimeLifecycleResult> RecoverByObservationAsync(RuntimeLifecycleOperationRequest request, RuntimeLifecycleCheckpoint checkpoint, CancellationToken cancellationToken)
     {
         RuntimeLifecycleObservation observation;
-        try { observation = await _executor.ObserveAsync(checkpoint.OperationKey, cancellationToken).ConfigureAwait(false); }
+        try { observation = await _executor.ObserveAsync(new(checkpoint.OperationKey, request.Plan, checkpoint.Action, checkpoint.PlanFingerprint, checkpoint.WriterEpoch, checkpoint.DispatchToken), cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, RuntimeLifecycleErrorCode.CancelledAfterDispatch); }
         catch { return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ObservationMismatch).ConfigureAwait(false); }
 
-        if (!ValidObservation(checkpoint, observation))
+        if (observation is null || !ValidObservation(checkpoint, observation))
             return await MarkUncertainAsync(checkpoint, RuntimeLifecycleErrorCode.ObservationMismatch).ConfigureAwait(false);
         var authority = await ExactAuthorityAsync(request, cancellationToken).ConfigureAwait(false);
         if (authority != RuntimeLifecycleErrorCode.None)
@@ -245,7 +245,7 @@ public sealed class RuntimeLifecycleCoordinator(
 
     private static bool ValidObservation(RuntimeLifecycleCheckpoint checkpoint, RuntimeLifecycleObservation observation) =>
         observation is not null && Enum.IsDefined(observation.Action) && Enum.IsDefined(observation.Status) && observation.Watermark > checkpoint.LastObservationWatermark &&
-        observation.OperationKey == checkpoint.OperationKey && observation.AllocationId == checkpoint.AllocationId && observation.PlanFingerprint == checkpoint.PlanFingerprint;
+        observation.OperationKey == checkpoint.OperationKey && observation.AllocationId == checkpoint.AllocationId && observation.PlanFingerprint == checkpoint.PlanFingerprint && observation.Action == checkpoint.Action;
 
     private static RuntimeLifecycleResult Result(RuntimeLifecycleCheckpoint? checkpoint, RuntimeLifecycleTerminalStatus status, RuntimeLifecycleErrorCode error) => new(checkpoint, status, error);
 }
