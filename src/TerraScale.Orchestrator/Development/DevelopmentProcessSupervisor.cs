@@ -6,7 +6,7 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentContainerImages
 {
-    public const string AspNet = "mcr.microsoft.com/dotnet/aspnet@sha256:1f51d2d65ace46d6395e773fb4cfc1c74d36fb4f08e5cf996e7f6961b45e9283";
+    public const string AspNet = "mcr.microsoft.com/dotnet/aspnet@sha256:385243b43a2e8b30ffde1eab09a3457b7226bc3cbefedbc3a8b06fa35842c7f6";
     public const string RuntimeDependencies = "mcr.microsoft.com/dotnet/runtime-deps@sha256:894098eafc82e5fa02ba9f2b71d426dc78252876b9e914caae77ed95cfce185a";
     public const string Node = "docker.io/library/node@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3";
     public const string Nats = "docker.io/library/nats@sha256:a42e284980d105c1b668d553175b4c7abc9b7187c5e9859baf4f1d564772b85f";
