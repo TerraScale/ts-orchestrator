@@ -141,6 +141,7 @@ public static class DevelopmentLab
                     }
                 }
 
+                await ProvisionControllerTopologiesAsync(topology, natsSecurity, cancellationToken);
                 StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
                 supervisor.ThrowIfAnyExited();
@@ -4820,6 +4821,46 @@ public static class DevelopmentLab
                     });
             }
         }
+    }
+
+    private static async Task ProvisionControllerTopologiesAsync(
+        DevelopmentTopology topology,
+        DevelopmentNatsSecurity natsSecurity,
+        CancellationToken cancellationToken)
+    {
+        foreach (var cell in topology.Cells)
+        {
+            var security = natsSecurity.Cell(cell.Cell);
+            foreach (var controller in cell.OfKind(DevelopmentResourceKind.ControllerAgent))
+            {
+                await Messaging.NatsOperationJournalProvisioner.ProvisionAsync(
+                    CreateJournalProvisioningOptions(cell, controller, security),
+                    cancellationToken);
+            }
+        }
+    }
+
+    internal static OrchestratorOptions CreateJournalProvisioningOptions(
+        DevelopmentCellPlan cell,
+        DevelopmentResourcePlan controller,
+        DevelopmentNatsCellSecurity security)
+    {
+        if (controller.Kind != DevelopmentResourceKind.ControllerAgent ||
+            controller.Cell != cell.Cell || security.Cell != cell.Cell)
+            throw new InvalidOperationException("Journal provisioning inputs must belong to the same controller cell.");
+        var controlNats = cell.OfKind(DevelopmentResourceKind.ControlNats).Single();
+        var tls = security.Tls.Control.Clients["operator-read"];
+        return new OrchestratorOptions(
+            OrchestratorCommand.ProvisionJournal,
+            cell.Cell,
+            ControllerNatsUrl(controlNats.Port),
+            1,
+            Instance: controller.Replica.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            InfrastructureNatsNKeyFile: security.Infrastructure.SeedFile,
+            InfrastructureNatsTls: new Messaging.NatsTlsFiles(
+                tls.CaFile,
+                tls.CertificateFile,
+                tls.KeyFile));
     }
 
     internal static string ControllerNatsUrl(int port) => $"tls://127.0.0.1:{port}";

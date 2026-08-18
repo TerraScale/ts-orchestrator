@@ -249,6 +249,34 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task DevelopmentJournalProvisioningUsesInfrastructureAuthorityBeforeControllerStartup()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var root = Path.Combine(Path.GetTempPath(), $"ts-orch-provision-options-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateQuick();
+            var cell = topology.Cells.Single();
+            var controller = cell.OfKind(DevelopmentResourceKind.ControllerAgent).Single();
+            var security = DevelopmentNatsSecurity.Create(topology, root).Cell(cell.Cell);
+
+            var options = DevelopmentLab.CreateJournalProvisioningOptions(cell, controller, security);
+
+            await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.ProvisionJournal);
+            await Assert.That(options.NatsUrl)
+                .IsEqualTo($"tls://127.0.0.1:{cell.OfKind(DevelopmentResourceKind.ControlNats).Single().Port}");
+            await Assert.That(options.Instance).IsEqualTo(controller.Replica.ToString());
+            await Assert.That(options.InfrastructureNatsNKeyFile).IsEqualTo(security.Infrastructure.SeedFile);
+            await Assert.That(options.InfrastructureNatsTls!.CertificateFile)
+                .IsEqualTo(security.Tls.Control.Clients["operator-read"].CertificateFile);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task ContainerImagesAndPodBudgetAreClosed()
     {
         await Assert.That(DevelopmentContainerImages.All).IsEquivalentTo([
