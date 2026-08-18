@@ -184,7 +184,7 @@ public sealed class NatsControlR3L0cTests
             .GetStoreAsync(topology.Operations.Bucket);
         var writerKey = "operation." + new string('e', 64);
         var writerRevision = await writerStore.CreateAsync(writerKey, "writer-authorized");
-        var writerEntry = await writerStore.GetEntryAsync<string>(writerKey);
+        var writerEntry = await GetWithQuorumRetryAsync(writerStore, writerKey);
         writerEntry.EnsureSuccess();
         await Assert.That(writerEntry.Revision).IsEqualTo(writerRevision);
         await Assert.That(writerEntry.Value).IsEqualTo("writer-authorized");
@@ -357,6 +357,24 @@ public sealed class NatsControlR3L0cTests
             }
         }
         throw new TimeoutException("The R3 operation journal did not regain quorum for CAS update.");
+    }
+
+    private static async Task<NatsKVEntry<string>> GetWithQuorumRetryAsync(
+        INatsKVStore store,
+        string key)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            try
+            {
+                return await store.GetEntryAsync<string>(key);
+            }
+            catch (NatsKVKeyNotFoundException) when (attempt < 7)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+            }
+        }
+        throw new TimeoutException("The R3 operation journal write did not become readable.");
     }
 
     private static NatsOperationJournalMutationReplySigner CreateReplySigner(byte[] privateKey)

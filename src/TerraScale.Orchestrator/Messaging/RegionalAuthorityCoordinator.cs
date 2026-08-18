@@ -252,8 +252,11 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             }
             PublishDecision(result, observed, DateTimeOffset.UtcNow);
         }
+        // NATS.Net may surface a simultaneous create loser as KeyNotFound while
+        // resolving the failed create response. It is still a normal CAS conflict:
+        // re-read the authoritative key and enter the follower path.
         catch (Exception exception) when (
-            exception is NatsKVWrongLastRevisionException or NatsKVCreateException)
+            exception is NatsKVWrongLastRevisionException or NatsKVCreateException or NatsKVKeyNotFoundException)
         {
             var observed = await ReadAsync(cancellationToken);
             var result = AuthorityEngine.Decide(journalState, new ObserveAuthorityCas(
