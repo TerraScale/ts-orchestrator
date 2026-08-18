@@ -9,6 +9,17 @@ internal static class NatsOperationJournalProvisioner
 {
     internal static async Task ProvisionAsync(
         OrchestratorOptions options,
+        CancellationToken cancellationToken) =>
+        await ProvisionAsync(options, includeAuthoritativeJournal: true, cancellationToken);
+
+    internal static async Task ProvisionControllerAsync(
+        OrchestratorOptions options,
+        CancellationToken cancellationToken) =>
+        await ProvisionAsync(options, includeAuthoritativeJournal: false, cancellationToken);
+
+    private static async Task ProvisionAsync(
+        OrchestratorOptions options,
+        bool includeAuthoritativeJournal,
         CancellationToken cancellationToken)
     {
         var nkeyFile = options.InfrastructureNatsNKeyFile
@@ -32,7 +43,10 @@ internal static class NatsOperationJournalProvisioner
         await client.ConnectAsync();
         cancellationToken.ThrowIfCancellationRequested();
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
-        await ProvisionTopologyAsync(client, topology, cancellationToken);
+        if (includeAuthoritativeJournal)
+            await ProvisionTopologyAsync(client, topology, cancellationToken);
+        else
+            await ProvisionControllerTopologyAsync(client, topology, cancellationToken);
     }
 
     internal static async Task ProvisionTopologyAsync(

@@ -4832,7 +4832,7 @@ public static class DevelopmentLab
             var security = natsSecurity.Cell(cell.Cell);
             foreach (var controller in cell.OfKind(DevelopmentResourceKind.ControllerAgent))
             {
-                await Messaging.NatsOperationJournalProvisioner.ProvisionAsync(
+                await Messaging.NatsOperationJournalProvisioner.ProvisionControllerAsync(
                     CreateJournalProvisioningOptions(cell, controller, security),
                     cancellationToken);
             }
