@@ -4816,8 +4816,7 @@ public static class DevelopmentLab
                         ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.CaFile,
                         ["TS_ORCH_NATS_TLS_CERT_FILE"] = tls.CertificateFile,
                         ["TS_ORCH_NATS_TLS_KEY_FILE"] = tls.KeyFile,
-                        ["TS_ORCH_INSTANCE"] = controller.Replica.ToString(
-                            System.Globalization.CultureInfo.InvariantCulture)
+                        ["TS_ORCH_INSTANCE"] = ControllerInstance(controller.Replica)
                     });
             }
         }
@@ -4855,7 +4854,7 @@ public static class DevelopmentLab
             cell.Cell,
             ControllerNatsUrl(controlNats.Port),
             1,
-            Instance: controller.Replica.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Instance: ControllerInstance(controller.Replica),
             InfrastructureNatsNKeyFile: security.Infrastructure.SeedFile,
             InfrastructureNatsTls: new Messaging.NatsTlsFiles(
                 tls.CaFile,
@@ -4864,6 +4863,9 @@ public static class DevelopmentLab
     }
 
     internal static string ControllerNatsUrl(int port) => $"tls://127.0.0.1:{port}";
+
+    internal static string ControllerInstance(int replica) =>
+        $"controller-{replica.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
     private static async Task<IReadOnlyDictionary<string, DevelopmentResourceHealth>> WaitForInitialHealthAsync(
         OrchestratorOptions options,

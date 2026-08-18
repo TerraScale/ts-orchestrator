@@ -265,7 +265,7 @@ public sealed class DevelopmentTopologyTests
             await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.ProvisionJournal);
             await Assert.That(options.NatsUrl)
                 .IsEqualTo($"tls://127.0.0.1:{cell.OfKind(DevelopmentResourceKind.ControlNats).Single().Port}");
-            await Assert.That(options.Instance).IsEqualTo(controller.Replica.ToString());
+            await Assert.That(options.Instance).IsEqualTo($"controller-{controller.Replica}");
             await Assert.That(options.InfrastructureNatsNKeyFile).IsEqualTo(security.Infrastructure.SeedFile);
             await Assert.That(options.InfrastructureNatsTls!.CertificateFile)
                 .IsEqualTo(security.Tls.Control.Clients["operator-read"].CertificateFile);
