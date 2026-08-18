@@ -12,6 +12,7 @@ internal static class DevelopmentEvidenceCommand
     internal const int MaximumParallelTestModules = 1;
     internal const int MaximumParallelTests = 4;
     internal const int MaximumValidationProcesses = 512;
+    internal const string TargetFramework = "net11.0";
     internal const long AggregateMemoryLimitBytes = 24L * 1024 * 1024 * 1024;
     internal const long ExecutionMemoryLimitBytes = 20L * 1024 * 1024 * 1024;
     internal const long ReservedHeadroomBytes = AggregateMemoryLimitBytes - ExecutionMemoryLimitBytes;
@@ -42,7 +43,7 @@ internal static class DevelopmentEvidenceCommand
             "TerraScale.Orchestrator",
             "bin",
             "Debug",
-            "net10.0",
+            TargetFramework,
             "linux-x64",
             "terrascale-orchestrator"));
 
@@ -70,7 +71,7 @@ internal static class DevelopmentEvidenceCommand
         var inventory = new JsonArray();
         foreach (var module in TestModules)
         {
-            var executable = Path.Combine(root, module.RelativeDirectory, "bin", "Debug", "net10.0", "linux-x64", module.Name);
+            var executable = Path.Combine(root, module.RelativeDirectory, "bin", "Debug", TargetFramework, "linux-x64", module.Name);
             var result = RunRequired(
                 executable,
                 ["--maximum-parallel-tests", MaximumParallelTests.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -92,7 +93,7 @@ internal static class DevelopmentEvidenceCommand
             "TerraScale.Orchestrator.Tooling",
             "bin",
             "Debug",
-            "net10.0",
+            TargetFramework,
             "terrascale-orchestrator-tooling");
         observations.Add(("orchestrator-policy-tooling-tests", RunRequired(
             toolingExecutable,

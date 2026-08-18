@@ -907,10 +907,10 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
   development-attest \
   --output /tmp/terrascale-orchestrator-control-evidence.json \
-  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
+  --binary src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator \
   --profile control
 
-src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
+src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator \
   lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
@@ -968,7 +968,7 @@ being mistaken for a deployable candidate.
 The executable exposes the exhaustive v1 production role catalog as JSON:
 
 ```bash
-src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator catalog
+src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator catalog
 ```
 
 All production-shaped DevHost resources project to one of these built-in
