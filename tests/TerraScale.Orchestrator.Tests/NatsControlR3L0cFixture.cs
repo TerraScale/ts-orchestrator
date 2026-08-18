@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -18,7 +17,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// <summary>
 /// A deliberately ephemeral three-member NATS control cluster. It is a test fixture,
 /// not a production bootstrap implementation: every key, certificate, JWT, config,
-/// store, and server process is created below a private temporary directory.
+/// store, and server container is created below a private temporary directory.
 /// </summary>
 internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 {
@@ -31,6 +30,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     private readonly string[] configurations;
     private readonly Process?[] processes;
     private readonly Task<string>?[] processOutput;
+    private readonly ContainerizedNatsCluster containerCluster;
     private readonly LocalNatsServerLease.Handle lease;
     private int disposed;
 
@@ -39,6 +39,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         string[] configurations,
         Process?[] processes,
         Task<string>?[] processOutput,
+        ContainerizedNatsCluster containerCluster,
         LocalNatsServerLease.Handle lease,
         IReadOnlyList<int> clientPorts,
         NatsControlR3L0cIdentity controller,
@@ -52,6 +53,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         this.configurations = configurations;
         this.processes = processes;
         this.processOutput = processOutput;
+        this.containerCluster = containerCluster;
         this.lease = lease;
         Controller = controller;
         ControllerTwo = controllerTwo;
@@ -102,39 +104,26 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cFixture? fixture = null;
         try
         {
-            var natsServer = ResolveNatsServer();
             CreatePrivateDirectory(directory);
             var pki = CreatePki(directory);
             var identities = CreateIdentities(directory, pki);
             var configurations = new string[MemberCount];
             var processes = new Process?[MemberCount];
             var processOutput = new Task<string>?[MemberCount];
+            int[] clientPorts;
+            int[] routePorts;
 
             var portReservations = ReserveLoopbackPorts(MemberCount * 2);
             try
             {
-                var clientPorts = portReservations
+                clientPorts = portReservations
                     .Take(MemberCount)
                     .Select(static listener => GetReservedPort(listener))
                     .ToArray();
-                var routePorts = portReservations
+                routePorts = portReservations
                     .Skip(MemberCount)
                     .Select(static listener => GetReservedPort(listener))
                     .ToArray();
-
-                fixture = new NatsControlR3L0cFixture(
-                    directory,
-                    configurations,
-                    processes,
-                    processOutput,
-                    lease,
-                    clientPorts,
-                    identities.Controller,
-                    identities.ControllerTwo,
-                    identities.Infrastructure,
-                    identities.JournalWriter,
-                    identities.Operator,
-                    identities.WrongAccount);
 
                 for (var member = 0; member < MemberCount; member++)
                 {
@@ -162,8 +151,27 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     listener.Stop();
             }
 
+            var containerCluster = await ContainerizedNatsCluster.CreateAsync(
+                directory,
+                clientPorts.Concat(routePorts),
+                cancellationToken: cancellationToken);
+            fixture = new NatsControlR3L0cFixture(
+                directory,
+                configurations,
+                processes,
+                processOutput,
+                containerCluster,
+                lease,
+                clientPorts,
+                identities.Controller,
+                identities.ControllerTwo,
+                identities.Infrastructure,
+                identities.JournalWriter,
+                identities.Operator,
+                identities.WrongAccount);
+
             for (var member = 0; member < MemberCount; member++)
-                fixture.StartMember(member, natsServer);
+                fixture.StartMember(member);
 
             await fixture.WaitForClusterAsync(cancellationToken);
             return fixture;
@@ -321,8 +329,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var process = processes[member] ?? throw new InvalidOperationException("The NATS member is not running.");
         if (!process.HasExited)
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(cancellationToken);
+            await containerCluster.StopAsync(process, cancellationToken);
         }
         process.Dispose();
         processes[member] = null;
@@ -337,7 +344,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         ValidateMember(member);
         if (processes[member] is not null)
             throw new InvalidOperationException("The NATS member must be stopped before it is restarted.");
-        StartMember(member, ResolveNatsServer());
+        StartMember(member);
         await WaitForMemberAsync(member, cancellationToken);
     }
 
@@ -398,16 +405,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             {
                 var process = processes[member];
                 if (process is null) continue;
-                cleanup.Attempt(() =>
-                {
-                    if (!process.HasExited) process.Kill(entireProcessTree: true);
-                });
-            }
-            for (var member = 0; member < processes.Length; member++)
-            {
-                var process = processes[member];
-                if (process is null) continue;
-                if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                if (await cleanup.AttemptAsync(() => containerCluster.StopAsync(process)) &&
                     cleanup.Attempt(process.Dispose))
                     processes[member] = null;
             }
@@ -415,6 +413,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             {
                 await cleanup.AttemptAsync(() => task!.WaitAsync(TimeSpan.FromSeconds(1)));
             }
+            await cleanup.AttemptAsync(() => containerCluster.DisposeAsync().AsTask());
             await cleanup.AttemptAsync(() => DeleteDirectoryWithRetryAsync(directory));
             if (await lease.ReleaseIfCleanAsync(cleanup))
             {
@@ -460,17 +459,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         throw new TimeoutException("The three-member NATS R3 cluster did not become ready within 12 seconds.");
     }
 
-    private void StartMember(int member, string natsServer)
+    private void StartMember(int member)
     {
-        var process = Process.Start(new ProcessStartInfo
-        {
-            FileName = natsServer,
-            ArgumentList = { "-c", configurations[member] },
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        }) ?? throw new InvalidOperationException("nats-server did not start.");
+        var process = containerCluster.Start(configurations[member]);
         processes[member] = process;
         processOutput[member] = DrainProcessOutputAsync(process);
     }
@@ -577,48 +568,6 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 }
             }
         }
-    }
-
-    private static string ResolveNatsServer()
-    {
-        var configured = Environment.GetEnvironmentVariable("TS_ORCH_TEST_NATS_SERVER");
-        var candidates = new[]
-        {
-            configured,
-            "/home/mariogk/.local/bin/nats-server",
-            "nats-server",
-        };
-        foreach (var candidate in candidates.Where(static value => !string.IsNullOrWhiteSpace(value)))
-        {
-            if (candidate!.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            {
-                if (File.Exists(candidate)) return candidate;
-                continue;
-            }
-            try
-            {
-                using var probe = Process.Start(new ProcessStartInfo
-                {
-                    FileName = candidate,
-                    ArgumentList = { "-v" },
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                });
-                if (probe is not null)
-                {
-                    probe.WaitForExit(2_000);
-                    if (probe.ExitCode == 0) return candidate;
-                    probe.Dispose();
-                }
-            }
-            catch (Win32Exception)
-            {
-            }
-        }
-        throw new FileNotFoundException(
-            "The real NATS L0C fixture requires an installed nats-server binary.");
     }
 
     private static string WriteConfiguration(

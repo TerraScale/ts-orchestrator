@@ -19,7 +19,7 @@ public sealed class ProcessLifecycleTests
         try
         {
             var execution = new ProcessHostCommandRunner().RunAsync(
-                "/usr/bin/bash",
+                TestHostExecutables.Resolve("bash"),
                 ["-c", "sleep 60 & printf '%s' $! > \"$1\"; wait", "terrascale-process-test", pidFile],
                 cancellation.Token);
             childProcessId = await ReadProcessIdAsync(pidFile, cancellation.Token);

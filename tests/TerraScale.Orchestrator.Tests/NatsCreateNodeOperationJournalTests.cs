@@ -95,7 +95,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                 NatsDevelopmentCluster.ControlAuthorization(cell, security),
                 security.Infrastructure.SeedFile,
                 port => SecureNatsOptions(port, security.Infrastructure, controllerTls),
-                NatsDevelopmentCluster.TlsConfiguration(serverTls));
+                NatsDevelopmentCluster.TlsConfiguration(serverTls),
+                [securityDirectory]);
             var topology = new NatsTopology(cell.Cell, 3, "controller-1");
             await using var infrastructure = await server.ConnectAsAsync(
                 port => SecureNatsOptions(port, security.Infrastructure, controllerTls));
@@ -1227,6 +1228,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         private readonly string configuration;
         private readonly int port;
         private readonly Func<int, NatsOpts>? clientOptions;
+        private readonly ContainerizedNatsCluster containerCluster;
         private readonly LocalNatsServerLease.Handle lease;
         private Process? process;
         private NatsClient? client;
@@ -1240,12 +1242,14 @@ public sealed class NatsCreateNodeOperationJournalTests
             string configuration,
             int port,
             Func<int, NatsOpts>? clientOptions,
+            ContainerizedNatsCluster containerCluster,
             LocalNatsServerLease.Handle lease)
         {
             this.directory = directory;
             this.configuration = configuration;
             this.port = port;
             this.clientOptions = clientOptions;
+            this.containerCluster = containerCluster;
             this.lease = lease;
         }
 
@@ -1265,7 +1269,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                 listener.Stop();
                 var configuration = Path.Combine(directory, "nats.conf");
                 await File.WriteAllTextAsync(configuration, $"port: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-                server = new OneNodeJetStream(directory, configuration, port, clientOptions, lease);
+                var containerCluster = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
+                server = new OneNodeJetStream(directory, configuration, port, clientOptions, containerCluster, lease);
                 await server.ConnectAsync();
                 return server;
             }
@@ -1334,8 +1339,7 @@ public sealed class NatsCreateNodeOperationJournalTests
             client = null;
             if (process is not null)
             {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                await containerCluster.StopAsync(process);
                 process.Dispose();
                 process = null;
             }
@@ -1358,17 +1362,14 @@ public sealed class NatsCreateNodeOperationJournalTests
                     client = null;
                 if (process is not null)
                 {
-                    cleanup.Attempt(() =>
-                    {
-                        if (!process.HasExited) process.Kill(entireProcessTree: true);
-                    });
-                    if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                    if (await cleanup.AttemptAsync(() => containerCluster.StopAsync(process)) &&
                         cleanup.Attempt(process.Dispose))
                         process = null;
                 }
                 if (processOutput is not null &&
                     await cleanup.AttemptAsync(() => processOutput.WaitAsync(TimeSpan.FromSeconds(1))))
                     processOutput = null;
+                await cleanup.AttemptAsync(() => containerCluster.DisposeAsync().AsTask());
                 cleanup.Attempt(() =>
                 {
                     if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
@@ -1392,12 +1393,7 @@ public sealed class NatsCreateNodeOperationJournalTests
 
         private async Task ConnectAsync()
         {
-            process = Process.Start(new ProcessStartInfo("nats-server", $"-c {configuration}")
-            {
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-            }) ?? throw new InvalidOperationException("nats-server did not start.");
+            process = containerCluster.Start(configuration);
             processOutput = Task.WhenAll(
                 process.StandardOutput.ReadToEndAsync(),
                 process.StandardError.ReadToEndAsync());
@@ -1420,7 +1416,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                     await Task.Delay(50);
                 }
             }
-            throw new InvalidOperationException("nats-server did not accept a local JetStream connection.");
+            throw new InvalidOperationException("The containerized NATS server did not accept a local JetStream connection.");
         }
     }
 
@@ -1430,6 +1426,7 @@ public sealed class NatsCreateNodeOperationJournalTests
         private readonly int[] ports;
         private readonly Process?[] processes;
         private readonly Task?[] processOutput;
+        private readonly ContainerizedNatsCluster containerCluster;
         private readonly LocalNatsServerLease.Handle lease;
         private int disposed;
 
@@ -1438,12 +1435,14 @@ public sealed class NatsCreateNodeOperationJournalTests
             int[] ports,
             Process?[] processes,
             Task?[] processOutput,
+            ContainerizedNatsCluster containerCluster,
             LocalNatsServerLease.Handle lease)
         {
             this.directory = directory;
             this.ports = ports;
             this.processes = processes;
             this.processOutput = processOutput;
+            this.containerCluster = containerCluster;
             this.lease = lease;
         }
 
@@ -1453,7 +1452,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             string authorization,
             string readinessNkeyFile,
             Func<int, NatsOpts>? readinessOptions = null,
-            string? transportConfiguration = null)
+            string? transportConfiguration = null,
+            IEnumerable<string>? readOnlyRoots = null)
         {
             var lease = await LocalNatsServerLease.AcquireAsync();
             var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-journal-{Guid.NewGuid():N}");
@@ -1485,20 +1485,22 @@ public sealed class NatsCreateNodeOperationJournalTests
                         """);
                 }
 
-                server = new ThreeNodeJetStream(directory, clientPorts, processes, processOutput, lease);
+                var containerCluster = await ContainerizedNatsCluster.CreateAsync(
+                    directory,
+                    clientPorts.Concat(routePorts),
+                    readOnlyRoots);
+                server = new ThreeNodeJetStream(directory, clientPorts, processes, processOutput, containerCluster, lease);
                 for (var index = 0; index < configurations.Length; index++)
                 {
-                    processes[index] = Process.Start(new ProcessStartInfo("nats-server", $"-c {configurations[index]}")
-                    {
-                        RedirectStandardError = true,
-                        RedirectStandardOutput = true,
-                        UseShellExecute = false,
-                    }) ?? throw new InvalidOperationException("nats-server did not start.");
+                    processes[index] = containerCluster.Start(configurations[index]);
                     processOutput[index] = Task.WhenAll(
                         processes[index]!.StandardOutput.ReadToEndAsync(),
                         processes[index]!.StandardError.ReadToEndAsync());
                 }
-                for (var attempt = 0; attempt < 50; attempt++)
+                // Rootless Podman must create the pod network and start three TLS
+                // servers before the first connection can complete. Keep this
+                // bounded, but allow materially more time than a host process.
+                for (var attempt = 0; attempt < 150; attempt++)
                 {
                     try
                     {
@@ -1510,12 +1512,12 @@ public sealed class NatsCreateNodeOperationJournalTests
                         }));
                         return server;
                     }
-                    catch (NatsException) when (attempt < 49)
+                    catch (NatsException) when (attempt < 149)
                     {
-                        await Task.Delay(50);
+                        await Task.Delay(100);
                     }
                 }
-                throw new InvalidOperationException("Three-node NATS cluster did not accept a local JetStream connection.");
+                throw new InvalidOperationException("The three-node containerized NATS cluster did not accept a local JetStream connection.");
             }
             catch (Exception startupFailure)
             {
@@ -1571,16 +1573,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                 {
                     var process = processes[index];
                     if (process is null) continue;
-                    cleanup.Attempt(() =>
-                    {
-                        if (!process.HasExited) process.Kill(entireProcessTree: true);
-                    });
-                }
-                for (var index = 0; index < processes.Length; index++)
-                {
-                    var process = processes[index];
-                    if (process is null) continue;
-                    if (await cleanup.AttemptAsync(() => process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5))) &&
+                    if (await cleanup.AttemptAsync(() => containerCluster.StopAsync(process)) &&
                         cleanup.Attempt(process.Dispose))
                         processes[index] = null;
                 }
@@ -1591,6 +1584,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                         await cleanup.AttemptAsync(() => output.WaitAsync(TimeSpan.FromSeconds(1))))
                         processOutput[index] = null;
                 }
+                await cleanup.AttemptAsync(() => containerCluster.DisposeAsync().AsTask());
                 cleanup.Attempt(() =>
                 {
                     if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);

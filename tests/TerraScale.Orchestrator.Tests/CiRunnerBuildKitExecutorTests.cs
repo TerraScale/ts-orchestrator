@@ -160,13 +160,13 @@ public sealed class CiRunnerBuildKitExecutorTests
         string command,
         TimeSpan timeout,
         long maximumLogBytes) => new(
-            "/usr/bin/bash",
+            TestHostExecutables.Resolve("bash"),
             Array.AsReadOnly(new[] { "-c", command }),
             root,
             new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["PATH"] = "/usr/bin:/bin",
+                    ["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? string.Empty,
                 }),
             Path.Combine(root, "output"),
             Path.Combine(root, "output", "export"),
