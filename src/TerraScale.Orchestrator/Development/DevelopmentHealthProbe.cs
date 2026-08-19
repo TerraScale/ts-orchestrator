@@ -249,11 +249,7 @@ internal static class DevelopmentHealthProbe
         await using var client = new NatsClient(options);
         await client.ConnectAsync();
         var response = await client.RequestAsync<string, string>(
-            new NatsTopology(
-                resource.Cell,
-                1,
-                resource.Replica.ToString(System.Globalization.CultureInfo.InvariantCulture))
-                .InstanceHealthSubject,
+            ControllerInstanceHealthSubject(resource.Cell, resource.Replica),
             "health",
             cancellationToken: cancellationToken);
         if (response.Data != "ready")
@@ -261,6 +257,9 @@ internal static class DevelopmentHealthProbe
             throw new NatsException("The controller authority endpoint is not ready.");
         }
     }
+
+    internal static string ControllerInstanceHealthSubject(string cell, int replica) =>
+        new NatsTopology(cell, 1, DevelopmentLab.ControllerInstance(replica)).InstanceHealthSubject;
 
     private static async Task ProbeNatsAsync(
         DevelopmentResourcePlan resource,

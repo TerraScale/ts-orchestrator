@@ -28,6 +28,13 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task ControllerHealthProbeUsesCanonicalControllerInstance()
+    {
+        await Assert.That(DevelopmentHealthProbe.ControllerInstanceHealthSubject("gru", 1))
+            .IsEqualTo("ts.orch.v1.gru.query.health.controller-1");
+    }
+
+    [Test]
     public async Task ControlPlaneProfileKeepsThreeRegionsAndStartsOnlySixResources()
     {
         var topology = DevelopmentTopology.CreateControl();
