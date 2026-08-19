@@ -391,7 +391,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--pod", podName,
             "--pull", "never",
             "--label", OwnershipLabel,
-            "--label", $"io.terrascale.profile={topology.Profile}",
+            "--label", $"io.terrascale.topology={topology.Profile}",
         ]);
         Add(process.StartInfo, ContainerIsolationArguments(memory));
         Add(process.StartInfo,
@@ -440,7 +440,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         await stopping.CancelAsync();
         // Tear down the whole owned pod in one shot. Sequential per-container
         // stops with 15s timeouts can exceed DevHost's graceful SIGTERM budget
-        // (90–180s) on regional profiles, leaving pasta dead and the pod Degraded.
+        // (90–180s) on the regional topology, leaving pasta dead and the pod Degraded.
         var processSnapshot = processes.Values.ToArray();
         processes.Clear();
         specifications.Clear();
@@ -655,7 +655,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             "--infra-image", DevelopmentContainerImages.RuntimeDependencies,
             "--infra-command", "sleep infinity",
             "--label", OwnershipLabel,
-            "--label", $"io.terrascale.profile={topology.Profile}",
+            "--label", $"io.terrascale.topology={topology.Profile}",
             "--label", "io.terrascale.schema=2",
             "--memory", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--memory-swap", PodMemoryLimitBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),

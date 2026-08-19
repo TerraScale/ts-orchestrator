@@ -880,20 +880,19 @@ binds the lease identity, and grants a mutation permit only to the exact CAS
 winner. Followers remain available for read-only operator traffic. The winner
 renews every three seconds with a fifteen-second lease; a renewal conflict or
 uncertain authority result fences the candidate and terminates it for an
-external supervisor restart. The three-region DevHost profile runs one
+external supervisor restart. The three-region DevHost topology runs one
 controller and RF=1 NATS per cell, so it exercises regional wiring but does
 not claim election or quorum. Those semantics use a separate targeted
 one-region R3 component lane and still do not replace the real multi-host
 clock, partition, mTLS, and NATS-JWT gates.
 
-## DevHost development profiles
+## DevHost three-region development topology
 
-`lab plan` defaults to `quick`: one GRU cell with one instance of every product
-component and the shared email emulator. `regional` runs the same RF=1
-product graph in GRU, SFO, and FRA. `control` keeps those three cells but starts
-only control NATS and one controller per cell. Each profile stores NATS,
-TerraBase, PKI, artifacts, and backups under its own data directory; none of
-these profiles claims production quorum.
+`lab plan` always represents the bounded RF=1 product graph in GRU, SFO, and
+FRA plus the shared email emulator. The topology is not selectable or reducible.
+NATS, TerraBase, PKI, artifacts, and backups persist under the regional data
+directory. This topology validates regional behavior but does not claim
+production quorum.
 
 ```bash
 dotnet run --project src/TerraScale.Orchestrator -- lab plan
@@ -901,21 +900,19 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and selected topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 22-container plan totals 13,056 MiB, leaving substantial burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and three-region topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 22-container plan totals 16,128 MiB, leaving burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
   development-attest \
-  --output /tmp/terrascale-orchestrator-control-evidence.json \
-  --binary src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator \
-  --profile control
+  --output /tmp/terrascale-orchestrator-regional-evidence.json \
+  --binary src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator
 
 src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator \
   lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
-  --profile control \
-  --evidence /tmp/terrascale-orchestrator-control-evidence.json
+  --evidence /tmp/terrascale-orchestrator-regional-evidence.json
 ```
 
 The adapter publishes atomic endpoint and runtime projections plus an

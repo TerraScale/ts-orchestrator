@@ -32,7 +32,7 @@ public sealed class DevelopmentControlSocketTests
     [Test]
     public async Task UnsafeOrUnmappedRequestsFailClosed()
     {
-        var topology = DevelopmentTopology.CreateQuick();
+        var topology = DevelopmentTopology.CreateRegional();
 
         await Assert.That(() => DevelopmentReconcilePlanner.Plan(
                 topology,
@@ -51,7 +51,7 @@ public sealed class DevelopmentControlSocketTests
     [Test]
     public async Task DocumentationOnlyInternalsUpdatesAreNoOp()
     {
-        var topology = DevelopmentTopology.CreateQuick();
+        var topology = DevelopmentTopology.CreateRegional();
         var plan = DevelopmentReconcilePlanner.Plan(
             topology,
             Request("TerraScale.Internals", ["PLAN.md", "docs/implementation/sync/PLAN.md"]));
@@ -134,7 +134,7 @@ public sealed class DevelopmentControlSocketTests
             await using var server = DevelopmentControlSocket.Start(path, request =>
             {
                 calls++;
-                var plan = DevelopmentReconcilePlanner.Plan(DevelopmentTopology.CreateQuick(), request);
+                var plan = DevelopmentReconcilePlanner.Plan(DevelopmentTopology.CreateRegional(), request);
                 return new(
                     DevelopmentReconcilePlanner.SchemaVersion,
                     request.RequestId,

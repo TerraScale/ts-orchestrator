@@ -1193,13 +1193,11 @@ CI wraps `pre-deployment-evidence.json` in a signed DSSE/in-toto-style attestati
 - In-process test executables: L0 behavior without a container.
 - Targeted dependency/runtime fixture: one L0C or L1S boundary at a time.
 - One-region R3 component fixture: L2S quorum semantics without unrelated product roles.
-- `quick`: one GRU RF1 product cell plus the shared email emulator.
-- `regional`: 22-container GRU/SFO/FRA RF1 regional product slice plus the shared email emulator.
-- `control`: six-container RF1 regional control slice.
+- Development runtime: the 22-container GRU/SFO/FRA RF1 regional product slice plus the shared email emulator. It has no reduced or selectable runtime profile.
 - `oci-cell`: disposable three-node OCI region.
 - `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region production boundary.
 
-The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and profile labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 22-container profile plans 13,056 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
+The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and topology labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 22-resource topology plans 16,128 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
 
 Phase 0 records the Podman version, image manifest digests, host kernel/cgroup capabilities, rootless status, network backend, storage driver, and conformance result. Upgrades require a reviewed pin change and a cold sequential L0/L0C/L3S run. Matching-host containers cannot qualify `linux-arm64`; real A1 remains the mandatory ARM boundary.
 
@@ -1233,7 +1231,7 @@ Mandatory scenario groups are:
 5. RF1 TerraBase persistence and cross-region product routing in L3S; TerraBase `a/b/c`, NATS leader loss, quorum degradation, and catch-up only in sequential one-region R3 component fixtures;
 6. GitOps/CI/release, provider fake timeouts/duplicates/quota/cost, node scale-out/replacement/in, Grafana exact-state/alerts, OTel export, and VPN policy behavior.
 
-Pre-lab evidence contains the exact tree/artifact digest, authorized profile, all five test-module inventories, policy-tooling result, concurrency policy, and observed peak memory/process counts. L3S adds image-manifest/Podman/host-kernel identity, topology and port maps, server inventory, health timeline, injected faults, resource peaks, logs/traces, and cleanup/orphan proof. Failed container diagnostics are retained by policy; successful labs are destroyed and cleanup proves no owned pod or container remains. None of this evidence upgrades RF1 observations into a quorum, systemd, cloud, ARM, storage-performance, or destructive-operation claim.
+Pre-lab evidence contains the exact tree/artifact digest, authorized regional topology identifier, all five test-module inventories, policy-tooling result, concurrency policy, and observed peak memory/process counts. L3S adds image-manifest/Podman/host-kernel identity, topology and port maps, server inventory, health timeline, injected faults, resource peaks, logs/traces, and cleanup/orphan proof. Failed container diagnostics are retained by policy; successful labs are destroyed and cleanup proves no owned pod or container remains. None of this evidence upgrades RF1 observations into a quorum, systemd, cloud, ARM, storage-performance, or destructive-operation claim.
 
 ### Required test doubles
 

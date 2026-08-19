@@ -5,56 +5,10 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentTopologyTests
 {
     [Test]
-    public async Task QuickProfileRunsOneGruCopyOfEveryProductResource()
-    {
-        var topology = DevelopmentTopology.CreateQuick();
-
-        await Assert.That(topology.Profile).IsEqualTo("quick");
-        await Assert.That(topology.Cells.Select(cell => cell.Cell)).IsEquivalentTo(["gru"]);
-        await Assert.That(topology.Cells.Single().Resources.Select(resource => resource.Kind))
-            .IsEquivalentTo([
-                DevelopmentResourceKind.ControlNats,
-                DevelopmentResourceKind.ProductNats,
-                DevelopmentResourceKind.ControllerAgent,
-                DevelopmentResourceKind.TerraBase,
-                DevelopmentResourceKind.Authentication,
-                DevelopmentResourceKind.Platform,
-                DevelopmentResourceKind.Dashboard
-            ]);
-        await Assert.That(topology.GlobalResources.Select(resource => resource.Kind))
-            .IsEquivalentTo([
-                DevelopmentResourceKind.EmailEmulator
-            ]);
-    }
-
-    [Test]
     public async Task ControllerHealthProbeUsesCanonicalControllerInstance()
     {
         await Assert.That(DevelopmentHealthProbe.ControllerInstanceHealthSubject("gru", 1))
             .IsEqualTo("ts.orch.v1.gru.query.health.controller-1");
-    }
-
-    [Test]
-    public async Task ControlPlaneProfileKeepsThreeRegionsAndStartsOnlySixResources()
-    {
-        var topology = DevelopmentTopology.CreateControl();
-
-        await Assert.That(topology.Profile).IsEqualTo("control");
-        await Assert.That(topology.Cells.Select(cell => cell.Cell))
-            .IsEquivalentTo(["gru", "sfo", "fra"]);
-        await Assert.That(topology.GlobalResources).IsEmpty();
-        foreach (var cell in topology.Cells)
-        {
-            await Assert.That(cell.Resources.Select(resource => resource.Kind)).IsEquivalentTo([
-                DevelopmentResourceKind.ControlNats,
-                DevelopmentResourceKind.ControllerAgent
-            ]);
-        }
-        await Assert.That(topology.Cells.Sum(cell => cell.Resources.Count)).IsEqualTo(6);
-        await Assert.That(DevelopmentContainerImages.RequiredBy(topology)).IsEquivalentTo([
-            DevelopmentContainerImages.Nats,
-            DevelopmentContainerImages.RuntimeDependencies
-        ]);
     }
 
     [Test]
@@ -262,8 +216,8 @@ public sealed class DevelopmentTopologyTests
         var root = Path.Combine(Path.GetTempPath(), $"ts-orch-provision-options-{Guid.NewGuid():N}");
         try
         {
-            var topology = DevelopmentTopology.CreateQuick();
-            var cell = topology.Cells.Single();
+            var topology = DevelopmentTopology.CreateRegional();
+            var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
             var controller = cell.OfKind(DevelopmentResourceKind.ControllerAgent).Single();
             var security = DevelopmentNatsSecurity.Create(topology, root).Cell(cell.Cell);
 
@@ -298,9 +252,6 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))
             .IsEqualTo(16_128L * 1024 * 1024);
-        await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
-            DevelopmentTopology.CreateControl()))
-            .IsEqualTo(1_728L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
     }
@@ -397,10 +348,10 @@ public sealed class DevelopmentTopologyTests
     public async Task PodCreationUsesOneNameAndPinnedInfraWithoutHostHelpers()
     {
         var arguments = DevelopmentProcessSupervisor.PodCreationArguments(
-            DevelopmentTopology.CreateControl(),
-            "control-lab");
+            DevelopmentTopology.CreateRegional(),
+            "regional-lab");
 
-        await Assert.That(arguments.Count(argument => argument == "control-lab")).IsEqualTo(1);
+        await Assert.That(arguments.Count(argument => argument == "regional-lab")).IsEqualTo(1);
         await Assert.That(arguments).Contains("--infra-image");
         await Assert.That(arguments).Contains(DevelopmentContainerImages.RuntimeDependencies);
         await Assert.That(arguments).Contains("--infra-command");

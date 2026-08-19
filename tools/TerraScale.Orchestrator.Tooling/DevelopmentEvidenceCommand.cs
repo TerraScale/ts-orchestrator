@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TerraScale.Orchestrator.Development;
@@ -7,7 +6,7 @@ namespace TerraScale.Orchestrator.Tooling;
 
 internal static class DevelopmentEvidenceCommand
 {
-    internal const string DefaultProfile = "quick";
+    internal const string RequiredProfile = "regional";
     internal const int EvidenceSchemaVersion = 2;
     internal const int MaximumParallelTestModules = 1;
     internal const int MaximumParallelTests = 4;
@@ -24,13 +23,6 @@ internal static class DevelopmentEvidenceCommand
         new("TerraScale.Orchestrator.Scheduler.Tests", "tests/TerraScale.Orchestrator.Scheduler.Tests"),
         new("TerraScale.Orchestrator.Tests", "tests/TerraScale.Orchestrator.Tests")
     ];
-    private static readonly FrozenSet<string> AllowedProfiles = new[]
-    {
-        DefaultProfile,
-        "regional",
-        "control"
-    }.ToFrozenSet(StringComparer.Ordinal);
-
     public static int Run(string[] arguments)
     {
         var options = Parse(arguments);
@@ -114,7 +106,7 @@ internal static class DevelopmentEvidenceCommand
             ["result"] = "pass",
             ["sourceCommit"] = ToolingSupport.Git(root, "rev-parse", "HEAD").Trim(),
             ["binarySha256"] = ToolingSupport.Sha256(ResolveCodeArtifact(binary)),
-            ["authorizedProfile"] = options.Profile,
+            ["authorizedProfile"] = RequiredProfile,
             ["issuedAt"] = now,
             ["expiresAt"] = now.AddHours(options.ValidHours),
             ["checks"] = new JsonArray(
@@ -145,7 +137,7 @@ internal static class DevelopmentEvidenceCommand
         var temporary = $"{output}.{Environment.ProcessId}.tmp";
         File.WriteAllText(temporary, ToolingSupport.Serialize(document));
         File.Move(temporary, output, overwrite: true);
-        Console.WriteLine($"authorized {options.Profile} for exact commit and binary until {now.AddHours(options.ValidHours):O}");
+        Console.WriteLine($"authorized {RequiredProfile} for exact commit and binary until {now.AddHours(options.ValidHours):O}");
         Console.WriteLine(output);
         return 0;
     }
@@ -154,7 +146,6 @@ internal static class DevelopmentEvidenceCommand
     {
         string? output = null;
         string? binary = null;
-        var profile = DefaultProfile;
         var validHours = 8;
         for (var index = 0; index < arguments.Length; index++)
         {
@@ -172,9 +163,6 @@ internal static class DevelopmentEvidenceCommand
                 case "--binary":
                     binary = value;
                     break;
-                case "--profile" when AllowedProfiles.Contains(value):
-                    profile = value;
-                    break;
                 case "--valid-hours" when int.TryParse(value, out validHours) && validHours is >= 1 and <= 24:
                     break;
                 default:
@@ -184,7 +172,7 @@ internal static class DevelopmentEvidenceCommand
 
         return string.IsNullOrWhiteSpace(output)
             ? throw Usage()
-            : new Options(output, binary, validHours, profile);
+            : new Options(output, binary, validHours);
     }
 
     private static void RequireClean(string root)
@@ -245,9 +233,9 @@ internal static class DevelopmentEvidenceCommand
     }
 
     private static ToolValidationException Usage() => new([
-        "development-attest requires --output <outside-repository-path> [--binary <path>] [--valid-hours 1..24] [--profile quick|regional|control]"
+        "development-attest requires --output <outside-repository-path> [--binary <path>] [--valid-hours 1..24]"
     ]);
 
-    internal sealed record Options(string Output, string? Binary, int ValidHours, string Profile);
+    internal sealed record Options(string Output, string? Binary, int ValidHours);
     internal sealed record TestModule(string Name, string RelativeDirectory);
 }

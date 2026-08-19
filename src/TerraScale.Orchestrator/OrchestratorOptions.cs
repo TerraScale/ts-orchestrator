@@ -17,13 +17,6 @@ public enum OrchestratorLabCommand
     Status
 }
 
-public enum OrchestratorLabProfile
-{
-    Quick,
-    Regional,
-    Control
-}
-
 public sealed record OrchestratorOptions(
     OrchestratorCommand Command,
     string Cell,
@@ -36,7 +29,6 @@ public sealed record OrchestratorOptions(
     string? EndpointsFile = null,
     string? EvidenceFile = null,
     string Instance = "local",
-    OrchestratorLabProfile LabProfile = OrchestratorLabProfile.Quick,
     string? SocketFile = null,
     string? NatsNKeyFile = null,
     Messaging.NatsTlsFiles? NatsTls = null,
@@ -304,25 +296,17 @@ public sealed record OrchestratorOptions(
             Path.Combine(dataRoot, "endpoints.json")));
         values.TryGetValue("--evidence", out var evidenceFile);
 
-        var labProfile = GetValue(values, "--profile", environment("TS_ORCH_LAB_PROFILE") ?? "quick") switch
-        {
-            "quick" => OrchestratorLabProfile.Quick,
-            "regional" => OrchestratorLabProfile.Regional,
-            "control" => OrchestratorLabProfile.Control,
-            _ => throw new ArgumentException(
-                "Lab profile must be 'quick', 'regional', or 'control'.")
-        };
         var dataDirectory = Path.Combine(
             dataRoot,
             "profiles",
-            labProfile.ToString().ToLowerInvariant());
+            "regional");
         var socketFile = Path.GetFullPath(GetValue(
             values,
             "--socket",
             Path.Combine(Path.GetDirectoryName(stateFile)!, "orchestrator.sock")));
 
         var unknown = values.Keys.Except(
-            ["--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--profile", "--socket"],
+            ["--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--socket"],
             StringComparer.Ordinal).FirstOrDefault();
         if (unknown is not null)
         {
@@ -341,7 +325,6 @@ public sealed record OrchestratorOptions(
             endpointsFile,
             evidenceFile is null ? null : Path.GetFullPath(evidenceFile),
             instance,
-            labProfile,
             SocketFile: socketFile);
     }
 

@@ -38,29 +38,17 @@ public sealed record DevelopmentTopology(
     private const int CellStride = 200;
     private const int BasePort = 18600;
 
-    public static DevelopmentTopology CreateQuick()
-    {
-        var cells = new[] { CreateCell("gru", 0, controlOnly: false) };
-        return new("quick", cells, CreateGlobalResources(cells.Length));
-    }
-
     public static DevelopmentTopology CreateRegional()
     {
-        var cells = CreateCells(controlOnly: false);
+        var cells = CreateCells();
         return new("regional", cells, CreateGlobalResources(cells.Length));
     }
 
-    public static DevelopmentTopology CreateControl()
-    {
-        var cells = CreateCells(controlOnly: true);
-        return new("control", cells, []);
-    }
-
-    private static DevelopmentCellPlan[] CreateCells(bool controlOnly) =>
+    private static DevelopmentCellPlan[] CreateCells() =>
     [
-        CreateCell("gru", 0, controlOnly),
-        CreateCell("sfo", 1, controlOnly),
-        CreateCell("fra", 2, controlOnly)
+        CreateCell("gru", 0),
+        CreateCell("sfo", 1),
+        CreateCell("fra", 2)
     ];
 
     private static DevelopmentResourcePlan[] CreateGlobalResources(int cellCount)
@@ -84,10 +72,7 @@ public sealed record DevelopmentTopology(
         Cells.Single(candidate => candidate.Cell == cell)
             .Resources.Single(resource => resource.Kind == kind && resource.Replica == replica);
 
-    private static DevelopmentCellPlan CreateCell(
-        string cell,
-        int ordinal,
-        bool controlOnly = false)
+    private static DevelopmentCellPlan CreateCell(string cell, int ordinal)
     {
         var start = BasePort + (ordinal * CellStride);
         var resources = new List<DevelopmentResourcePlan>();
@@ -99,26 +84,19 @@ public sealed record DevelopmentTopology(
             replica,
             start,
             start + 10));
-        if (!controlOnly)
-        {
-            resources.Add(new(
-                $"{cell}-product-nats-{replica}",
-                cell,
-                DevelopmentResourceKind.ProductNats,
-                replica,
-                start + 20,
-                start + 30));
-        }
+        resources.Add(new(
+            $"{cell}-product-nats-{replica}",
+            cell,
+            DevelopmentResourceKind.ProductNats,
+            replica,
+            start + 20,
+            start + 30));
         resources.Add(new(
             $"{cell}-controller-{replica}",
             cell,
             DevelopmentResourceKind.ControllerAgent,
             replica,
             start + 40));
-        if (controlOnly)
-        {
-            return new(cell, ordinal, resources);
-        }
         resources.Add(new(
             $"{cell}-terrabase-{replica}",
             cell,

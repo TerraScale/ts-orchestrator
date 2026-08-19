@@ -41,29 +41,27 @@ public sealed class RuntimePlannerEndToEndTests
     }
 
     [Test]
-    public async Task ExecutablePlansTheSmallRegionalControlPlaneLab()
+    public async Task ExecutableAlwaysPlansTheFullThreeRegionDevelopmentLab()
     {
-        var planned = await RunAsync("lab", "plan", "--profile", "control");
+        var planned = await RunAsync("lab", "plan");
 
         await Assert.That(planned.ExitCode).IsEqualTo(0);
         await Assert.That(planned.StandardError).IsEmpty();
         using var document = JsonDocument.Parse(planned.StandardOutput);
         var root = document.RootElement;
         await Assert.That(root.GetProperty("profile").GetString())
-            .IsEqualTo("control");
+            .IsEqualTo("regional");
         await Assert.That(root.GetProperty("cells").GetArrayLength()).IsEqualTo(3);
-        await Assert.That(root.GetProperty("globalResources").GetArrayLength()).IsEqualTo(0);
+        await Assert.That(root.GetProperty("globalResources").GetArrayLength()).IsEqualTo(1);
         var resources = root.GetProperty("cells")
             .EnumerateArray()
             .SelectMany(cell => cell.GetProperty("resources").EnumerateArray())
             .ToArray();
-        await Assert.That(resources.Length).IsEqualTo(6);
-        await Assert.That(resources.Select(resource => resource.GetProperty("kind").GetString()!))
-            .IsEquivalentTo([
-                "controlNats", "controllerAgent",
-                "controlNats", "controllerAgent",
-                "controlNats", "controllerAgent"
-            ]);
+        await Assert.That(resources.Length).IsEqualTo(21);
+        foreach (var cell in root.GetProperty("cells").EnumerateArray())
+        {
+            await Assert.That(cell.GetProperty("resources").GetArrayLength()).IsEqualTo(7);
+        }
     }
 
     private static async Task<(int ExitCode, string StandardOutput, string StandardError)> RunAsync(

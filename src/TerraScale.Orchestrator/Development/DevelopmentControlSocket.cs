@@ -87,7 +87,7 @@ internal static partial class DevelopmentReconcilePlanner
                 !request.ChangedPaths.All(IsNonRuntimeInternalsPath))
             {
                 throw new InvalidDataException(
-                    "The repository update has no safe workload mapping in this profile.");
+                    "The repository update has no safe workload mapping in this topology.");
             }
         }
 

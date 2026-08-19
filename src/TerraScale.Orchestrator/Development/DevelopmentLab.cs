@@ -22,13 +22,7 @@ public static class DevelopmentLab
         {
             throw new InvalidOperationException("DevelopmentLab requires a lab command.");
         }
-        var topology = options.LabProfile switch
-        {
-            OrchestratorLabProfile.Quick => DevelopmentTopology.CreateQuick(),
-            OrchestratorLabProfile.Regional => DevelopmentTopology.CreateRegional(),
-            OrchestratorLabProfile.Control => DevelopmentTopology.CreateControl(),
-            _ => throw new InvalidOperationException($"Unsupported lab profile {options.LabProfile}.")
-        };
+        var topology = DevelopmentTopology.CreateRegional();
         return options.LabCommand switch
         {
             OrchestratorLabCommand.Plan => PrintPlan(topology),

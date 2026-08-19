@@ -16,40 +16,26 @@ public sealed class OrchestratorOptionsTests
     public async Task ParsesLabPlanWithoutDeploymentEvidence()
     {
         var options = OrchestratorOptions.Parse(
-            ["lab", "plan", "--workspace", "/tmp/workspace", "--data-directory", "/tmp/data", "--profile", "regional"],
+            ["lab", "plan", "--workspace", "/tmp/workspace", "--data-directory", "/tmp/data"],
             _ => null);
 
         await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Lab);
         await Assert.That(options.LabCommand).IsEqualTo(OrchestratorLabCommand.Plan);
         await Assert.That(options.WorkspaceRoot).IsEqualTo("/tmp/workspace");
         await Assert.That(options.DataDirectory).IsEqualTo("/tmp/data/profiles/regional");
-        await Assert.That(options.LabProfile).IsEqualTo(OrchestratorLabProfile.Regional);
     }
 
     [Test]
-    public async Task ParsesControlPlaneContainerProfile()
+    public async Task RejectsRemovedProfileSelection()
     {
-        var options = OrchestratorOptions.Parse(
-            ["lab", "plan", "--profile", "control"],
-            _ => null);
-
-        await Assert.That(options.LabProfile)
-            .IsEqualTo(OrchestratorLabProfile.Control);
-    }
-
-    [Test]
-    public async Task ProfilesUseSeparatePersistentDataDirectories()
-    {
-        var quick = OrchestratorOptions.Parse(
-            ["lab", "plan", "--data-directory", "/tmp/data", "--profile", "quick"],
-            _ => null);
-        var regional = OrchestratorOptions.Parse(
-            ["lab", "plan", "--data-directory", "/tmp/data", "--profile", "regional"],
-            _ => null);
-
-        await Assert.That(quick.DataDirectory).IsEqualTo("/tmp/data/profiles/quick");
-        await Assert.That(regional.DataDirectory).IsEqualTo("/tmp/data/profiles/regional");
-        await Assert.That(quick.StateFile).IsEqualTo(regional.StateFile);
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["lab", "plan", "--profile", "quick"],
+                _ => null))
+            .Throws<ArgumentException>();
+        await Assert.That(() => OrchestratorOptions.Parse(
+                ["lab", "plan", "--profile", "control"],
+                _ => null))
+            .Throws<ArgumentException>();
     }
 
     [Test]

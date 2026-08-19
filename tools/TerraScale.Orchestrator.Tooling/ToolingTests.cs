@@ -100,7 +100,7 @@ internal static class ToolingTests
             ("git bytes preserve non UTF-8 blob", GitBytesPreserveNonUtf8Blob),
             ("no python sources", NoPythonSources),
             ("CI result manifest", CiResultManifest),
-            ("development evidence profile authorization", DevelopmentEvidenceProfiles),
+            ("development evidence fixed topology authorization", DevelopmentEvidenceTopology),
             ("development evidence bounded execution", DevelopmentEvidenceBounds),
             ("development bounded process observation", DevelopmentBoundedProcessObservation),
             ("development validation lease", DevelopmentValidationLease),
@@ -465,18 +465,15 @@ internal static class ToolingTests
         </TestRun>
         """;
 
-    private static void DevelopmentEvidenceProfiles()
+    private static void DevelopmentEvidenceTopology()
     {
-        var lean = DevelopmentEvidenceCommand.Parse(["--output", "/tmp/evidence.json"]);
-        var control = DevelopmentEvidenceCommand.Parse([
-            "--output", "/tmp/evidence.json",
-            "--profile", "control"]);
-        AssertEqual("quick", lean.Profile);
-        AssertEqual("control", control.Profile);
-        var retiredProfile = string.Concat("dev-", "smol", "vm", "-three-cell-r3");
+        _ = DevelopmentEvidenceCommand.Parse(["--output", "/tmp/evidence.json"]);
         AssertThrows<ToolValidationException>(() => DevelopmentEvidenceCommand.Parse([
             "--output", "/tmp/evidence.json",
-            "--profile", retiredProfile]));
+            "--profile", "quick"]));
+        AssertThrows<ToolValidationException>(() => DevelopmentEvidenceCommand.Parse([
+            "--output", "/tmp/evidence.json",
+            "--profile", "control"]));
     }
 
     private static void DevelopmentEvidenceBounds()
