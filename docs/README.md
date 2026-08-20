@@ -12,6 +12,7 @@ Owner choices **1A–10A** are accepted (reliability first). Measurable cost, st
 | [`guides/phase0-evidence.md`](guides/phase0-evidence.md) | Consolidated Phase 0 readiness, pins posture, honest gaps |
 | [`guides/phase1-contracts.md`](guides/phase1-contracts.md) | Domain-by-domain pure-contract map + live source inventory |
 | [`guides/production-readiness-audit-2026-08-04.md`](guides/production-readiness-audit-2026-08-04.md) | Evidence-backed current implementation audit and production-adapter gap map |
+| [`guides/public-alpha-release.md`](guides/public-alpha-release.md) | Local Public Alpha decision coverage, qualification blockers, and draft incident runbooks |
 | [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Index of every historical work package / handoff |
 | [`decisions/`](decisions/) | Machine-validated owner decision packet |
 | [`adr/`](adr/) | ADR readiness index + draft ADRs 0004, 0013, 0018, 0020 |
