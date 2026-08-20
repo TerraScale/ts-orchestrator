@@ -502,6 +502,20 @@ public sealed class PublicAlphaReleaseCoordinatorTests
     }
 
     [Test]
+    public async Task PreparationFailureBlocksConvergenceWhenServingStateIsAlreadyDivergent()
+    {
+        var failed = Regions(PreviousCandidate).Select(item => item.Region == PublicAlphaRegion.Sfo
+            ? item with { ServingDigest = Candidate, PreparedDigest = Candidate, PreparationFailed = true }
+            : item).ToArray();
+
+        var decision = PublicAlphaReleaseCoordinator.Decide(Request(regions: failed));
+
+        await Assert.That(decision.Intents).IsEmpty();
+        await Assert.That(decision.Errors.Any(static error =>
+            error.Code == PublicAlphaReleaseErrorCode.PreparationFailed && error.Region == PublicAlphaRegion.Sfo)).IsTrue();
+    }
+
+    [Test]
     public async Task FinalLaunchApprovalMustComeFromTheNamedOwner()
     {
         var request = Request() with

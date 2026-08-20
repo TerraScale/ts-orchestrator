@@ -160,7 +160,13 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
     internal PublicAlphaReleaseReceiptJournalDocument Merge(PublicAlphaReleaseReceiptJournalDocument proposed)
     {
         var links = EvidenceLinks.Concat(proposed.EvidenceLinks).Distinct().ToArray();
-        var events = Events.Concat(proposed.Events).Distinct().ToArray();
+        // A retried operation may carry a fresh observation timestamp. Treat the
+        // decision identity as the idempotency key so a replay cannot append a
+        // second logical activation/rollback event merely because its clock moved.
+        var events = Events.Concat(proposed.Events)
+            .GroupBy(static item => (item.Decision, item.Actor, item.GlobalDigest))
+            .Select(static group => group.First())
+            .ToArray();
         if (links.Length == EvidenceLinks.Length && events.Length == Events.Length) return this;
         return From(ToReceipt(links, events));
     }
@@ -175,9 +181,9 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
             !DigestValue(MigrationSetDigest) || !SafeLabel(PreviousQualifiedConfigurationRevision) ||
             !DigestValue(PreviousQualifiedMigrationSetDigest) || CreatedAt == default ||
             EvidenceLinks is null or { Length: > 512 } || Events is null or { Length: > 512 } ||
-            EvidenceLinks.Any(static link => !SafeLabel(link.Kind) || !DigestValue(link.Digest)) ||
-            Events.Any(static item => !SafeLabel(item.Decision) || !SafeLabel(item.Actor) ||
-                item.RecordedAt == default || !DigestValue(item.GlobalDigest)) ||
+            EvidenceLinks.Any(static link => link is null || !SafeLabel(link.Kind) || !DigestValue(link.Digest)) ||
+            Events.Any(item => item is null || !SafeLabel(item.Decision) || !SafeLabel(item.Actor) ||
+                item.RecordedAt == default || item.RecordedAt < CreatedAt || !DigestValue(item.GlobalDigest)) ||
             EvidenceLinks.Distinct().Count() != EvidenceLinks.Length ||
             Events.Distinct().Count() != Events.Length || !DigestValue(Digest))
             throw new InvalidDataException("A Public Alpha release receipt record is invalid.");

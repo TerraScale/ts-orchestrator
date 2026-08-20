@@ -74,6 +74,24 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
     }
 
     [Test]
+    public async Task ReplayedDecisionWithFreshTimestampRemainsIdempotent()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new PublicAlphaReleaseReceiptJournal(ledger);
+        await journal.AppendAsync(Receipt("activate", Candidate));
+
+        // Reconstruct the receipt so only the operation observation time
+        // changes; the logical decision remains the same.
+        var replay = Receipt("activate", Candidate, recordedAt: Now.AddMinutes(1));
+        var result = await journal.AppendAsync(replay);
+        var recovered = await journal.ReadAsync("release-42");
+
+        await Assert.That(result.Disposition).IsEqualTo(PublicAlphaReleaseReceiptJournalDisposition.Duplicate);
+        await Assert.That(recovered!.Events).HasSingleItem();
+        await Assert.That(recovered.Events.Single().RecordedAt).IsEqualTo(Now);
+    }
+
+    [Test]
     public async Task CorruptDurableReceiptFailsClosed()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
@@ -104,7 +122,8 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
         string globalDigest,
         string configurationRevision = "config-7",
         string? evidenceKind = null,
-        string? actor = null) => new(
+        string? actor = null,
+        DateTimeOffset? recordedAt = null) => new(
         new(
             "release-42",
             ObjectId("source-revision"),
@@ -116,7 +135,7 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
             Digest("previous-migrations"),
             Now - TimeSpan.FromMinutes(20)),
         [new(evidenceKind ?? $"gate/{decision}", Digest($"evidence-{decision}"))],
-        [new(decision, actor ?? (decision == "activate" ? "mariogk" : "terrascale-orchestrator"), Now, globalDigest)]);
+        [new(decision, actor ?? (decision == "activate" ? "mariogk" : "terrascale-orchestrator"), recordedAt ?? Now, globalDigest)]);
 
     private static string Digest(string value) => $"sha256:{Convert.ToHexStringLower(
         SHA256.HashData(Encoding.UTF8.GetBytes(value)))}";

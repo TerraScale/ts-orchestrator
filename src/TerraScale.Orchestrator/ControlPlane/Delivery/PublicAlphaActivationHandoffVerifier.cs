@@ -100,6 +100,7 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var required = Enum.GetValues<DeployArtifactKind>();
         if (handoff.Artifacts is null || handoff.Artifacts.Count != required.Length ||
+            handoff.Artifacts.Any(static item => item is null) ||
             handoff.Artifacts.Select(static item => item.Kind).Distinct().Count() != handoff.Artifacts.Count ||
             !handoff.Artifacts.Select(static item => item.Kind).ToHashSet().SetEquals(required) ||
             handoff.Artifacts.Any(static item => !Required(item.Version) || !Digest(item.Digest)))
@@ -122,6 +123,7 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var required = Enum.GetValues<DeployRegion>();
         if (handoff.Regions is null || handoff.Regions.Count != required.Length ||
+            handoff.Regions.Any(static item => item is null) ||
             handoff.Regions.Select(static item => item.Region).Distinct().Count() != handoff.Regions.Count ||
             !handoff.Regions.Select(static item => item.Region).ToHashSet().SetEquals(required))
             throw new InvalidDataException("The Public Alpha activation handoff region set is incomplete.");
@@ -141,6 +143,7 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var required = Enum.GetValues<DeployClientKind>();
         if (handoff.Clients is null || handoff.Clients.Count != required.Length ||
+            handoff.Clients.Any(static item => item is null) ||
             handoff.Clients.Select(static item => item.Kind).Distinct().Count() != handoff.Clients.Count ||
             !handoff.Clients.Select(static item => item.Kind).ToHashSet().SetEquals(required))
             throw new InvalidDataException("The Public Alpha activation handoff client set is incomplete.");
@@ -159,6 +162,7 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var expected = Enum.GetValues<DeployRegion>().Length * Enum.GetValues<DeployGateKind>().Length;
         if (handoff.Gates is null || handoff.Gates.Count != expected ||
+            handoff.Gates.Any(static item => item is null) ||
             handoff.Gates.Select(static item => (item.Region, item.Kind)).Distinct().Count() != handoff.Gates.Count)
             throw new InvalidDataException("The Public Alpha activation handoff gate set is incomplete.");
         foreach (var region in Enum.GetValues<DeployRegion>())
@@ -179,6 +183,7 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var required = Enum.GetValues<DeployPublicEndpointKind>();
         if (handoff.PublicEndpoints is null || handoff.PublicEndpoints.Count != required.Length ||
+            handoff.PublicEndpoints.Any(static item => item is null) ||
             handoff.PublicEndpoints.Select(static item => item.Kind).Distinct().Count() != handoff.PublicEndpoints.Count ||
             !handoff.PublicEndpoints.Select(static item => item.Kind).ToHashSet().SetEquals(required))
             throw new InvalidDataException("The Public Alpha activation handoff endpoint evidence is incomplete.");

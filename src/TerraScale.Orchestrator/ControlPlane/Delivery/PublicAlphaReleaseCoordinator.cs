@@ -462,6 +462,14 @@ public static class PublicAlphaReleaseCoordinator
                 [new("verified", "terrascale-orchestrator", request.DecisionTime, request.Release.CandidateDigest)]);
         }
 
+        var failedPreparation = request.Regions.Where(static region => region.PreparationFailed).ToArray();
+        if (failedPreparation.Length != 0)
+        {
+            errors.AddRange(failedPreparation.Select(region =>
+                new PublicAlphaReleaseError(PublicAlphaReleaseErrorCode.PreparationFailed, region.Region)));
+            return Decision(request.Release, [], errors, links, []);
+        }
+
         if (divergent.Length != 0)
         {
             var intents = divergent.Select(region =>
@@ -469,14 +477,6 @@ public static class PublicAlphaReleaseCoordinator
             PublicAlphaReceiptEvent[] events =
                 [new("converge", "terrascale-orchestrator", request.DecisionTime, targetDigest)];
             return Decision(request.Release, intents, [], links, events);
-        }
-
-        var failedPreparation = request.Regions.Where(static region => region.PreparationFailed).ToArray();
-        if (failedPreparation.Length != 0)
-        {
-            errors.AddRange(failedPreparation.Select(region =>
-                new PublicAlphaReleaseError(PublicAlphaReleaseErrorCode.PreparationFailed, region.Region)));
-            return Decision(request.Release, [], errors, links, []);
         }
 
         var unprepared = request.Regions.Where(region =>
