@@ -68,8 +68,11 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         var undefinedRegion = Gates(PublicAlphaGatePhase.PreActivation)
             .Select((item, index) => index == 0 ? item with { Region = (PublicAlphaRegion)999 } : item)
             .ToArray();
+        var containingNull = Gates(PublicAlphaGatePhase.PreActivation)
+            .Select((item, index) => index == 0 ? null! : item)
+            .ToArray();
 
-        foreach (var gates in new[] { duplicate, unknown, undefinedRegion })
+        foreach (var gates in new[] { duplicate, unknown, undefinedRegion, containingNull })
         {
             var decision = PublicAlphaReleaseCoordinator.Decide(Request(gates: gates));
             await Assert.That(decision.Intents).IsEmpty();
@@ -94,6 +97,8 @@ public sealed class PublicAlphaReleaseCoordinatorTests
 
             var rollback = (RollbackPublicAlphaReleaseIntent)decision.Intents.Single();
             await Assert.That(rollback.RollbackDigest).IsEqualTo(PreviousCandidate);
+            await Assert.That(rollback.ConfigurationRevision).IsEqualTo("config-previous");
+            await Assert.That(rollback.MigrationSetDigest).IsEqualTo(Digest("previous-migrations"));
             await Assert.That(rollback.Regions).IsEquivalentTo(PublicAlphaRegionCatalog.LaunchRegions);
             await Assert.That(rollback.RebuildAllowed).IsFalse();
         }
@@ -135,6 +140,30 @@ public sealed class PublicAlphaReleaseCoordinatorTests
     }
 
     [Test]
+    public async Task RollbackSelectionIsIdempotentAcrossRestartAndPartialProgress()
+    {
+        var gates = Gates(PublicAlphaGatePhase.PostActivation)
+            .Select(item => item.Kind == PublicAlphaGateKind.ServiceHealth && item.Region == PublicAlphaRegion.Gru
+                ? item with { Status = PublicAlphaGateStatus.Failed }
+                : item).ToArray();
+        var beforeRestart = PublicAlphaReleaseCoordinator.Decide(Request(
+            activationCommitted: true,
+            regions: Regions(Candidate),
+            gates: gates));
+        var afterRestart = PublicAlphaReleaseCoordinator.Decide(Request(
+            activationCommitted: true,
+            regions: Regions(PreviousCandidate, Candidate, PreviousCandidate),
+            gates: gates));
+
+        var first = (RollbackPublicAlphaReleaseIntent)beforeRestart.Intents.Single();
+        var resumed = (RollbackPublicAlphaReleaseIntent)afterRestart.Intents.Single();
+        await Assert.That(resumed.RollbackDigest).IsEqualTo(first.RollbackDigest);
+        await Assert.That(resumed.ConfigurationRevision).IsEqualTo(first.ConfigurationRevision);
+        await Assert.That(resumed.MigrationSetDigest).IsEqualTo(first.MigrationSetDigest);
+        await Assert.That(resumed.RebuildAllowed).IsFalse();
+    }
+
+    [Test]
     public async Task DigestFieldsRequireACompleteSha256Value()
     {
         var decision = PublicAlphaReleaseCoordinator.Decide(Request() with
@@ -145,6 +174,29 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         await Assert.That(decision.Intents).IsEmpty();
         await Assert.That(decision.Errors.Any(static error =>
             error.Code == PublicAlphaReleaseErrorCode.InvalidInput)).IsTrue();
+    }
+
+    [Test]
+    public async Task UnsafeOrTimelessReleaseIdentityFailsBeforeActivation()
+    {
+        var cases = new[]
+        {
+            Request() with { Release = Request().Release with { ReleaseId = "query=customer-content" } },
+            Request() with { Release = Request().Release with { ConfigurationRevision = "secret=plaintext" } },
+            Request() with { Release = Request().Release with { CreatedAt = default } },
+            Request() with { DecisionTime = default },
+            Request() with
+            {
+                Regions = Regions(PreviousCandidate).Select((item, index) => index == 0 ? null! : item).ToArray(),
+            },
+        };
+
+        foreach (var request in cases)
+        {
+            var decision = PublicAlphaReleaseCoordinator.Decide(request);
+            await Assert.That(decision.Intents).IsEmpty();
+            await Assert.That(decision.Errors).IsNotEmpty();
+        }
     }
 
     [Test]
@@ -177,6 +229,8 @@ public sealed class PublicAlphaReleaseCoordinatorTests
             Handoff(configurationRevision: "config-other"),
             Handoff(migrationSetDigest: Digest("other-migrations")),
             Handoff(previousQualifiedDigest: Digest("other-previous")),
+            Handoff(previousQualifiedConfigurationRevision: "config-other-previous"),
+            Handoff(previousQualifiedMigrationSetDigest: Digest("other-previous-migrations")),
         };
 
         foreach (var handoff in mismatched)
@@ -325,6 +379,7 @@ public sealed class PublicAlphaReleaseCoordinatorTests
             Digest("unknown-readiness"))).ToArray();
         await Assert.That(PublicAlphaReadinessGate.Decide(new(
             Candidate, Now, TimeSpan.FromMinutes(30), unknown)).Authorized).IsFalse();
+
     }
 
     [Test]
@@ -369,6 +424,84 @@ public sealed class PublicAlphaReleaseCoordinatorTests
     }
 
     [Test]
+    public async Task RegionQualificationAndReadinessAreCandidateBoundActivationGates()
+    {
+        var other = Digest("other-candidate");
+        var cases = new[]
+        {
+            Request() with { RegionQualification = null },
+            Request() with { RegionQualification = PublicAlphaRegionQualificationTests.Decision(other) },
+            Request() with
+            {
+                Readiness = PublicAlphaReadinessGate.Decide(new(
+                    other, Now, TimeSpan.FromMinutes(30), ReadinessEvidence(other))),
+            },
+        };
+
+        foreach (var request in cases)
+        {
+            var decision = PublicAlphaReleaseCoordinator.Decide(request);
+            await Assert.That(decision.Intents).IsEmpty();
+            await Assert.That(decision.Errors).IsNotEmpty();
+        }
+    }
+
+    [Test]
+    public async Task ComposedGateCannotExtendTheUnderlyingEvidenceFreshnessWindow()
+    {
+        var gateTime = Now - TimeSpan.FromMinutes(20);
+        var evidenceTime = gateTime - TimeSpan.FromMinutes(20);
+        var cases = new[]
+        {
+            Request() with
+            {
+                RegionQualification = PublicAlphaRegionQualificationTests.Decision(
+                    decisionTime: gateTime,
+                    observedAt: evidenceTime),
+            },
+            Request() with
+            {
+                Readiness = PublicAlphaReadinessGate.Decide(new(
+                    Candidate,
+                    gateTime,
+                    TimeSpan.FromMinutes(30),
+                    ReadinessEvidence(observedAt: evidenceTime))),
+            },
+        };
+
+        foreach (var request in cases)
+        {
+            var decision = PublicAlphaReleaseCoordinator.Decide(request);
+            await Assert.That(decision.Intents).IsEmpty();
+            await Assert.That(decision.Errors).IsNotEmpty();
+        }
+    }
+
+    [Test]
+    public async Task PrepareFailureAndRetryConvergeWithoutReplacingTheServingVersion()
+    {
+        var failed = Regions(PreviousCandidate).Select(item => item.Region == PublicAlphaRegion.Sfo
+            ? item with { PreparedDigest = null, PreparationFailed = true }
+            : item).ToArray();
+        var stopped = PublicAlphaReleaseCoordinator.Decide(Request(regions: failed));
+        await Assert.That(stopped.Intents).IsEmpty();
+        await Assert.That(stopped.Errors.Any(static error =>
+            error.Code == PublicAlphaReleaseErrorCode.PreparationFailed)).IsTrue();
+
+        var retry = failed.Select(item => item.Region == PublicAlphaRegion.Sfo
+            ? item with { PreparationFailed = false }
+            : item).ToArray();
+        var resumed = PublicAlphaReleaseCoordinator.Decide(Request(regions: retry));
+        var prepare = (PreparePublicAlphaRegionIntent)resumed.Intents.Single();
+        await Assert.That(prepare.Region).IsEqualTo(PublicAlphaRegion.Sfo);
+        await Assert.That(retry.Single(item => item.Region == PublicAlphaRegion.Sfo).ServingDigest)
+            .IsEqualTo(PreviousCandidate);
+
+        var activated = PublicAlphaReleaseCoordinator.Decide(Request(regions: Regions(PreviousCandidate)));
+        await Assert.That(activated.Intents.Single()).IsTypeOf<ActivatePublicAlphaReleaseIntent>();
+    }
+
+    [Test]
     public async Task FinalLaunchApprovalMustComeFromTheNamedOwner()
     {
         var request = Request() with
@@ -378,11 +511,32 @@ public sealed class PublicAlphaReleaseCoordinatorTests
                 "another-operator",
                 Candidate,
                 Now - TimeSpan.FromMinutes(1),
+                Digest("manual-qa"),
                 true),
         };
 
         var decision = PublicAlphaReleaseCoordinator.Decide(request);
 
+        await Assert.That(decision.Intents).IsEmpty();
+        await Assert.That(decision.Errors.Any(static error =>
+            error.Code == PublicAlphaReleaseErrorCode.ApprovalDenied)).IsTrue();
+    }
+
+    [Test]
+    public async Task FinalApprovalRequiresDigestBoundManualQaEvidence()
+    {
+        var request = Request() with
+        {
+            FinalApproval = new(
+                "approval-1",
+                "mariogk",
+                Candidate,
+                Now - TimeSpan.FromMinutes(1),
+                "manual-qa.txt",
+                true),
+        };
+
+        var decision = PublicAlphaReleaseCoordinator.Decide(request);
         await Assert.That(decision.Intents).IsEmpty();
         await Assert.That(decision.Errors.Any(static error =>
             error.Code == PublicAlphaReleaseErrorCode.ApprovalDenied)).IsTrue();
@@ -398,8 +552,27 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         await Assert.That(receipt.PreviousQualifiedDigest).IsEqualTo(PreviousCandidate);
         await Assert.That(receipt.ConfigurationRevision).IsEqualTo("config-7");
         await Assert.That(receipt.MigrationSetDigest).IsEqualTo(Digest("migrations"));
+        await Assert.That(receipt.PreviousQualifiedConfigurationRevision).IsEqualTo("config-previous");
+        await Assert.That(receipt.PreviousQualifiedMigrationSetDigest).IsEqualTo(Digest("previous-migrations"));
+        await Assert.That(receipt.EvidenceLinks.Any(static link => link.Kind == "manual-qa")).IsTrue();
         await Assert.That(text).DoesNotContain("secret");
         await Assert.That(text).DoesNotContain("query=");
+    }
+
+    [Test]
+    public async Task SharedReadinessDocumentProducesOneJournalLink()
+    {
+        var sharedDigest = Digest("shared-readiness-report");
+        var evidence = ReadinessEvidence().Select(item => item with { EvidenceDigest = sharedDigest }).ToArray();
+        var decision = PublicAlphaReleaseCoordinator.Decide(Request() with
+        {
+            Readiness = PublicAlphaReadinessGate.Decide(new(
+                Candidate, Now, TimeSpan.FromMinutes(30), evidence)),
+        });
+
+        await Assert.That(decision.Intents.Single()).IsTypeOf<ActivatePublicAlphaReleaseIntent>();
+        await Assert.That(decision.Receipt.EvidenceLinks.Count(link =>
+            link.Kind == "production-readiness" && link.Digest == sharedDigest)).IsEqualTo(1);
     }
 
     private static PublicAlphaReleaseRequest Request(
@@ -414,6 +587,8 @@ public sealed class PublicAlphaReleaseCoordinatorTests
             PreviousCandidate,
             "config-7",
             Digest("migrations"),
+            "config-previous",
+            Digest("previous-migrations"),
             Now - TimeSpan.FromMinutes(20)),
         Now,
         TimeSpan.FromMinutes(30),
@@ -421,9 +596,10 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         regions ?? Regions(PreviousCandidate),
         gates ?? Gates(PublicAlphaGatePhase.PreActivation),
         handoff ?? Handoff(),
+        PublicAlphaRegionQualificationTests.Decision(),
         PublicAlphaReadinessGate.Decide(new(
             Candidate, Now, TimeSpan.FromMinutes(30), ReadinessEvidence())),
-        new("approval-1", "mariogk", Candidate, Now - TimeSpan.FromMinutes(1), true));
+        new("approval-1", "mariogk", Candidate, Now - TimeSpan.FromMinutes(1), Digest("manual-qa"), true));
 
     private static PublicAlphaRegionReleaseState[] Regions(
         string gru,
@@ -459,12 +635,16 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         string? sourceRevision = null,
         string configurationRevision = "config-7",
         string? migrationSetDigest = null,
-        string? previousQualifiedDigest = null) => new(
+        string? previousQualifiedDigest = null,
+        string previousQualifiedConfigurationRevision = "config-previous",
+        string? previousQualifiedMigrationSetDigest = null) => new(
         releaseId,
         sourceRevision ?? SourceRevision,
         configurationRevision,
         migrationSetDigest ?? Digest("migrations"),
         previousQualifiedDigest ?? PreviousCandidate,
+        previousQualifiedConfigurationRevision,
+        previousQualifiedMigrationSetDigest ?? Digest("previous-migrations"),
         candidateDigest ?? Candidate,
         Digest("handoff"),
         digestVerified,
@@ -477,11 +657,13 @@ public sealed class PublicAlphaReleaseCoordinatorTests
             Digest("journey-spec"),
             true)).ToArray());
 
-    private static PublicAlphaReadinessEvidence[] ReadinessEvidence() =>
+    private static PublicAlphaReadinessEvidence[] ReadinessEvidence(
+        string? candidate = null,
+        DateTimeOffset? observedAt = null) =>
         PublicAlphaReadinessGate.RequiredAreas.Select(kind => new PublicAlphaReadinessEvidence(
             kind,
-            Candidate,
-            Now - TimeSpan.FromMinutes(2),
+            candidate ?? Candidate,
+            observedAt ?? Now - TimeSpan.FromMinutes(2),
             PublicAlphaReadinessStatus.Passed,
             Digest($"readiness-{kind}"))).ToArray();
 

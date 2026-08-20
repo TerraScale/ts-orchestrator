@@ -41,6 +41,7 @@ public enum PublicAlphaReleaseErrorCode
     RequiredEvidenceFailed,
     RequiredEvidenceStale,
     EvidenceDigestMismatch,
+    RegionQualificationDenied,
     ApprovalDenied,
     ReadinessDenied,
 }
@@ -139,6 +140,8 @@ public sealed record PublicAlphaReleaseIdentity(
     string PreviousQualifiedDigest,
     string ConfigurationRevision,
     string MigrationSetDigest,
+    string PreviousQualifiedConfigurationRevision,
+    string PreviousQualifiedMigrationSetDigest,
     DateTimeOffset CreatedAt);
 
 public sealed record PublicAlphaRegionReleaseState(
@@ -180,6 +183,8 @@ public sealed class PublicAlphaCrossClientHandoff
         string configurationRevision,
         string migrationSetDigest,
         string previousQualifiedDigest,
+        string previousQualifiedConfigurationRevision,
+        string previousQualifiedMigrationSetDigest,
         string candidateDigest,
         string handoffDigest,
         bool digestVerified,
@@ -191,6 +196,8 @@ public sealed class PublicAlphaCrossClientHandoff
         ConfigurationRevision = configurationRevision;
         MigrationSetDigest = migrationSetDigest;
         PreviousQualifiedDigest = previousQualifiedDigest;
+        PreviousQualifiedConfigurationRevision = previousQualifiedConfigurationRevision;
+        PreviousQualifiedMigrationSetDigest = previousQualifiedMigrationSetDigest;
         CandidateDigest = candidateDigest;
         HandoffDigest = handoffDigest;
         DigestVerified = digestVerified;
@@ -203,6 +210,8 @@ public sealed class PublicAlphaCrossClientHandoff
     public string ConfigurationRevision { get; }
     public string MigrationSetDigest { get; }
     public string PreviousQualifiedDigest { get; }
+    public string PreviousQualifiedConfigurationRevision { get; }
+    public string PreviousQualifiedMigrationSetDigest { get; }
     public string CandidateDigest { get; }
     public string HandoffDigest { get; }
     public bool DigestVerified { get; }
@@ -215,6 +224,7 @@ public sealed record PublicAlphaFinalApproval(
     string Actor,
     string CandidateDigest,
     DateTimeOffset ObservedAt,
+    string ManualQaEvidenceDigest,
     bool Approved);
 
 public sealed record PublicAlphaReleaseRequest(
@@ -225,6 +235,7 @@ public sealed record PublicAlphaReleaseRequest(
     IReadOnlyList<PublicAlphaRegionReleaseState> Regions,
     IReadOnlyList<PublicAlphaGateEvidence> Gates,
     PublicAlphaCrossClientHandoff? CrossClientHandoff,
+    PublicAlphaRegionQualificationDecision? RegionQualification,
     PublicAlphaReadinessDecision? Readiness,
     PublicAlphaFinalApproval? FinalApproval);
 
@@ -276,15 +287,23 @@ public sealed class ActivatePublicAlphaReleaseIntent : PublicAlphaReleaseIntent
 
 public sealed class RollbackPublicAlphaReleaseIntent : PublicAlphaReleaseIntent
 {
-    internal RollbackPublicAlphaReleaseIntent(string failedDigest, string rollbackDigest)
+    internal RollbackPublicAlphaReleaseIntent(
+        string failedDigest,
+        string rollbackDigest,
+        string configurationRevision,
+        string migrationSetDigest)
     {
         FailedDigest = failedDigest;
         RollbackDigest = rollbackDigest;
+        ConfigurationRevision = configurationRevision;
+        MigrationSetDigest = migrationSetDigest;
         Regions = PublicAlphaRegionCatalog.LaunchRegions;
     }
 
     public string FailedDigest { get; }
     public string RollbackDigest { get; }
+    public string ConfigurationRevision { get; }
+    public string MigrationSetDigest { get; }
     public IReadOnlyList<PublicAlphaRegion> Regions { get; }
     public bool RebuildAllowed => false;
 }
@@ -317,6 +336,8 @@ public sealed class PublicAlphaReleaseReceipt
         PreviousQualifiedDigest = release.PreviousQualifiedDigest;
         ConfigurationRevision = release.ConfigurationRevision;
         MigrationSetDigest = release.MigrationSetDigest;
+        PreviousQualifiedConfigurationRevision = release.PreviousQualifiedConfigurationRevision;
+        PreviousQualifiedMigrationSetDigest = release.PreviousQualifiedMigrationSetDigest;
         CreatedAt = release.CreatedAt;
         Regions = PublicAlphaRegionCatalog.LaunchRegions;
         EvidenceLinks = new ReadOnlyCollection<PublicAlphaReceiptEvidenceLink>(evidenceLinks.ToArray());
@@ -330,6 +351,8 @@ public sealed class PublicAlphaReleaseReceipt
     public string PreviousQualifiedDigest { get; }
     public string ConfigurationRevision { get; }
     public string MigrationSetDigest { get; }
+    public string PreviousQualifiedConfigurationRevision { get; }
+    public string PreviousQualifiedMigrationSetDigest { get; }
     public DateTimeOffset CreatedAt { get; }
     public IReadOnlyList<PublicAlphaRegion> Regions { get; }
     public IReadOnlyList<PublicAlphaReceiptEvidenceLink> EvidenceLinks { get; }
@@ -345,6 +368,8 @@ public sealed class PublicAlphaReleaseReceipt
             .AppendLine(receipt.PreviousQualifiedDigest)
             .AppendLine(receipt.ConfigurationRevision)
             .AppendLine(receipt.MigrationSetDigest)
+            .AppendLine(receipt.PreviousQualifiedConfigurationRevision)
+            .AppendLine(receipt.PreviousQualifiedMigrationSetDigest)
             .AppendLine(receipt.CreatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         foreach (var region in receipt.Regions)
             canonical.AppendLine(PublicAlphaRegionCatalog.Code(region));
@@ -408,12 +433,17 @@ public static class PublicAlphaReleaseCoordinator
         {
             ValidateGates(request, PublicAlphaGatePhase.PostActivation, errors);
             ValidateCrossClientHandoff(request, errors);
+            ValidateRegionQualification(request, errors);
             ValidateReadiness(request, errors);
             ValidateApproval(request, errors);
             if (errors.Count != 0)
             {
                 PublicAlphaReleaseIntent[] rollback =
-                    [new RollbackPublicAlphaReleaseIntent(request.Release.CandidateDigest, request.Release.PreviousQualifiedDigest)];
+                    [new RollbackPublicAlphaReleaseIntent(
+                        request.Release.CandidateDigest,
+                        request.Release.PreviousQualifiedDigest,
+                        request.Release.PreviousQualifiedConfigurationRevision,
+                        request.Release.PreviousQualifiedMigrationSetDigest)];
                 PublicAlphaReceiptEvent[] events =
                     [new("rollback", "terrascale-orchestrator", request.DecisionTime, request.Release.PreviousQualifiedDigest)];
                 return Decision(request.Release, rollback, errors, links, events);
@@ -460,6 +490,7 @@ public static class PublicAlphaReleaseCoordinator
 
         ValidateGates(request, PublicAlphaGatePhase.PreActivation, errors);
         ValidateCrossClientHandoff(request, errors);
+        ValidateRegionQualification(request, errors);
         ValidateReadiness(request, errors);
         ValidateApproval(request, errors);
 
@@ -475,14 +506,18 @@ public static class PublicAlphaReleaseCoordinator
     private static List<PublicAlphaReleaseError> ValidateRequest(PublicAlphaReleaseRequest request)
     {
         var errors = new List<PublicAlphaReleaseError>();
-        if (!Required(request.Release.ReleaseId) || !ObjectId(request.Release.SourceRevision) ||
+        if (!SafeLabel(request.Release.ReleaseId) || !ObjectId(request.Release.SourceRevision) ||
             !Digest(request.Release.CandidateDigest) || !Digest(request.Release.PreviousQualifiedDigest) ||
             string.Equals(request.Release.CandidateDigest, request.Release.PreviousQualifiedDigest, StringComparison.Ordinal) ||
-            !Required(request.Release.ConfigurationRevision) || !Digest(request.Release.MigrationSetDigest) ||
+            !SafeLabel(request.Release.ConfigurationRevision) || !Digest(request.Release.MigrationSetDigest) ||
+            !SafeLabel(request.Release.PreviousQualifiedConfigurationRevision) ||
+            !Digest(request.Release.PreviousQualifiedMigrationSetDigest) ||
+            request.Release.CreatedAt == default || request.DecisionTime == default ||
             request.Release.CreatedAt > request.DecisionTime || request.MaximumEvidenceAge <= TimeSpan.Zero)
             errors.Add(new(PublicAlphaReleaseErrorCode.InvalidInput));
 
         if (request.Regions is null || request.Regions.Count != PublicAlphaRegionCatalog.LaunchRegions.Count ||
+            request.Regions.Any(static region => region is null) ||
             request.Regions.Select(static region => region.Region).Distinct().Count() != request.Regions.Count ||
             !request.Regions.Select(static region => region.Region).ToHashSet()
                 .SetEquals(PublicAlphaRegionCatalog.LaunchRegions) ||
@@ -499,6 +534,7 @@ public static class PublicAlphaReleaseCoordinator
     {
         var expectedCount = PublicAlphaRegionCatalog.LaunchRegions.Count * RequiredCustomerGates.Count;
         if (request.Gates is null || request.Gates.Count != expectedCount ||
+            request.Gates.Any(static item => item is null) ||
             request.Gates.Select(static item => (item.Phase, item.Region, item.Kind)).Distinct().Count() !=
                 request.Gates.Count ||
             request.Gates.Any(item => item.Phase != phase ||
@@ -545,6 +581,7 @@ public static class PublicAlphaReleaseCoordinator
         if (handoff is null || !handoff.DigestVerified || !Digest(handoff.HandoffDigest) ||
             !Fresh(handoff.ObservedAt, request) || handoff.Clients is null ||
             handoff.Clients.Count != RequiredClients.Count ||
+            handoff.Clients.Any(static client => client is null) ||
             handoff.Clients.Select(static client => client.Kind).Distinct().Count() != handoff.Clients.Count)
         {
             errors.Add(new(PublicAlphaReleaseErrorCode.RequiredEvidenceMissing));
@@ -556,6 +593,10 @@ public static class PublicAlphaReleaseCoordinator
             !string.Equals(handoff.ConfigurationRevision, request.Release.ConfigurationRevision, StringComparison.Ordinal) ||
             !string.Equals(handoff.MigrationSetDigest, request.Release.MigrationSetDigest, StringComparison.Ordinal) ||
             !string.Equals(handoff.PreviousQualifiedDigest, request.Release.PreviousQualifiedDigest, StringComparison.Ordinal) ||
+            !string.Equals(handoff.PreviousQualifiedConfigurationRevision,
+                request.Release.PreviousQualifiedConfigurationRevision, StringComparison.Ordinal) ||
+            !string.Equals(handoff.PreviousQualifiedMigrationSetDigest,
+                request.Release.PreviousQualifiedMigrationSetDigest, StringComparison.Ordinal) ||
             !string.Equals(handoff.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal))
         {
             errors.Add(new(PublicAlphaReleaseErrorCode.EvidenceDigestMismatch));
@@ -577,7 +618,8 @@ public static class PublicAlphaReleaseCoordinator
         List<PublicAlphaReleaseError> errors)
     {
         var approval = request.FinalApproval;
-        if (approval is null || !approval.Approved || !Required(approval.ApprovalId) || !Required(approval.Actor) ||
+        if (approval is null || !approval.Approved || !SafeLabel(approval.ApprovalId) || !SafeLabel(approval.Actor) ||
+            !Digest(approval.ManualQaEvidenceDigest) ||
             !string.Equals(approval.Actor, FinalLaunchApprover, StringComparison.Ordinal) ||
             !string.Equals(approval.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal) ||
             !Fresh(approval.ObservedAt, request))
@@ -588,8 +630,20 @@ public static class PublicAlphaReleaseCoordinator
         PublicAlphaReleaseRequest request,
         List<PublicAlphaReleaseError> errors)
     {
-        if (request.Readiness is not { Authorized: true })
+        if (request.Readiness is not { Authorized: true } readiness ||
+            !string.Equals(readiness.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal) ||
+            !Fresh(readiness.QualifiedAt, request) || !Fresh(readiness.OldestEvidenceAt, request))
             errors.Add(new(PublicAlphaReleaseErrorCode.ReadinessDenied));
+    }
+
+    private static void ValidateRegionQualification(
+        PublicAlphaReleaseRequest request,
+        List<PublicAlphaReleaseError> errors)
+    {
+        if (request.RegionQualification is not { Authorized: true } qualification ||
+            !string.Equals(qualification.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal) ||
+            !Fresh(qualification.QualifiedAt, request) || !Fresh(qualification.OldestEvidenceAt, request))
+            errors.Add(new(PublicAlphaReleaseErrorCode.RegionQualificationDenied));
     }
 
     private static IReadOnlyList<PublicAlphaReceiptEvidenceLink> EvidenceLinks(PublicAlphaReleaseRequest request)
@@ -602,12 +656,17 @@ public static class PublicAlphaReleaseCoordinator
                     $"gate/{gate.Phase}/{PublicAlphaRegionCatalog.Code(gate.Region)}/{gate.Kind}", gate.EvidenceDigest)));
         if (request.CrossClientHandoff is { } handoff && Digest(handoff.HandoffDigest))
             links.Add(new("cross-client-handoff", handoff.HandoffDigest));
+        if (request.RegionQualification is { } regionQualification)
+            links.AddRange(regionQualification.EvidenceDigests.Where(Digest)
+                .Select(static digest => new PublicAlphaReceiptEvidenceLink("region-qualification", digest)));
         if (request.Readiness is { } readiness)
             links.AddRange(readiness.EvidenceDigests.Where(Digest)
                 .Select(static digest => new PublicAlphaReceiptEvidenceLink("production-readiness", digest)));
-        if (request.FinalApproval is { } approval && Required(approval.ApprovalId))
-            links.Add(new("final-approval", $"sha256:{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(approval.ApprovalId)))}"));
-        return new ReadOnlyCollection<PublicAlphaReceiptEvidenceLink>(links.ToArray());
+        if (request.FinalApproval is { } approval && Digest(approval.ManualQaEvidenceDigest))
+            links.Add(new("manual-qa", approval.ManualQaEvidenceDigest));
+        if (request.FinalApproval is { } finalApproval && SafeLabel(finalApproval.ApprovalId))
+            links.Add(new("final-approval", $"sha256:{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(finalApproval.ApprovalId)))}"));
+        return new ReadOnlyCollection<PublicAlphaReceiptEvidenceLink>(links.Distinct().ToArray());
     }
 
     private static PublicAlphaReleaseDecision Decision(
@@ -624,6 +683,10 @@ public static class PublicAlphaReleaseCoordinator
         observedAt <= request.DecisionTime && request.DecisionTime - observedAt <= request.MaximumEvidenceAge;
 
     private static bool Required(string? value) => value is { Length: <= 256 } && !string.IsNullOrWhiteSpace(value);
+    private static bool SafeLabel(string? value) => Required(value) &&
+        !value!.Contains('\n', StringComparison.Ordinal) && !value.Contains('\r', StringComparison.Ordinal) &&
+        !new[] { "authorization:", "bearer ", "password", "secret", "token", "query=" }
+            .Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
     private static bool Digest(string? value) => PublicAlphaDigest.IsValid(value);
     private static bool ObjectId(string? value) => value is { Length: 40 or 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
@@ -636,6 +699,11 @@ public enum PublicAlphaReadinessKind
     ProviderActuatorRecovery,
     PlacementAndJournalRecovery,
     RegionalAgentRecovery,
+    NetworkPartitionRecovery,
+    DuplicateDeliveryRecovery,
+    StaleMetricRejection,
+    ExpiredCredentialRejection,
+    ProviderFailureRecovery,
     CredentialScopeAndRedaction,
     ProviderAuthorizationAndAudit,
     HealthFreshnessAndCollectionAlerts,
@@ -677,15 +745,24 @@ public sealed record PublicAlphaReadinessError(PublicAlphaReadinessKind Kind, Pu
 public sealed class PublicAlphaReadinessDecision
 {
     internal PublicAlphaReadinessDecision(
+        string candidateDigest,
+        DateTimeOffset qualifiedAt,
+        DateTimeOffset oldestEvidenceAt,
         bool authorized,
         IReadOnlyList<PublicAlphaReadinessError> errors,
         IReadOnlyList<string> evidenceDigests)
     {
+        CandidateDigest = candidateDigest;
+        QualifiedAt = qualifiedAt;
+        OldestEvidenceAt = oldestEvidenceAt;
         Authorized = authorized;
         Errors = new ReadOnlyCollection<PublicAlphaReadinessError>(errors.ToArray());
         EvidenceDigests = new ReadOnlyCollection<string>(evidenceDigests.ToArray());
     }
 
+    public string CandidateDigest { get; }
+    public DateTimeOffset QualifiedAt { get; }
+    public DateTimeOffset OldestEvidenceAt { get; }
     public bool Authorized { get; }
     public IReadOnlyList<PublicAlphaReadinessError> Errors { get; }
     public IReadOnlyList<string> EvidenceDigests { get; }
@@ -703,13 +780,16 @@ public static class PublicAlphaReadinessGate
     {
         ArgumentNullException.ThrowIfNull(request);
         var errors = new List<PublicAlphaReadinessError>();
-        if (!Digest(request.CandidateDigest) || request.MaximumEvidenceAge <= TimeSpan.Zero || request.Evidence is null)
-            return new(false, [new(PublicAlphaReadinessKind.ControlPlaneRestartAndDuplicateDelivery,
-                PublicAlphaReadinessErrorCode.Missing)], []);
+        if (!Digest(request.CandidateDigest) || request.DecisionTime == default ||
+            request.MaximumEvidenceAge <= TimeSpan.Zero || request.Evidence is null)
+            return new(request.CandidateDigest, request.DecisionTime, request.DecisionTime, false,
+                [new(PublicAlphaReadinessKind.ControlPlaneRestartAndDuplicateDelivery,
+                    PublicAlphaReadinessErrorCode.Missing)], []);
         if (request.Evidence.Count != RequiredAreas.Count ||
             request.Evidence.Any(item => item is null || !RequiredAreas.Contains(item.Kind)) ||
             request.Evidence.Select(static item => item.Kind).Distinct().Count() != request.Evidence.Count)
-            return new(false, [new(PublicAlphaReadinessKind.Unknown, PublicAlphaReadinessErrorCode.Missing)], []);
+            return new(request.CandidateDigest, request.DecisionTime, request.DecisionTime, false,
+                [new(PublicAlphaReadinessKind.Unknown, PublicAlphaReadinessErrorCode.Missing)], []);
 
         foreach (var kind in RequiredAreas)
         {
@@ -727,8 +807,11 @@ public static class PublicAlphaReadinessGate
         }
 
         var digests = request.Evidence.Where(static evidence => Digest(evidence.EvidenceDigest))
-            .Select(static evidence => evidence.EvidenceDigest).Order(StringComparer.Ordinal).ToArray();
-        return new(errors.Count == 0, new ReadOnlyCollection<PublicAlphaReadinessError>(errors),
+            .Select(static evidence => evidence.EvidenceDigest).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray();
+        var oldestEvidenceAt = request.Evidence.Select(static evidence => evidence.ObservedAt).Min();
+        return new(request.CandidateDigest, request.DecisionTime, oldestEvidenceAt, errors.Count == 0,
+            new ReadOnlyCollection<PublicAlphaReadinessError>(errors),
             new ReadOnlyCollection<string>(digests));
     }
 

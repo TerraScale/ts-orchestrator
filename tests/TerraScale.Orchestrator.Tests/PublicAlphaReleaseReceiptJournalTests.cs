@@ -85,10 +85,26 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
             .Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task SensitiveEvidenceLabelsAndActorsCannotEnterTheJournal()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new PublicAlphaReleaseReceiptJournal(ledger);
+
+        await Assert.That(async () => await journal.AppendAsync(
+            Receipt("activate", Candidate, evidenceKind: "query=customer-content")))
+            .Throws<InvalidDataException>();
+        await Assert.That(async () => await journal.AppendAsync(
+            Receipt("activate", Candidate, actor: "Bearer customer-token")))
+            .Throws<InvalidDataException>();
+    }
+
     private static PublicAlphaReleaseReceipt Receipt(
         string decision,
         string globalDigest,
-        string configurationRevision = "config-7") => new(
+        string configurationRevision = "config-7",
+        string? evidenceKind = null,
+        string? actor = null) => new(
         new(
             "release-42",
             ObjectId("source-revision"),
@@ -96,9 +112,11 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
             PreviousCandidate,
             configurationRevision,
             Digest("migrations"),
+            "config-previous",
+            Digest("previous-migrations"),
             Now - TimeSpan.FromMinutes(20)),
-        [new($"gate/{decision}", Digest($"evidence-{decision}"))],
-        [new(decision, decision == "activate" ? "mariogk" : "terrascale-orchestrator", Now, globalDigest)]);
+        [new(evidenceKind ?? $"gate/{decision}", Digest($"evidence-{decision}"))],
+        [new(decision, actor ?? (decision == "activate" ? "mariogk" : "terrascale-orchestrator"), Now, globalDigest)]);
 
     private static string Digest(string value) => $"sha256:{Convert.ToHexStringLower(
         SHA256.HashData(Encoding.UTF8.GetBytes(value)))}";

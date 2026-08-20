@@ -12,8 +12,15 @@ The implemented code can:
 - converge partial activation toward the committed global digest;
 - reject activation when regional, cross-client, readiness, or final-approval
   evidence is missing, stale, failed, duplicated, or candidate-mismatched;
-- emit exact-target rollback intents without rebuild authority;
-- verify the `terrascale.public-alpha-handoff/v1` digest independently; and
+- verify external DNS, HTTP, TLS, certificate, regional identity, and targeted
+  read/write/query/replication/isolation/failover evidence for the global and
+  strict regional API endpoints;
+- emit exact-target rollback intents with the retained configuration and
+  migration set, without rebuild authority;
+- verify the `terrascale.public-alpha-handoff/v1` digest and its canonical
+  status, security, legal, support, registration, and redirect probes
+  independently;
+- require digest-bound manual QA before the named final approval; and
 - append digest-bound release events and evidence references to a durable
   compare-and-swap journal record keyed by release ID.
 
@@ -41,6 +48,12 @@ the following against the exact integration tree and candidate:
   rollback artifacts remain available in every region.
 
 No local test result or draft procedure below satisfies those gates.
+
+The read-only endpoint preflight on 2026-08-19 did not qualify the launch:
+`status.terrascale.tech` and `dashboard.terrascale.tech` did not resolve, the
+required docs paths returned 404, and `dash.terrascale.tech/register` timed out.
+Deploy and Orchestrator reject those observations; neither repository treats
+them as launch evidence.
 
 ## Draft incident procedures
 

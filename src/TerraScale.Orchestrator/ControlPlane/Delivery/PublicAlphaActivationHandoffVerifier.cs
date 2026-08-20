@@ -54,10 +54,12 @@ public static class PublicAlphaActivationHandoffVerifier
             handoff.ConfigurationRevision,
             handoff.MigrationSetDigest,
             handoff.PreviousQualified.CandidateDigest,
+            handoff.PreviousQualified.ConfigurationRevision,
+            handoff.PreviousQualified.MigrationSetDigest,
             handoff.CandidateDigest,
             handoff.HandoffDigest,
             true,
-            handoff.QualifiedAt,
+            OldestEvidenceAt(handoff),
             handoff.Clients.OrderBy(static client => client.Kind).Select(client => new PublicAlphaClientEvidence(
                 ClientKind(client.Kind),
                 client.Version,
@@ -66,6 +68,13 @@ public static class PublicAlphaActivationHandoffVerifier
                 client.JourneySpecificationDigest,
                 client.Passed)).ToArray());
     }
+
+    private static DateTimeOffset OldestEvidenceAt(DeployHandoff handoff) =>
+        handoff.Regions.Select(static item => item.ObservedAt)
+            .Concat(handoff.Clients.Select(static item => item.ObservedAt))
+            .Concat(handoff.Gates.Select(static item => item.ObservedAt))
+            .Concat(handoff.PublicEndpoints.Select(static item => item.ObservedAt))
+            .Min();
 
     private static TimeSpan ValidateIdentity(
         DeployHandoff handoff,

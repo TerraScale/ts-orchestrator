@@ -127,6 +127,8 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
     string PreviousQualifiedDigest,
     string ConfigurationRevision,
     string MigrationSetDigest,
+    string PreviousQualifiedConfigurationRevision,
+    string PreviousQualifiedMigrationSetDigest,
     DateTimeOffset CreatedAt,
     PublicAlphaReceiptEvidenceLink[] EvidenceLinks,
     PublicAlphaReceiptEvent[] Events,
@@ -140,6 +142,8 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
         receipt.PreviousQualifiedDigest,
         receipt.ConfigurationRevision,
         receipt.MigrationSetDigest,
+        receipt.PreviousQualifiedConfigurationRevision,
+        receipt.PreviousQualifiedMigrationSetDigest,
         receipt.CreatedAt,
         receipt.EvidenceLinks.ToArray(),
         receipt.Events.ToArray(),
@@ -149,6 +153,8 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
         ReleaseId == other.ReleaseId && SourceRevision == other.SourceRevision &&
         CandidateDigest == other.CandidateDigest && PreviousQualifiedDigest == other.PreviousQualifiedDigest &&
         ConfigurationRevision == other.ConfigurationRevision && MigrationSetDigest == other.MigrationSetDigest &&
+        PreviousQualifiedConfigurationRevision == other.PreviousQualifiedConfigurationRevision &&
+        PreviousQualifiedMigrationSetDigest == other.PreviousQualifiedMigrationSetDigest &&
         CreatedAt == other.CreatedAt;
 
     internal PublicAlphaReleaseReceiptJournalDocument Merge(PublicAlphaReleaseReceiptJournalDocument proposed)
@@ -163,13 +169,14 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
 
     internal void Validate()
     {
-        if (SchemaVersion != 1 || !Required(ReleaseId) || !Required(SourceRevision) ||
+        if (SchemaVersion != 1 || !SafeLabel(ReleaseId) || !ObjectId(SourceRevision) ||
             !DigestValue(CandidateDigest) || !DigestValue(PreviousQualifiedDigest) ||
-            CandidateDigest == PreviousQualifiedDigest || !Required(ConfigurationRevision) ||
-            !DigestValue(MigrationSetDigest) || CreatedAt == default ||
+            CandidateDigest == PreviousQualifiedDigest || !SafeLabel(ConfigurationRevision) ||
+            !DigestValue(MigrationSetDigest) || !SafeLabel(PreviousQualifiedConfigurationRevision) ||
+            !DigestValue(PreviousQualifiedMigrationSetDigest) || CreatedAt == default ||
             EvidenceLinks is null or { Length: > 512 } || Events is null or { Length: > 512 } ||
-            EvidenceLinks.Any(static link => !Required(link.Kind) || !DigestValue(link.Digest)) ||
-            Events.Any(static item => !Required(item.Decision) || !Required(item.Actor) ||
+            EvidenceLinks.Any(static link => !SafeLabel(link.Kind) || !DigestValue(link.Digest)) ||
+            Events.Any(static item => !SafeLabel(item.Decision) || !SafeLabel(item.Actor) ||
                 item.RecordedAt == default || !DigestValue(item.GlobalDigest)) ||
             EvidenceLinks.Distinct().Count() != EvidenceLinks.Length ||
             Events.Distinct().Count() != Events.Length || !DigestValue(Digest))
@@ -184,12 +191,23 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
         IReadOnlyList<PublicAlphaReceiptEvidenceLink> links,
         IReadOnlyList<PublicAlphaReceiptEvent> events) => new(
         new(ReleaseId, SourceRevision, CandidateDigest, PreviousQualifiedDigest, ConfigurationRevision,
-            MigrationSetDigest, CreatedAt),
+            MigrationSetDigest, PreviousQualifiedConfigurationRevision, PreviousQualifiedMigrationSetDigest, CreatedAt),
         links,
         events);
 
     private static bool Required(string? value) =>
         value is { Length: <= 256 } && !string.IsNullOrWhiteSpace(value);
+
+    private static bool SafeLabel(string? value) => Required(value) &&
+        !value!.Contains('\n', StringComparison.Ordinal) && !value.Contains('\r', StringComparison.Ordinal) &&
+        !new[]
+        {
+            "authorization:", "bearer ", "password=", "password:", "secret=", "secret:",
+            "token=", "token:", "query=", "-----BEGIN",
+        }.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ObjectId(string? value) => value is { Length: 40 or 64 } &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static bool DigestValue(string? value) =>
         PublicAlphaDigest.IsValid(value);
