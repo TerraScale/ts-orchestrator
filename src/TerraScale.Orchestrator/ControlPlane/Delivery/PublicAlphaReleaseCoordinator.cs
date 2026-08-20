@@ -631,8 +631,12 @@ public static class PublicAlphaReleaseCoordinator
         List<PublicAlphaReleaseError> errors)
     {
         if (request.Readiness is not { Authorized: true } readiness ||
+            readiness.Errors.Count != 0 || readiness.EvidenceDigests.Count == 0 ||
+            readiness.EvidenceDigests.Any(static digest => !Digest(digest)) ||
+            readiness.EvidenceDigests.Distinct(StringComparer.Ordinal).Count() != readiness.EvidenceDigests.Count ||
             !string.Equals(readiness.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal) ||
-            !Fresh(readiness.QualifiedAt, request) || !Fresh(readiness.OldestEvidenceAt, request))
+            !Fresh(readiness.QualifiedAt, request) || !Fresh(readiness.OldestEvidenceAt, request) ||
+            readiness.OldestEvidenceAt > readiness.QualifiedAt)
             errors.Add(new(PublicAlphaReleaseErrorCode.ReadinessDenied));
     }
 
@@ -641,8 +645,12 @@ public static class PublicAlphaReleaseCoordinator
         List<PublicAlphaReleaseError> errors)
     {
         if (request.RegionQualification is not { Authorized: true } qualification ||
+            qualification.Errors.Count != 0 || qualification.EvidenceDigests.Count == 0 ||
+            qualification.EvidenceDigests.Any(static digest => !Digest(digest)) ||
+            qualification.EvidenceDigests.Distinct(StringComparer.Ordinal).Count() != qualification.EvidenceDigests.Count ||
             !string.Equals(qualification.CandidateDigest, request.Release.CandidateDigest, StringComparison.Ordinal) ||
-            !Fresh(qualification.QualifiedAt, request) || !Fresh(qualification.OldestEvidenceAt, request))
+            !Fresh(qualification.QualifiedAt, request) || !Fresh(qualification.OldestEvidenceAt, request) ||
+            qualification.OldestEvidenceAt > qualification.QualifiedAt)
             errors.Add(new(PublicAlphaReleaseErrorCode.RegionQualificationDenied));
     }
 
@@ -799,7 +807,7 @@ public static class PublicAlphaReadinessGate
             else if (!string.Equals(matching[0].CandidateDigest, request.CandidateDigest, StringComparison.Ordinal) ||
                      !Digest(matching[0].EvidenceDigest))
                 errors.Add(new(kind, PublicAlphaReadinessErrorCode.DigestMismatch));
-            else if (matching[0].ObservedAt > request.DecisionTime ||
+            else if (matching[0].ObservedAt == default || matching[0].ObservedAt > request.DecisionTime ||
                      request.DecisionTime - matching[0].ObservedAt > request.MaximumEvidenceAge)
                 errors.Add(new(kind, PublicAlphaReadinessErrorCode.Stale));
             else if (matching[0].Status != PublicAlphaReadinessStatus.Passed)

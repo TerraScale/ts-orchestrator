@@ -84,13 +84,13 @@ public static class PublicAlphaActivationHandoffVerifier
         var allowedAge = handoff.MaximumEvidenceAge < maximumEvidenceAge
             ? handoff.MaximumEvidenceAge
             : maximumEvidenceAge;
-        if (!Required(handoff.ReleaseId) || !ObjectId(handoff.SourceRevision) || !ObjectId(handoff.SourceTree) ||
-            !Required(handoff.ConfigurationRevision) || !Digest(handoff.CandidateDigest) ||
+        if (!SafeLabel(handoff.ReleaseId) || !ObjectId(handoff.SourceRevision) || !ObjectId(handoff.SourceTree) ||
+            !SafeLabel(handoff.ConfigurationRevision) || !Digest(handoff.CandidateDigest) ||
             !Digest(handoff.MigrationSetDigest) || !Digest(handoff.JourneySpecificationDigest) ||
             handoff.MaximumEvidenceAge <= TimeSpan.Zero || handoff.BuiltAt > handoff.QualifiedAt ||
             handoff.QualifiedAt > decisionTime || decisionTime - handoff.QualifiedAt > allowedAge ||
-            handoff.BuildEnvironment is null || !Required(handoff.BuildEnvironment.OperatingSystem) ||
-            !Required(handoff.BuildEnvironment.SdkVersion) || !Digest(handoff.BuildEnvironment.RunnerImageDigest) ||
+            handoff.BuildEnvironment is null || !SafeLabel(handoff.BuildEnvironment.OperatingSystem) ||
+            !SafeLabel(handoff.BuildEnvironment.SdkVersion) || !Digest(handoff.BuildEnvironment.RunnerImageDigest) ||
             !Digest(handoff.BuildEnvironment.DependencyLockDigest))
             throw new InvalidDataException("The Public Alpha activation handoff identity or build evidence is invalid.");
         return allowedAge;
@@ -103,7 +103,7 @@ public static class PublicAlphaActivationHandoffVerifier
             handoff.Artifacts.Any(static item => item is null) ||
             handoff.Artifacts.Select(static item => item.Kind).Distinct().Count() != handoff.Artifacts.Count ||
             !handoff.Artifacts.Select(static item => item.Kind).ToHashSet().SetEquals(required) ||
-            handoff.Artifacts.Any(static item => !Required(item.Version) || !Digest(item.Digest)))
+            handoff.Artifacts.Any(static item => !SafeLabel(item.Version) || !Digest(item.Digest)))
             throw new InvalidDataException("The Public Alpha activation handoff artifacts are incomplete.");
     }
 
@@ -111,8 +111,9 @@ public static class PublicAlphaActivationHandoffVerifier
     {
         var rollback = handoff.PreviousQualified;
         if (rollback is null || !ObjectId(rollback.SourceTree) || !Digest(rollback.CandidateDigest) ||
+            string.Equals(rollback.SourceTree, handoff.SourceTree, StringComparison.Ordinal) ||
             string.Equals(rollback.CandidateDigest, handoff.CandidateDigest, StringComparison.Ordinal) ||
-            !Required(rollback.ConfigurationRevision) || !Digest(rollback.MigrationSetDigest) ||
+            !SafeLabel(rollback.ConfigurationRevision) || !Digest(rollback.MigrationSetDigest) ||
             !Digest(rollback.ExpectedArtifactDigest) || !Digest(rollback.RetainedArtifactDigest) ||
             !string.Equals(rollback.ExpectedArtifactDigest, rollback.RetainedArtifactDigest, StringComparison.Ordinal) ||
             !rollback.Retained || !rollback.SchemaCompatible)
@@ -149,7 +150,7 @@ public static class PublicAlphaActivationHandoffVerifier
             throw new InvalidDataException("The Public Alpha activation handoff client set is incomplete.");
         var artifacts = handoff.Artifacts.ToDictionary(static item => item.Kind);
         foreach (var client in handoff.Clients)
-            if (!Required(client.Version) || !Digest(client.ArtifactDigest) ||
+            if (!SafeLabel(client.Version) || !Digest(client.ArtifactDigest) ||
                 !string.Equals(client.ArtifactDigest, artifacts[ArtifactKind(client.Kind)].Digest, StringComparison.Ordinal) ||
                 !string.Equals(client.CandidateDigest, handoff.CandidateDigest, StringComparison.Ordinal) ||
                 !string.Equals(client.JourneySpecificationDigest, handoff.JourneySpecificationDigest, StringComparison.Ordinal) ||
@@ -268,6 +269,15 @@ public static class PublicAlphaActivationHandoffVerifier
     };
 
     private static bool Required(string? value) => value is { Length: <= 256 } && !string.IsNullOrWhiteSpace(value);
+    private static bool SafeLabel(string? value) => Required(value) &&
+        !value!.Contains('\n', StringComparison.Ordinal) && !value.Contains('\r', StringComparison.Ordinal) &&
+        !value.StartsWith('/', StringComparison.Ordinal) &&
+        !(value.Length > 2 && char.IsAsciiLetter(value[0]) && value[1] == ':' && value[2] is '\\' or '/') &&
+        !new[]
+        {
+            "/home/", "/workspace/", "/Users/", "authorization:", "bearer ",
+            "password=", "password:", "secret=", "secret:", "token=", "token:", "-----BEGIN",
+        }.Any(marker => value.Contains(marker, StringComparison.OrdinalIgnoreCase));
     private static bool Digest(string? value) => PublicAlphaDigest.IsValid(value);
     private static bool ObjectId(string? value) => value is { Length: 40 or 64 } &&
         value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');

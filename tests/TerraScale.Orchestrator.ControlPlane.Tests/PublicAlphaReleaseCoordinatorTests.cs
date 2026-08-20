@@ -320,6 +320,33 @@ public sealed class PublicAlphaReleaseCoordinatorTests
     }
 
     [Test]
+    public async Task DeployHandoffCannotReuseTheCandidateSourceTreeForRollback()
+    {
+        var handoff = HandoffDocument(await File.ReadAllTextAsync(HandoffFixturePath()));
+        var sourceTree = handoff["sourceTree"]?.GetValue<string>() ?? throw new InvalidDataException();
+        handoff["previousQualified"]!["sourceTree"] = sourceTree;
+
+        await Assert.That(() => PublicAlphaActivationHandoffVerifier.ParseAndVerify(
+                WithVerifiedDigest(handoff),
+                new(2026, 8, 19, 18, 5, 0, TimeSpan.Zero),
+                TimeSpan.FromMinutes(30)))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task DeployHandoffRejectsUnsafeProvenanceLabelsEvenWithAValidOuterDigest()
+    {
+        var handoff = HandoffDocument(await File.ReadAllTextAsync(HandoffFixturePath()));
+        handoff["configurationRevision"] = "secret=plaintext";
+
+        await Assert.That(() => PublicAlphaActivationHandoffVerifier.ParseAndVerify(
+                WithVerifiedDigest(handoff),
+                new(2026, 8, 19, 18, 5, 0, TimeSpan.Zero),
+                TimeSpan.FromMinutes(30)))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
     public async Task RoutingNeverUsesUnknownOrUnselectedRegions()
     {
         var global = PublicAlphaRoutingPolicy.Decide(new(
@@ -439,6 +466,26 @@ public sealed class PublicAlphaReleaseCoordinatorTests
         };
 
         foreach (var request in cases)
+        {
+            var decision = PublicAlphaReleaseCoordinator.Decide(request);
+            await Assert.That(decision.Intents).IsEmpty();
+            await Assert.That(decision.Errors).IsNotEmpty();
+        }
+    }
+
+    [Test]
+    public async Task AuthorizedComposedGatesCannotHideMissingEvidence()
+    {
+        var emptyReadiness = new PublicAlphaReadinessDecision(
+            Candidate, Now, Now, true, [], []);
+        var emptyQualification = new PublicAlphaRegionQualificationDecision(
+            Candidate, Now, Now, [], []);
+
+        foreach (var request in new[]
+        {
+            Request() with { Readiness = emptyReadiness },
+            Request() with { RegionQualification = emptyQualification },
+        })
         {
             var decision = PublicAlphaReleaseCoordinator.Decide(request);
             await Assert.That(decision.Intents).IsEmpty();

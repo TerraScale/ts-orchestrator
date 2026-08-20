@@ -117,6 +117,17 @@ public sealed class PublicAlphaReleaseReceiptJournalTests
             .Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task ReceiptEventsCannotClaimAnUnrelatedReleaseDigest()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new PublicAlphaReleaseReceiptJournal(ledger);
+
+        await Assert.That(async () => await journal.AppendAsync(
+                Receipt("activate", PreviousCandidate)))
+            .Throws<InvalidDataException>();
+    }
+
     private static PublicAlphaReleaseReceipt Receipt(
         string decision,
         string globalDigest,

@@ -183,7 +183,8 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
             EvidenceLinks is null or { Length: > 512 } || Events is null or { Length: > 512 } ||
             EvidenceLinks.Any(static link => link is null || !SafeLabel(link.Kind) || !DigestValue(link.Digest)) ||
             Events.Any(item => item is null || !SafeLabel(item.Decision) || !SafeLabel(item.Actor) ||
-                item.RecordedAt == default || item.RecordedAt < CreatedAt || !DigestValue(item.GlobalDigest)) ||
+                item.RecordedAt == default || item.RecordedAt < CreatedAt || !DigestValue(item.GlobalDigest) ||
+                !ValidEvent(item)) ||
             EvidenceLinks.Distinct().Count() != EvidenceLinks.Length ||
             Events.Distinct().Count() != Events.Length || !DigestValue(Digest))
             throw new InvalidDataException("A Public Alpha release receipt record is invalid.");
@@ -217,6 +218,15 @@ internal sealed record PublicAlphaReleaseReceiptJournalDocument(
 
     private static bool DigestValue(string? value) =>
         PublicAlphaDigest.IsValid(value);
+
+    private bool ValidEvent(PublicAlphaReceiptEvent item) => item.Decision switch
+    {
+        "activate" or "verified" => item.GlobalDigest == CandidateDigest,
+        "rollback" => item.GlobalDigest == PreviousQualifiedDigest,
+        "converge" => item.GlobalDigest is not null &&
+            (item.GlobalDigest == CandidateDigest || item.GlobalDigest == PreviousQualifiedDigest),
+        _ => false,
+    };
 }
 
 [JsonSerializable(typeof(PublicAlphaReleaseReceiptJournalDocument))]

@@ -86,6 +86,27 @@ public sealed class PublicAlphaRegionQualificationTests
     }
 
     [Test]
+    public async Task DefaultObservationTimestampsCannotBeMadeFreshByAnOversizedWindow()
+    {
+        var probes = Probes().Select((item, index) => index == 0
+            ? item with { ObservedAt = default }
+            : item).ToArray();
+        var tests = Tests().Select((item, index) => index == 0
+            ? item with { ObservedAt = default }
+            : item).ToArray();
+
+        var decision = PublicAlphaRegionQualificationGate.Decide(new(
+            Candidate,
+            Now,
+            TimeSpan.FromDays(1_000_000),
+            probes,
+            tests));
+
+        await Assert.That(decision.Authorized).IsFalse();
+        await Assert.That(decision.Errors).IsNotEmpty();
+    }
+
+    [Test]
     public async Task RoutingPolicyKeepsUnselectedRegionsOutOfGlobalAndStrictTraffic()
     {
         var global = PublicAlphaRoutingPolicy.Decide(new(

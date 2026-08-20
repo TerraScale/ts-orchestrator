@@ -215,5 +215,6 @@ public static class PublicAlphaRegionQualificationGate
     }
 
     private static bool Fresh(DateTimeOffset observedAt, PublicAlphaRegionQualificationRequest request) =>
-        observedAt <= request.DecisionTime && request.DecisionTime - observedAt <= request.MaximumEvidenceAge;
+        observedAt != default && observedAt <= request.DecisionTime &&
+        request.DecisionTime - observedAt <= request.MaximumEvidenceAge;
 }
