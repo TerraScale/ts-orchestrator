@@ -47,3 +47,17 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - `TerraScale.Infrastructure` is a **retired stub**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
 - Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.
 - The development runtime always uses the bounded GRU/SFO/FRA RF=1 topology. Do not add a reduced runtime profile or a topology-selection option. It reserves GRU Authentication and product Dashboard loopback ports `18670` and `18672`; keep these stable so DevHost can publish fixed tailnet HTTPS ports `18445` and `18446` before attestation completes while runtime health remains truthful.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repository's Forgejo project. Prefer the configured Forgejo MCP server and fall back to `fj`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The tracker uses the five default triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses the single-context domain-doc layout. See `docs/agents/domain.md`.
