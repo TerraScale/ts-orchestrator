@@ -5,6 +5,38 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class DevelopmentArtifactBuilderTests
 {
     [Test]
+    public async Task NpmResolutionUsesVitePlusManagedFallbackWhenPathHasNoNpm()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vite-plus-npm-" + Guid.NewGuid().ToString("N"));
+        var npmCli = Path.Combine(
+            root,
+            ".vite-plus",
+            "package_manager",
+            "npm",
+            "11.18.0",
+            "npm",
+            "bin",
+            "npm-cli.js");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(npmCli)!);
+            await File.WriteAllTextAsync(npmCli, "// npm");
+
+            var command = DevelopmentArtifactBuilder.ResolveNpmCommand("/missing", root);
+
+            await Assert.That(command.Executable).IsEqualTo("node");
+            await Assert.That(command.PrefixArguments).IsEquivalentTo([npmCli]);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task TerraBaseArtifactAlwaysContainsItsStudioArchive()
     {
         var root = Path.Combine(Path.GetTempPath(), "terrabase-studio-artifact-" + Guid.NewGuid().ToString("N"));

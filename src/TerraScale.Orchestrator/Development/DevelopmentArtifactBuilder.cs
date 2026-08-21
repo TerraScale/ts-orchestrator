@@ -123,8 +123,8 @@ internal static class DevelopmentArtifactBuilder
             ["build", generatorProject, "--configuration", "Release", "--nologo", "--disable-build-servers"],
             terraBaseRoot,
             cancellationToken);
-        await RunAsync("npm", ["ci", "--no-audit", "--no-fund"], studioDirectory, cancellationToken);
-        await RunAsync("npm", ["run", "release"], studioDirectory, cancellationToken);
+        await RunNpmAsync(["ci", "--no-audit", "--no-fund"], studioDirectory, cancellationToken);
+        await RunNpmAsync(["run", "release"], studioDirectory, cancellationToken);
 
         var studioArchive = TerraBaseStudioArchive(workspaceRoot);
         if (!File.Exists(studioArchive) || new FileInfo(studioArchive).Length == 0)
@@ -143,6 +143,58 @@ internal static class DevelopmentArtifactBuilder
         "wwwroot",
         "dist",
         TerraBaseStudioArchiveName);
+
+    private static async Task RunNpmAsync(
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        var command = ResolveNpmCommand();
+        await RunAsync(
+            command.Executable,
+            command.PrefixArguments.Concat(arguments).ToArray(),
+            workingDirectory,
+            cancellationToken);
+    }
+
+    internal static DevelopmentNpmCommand ResolveNpmCommand(
+        string? path = null,
+        string? userProfile = null)
+    {
+        path ??= Environment.GetEnvironmentVariable("PATH");
+        foreach (var directory in (path ?? string.Empty).Split(
+                     Path.PathSeparator,
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var executable = Path.Combine(directory, "npm");
+            if (File.Exists(executable))
+            {
+                return new(executable, []);
+            }
+        }
+
+        userProfile ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var packageManagerRoot = Path.Combine(userProfile, ".vite-plus", "package_manager", "npm");
+        if (Directory.Exists(packageManagerRoot))
+        {
+            var npmCli = Directory.EnumerateFiles(
+                    packageManagerRoot,
+                    "npm-cli.js",
+                    SearchOption.AllDirectories)
+                .Where(static candidate => candidate.EndsWith(
+                    $"{Path.DirectorySeparatorChar}npm{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}npm-cli.js",
+                    StringComparison.Ordinal))
+                .OrderDescending(StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (npmCli is not null)
+            {
+                return new("node", [npmCli]);
+            }
+        }
+
+        throw new FileNotFoundException(
+            "npm is required to build TerraBase Studio and was not found on PATH or in the VitePlus package-manager cache.");
+    }
 
     private static string DotNetArtifactsDirectory(string dataDirectory) =>
         Path.Combine(dataDirectory, "artifacts", "dotnet");
@@ -197,3 +249,7 @@ internal static class DevelopmentArtifactBuilder
                ?? "build exited without diagnostics";
     }
 }
+
+internal sealed record DevelopmentNpmCommand(
+    string Executable,
+    IReadOnlyList<string> PrefixArguments);
