@@ -182,8 +182,11 @@ internal static class DevelopmentHealthProbe
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
                     await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, "/studio/index.html", cancellationToken);
                     await ProbeTcpAsync(resource.SecondaryPort!.Value, cancellationToken);
-                    return (resource.Name, new(true, $"HTTP {resource.Port} and TCP {resource.SecondaryPort} ready."));
+                    return (resource.Name, new(
+                        true,
+                        $"HTTP {resource.Port}, Studio, and TCP {resource.SecondaryPort} ready."));
                 default:
                     await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));

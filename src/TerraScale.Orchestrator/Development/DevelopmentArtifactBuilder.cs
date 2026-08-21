@@ -4,12 +4,21 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentArtifactBuilder
 {
+    internal const string TerraBaseStudioArchiveName = "TerraBase.Studio.zip";
+
     public static async Task BuildAsync(
         string workspaceRoot,
         string dataDirectory,
         CancellationToken cancellationToken,
         IReadOnlySet<DevelopmentResourceKind>? affectedKinds = null)
     {
+        var buildTerraBase = affectedKinds is null ||
+            affectedKinds.Contains(DevelopmentResourceKind.TerraBase);
+        if (buildTerraBase)
+        {
+            await BuildTerraBaseStudioAsync(workspaceRoot, cancellationToken);
+        }
+
         var projects = new[]
         {
             (DevelopmentResourceKind.TerraBase,
@@ -37,6 +46,11 @@ internal static class DevelopmentArtifactBuilder
                 DotNetBuildArguments(project, dataDirectory),
                 Path.GetDirectoryName(project)!,
                 cancellationToken);
+
+            if (kind == DevelopmentResourceKind.TerraBase)
+            {
+                BundleTerraBaseStudio(workspaceRoot, dataDirectory);
+            }
         }
 
         if (affectedKinds is null || affectedKinds.Contains(DevelopmentResourceKind.Dashboard))
@@ -59,6 +73,76 @@ internal static class DevelopmentArtifactBuilder
 
     internal static string DotNetOutputDirectory(string dataDirectory, string projectName) =>
         Path.Combine(DotNetArtifactsDirectory(dataDirectory), "bin", projectName, "release");
+
+    internal static void BundleTerraBaseStudio(string workspaceRoot, string dataDirectory)
+    {
+        var studioArchive = TerraBaseStudioArchive(workspaceRoot);
+        if (!File.Exists(studioArchive) || new FileInfo(studioArchive).Length == 0)
+        {
+            throw new FileNotFoundException(
+                "The TerraBase development artifact requires a non-empty Studio archive.",
+                studioArchive);
+        }
+
+        var serverOutput = DotNetOutputDirectory(dataDirectory, "TerraBase.Server");
+        if (!Directory.Exists(serverOutput))
+        {
+            throw new DirectoryNotFoundException(
+                $"The TerraBase server output is unavailable: {serverOutput}");
+        }
+
+        File.Copy(
+            studioArchive,
+            Path.Combine(serverOutput, TerraBaseStudioArchiveName),
+            overwrite: true);
+    }
+
+    private static async Task BuildTerraBaseStudioAsync(
+        string workspaceRoot,
+        CancellationToken cancellationToken)
+    {
+        var terraBaseRoot = Path.Combine(workspaceRoot, "TerraBase");
+        var generatorProject = Path.Combine(
+            terraBaseRoot,
+            "tools",
+            "TerraBase.TypingsGenerator",
+            "TerraBase.TypingsGenerator.csproj");
+        var studioDirectory = Path.Combine(terraBaseRoot, "src", "TerraBase.Studio");
+        var packageLock = Path.Combine(studioDirectory, "package-lock.json");
+        if (!File.Exists(generatorProject))
+        {
+            throw new FileNotFoundException("The TerraBase Studio typings generator is unavailable.", generatorProject);
+        }
+        if (!File.Exists(packageLock))
+        {
+            throw new FileNotFoundException("The TerraBase Studio lock file is unavailable.", packageLock);
+        }
+
+        await RunAsync(
+            "dotnet",
+            ["build", generatorProject, "--configuration", "Release", "--nologo", "--disable-build-servers"],
+            terraBaseRoot,
+            cancellationToken);
+        await RunAsync("npm", ["ci", "--no-audit", "--no-fund"], studioDirectory, cancellationToken);
+        await RunAsync("npm", ["run", "release"], studioDirectory, cancellationToken);
+
+        var studioArchive = TerraBaseStudioArchive(workspaceRoot);
+        if (!File.Exists(studioArchive) || new FileInfo(studioArchive).Length == 0)
+        {
+            throw new FileNotFoundException(
+                "The TerraBase Studio build did not produce its required archive.",
+                studioArchive);
+        }
+    }
+
+    private static string TerraBaseStudioArchive(string workspaceRoot) => Path.Combine(
+        workspaceRoot,
+        "TerraBase",
+        "src",
+        "TerraBase.Studio",
+        "wwwroot",
+        "dist",
+        TerraBaseStudioArchiveName);
 
     private static string DotNetArtifactsDirectory(string dataDirectory) =>
         Path.Combine(dataDirectory, "artifacts", "dotnet");
