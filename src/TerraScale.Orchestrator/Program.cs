@@ -1,3 +1,4 @@
+using NATS.Client.Core;
 using TerraScale.Orchestrator;
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Delivery;
@@ -107,26 +108,44 @@ try
                 globalNatsConfigured: true,
                 nativeGitOpsPublicationConfigured: commandIdentity?.Signer is not null,
                 trustedVerifierConfigured: verifier is not null);
-            globalRuntime = await GlobalNatsRuntime.StartAsync(
-                options.GlobalNats,
-                options.Instance,
-                options.Cell,
-                ciRunnerNatsIdentity,
-                shutdown.Token,
-                options.ForgejoSource,
-                options.ForgejoCiSourceGraph,
-                options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
-                commandIdentity?.Signer,
-                commandIdentity?.Signer,
-                commandIdentity?.Verifier,
-                commandIdentity?.Verifier,
-                commandIdentity?.Signer,
-                verifier is not null);
-            if (options.Command is OrchestratorCommand.Run && NativeGitOpsRuntime.IsEnabled(
-                    globalNatsConfigured: true,
-                    trustedVerifierConfigured: verifier is not null))
-                nativeGitOpsRuntime = NativeGitOpsRuntime.Start(
-                    runtime, globalRuntime, verifier ?? throw new InvalidOperationException("Native GitOps verifier is unavailable."));
+            try
+            {
+                globalRuntime = await GlobalNatsRuntime.StartAsync(
+                    options.GlobalNats,
+                    options.Instance,
+                    options.Cell,
+                    () => runtime.MembershipSnapshot,
+                    () => runtime.AuthoritySnapshot,
+                    options.Command is OrchestratorCommand.Run,
+                    ciRunnerNatsIdentity,
+                    shutdown.Token,
+                    options.ForgejoSource,
+                    options.ForgejoCiSourceGraph,
+                    options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
+                    commandIdentity?.Signer,
+                    commandIdentity?.Signer,
+                    commandIdentity?.Verifier,
+                    commandIdentity?.Verifier,
+                    commandIdentity?.Signer,
+                    verifier is not null);
+            }
+            catch (NatsException exception)
+            {
+                Console.Error.WriteLine(
+                    $"Global control is unavailable ({exception.GetType().Name}); regional control remains active.");
+            }
+            if (globalRuntime is not null)
+            {
+                var observedGlobalRuntime = globalRuntime;
+                telemetry.ObserveCellDirectory(() => observedGlobalRuntime.CellDirectorySnapshot);
+                if (options.Command is OrchestratorCommand.Run && NativeGitOpsRuntime.IsEnabled(
+                        globalNatsConfigured: true,
+                        trustedVerifierConfigured: verifier is not null))
+                    nativeGitOpsRuntime = NativeGitOpsRuntime.Start(
+                        runtime,
+                        globalRuntime,
+                        verifier ?? throw new InvalidOperationException("Native GitOps verifier is unavailable."));
+            }
         }
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
@@ -149,10 +168,12 @@ try
     ForgejoSourcePoller? sourcePoller = null;
     try
     {
-        webhookServer = options.Command == OrchestratorCommand.Run && options.ForgejoWebhook is not null
+        webhookServer = options.Command == OrchestratorCommand.Run && options.ForgejoWebhook is not null &&
+                        ownedGlobalRuntime is not null
             ? ForgejoWebhookServer.Start(options.ForgejoWebhook, ownedGlobalRuntime!.ForgejoWebhooks)
             : null;
-        sourcePoller = options.Command == OrchestratorCommand.Run && options.ForgejoSource is not null
+        sourcePoller = options.Command == OrchestratorCommand.Run && options.ForgejoSource is not null &&
+                       ownedGlobalRuntime is not null
             ? ForgejoSourcePoller.Start(
                 options.ForgejoSource,
                 ownedGlobalRuntime!.ForgejoSources,
@@ -173,22 +194,15 @@ try
     await using var sources = sourcePoller;
     telemetry.RecordReady(Stopwatch.GetElapsedTime(startupTimestamp));
     startupActivity?.SetStatus(ActivityStatusCode.Ok);
-    Console.WriteLine(options.GlobalNats is null
+    Console.WriteLine(ownedGlobalRuntime is null
         ? $"{BuildVersion.Current.DisplayName} ready in {options.Cell} via {options.NatsUrl}"
         : $"{BuildVersion.Current.DisplayName} ready in {options.Cell} with regional and global authority");
 
     if (options.Command is OrchestratorCommand.Run)
     {
-        var completions = new[]
-        {
-            ownedRuntime.Completion,
-            ownedGlobalRuntime?.Completion,
-            ownedNativeGitOpsRuntime?.Completion,
-            webhooks?.Completion,
-            sources?.Completion,
-        }.Where(static task => task is not null).Cast<Task>();
-        var completion = Task.WhenAny(completions).Unwrap();
-        await completion.WaitAsync(shutdown.Token);
+        // Regional lifecycle is intentionally independent of every WAN/global
+        // subsystem. Their own health surfaces report failures and recovery.
+        await ownedRuntime.Completion.WaitAsync(shutdown.Token);
     }
 
     return 0;

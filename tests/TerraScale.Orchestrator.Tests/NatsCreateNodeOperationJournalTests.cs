@@ -26,6 +26,68 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsCreateNodeOperationJournalTests
 {
     [Test]
+    public async Task RealJetStreamConvergesThreeCellsAndRestartResumesTheDurableAdvertisement()
+    {
+        await using var server = await OneNodeJetStream.StartAsync();
+        var store = await server.OpenAsync(new NatsKVConfig("GLOBAL_CELLS")
+        {
+            History = 16,
+            MaxAge = TimeSpan.FromDays(30),
+            MaxValueSize = 64 * 1024,
+            MaxBytes = 64 * 1024 * 1024,
+            NumberOfReplicas = 1,
+        });
+        var gruAuthority = Authority(7, 11);
+        var sfoAuthority = Authority(8, 13);
+        var fraAuthority = Authority(9, 17);
+        await using (var checkOnly = GlobalCellDirectoryRuntime.Start(
+                         store, "iad", () => Membership("iad"), () => Authority(10, 19), publishEnabled: false))
+        {
+            await Task.Delay(100);
+            await Assert.That(async () =>
+                    _ = await store.GetEntryAsync<string>(GlobalNatsTopology.CellAdvertisementKey("iad")))
+                .Throws<NatsKVKeyNotFoundException>();
+        }
+        await using var gru = GlobalCellDirectoryRuntime.Start(
+            store, "gru", () => Membership("gru"), () => gruAuthority);
+        await using var sfo = GlobalCellDirectoryRuntime.Start(
+            store, "sfo", () => Membership("sfo"), () => sfoAuthority);
+        var fra = GlobalCellDirectoryRuntime.Start(
+            store, "fra", () => Membership("fra"), () => fraAuthority);
+        try
+        {
+            var converged = await WaitForDirectoryAsync(gru, 3, TimeSpan.FromSeconds(5));
+            await Assert.That(converged.Cells.Select(static cell => cell.Cell))
+                .IsEquivalentTo(["fra", "gru", "sfo"]);
+
+            await fra.DisposeAsync();
+            await Task.Delay(GlobalCellDirectoryRuntime.AdvertisementLease + TimeSpan.FromSeconds(1));
+            var partitioned = gru.Snapshot;
+            await Assert.That(partitioned.ActiveCells).IsEqualTo(2);
+            await Assert.That(partitioned.StaleCells).IsEqualTo(1);
+            await Assert.That(partitioned.Cells.Single(cell => cell.Cell == "fra").IsStale).IsTrue();
+            await Assert.That(partitioned.Cells.Single(cell => cell.Cell == "sfo").IsStale).IsFalse();
+
+            var restartedAuthority = Authority(9, 18);
+            var recovery = Stopwatch.StartNew();
+            await using var restartedFra = GlobalCellDirectoryRuntime.Start(
+                store, "fra", () => Membership("fra"), () => restartedAuthority);
+            var recovered = await WaitForDirectoryAsync(
+                gru,
+                3,
+                TimeSpan.FromSeconds(5),
+                snapshot => snapshot.Cells.Single(cell => cell.Cell == "fra").AuthorityRevision == 18);
+            await Assert.That(recovered.Cells.Count).IsEqualTo(3);
+            await Assert.That(recovered.Cells.Single(cell => cell.Cell == "fra").Sequence).IsEqualTo(1);
+            await Assert.That(recovery.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            await fra.DisposeAsync();
+        }
+    }
+
+    [Test]
     public async Task RuntimeLifecycleBridgeRejectsRf1StoresBeforeConsumingItsProof()
     {
         await using var server = await OneNodeJetStream.StartAsync();
@@ -1327,6 +1389,51 @@ public sealed class NatsCreateNodeOperationJournalTests
         MaxBytes = 8 * 1024 * 1024,
         NumberOfReplicas = 1,
     };
+
+    private static RegionalAuthoritySnapshot Authority(long epoch, long revision)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new("leader", true, epoch, revision, now.AddSeconds(15), now, null);
+    }
+
+    private static RegionalRuntimeMembershipSnapshot Membership(string cell)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var member = new RegionalRuntimeMember(
+            1,
+            cell,
+            $"orchestrator-control-{cell}",
+            "controller-1",
+            Guid.NewGuid().ToString("N"),
+            "test-build",
+            ["authority", "regional-membership", "service-discovery"],
+            now.AddMinutes(-1),
+            now,
+            now.Add(RegionalRuntimeMembership.LeaseDuration),
+            "leader",
+            true,
+            7,
+            11);
+        var health = RegionalRuntimeMembershipHealth.Evaluate(cell, 3, [member], 0, now);
+        return new(2, cell, now, health, [member]);
+    }
+
+    private static async Task<GlobalCellDirectorySnapshot> WaitForDirectoryAsync(
+        GlobalCellDirectoryRuntime runtime,
+        int activeCells,
+        TimeSpan timeout,
+        Func<GlobalCellDirectorySnapshot, bool>? predicate = null)
+    {
+        var started = Stopwatch.StartNew();
+        while (started.Elapsed < timeout)
+        {
+            var snapshot = runtime.Snapshot;
+            if (snapshot.ActiveCells == activeCells && (predicate?.Invoke(snapshot) ?? true))
+                return snapshot;
+            await Task.Delay(50);
+        }
+        throw new TimeoutException($"The global cell directory did not converge to {activeCells} active cells.");
+    }
 
     private sealed class OneNodeJetStream : IAsyncDisposable
     {

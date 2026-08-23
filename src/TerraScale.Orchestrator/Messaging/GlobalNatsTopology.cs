@@ -14,6 +14,7 @@ public sealed class GlobalNatsTopology
     public const string CiSubject = $"{Root}.ci.forgejo";
     public const string CiJobSubjectPrefix = $"{Root}.ci.job";
     public const string CiRuntimeProofSubject = $"{Root}.ci.runtime-proof";
+    public const string CellDirectorySubject = $"{Root}.query.cells";
     public const string RunnerJobsBucket = "CI_RUNNER_JOBS";
     public const string RunnerBundlesBucket = "CI_RUNNER_BUNDLES";
 
@@ -57,6 +58,16 @@ public sealed class GlobalNatsTopology
         Description = "Fenced global authority leases",
         History = 5,
         MaxBytes = 8 * 1024 * 1024,
+        NumberOfReplicas = Replicas,
+    };
+
+    public NatsKVConfig Cells => new("GLOBAL_CELLS")
+    {
+        Description = "Durable read-only regional cell advertisements",
+        History = 16,
+        MaxAge = TimeSpan.FromDays(30),
+        MaxValueSize = 64 * 1024,
+        MaxBytes = 64 * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };
 
@@ -202,12 +213,21 @@ public sealed class GlobalNatsTopology
 
     public static string CellSpecSubject(string cell)
     {
-        if (cell is not { Length: >= 1 and <= 63 } ||
-            cell[0] == '-' || cell[^1] == '-' ||
-            cell.Any(static character => character is not (>= 'a' and <= 'z') and
-                not (>= '0' and <= '9') and not '-'))
+        if (!IsCellToken(cell))
             throw new ArgumentException("The global CellSpec cell is not a lowercase DNS-style token.", nameof(cell));
         return $"{Root}.desired.gitops.{cell}";
+    }
+
+    internal static bool IsCellToken(string? cell) =>
+        cell is { Length: >= 1 and <= 63 } &&
+        cell[0] != '-' && cell[^1] != '-' &&
+        cell.All(static character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
+
+    internal static string CellAdvertisementKey(string cell)
+    {
+        if (!IsCellToken(cell))
+            throw new ArgumentException("The advertised cell is not a lowercase DNS-style token.", nameof(cell));
+        return $"cell.{cell}";
     }
 
     public static string CiRunnerJournalPrefix(string runner) =>

@@ -122,6 +122,55 @@ public sealed class OrchestratorTelemetryTests
             .Throws<InvalidOperationException>();
     }
 
+    [Test]
+    public async Task GlobalDirectoryMetricsExposeOnlyBoundedAggregateHealth()
+    {
+        var measurements = new List<MetricMeasurement>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == OrchestratorTelemetry.InstrumentationName &&
+                instrument.Name.Contains("cell_directory", StringComparison.Ordinal))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            var copiedTags = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var tag in tags) copiedTags.Add(tag.Key, tag.Value);
+            measurements.Add(new(instrument.Name, value, copiedTags));
+        });
+        listener.Start();
+        using var telemetry = OrchestratorTelemetry.Start(new(
+            OrchestratorCommand.Check,
+            "gru",
+            "nats://127.0.0.1:4222",
+            3,
+            Instance: "controller-1"), _ => null);
+        var snapshot = new GlobalCellDirectorySnapshot(
+            1,
+            DateTimeOffset.UtcNow,
+            2,
+            1,
+            4,
+            GlobalCellDirectoryCondition.Degraded,
+            []);
+        telemetry.ObserveCellDirectory(() => snapshot);
+
+        listener.RecordObservableInstruments();
+
+        await Assert.That(measurements.Where(measurement =>
+                measurement.Name.EndsWith("cell_directory.cells", StringComparison.Ordinal))
+            .ToDictionary(measurement => (string)measurement.Tags["state"]!, measurement => measurement.Value))
+            .IsEquivalentTo(new Dictionary<string, long> { ["active"] = 2, ["stale"] = 1 });
+        await Assert.That(measurements.Single(measurement =>
+                measurement.Name.EndsWith("advertisements.rejected", StringComparison.Ordinal)).Value)
+            .IsEqualTo(4);
+        await Assert.That(measurements.SelectMany(static measurement => measurement.Tags.Keys)
+            .Any(tag => tag.Contains("instance", StringComparison.OrdinalIgnoreCase) ||
+                        tag.Contains("peer", StringComparison.OrdinalIgnoreCase) ||
+                        tag.Contains("remote_cell", StringComparison.OrdinalIgnoreCase))).IsFalse();
+    }
+
     private static Func<string, string?> Environment(IEnumerable<KeyValuePair<string, string>> values)
     {
         var environment = values.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);

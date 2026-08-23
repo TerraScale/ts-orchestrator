@@ -558,6 +558,7 @@ ts.orch.v1.<cell>.event.<kind>
 ts.orch.v1.<cell>.operation.<kind>
 ts.orch.v1.global.release.>
 ts.orch.v1.global.ci.>
+ts.orch.v1.global.query.cells
 ts.orch.v1.<cell>.audit.>
 ```
 
@@ -566,6 +567,7 @@ Core streams/buckets:
 | Name | Location | Replicas | Purpose |
 |---|---|---:|---|
 | `GLOBAL_SPEC` | GRU | 3 | Accepted global revisions and compiled per-cell handoffs |
+| `GLOBAL_CELLS` | GRU | 3 | Renewable regional authority advertisements and the read-only cross-region directory |
 | `GLOBAL_RELEASES` | GRU | 3 | Candidate, release-set, approval, promotion, and rollback journal |
 | `CELL_SPEC` | each cell | 3 | Accepted local desired state and generation history |
 | `CELL_OPERATIONS` | each cell | 3 | Node, allocation, volume, certificate, and topology operation state |

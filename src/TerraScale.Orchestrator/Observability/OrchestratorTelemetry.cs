@@ -73,11 +73,14 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private readonly ObservableGauge<long> membershipLeaders;
     private readonly ObservableGauge<long> membershipHeartbeatAge;
     private readonly ObservableCounter<long> rejectedMembershipRecords;
+    private readonly ObservableGauge<long> globalDirectoryCells;
+    private readonly ObservableCounter<long> rejectedGlobalAdvertisements;
     private readonly OpenTelemetrySdk sdk;
     private readonly ILogger logger;
     private readonly string cell;
     private readonly string instance;
     private Func<RegionalRuntimeMembershipHealth>? membershipHealth;
+    private Func<GlobalCellDirectorySnapshot>? globalCellDirectory;
 
     private OrchestratorTelemetry(
         OrchestratorOptions options,
@@ -135,6 +138,14 @@ internal sealed class OrchestratorTelemetry : IDisposable
             "terrascale.orchestrator.membership.records.rejected",
             ObserveRejectedMembershipRecords,
             unit: "{record}");
+        globalDirectoryCells = meter.CreateObservableGauge(
+            "terrascale.orchestrator.cell_directory.cells",
+            ObserveGlobalDirectoryCells,
+            unit: "{cell}");
+        rejectedGlobalAdvertisements = meter.CreateObservableCounter(
+            "terrascale.orchestrator.cell_directory.advertisements.rejected",
+            ObserveRejectedGlobalAdvertisements,
+            unit: "{advertisement}");
         logger = sdk.GetLoggerFactory().CreateLogger(InstrumentationName);
     }
 
@@ -159,6 +170,13 @@ internal sealed class OrchestratorTelemetry : IDisposable
         ArgumentNullException.ThrowIfNull(observe);
         if (Interlocked.CompareExchange(ref membershipHealth, observe, null) is not null)
             throw new InvalidOperationException("Regional membership telemetry is already attached.");
+    }
+
+    internal void ObserveCellDirectory(Func<GlobalCellDirectorySnapshot> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref globalCellDirectory, observe, null) is not null)
+            throw new InvalidOperationException("Global cell directory telemetry is already attached.");
     }
 
     public void RecordReady(TimeSpan elapsed)
@@ -192,6 +210,8 @@ internal sealed class OrchestratorTelemetry : IDisposable
         GC.KeepAlive(membershipLeaders);
         GC.KeepAlive(membershipHeartbeatAge);
         GC.KeepAlive(rejectedMembershipRecords);
+        GC.KeepAlive(globalDirectoryCells);
+        GC.KeepAlive(rejectedGlobalAdvertisements);
         sdk.Dispose();
         meter.Dispose();
         activitySource.Dispose();
@@ -242,7 +262,33 @@ internal sealed class OrchestratorTelemetry : IDisposable
         yield return new(health.RejectedRecords, MembershipTags(null, health.Condition));
     }
 
+    private IEnumerable<Measurement<long>> ObserveGlobalDirectoryCells()
+    {
+        var snapshot = Volatile.Read(ref globalCellDirectory)?.Invoke();
+        if (snapshot is null) yield break;
+        yield return new(snapshot.ActiveCells, GlobalDirectoryTags("active", snapshot.Condition));
+        yield return new(snapshot.StaleCells, GlobalDirectoryTags("stale", snapshot.Condition));
+    }
+
+    private IEnumerable<Measurement<long>> ObserveRejectedGlobalAdvertisements()
+    {
+        var snapshot = Volatile.Read(ref globalCellDirectory)?.Invoke();
+        if (snapshot is null) yield break;
+        yield return new(snapshot.RejectedAdvertisements, GlobalDirectoryTags(null, snapshot.Condition));
+    }
+
     private TagList MembershipTags(string? state, RegionalRuntimeMembershipCondition condition)
+    {
+        var tags = new TagList
+        {
+            { "terrascale.cell", cell },
+            { "condition", condition.ToString().ToLowerInvariant() }
+        };
+        if (state is not null) tags.Add("state", state);
+        return tags;
+    }
+
+    private TagList GlobalDirectoryTags(string? state, GlobalCellDirectoryCondition condition)
     {
         var tags = new TagList
         {

@@ -171,12 +171,13 @@ remain the responsibility of the managed Alloy/Collector role.
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
-GRU global-controller candidates opt in to the separate global control account
+Regional controller candidates opt in to the separate global control account
 only with the complete `TS_ORCH_GLOBAL_NATS_*` configuration. The connection
 requires R3, a `tls://` endpoint, a valid private user NKey seed, and a complete
 mTLS identity distinct from the regional account. The endpoint may be the same
 GRU control-NATS cluster because account authorization is separate. Startup
-then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, the
+then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, the bounded
+`GLOBAL_CELLS` regional-advertisement KV bucket, the
 64-revision-per-release `GLOBAL_RELEASES` KV journal, and the R3
 `GLOBAL_BUNDLES` content store plus `GLOBAL_CI` inbox before reporting ready:
 
@@ -191,6 +192,36 @@ terrascale-orchestrator check
 
 Supplying any subset, reusing either regional identity, using plaintext, or
 configuring fewer than three replicas fails before the global connection.
+
+The current regional authority leader renews one versioned `GLOBAL_CELLS`
+record every five seconds with a twenty-second semantic lease. Its key is
+stable (`cell.<cell>`), CAS updates fence concurrent leaders, and the contract
+orders replacements by regional authority epoch, authority revision, then
+advertisement sequence. Every connected controller watches the bucket and
+serves the read-only projection at `ts.orch.v1.global.query.cells` through a
+NATS service queue group. Duplicate delivery yields one entry; malformed,
+cross-key, and older advertisements cannot replace newer state. A WAN outage
+does not delete regional truth or revoke regional authority: the remote entry
+becomes stale after its lease while local reconciliation continues, and the
+publisher resumes from the durable record after reconnect. Metrics expose only
+aggregate active/stale cell counts and rejected-advertisement totals, without
+remote cell, controller, peer, or session labels.
+
+`check` watches and validates the directory but never publishes a cell record.
+In `run`, a failed initial global connection leaves the regional controller
+active with global GitOps/CI disabled; the external supervisor may retry the
+process after global service returns. After a successful start, transient
+global authority and directory failures retry in place, and completion of a
+global subsystem never completes the regional run loop. Global authority is
+marked unavailable and relinquishes its in-memory election state before retry,
+so a disconnected global candidate cannot retain mutation authority.
+
+Production account provisioning must bind each regional publisher identity to
+only `$KV.GLOBAL_CELLS.cell.<its-cell>` while permitting read/watch access to
+the directory and read-only service replies. A controller identity that can
+write another cell's key is not deployment-qualified. The repository does not
+yet contain the production gateway/account import-export fixture proving that
+denial; it remains an explicit security gate rather than an inferred claim.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event

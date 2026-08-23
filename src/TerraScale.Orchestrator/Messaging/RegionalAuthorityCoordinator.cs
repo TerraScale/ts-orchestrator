@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NATS.Client.Core;
+using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using TerraScale.Orchestrator.ControlPlane.Authority;
 
@@ -65,6 +67,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     private readonly string authorityId;
     private readonly string candidateId;
     private readonly string leaseKey;
+    private readonly bool tolerateTransientFailures;
     private readonly Stopwatch confirmedLeaseAge = new();
     private readonly CancellationTokenSource stopping = new();
     // Keep only the current pure-engine state. Replaying an unbounded renewal
@@ -79,12 +82,14 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         INatsKVStore store,
         string authorityId,
         string candidateId,
-        string leaseKey)
+        string leaseKey,
+        bool tolerateTransientFailures = false)
     {
         this.store = store;
         this.authorityId = authorityId;
         this.candidateId = candidateId;
         this.leaseKey = leaseKey;
+        this.tolerateTransientFailures = tolerateTransientFailures;
     }
 
     public RegionalAuthoritySnapshot Snapshot => Volatile.Read(ref snapshot);
@@ -109,14 +114,18 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 
     public static async Task<RegionalAuthorityCoordinator> StartGlobalAsync(
         INatsKVStore store,
+        string cell,
         string instance,
         CancellationToken cancellationToken)
     {
+        if (!GlobalNatsTopology.IsCellToken(cell))
+            throw new ArgumentException("The global authority candidate cell is invalid.", nameof(cell));
         var coordinator = new RegionalAuthorityCoordinator(
             store,
             "global",
-            $"global-controller-{instance}",
-            "authority.global");
+            $"global-controller-{cell}-{instance}",
+            "authority.global",
+            tolerateTransientFailures: true);
         await coordinator.TickAsync(cancellationToken);
         coordinator.loop = coordinator.RunAsync(coordinator.stopping.Token);
         return coordinator;
@@ -143,7 +152,24 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         using var timer = new PeriodicTimer(TickInterval);
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
-            await TickAsync(cancellationToken);
+            try
+            {
+                await TickAsync(cancellationToken);
+            }
+            catch (Exception exception) when (
+                tolerateTransientFailures && IsTransient(exception))
+            {
+                var confirmed = journalState.Confirmed ?? new AuthorityObservation(
+                    authorityId, 0, 0, "global-nats-unavailable", null);
+                journalState = AuthorityState.Empty;
+                confirmedLeaseAge.Reset();
+                Publish(
+                    "unavailable",
+                    false,
+                    confirmed,
+                    "global-nats-unavailable",
+                    DateTimeOffset.UtcNow);
+            }
         }
     }
 
@@ -303,6 +329,10 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 
     internal static AuthorityHealth Health(DateTimeOffset now, TimeSpan confirmedLeaseAge) =>
         new(now, confirmedLeaseAge, PartitionCertain: true, ClockCertain: true);
+
+    private static bool IsTransient(Exception exception) =>
+        exception is NatsException or NatsJSApiNoResponseException or NatsJSTimeoutException or
+            NatsJSConnectionException;
 
     private void Apply(AuthorityDecision decision)
     {

@@ -39,6 +39,14 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(runtimeProof.NumReplicas).IsEqualTo(3);
         await Assert.That(topology.Leaders.Bucket).IsEqualTo("ORCH_LEADERS");
         await Assert.That(topology.Leaders.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(topology.Cells.Bucket).IsEqualTo("GLOBAL_CELLS");
+        await Assert.That(topology.Cells.NumberOfReplicas).IsEqualTo(3);
+        await Assert.That(topology.Cells.History).IsEqualTo(16);
+        await Assert.That(topology.Cells.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
+        await Assert.That(topology.Cells.MaxValueSize).IsEqualTo(64 * 1024);
+        await Assert.That(GlobalNatsTopology.CellAdvertisementKey("gru")).IsEqualTo("cell.gru");
+        await Assert.That(GlobalNatsTopology.CellDirectorySubject)
+            .IsEqualTo("ts.orch.v1.global.query.cells");
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");
         await Assert.That(topology.Releases.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.History).IsEqualTo(64);

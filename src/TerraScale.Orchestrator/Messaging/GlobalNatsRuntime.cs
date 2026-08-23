@@ -1,7 +1,9 @@
+using System.Text.Json;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
+using NATS.Client.Services;
 using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Delivery;
@@ -17,6 +19,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly RepositoryCiCandidateRetentionWorker retention;
     private readonly RepositoryCiController? ciController;
     private readonly INatsJSConsumer? cellSpecConsumer;
+    private readonly GlobalCellDirectoryRuntime cellDirectory;
+    private readonly INatsSvcServer cellDirectoryService;
     private readonly GlobalNatsTopology topology;
     private readonly string cell;
 
@@ -38,6 +42,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RepositoryCiCandidateJournal candidates,
         NativeGitOpsGlobalHandoffRuntime? nativeGitOpsHandoffs,
         INatsJSConsumer? cellSpecConsumer,
+        GlobalCellDirectoryRuntime cellDirectory,
+        INatsSvcServer cellDirectoryService,
         GlobalNatsTopology topology,
         string cell)
     {
@@ -58,6 +64,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         Candidates = candidates;
         NativeGitOpsHandoffs = nativeGitOpsHandoffs;
         this.cellSpecConsumer = cellSpecConsumer;
+        this.cellDirectory = cellDirectory;
+        this.cellDirectoryService = cellDirectoryService;
         this.topology = topology;
         this.cell = cell;
     }
@@ -66,7 +74,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         authority.Completion,
         ciEvents.Completion,
         runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan),
-        retention.Completion).Unwrap();
+        retention.Completion,
+        cellDirectory.Completion).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public CiRunnerConsumerReconciler CiRunners { get; }
     public CiRunnerNatsCredentialIssuer? CiRunnerCredentials { get; }
@@ -78,6 +87,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public RepositoryCiCandidateJournal Candidates { get; }
     internal NativeGitOpsGlobalHandoffRuntime? NativeGitOpsHandoffs { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
+    internal GlobalCellDirectorySnapshot CellDirectorySnapshot => cellDirectory.Snapshot;
 
     internal NativeGitOpsGlobalCellNatsConsumer CreateNativeGitOpsConsumer(
         NativeGitOpsCellPublisher regionalPublisher,
@@ -94,6 +104,9 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         GlobalNatsConfiguration configuration,
         string instance,
         string cell,
+        Func<RegionalRuntimeMembershipSnapshot> regionalMembership,
+        Func<RegionalAuthoritySnapshot> regionalAuthority,
+        bool publishCellAdvertisement,
         INatsAccountJwtSigner? ciRunnerNatsSigner,
         CancellationToken cancellationToken,
         ForgejoSourceConfiguration? ciSource = null,
@@ -107,6 +120,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         bool nativeGitOpsConsumerEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(regionalMembership);
+        ArgumentNullException.ThrowIfNull(regionalAuthority);
         if (ciPool is not null && (ciArtifactSigner is null || ciArtifactSignatures is null ||
                 ciRuntimeSignatures is null) && (ciArtifactSigner is not null ||
                 ciArtifactSignatures is not null || ciRuntimeSignatures is not null))
@@ -115,7 +130,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         var client = new NatsClient(new NatsOpts
         {
             Url = configuration.Url,
-            RetryOnInitialConnect = true,
+            RetryOnInitialConnect = false,
             RequestTimeout = TimeSpan.FromSeconds(15),
             AuthOpts = new NatsAuthOpts { NKeyFile = configuration.NKeyFile },
             TlsOpts = new NatsTlsOpts
@@ -130,6 +145,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator? authority = null;
         RepositoryCiController? ciController = null;
         RepositoryCiCandidateRetentionWorker? retention = null;
+        GlobalCellDirectoryRuntime? cellDirectory = null;
+        INatsSvcServer? cellDirectoryService = null;
         try
         {
             await client.ConnectAsync();
@@ -138,10 +155,41 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 client, topology, cell, nativeGitOpsConsumerEnabled, cancellationToken);
             authority = await RegionalAuthorityCoordinator.StartGlobalAsync(
                 state.Leaders,
+                cell,
                 instance,
                 cancellationToken);
             if (!authority.Snapshot.Ready)
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
+            cellDirectory = GlobalCellDirectoryRuntime.Start(
+                state.Cells, cell, regionalMembership, regionalAuthority, publishCellAdvertisement);
+            var services = client.CreateServicesContext();
+            cellDirectoryService = await services.AddServiceAsync(
+                new NatsSvcConfig($"terrascale-global-cell-directory-{cell}", "1.0.0")
+                {
+                    Description = "TerraScale read-only global cell directory",
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["cell"] = cell,
+                        ["readOnly"] = "true"
+                    },
+                    QueueGroup = "ts-orch-global-cell-directory"
+                },
+                cancellationToken);
+            await cellDirectoryService.AddEndpointAsync<string>(
+                message => message.ReplyAsync(
+                    JsonSerializer.Serialize(
+                        cellDirectory.Snapshot,
+                        GlobalCellDirectoryJsonContext.Default.GlobalCellDirectorySnapshot),
+                    cancellationToken: cancellationToken),
+                name: "cells",
+                subject: GlobalNatsTopology.CellDirectorySubject,
+                metadata: new Dictionary<string, string>
+                {
+                    ["protocol"] = "1",
+                    ["readOnly"] = "true",
+                    ["source"] = topology.Cells.Bucket
+                },
+                cancellationToken: cancellationToken);
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
             var objects = new NatsDeliveryObjectStore(state.Bundles);
             var runnerLedger = new NatsForgejoDeliveryLedger(state.RunnerJobs);
@@ -341,11 +389,15 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 candidates,
                 nativeGitOpsHandoffs,
                 state.CellSpecConsumer,
+                cellDirectory,
+                cellDirectoryService,
                 topology,
                 cell);
         }
         catch
         {
+            if (cellDirectoryService is not null) await cellDirectoryService.DisposeAsync();
+            if (cellDirectory is not null) await cellDirectory.DisposeAsync();
             if (retention is not null) await retention.DisposeAsync();
             if (ciController is not null) await ciController.DisposeAsync();
             if (authority is not null) await authority.DisposeAsync();
@@ -370,6 +422,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     await jetStream.CreateOrUpdateStreamAsync(stream, cancellationToken);
                 var keyValue = jetStream.CreateKeyValueStoreContext();
                 var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
+                var cells = await keyValue.CreateOrUpdateStoreAsync(topology.Cells, cancellationToken);
                 var releases = await keyValue.CreateOrUpdateStoreAsync(topology.Releases, cancellationToken);
                 var runnerJobs = await keyValue.CreateOrUpdateStoreAsync(topology.RunnerJobs, cancellationToken);
                 var objectStore = jetStream.CreateObjectStoreContext();
@@ -399,6 +452,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 }
                 return new(
                     leaders,
+                    cells,
                     releases,
                     runnerJobs,
                     bundles,
@@ -435,35 +489,49 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         try
         {
-            await retention.DisposeAsync();
+            await cellDirectoryService.DisposeAsync();
         }
         finally
         {
             try
             {
-                if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
+                await cellDirectory.DisposeAsync();
             }
             finally
             {
                 try
                 {
-                    await ciEvents.DisposeAsync();
+                    await retention.DisposeAsync();
                 }
                 finally
                 {
                     try
                     {
-                        if (ciController is not null) await ciController.DisposeAsync();
+                        if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
                     }
                     finally
                     {
                         try
                         {
-                            await authority.DisposeAsync();
+                            await ciEvents.DisposeAsync();
                         }
                         finally
                         {
-                            await client.DisposeAsync();
+                            try
+                            {
+                                if (ciController is not null) await ciController.DisposeAsync();
+                            }
+                            finally
+                            {
+                                try
+                                {
+                                    await authority.DisposeAsync();
+                                }
+                                finally
+                                {
+                                    await client.DisposeAsync();
+                                }
+                            }
                         }
                     }
                 }
@@ -473,6 +541,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 
     private sealed record GlobalState(
         INatsKVStore Leaders,
+        INatsKVStore Cells,
         INatsKVStore Releases,
         INatsKVStore RunnerJobs,
         INatsObjStore Bundles,
