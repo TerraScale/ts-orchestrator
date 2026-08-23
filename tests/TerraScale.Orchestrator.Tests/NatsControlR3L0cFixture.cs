@@ -46,6 +46,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity controllerTwo,
         NatsControlR3L0cIdentity infrastructure,
         NatsControlR3L0cIdentity journalWriter,
+        NatsControlR3L0cIdentity cellDirectoryPublisher,
+        NatsControlR3L0cIdentity cellDirectoryReader,
+        NatsControlR3L0cIdentity cellDirectoryService,
         NatsControlR3L0cIdentity operatorRead,
         NatsControlR3L0cIdentity wrongAccount)
     {
@@ -59,6 +62,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         ControllerTwo = controllerTwo;
         Infrastructure = infrastructure;
         JournalWriter = journalWriter;
+        CellDirectoryPublisher = cellDirectoryPublisher;
+        CellDirectoryReader = cellDirectoryReader;
+        CellDirectoryService = cellDirectoryService;
         Operator = operatorRead;
         WrongAccount = wrongAccount;
         Topology = new NatsTopology(Cell, MemberCount, "controller-1");
@@ -75,6 +81,12 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     public NatsControlR3L0cIdentity Infrastructure { get; }
 
     public NatsControlR3L0cIdentity JournalWriter { get; }
+
+    public NatsControlR3L0cIdentity CellDirectoryPublisher { get; }
+
+    public NatsControlR3L0cIdentity CellDirectoryReader { get; }
+
+    public NatsControlR3L0cIdentity CellDirectoryService { get; }
 
     public NatsControlR3L0cIdentity Operator { get; }
 
@@ -167,6 +179,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.ControllerTwo,
                 identities.Infrastructure,
                 identities.JournalWriter,
+                identities.CellDirectoryPublisher,
+                identities.CellDirectoryReader,
+                identities.CellDirectoryService,
                 identities.Operator,
                 identities.WrongAccount);
 
@@ -275,6 +290,17 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                         infrastructure, Topology.OperationProofConsumptions, cancellationToken);
                 }
             },
+            cancellationToken);
+    }
+
+    public async Task ProvisionGlobalCellDirectoryAsync(CancellationToken cancellationToken = default)
+    {
+        await using var infrastructure = await ConnectAsync(Infrastructure, cancellationToken: cancellationToken);
+        var stores = infrastructure.CreateJetStreamContext().CreateKeyValueStoreContext();
+        await RetryNatsAsync(
+            async () => _ = await stores.CreateOrUpdateStoreAsync(
+                new GlobalNatsTopology(3).Cells,
+                cancellationToken),
             cancellationToken);
     }
 
@@ -713,6 +739,33 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             Role.JournalWriter,
             0,
             now);
+        var cellDirectoryPublisher = CreateUser(
+            credentials,
+            pki,
+            accountSeed,
+            accountPublicKey,
+            "cell-directory-publisher-sfo",
+            Role.CellDirectoryPublisher,
+            0,
+            now);
+        var cellDirectoryReader = CreateUser(
+            credentials,
+            pki,
+            accountSeed,
+            accountPublicKey,
+            "cell-directory-reader-sfo",
+            Role.CellDirectoryReader,
+            0,
+            now);
+        var cellDirectoryService = CreateUser(
+            credentials,
+            pki,
+            accountSeed,
+            accountPublicKey,
+            "cell-directory-service-gru",
+            Role.CellDirectoryService,
+            0,
+            now);
         var operatorRead = CreateUser(
             credentials,
             pki,
@@ -743,6 +796,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             controllerTwo,
             infrastructure,
             journalWriter,
+            cellDirectoryPublisher,
+            cellDirectoryReader,
+            cellDirectoryService,
             operatorRead,
             wrongAccount);
     }
@@ -908,6 +964,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$JS.API.STREAM.CREATE.KV_ORCH_OPERATION_PROOFS",
                     "$JS.API.STREAM.UPDATE.KV_ORCH_OPERATION_PROOFS",
                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS",
+                    "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS",
+                    "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS",
+                    "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
                     "$JS.API.STREAM.CREATE.OBJ_CELL_BUNDLES",
                     "$JS.API.STREAM.UPDATE.OBJ_CELL_BUNDLES",
                     "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
@@ -956,6 +1015,12 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.internal.runtime-lifecycle-journal.write",
                     "$SRV.>",
                 ]),
+            Role.CellDirectoryPublisher => From(
+                GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryPublisher)),
+            Role.CellDirectoryReader => From(
+                GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryReader)),
+            Role.CellDirectoryService => From(
+                GlobalNatsPermissions.Create("gru", GlobalNatsRole.CellDirectoryService)),
             Role.Operator => new(
                 [$"{root}.query.status", $"{root}.query.members"],
                 ["_INBOX.>"]),
@@ -963,6 +1028,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown L0C role."),
         };
     }
+
+    private static PermissionSet From(GlobalNatsPermissionPlan plan) =>
+        new(plan.Publish, plan.Subscribe);
 
     private static string EncodeJwt(
         string issuerSeed,
@@ -1053,7 +1121,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         foreach (var name in new[]
                  {
                      "controller-1", "controller-2", "infrastructure", "journal-writer",
-                     "operator-read", "wrong-account"
+                     "cell-directory-publisher-sfo", "cell-directory-reader-sfo",
+                     "cell-directory-service-gru", "operator-read", "wrong-account"
                  })
         {
             clients[name] = CreateLeaf(
@@ -1268,6 +1337,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity ControllerTwo,
         NatsControlR3L0cIdentity Infrastructure,
         NatsControlR3L0cIdentity JournalWriter,
+        NatsControlR3L0cIdentity CellDirectoryPublisher,
+        NatsControlR3L0cIdentity CellDirectoryReader,
+        NatsControlR3L0cIdentity CellDirectoryService,
         NatsControlR3L0cIdentity Operator,
         NatsControlR3L0cIdentity WrongAccount);
 
@@ -1280,6 +1352,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         Controller,
         Infrastructure,
         JournalWriter,
+        CellDirectoryPublisher,
+        CellDirectoryReader,
+        CellDirectoryService,
         Operator,
         WrongAccount,
     }

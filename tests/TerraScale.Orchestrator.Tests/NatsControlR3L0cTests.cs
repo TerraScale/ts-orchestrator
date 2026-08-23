@@ -5,6 +5,7 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
+using NATS.Client.Services;
 using NATS.Net;
 using TerraScale.Orchestrator.Messaging;
 
@@ -15,6 +16,69 @@ namespace TerraScale.Orchestrator.Tests;
 [NotInParallel("NatsR3")]
 public sealed class NatsControlR3L0cTests
 {
+    [Test]
+    public async Task CellDirectoryReaderCanOnlyCallTheAuthenticatedReadOnlyService()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await using var serviceClient = await fixture.ConnectAsync(fixture.CellDirectoryService);
+        await using var reader = await fixture.ConnectAsync(fixture.CellDirectoryReader);
+        await using var service = await serviceClient.CreateServicesContext().AddServiceAsync(
+            new NatsSvcConfig("terrascale-global-cell-directory-gru", "1.0.0")
+            {
+                QueueGroup = "ts-orch-global-cell-directory"
+            });
+        await service.AddEndpointAsync<string>(
+            message => message.ReplyAsync("directory-snapshot"),
+            name: "cells",
+            subject: GlobalNatsTopology.CellDirectorySubject);
+
+        var response = await reader.RequestAsync<string, string>(
+            GlobalNatsTopology.CellDirectorySubject,
+            string.Empty);
+        response.EnsureSuccess();
+        await Assert.That(response.Data).IsEqualTo("directory-snapshot");
+        using (var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+            await service.StopAsync(stopTimeout.Token);
+
+        await Assert.That(async () => _ = await reader.RequestAsync<string, string>(
+                "$KV.GLOBAL_CELLS.cell.sfo", "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await serviceClient.RequestAsync<string, string>(
+                "$KV.GLOBAL_CELLS.cell.gru", "forbidden"))
+            .Throws<NatsException>();
+    }
+
+    [Test]
+    public async Task CellDirectoryPublisherJwtIsEnforcedByAuthenticatedR3Servers()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionGlobalCellDirectoryAsync();
+        await using var publisher = await fixture.ConnectAsync(fixture.CellDirectoryPublisher);
+
+        var store = await publisher.CreateJetStreamContext().CreateKeyValueStoreContext()
+            .GetStoreAsync("GLOBAL_CELLS");
+        await using var watcher = store.WatchAsync<string>("cell.>").GetAsyncEnumerator();
+        var observed = watcher.MoveNextAsync().AsTask();
+        var revision = await store.CreateAsync("cell.sfo", "sfo-advertisement");
+        await Assert.That(await observed.WaitAsync(TimeSpan.FromSeconds(5))).IsTrue();
+        await Assert.That(watcher.Current.Key).IsEqualTo("cell.sfo");
+        await Assert.That(watcher.Current.Value).IsEqualTo("sfo-advertisement");
+        var entry = await store.GetEntryAsync<string>("cell.sfo");
+        entry.EnsureSuccess();
+        await Assert.That(entry.Revision).IsEqualTo(revision);
+        await Assert.That(entry.Value).IsEqualTo("sfo-advertisement");
+
+        await Assert.That(async () => _ = await store.CreateAsync("cell.gru", "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await publisher.RequestAsync<string, string>(
+                "$KV.ORCH_LEADERS.global", "forbidden"))
+            .Throws<NatsException>();
+    }
+
     [Test]
     public async Task ControllerNativeGitOpsPermissionsAreExactAndProtectedJournalsStayDenied()
     {

@@ -216,12 +216,23 @@ global subsystem never completes the regional run loop. Global authority is
 marked unavailable and relinquishes its in-memory election state before retry,
 so a disconnected global candidate cannot retain mutation authority.
 
-Production account provisioning must bind each regional publisher identity to
-only `$KV.GLOBAL_CELLS.cell.<its-cell>` while permitting read/watch access to
-the directory and read-only service replies. A controller identity that can
-write another cell's key is not deployment-qualified. The repository does not
-yet contain the production gateway/account import-export fixture proving that
-denial; it remains an explicit security gate rather than an inferred claim.
+`GlobalNatsPermissions` now defines separate directory-publisher,
+directory-reader, and directory-service roles. A publisher can mutate only
+`$KV.GLOBAL_CELLS.cell.<its-cell>` and has the bounded JetStream subjects needed
+to read and watch the directory. A reader can only request
+`ts.orch.v1.global.query.cells` and receive its inbox reply. The service role
+can receive that query and service-discovery requests, then publish inbox
+replies; it cannot mutate the directory. Pure subject-grammar tests reject
+invalid cells and cross-cell wildcard grants. The mTLS, operator-JWT, NKey, R3
+conformance fixture proves authenticated read-only service request/reply. It
+also proves that an SFO publisher can write and watch `cell.sfo` while the
+servers reject `cell.gru` and `ORCH_LEADERS` mutations.
+
+Production account provisioning does not consume this contract yet. The
+global runtime still combines directory, authority, release, and CI access in
+one connection, and the repository does not yet prove gateway account
+imports/exports or reconnect behavior. Those remain deployment-blocking
+security gates.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
