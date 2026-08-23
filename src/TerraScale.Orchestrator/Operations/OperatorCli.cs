@@ -17,10 +17,11 @@ public static class OperatorCli
         Func<string, string?> environment,
         CancellationToken cancellationToken)
     {
-        if (arguments.Count == 0 || arguments[0] != "status")
+        if (arguments.Count == 0 || arguments[0] is not ("status" or "members"))
         {
-            throw new ArgumentException("operator requires 'status'.");
+            throw new ArgumentException("operator requires 'status' or 'members'.");
         }
+        var command = arguments[0];
         var values = ParseValues(arguments.Skip(1).ToArray());
         var cell = Value(values, "--cell", environment("TS_ORCH_CELL") ?? "local");
         var url = Value(values, "--nats-url", environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222");
@@ -38,7 +39,7 @@ public static class OperatorCli
             nkeyFile is null || tls is null)
         {
             throw new ArgumentException(
-                "operator status requires a tls:// NATS URL, a private NKey seed, and complete mTLS credentials.");
+                $"operator {command} requires a tls:// NATS URL, a private NKey seed, and complete mTLS credentials.");
         }
         _ = OrchestratorOptions.Parse(
             ["check"],
@@ -47,6 +48,10 @@ public static class OperatorCli
                 "TS_ORCH_CELL" => cell,
                 "TS_ORCH_NATS_URL" => url,
                 "TS_ORCH_REPLICAS" => "1",
+                "TS_ORCH_NATS_NKEY_FILE" => nkeyFile,
+                "TS_ORCH_NATS_TLS_CA_FILE" => tls.CaFile,
+                "TS_ORCH_NATS_TLS_CERT_FILE" => tls.CertificateFile,
+                "TS_ORCH_NATS_TLS_KEY_FILE" => tls.KeyFile,
                 _ => null
             });
 
@@ -78,16 +83,29 @@ public static class OperatorCli
         }
         await using var client = new NatsClient(clientOptions);
         await client.ConnectAsync();
+        var topology = new NatsTopology(cell, 1);
         var response = await client.RequestAsync<string, string>(
-            new NatsTopology(cell, 1).StatusSubject,
-            "status",
+            command == "status" ? topology.StatusSubject : topology.MembersSubject,
+            command,
             cancellationToken: cancellationToken);
-        var status = JsonSerializer.Deserialize(
-            response.Data ?? throw new InvalidOperationException("The regional controller returned no status."),
-            RegionalControllerStatusJsonContext.Default.RegionalControllerStatus)
-            ?? throw new InvalidOperationException("The regional controller returned no status.");
-        status.Validate(cell);
-        Console.WriteLine(JsonSerializer.Serialize(status, OutputOptions));
+        if (command == "status")
+        {
+            var status = JsonSerializer.Deserialize(
+                response.Data ?? throw new InvalidOperationException("The regional controller returned no status."),
+                RegionalControllerStatusJsonContext.Default.RegionalControllerStatus)
+                ?? throw new InvalidOperationException("The regional controller returned no status.");
+            status.Validate(cell);
+            Console.WriteLine(JsonSerializer.Serialize(status, OutputOptions));
+        }
+        else
+        {
+            var members = JsonSerializer.Deserialize(
+                response.Data ?? throw new InvalidOperationException("The regional controller returned no membership view."),
+                RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMembershipSnapshot)
+                ?? throw new InvalidOperationException("The regional controller returned no membership view.");
+            members.Validate(cell);
+            Console.WriteLine(JsonSerializer.Serialize(members, OutputOptions));
+        }
         return 0;
     }
 
@@ -102,7 +120,7 @@ public static class OperatorCli
                 !values.TryAdd(arguments[index], arguments[index + 1]))
             {
                 throw new ArgumentException(
-                    "operator status accepts [--cell <cell>] [--nats-url <nats-url>] " +
+                    "operator read commands accept [--cell <cell>] [--nats-url <nats-url>] " +
                     "[--nkey-file <seed-file>] [--tls-ca-file <pem>] " +
                     "[--tls-cert-file <pem>] [--tls-key-file <pem>].");
             }

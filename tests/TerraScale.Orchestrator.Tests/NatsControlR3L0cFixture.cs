@@ -957,7 +957,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$SRV.>",
                 ]),
             Role.Operator => new(
-                [$"{root}.query.status"],
+                [$"{root}.query.status", $"{root}.query.members"],
                 ["_INBOX.>"]),
             Role.WrongAccount => new([">"], ["_INBOX.>"]),
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown L0C role."),

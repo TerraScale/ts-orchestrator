@@ -12,6 +12,17 @@ public sealed class OperatorCliTests
                 _ => null,
                 CancellationToken.None))
             .Throws<ArgumentException>();
+
+        await Assert.That(async () => await OperatorCli.ExecuteAsync(
+                ["members"],
+                _ => null,
+                CancellationToken.None))
+            .Throws<ArgumentException>();
+        await Assert.That(async () => await OperatorCli.ExecuteAsync(
+                ["unknown"],
+                _ => null,
+                CancellationToken.None))
+            .Throws<ArgumentException>();
     }
 
     [Test]

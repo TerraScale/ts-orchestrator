@@ -186,7 +186,7 @@ internal static class NatsDevelopmentCluster
                       subscribe: { allow: ["_INBOX.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$O.ORCH_PROTOCOL_PACKAGE.C.>", "$O.ORCH_PROTOCOL_PACKAGE.M.>"] }
                     } },
                     { nkey: "{{security.Operator.PublicKey}}", permissions: {
-                      publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status"] }
+                      publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status", "ts.orch.v1.{{cell.Cell}}.query.members"] }
                       subscribe: { allow: ["_INBOX.>"] }
                     } }
                   ]

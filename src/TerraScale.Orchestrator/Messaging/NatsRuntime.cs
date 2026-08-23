@@ -13,7 +13,7 @@ namespace TerraScale.Orchestrator.Messaging;
 public sealed class NatsRuntime : IAsyncDisposable
 {
     private readonly NatsClient client;
-    private readonly RuntimeRegistration registration;
+    private readonly RegionalRuntimeMembership membership;
     private readonly RegionalAuthorityCoordinator authority;
     private readonly INatsSvcServer service;
     private readonly INatsJSConsumer? cellSpecConsumer;
@@ -24,7 +24,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private NatsRuntime(
         NatsClient client,
         INatsSvcServer service,
-        RuntimeRegistration registration,
+        RegionalRuntimeMembership membership,
         RegionalAuthorityCoordinator authority,
         INatsJSConsumer? cellSpecConsumer,
         INatsKVStore? delivery,
@@ -33,7 +33,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     {
         this.client = client;
         this.service = service;
-        this.registration = registration;
+        this.membership = membership;
         this.authority = authority;
         this.cellSpecConsumer = cellSpecConsumer;
         this.delivery = delivery;
@@ -41,8 +41,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.topology = topology;
     }
 
-    public Task Completion => authority.Completion;
+    public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
+    internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
     internal string Cell => topology.Cell;
 
     internal NativeGitOpsCellNatsConsumer CreateNativeGitOpsConsumer()
@@ -100,7 +101,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         }
         var client = new NatsClient(clientOptions);
 
-        RuntimeRegistration? registration = null;
+        RegionalRuntimeMembership? membership = null;
         RegionalAuthorityCoordinator? authority = null;
         try
         {
@@ -115,12 +116,48 @@ public sealed class NatsRuntime : IAsyncDisposable
             var state = await OpenStateWithRetryAsync(
                 client, topology, nativeGitOpsEnabled, cancellationToken);
             await VerifyProtocolPackageAsync(state.ProtocolPackage, topology, cancellationToken);
-            registration = await RuntimeRegistration.CreateAsync(state.Runtime, cancellationToken);
             await VerifyDurableMessagingAsync(client, state.StartupConsumer, topology, cancellationToken);
             authority = await RegionalAuthorityCoordinator.StartAsync(
                 state.Leaders,
                 options.Cell,
                 options.Instance,
+                cancellationToken);
+
+            var startedAt = DateTimeOffset.UtcNow;
+            var capabilities = new List<string>
+            {
+                "authority",
+                "authority-election",
+                "delivery",
+                "messaging",
+                "observability",
+                "operator-read",
+                "provider-ownership",
+                "reconciliation",
+                "regional-membership",
+                "runtime",
+                "scheduler",
+                "security",
+                "service-discovery",
+                "storage",
+                "terrabase"
+            };
+            if (options.NatsNKeyFile is not null)
+            {
+                capabilities.Add("nats-nkey-authenticated");
+            }
+            if (options.NatsTls is not null)
+            {
+                capabilities.Add("nats-mtls");
+            }
+            capabilities.Sort(StringComparer.Ordinal);
+            membership = await RegionalRuntimeMembership.StartAsync(
+                state.Runtime,
+                topology,
+                BuildVersion.Current.DisplayName,
+                capabilities,
+                startedAt,
+                () => authority.Snapshot,
                 cancellationToken);
 
             var services = client.CreateServicesContext();
@@ -159,32 +196,6 @@ public sealed class NatsRuntime : IAsyncDisposable
                 },
                 cancellationToken: cancellationToken);
 
-            var startedAt = DateTimeOffset.UtcNow;
-            var capabilities = new List<string>
-            {
-                "authority",
-                "authority-election",
-                "delivery",
-                "messaging",
-                "observability",
-                "operator-read",
-                "provider-ownership",
-                "reconciliation",
-                "runtime",
-                "scheduler",
-                "security",
-                "storage",
-                "terrabase"
-            };
-            if (options.NatsNKeyFile is not null)
-            {
-                capabilities.Add("nats-nkey-authenticated");
-            }
-            if (options.NatsTls is not null)
-            {
-                capabilities.Add("nats-mtls");
-            }
-            capabilities.Sort(StringComparer.Ordinal);
             await service.AddEndpointAsync<string>(
                 message =>
                 {
@@ -214,12 +225,28 @@ public sealed class NatsRuntime : IAsyncDisposable
                 metadata: new Dictionary<string, string> { ["protocol"] = "1", ["readOnly"] = "true" },
                 cancellationToken: cancellationToken);
 
+            await service.AddEndpointAsync<string>(
+                message => message.ReplyAsync(
+                    JsonSerializer.Serialize(
+                        membership.Snapshot,
+                        RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMembershipSnapshot),
+                    cancellationToken: cancellationToken),
+                name: "members",
+                subject: topology.MembersSubject,
+                metadata: new Dictionary<string, string>
+                {
+                    ["protocol"] = "1",
+                    ["readOnly"] = "true",
+                    ["source"] = topology.Runtime.Bucket
+                },
+                cancellationToken: cancellationToken);
+
             await VerifyServiceAsync(client, topology, cancellationToken);
 
             return new(
                 client,
                 service,
-                registration,
+                membership,
                 authority,
                 state.CellSpecConsumer,
                 state.Delivery,
@@ -232,9 +259,9 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 await authority.DisposeAsync();
             }
-            if (registration is not null)
+            if (membership is not null)
             {
-                await registration.DisposeAsync();
+                await membership.DisposeAsync();
             }
             await client.DisposeAsync();
             throw;
@@ -351,6 +378,16 @@ public sealed class NatsRuntime : IAsyncDisposable
             RegionalControllerStatusJsonContext.Default.RegionalControllerStatus)
             ?? throw new InvalidOperationException("NATS status service returned no response.");
         status.Validate(topology.Cell);
+
+        var membersResponse = await client.RequestAsync<string, string>(
+            topology.MembersSubject,
+            "members",
+            cancellationToken: cancellationToken);
+        var members = JsonSerializer.Deserialize(
+            membersResponse.Data ?? throw new InvalidOperationException("NATS membership service returned no response."),
+            RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMembershipSnapshot)
+            ?? throw new InvalidOperationException("NATS membership service returned no response.");
+        members.Validate(topology.Cell);
     }
 
     private static bool HasExpectedEndpoint(
@@ -369,10 +406,16 @@ public sealed class NatsRuntime : IAsyncDisposable
             return false;
         }
 
-        return endpoints.EnumerateArray().Any(endpoint =>
+        var discovered = endpoints.EnumerateArray().ToArray();
+        var hasHealth = discovered.Any(endpoint =>
             endpoint.TryGetProperty("name", out var endpointName) && endpointName.GetString() == "health" &&
             endpoint.TryGetProperty("subject", out var subject) && subject.GetString() == topology.HealthSubject &&
             endpoint.TryGetProperty("queue_group", out var queue) && queue.GetString() == topology.ServiceQueueGroup);
+        var hasMembers = discovered.Any(endpoint =>
+            endpoint.TryGetProperty("name", out var endpointName) && endpointName.GetString() == "members" &&
+            endpoint.TryGetProperty("subject", out var subject) && subject.GetString() == topology.MembersSubject &&
+            endpoint.TryGetProperty("queue_group", out var queue) && queue.GetString() == topology.ServiceQueueGroup);
+        return hasHealth && hasMembers;
     }
 
     public async ValueTask DisposeAsync()
@@ -391,7 +434,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 try
                 {
-                    await registration.DisposeAsync();
+                    await membership.DisposeAsync();
                 }
                 finally
                 {
@@ -566,66 +609,4 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsObjStore? Bundles,
         INatsObjStore ProtocolPackage);
 
-    private sealed class RuntimeRegistration : IAsyncDisposable
-    {
-        private readonly string key;
-        private readonly INatsKVStore store;
-        private ulong revision;
-
-        private RuntimeRegistration(INatsKVStore store, string key, ulong revision)
-        {
-            this.store = store;
-            this.key = key;
-            this.revision = revision;
-        }
-
-        public static async Task<RuntimeRegistration> CreateAsync(
-            INatsKVStore store,
-            CancellationToken cancellationToken)
-        {
-            var key = $"instance.{Guid.NewGuid():N}";
-            var revision = await store.CreateAsync(key, "starting", cancellationToken: cancellationToken);
-            var registration = new RuntimeRegistration(store, key, revision);
-
-            try
-            {
-                await using var watcher = store.WatchAsync<string>(key, cancellationToken: cancellationToken)
-                    .GetAsyncEnumerator(cancellationToken);
-                await registration.ExpectAsync(watcher, "starting", revision);
-
-                revision = await store.UpdateAsync(key, "ready", revision, cancellationToken: cancellationToken);
-                registration.revision = revision;
-                await registration.ExpectAsync(watcher, "ready", revision);
-                return registration;
-            }
-            catch
-            {
-                await registration.DisposeAsync();
-                throw;
-            }
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await store.DeleteAsync(key, new NatsKVDeleteOpts { Revision = revision });
-        }
-
-        private async Task ExpectAsync(
-            IAsyncEnumerator<NatsKVEntry<string>> watcher,
-            string expectedValue,
-            ulong expectedRevision)
-        {
-            if (!await watcher.MoveNextAsync())
-            {
-                throw new InvalidOperationException("NATS runtime registration watcher ended unexpectedly.");
-            }
-
-            var entry = watcher.Current;
-            entry.EnsureSuccess();
-            if (entry.Key != key || entry.Value != expectedValue || entry.Revision != expectedRevision)
-            {
-                throw new InvalidOperationException("NATS runtime registration watcher returned invalid state.");
-            }
-        }
-    }
 }

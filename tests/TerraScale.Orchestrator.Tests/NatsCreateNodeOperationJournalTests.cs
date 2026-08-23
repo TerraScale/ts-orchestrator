@@ -862,6 +862,19 @@ public sealed class NatsCreateNodeOperationJournalTests
             await using var runtimeTwo = runtimes[1];
             await Assert.That(runtime.AuthoritySnapshot.Ready).IsTrue();
             await Assert.That(runtimeTwo.AuthoritySnapshot.Ready).IsTrue();
+            RegionalRuntimeMembershipSnapshot membership = runtime.MembershipSnapshot;
+            for (var attempt = 0; attempt < 50 && membership.Members.Count != 2; attempt++)
+            {
+                await Task.Delay(100, startup.Token);
+                membership = runtime.MembershipSnapshot;
+            }
+            membership.Validate(cell.Cell);
+            await Assert.That(membership.Members.Select(static member => member.Instance))
+                .IsEquivalentTo(["controller-1", "controller-2"]);
+            await Assert.That(membership.Members.All(static member =>
+                member.Cluster == "orchestrator-control-gru" &&
+                member.Capabilities.Contains("regional-membership", StringComparer.Ordinal) &&
+                member.Capabilities.Contains("service-discovery", StringComparer.Ordinal))).IsTrue();
 
             // The infrastructure identity intentionally cannot inspect consumers; using it
             // here produced request timeouts after the authorization profile was tightened.

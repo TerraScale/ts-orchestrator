@@ -113,15 +113,25 @@ by its command. See Infisical's
 and [v4 Secrets API](https://infisical.com/docs/api-reference/endpoints/secrets/list)
 documentation.
 
-`operator status` is a read-only NATS request/reply operation. The regional
-service validates and returns its cell, controller instance, R3 configuration,
-exact build, start/observation times, and implemented capability inventory.
-It also reports the current regional authority state, fencing epoch, KV
+`operator status` and `operator members` are read-only NATS request/reply
+operations. Status returns the cell, responding controller instance, R3
+configuration, exact build, start/observation times, and implemented capability
+inventory. Members returns the active controller set discovered through the
+regional `ORCH_RUNTIME` KV watcher. Each record includes the stable instance,
+session, control cluster, build, capabilities, last observation, lease expiry,
+and authority epoch. Controllers renew their entry every five seconds; readers
+drop it after its 20-second lease expires. Status also reports the current
+regional authority state, fencing epoch, KV
 revision, and lease expiry. The CLI rejects a response from another cell, an
 expired lease, contradictory leader state, or an invalid/unready projection.
 The optional `--nkey-file` (or `TS_ORCH_NATS_NKEY_FILE`) must be an existing,
 bounded owner-private seed file; raw key material is never accepted on the
 command line.
+
+```bash
+terrascale-orchestrator operator status --cell gru
+terrascale-orchestrator operator members --cell gru
+```
 The TLS CA, certificate, and key options (or matching
 `TS_ORCH_NATS_TLS_*_FILE` variables) are atomic: all three must be present,
 the PEM identity must match its owner-private key, and TLS is required rather
