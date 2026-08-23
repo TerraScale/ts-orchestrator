@@ -44,7 +44,8 @@ public sealed class RegionalRuntimeMembershipTests
             AuthorityState = "follower",
             IsAuthorityLeader = false
         };
-        var valid = new RegionalRuntimeMembershipSnapshot(1, "gru", observedAt, [first, second]);
+        var health = RegionalRuntimeMembershipHealth.Evaluate("gru", 3, [first, second], 0, observedAt);
+        var valid = new RegionalRuntimeMembershipSnapshot(2, "gru", observedAt, health, [first, second]);
         valid.Validate("gru");
 
         await Assert.That(() => (valid with { Members = [second, first] }).Validate("gru"))
@@ -53,6 +54,56 @@ public sealed class RegionalRuntimeMembershipTests
             .Throws<InvalidOperationException>();
         await Assert.That(() => (valid with { Members = [] }).Validate("gru"))
             .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task MembershipHealthMeasuresStaleMissingQuorumAndRecoveryState()
+    {
+        var observedAt = DateTimeOffset.UtcNow;
+        var leader = Member(observedAt.AddMilliseconds(-250));
+        var follower = leader with
+        {
+            Instance = "controller-2",
+            SessionId = Guid.NewGuid().ToString("N"),
+            AuthorityState = "follower",
+            IsAuthorityLeader = false
+        };
+        var stale = follower with
+        {
+            Instance = "controller-3",
+            SessionId = Guid.NewGuid().ToString("N"),
+            ObservedAt = observedAt.AddSeconds(-2),
+            LeaseExpiresAt = observedAt.AddMilliseconds(-1)
+        };
+
+        var degraded = RegionalRuntimeMembershipHealth.Evaluate(
+            "gru", 3, [leader, follower, stale], 4, observedAt);
+        degraded.Validate();
+        await Assert.That(degraded.ActiveControllers).IsEqualTo(2);
+        await Assert.That(degraded.StaleControllers).IsEqualTo(1);
+        await Assert.That(degraded.MissingControllers).IsEqualTo(1);
+        await Assert.That(degraded.QuorumAvailable).IsTrue();
+        await Assert.That(degraded.RejectedRecords).IsEqualTo(4);
+        await Assert.That(degraded.MaximumHeartbeatAgeMilliseconds).IsGreaterThanOrEqualTo(250);
+        await Assert.That(degraded.Condition).IsEqualTo(RegionalRuntimeMembershipCondition.Degraded);
+
+        var recovered = RegionalRuntimeMembershipHealth.Evaluate(
+            "gru",
+            3,
+            [leader, follower, stale with { ObservedAt = observedAt, LeaseExpiresAt = observedAt.AddSeconds(20) }],
+            4,
+            observedAt);
+        recovered.Validate();
+        await Assert.That(recovered.ActiveControllers).IsEqualTo(3);
+        await Assert.That(recovered.StaleControllers).IsEqualTo(0);
+        await Assert.That(recovered.MissingControllers).IsEqualTo(0);
+        await Assert.That(recovered.Condition).IsEqualTo(RegionalRuntimeMembershipCondition.Healthy);
+
+        var unavailable = RegionalRuntimeMembershipHealth.Evaluate(
+            "gru", 3, [stale], 4, observedAt);
+        unavailable.Validate();
+        await Assert.That(unavailable.QuorumAvailable).IsFalse();
+        await Assert.That(unavailable.Condition).IsEqualTo(RegionalRuntimeMembershipCondition.Unavailable);
     }
 
     private static RegionalRuntimeMember Member(DateTimeOffset observedAt) => new(

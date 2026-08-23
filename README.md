@@ -132,6 +132,17 @@ command line.
 terrascale-orchestrator operator status --cell gru
 terrascale-orchestrator operator members --cell gru
 ```
+
+Membership uses a five-second heartbeat and a 20-second semantic lease. The
+provisional failure-detection target is 22 seconds from the last accepted
+heartbeat, which includes two seconds for watcher delivery and evaluation. The
+real-NATS conformance lane requires a refreshed record to appear within three
+seconds and an expired record to leave the active set within three seconds of
+lease expiry. The process exports aggregate controller counts by `active`,
+`stale`, `missing`, and `unexpected` state, quorum availability, authority
+leader count, maximum heartbeat age, and rejected-record count. These metrics
+carry cell and condition labels only; peer and session IDs never become metric
+labels.
 The TLS CA, certificate, and key options (or matching
 `TS_ORCH_NATS_TLS_*_FILE` variables) are atomic: all three must be present,
 the PEM identity must match its owner-private key, and TLS is required rather

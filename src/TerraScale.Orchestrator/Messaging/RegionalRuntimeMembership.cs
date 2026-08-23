@@ -41,15 +41,111 @@ internal sealed record RegionalRuntimeMember(
         AuthorityEpoch > 0 && AuthorityRevision > 0;
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<RegionalRuntimeMembershipCondition>))]
+internal enum RegionalRuntimeMembershipCondition
+{
+    Unavailable = 0,
+    Degraded = 1,
+    Healthy = 2
+}
+
+internal sealed record RegionalRuntimeMembershipHealth(
+    int ExpectedControllers,
+    int ActiveControllers,
+    int StaleControllers,
+    int MissingControllers,
+    int UnexpectedControllers,
+    long RejectedRecords,
+    int AuthorityLeaders,
+    bool QuorumAvailable,
+    long MaximumHeartbeatAgeMilliseconds,
+    RegionalRuntimeMembershipCondition Condition,
+    DateTimeOffset ObservedAt)
+{
+    internal static RegionalRuntimeMembershipHealth Evaluate(
+        string cell,
+        int expectedControllers,
+        IEnumerable<RegionalRuntimeMember> records,
+        long rejectedRecords,
+        DateTimeOffset observedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cell);
+        ArgumentNullException.ThrowIfNull(records);
+        if (expectedControllers is not (1 or 3 or 5))
+            throw new ArgumentOutOfRangeException(nameof(expectedControllers));
+        if (rejectedRecords < 0)
+            throw new ArgumentOutOfRangeException(nameof(rejectedRecords));
+
+        var valid = records
+            .Where(member => member.IsValidFor(cell, observedAt))
+            .ToArray();
+        var active = valid
+            .Where(member => member.LeaseExpiresAt > observedAt)
+            .ToArray();
+        var stale = valid.Length - active.Length;
+        var missing = Math.Max(0, expectedControllers - active.Length);
+        var unexpected = Math.Max(0, active.Length - expectedControllers);
+        var leaders = active.Count(static member => member.IsAuthorityLeader);
+        var quorum = active.Length >= (expectedControllers / 2) + 1;
+        var maximumAge = active.Length == 0
+            ? 0
+            : active.Max(member => Math.Max(
+                0,
+                checked((long)Math.Ceiling((observedAt - member.ObservedAt).TotalMilliseconds))));
+        var condition = active.Length == 0
+            ? RegionalRuntimeMembershipCondition.Unavailable
+            : active.Length == expectedControllers && stale == 0 && unexpected == 0 && leaders == 1
+                ? RegionalRuntimeMembershipCondition.Healthy
+                : RegionalRuntimeMembershipCondition.Degraded;
+        return new(
+            expectedControllers,
+            active.Length,
+            stale,
+            missing,
+            unexpected,
+            rejectedRecords,
+            leaders,
+            quorum,
+            maximumAge,
+            condition,
+            observedAt);
+    }
+
+    internal void Validate()
+    {
+        var expectedMissing = Math.Max(0, ExpectedControllers - ActiveControllers);
+        var expectedUnexpected = Math.Max(0, ActiveControllers - ExpectedControllers);
+        var expectedQuorum = ActiveControllers >= (ExpectedControllers / 2) + 1;
+        var expectedCondition = ActiveControllers == 0
+            ? RegionalRuntimeMembershipCondition.Unavailable
+            : ActiveControllers == ExpectedControllers && StaleControllers == 0 &&
+              UnexpectedControllers == 0 && AuthorityLeaders == 1
+                ? RegionalRuntimeMembershipCondition.Healthy
+                : RegionalRuntimeMembershipCondition.Degraded;
+        if (ExpectedControllers is not (1 or 3 or 5) || ActiveControllers < 0 || StaleControllers < 0 ||
+            MissingControllers != expectedMissing || UnexpectedControllers != expectedUnexpected ||
+            RejectedRecords < 0 || AuthorityLeaders < 0 || AuthorityLeaders > ActiveControllers ||
+            QuorumAvailable != expectedQuorum || MaximumHeartbeatAgeMilliseconds < 0 ||
+            Condition != expectedCondition || ObservedAt == default ||
+            ObservedAt > DateTimeOffset.UtcNow.AddMinutes(1))
+        {
+            throw new InvalidOperationException("The regional runtime membership health projection is invalid.");
+        }
+    }
+}
+
 internal sealed record RegionalRuntimeMembershipSnapshot(
     int SchemaVersion,
     string Cell,
     DateTimeOffset ObservedAt,
+    RegionalRuntimeMembershipHealth Health,
     IReadOnlyList<RegionalRuntimeMember> Members)
 {
     internal void Validate(string expectedCell)
     {
-        if (SchemaVersion != 1 || Cell != expectedCell || ObservedAt > DateTimeOffset.UtcNow.AddMinutes(1) ||
+        Health.Validate();
+        if (SchemaVersion != 2 || Cell != expectedCell || ObservedAt > DateTimeOffset.UtcNow.AddMinutes(1) ||
+            Health.ObservedAt != ObservedAt || Health.ActiveControllers != Members.Count ||
             Members.Count == 0 ||
             Members.Any(member => !member.IsValidFor(expectedCell, ObservedAt) ||
                                   member.LeaseExpiresAt <= ObservedAt) ||
@@ -84,6 +180,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
     private readonly Task watchLoop;
     private Task? heartbeatLoop;
     private ulong revision;
+    private long rejectedRecords;
     private int disposed;
 
     private RegionalRuntimeMembership(
@@ -115,13 +212,22 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         get
         {
             var now = DateTimeOffset.UtcNow;
-            var active = members.Values
+            var records = members.Values.ToArray();
+            var active = records
                 .Where(member => member.IsValidFor(topology.Cell, now) && member.LeaseExpiresAt > now)
                 .OrderBy(static member => member.Instance, StringComparer.Ordinal)
                 .ToArray();
-            return new(1, topology.Cell, now, active);
+            var health = RegionalRuntimeMembershipHealth.Evaluate(
+                topology.Cell,
+                topology.Replicas,
+                records,
+                Interlocked.Read(ref rejectedRecords),
+                now);
+            return new(2, topology.Cell, now, health, active);
         }
     }
+
+    internal RegionalRuntimeMembershipHealth Health => Snapshot.Health;
 
     internal static async Task<RegionalRuntimeMembership> StartAsync(
         INatsKVStore store,
@@ -240,12 +346,14 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             }
             catch (JsonException)
             {
+                Interlocked.Increment(ref rejectedRecords);
                 members.TryRemove(entry.Key, out _);
                 continue;
             }
             if (!member.IsValidFor(topology.Cell, DateTimeOffset.UtcNow) ||
                 entry.Key != $"controller.{member.Instance}")
             {
+                Interlocked.Increment(ref rejectedRecords);
                 members.TryRemove(entry.Key, out _);
                 continue;
             }

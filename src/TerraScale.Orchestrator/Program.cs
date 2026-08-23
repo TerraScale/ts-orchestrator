@@ -98,6 +98,8 @@ try
     try
     {
         runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
+        var observedRuntime = runtime;
+        telemetry.ObserveMembership(() => observedRuntime.MembershipHealth);
         if (options.GlobalNats is not null)
         {
             var verifier = commandIdentity?.Verifier;

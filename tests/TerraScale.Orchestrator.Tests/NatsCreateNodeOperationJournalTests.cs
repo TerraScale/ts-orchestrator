@@ -885,6 +885,82 @@ public sealed class NatsCreateNodeOperationJournalTests
                 AuthOpts = new NatsAuthOpts { NKeyFile = security.Controllers[1].SeedFile },
             });
             var controllerJetStream = controllerInspector.CreateJetStreamContext();
+            var runtimeStore = await controllerJetStream.CreateKeyValueStoreContext()
+                .GetStoreAsync(journalTopology.Runtime.Bucket);
+            var injectedAt = DateTimeOffset.UtcNow;
+            var injected = new RegionalRuntimeMember(
+                1,
+                cell.Cell,
+                $"orchestrator-control-{cell.Cell}",
+                "controller-3",
+                Guid.NewGuid().ToString("N"),
+                "failure-injection",
+                ["authority", "regional-membership", "service-discovery"],
+                injectedAt,
+                injectedAt,
+                injectedAt.AddSeconds(1),
+                "follower",
+                false,
+                runtime.AuthoritySnapshot.Epoch,
+                runtime.AuthoritySnapshot.KvRevision);
+            var injectedValue = JsonSerializer.Serialize(
+                injected,
+                RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMember);
+            var injectedRevision = await runtimeStore.CreateAsync("controller.controller-3", injectedValue);
+            try
+            {
+                var failureDetection = Stopwatch.StartNew();
+                var complete = await WaitForMembershipAsync(
+                    runtime,
+                    static health => health.ActiveControllers == 3 &&
+                                     health.Condition == RegionalRuntimeMembershipCondition.Healthy,
+                    TimeSpan.FromSeconds(3),
+                    startup.Token);
+                await Assert.That(complete.MissingControllers).IsEqualTo(0);
+
+                var degraded = await WaitForMembershipAsync(
+                    runtime,
+                    static health => health.ActiveControllers == 2 &&
+                                     health.StaleControllers == 1 &&
+                                     health.MissingControllers == 1 &&
+                                     health.QuorumAvailable,
+                    TimeSpan.FromSeconds(4),
+                    startup.Token);
+                failureDetection.Stop();
+                await Assert.That(degraded.Condition).IsEqualTo(RegionalRuntimeMembershipCondition.Degraded);
+                await Assert.That(failureDetection.Elapsed).IsLessThan(TimeSpan.FromSeconds(4));
+
+                var recoveredAt = DateTimeOffset.UtcNow;
+                var recovered = injected with
+                {
+                    SessionId = Guid.NewGuid().ToString("N"),
+                    ObservedAt = recoveredAt,
+                    LeaseExpiresAt = recoveredAt.Add(RegionalRuntimeMembership.LeaseDuration)
+                };
+                var recovery = Stopwatch.StartNew();
+                injectedRevision = await runtimeStore.UpdateAsync(
+                    "controller.controller-3",
+                    JsonSerializer.Serialize(
+                        recovered,
+                        RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMember),
+                    injectedRevision);
+                var restored = await WaitForMembershipAsync(
+                    runtime,
+                    static health => health.ActiveControllers == 3 &&
+                                     health.StaleControllers == 0 &&
+                                     health.Condition == RegionalRuntimeMembershipCondition.Healthy,
+                    TimeSpan.FromSeconds(3),
+                    startup.Token);
+                recovery.Stop();
+                await Assert.That(restored.QuorumAvailable).IsTrue();
+                await Assert.That(recovery.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
+            }
+            finally
+            {
+                await runtimeStore.DeleteAsync(
+                    "controller.controller-3",
+                    new NatsKVDeleteOpts { Revision = injectedRevision });
+            }
             NATS.Client.JetStream.INatsJSConsumer? startupConsumer = null;
             await EventuallyAsync(async () =>
             {
@@ -1213,6 +1289,23 @@ public sealed class NatsCreateNodeOperationJournalTests
             {
                 await Task.Delay(100);
             }
+        }
+    }
+
+    private static async Task<RegionalRuntimeMembershipHealth> WaitForMembershipAsync(
+        NatsRuntime runtime,
+        Func<RegionalRuntimeMembershipHealth, bool> predicate,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var elapsed = Stopwatch.StartNew();
+        while (true)
+        {
+            var health = runtime.MembershipHealth;
+            if (predicate(health)) return health;
+            if (elapsed.Elapsed >= timeout)
+                throw new TimeoutException("Regional runtime membership did not reach the expected health state.");
+            await Task.Delay(50, cancellationToken);
         }
     }
 

@@ -1,6 +1,8 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
 using OpenTelemetry.Exporter;
+using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Observability;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -64,6 +66,62 @@ public sealed class OrchestratorTelemetryTests
         await Assert.That(requests.All(request => request.Bytes > 0)).IsTrue();
     }
 
+    [Test]
+    public async Task MembershipMetricsExposeOnlyBoundedAggregateHealth()
+    {
+        var measurements = new List<MetricMeasurement>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == OrchestratorTelemetry.InstrumentationName &&
+                instrument.Name.Contains("membership", StringComparison.Ordinal))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            var copiedTags = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var tag in tags) copiedTags.Add(tag.Key, tag.Value);
+            measurements.Add(new(instrument.Name, value, copiedTags));
+        });
+        listener.Start();
+        var options = new OrchestratorOptions(
+            OrchestratorCommand.Check,
+            "gru",
+            "nats://127.0.0.1:4222",
+            3,
+            Instance: "controller-1");
+        using var telemetry = OrchestratorTelemetry.Start(options, _ => null);
+        var health = new RegionalRuntimeMembershipHealth(
+            3, 2, 1, 1, 0, 4, 1, true, 250,
+            RegionalRuntimeMembershipCondition.Degraded, DateTimeOffset.UtcNow);
+        telemetry.ObserveMembership(() => health);
+
+        listener.RecordObservableInstruments();
+
+        await Assert.That(measurements.Single(measurement => measurement.Name.EndsWith("quorum.available", StringComparison.Ordinal)).Value)
+            .IsEqualTo(1);
+        await Assert.That(measurements.Single(measurement => measurement.Name.EndsWith("authority.leaders", StringComparison.Ordinal)).Value)
+            .IsEqualTo(1);
+        await Assert.That(measurements.Single(measurement => measurement.Name.EndsWith("heartbeat.max_age", StringComparison.Ordinal)).Value)
+            .IsEqualTo(250);
+        await Assert.That(measurements.Single(measurement => measurement.Name.EndsWith("records.rejected", StringComparison.Ordinal)).Value)
+            .IsEqualTo(4);
+        await Assert.That(measurements.Where(measurement => measurement.Name.EndsWith("membership.controllers", StringComparison.Ordinal))
+            .ToDictionary(measurement => (string)measurement.Tags["state"]!, measurement => measurement.Value))
+            .IsEquivalentTo(new Dictionary<string, long>
+            {
+                ["active"] = 2,
+                ["stale"] = 1,
+                ["missing"] = 1,
+                ["unexpected"] = 0
+            });
+        await Assert.That(measurements.SelectMany(static measurement => measurement.Tags.Keys)
+            .Any(tag => tag.Contains("instance", StringComparison.OrdinalIgnoreCase) ||
+                        tag.Contains("peer", StringComparison.OrdinalIgnoreCase))).IsFalse();
+        await Assert.That(() => telemetry.ObserveMembership(() => health))
+            .Throws<InvalidOperationException>();
+    }
+
     private static Func<string, string?> Environment(IEnumerable<KeyValuePair<string, string>> values)
     {
         var environment = values.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
@@ -103,4 +161,8 @@ public sealed class OrchestratorTelemetryTests
     }
 
     private sealed record OtlpRequest(string Path, string? ContentType, long Bytes);
+    private sealed record MetricMeasurement(
+        string Name,
+        long Value,
+        IReadOnlyDictionary<string, object?> Tags);
 }

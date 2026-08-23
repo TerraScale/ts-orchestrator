@@ -8,6 +8,7 @@ using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Observability;
 
@@ -67,10 +68,16 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private readonly Meter meter;
     private readonly Counter<long> startupCounter;
     private readonly Histogram<double> startupDuration;
+    private readonly ObservableGauge<long> membershipControllers;
+    private readonly ObservableGauge<long> membershipQuorum;
+    private readonly ObservableGauge<long> membershipLeaders;
+    private readonly ObservableGauge<long> membershipHeartbeatAge;
+    private readonly ObservableCounter<long> rejectedMembershipRecords;
     private readonly OpenTelemetrySdk sdk;
     private readonly ILogger logger;
     private readonly string cell;
     private readonly string instance;
+    private Func<RegionalRuntimeMembershipHealth>? membershipHealth;
 
     private OrchestratorTelemetry(
         OrchestratorOptions options,
@@ -108,6 +115,26 @@ internal sealed class OrchestratorTelemetry : IDisposable
         meter = new(InstrumentationName, BuildVersion.Current.Contract);
         startupCounter = meter.CreateCounter<long>("terrascale.orchestrator.startups", unit: "{startup}");
         startupDuration = meter.CreateHistogram<double>("terrascale.orchestrator.startup.duration", unit: "ms");
+        membershipControllers = meter.CreateObservableGauge(
+            "terrascale.orchestrator.membership.controllers",
+            ObserveMembershipControllers,
+            unit: "{controller}");
+        membershipQuorum = meter.CreateObservableGauge(
+            "terrascale.orchestrator.membership.quorum.available",
+            ObserveMembershipQuorum,
+            unit: "{boolean}");
+        membershipLeaders = meter.CreateObservableGauge(
+            "terrascale.orchestrator.membership.authority.leaders",
+            ObserveMembershipLeaders,
+            unit: "{controller}");
+        membershipHeartbeatAge = meter.CreateObservableGauge(
+            "terrascale.orchestrator.membership.heartbeat.max_age",
+            ObserveMembershipHeartbeatAge,
+            unit: "ms");
+        rejectedMembershipRecords = meter.CreateObservableCounter(
+            "terrascale.orchestrator.membership.records.rejected",
+            ObserveRejectedMembershipRecords,
+            unit: "{record}");
         logger = sdk.GetLoggerFactory().CreateLogger(InstrumentationName);
     }
 
@@ -125,6 +152,13 @@ internal sealed class OrchestratorTelemetry : IDisposable
         activity?.SetTag("terrascale.cell", cell);
         activity?.SetTag("service.instance.id", instance);
         return activity;
+    }
+
+    internal void ObserveMembership(Func<RegionalRuntimeMembershipHealth> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref membershipHealth, observe, null) is not null)
+            throw new InvalidOperationException("Regional membership telemetry is already attached.");
     }
 
     public void RecordReady(TimeSpan elapsed)
@@ -153,6 +187,11 @@ internal sealed class OrchestratorTelemetry : IDisposable
 
     public void Dispose()
     {
+        GC.KeepAlive(membershipControllers);
+        GC.KeepAlive(membershipQuorum);
+        GC.KeepAlive(membershipLeaders);
+        GC.KeepAlive(membershipHeartbeatAge);
+        GC.KeepAlive(rejectedMembershipRecords);
         sdk.Dispose();
         meter.Dispose();
         activitySource.Dispose();
@@ -164,4 +203,53 @@ internal sealed class OrchestratorTelemetry : IDisposable
         { "service.instance.id", instance },
         { "outcome", outcome }
     };
+
+    private IEnumerable<Measurement<long>> ObserveMembershipControllers()
+    {
+        var health = Volatile.Read(ref membershipHealth)?.Invoke();
+        if (health is null) yield break;
+        yield return new(health.ActiveControllers, MembershipTags("active", health.Condition));
+        yield return new(health.StaleControllers, MembershipTags("stale", health.Condition));
+        yield return new(health.MissingControllers, MembershipTags("missing", health.Condition));
+        yield return new(health.UnexpectedControllers, MembershipTags("unexpected", health.Condition));
+    }
+
+    private IEnumerable<Measurement<long>> ObserveMembershipQuorum()
+    {
+        var health = Volatile.Read(ref membershipHealth)?.Invoke();
+        if (health is null) yield break;
+        yield return new(health.QuorumAvailable ? 1 : 0, MembershipTags(null, health.Condition));
+    }
+
+    private IEnumerable<Measurement<long>> ObserveMembershipLeaders()
+    {
+        var health = Volatile.Read(ref membershipHealth)?.Invoke();
+        if (health is null) yield break;
+        yield return new(health.AuthorityLeaders, MembershipTags(null, health.Condition));
+    }
+
+    private IEnumerable<Measurement<long>> ObserveMembershipHeartbeatAge()
+    {
+        var health = Volatile.Read(ref membershipHealth)?.Invoke();
+        if (health is null) yield break;
+        yield return new(health.MaximumHeartbeatAgeMilliseconds, MembershipTags(null, health.Condition));
+    }
+
+    private IEnumerable<Measurement<long>> ObserveRejectedMembershipRecords()
+    {
+        var health = Volatile.Read(ref membershipHealth)?.Invoke();
+        if (health is null) yield break;
+        yield return new(health.RejectedRecords, MembershipTags(null, health.Condition));
+    }
+
+    private TagList MembershipTags(string? state, RegionalRuntimeMembershipCondition condition)
+    {
+        var tags = new TagList
+        {
+            { "terrascale.cell", cell },
+            { "condition", condition.ToString().ToLowerInvariant() }
+        };
+        if (state is not null) tags.Add("state", state);
+        return tags;
+    }
 }

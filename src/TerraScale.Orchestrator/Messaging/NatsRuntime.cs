@@ -44,6 +44,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
+    internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
     internal string Cell => topology.Cell;
 
     internal NativeGitOpsCellNatsConsumer CreateNativeGitOpsConsumer()
