@@ -48,7 +48,5 @@ public sealed class AdmittedRoleCatalogTests
             var descriptor = DevelopmentRoleProjection.Get(resource.Kind)!;
             await Assert.That(AdmittedRoleCatalog.Get(descriptor.Role)).IsEqualTo(descriptor);
         }
-
-        await Assert.That(DevelopmentRoleProjection.Get(DevelopmentResourceKind.EmailEmulator)).IsNull();
     }
 }

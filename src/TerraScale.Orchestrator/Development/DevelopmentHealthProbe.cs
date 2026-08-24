@@ -23,7 +23,6 @@ internal static class DevelopmentHealthProbe
         CancellationToken cancellationToken)
     {
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .ToArray();
         var results = await Task.WhenAll(resources.Select(resource =>
             ProbeOneAsync(topology, resource, supervisor, natsSecurity, cancellationToken)));
@@ -34,8 +33,7 @@ internal static class DevelopmentHealthProbe
     {
         DevelopmentResourceKind.TerraBase => "/build/version",
         DevelopmentResourceKind.Authentication or
-        DevelopmentResourceKind.Platform or
-        DevelopmentResourceKind.EmailEmulator => "/health/ready",
+        DevelopmentResourceKind.Platform => "/health/ready",
         DevelopmentResourceKind.Dashboard => "/health/ready",
         _ => null
     };

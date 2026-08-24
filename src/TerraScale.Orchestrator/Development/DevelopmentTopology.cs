@@ -8,8 +8,7 @@ public enum DevelopmentResourceKind
     TerraBase,
     Authentication,
     Platform,
-    Dashboard,
-    EmailEmulator
+    Dashboard
 }
 
 public sealed record DevelopmentResourcePlan(
@@ -32,17 +31,12 @@ public sealed record DevelopmentCellPlan(
 
 public sealed record DevelopmentTopology(
     string Profile,
-    IReadOnlyList<DevelopmentCellPlan> Cells,
-    IReadOnlyList<DevelopmentResourcePlan> GlobalResources)
+    IReadOnlyList<DevelopmentCellPlan> Cells)
 {
     private const int CellStride = 200;
     private const int BasePort = 18600;
 
-    public static DevelopmentTopology CreateRegional()
-    {
-        var cells = CreateCells();
-        return new("regional", cells, CreateGlobalResources(cells.Length));
-    }
+    public static DevelopmentTopology CreateRegional() => new("regional", CreateCells());
 
     private static DevelopmentCellPlan[] CreateCells() =>
     [
@@ -50,20 +44,6 @@ public sealed record DevelopmentTopology(
         CreateCell("sfo", 1),
         CreateCell("fra", 2)
     ];
-
-    private static DevelopmentResourcePlan[] CreateGlobalResources(int cellCount)
-    {
-        var globalBase = BasePort + (cellCount * CellStride);
-        return
-        [
-            new(
-                "email-emulator",
-                "gru",
-                DevelopmentResourceKind.EmailEmulator,
-                1,
-                globalBase)
-        ];
-    }
 
     public DevelopmentResourcePlan GetRequired(
         string cell,

@@ -7408,9 +7408,6 @@ public sealed class DevelopmentNatsSecurityTests
         }
 
         await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
-                topology, "email-emulator"))
-            .IsFalse();
-        await Assert.That(DevelopmentLab.RequiresForceRemintOnPersistentUnhealth(
                 topology, "missing-resource"))
             .IsFalse();
 
@@ -8016,9 +8013,6 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
                     topology, security, platformName)!.SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, "email-emulator"))
-                .IsNull();
 
             var operatorTls = security.Cell(cell).Tls.Control.Clients["operator-read"];
             using (var ecdsa = System.Security.Cryptography.ECDsa.Create(

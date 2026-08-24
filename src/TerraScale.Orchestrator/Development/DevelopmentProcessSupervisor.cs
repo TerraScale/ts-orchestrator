@@ -15,7 +15,6 @@ internal static class DevelopmentContainerImages
 
     public static IReadOnlyList<string> RequiredBy(DevelopmentTopology topology) => topology.Cells
         .SelectMany(cell => cell.Resources)
-        .Concat(topology.GlobalResources)
         .Select(resource => resource.Kind switch
         {
             DevelopmentResourceKind.ControllerAgent => RuntimeDependencies,
@@ -535,7 +534,6 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
 
     internal static long PlannedMemoryLimitBytes(DevelopmentTopology topology) => checked(
         topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Sum(resource => MemoryLimitBytes(resource.Kind)));
 
     internal static void RequireResourceBudget(DevelopmentTopology topology)
@@ -573,7 +571,6 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         string dataDirectory)
     {
         var resource = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Single(candidate => candidate.Name == resourceName);
         if (resource.Kind != DevelopmentResourceKind.TerraBase)
         {
@@ -673,7 +670,6 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     private static string MemoryLimit(DevelopmentTopology topology, string name)
     {
         var resource = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Single(candidate => candidate.Name == name);
         return MemoryLimitBytes(resource.Kind).ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
@@ -687,13 +683,11 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         DevelopmentResourceKind.Authentication or DevelopmentResourceKind.Dashboard => 384L * 1024 * 1024,
         DevelopmentResourceKind.ControllerAgent => 320L * 1024 * 1024,
         DevelopmentResourceKind.ControlNats or DevelopmentResourceKind.ProductNats => 256L * 1024 * 1024,
-        DevelopmentResourceKind.EmailEmulator => 192L * 1024 * 1024,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
     private static IReadOnlyList<int> PublishedPorts(DevelopmentTopology topology) => topology.Cells
         .SelectMany(cell => cell.Resources)
-        .Concat(topology.GlobalResources)
         .SelectMany(resource => new[] { resource.Port, resource.SecondaryPort })
         .Where(port => port.HasValue)
         .Select(port => port!.Value)

@@ -13,7 +13,6 @@ internal static class DevelopmentRoleProjection
         DevelopmentResourceKind.Authentication => AdmittedRoleCatalog.Get(AdmittedRole.Authentication),
         DevelopmentResourceKind.Platform => AdmittedRoleCatalog.Get(AdmittedRole.Platform),
         DevelopmentResourceKind.Dashboard => AdmittedRoleCatalog.Get(AdmittedRole.CustomerDashboard),
-        DevelopmentResourceKind.EmailEmulator => null,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 }

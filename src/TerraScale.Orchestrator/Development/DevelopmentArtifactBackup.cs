@@ -31,12 +31,6 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
         {
             sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraBase.Server"));
         }
-        if (kinds.Contains(DevelopmentResourceKind.EmailEmulator))
-        {
-            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(
-                dataDirectory,
-                "TerraScale.LocalEmulators"));
-        }
         if (kinds.Contains(DevelopmentResourceKind.Authentication))
         {
             sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(

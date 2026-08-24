@@ -36,9 +36,8 @@ public sealed class DevelopmentTopologyTests
         }
 
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .ToArray();
-        await Assert.That(resources.Length).IsEqualTo(22);
+        await Assert.That(resources.Length).IsEqualTo(21);
         var ports = resources.Select(resource => resource.Port)
             .Concat(resources.Where(resource => resource.ClusterPort is not null)
                 .Select(resource => resource.ClusterPort!.Value))
@@ -177,17 +176,6 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task EmulatorEnvironmentKeepsTheAssignedPort()
-    {
-        var emulator = DevelopmentTopology.CreateRegional().GlobalResources
-            .Single(resource => resource.Kind == DevelopmentResourceKind.EmailEmulator);
-
-        var environment = DevelopmentWorkloadRuntime.CreateEmulatorEnvironment(emulator);
-
-        await Assert.That(environment["PORT"]).IsEqualTo(emulator.Port.ToString());
-    }
-
-    [Test]
     public async Task SingleNatsMemberHasNoSelfRoute()
     {
         var member = DevelopmentTopology.CreateRegional().Cells
@@ -251,7 +239,7 @@ public sealed class DevelopmentTopologyTests
         // 3× TerraBase at 3072 MiB (+1024 MiB each vs previous 2048) = +3072 MiB.
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))
-            .IsEqualTo(16_128L * 1024 * 1024);
+            .IsEqualTo(15_936L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
     }
@@ -269,8 +257,7 @@ public sealed class DevelopmentTopologyTests
             .ToArray();
         var topology = new DevelopmentTopology(
             "over-budget",
-            [new DevelopmentCellPlan("gru", 0, resources)],
-            []);
+            [new DevelopmentCellPlan("gru", 0, resources)]);
 
         await Assert.That(() => DevelopmentProcessSupervisor.RequireResourceBudget(topology))
             .Throws<InvalidOperationException>();
