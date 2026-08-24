@@ -16,8 +16,7 @@ Use two deliberately different runtime classes:
    artifact and allocation lifecycle in the first implementation, but keep
    those implementation names out of the public contract.
 
-This replaces the launch microVM requirement. It also narrows the earlier
-"arbitrary workload" goal. TerraScale can accept any application that conforms
+The contract also narrows the earlier "arbitrary workload" goal. TerraScale can accept any application that conforms
 to the published component world and policy, not every Linux container or
 process.
 
@@ -144,8 +143,8 @@ freezes.
 
 ## Provider and cost effect
 
-WASI tenant workers do not need KVM. OCI `VM.Standard.A1.Flex` can host them as
-ordinary Arm64 VMs within Oracle's supported boundary. The provider contract
+WASI tenant workers need no hardware virtualization: OCI `VM.Standard.A1.Flex`
+hosts them within Oracle's supported boundary. The provider contract
 still owns compute, network, load balancers, IAM, quotas, and regional
 availability, but the workload contract does not name Oracle.
 
@@ -161,9 +160,6 @@ services, TerraBase, NATS, observability, and control-plane compute. The shared
 A1 allowance may reduce an eligible tenancy's bill, but the production budget
 must not assume it until billing and regional capacity are verified.
 
-The earlier two-host-per-region Latitude microVM floor was $1,994/month. That
-research remains useful for a later Kata or full-Linux tier, not for the WASI
-launch pool.
 
 ## Qualification gates
 
@@ -208,4 +204,3 @@ objective without exact-host evidence.
 - [Spin component framework and language support](https://github.com/spinframework/spin/blob/94a8fc8a7804ec2519bb8d12df70ab77ad2e4f60/README.md)
 - [OCI Ampere A1](https://docs.oracle.com/en-us/iaas/Content/Compute/References/arm.htm)
 - [OCI Compute pricing](https://www.oracle.com/cloud/compute/pricing/)
-- [Completed microVM provider comparison](microvm-bare-metal-provider-comparison.md)
