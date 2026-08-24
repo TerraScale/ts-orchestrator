@@ -8,25 +8,31 @@ allocation for stateless and serverless OCI workloads on OCI Ampere hosts.
 ## Result
 
 Per-allocation microVM isolation is technically feasible on an Arm64 Linux host,
-but it is not yet proven on `VM.Standard.A1.Flex`. The public OCI Compute
-material reviewed here describes A1 as a VM shape but does not promise that an
-A1 guest can open `/dev/kvm` or that nested virtualization is enabled. The
-Oracle Compute API model also has no nested-virtualization launch field. This is
-an evidence gap, not evidence that the device is absent; an OCI A1 probe and an
-Oracle support confirmation are required before treating A1 as a production
-microVM host.
+and OCI has credible Arm bare-metal candidates, but no OCI Arm VM shape is a
+supported production KVM host. Oracle Linux's current KVM host requirements
+state that nested virtualization is unsupported for KVM deployments. A VM may
+happen to expose `/dev/kvm`, but that observation cannot qualify a production
+microVM tier. The Oracle Compute API model also has no nested-virtualization
+launch field. OCI bare-metal shapes still require an exact image, kernel, and
+VMM qualification plus Oracle support confirmation.
 
 The strongest OCI-first path is:
 
-1. Qualify `VM.Standard.A1.Flex` with an executable KVM and runtime spike.
-2. Keep `BM.Standard.A1.160` as the Arm64 escape hatch if A1 VMs do not expose
-   KVM. OCI documents this as a bare-metal Ampere A1 shape with 160 OCPUs and
-   1,024 GB of memory. Bare metal is the strongest OCI candidate for exposing
-   the host kernel and hardware needed for KVM, but the exact image/kernel still
-   requires a probe. It is a very different cost and failure-domain unit and
-   must be benchmarked as such.
-3. If the product must launch on A1 VMs before KVM is available, qualify gVisor
-   `systrap` as an explicitly different sandbox. It supports ARM64 and runs as
+1. Qualify `BM.Standard.A1.160` first with an executable KVM and runtime spike.
+   OCI documents this as a bare-metal Ampere A1 shape with 160 OCPUs and 1,024
+   GB of memory. It is the safest OCI planning baseline, but the exact
+   image/kernel/VMM, capacity, recovery, and support posture still require
+   qualification. It is a very different cost and failure-domain unit and must
+   be benchmarked as such.
+2. Qualify `BM.Standard.A4.48` and `BM.Standard.A4.Ax.48` alongside or after
+   A1. These are credible newer Arm candidates, but they remain unproven until
+   the exact capability and recovery lane passes.
+3. Keep `VM.Standard.A1.Flex`, `VM.Standard.A2.Flex`, `VM.Standard.A4.Flex`,
+   and `VM.Standard.A4.Ax.Flex` as disposable diagnostic probes only. Record
+   observed capabilities and Oracle's support response, but do not create a
+   supported production tier from a VM result unless Oracle officially changes
+   the nested-KVM support posture. If a product tier can accept weaker
+   isolation, qualify gVisor `systrap` separately. It supports ARM64 and runs as
    a normal process without KVM, but it is not a microVM and must not be reported
    as equivalent isolation.
 
@@ -43,6 +49,193 @@ durable block volumes, replication, backup, expansion, and recovery lifecycle
 should not be inferred from the stateless tenant allocation contract. A
 TerraBase service may eventually run in a qualified dedicated microVM, but that
 is a separate storage and recovery qualification lane.
+
+## 2026-08-23 addendum: OCI ARM KVM support and economics
+
+This addendum supersedes the earlier description of `VM.Standard.A1.Flex` as
+merely an evidence gap for production KVM. Oracle Linux's current KVM host
+requirements explicitly say that KVM can be used on a bare-metal host, that
+nested virtualization scenarios are not supported for KVM deployments, and that
+Arm (`aarch64`) CPUs can be used when virtualization features are available:
+[Oracle Linux 9 KVM host system requirements](https://docs.oracle.com/en/operating-systems/oracle-linux/9/kvm-user/kvm-SystemRequirementsandRecommendations.html).
+
+That is a support negative for KVM inside an OCI VM, even if a particular VM
+happens to expose a `/dev/kvm` device. It does not prove that every OCI VM
+image hides the device, but it is enough to prohibit planning the VM shapes as
+the supported production microVM host. The same conclusion applies to
+`VM.Standard.A2.Flex`, `VM.Standard.A4.Flex`, and `VM.Standard.A4.Ax.Flex`:
+they are VM shapes, and no OCI document reviewed here promises nested KVM or
+provides a nested-virtualization launch switch. The current OCI shape catalog
+lists those Arm VM shapes and their capacities but makes no KVM claim:
+[OCI Compute shapes](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm).
+
+### Shape-by-shape decision
+
+| OCI shape | What the public sources establish | Planning status for TerraScale microVMs |
+| --- | --- | --- |
+| `VM.Standard.A1.Flex` | Ampere A1 VM, 1--76 OCPUs and up to 472 GB; no nested-KVM guarantee or launch option. Oracle Linux explicitly says nested KVM is unsupported. | **Unsupported for the production KVM floor.** A disposable probe may document an accidental capability, but must not turn it into a supported tier. |
+| `BM.Standard.A1.160` | Ampere A1 bare metal, 160 OCPUs and 1,024 GB. Oracle Linux documents KVM on bare metal and Arm64 CPUs. | **Safe OCI shape to plan around today**, subject to the exact image/kernel/VMM probe, regional capacity, and Oracle support confirmation. |
+| `VM.Standard.A2.Flex` | AmpereOne A2 VM, up to 78 OCPUs and 946 GB; no nested-KVM guarantee. OCI's Arm reference documents A2 as VM-only. | **Unsupported for the production KVM floor.** |
+| `VM.Standard.A4.Flex` / `VM.Standard.A4.Ax.Flex` | AmpereOne M A4 VM shapes, up to 45 OCPUs and 700/720 GB; no nested-KVM guarantee or launch option. | **Unsupported for the production KVM floor.** |
+| `BM.Standard.A4.48` / `BM.Standard.A4.Ax.48` | Current catalog lists Arm bare metal with 48 OCPUs and 768 GB. Oracle Linux's generic Arm64 bare-metal KVM requirement makes this a credible candidate, but no Oracle OCI/A4-specific KVM support matrix was found. | **Likely candidate, not yet proven.** Qualify beside A1; do not make it the only launch shape until the exact lane passes. |
+| OCI dedicated VM hosts | The dedicated-host table lists x86 host shapes and x86 VM series only; it has no Arm A1/A2/A4 dedicated-host shape. A dedicated VM host is still a physical host for OCI VMs, not a nested-KVM contract. | **Not an Arm solution.** Dedicated x86 capacity cannot satisfy the Arm64 microVM lane. |
+
+The OCI Arm reference itself currently says that A1 supports both
+`BM.Standard.A1.160` and `VM.Standard.A1.Flex`, while A2 is VM-only:
+[OCI Arm-Based Compute](https://docs.oracle.com/en-us/iaas/Content/Compute/References/arm.htm).
+The newer shape table is the source for the A4 additions and their exact
+capacity: [OCI Compute shapes, Arm entries](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm#flexible).
+The dedicated-host catalog is explicit about the host families and supported
+hosted VM series; none is Arm A1/A2/A4:
+[Dedicated Virtual Machine Host Shapes](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm#dedicatedvmhost)
+and [Dedicated VM Hosts](https://docs.oracle.com/en-us/iaas/Content/Compute/Concepts/dedicatedvmhosts.htm).
+
+OCI's public Python SDK model exposes `dedicatedVmHostId`, `shapeConfig`, and
+`platformConfig` on launch, but not a `nestedVirtualization`, `kvm`, or
+Arm-specific nested-virtualization launch property:
+[LaunchInstanceDetails](https://github.com/oracle/oci-python-sdk/blob/master/src/oci/core/models/launch_instance_details.py).
+The generic bare-metal platform config has an
+`areVirtualInstructionsEnabled` property, but describes examples as AMD SVM
+and Intel VT-x; it is not documented as an Arm VM nested-KVM switch:
+[GenericBmLaunchInstancePlatformConfig](https://github.com/oracle/oci-python-sdk/blob/master/src/oci/core/models/generic_bm_launch_instance_platform_config.py).
+
+### Oracle Linux, UEK, and Arm package qualification
+
+Oracle Linux does provide a usable Arm64 KVM software path on bare metal, with
+one packaging caveat: the `Virtualization Hypervisor` group is available, but
+the combined `Virtualization Host` group is explicitly unavailable on
+`aarch64`. The individual package guidance and this limitation are documented
+here: [Oracle Linux 9 KVM virtualization packages](https://docs.oracle.com/en/operating-systems/oracle-linux/9/kvm-user/kvm-VirtualizationPackages.html).
+Oracle's package-source guide says the Default KVM stack is fully supported
+across Oracle Linux kernels; the Oracle KVM Stack is engineered for current UEK
+KVM features and requires UEK8U2 (or remains on the UEK7/QEMU 7.2 and libvirt
+9.0 stack): [Oracle Linux 9 KVM package sources](https://docs.oracle.com/en/operating-systems/oracle-linux/9/kvm-user/kvm-VirtualizationPackageSources.html).
+The exact Oracle Linux image and UEK release must therefore be part of the
+qualification identity. The package documentation is software support, not an
+OCI promise that a VM exposes hardware virtualization.
+
+Ampere's own public material establishes the server-class Altra/AmpereOne
+processor families and discusses container/VM density, but the processor page
+and Altra datasheet do not promise that an OCI VM exposes KVM or that nested
+virtualization is supported:
+[Ampere processor families](https://amperecomputing.com/products/processors)
+and [Ampere Altra datasheet (PDF)](https://amperecomputing.com/assets/Altra_Rev_A1_DS_v1_50_20240130_3375c3dec5_1c5d4604fa.pdf).
+This is consistent with treating the Arm CPU feature set as necessary but not
+sufficient cloud-provider evidence.
+
+Firecracker's own host requirements are unambiguous: it supports Linux
+`aarch64`, requires the KVM module, and requires read/write access to
+`/dev/kvm`; its production guide says isolation depends on KVM and processor
+virtualization features: [Firecracker getting started](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md)
+and [Firecracker production host setup](https://github.com/firecracker-microvm/firecracker/blob/main/docs/prod-host-setup.md).
+Cloud Hypervisor likewise runs on KVM, supports AArch64 servers with GICv3,
+and documents a recommended Linux host kernel: [Cloud Hypervisor README](https://github.com/cloud-hypervisor/cloud-hypervisor/blob/main/README.md).
+These sources establish the runtime prerequisites; they do not override
+Oracle's nested-KVM support boundary.
+
+### Cost and density model (USD list prices, accessed 2026-08-23)
+
+The official OCI price page presents Arm A1, A4, and A4 Ax as separate OCPU
+and memory price rows. The values below are the USD `pay-as-you-go` entries in
+Oracle's price feed, mapped to the rows in the page:
+[OCI Cloud Price List](https://www.oracle.com/cloud/price-list/),
+[Compute pricing page](https://www.oracle.com/cloud/compute/pricing/), and
+[official price JSON](https://www.oracle.com/a/ocom/docs/pricing/cloud-price-list.json).
+These are list-price facts, not a quotation or a negotiated Universal Credits
+rate.
+
+| Resource | OCI shape capacity | OCPU list rate | Memory list rate | List compute cost/hour | List compute cost/month (730 h) | List compute cost (744 h) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `BM.Standard.A1.160` | 160 OCPUs, 1,024 GB | $0.0100/OCPU-h | $0.0015/GB-h | **$3.1360** | **$2,289.28** | **$2,333.18** |
+| `BM.Standard.A4.48` | 48 OCPUs = 96 cores, 768 GB | $0.0138/OCPU-h | $0.0027/GB-h | **$2.7360** | **$1,997.28** | **$2,035.58** |
+| `VM.Standard.A1.Flex` (example 2 OCPU, 12 GB) | Flexible; 1 OCPU minimum, 1 GB minimum subject to shape rules | $0.0100/OCPU-h | $0.0015/GB-h | **$0.0380** | **$27.74** | **$28.27** |
+
+The BM totals are additive OCPU plus memory list prices. Oracle's price page
+explicitly says A1 resource-based OCPU and memory SKUs are priced separately
+and that the resource amounts are fixed for bare metal; its table also exposes
+separate A4 OCPU and memory rows. A4's separate-row presentation is an
+observed price-list fact, but the page's explanatory footnote names A1 rather
+than A4, so confirm the exact A4 SKU treatment on the first bill before
+committing capacity. Additional boot/block volumes, network traffic, and other
+services are excluded; OCI says these are billed separately:
+[OCI Compute overview](https://docs.oracle.com/en-us/iaas/Content/Compute/Concepts/computeoverview.htm).
+
+For A1, Oracle's price page and Arm reference advertise the first 3,000
+OCPU-hours and 18,000 GB-hours each month as free, shared across the A1
+resource usage. If that allowance applies to the paid tenancy, it reduces the
+single-node A1 example by at most $57/month, to about **$2,232.28/month**;
+control-plane A1 usage consumes the same shared allowance. A separate current
+Always Free resource page describes a 1,500 OCPU-hour/9,000 GB-hour monthly
+VM allowance and caps an Always-Free-only tenancy at 2 OCPUs/12 GB:
+[OCI Arm reference](https://docs.oracle.com/en-us/iaas/Content/Compute/References/arm.htm),
+[Always Free resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
+This account-state discrepancy is why production budgets should use the
+uncredited list total and treat any A1 free allowance as upside to verify in
+the tenancy. A1 capacity may also be limited in some regions:
+[Compute shapes and capacity note](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm).
+
+OCI says on-demand Compute is billed by the second, and the shape reference
+states flexible resources have a one-minute minimum. The VM A1 Flex minimum is
+therefore 1 OCPU and at least 1 GB of memory, billed per second after one
+minute. BM A1 and BM A4 retain their full fixed shape resources while running;
+the public pages reviewed here do not state a separate BM-specific minimum
+charge, so retain the one-minute/per-second behavior as a billing-confirmation
+item rather than a design assumption: [Compute overview](https://docs.oracle.com/en-us/iaas/Content/Compute/Concepts/computeoverview.htm)
+and [Compute shapes](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm).
+OCI's pricing page says its list prices are the same across global regions,
+including government regions, Dedicated Region, and Oracle Alloy, but actual
+availability/capacity, local-currency display, taxes, commitments, and
+negotiated discounts still need regional/account verification:
+[OCI pricing](https://www.oracle.com/cloud/pricing/).
+
+For a simple capacity estimate, assume a one-vCPU, 2-GB tenant microVM and
+ignore host reservations. A fully packed A1 BM node would hold at most 160
+such allocations (CPU-bound), costing about **$0.0196 per occupied
+allocation-hour**, **$14.31 per allocation-month** at 730 hours, or **$14.58**
+at 744 hours. A4 BM has 96 physical cores and would hold at most 96, costing
+about **$0.0285/hour**, **$20.81/month** at 730 hours, or **$21.20** at 744
+hours per allocation. These are estimates, not customer prices:
+they exclude VMM/guest memory, host-agent/NATS overhead, image cache,
+networking, storage, redundancy, spare capacity, and failure/maintenance
+headroom. With a conservative 10% host reserve, the corresponding estimates
+rise to roughly $15.90 (A1) and $23.12 (A4) per slot-month. A4's node list
+total is about 12.8% lower than A1's, but it has 40% fewer physical cores and
+25% less RAM; it is cheaper per physical core only because one A4 OCPU is two
+cores. Price alone therefore does not make A4 the better microVM node: it is
+attractive only if its per-core performance and workload mix offset the lower
+node capacity.
+
+The practical break-even rule is to price a BM node as a fixed 24x7 capacity
+commitment. A serverless scheduler must keep enough admitted allocations (or
+use another tenant pricing model) to cover the full node cost while reserving
+VMM and recovery headroom; scale-to-zero cannot power down a shared BM host
+without moving workloads. A small A1 VM is economical for control-plane duties
+(for example, 2 OCPUs/12 GB is $27.74/month before any A1 allowance), but it
+must not be used as a tenant microVM host because nested KVM is unsupported.
+
+### Exact remaining support question and disposable probe
+
+Before production qualification, open an Oracle support request containing the
+shape, region, compartment tenancy type, image OCID, kernel/UEK build, and VMM
+version, and ask exactly:
+
+> Is KVM-in-guest / nested virtualization officially supported for
+> `VM.Standard.A1.Flex`, `VM.Standard.A2.Flex`, `VM.Standard.A4.Flex`, or
+> `VM.Standard.A4.Ax.Flex`? Is `/dev/kvm` intentionally exposed, supported by
+> Oracle Linux UEK, and covered by OCI support/SLA? For
+> `BM.Standard.A1.160` and `BM.Standard.A4.48`, is Oracle Linux KVM with the
+> named UEK/image combination supported, including Firecracker and Cloud
+> Hypervisor on AArch64?
+
+The disposable probe should be run only in a non-production compartment on
+each candidate shape and exact image. Capture `uname -m`, kernel/UEK build,
+`/dev/kvm` existence and read/write access, KVM module state, a real
+`KVM_GET_API_VERSION`/`KVM_CREATE_VM` ioctl result, and a Firecracker and
+Cloud Hypervisor guest boot with the selected Arm64 kernel/rootfs. Then test
+guest networking, teardown, host-agent restart, and VMM crash recovery. A
+`/proc/cpuinfo` flag or a successful `test -e /dev/kvm` alone is not evidence
+of a supported production boundary. Do not silently downgrade a VM lane to
+gVisor systrap when the requested capability is `microvm-kvm`.
 
 ## What OCI currently proves (and does not prove)
 
@@ -74,12 +267,15 @@ and Intel VT-x examples; this is not a documented A1-VM nested-virtualization
 switch: [platform config](https://github.com/oracle/oci-python-sdk/blob/master/src/oci/core/models/launch_instance_platform_config.py),
 [generic bare-metal platform config](https://github.com/oracle/oci-python-sdk/blob/master/src/oci/core/models/generic_bm_launch_instance_platform_config.py).
 
-These API/documentation observations cannot establish the runtime result. The
-only acceptable A1 answer for production planning is an exact-tree, executable
-probe on the exact image/kernel and shape, followed by Oracle support's written
-confirmation of the supported posture. The probe must test the device and a
-real guest boot; checking only `/proc/cpuinfo`, a CPU flag, or a cloud shape name
-is insufficient.
+These API/documentation observations do not establish the runtime result for a
+bare-metal candidate. For an OCI VM, Oracle's nested-KVM support negative makes
+the exact-tree probe diagnostic only; it cannot change the unsupported
+production posture unless Oracle's written support position changes. For
+`BM.Standard.A1.160` and the A4 bare-metal candidates, the required answer is
+an exact-tree, executable probe on the exact image/kernel and shape, followed
+by Oracle support's written confirmation of the supported posture. The probe
+must test the device and a real guest boot; checking only `/proc/cpuinfo`, a CPU
+flag, or a cloud shape name is insufficient.
 
 ## Runtime candidates
 
@@ -183,12 +379,12 @@ does not imply KVM availability or a specific isolation strength.
 
 | Option | KVM/Arm requirement | Isolation and compatibility | Density/boot expectation | Operational burden |
 | --- | --- | --- | --- | --- |
-| Firecracker on A1 VM | Exact A1 `/dev/kvm` access and Arm KVM must pass | Small VMM; one process/VM; Linux guest; OCI conversion is needed | Designed for small microVMs; published numbers are workload-specific examples, not a TerraScale SLO | Kernel/rootfs pipeline, jailer, TAP, block backing, VMM lifecycle, snapshots/recovery, and host security updates |
-| Cloud Hypervisor on A1 VM | KVM, Arm64 server, GICv3; recommended host kernel 5.13 | Small VMM with broad Virtio/hotplug features; OCI conversion is needed | Low-footprint objective; actual boot/RSS/density must be measured | Similar to Firecracker, with more device/firmware choices to qualify |
-| crosvm on A1 VM | Linux KVM access and modern 5.x kernel | Strong process-per-device sandbox; OCI adapter is product work | No directly applicable TerraScale density data found | VMM/device policy and host adapter are product-owned |
-| Kata on A1 VM | Configured hypervisor still needs KVM; Arm64 support is documented | OCI/containerd-compatible VM-backed runtime; sandbox may contain multiple containers | More layers and guest components; likely higher fixed cost; measure one-sandbox-per-allocation | Lowest OCI-runtime integration risk, highest component count |
-| Firecracker/Cloud Hypervisor on BM A1 | Bare-metal Arm A1 host; KVM probe should pass, but still verify image/kernel | Strong candidate for untrusted tenants | Large host amortizes many VMs, but coarse acquisition and host-failure blast radius | Host replacement, maintenance, and capacity are much heavier than a small Flex VM |
-| gVisor systrap on A1 VM | No KVM; ARM64 build and Linux host | Application-kernel sandbox, not a VM; lower compatibility/performance trade-off must be measured | Usually better nested-VM behavior than KVM-in-VM according to gVisor docs; no microVM equivalence | Easier VMM operations, but explicit weaker isolation tier and gVisor compatibility lifecycle |
+| Firecracker on qualified Arm bare metal | Exact Arm64 KVM access on `BM.Standard.A1.160` or `BM.Standard.A4.48`/`.Ax.48`; verify image/kernel | Small VMM; one process/VM; Linux guest; OCI conversion is needed | Designed for small microVMs; published numbers are workload-specific examples, not a TerraScale SLO | Kernel/rootfs pipeline, jailer, TAP, block backing, VMM lifecycle, snapshots/recovery, and host security updates |
+| Cloud Hypervisor on qualified Arm bare metal | KVM, Arm64 server, GICv3; recommended host kernel 5.13; verify exact BM shape | Small VMM with broad Virtio/hotplug features; OCI conversion is needed | Low-footprint objective; actual boot/RSS/density must be measured | Similar to Firecracker, with more device/firmware choices to qualify |
+| crosvm on qualified Arm bare metal | Linux KVM access and modern 5.x kernel on a qualified Arm BM host | Strong process-per-device sandbox; OCI adapter is product work | No directly applicable TerraScale density data found | VMM/device policy and host adapter are product-owned |
+| Kata on qualified Arm bare metal | Configured hypervisor still needs KVM; Arm64 support is documented | OCI/containerd-compatible VM-backed runtime; sandbox may contain multiple containers | More layers and guest components; likely higher fixed cost; measure one-sandbox-per-allocation | Lowest OCI-runtime integration risk, highest component count |
+| Firecracker/Cloud Hypervisor on OCI Arm VM (diagnostic only) | OCI VM nested KVM is unsupported for production planning, even if `/dev/kvm` is observable | Useful for recording provider behavior; cannot establish a supported microVM tier | Any observed density is diagnostic and must not become a capacity promise | Disposable probe only; do not build production dependencies on this lane |
+| gVisor systrap on OCI Arm VM | No KVM; ARM64 build and Linux host | Application-kernel sandbox, not a VM; lower compatibility/performance trade-off must be measured | Usually better nested-VM behavior than KVM-in-VM according to gVisor docs; no microVM equivalence | Easier VMM operations, but explicit weaker isolation tier and gVisor compatibility lifecycle |
 
 The host kernel, VMM, guest kernel, rootfs, network bridge/TAP, block backing,
 NATS host agent, logging, and cgroup accounting all consume resources. A
@@ -219,13 +415,14 @@ capabilities:
 - `terrabase-managed-storage` as a separate stateful service capability.
 
 The initial qualification order should be Firecracker and Cloud Hypervisor on
-`VM.Standard.A1.Flex`, then the same pair on `BM.Standard.A1.160` if the VM
-probe fails. Keep crosvm and Kata as comparison lanes. Do not make a production
-claim for “microVM per tenant” until one complete A1 or BM A1 lane proves KVM,
+`BM.Standard.A1.160`, followed by the same pair on
+`BM.Standard.A4.48`/`BM.Standard.A4.Ax.48`. Keep crosvm and Kata as comparison
+lanes. VM probes may document observed behavior and support-negative evidence,
+but they are diagnostic only. Do not make a production claim for “microVM per
+tenant” until one complete qualified BM A1 or A4 lane proves supported KVM,
 boot, network/storage isolation, density, crash recovery, and host-agent
-reconciliation. If A1 VM has no usable KVM, either select the bare-metal A1
-lane or offer a clearly named gVisor-systrap isolation tier; do not silently
-downgrade the requested boundary.
+reconciliation. If a product tier can accept non-KVM isolation, offer a clearly
+named gVisor-systrap tier; do not silently downgrade the requested boundary.
 
 ## Executable spike and benchmark matrix
 
@@ -236,22 +433,23 @@ no result from a local x86 VM or a container can qualify OCI Arm/KVM behavior.
 
 | Lane | Inputs | Measurements/evidence | Gate or unresolved question |
 | --- | --- | --- | --- |
-| OCI capability | A1 Flex at 1, 2, 4, and 8 OCPU; exact Arm64 Linux image | `/dev/kvm` existence/permissions, KVM module, KVM ioctl open/create-VM, VMM startup, guest `uname -m`, host/guest kernel logs, OCI support response | Does A1 expose a supported KVM path? Is nested KVM supported, or merely observable? |
-| Bare-metal fallback | `BM.Standard.A1.160`, same image and agent | Same KVM/VMM checks plus host CPU/memory/network topology and replacement time | Is bare metal available in target regions and economically usable for density? |
-| Alternative Arm shape | An OCI Arm VM shape available in the catalog, such as A2 Flex, if enabled | Repeat the complete capability lane; never infer from A1 or CPU branding | Is there a smaller or more available Arm VM with a supported KVM capability? |
+| OCI bare-metal capability, baseline | `BM.Standard.A1.160`; exact Arm64 Linux image, UEK release, VMM, and host-agent build | `/dev/kvm` existence/permissions, KVM module, KVM ioctl open/create-VM, VMM startup, guest `uname -m`, host/guest kernel logs, support response, replacement time | Does the exact BM A1 image/kernel/VMM pass supported KVM, guest boot, recovery, and host-agent reconciliation? |
+| OCI bare-metal capability, A4 candidate | `BM.Standard.A4.48` and `BM.Standard.A4.Ax.48`; same exact-tree inputs and evidence | Repeat the complete capability lane, then record CPU/memory/network topology and failure/replacement behavior | Does A4 pass the same production floor, and does its measured density justify a second supported tier? |
+| OCI VM diagnostic, optional | `VM.Standard.A1.Flex`, `VM.Standard.A2.Flex`, `VM.Standard.A4.Flex`, or `VM.Standard.A4.Ax.Flex`; disposable exact Arm64 image | Record `/dev/kvm` observation, KVM module/ioctl behavior, VMM attempt, guest architecture, logs, and OCI support response | Does runtime behavior align with the documented unsupported nested-KVM posture? This lane cannot qualify production. |
 | VMM boot | Firecracker and Cloud Hypervisor; crosvm/Kata comparison; 1/2 vCPU and 128/256/512 MiB guest profiles | Time from admission to guest-ready, p50/p95/p99; VMM/guest RSS; CPU at idle and boot; teardown time; boot-failure rate; artifact digests | Which VMM meets the approved boot and fixed-overhead budget? |
 | OCI image path | Signed multi-arch OCI image indexes with `arm64` and negative cases | Manifest selection, digest/signature verification, layer unpack time, rootfs correctness, entrypoint/env/UID behavior, rejection of wrong architecture and privileged features | Can arbitrary stateless images run without widening host access? |
-| Density | 1, 4, 16, 32, 64, then bounded higher counts per A1/BM host; realistic HTTP/serverless workload | Maximum admitted allocations, host RSS, CPU steal/load, p95/p99 request latency, boot queueing, reclaim/teardown, NATS/agent overhead, disk use | What density is stable under the workspace/production host budget? |
+| Density | 1, 4, 16, 32, 64, then bounded higher counts per qualified BM A1/A4 host; realistic HTTP/serverless workload | Maximum admitted allocations, host RSS, CPU steal/load, p95/p99 request latency, boot queueing, reclaim/teardown, NATS/agent overhead, disk use | What density is stable under the workspace/production host budget? |
 | Network | Per-VM TAP/bridge/NAT design and NATS egress | Tenant-to-tenant isolation, ingress/egress throughput and p99 latency, connection churn, host-network denial, restart/reconnect behavior | Can the host provide isolated networking without one VNIC per microVM? |
 | Ephemeral storage | Read-only rootfs plus scratch disk; OCI Block Volume where used | Read/write/fsync latency, image cache amplification, disk-full behavior, teardown cleanup, crash consistency, no host-path exposure | What scratch model is safe and affordable for stateless services? |
 | TerraBase integration | Managed TerraBase outside ordinary tenant admission; network clients from VMs | Connection/retry latency, TLS identity, regional outage behavior, backup/restore and volume-expansion workflow | What managed service contract makes TerraBase stateful hosting easy without exposing storage controls? |
 | Security | Untrusted test images and adversarial lifecycle requests | Device/namespace/cgroup audit, jailer/seccomp/Minijail policy, no privileged/host mounts/host networking, image escape tests, VMM crash and guest reboot | Does the chosen lane meet the owner-approved tenant isolation floor? |
 | Failure/reconciliation | Kill guest, VMM, jailer, host agent, NATS link, and storage path at each lifecycle phase | Recovery time, duplicate command safety, stale-generation fencing, orphan cleanup, no cross-tenant attachment, durable audit evidence | Can regional autonomy repair allocations without losing isolation? |
-| Portability | Same OCI manifest and typed allocation on OCI VM, OCI BM, and a second provider fixture | Provider capability negotiation, deterministic unsupported-feature errors, no cloud-specific image or network assumptions | Is OCI interchangeability real at the contract boundary? |
+| Portability | Same OCI manifest and typed allocation on qualified OCI Arm bare metal and a second provider fixture; optionally include OCI VM diagnostics | Provider capability negotiation, deterministic unsupported-feature errors, no cloud-specific image or network assumptions | Is OCI interchangeability real at the contract boundary? |
 
-Record raw measurements and exact artifact/config identities. The current
-evidence must remain “A1 KVM unknown” until the capability lane passes on the
-exact production posture.
+Record raw measurements and exact artifact/config identities. OCI VM KVM remains
+unsupported for production planning; BM A1/A4 remain unqualified until the
+exact capability, guest-boot, and recovery lanes pass on the intended
+production posture.
 
 ## Primary sources
 
