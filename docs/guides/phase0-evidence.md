@@ -9,7 +9,7 @@ Full historical audit markdown/JSON and retirement ledger: [`docs/archive/docs-h
 
 - Owner choices **1A–10A accepted** on 2026-07-16 with reliability first.
 - Numeric cost, storage IOPS/latency, regional RPO/RTO, and related qualification targets remain **evidence-derived deployment gates**, not pure-contract blockers.
-- No SUT VM, cloud mutation, or deployment authority before exact-tree L0/L0C evidence.
+- No SUT cloud instance, cloud mutation, or deployment authority before exact-tree L0/L0C evidence.
 - ADR readiness: four draft ADRs exist (ownership, GitOps, placement, actuator fencing); remaining backlog items still need measurements, primary sources, or detailed design drafts.
 
 ## Owner decisions (normative A choices)

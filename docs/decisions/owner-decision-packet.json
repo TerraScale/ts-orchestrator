@@ -103,7 +103,7 @@
       "optionB": "Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 109,
+      "sourceLine": 111,
       "semanticSha256": "7f0faabb929de282d9758bd859022e160831b0b2b4871e2f41ec883bf6d4cdc9",
       "impactedAdrs": [
         1,
@@ -124,7 +124,7 @@
       "optionB": "Allow each isolated region to accept independent releases/policy changes",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 110,
+      "sourceLine": 112,
       "semanticSha256": "49bc2a3cfbae259ff93873243f02295eb80154ced4f7eea018b22d41da562273",
       "impactedAdrs": [
         1,
@@ -146,7 +146,7 @@
       "optionB": "Store envelope-encrypted authoritative ciphertext in a dedicated, isolated vault JetStream account/stream from v1; never ordinary subjects or plaintext",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 111,
+      "sourceLine": 113,
       "semanticSha256": "7d5437aa6d8b30b3a0c9c4fbc6c27ae8ef2b963da05f620cc9b2852c4eeec917",
       "impactedAdrs": [
         12,
@@ -164,12 +164,12 @@
     {
       "id": 4,
       "question": "Runtime defaults",
-      "optionA": "Superseded by ADR 0030: trusted OCI containers for TerraBase and TerraScale APIs, WASI Components for customer compute, and systemd only for admitted host-native roles",
+      "optionA": "Superseded by ADR 0031 (superseding ADR 0030): trusted OCI containers for TerraBase and TerraScale APIs, unprivileged OCI containers for customer compute, and systemd only for admitted host-native roles",
       "optionB": "The former native-TerraBase/container split",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 112,
-      "semanticSha256": "169ef74d21191309e7e6832175bec9a70bdec30e6efa244b745acdc447c6edef",
+      "sourceLine": 114,
+      "semanticSha256": "b230ce78683e929dd1a7b3d182fa6f721e4bbe822827c28765f81975ebb3899b",
       "impactedAdrs": [
         6,
         10
@@ -190,7 +190,7 @@
       "optionB": "Immediately delete explicitly disposable elastic disks after safe topology removal",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 113,
+      "sourceLine": 115,
       "semanticSha256": "a6aae5a7b2a36f5df3027a0c29c1e9fcdb77b5a0fc1d7f242d949113b8381b54",
       "impactedAdrs": [
         9,
@@ -212,7 +212,7 @@
       "optionB": "Require a second complete cloud adapter before the first production deployment",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 114,
+      "sourceLine": 116,
       "semanticSha256": "21ea101380c4d0231b4c312a6d676127b5aeb06f6708c02b0204e9fedbd7d69c",
       "impactedAdrs": [
         16,
@@ -233,7 +233,7 @@
       "optionB": "Require even orchestrator recovery CI to run inside the orchestrator, accepting the circular outage dependency",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 115,
+      "sourceLine": 117,
       "semanticSha256": "bd27c32cf76a9f23b6eb9ff64ac5ca82f4a8e058a899a4cef8d6fdb27d5ff690",
       "impactedAdrs": [
         14
@@ -252,7 +252,7 @@
       "optionB": "“Dedicated” meant separate physical compute nodes for control NATS and product NATS, increasing the regional floor",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 116,
+      "sourceLine": 118,
       "semanticSha256": "941c98978f807fd22df5059ed1e0141bdcb49b705c1f0132a9809671b2805ac4",
       "impactedAdrs": [
         2,
@@ -274,7 +274,7 @@
       "optionB": "Never drop telemetry, requiring another durable regional telemetry store and an explicit maximum outage/cost design",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 117,
+      "sourceLine": 119,
       "semanticSha256": "8612e50a855e8a2d57c827eb71e3f7c071bcd7d7c2b6d184ab6cfa13572a84c9",
       "impactedAdrs": [
         17
@@ -294,7 +294,7 @@
       "optionB": "Nine is a hard ceiling; replacement can be tested, but real scale-out beyond three cannot be demonstrated in the full-region lab",
       "recommended": "A",
       "answer": "A",
-      "sourceLine": 118,
+      "sourceLine": 120,
       "semanticSha256": "fb7d73640d4fe388f2446b9ab4da284d2dd0d7519d531e98acde4efdc0001433",
       "impactedAdrs": [
         10

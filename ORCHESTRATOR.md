@@ -16,7 +16,7 @@ Build a TerraScale-specific orchestrator instead of placing another control plan
 This is justified because the product remains narrower than a general-purpose
 cluster platform. The orchestrator runs a closed catalog of signed TerraScale
 OCI containers and admits customer stateless or serverless workloads through a
-versioned WASI Component contract. It understands TerraBase safety rules,
+versioned unprivileged OCI container contract. It understands TerraBase safety rules,
 manages elastic cloud compute and block storage, provides native GitOps and
 CI/CD, issues workload identity, exposes an operator API/CLI, and exports its
 complete operational state to Grafana. It will not implement a
@@ -29,8 +29,8 @@ The design keeps the parts that already work:
 - The full relevant NATS platform—not only queueing—for pub/sub, request/reply, service discovery, regional gateways, replicated JetStream journals, durable consumers, KV compare-and-swap coordination, small signed Object Store bundles, identity/authorization, advisories, and system monitoring.
 - systemd and cgroups v2 for host and native-binary lifecycle.
 - containerd and runc for OCI containers.
-- containerd, runwasi, and Wasmtime as the first customer WASI Component host,
-  behind a runtime-neutral customer contract.
+- containerd and runc as the single OCI runtime substrate for trusted,
+  tenant, and CI containers.
 - Forgejo, BuildKit, OCIR, and Forgejo packages for source, builds, and immutable artifacts.
 - OCI APIs, KMS/Vault, Object Storage, load balancers, networking, and block volumes as the first provider implementation.
 - Pulumi for durable cloud foundation.
@@ -70,9 +70,10 @@ For NATS, mTLS proves the machine/workload transport identity. NKeys, operator/a
 - TerraBase, Platform, Authentication, and Dashboard run as signed trusted OCI
   containers. Required first-party platform workloads retain narrow privileged
   role descriptors and remain unavailable through the customer API.
-- Customer workloads are stateless or serverless WASI Preview 2 Components.
-  Launch supports HTTP and TerraScale Project Queue triggers. Existing Linux
-  OCI images and arbitrary process execution are not customer workload
+- Customer workloads are stateless or serverless unprivileged OCI containers
+  admitted by digest under the tenant container contract. Launch supports HTTP
+  and TerraScale Project Queue triggers. Arbitrary process execution and
+  privileged or host-accessing containers are not customer workload
   contracts.
 - GitOps is native to the orchestrator. Flux is removed, not embedded, emulated, or retained as a runtime dependency.
 - Grafana is the operator web console for status, health, capacity, failure, storage, deployments, NATS, cost, and regional state. The orchestrator does not build a second dashboard UI.
@@ -92,24 +93,25 @@ Later owner statements take precedence over earlier exploratory requests. This p
 | Consider whether mTLS is needed | Use selective mTLS at privileged machine/workload/cross-region boundaries; keep same-host Unix sockets and public customer HTTPS on their appropriate existing identity boundaries |
 | Consider Nomad or another lightweight orchestrator | Build the TerraScale-specific C# orchestrator; Nomad and Kubernetes are not runtime dependencies |
 | Consider broad cloud alternatives | Ship OCI/A1 first, preserve a provider-neutral interface and a dynamic catalog of at least 20 provider regions, exclude Hetzner, and make another provider an explicit adapter rather than lowest-common-denominator design |
-| General container/binary management | Run the exhaustive TerraScale/platform role catalog as trusted OCI containers, retain systemd for bootstrap-critical host roles, and admit customer compute only through the WASI Component contract |
+| General container/binary management | Run the exhaustive TerraScale/platform role catalog as trusted OCI containers, retain systemd for bootstrap-critical host roles, and admit customer compute only through the unprivileged tenant-container contract |
 | Plan a Kubernetes/OKE migration | OKE is already deleted; perform a full-greenfield three-region deployment that adopts nothing from the old estate, and keep any stale cloud/IAM/DNS/secret/configuration cleanup outside the new ownership graph |
 
 No resolved item in this table may silently revert to an earlier request. The numbered decisions below are the authoritative owner choices.
 
 ## Resolved owner decisions
 
-The owner selected `all A` with reliability first on 2026-07-16. On
-2026-08-23, ADR 0030 superseded decision 4's runtime defaults and the closed
-customer-workload boundary. Every other A choice remains normative; changing
-one requires an explicit superseding decision and an architecture review.
+The owner selected `all A` with reliability first on 2026-07-16. ADR 0030
+superseded decision 4's runtime defaults on 2026-08-23; ADR 0031 superseded
+ADR 0030 on 2026-08-24 and made unprivileged OCI containers the only tenant
+runtime. Every other A choice remains normative; changing one requires an
+explicit superseding decision and an architecture review.
 
 | # | Question | A — selected | B |
 |---|---|---|---|
 | 1 | Regional control topology | Three controller candidates plus three control-NATS servers in **each** region: 9 of each across GRU/SFO/FRA, with independent regional JetStream R3 consensus | Three total controllers/NATS servers, one per region; this creates a WAN quorum and requires rewriting the regional-autonomy invariants |
 | 2 | GRU/WAN outage deployments | Regions keep serving, healing, replacing/scaling nodes, expanding storage, and renewing existing identities; freeze new global releases/policy changes | Allow each isolated region to accept independent releases/policy changes |
 | 3 | Vault authority | Built-in policy/PKI/lease/rotation service with ciphertext/root protection in OCI Vault/KMS initially | Store envelope-encrypted authoritative ciphertext in a dedicated, isolated vault JetStream account/stream from v1; never ordinary subjects or plaintext |
-| 4 | Runtime defaults | Superseded by ADR 0030: trusted OCI containers for TerraBase and TerraScale APIs, WASI Components for customer compute, and systemd only for admitted host-native roles | The former native-TerraBase/container split |
+| 4 | Runtime defaults | Superseded by ADR 0031 (superseding ADR 0030): trusted OCI containers for TerraBase and TerraScale APIs, unprivileged OCI containers for customer compute, and systemd only for admitted host-native roles | The former native-TerraBase/container split |
 | 5 | Elastic data cleanup | Never shrink; retain permanent disks; quarantine a removed elastic TerraBase disk for 7 days after verified backup | Immediately delete explicitly disposable elastic disks after safe topology removal |
 | 6 | Provider implementation timing | Finish OCI plus a provider-neutral contract first; OCI's catalog must expose at least 20 usable regions, while GRU/SFO/FRA are the first activated/qualified cells; add another adapter when needed | Require a second complete cloud adapter before the first production deployment |
 | 7 | CI/CD bootstrap exception | Keep one minimal independent Forgejo workflow/runner solely to build and recover the orchestrator; all product CI/CD is orchestrator-native | Require even orchestrator recovery CI to run inside the orchestrator, accepting the circular outage dependency |
@@ -133,7 +135,7 @@ These IDs seed the implementation registry and prove that every request in the d
 | `REQ-O001` | TerraScale—not Periscale—and a production/final platform rather than a toy | Title/scope, production HA, real-system gates, and definition of complete |
 | `REQ-O002` | Reduce the historical pre-OKE-deletion OCI cost of R$80/day while preserving future scale | Measure the post-deletion residual bill, then apply compact/growth profiles, budgets, scale-to-zero where safe, provider inventory, and a measured seven-day cost gate; final target still requested |
 | `REQ-O003` | Avoid Kubernetes memory overhead and pod limit | One lightweight C# process/host, no sidecars, measured RSS budgets, resource-based admission, and no fixed pod/allocation ceiling |
-| `REQ-O004` | Custom tailor-made orchestrator with no Nomad/Kubernetes dependency; later owner decisions add policy-admitted customer compute | Closed privileged first-party role catalog plus a separate WASI Component customer contract; no arbitrary Linux process or container API |
+| `REQ-O004` | Custom tailor-made orchestrator with no Nomad/Kubernetes dependency; later owner decisions add policy-admitted customer compute | Closed privileged first-party role catalog plus a separate unprivileged tenant-container customer contract; no arbitrary Linux process or privileged container API |
 | `REQ-O005` | C# self-contained single binary under systemd, including ARM64/A1 | One-binary roles, `linux-arm64` release gate, A1 real execution, bootstrap/self-upgrade, systemd packaging |
 | `REQ-O006` | Use NATS as the full communication platform, not only queues | Feature adoption matrix, dual trust planes, regional R3, gateway/leaf strategy, member controller, conformance tests |
 | `REQ-O007` | Dedicated orchestrator NATS and separate TerraScale product NATS | Two R3 clusters per region; decision 8A permits benchmarked host sharing while disk layout remains qualification-selected |
@@ -141,7 +143,7 @@ These IDs seed the implementation registry and prove that every request in the d
 | `REQ-O009` | GRU remains operational after any one node fails | Explicit capability-by-capability HA/N+1 contract and sequential node-loss acceptance |
 | `REQ-O010` | Pulumi bootstraps; then each region creates/deletes/replaces its own nodes and expands storage | Ownership/handoff receipt, compartment-scoped actuator, survival bundle, compute/storage state machines |
 | `REQ-O011` | Automatic node and TerraBase storage scaling | Compute autoscaler, expand-only storage controller, TerraBase-specific policy, budget/performance gates |
-| `REQ-O012` | Manage containers and native systemd binaries; later owner decision selects containers for TerraBase and TerraScale APIs | containerd/runc for trusted services, systemd for admitted host-native roles, and a separate runwasi/Wasmtime tenant runtime behind the WASI contract |
+| `REQ-O012` | Manage containers and native systemd binaries; later owner decision selects containers for TerraBase and TerraScale APIs | containerd/runc for trusted services and tenant containers; systemd for admitted host-native roles |
 | `REQ-O013` | mTLS support, but only where it is actually needed | Selective mTLS decision, workload identity, NATS JWT authorization, rotation/revocation testing |
 | `REQ-O014` | Built-in native GitOps; remove Flux | Native GitOps source/reconciler, policy/child ownership, fresh typed manifests, and Flux non-goal |
 | `REQ-O015` | Built-in vault, CI and CD | Vault/PKI/policy service with OCI Vault/KMS root protection and immutable promotion/isolated runners with the decision 7A recovery exception |
@@ -177,8 +179,8 @@ These invariants are non-negotiable. Invariants 1–3 and the per-region portion
 15. Documentation, JSON Schema, validation, generated Grafana dashboards, and test fixtures derive from the same versioned C# contracts.
 16. GRU is single-node-failure tolerant. No critical global or GRU-cell capability, authoritative state, credential issuer, ingress path, observability ingest path, or VPN coordination path may have a one-node failure mode.
 17. Only allowlisted trusted TerraScale roles or policy-admitted tenant
-    Components can run. A tenant manifest cannot invent a runtime kind, submit
-    a Linux container or native command, or request systemd, container,
+    containers can run. A tenant manifest cannot invent a runtime kind, submit
+    a native command or arbitrary image, or request systemd, container,
     provider, host, device, secret-authority, or control-plane privileges.
 18. Every active region has operationally and cryptographically separate orchestrator-control and TerraScale-product NATS clusters, each with three servers and separate stores; decision 8A permits benchmarked host sharing and physical disk layout is the cheapest tested safe layout.
 
@@ -337,7 +339,7 @@ No rollout may simultaneously make GRU dependent on fewer than the required heal
 The irreducible planned seed floor is three database hosts per region if local RF3 is mandatory. The orchestrator should use those new seed hosts as measured multipurpose capacity instead of creating separate app/tool pools before load exists.
 
 - `compact`: three seed hosts per region. Each runs the agent, an eligible regional controller, one control-NATS server, one product-NATS server, and one TerraBase member. Trusted first-party stateless services may share measured spare CPU/memory. TerraBase always has its own member volume; qualification benchmarks shared-per-host versus per-process NATS volumes and selects the cheapest layout meeting isolation/recovery/SLO gates. Every I/O-heavy subsystem has explicit filesystem/quota/cgroup/IO isolation. GRU adds capacity if benchmarks show the three seed hosts cannot safely absorb observability plus one-node-failure headroom.
-- `tenant-worker`: customer WASI Components run only on this node class. It
+- `tenant-worker`: customer tenant containers run only on this node class. It
   contains no TerraBase, controller, NATS, secret-authority, or provider-actuator
   role. Production keeps measured drain reserve and may scale the class from
   zero only where the resulting provisioning latency matches the product tier.
@@ -386,7 +388,7 @@ Publishing requirements:
 - Every native artifact declares RID, ELF architecture, minimum kernel/glibc requirements, and digest. The agent rejects an architecture mismatch before activation.
 - Every OCI workload image is published as an OCI multi-platform manifest with an explicitly tested `linux/arm64` image. GitOps resolves and records the selected platform-specific manifest/image digest.
 - The orchestrator, TerraBase, Platform, Authentication, Dashboard/Node runtime, both NATS clusters, OTel collectors, Grafana stack, VPN components, BuildKit, containerd/runc, and host utilities must all have an approved ARM64 build or image before their descriptor can enter production.
-- CI has native ARM64 runners. Cross-compilation and QEMU emulation may provide early feedback, but real A1 execution is required for systemd, containerd, mTLS, NATS, storage, TerraBase, observability, and performance qualification.
+- CI has native ARM64 runners. Cross-compilation may provide early feedback, but real A1 execution is required for systemd, containerd, mTLS, NATS, storage, TerraBase, observability, and performance qualification.
 - Release sets contain the logical release plus per-architecture digests. Promotion never substitutes an x64 digest on ARM or rebuilds the ARM artifact after qualification.
 - Scheduler constraints and autoscaling templates are architecture-aware. A workload with no ARM artifact remains unschedulable with a clear reason; it cannot silently force an expensive x64 pool into an A1 cell.
 - Memory, CPU, cryptography, compression, fsync, storage-latency, and startup budgets are measured on A1, since x64 benchmark results are not an A1 capacity plan.
@@ -467,7 +469,7 @@ Admission uses a closed, versioned C# discriminated role catalog, not an arbitra
 
 Each role maps to a built-in descriptor schema, permitted runtimes, artifacts, ports, identities, secrets, capabilities, mounts, probes, network policy, and resource bounds. A manifest may choose only permitted parameters; it cannot supply an arbitrary executable, privileged container, host path, systemd directive, Linux capability, or NATS permission. Adding a role is an owner-approved specification/ADR change with threat-model, resource, ARM64, HA, first-deployment, and test updates.
 
-The email emulator is a test-fixture dependency, not a production role. Payment providers remain external and are exercised through Platform's production adapters. Billing/email/background responsibilities already hosted within `Platform` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
+Payment providers remain external and are exercised through Platform's production adapters. Billing/email/background responsibilities already hosted within `Platform` or `Authentication` remain part of those processes. `Terrascale.Landingpage`, Forgejo, OCIR, OCI Object Storage/KMS/Vault/LB, Cloudflare, and operator identity providers remain external dependencies and are not admitted workloads.
 
 ## NATS and state correctness
 
@@ -866,10 +868,10 @@ Permanent member volumes use retain semantics. Elastic-member deletion is allowe
 
 Block snapshots are a secondary recovery tool, not a replacement for TerraBase-native full/incremental backup and side-by-side restore tests.
 
-## Trusted-container, tenant-component, and native-systemd executors
+## Trusted-container, tenant-container, and native-systemd executors
 
 Trusted first-party roles use a closed `WorkloadSpec`. Customer code uses a
-separate `TenantComponentSpec` whose fields cannot express native commands,
+separate `TenantContainerSpec` whose fields cannot express native commands,
 container privileges, host resources, or first-party identities. The two
 contracts share only the safe scheduling, lifecycle, artifact, and telemetry
 concepts named by the contract steward.
@@ -879,13 +881,14 @@ arguments, first-party identity, resources, ports, service names, dependencies,
 probes, drain hook, volumes, secret/certificate references, restart/backoff,
 rollout strategy, placement, scaling, and telemetry.
 
-`TenantComponentSpec` instead includes the immutable Component digest, WIT
-world and interface version, tenant/project/deployment identity, resource and
-execution bounds, HTTP or Project Queue trigger bindings, safe dependencies,
+`TenantContainerSpec` instead includes the immutable container image digest,
+the declared entrypoint and service port from the admitted image
+configuration, tenant/project/deployment identity, resource and execution
+bounds, HTTP or Project Queue trigger bindings, safe dependencies,
 readiness/drain/timeouts, placement, scaling, and telemetry. Configuration,
 secret, TerraBase, and outbound-HTTP access are versioned capabilities. The
-tenant contract has no command, executable argument, host port, volume, or raw
-secret/certificate-reference field.
+tenant contract has no command override, executable argument, host port,
+volume, or raw secret/certificate-reference field.
 
 ### OCI container driver
 
@@ -899,25 +902,33 @@ secret/certificate-reference field.
 containerd is the trusted-container default because it provides a stable
 daemon/API boundary without making systemd unit generation the container API.
 
-### WASI Component driver
+### Tenant container driver
 
-- containerd and runwasi manage immutable component artifacts and allocation
-  lifecycle in the first implementation; the public contract names neither.
-- Wasmtime runs WASI Preview 2 Components with only the admitted WIT imports.
-- each tenant and deployment revision receives its own non-root process and
-  cgroup on a tenant-worker node; cross-tenant process pooling is forbidden.
-- the root filesystem is read-only, scratch is bounded and disposable, and no
+- containerd and runc run customer containers on the same substrate as
+  trusted services; the public tenant contract names neither and grants none
+  of the trusted-role privileges.
+- each tenant and deployment revision receives its own non-root container,
+  process namespace, and cgroup on a tenant-worker node; cross-tenant
+  container or process pooling is forbidden.
+- images are admitted only by immutable digest from the tenant registry
+  namespace, checked against the tenant platform profile (non-root user,
+  declared service port, no privileged or host hints honored), and staged
+  before rollout with the previous digest retained for rollback.
+- the root filesystem is read-only, scratch is bounded and disposable, all
+  Linux capabilities are dropped, `no-new-privileges` is enforced, and no
   host path, device, provider credential, control-plane identity, raw socket,
   or raw NATS credential is available.
-- Wasmtime memory/table/instance limits, cgroup v2 controls, execution
-  interruption, seccomp, and Landlock where supported all enforce independent
-  limits. A runtime limit does not substitute for an operating-system limit.
-- the platform owns HTTP listeners and Project Queue consumers and invokes the
-  component through versioned trigger envelopes.
-- source components remain the portable artifact. Precompiled caches include
-  the source digest, Wasmtime compatibility hash, host architecture, compiler
-  settings, and WIT host version.
-- a customer-runtime integrity failure quarantines the worker and evacuates its
+- image-declared resource hints, cgroup v2 controls, execution interruption,
+  seccomp, and Landlock where supported all enforce independent limits. An
+  image-declared limit does not substitute for an operating-system limit.
+- the platform owns HTTP listeners and Project Queue consumers and invokes
+  the container through versioned trigger envelopes on loopback-only or
+  private-namespace networking.
+- tenant isolation is a hardened shared-kernel container boundary, accepted
+  by owner decision in ADR 0031 and backed by the separate tenant-worker node
+  class; it is not a hardware virtualization boundary, and no virtualized
+  tenant tier may be added without a superseding ADR.
+- a tenant-runtime integrity failure quarantines the worker and evacuates its
   allocations. It never fails over onto a trusted-service node.
 
 ### Native binary driver
@@ -1264,17 +1275,17 @@ CI wraps `pre-deployment-evidence.json` in a signed DSSE/in-toto-style attestati
 - In-process test executables: L0 behavior without a container.
 - Targeted dependency/runtime fixture: one L0C or L1S boundary at a time.
 - One-region R3 component fixture: L2S quorum semantics without unrelated product roles.
-- Development runtime: the 22-container GRU/SFO/FRA RF1 regional product slice plus the shared email emulator. It has no reduced or selectable runtime profile.
+- Development runtime: the 21-container GRU/SFO/FRA RF1 regional product slice. It has no reduced or selectable runtime profile.
 - `oci-cell`: disposable three-node OCI region.
 - `oci-boundary`: targeted real OCI/A1/storage tests and the final minimum multi-region production boundary.
 
-The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and topology labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 22-resource topology plans 16,128 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
+The container supervisor owns create/start/status/exec/log/copy/stop/delete, deterministic names/ports/directories, deadlines, crash recovery, and unconditional orphan cleanup. Ownership and topology labels prevent one run from removing foreign pods or containers. Images are selected from a closed digest-pinned catalog; workloads cannot request arbitrary images, mounts, capabilities, privileges, or host networking. A repository-wide lease permits only one test or lab workload at a time. The aggregate local ceiling is 24 GiB: 20 GiB for the active validation process or owned pod and 4 GiB reserved for the host. Declared container limits are summed before startup and admission fails closed above 20 GiB; the 21-resource topology plans 15,936 MiB. Test modules run sequentially, TUnit concurrency is four, and evidence records module counts plus observed peak memory and process counts.
 
 Phase 0 records the Podman version, image manifest digests, host kernel/cgroup capabilities, rootless status, network backend, storage driver, and conformance result. Upgrades require a reviewed pin change and a cold sequential L0/L0C/L3S run. Matching-host containers cannot qualify `linux-arm64`; real A1 remains the mandatory ARM boundary.
 
 Container namespaces and overlay storage are deliberate limitations in the evidence model. L3S proves processes, protocols, identities, topology, persistence, restart, and failure logic, but never claims to prove systemd unit semantics, OCI attachment/online expansion, block durability/performance, or A1 behavior. Those claims belong only to L1R/L4.
 
-The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, Dashboard, and the email emulator, with the current dependency and health ordering. Payment testing calls provider sandbox/test endpoints through Platform's production adapters. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
+The DevHost graph becomes the first product fixture: three TerraBase processes, local JetStream, Auth, API, and Dashboard, with the current dependency and health ordering. No email server runs in the lab: Platform and Authentication use `Email:Provider=Disabled` and `Auth:AutoVerifyEmail`, so messages render and log instead of sending and signup/login never wait on email verification. Payment testing calls provider sandbox/test endpoints through Platform's production adapters. DevHost tests remain fast product-contract tests; they do not replace the Linux lab.
 
 ### Bounded three-region RF1 topology
 
@@ -1282,14 +1293,13 @@ The DevHost graph becomes the first product fixture: three TerraBase processes, 
 GRU: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
 SFO: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
 FRA: controller + control NATS + product NATS + TerraBase + Auth + API + Dashboard
-Shared: email emulator
 ```
 
 Every resource receives a deterministic name and port, unique credentials and certificates, and independent control-NATS/product-NATS/TerraBase data directories. Images and built artifacts are staged before startup. The topology deliberately uses one member per regional stateful role: it tests three-region behavior and reduced-development RF=1 configuration, not production quorum or host-failure tolerance.
 
 The lab uses a rootless Podman pod only after conformance proves isolation, ports, limits, and cleanup behavior for the pinned version. Regional failure scenarios stop, restart, or degrade only allowlisted owned resources and run sequentially against one healthy lab when clean bootstrap is not the subject. A test that needs real quorum starts a separate one-region R3 component fixture after the RF1 lab has stopped. Container connectivity alone is not evidence of production addressing.
 
-The L3S inventory is exact and closed: one controller, control NATS, product NATS, TerraBase, Auth, API, and Dashboard in each of GRU/SFO/FRA, plus the shared email emulator. A declared resource fails the gate if it is absent, uses an unpinned image, lacks its implemented health/readiness check, has the wrong configuration generation, or cannot serve its protocol. Production-only roles are tested in-process until their targeted boundary lane exists; they are not added speculatively to make the local lab resemble production.
+The L3S inventory is exact and closed: one controller, control NATS, product NATS, TerraBase, Auth, API, and Dashboard in each of GRU/SFO/FRA. A declared resource fails the gate if it is absent, uses an unpinned image, lacks its implemented health/readiness check, has the wrong configuration generation, or cannot serve its protocol. Production-only roles are tested in-process until their targeted boundary lane exists; they are not added speculatively to make the local lab resemble production.
 
 Every integration candidate runs all implemented pure suites first, then only the affected targeted fixtures, then the applicable RF1 regional scenarios. No local validation workloads run concurrently. A healthy L3S lab is reused across sequential faults; it is recreated only when bootstrap, persistence recovery, or cleanup isolation is the behavior under test. Production systemd, containerd, block storage, ARM, OCI, destructive operations, multi-host clocks, and HA remain L1R/L4/L5 evidence.
 
@@ -1468,7 +1478,7 @@ P6–P8 GitOps/CI                  Grafana/OTel/VPN/operator API
 | Integration/contract steward | `src/TerraScale.Orchestrator/Contracts`, `src/TerraScale.Orchestrator/Protocol`, requirement registry, schemas/generators, solution/package/build files, composition root, shared test primitives | compatibility fixtures, architecture graph, aggregate evidence/merge result |
 | Core | control plane, operation engine, scheduler, budgets/cost decisions | unit/property/model/concurrency tests and placement/operation traces |
 | Messaging/security | NATS, identity, Vault, PKI/mTLS, regional trust/survival material | permission/conformance fixtures, revocation, peer recovery, security/fuzz tests |
-| Runtime | agent, trusted-role admission, tenant Component admission, systemd/containerd/runwasi adapters, bootstrap/self-upgrade | fake executors plus lifecycle, isolation, resource-exhaustion, A/B rollback, L1S/L1R contract tests |
+| Runtime | agent, trusted-role admission, tenant-container admission, systemd/containerd adapters, bootstrap/self-upgrade | fake executors plus lifecycle, isolation, resource-exhaustion, A/B rollback, L1S/L1R contract tests |
 | Cloud | provider abstractions, OCI/Pulumi handoff, actuator, compute autoscaler | provider model/fake, fencing race suite, L4 adapter evidence |
 | Storage | generic volume lifecycle/expansion/fencing and filesystem adapters | block model/harness, irreversible-step recovery, L4 destructive evidence |
 | TerraBase | TerraBase topology, upgrade, replication, backup/restore/autoscaling | independent admin fake plus real three-member L2S and L4 scenarios |
@@ -1509,7 +1519,7 @@ Test sharding follows domain boundaries:
 - L0C: control-NATS/gateways; product-NATS/isolation; N/N-1 and peer/snapshot recovery.
 - L3S: RF1 bootstrap/NATS/mTLS; regional routing/health/restart/reconciliation; product composition and persistence; implemented GitOps/CI/Grafana/OTel behavior.
 
-L3S scenarios share one exclusive healthy 22-container RF1 topology and execute sequentially. A scenario requests a fresh topology only when bootstrap, persisted recovery, or cleanup isolation is part of its assertion. L0/L0C/L1S/L2S and L3S never overlap on the same validation host.
+L3S scenarios share one exclusive healthy 21-container RF1 topology and execute sequentially. A scenario requests a fresh topology only when bootstrap, persisted recovery, or cleanup isolation is part of its assertion. L0/L0C/L1S/L2S and L3S never overlap on the same validation host.
 
 ## Delivery plan
 
@@ -1525,7 +1535,7 @@ Deliver:
 - inventory live OCI instances, volumes, attachments, backups, buckets, LBs, public IPs, IAM, Vault, NATS streams/consumers, certificates, workloads, and seven-day utilization/cost; establish the actual post-OKE-deletion residual bill, explicitly prove OKE clusters/node pools are absent, and identify any stale Kubernetes/Flux IAM, DNS, secret, volume, public-IP, load-balancer, webhook, or configuration remnants;
 - run the normalized eligible-provider TCO/ARM64/block-storage/TerraBase benchmark and record why OCI remains first or which second adapter is prioritized;
 - generate the >=20-row OCI eligible-region matrix and exhaustive cross-repository `WRK-*` retirement ledger with owners/tests/removal phases;
-- pin Podman and every image by immutable manifest digest; run bounded 22-container RF1 start, persistence, port, resource-admission, process-crash, cleanup, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
+- pin Podman and every image by immutable manifest digest; run bounded 21-container RF1 start, persistence, port, resource-admission, process-crash, cleanup, rootless-isolation, and matching-architecture conformance before accepting the lab backend;
 - define storage, availability, RPO/RTO, security, memory, scale, and cost SLOs;
 - ADRs for authority, NATS isolation/topology, provider ownership, runtime drivers, Vault scope, compact profile, networking/VPN, and project-placement boundary;
 - select and pin the ARM64 LTS host image/kernel/glibc, production filesystem candidates, NATS server/client and N/N-1 policy, test toolchain, artifact/evidence signing, A1-capacity fallback, VPN, DNS, immutable Grafana provisioning plus metrics/log/trace HA persistence, and regional artifact-mirror design;
@@ -1566,15 +1576,15 @@ Exit gate: bootstrap, enrollment, renewal, rotation, revocation, issuer rotation
 Deliver:
 
 - host inventory, health/heartbeat, local journal, D-Bus/systemd and containerd clients;
-- closed trusted-role catalog, separate `TenantComponentSpec`, explicit safe shared lifecycle contracts, resource controls, probes, credential handling, ports, journald/OTel, crash-loop behavior, drain and rollback;
-- atomic native artifact, OCI-image, and WASI Component staging with exact-digest lifecycle contracts across admitted runtime classes;
+- closed trusted-role catalog, separate `TenantContainerSpec`, explicit safe shared lifecycle contracts, resource controls, probes, credential handling, ports, journald/OTel, crash-loop behavior, drain and rollback;
+- atomic native artifact and OCI-image staging with exact-digest lifecycle contracts across admitted runtime classes;
 - regional leadership, accepted `CellSpec`, registry, deterministic scheduler, allocation/deployment state machines;
 - health-aware service discovery, DNS/LB adapter, rolling/canary/blue-green/ordered stateful strategies;
 - cordon/drain, disruption budgets, reservations, anti-affinity, placement explanations;
 - three-node regional HA, control-NATS quorum failure behavior, and no artificial per-node allocation/pod ceiling.
 
 Exit gate: Platform/Auth/Dashboard and a TerraBase fixture pass the trusted OCI
-container lifecycle contract, and a tenant Component fixture passes HTTP and
+container lifecycle contract, and a tenant container fixture passes HTTP and
 Project Queue lifecycle, isolation, and denial contracts on a tenant-worker
 node. Node/controller/NATS failures do not duplicate allocations or mutations;
 stale commands/orphans are rejected/reclaimed; running services survive control
@@ -1611,7 +1621,7 @@ Deliver:
 
 - Git/OCI source controllers, signatures, schema/render/compile, dependencies, diff/plan/apply, drift, health, suspend/retry/prune/rollback;
 - explicit Git parent policy versus journal-owned autoscaled-child semantics;
-- fresh native desired-state manifests derived from the closed trusted-role catalog and the separate tenant Component contract; no Flux/Helm/Kustomize reader or converter;
+- fresh native desired-state manifests derived from the closed trusted-role catalog and the separate tenant-container contract; no Flux/Helm/Kustomize reader or converter;
 - global-to-cell signed handoff and same-digest barrier;
 - elimination replacements for Flux wait/webhook/reconcile/image-writer/rollout-guard workarounds.
 
@@ -1718,7 +1728,7 @@ Order:
 | Risk | Control |
 |---|---|
 | Scope expands into a private Kubernetes clone | Two explicit runtime contracts, no Kubernetes compatibility, and ADR review for every new resource kind |
-| A WASI runtime escape reaches trusted data or control roles | Separate tenant-worker node class, one tenant/revision per process and cgroup, defense-in-depth host policy, quarantine, and no fallback onto trusted-service nodes |
+| A tenant container escape reaches trusted data or control roles | Separate tenant-worker node class, one tenant/revision per container and cgroup, unprivileged no-new-privileges execution, seccomp and Landlock defense-in-depth, quarantine, and no fallback onto trusted-service nodes |
 | NATS messaging mistaken for consensus design | Regional R3 journal, one writer, CAS fencing epochs, signed generations, deterministic restore/model tests |
 | Bootstrap cycle | Pulumi creates fresh seed hosts and both NATS clusters, then explicitly transfers those new resources to the regional authority; recovery path is separately tested |
 | Partial greenfield creation leaves duplicate/orphaned foundation, trust, or NATS identities | journal every create/handoff checkpoint; deterministic IDs/idempotency; per-region partial-success tests; quarantine ambiguity; approved cleanup plus re-inventory before retry |
@@ -1741,10 +1751,10 @@ Order:
 
 - Kubernetes API, CRDs, controllers, Helm runtime, kubelet, CNI, CSI, admission webhooks, or Kubernetes workload compatibility.
 - Nomad compatibility or a layer over Nomad.
-- Customer Linux OCI images, native executables, privileged processes, host
+- Customer native executables, privileged or host-accessing containers, host
   devices, unrestricted POSIX behavior, raw NATS access, or a generic runtime
-  escape hatch. Customer code is admitted only as a policy-compatible WASI
-  Component.
+  escape hatch. Customer code is admitted only as a policy-compatible
+  unprivileged OCI container.
 - A new database, Raft implementation, message broker, container runtime, source-control server, registry, build engine, metrics/log/trace backend, dashboard engine, cryptographic primitive, or VPN protocol.
 - Cross-region synchronous scheduler consensus.
 - Parsing, importing, or emulating historical Kubernetes manifests.
@@ -1762,8 +1772,8 @@ Order:
 3. JetStream streams, KV CAS, snapshot/restore, fencing, and audit retention.
 4. Pulumi/provider ownership and exact resource tags/IAM.
 5. Direct OCI instances versus instance pools by node class.
-6. Separate trusted-role and tenant Component schemas plus the safe shared
-   lifecycle contract across systemd, containerd/runc, and runwasi/Wasmtime.
+6. Separate trusted-role and tenant-container schemas plus the safe shared
+   lifecycle contract across systemd and containerd/runc.
 7. Host network/port allocation versus namespaced network roadmap.
 8. Compact co-location performance and promotion to isolated node classes.
 9. Volume identity, filesystem layout, fencing, expansion, performance, retention, and deletion.
@@ -1795,9 +1805,9 @@ The orchestrator is ready for its first production deployment only when:
 - TerraBase and the TerraScale APIs run as signed trusted OCI containers;
   TerraBase preserves stable storage, backups, upgrades, replication, fencing,
   and recovery;
-- customer HTTP and Project Queue workloads run only as admitted WASI Preview 2
-  Components on isolated tenant-worker nodes, with the compatibility and denial
-  contract proven on real ARM64 and x64 hosts;
+- customer HTTP and Project Queue workloads run only as admitted unprivileged
+  OCI containers on isolated tenant-worker nodes, with the compatibility and
+  denial contract proven on real ARM64 and x64 hosts;
 - mTLS identities, NATS authorization, secret policy/delivery, rotation, revocation, and audit pass security review;
 - GitOps and CI/CD preserve build-once, immutable promotion, staged regional verification, rollback, and interruption recovery;
 - the operator API/CLI, Grafana, OTel, VPN, alerts, and runbooks support normal and emergency operation;

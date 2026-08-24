@@ -4,7 +4,7 @@ TerraScale.Orchestrator is the greenfield, TerraScale-specific control plane des
 
 Navigable documentation lives under [`docs/`](docs/README.md): architecture boundaries, Phase 0 evidence, Phase 1 pure-contract maps, ADRs, owner decisions, and compressed historical work packages/audits.
 
-Owner choices 1A–10A are accepted with reliability first. Numeric cost, database-storage, RPO, and RTO targets remain evidence-derived deployment gates; they do not justify weakening R3 state, single-node-failure tolerance, backups, storage integrity, or security. The repository must not start a system-under-test VM or mutate cloud infrastructure before exact-tree L0/L0C evidence authorizes it.
+Owner choices 1A–10A are accepted with reliability first. Numeric cost, database-storage, RPO, and RTO targets remain evidence-derived deployment gates; they do not justify weakening R3 state, single-node-failure tolerance, backups, storage integrity, or security. The repository must not start a system-under-test cloud instance or mutate cloud infrastructure before exact-tree L0/L0C evidence authorizes it.
 
 ## Baseline validation
 
@@ -952,8 +952,11 @@ clock, partition, mTLS, and NATS-JWT gates.
 ## DevHost three-region development topology
 
 `lab plan` always represents the bounded RF=1 product graph in GRU, SFO, and
-FRA plus the shared email emulator. The topology is not selectable or reducible.
-NATS, TerraBase, PKI, artifacts, and backups persist under the regional data
+FRA. The topology is not selectable or reducible. No email server runs in the
+lab: Platform and Authentication run with `Email:Provider=Disabled`, rendered
+email is logged instead of sent, and `Auth:AutoVerifyEmail` keeps signup and
+login free of the email-verification challenge flow. NATS, TerraBase, PKI,
+artifacts, and backups persist under the regional data
 directory. This topology validates regional behavior but does not claim
 production quorum.
 
@@ -963,7 +966,7 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
   --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
 ```
 
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and three-region topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 22-container plan totals 16,128 MiB, leaving burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
+`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and three-region topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 21-container plan totals 15,936 MiB, leaving burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
@@ -1034,8 +1037,7 @@ src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator 
 All production-shaped DevHost resources project to one of these built-in
 descriptors. Platform, Authentication, and Dashboard retain the production OCI
 default; TerraBase, both NATS planes, and Orchestrator retain their native
-systemd defaults. The email emulator is explicitly development-only and cannot
-be admitted as a production workload. Payment providers remain external.
+systemd defaults. Payment providers remain external.
 
 `runtime plan` resolves a role and artifact digest through that catalog into a
 typed host execution plan. It never accepts an executable path, image

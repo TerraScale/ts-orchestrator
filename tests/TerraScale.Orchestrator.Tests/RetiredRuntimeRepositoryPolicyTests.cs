@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace TerraScale.Orchestrator.Tests;
 
 public sealed class RetiredRuntimeRepositoryPolicyTests
@@ -18,8 +20,7 @@ public sealed class RetiredRuntimeRepositoryPolicyTests
             string.Concat("small", "-vm"),
             string.Concat("small", "_vm")
         };
-        var violations = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-            .Where(IsRepositoryTextFile)
+        var violations = EnumeratePolicyFiles(root)
             .Select(path => new
             {
                 Path = Path.GetRelativePath(root, path),
@@ -36,6 +37,63 @@ public sealed class RetiredRuntimeRepositoryPolicyTests
             .ToArray();
 
         await Assert.That(violations).IsEmpty();
+    }
+
+    [Test]
+    public async Task RetiredVirtualizedAndWebAssemblyTenantRuntimesCannotReturnInLivingSourceOrDocumentation()
+    {
+        var root = FindRepositoryRoot();
+        var retiredTerms = new[]
+        {
+            string.Concat("micro", "vm"),
+            string.Concat("micro", "-vm"),
+            string.Concat("fire", "cracker"),
+            string.Concat("cloud", "-hypervisor"),
+            string.Concat("cloud", "hypervisor"),
+            string.Concat("cro", "svm"),
+            string.Concat("jai", "ler"),
+            string.Concat("ka", "ta"),
+            string.Concat("k", "vm"),
+            string.Concat("qe", "mu"),
+            string.Concat("vm", "m"),
+            string.Concat("wa", "si"),
+            string.Concat("wasm", "time"),
+            string.Concat("run", "wasi"),
+            string.Concat("wasm", "cloud"),
+            string.Concat("wa", "sm")
+        };
+        var pattern = string.Join("|", retiredTerms.Select(Regex.Escape));
+        var retiredRuntime = new Regex(@"\b(?:" + pattern + @")\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        var selfFile = Path.GetFullPath(
+            Path.Combine(root, "tests", "TerraScale.Orchestrator.Tests", "RetiredRuntimeRepositoryPolicyTests.cs"));
+        var violations = EnumeratePolicyFiles(root)
+            .Select(path => new
+            {
+                FullPath = Path.GetFullPath(path),
+                Path = Path.GetRelativePath(root, path),
+                Text = File.ReadAllText(path)
+            })
+            .Where(file => !string.Equals(file.FullPath, selfFile, StringComparison.OrdinalIgnoreCase))
+            .Where(file => retiredRuntime.IsMatch(file.Text))
+            .Select(file => file.Path)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        await Assert.That(violations).IsEmpty();
+    }
+
+    private static IEnumerable<string> EnumeratePolicyFiles(string root) =>
+        Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Where(IsRepositoryTextFile)
+            .Where(path => !IsSupersededDecisionRecord(root, path));
+
+    private static bool IsSupersededDecisionRecord(string root, string path)
+    {
+        var segments = Path.GetRelativePath(root, path)
+            .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length >= 2 &&
+               string.Equals(segments[0], "docs", StringComparison.OrdinalIgnoreCase) &&
+               segments[1] is "adr" or "archive";
     }
 
     private static bool IsRepositoryTextFile(string path)
