@@ -1,39 +1,56 @@
 # TerraScale orchestration
 
-This context defines the language used to place and operate container workloads across geographic locations.
+This context defines the language used to place and operate trusted TerraScale
+containers and customer WASI Components across geographic locations.
 
 ## Runtime control
 
 **TerraScale Orchestrator**:
-A general-purpose container orchestration platform that places and operates first-party and tenant workloads across supported infrastructure providers. TerraScale services are its first workloads; Kubernetes API compatibility is not implied.
-_Avoid_: TerraScale-only orchestrator, private Kubernetes, Kubernetes-compatible platform
+A provider-neutral workload orchestration platform that operates trusted
+TerraScale containers and customer WASI Components. Kubernetes and Linux
+container compatibility are not implied for customer workloads.
+_Avoid_: General-purpose container orchestrator, private Kubernetes, Kubernetes-compatible platform
 
 **First-party workload**:
 A service operated by TerraScale as part of the platform or a TerraScale product.
 _Avoid_: System workload, built-in application
 
+**Trusted container workload**:
+A signed OCI container admitted from TerraScale's closed first-party catalog.
+TerraBase and the TerraScale APIs are trusted container workloads.
+_Avoid_: Tenant container, arbitrary container, customer image
+
 **Tenant workload**:
-A containerized service or job submitted by an internal or customer tenant and isolated by that tenant's identity, policy, and resource boundaries.
-_Avoid_: Customer container, arbitrary process
+A stateless service or serverless handler submitted as a WASI Preview 2
+Component and bound to an admitted TerraScale interface set.
+_Avoid_: Customer container, arbitrary process, Docker workload
 
 **Infrastructure provider**:
 A supported supplier of compute, network, and storage capacity. Provider choice must not change the workload's product-level identity or desired behavior.
 _Avoid_: Cloud-specific workload, OCI workload
 
 **Tenant allocation**:
-One running instance of a tenant workload. It has its own microVM isolation boundary and may disappear without durable local state.
+One active execution-capacity unit for a tenant workload. It may disappear
+without durable-local-state recovery.
 _Avoid_: Pod, customer VM, container instance
 
-**MicroVM sandbox**:
-The tenant-allocation isolation boundary, with a dedicated guest kernel around the admitted OCI artifact.
-_Avoid_: Hardened container, shared-kernel sandbox
+**WASI sandbox**:
+The capability boundary around a tenant allocation. The workload can use only
+the versioned interfaces and resources granted by its admitted contract.
+_Avoid_: Container sandbox, microVM, unrestricted process
+
+**Project Queue trigger**:
+A project-scoped event contract that invokes a tenant workload from a
+platform-owned durable queue without giving the workload NATS credentials.
+_Avoid_: Raw NATS subscription, customer JetStream consumer
 
 **Stateless service**:
 A continuously addressable tenant workload whose allocations keep no durable local state and can be replaced without data recovery.
 _Avoid_: Persistent service, stateful container
 
 **Managed TerraBase**:
-The platform's first-party durable data service for tenant applications. The platform owns its topology, storage, backup, and recovery lifecycle.
+A trusted stateful container service for tenant applications. The platform
+owns its topology, storage, backup, and recovery lifecycle.
 _Avoid_: Tenant volume, general stateful workload
 
 **Qualified release digest**:
