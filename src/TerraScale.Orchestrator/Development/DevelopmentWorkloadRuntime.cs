@@ -22,6 +22,9 @@ internal static class DevelopmentWorkloadRuntime
         RequireDirectory(internalsRoot, "TerraScale.Internals repository");
         RequireDirectory(terraBaseRoot, "TerraBase repository");
 
+        StartEmailEmulator(supervisor, topology, internalsRoot, dataDirectory);
+        await WaitHttpAsync(topology.GlobalResources.Single(resource =>
+            resource.Kind == DevelopmentResourceKind.EmailEmulator).Port, "/health/ready", supervisor, cancellationToken);
         var paymentEnvironment = ReadPaymentEnvironment();
 
         foreach (var cell in topology.Cells)
@@ -63,6 +66,45 @@ internal static class DevelopmentWorkloadRuntime
             await WaitHttpAsync(dashboard.Port, "/health/ready", supervisor, cancellationToken);
         }
     }
+
+    private static void StartEmailEmulator(
+        DevelopmentProcessSupervisor supervisor,
+        DevelopmentTopology topology,
+        string internalsRoot,
+        string dataDirectory)
+    {
+        var project = Path.Combine(
+            internalsRoot,
+            "src",
+            "Hosting",
+            "TerraScale.LocalEmulators",
+            "TerraScale.LocalEmulators.csproj");
+        RequireFile(project, "local emulator project");
+        var assembly = Path.Combine(
+            DevelopmentArtifactBuilder.DotNetOutputDirectory(
+                dataDirectory,
+                "TerraScale.LocalEmulators"),
+            "TerraScale.LocalEmulators.dll");
+        RequireFile(assembly, "published local emulator assembly");
+        var resource = topology.GlobalResources.Single(candidate =>
+            candidate.Kind == DevelopmentResourceKind.EmailEmulator);
+        supervisor.Start(
+            resource.Name,
+            DevelopmentContainerImages.AspNet,
+            ["dotnet", assembly, "email"],
+            Path.GetDirectoryName(project)!,
+            CreateEmulatorEnvironment(resource));
+    }
+
+    internal static IReadOnlyDictionary<string, string?> CreateEmulatorEnvironment(
+        DevelopmentResourcePlan resource) =>
+        new Dictionary<string, string?>
+        {
+            ["PORT"] = resource.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["ASPNETCORE_HTTP_PORTS"] = string.Empty,
+            ["Logging__LogLevel__Default"] = "Warning",
+            ["Logging__LogLevel__Microsoft.AspNetCore"] = "Warning"
+        };
 
     private static void StartTerraBase(
         DevelopmentProcessSupervisor supervisor,
@@ -207,6 +249,7 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentNatsSecurity? natsSecurity = null,
         IReadOnlyDictionary<string, string?>? paymentEnvironment = null)
     {
+        var email = topology.GlobalResources.Single(candidate => candidate.Kind == DevelopmentResourceKind.EmailEmulator);
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var productNats = cell.OfKind(DevelopmentResourceKind.ProductNats)[0];
         var productIdentity = natsSecurity?.Cell(cell.Cell).Product;
@@ -236,10 +279,12 @@ internal static class DevelopmentWorkloadRuntime
             ["Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks.DefaultHealthCheckService"] = "Critical",
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
-            // No email server runs in the lab: delivery renders and logs instead of
-            // sending, and Auth__AutoVerifyEmail keeps signup/login free of the
-            // email-verification challenge flow.
-            ["Email__Provider"] = "Disabled",
+            ["Email__Cloudflare__AccountId"] = "test-account",
+            ["Email__Cloudflare__ApiToken"] = "test-token",
+            ["Email__Cloudflare__FromAddress"] = "auth@terrascale.local",
+            ["Email__DefaultFromAddress"] = "noreply@terrascale.local",
+            ["Email__DefaultFromName"] = "TerraScale",
+            ["Email__Cloudflare__BaseUrl"] = Http(email.Port, "/client/v4/"),
             ["Routing__CurrentRegion"] = cell.Cell,
             ["TerraScale__Kestrel__Urls"] = $"http://0.0.0.0:{resource.Port}",
             ["TerraScale__ServiceDatabases__Platform"] = "TerraScale.Platform",
