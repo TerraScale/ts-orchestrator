@@ -1,12 +1,24 @@
 # TerraScale orchestration
 
-This context defines the language used to place and operate TerraScale services across geographic locations.
+This context defines the language used to place and operate container workloads across geographic locations.
 
 ## Runtime control
 
 **TerraScale Orchestrator**:
-The product-specific system that deploys and operates TerraScale services without Kubernetes. It manages TerraScale workloads only and does not offer Kubernetes compatibility or general-purpose workload hosting.
-_Avoid_: Kubernetes replacement, private Kubernetes, general-purpose cluster manager
+A general-purpose container orchestration platform that places and operates first-party and tenant workloads across supported infrastructure providers. TerraScale services are its first workloads; Kubernetes API compatibility is not implied.
+_Avoid_: TerraScale-only orchestrator, private Kubernetes, Kubernetes-compatible platform
+
+**First-party workload**:
+A service operated by TerraScale as part of the platform or a TerraScale product.
+_Avoid_: System workload, built-in application
+
+**Tenant workload**:
+A containerized service or job submitted by an internal or customer tenant and isolated by that tenant's identity, policy, and resource boundaries.
+_Avoid_: Customer container, arbitrary process
+
+**Infrastructure provider**:
+A supported supplier of compute, network, and storage capacity. Provider choice must not change the workload's product-level identity or desired behavior.
+_Avoid_: Cloud-specific workload, OCI workload
 
 **Qualified release digest**:
 An immutable artifact identity that has passed the required release checks and may be activated or restored without rebuilding.
