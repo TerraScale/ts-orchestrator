@@ -20,6 +20,22 @@ _Avoid_: Customer container, arbitrary process
 A supported supplier of compute, network, and storage capacity. Provider choice must not change the workload's product-level identity or desired behavior.
 _Avoid_: Cloud-specific workload, OCI workload
 
+**Tenant allocation**:
+One running instance of a tenant workload. It has its own microVM isolation boundary and may disappear without durable local state.
+_Avoid_: Pod, customer VM, container instance
+
+**MicroVM sandbox**:
+The tenant-allocation isolation boundary, with a dedicated guest kernel around the admitted OCI artifact.
+_Avoid_: Hardened container, shared-kernel sandbox
+
+**Stateless service**:
+A continuously addressable tenant workload whose allocations keep no durable local state and can be replaced without data recovery.
+_Avoid_: Persistent service, stateful container
+
+**Managed TerraBase**:
+The platform's first-party durable data service for tenant applications. The platform owns its topology, storage, backup, and recovery lifecycle.
+_Avoid_: Tenant volume, general stateful workload
+
 **Qualified release digest**:
 An immutable artifact identity that has passed the required release checks and may be activated or restored without rebuilding.
 _Avoid_: Latest image, rebuilt release
