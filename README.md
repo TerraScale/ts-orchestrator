@@ -1012,18 +1012,17 @@ mTLS, and rotation/revocation remain separate production qualification gates.
 
 After startup, Orchestrator continuously probes every planned process and its
 role-specific health surface: NATS client ports, TerraBase HTTP and native TCP,
-Authentication/API readiness, regional Dashboard stack views, and emulator
-readiness. A failed probe is projected as degraded immediately; three
+Authentication/API readiness, and regional Dashboard stack views. A failed probe is projected as degraded immediately; three
 consecutive unhealthy observations fail the foreground generation so DevHost
 can re-attest and recover the graph.
 
 Every DevHost state projection is also evaluated by the production typed
-reconciliation engine. The graph is not accepted as ready unless all 22
+reconciliation engine. The graph is not accepted as ready unless all 21
 allowlisted resources have exact generation/digest observations and converge
 in dependency order. Startup progress is written to the resource-state file,
 but the endpoint map used for DevHost cutover is withheld until one complete
 health pass—including each controller's instance-specific authority endpoint—
-and 22/22 typed convergence succeed. This prevents a starting generation from
+and 21/21 typed convergence succeed. This prevents a starting generation from
 being mistaken for a deployable candidate.
 
 ## Closed production role catalog

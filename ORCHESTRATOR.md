@@ -1305,7 +1305,7 @@ Every integration candidate runs all implemented pure suites first, then only th
 
 Mandatory scenario groups are:
 
-1. clean RF1 bootstrap, identity/mTLS/authorization, exact 22-resource inventory/readiness, reduced-replication configuration, and persisted data-directory separation;
+1. clean RF1 bootstrap, identity/mTLS/authorization, exact 21-resource inventory/readiness, reduced-replication configuration, and persisted data-directory separation;
 2. sequential stop/restart/recreate of representative owned resources in every region, with dependent health and reconciliation checked continuously;
 3. regional endpoint loss and restoration, GRU unavailability, reconnect/backlog behavior, regional autonomy, and telemetry degradation policy where implemented;
 4. scheduling, exact-digest rollout/rollback, N/N-1/A-B self-update, process crashes, controller lifecycle, stale command, unauthorized stale-deployment, and generation-replay attacks; controller/NATS leadership belongs to the one-region R3 lane;
