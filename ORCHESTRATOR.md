@@ -482,6 +482,35 @@ Four replicated systems must not be conflated:
 
 Loss, maintenance, capacity, and recovery gates are evaluated independently for all four. “Controller replica,” “NATS server,” “JetStream stream leader/peer,” and “TerraBase member” are never interchangeable terms in code, schema, dashboards, or runbooks.
 
+### Global directory account split
+
+The GRU global authority connection is a GRU-only role. It owns accepted
+`GLOBAL_SPEC` revisions, releases, CI, GitOps, provisioning, and Object Store
+work. It does not create, reconcile, or read `GLOBAL_CELLS`.
+
+Each regional controller may opt into a separate directory publisher/watch
+connection. That identity opens the infrastructure-provisioned `GLOBAL_CELLS`
+bucket, publishes only its own renewable `cell.<cell>` record, and watches the
+projection. It cannot create or update the bucket configuration and it cannot
+select global streams, release/CI/Object Store state, authority leases, or
+stream/consumer management. GRU uses the same directory runtime for its own
+advertisement.
+
+GRU may also configure a distinct directory-service identity. That connection
+serves exactly `ts.orch.v1.global.query.cells` from the standalone directory
+snapshot. It has the read-only service import/export contract and `_R_.>`
+reply permission. It does not use the authority credential or read
+`GLOBAL_CELLS` directly. Directory publisher, directory service, authority,
+and regional control NKey and mTLS identities must all remain distinct.
+
+The legacy `TS_ORCH_GLOBAL_NATS_*` and JSON `globalNats*` fields remain an
+explicit GRU-only authority compatibility alias. Directory publisher/watch
+and service fields use the `TS_ORCH_GLOBAL_DIRECTORY_NATS_*` and
+`TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_*` names. Every complete set requires
+an R3 deployment and an absolute `tls://` endpoint. Missing optional global
+sets leave regional control autonomous. Initial WAN or directory connection
+failure is reported and retried without stopping regional control.
+
 ### NATS feature adoption matrix
 
 | NATS capability | Orchestrator use |
@@ -594,7 +623,7 @@ Core streams/buckets:
 | Name | Location | Replicas | Purpose |
 |---|---|---:|---|
 | `GLOBAL_SPEC` | GRU | 3 | Accepted global revisions and compiled per-cell handoffs |
-| `GLOBAL_CELLS` | GRU | 3 | Renewable regional authority advertisements and the read-only cross-region directory |
+| `GLOBAL_CELLS` | GRU directory runtime | 3 | Renewable regional authority advertisements and the read-only cross-region directory |
 | `GLOBAL_RELEASES` | GRU | 3 | Candidate, release-set, approval, promotion, and rollback journal |
 | `CELL_SPEC` | each cell | 3 | Accepted local desired state and generation history |
 | `CELL_OPERATIONS` | each cell | 3 | Node, allocation, volume, certificate, and topology operation state |

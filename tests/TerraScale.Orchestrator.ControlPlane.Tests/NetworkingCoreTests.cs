@@ -17,6 +17,16 @@ public sealed class NetworkingCoreTests
     }
 
     [Test]
+    public async Task Runtime_type_discriminator_falls_back_to_name_when_full_name_is_unavailable()
+    {
+        var genericParameter = typeof(List<>).GetGenericArguments().Single();
+
+        await Assert.That(genericParameter.FullName).IsNull();
+        await Assert.That(NetworkRouteEvidence.RuntimeTypeDiscriminator(genericParameter))
+            .IsEqualTo(genericParameter.Name);
+    }
+
+    [Test]
     public async Task Route_scope_replay_stale_future_overlap_leak_crossover_and_reflection_fail_closed()
     {
         var s=NetworkingTestData.RouteScope();

@@ -67,7 +67,8 @@ public static class EvidencePolicyEvaluator
         if (subject.Execution == EvidenceExecutionKind.ContentAddressedReuse && !policy.ReuseAllowed) return EvidencePolicyResult.Reject(EvidenceCode.ReuseDenied);
         if (subject.Execution == EvidenceExecutionKind.ContentAddressedReuse)
         {
-            var proof = subject.ReuseProof!; var reuse = EvidenceReuseEvaluator.Evaluate(proof.Expected, proof.Candidate, policy, proof.Change);
+            if (subject.ReuseProof is not { } proof) return EvidencePolicyResult.Reject(EvidenceCode.InvalidInput);
+            var reuse = EvidenceReuseEvaluator.Evaluate(proof.Expected, proof.Candidate, policy, proof.Change);
             if (!reuse.IsReusable) return EvidencePolicyResult.Reject(reuse.Code);
         }
         if (subject.Suites.GroupBy(x => x.Domain).Any(x => x.Count() > 1) || subject.ModelCorpora.GroupBy(x => x.Domain).Any(x => x.Count() > 1)) return EvidencePolicyResult.Reject(EvidenceCode.DuplicateDomain);

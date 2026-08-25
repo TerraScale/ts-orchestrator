@@ -1,4 +1,5 @@
 using NATS.Client.JetStream.Models;
+using System.Text.Json;
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
@@ -129,6 +130,41 @@ public sealed class GlobalNatsTopologyTests
             await File.WriteAllTextAsync(forgejoToken, "0123456789abcdef0123456789abcdef01234567");
             File.SetUnixFileMode(forgejoSecret, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             File.SetUnixFileMode(forgejoToken, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            // Forgejo ingestion now fails closed without a CI executor: the runner identity
+            // AND the OCI pool must both be configured for this composition to start.
+            values["TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"] = globalNkey;
+            var runnerCloudInit = Path.Combine(directory, "runner.cloud-init");
+            var poolPath = Path.Combine(directory, "pool.json");
+            await File.WriteAllTextAsync(runnerCloudInit,
+                "#cloud-config\nruncmd:\n  - [oci, secrets, secret-bundle, get, --secret-id, ocid1.vaultsecret.oc1..runner]\n");
+            await File.WriteAllTextAsync(poolPath, JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
+                compartmentId = "ocid1.compartment.oc1..ci",
+                availabilityDomain = "sa-saopaulo-1-ad-1",
+                faultDomain = "FAULT-DOMAIN-1",
+                subnetId = "ocid1.subnet.oc1.sa-saopaulo-1.ci",
+                networkSecurityGroupIds = new[] { "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci" },
+                imageId = "ocid1.image.oc1.sa-saopaulo-1.runner",
+                generation = 7,
+                idleSeconds = 60,
+                pollSeconds = 1,
+                runners = new[]
+                {
+                    new { runner = "ci-untrusted-1", zone = "untrusted-product", sequence = 10, bootstrapFile = "runner.cloud-init" },
+                },
+            }));
+            values["TS_ORCH_CI_OCI_CONFIG"] = poolPath;
+            using var commandKey = System.Security.Cryptography.ECDsa.Create(
+                System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var commandPrivate = Path.Combine(directory, "command-private.pem");
+            var commandPublic = Path.Combine(directory, "command-public.pem");
+            await File.WriteAllTextAsync(commandPrivate, commandKey.ExportPkcs8PrivateKeyPem());
+            await File.WriteAllTextAsync(commandPublic, commandKey.ExportSubjectPublicKeyInfoPem());
+            File.SetUnixFileMode(commandPrivate, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            values["TS_ORCH_COMMAND_SIGNING_KEY_FILE"] = commandPrivate;
+            values["TS_ORCH_COMMAND_TRUST_KEY_FILES"] = commandPublic;
             values["TS_ORCH_FORGEJO_LISTEN_PREFIX"] = "http://127.0.0.1:8080/hooks/forgejo/";
             values["TS_ORCH_FORGEJO_API_URL"] = "https://git.terrascale.tech/";
             values["TS_ORCH_FORGEJO_REPOSITORY"] = "TerraScale/TerraScale.Orchestrator";
@@ -160,9 +196,10 @@ public sealed class GlobalNatsTopologyTests
     private static Dictionary<string, string> Values(
         string regionalNkey,
         DevelopmentTlsIdentity regionalTls,
-        string globalNkey,
-        DevelopmentTlsIdentity globalTls) => new(StringComparer.Ordinal)
+    string globalNkey,
+    DevelopmentTlsIdentity globalTls) => new(StringComparer.Ordinal)
     {
+        ["TS_ORCH_CELL"] = "gru",
         ["TS_ORCH_REPLICAS"] = "3",
         ["TS_ORCH_NATS_URL"] = "tls://regional-control.internal:4222",
         ["TS_ORCH_NATS_NKEY_FILE"] = regionalNkey,

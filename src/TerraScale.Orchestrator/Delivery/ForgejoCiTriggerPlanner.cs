@@ -18,8 +18,7 @@ public enum ForgejoCiTriggerReason
     Unspecified,
     FeatureValidation,
     DevelopValidation,
-    ReleaseCandidate,
-    QualifiedPromotion,
+    TrustedArtifactBuild,
     MetadataOnly,
     UnsupportedReference,
     PolicyDenied,
@@ -37,8 +36,7 @@ public sealed class ForgejoCiTriggerPlan
         JobKind jobKind = JobKind.Unspecified,
         TrustZone trustZone = TrustZone.Unspecified,
         IEnumerable<RunnerCapability>? capabilities = null,
-        bool mayPublishArtifacts = false,
-        bool requiresQualifiedCandidate = false)
+        bool mayPublishArtifacts = false)
     {
         Envelope = envelope;
         Disposition = disposition;
@@ -47,7 +45,6 @@ public sealed class ForgejoCiTriggerPlan
         TrustZone = trustZone;
         Capabilities = new ReadOnlyCollection<RunnerCapability>((capabilities ?? []).ToArray());
         MayPublishArtifacts = mayPublishArtifacts;
-        RequiresQualifiedCandidate = requiresQualifiedCandidate;
     }
 
     public ForgejoWebhookEnvelope Envelope { get; }
@@ -57,7 +54,6 @@ public sealed class ForgejoCiTriggerPlan
     public TrustZone TrustZone { get; }
     public IReadOnlyList<RunnerCapability> Capabilities { get; }
     public bool MayPublishArtifacts { get; }
-    public bool RequiresQualifiedCandidate { get; }
 
     public JobRequest CreateJobRequest(
         ForgejoResolvedRevision resolved,
@@ -68,15 +64,13 @@ public sealed class ForgejoCiTriggerPlan
         ArgumentNullException.ThrowIfNull(resolved);
         if (Disposition != ForgejoCiTriggerDisposition.Dispatch)
             throw new InvalidOperationException("A non-dispatch Forgejo trigger cannot create CI work.");
-        if (RequiresQualifiedCandidate)
-            throw new InvalidOperationException("A promotion trigger requires exact qualified-candidate resolution before CI dispatch.");
         if (resolved.Repository != Envelope.Repository ||
             !StringComparer.OrdinalIgnoreCase.Equals(resolved.Commit, Envelope.Revision))
             throw new ArgumentException("The resolved source does not match the signed Forgejo revision.", nameof(resolved));
         if (!IsObjectId(resolved.Tree) || resolved.Tree.All(static value => value == '0'))
             throw new ArgumentException("The resolved Git tree identity is invalid.", nameof(resolved));
         if (JobKind == JobKind.TrustedBuild && !resolved.SignatureVerified)
-            throw new InvalidOperationException("A trusted candidate build requires a verified source commit signature.");
+            throw new InvalidOperationException("A trusted artifact build requires a verified source commit signature.");
         if (generation <= 0 || minimumRunnerSequence <= 0 || maximumRunnerSequence < minimumRunnerSequence)
             throw new ArgumentOutOfRangeException(nameof(generation), "Generation and runner evidence bounds must be positive and ordered.");
 
@@ -133,13 +127,9 @@ public static class ForgejoCiTriggerPlanner
                 JobKind.ProductValidation,
                 TrustZone.UntrustedProduct,
                 [RunnerCapability.Compile, RunnerCapability.Test]),
-            "refs/heads/main" => Dispatch(
-                envelope,
-                ForgejoCiTriggerReason.QualifiedPromotion,
-                JobKind.Promotion,
-                TrustZone.ProductionRelease,
-                [RunnerCapability.Promote, RunnerCapability.ProductionDeploy],
-                requiresQualifiedCandidate: true),
+            // Protected-main delivery is native GitOps/direct delivery. It is journaled as a
+            // policy-held event and never becomes an acknowledge-without-work promotion job.
+            "refs/heads/main" => Held(envelope, ForgejoCiTriggerReason.PolicyDenied),
             _ => Ignored(envelope, ForgejoCiTriggerReason.UnsupportedReference),
         };
     }
@@ -159,7 +149,7 @@ public static class ForgejoCiTriggerPlanner
             return !envelope.IsFork && envelope.SourceRef == "develop"
                 ? Dispatch(
                     envelope,
-                    ForgejoCiTriggerReason.ReleaseCandidate,
+                    ForgejoCiTriggerReason.TrustedArtifactBuild,
                     JobKind.TrustedBuild,
                     TrustZone.TrustedBuild,
                     [RunnerCapability.Compile, RunnerCapability.Test, RunnerCapability.Sign],
@@ -174,16 +164,14 @@ public static class ForgejoCiTriggerPlanner
         JobKind kind,
         TrustZone zone,
         IEnumerable<RunnerCapability> capabilities,
-        bool mayPublishArtifacts = false,
-        bool requiresQualifiedCandidate = false) => new(
+        bool mayPublishArtifacts = false) => new(
             envelope,
             ForgejoCiTriggerDisposition.Dispatch,
             reason,
             kind,
             zone,
             capabilities,
-            mayPublishArtifacts,
-            requiresQualifiedCandidate);
+            mayPublishArtifacts);
 
     private static ForgejoCiTriggerPlan Held(ForgejoWebhookEnvelope envelope, ForgejoCiTriggerReason reason) =>
         new(envelope, ForgejoCiTriggerDisposition.Held, reason);

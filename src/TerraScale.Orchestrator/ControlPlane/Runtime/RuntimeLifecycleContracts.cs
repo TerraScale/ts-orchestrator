@@ -197,8 +197,8 @@ public sealed record RuntimeLifecycleObservation(
 
 public interface IRuntimeLifecycleHostExecutor
 {
-    ValueTask<RuntimeLifecycleExecutorResponse> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken);
-    ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken);
+    ValueTask<RuntimeLifecycleExecutorResponse?> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken);
+    ValueTask<RuntimeLifecycleObservation?> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken);
 }
 
 public sealed record RuntimeLifecycleResult(RuntimeLifecycleCheckpoint? Checkpoint, RuntimeLifecycleTerminalStatus Status, RuntimeLifecycleErrorCode ErrorCode)

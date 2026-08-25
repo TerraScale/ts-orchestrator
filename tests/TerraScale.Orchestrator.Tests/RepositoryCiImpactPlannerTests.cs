@@ -19,7 +19,6 @@ public sealed class RepositoryCiImpactPlannerTests
             RepositoryCiProfile.Feature);
 
         await Assert.That(plan.Digest.Length).IsEqualTo(64);
-        await Assert.That(plan.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(plan.Jobs.Count).IsEqualTo(4);
         await Assert.That(plan.Jobs.Any(static job => job.Node.Kind is RepositoryCiNodeKind.Test or RepositoryCiNodeKind.Artifact)).IsFalse();
         var upstreamBuild = plan.Jobs.Single(static job => job.Id == "TerraScale/Upstream:build");
@@ -34,39 +33,22 @@ public sealed class RepositoryCiImpactPlannerTests
     }
 
     [Test]
-    public async Task ReleaseGraphClosesDependenciesAndDependentsThroughCandidate()
+    public async Task BuildGraphClosesDependenciesAndDependentsThroughArtifacts()
     {
         var descriptor = Descriptor("TerraScale/Product");
 
         var plan = RepositoryCiImpactPlanner.Plan(
             [descriptor],
             [new RepositoryCiChange("TerraScale/Product", ["src/product.cs"])],
-            RepositoryCiProfile.Release);
+            RepositoryCiProfile.Build);
 
         await Assert.That(string.Join(',', plan.Jobs.Select(static job => job.Node.Id)))
-            .IsEqualTo("static,build,release-tests,candidate");
-        var candidate = plan.Jobs.Single(static job => job.Node.Id == "candidate");
-        await Assert.That(candidate.DependsOn)
-            .IsEquivalentTo(["TerraScale/Product:build", "TerraScale/Product:release-tests"]);
-        await Assert.That(candidate.Reasons).Contains("depends-on:build");
-        await Assert.That(candidate.Reasons).Contains("depends-on:release-tests");
-    }
-
-    [Test]
-    public async Task CrossRepositoryPlanRetainsCandidatesForTheLongestAffectedPolicy()
-    {
-        var upstream = Descriptor("TerraScale/Upstream", retentionDays: 3);
-        var downstream = Descriptor(
-            "TerraScale/Downstream",
-            [("TerraScale/Upstream", "Public runtime changes require consumer validation")],
-            retentionDays: 21);
-
-        var plan = RepositoryCiImpactPlanner.Plan(
-            [upstream, downstream],
-            [new RepositoryCiChange("TerraScale/Upstream", ["src/core/file.cs"])],
-            RepositoryCiProfile.Release);
-
-        await Assert.That(plan.CandidateRetentionDays).IsEqualTo(21);
+            .IsEqualTo("static,build,test,artifact");
+        var artifact = plan.Jobs.Single(static job => job.Node.Id == "artifact");
+        await Assert.That(artifact.DependsOn)
+            .IsEquivalentTo(["TerraScale/Product:build", "TerraScale/Product:test"]);
+        await Assert.That(artifact.Reasons).Contains("depends-on:build");
+        await Assert.That(artifact.Reasons).Contains("depends-on:test");
     }
 
     [Test]
@@ -121,11 +103,11 @@ public sealed class RepositoryCiImpactPlannerTests
         var change = new RepositoryCiChange("TerraScale/Upstream", ["src/z.cs", "src/a.cs"]);
 
         var first = RepositoryCiImpactPlanner.Plan(
-            [upstream, downstream], [change], RepositoryCiProfile.Release);
+            [upstream, downstream], [change], RepositoryCiProfile.Build);
         var second = RepositoryCiImpactPlanner.Plan(
             [downstream, upstream],
             [new RepositoryCiChange("TerraScale/Upstream", ["src/a.cs", "src/z.cs"])],
-            RepositoryCiProfile.Release);
+            RepositoryCiProfile.Build);
 
         await Assert.That(second.Digest).IsEqualTo(first.Digest);
         await Assert.That(second.Jobs).IsEquivalentTo(first.Jobs);
@@ -133,24 +115,21 @@ public sealed class RepositoryCiImpactPlannerTests
 
     private static RepositoryCiDescriptorV2 Descriptor(
         string repository,
-        (string Repository, string Reason)[]? dependencies = null,
-        int retentionDays = 7)
+        (string Repository, string Reason)[]? dependencies = null)
     {
         dependencies ??= [];
         var dependencyJson = string.Join(',', dependencies.Select(static dependency =>
             $$"""{"repository":"{{dependency.Repository}}","reason":"{{dependency.Reason}}"}"""));
         return RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{repository}}",
-              "candidateRetentionDays":{{retentionDays}},
-              "promotion":"Package",
               "repositoryDependencies":[{{dependencyJson}}],
               "nodes":[
-                {"id":"candidate","kind":"Artifact","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build","release-tests"]},
-                {"id":"release-tests","kind":"Test","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build"]},
-                {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Release"],"paths":["src/"],"dependsOn":["static"]},
-                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Release"],"paths":["src/"]}
+                {"id":"artifact","kind":"Artifact","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build","test"]},
+                {"id":"test","kind":"Test","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build"]},
+                {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Build"],"paths":["src/"],"dependsOn":["static"]},
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]}
               ]
             }
             """));

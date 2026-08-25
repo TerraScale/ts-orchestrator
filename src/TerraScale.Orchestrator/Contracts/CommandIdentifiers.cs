@@ -19,13 +19,13 @@ public readonly record struct CellId
 
     public static bool TryCreate(string? value, out CellId result)
     {
-        if (!CommandIdentifierRules.IsValid(value))
+        if (value is null || !CommandIdentifierRules.IsValid(value))
         {
             result = default;
             return false;
         }
 
-        result = new CellId(value!);
+        result = new CellId(value);
         return true;
     }
 
@@ -44,13 +44,13 @@ public readonly record struct AggregateId
 
     public static bool TryCreate(string? value, out AggregateId result)
     {
-        if (!CommandIdentifierRules.IsValid(value))
+        if (value is null || !CommandIdentifierRules.IsValid(value))
         {
             result = default;
             return false;
         }
 
-        result = new AggregateId(value!);
+        result = new AggregateId(value);
         return true;
     }
 
@@ -69,13 +69,13 @@ public readonly record struct OperationId
 
     public static bool TryCreate(string? value, out OperationId result)
     {
-        if (!CommandIdentifierRules.IsValid(value))
+        if (value is null || !CommandIdentifierRules.IsValid(value))
         {
             result = default;
             return false;
         }
 
-        result = new OperationId(value!);
+        result = new OperationId(value);
         return true;
     }
 
@@ -94,13 +94,13 @@ public readonly record struct IdempotencyKey
 
     public static bool TryCreate(string? value, out IdempotencyKey result)
     {
-        if (!CommandIdentifierRules.IsValid(value))
+        if (value is null || !CommandIdentifierRules.IsValid(value))
         {
             result = default;
             return false;
         }
 
-        result = new IdempotencyKey(value!);
+        result = new IdempotencyKey(value);
         return true;
     }
 

@@ -92,7 +92,7 @@ internal static class DevelopmentWorkloadRuntime
             resource.Name,
             DevelopmentContainerImages.AspNet,
             ["dotnet", assembly, "email"],
-            Path.GetDirectoryName(project)!,
+            DevelopmentGuards.RequireDirectory(project, "Email emulator project"),
             CreateEmulatorEnvironment(resource));
     }
 
@@ -114,7 +114,7 @@ internal static class DevelopmentWorkloadRuntime
     {
         var project = Path.Combine(terraBaseRoot, "src", "TerraBase.Server", "TerraBase.Server.csproj");
         RequireFile(project, "TerraBase server project");
-        var projectDirectory = Path.GetDirectoryName(project)!;
+        var projectDirectory = DevelopmentGuards.RequireDirectory(project, "TerraBase project");
         var resourceData = Path.Combine(dataDirectory, "workloads", resource.Name);
         Directory.CreateDirectory(resourceData);
         var tag = ((char)('A' + resource.Replica - 1)).ToString();
@@ -167,7 +167,7 @@ internal static class DevelopmentWorkloadRuntime
         string dataDirectory)
     {
         RequireFile(project, $"{resource.Kind} project");
-        var directory = Path.GetDirectoryName(project)!;
+        var directory = DevelopmentGuards.RequireDirectory(project, $"{resource.Kind} project");
         var assemblyName = resource.Kind == DevelopmentResourceKind.Platform
             ? "TerraScale.Platform.dll"
             : "TerraScale.Authentication.dll";
@@ -302,10 +302,10 @@ internal static class DevelopmentWorkloadRuntime
         };
         // Private MagicOnion HTTP/2 listener (SecondaryPort). Required by Internals
         // InternalRpc for Authentication and Platform; clear-text is fine same-cell.
-        if (resource.SecondaryPort is > 0)
+        if (resource.SecondaryPort is int secondaryPort && secondaryPort > 0)
         {
             environment["TerraScale__Kestrel__InternalRpcPort"] =
-                resource.SecondaryPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                secondaryPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
         var members = cell.OfKind(DevelopmentResourceKind.TerraBase);
         for (var index = 0; index < members.Count; index++)
@@ -381,23 +381,23 @@ internal static class DevelopmentWorkloadRuntime
         // AuthenticationEndpoint is required at startup (ValidateOnStart); RegionalEndpoints
         // cover queue replication and regional request streaming.
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
-        if (authentication.SecondaryPort is not > 0)
+        if (authentication.SecondaryPort is not int authenticationPort || authenticationPort <= 0)
         {
             throw new InvalidOperationException(
                 $"Authentication resource '{authentication.Name}' is missing SecondaryPort for InternalRpc.");
         }
-        environment["InternalRpc__AuthenticationEndpoint"] = Http(authentication.SecondaryPort.Value);
+        environment["InternalRpc__AuthenticationEndpoint"] = Http(authenticationPort);
         environment["InternalRpc__LocalPublicEndpoint"] = Http(resource.Port);
         foreach (var regionalCell in topology.Cells)
         {
             var regionalPlatform = regionalCell.OfKind(DevelopmentResourceKind.Platform).Single();
-            if (regionalPlatform.SecondaryPort is not > 0)
+            if (regionalPlatform.SecondaryPort is not int regionalPlatformPort || regionalPlatformPort <= 0)
             {
                 throw new InvalidOperationException(
                     $"Platform resource '{regionalPlatform.Name}' is missing SecondaryPort for InternalRpc.");
             }
             environment[$"InternalRpc__RegionalEndpoints__{regionalCell.Cell}"] =
-                Http(regionalPlatform.SecondaryPort.Value);
+                Http(regionalPlatformPort);
         }
         environment["TerraScale__Queue__Provider"] = "Nats";
         environment["TerraScale__Queue__NatsUrl"] = $"nats://127.0.0.1:{productNats.Port}";

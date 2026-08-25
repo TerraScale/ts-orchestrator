@@ -44,7 +44,7 @@ internal static class DevelopmentArtifactBuilder
             await RunAsync(
                 "dotnet",
                 DotNetBuildArguments(project, dataDirectory),
-                Path.GetDirectoryName(project)!,
+                DevelopmentGuards.RequireDirectory(project, "Development project"),
                 cancellationToken);
 
             if (kind == DevelopmentResourceKind.TerraBase)

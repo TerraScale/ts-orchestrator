@@ -42,6 +42,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         ContainerizedNatsCluster containerCluster,
         LocalNatsServerLease.Handle lease,
         IReadOnlyList<int> clientPorts,
+        string globalAuthorityAccountPublicKey,
+        string globalAuthorityAccountJwt,
+        string globalDirectoryAccountPublicKey,
+        string globalDirectoryAccountJwt,
+        string regionalControlGruAccountPublicKey,
+        string regionalControlGruAccountJwt,
+        string regionalControlSfoAccountPublicKey,
+        string regionalControlSfoAccountJwt,
         NatsControlR3L0cIdentity controller,
         NatsControlR3L0cIdentity controllerTwo,
         NatsControlR3L0cIdentity infrastructure,
@@ -49,6 +57,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity cellDirectoryPublisher,
         NatsControlR3L0cIdentity cellDirectoryReader,
         NatsControlR3L0cIdentity cellDirectoryService,
+        NatsControlR3L0cIdentity authority,
         NatsControlR3L0cIdentity operatorRead,
         NatsControlR3L0cIdentity wrongAccount)
     {
@@ -58,6 +67,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         this.processOutput = processOutput;
         this.containerCluster = containerCluster;
         this.lease = lease;
+        GlobalAuthorityAccountPublicKey = globalAuthorityAccountPublicKey;
+        GlobalAuthorityAccountJwt = globalAuthorityAccountJwt;
+        GlobalDirectoryAccountPublicKey = globalDirectoryAccountPublicKey;
+        GlobalDirectoryAccountJwt = globalDirectoryAccountJwt;
+        RegionalControlGruAccountPublicKey = regionalControlGruAccountPublicKey;
+        RegionalControlGruAccountJwt = regionalControlGruAccountJwt;
+        RegionalControlSfoAccountPublicKey = regionalControlSfoAccountPublicKey;
+        RegionalControlSfoAccountJwt = regionalControlSfoAccountJwt;
         Controller = controller;
         ControllerTwo = controllerTwo;
         Infrastructure = infrastructure;
@@ -65,6 +82,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CellDirectoryPublisher = cellDirectoryPublisher;
         CellDirectoryReader = cellDirectoryReader;
         CellDirectoryService = cellDirectoryService;
+        Authority = authority;
         Operator = operatorRead;
         WrongAccount = wrongAccount;
         Topology = new NatsTopology(Cell, MemberCount, "controller-1");
@@ -73,6 +91,22 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     }
 
     public NatsTopology Topology { get; }
+
+    internal string GlobalAuthorityAccountPublicKey { get; }
+
+    internal string GlobalAuthorityAccountJwt { get; }
+
+    internal string GlobalDirectoryAccountPublicKey { get; }
+
+    internal string GlobalDirectoryAccountJwt { get; }
+
+    internal string RegionalControlGruAccountPublicKey { get; }
+
+    internal string RegionalControlGruAccountJwt { get; }
+
+    internal string RegionalControlSfoAccountPublicKey { get; }
+
+    internal string RegionalControlSfoAccountJwt { get; }
 
     public NatsControlR3L0cIdentity Controller { get; }
 
@@ -87,6 +121,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     public NatsControlR3L0cIdentity CellDirectoryReader { get; }
 
     public NatsControlR3L0cIdentity CellDirectoryService { get; }
+
+    public NatsControlR3L0cIdentity Authority { get; }
 
     public NatsControlR3L0cIdentity Operator { get; }
 
@@ -148,8 +184,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                         routePorts,
                         pki.ServerCertificates[member],
                         identities.OperatorJwtFile,
-                        identities.AccountPublicKey,
-                        identities.AccountJwt,
+                        identities.GlobalAuthorityAccountPublicKey,
+                        identities.GlobalAuthorityAccountJwt,
+                        identities.GlobalDirectoryAccountPublicKey,
+                        identities.GlobalDirectoryAccountJwt,
+                        identities.RegionalControlGruAccountPublicKey,
+                        identities.RegionalControlGruAccountJwt,
+                        identities.RegionalControlSfoAccountPublicKey,
+                        identities.RegionalControlSfoAccountJwt,
                         identities.SystemAccountPublicKey,
                         identities.SystemAccountJwt,
                         identities.WrongAccountPublicKey,
@@ -175,6 +217,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 containerCluster,
                 lease,
                 clientPorts,
+                identities.GlobalAuthorityAccountPublicKey,
+                identities.GlobalAuthorityAccountJwt,
+                identities.GlobalDirectoryAccountPublicKey,
+                identities.GlobalDirectoryAccountJwt,
+                identities.RegionalControlGruAccountPublicKey,
+                identities.RegionalControlGruAccountJwt,
+                identities.RegionalControlSfoAccountPublicKey,
+                identities.RegionalControlSfoAccountJwt,
                 identities.Controller,
                 identities.ControllerTwo,
                 identities.Infrastructure,
@@ -182,6 +232,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.CellDirectoryPublisher,
                 identities.CellDirectoryReader,
                 identities.CellDirectoryService,
+                identities.Authority,
                 identities.Operator,
                 identities.WrongAccount);
 
@@ -605,8 +656,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         int[] routePorts,
         NatsControlR3L0cCertificate server,
         string operatorJwtFile,
-        string accountPublicKey,
-        string accountJwt,
+        string globalAuthorityAccountPublicKey,
+        string globalAuthorityAccountJwt,
+        string globalDirectoryAccountPublicKey,
+        string globalDirectoryAccountJwt,
+        string regionalControlGruAccountPublicKey,
+        string regionalControlGruAccountJwt,
+        string regionalControlSfoAccountPublicKey,
+        string regionalControlSfoAccountJwt,
         string systemAccountPublicKey,
         string systemAccountJwt,
         string wrongAccountPublicKey,
@@ -626,7 +683,10 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             operator: "{{operatorJwtFile}}"
             resolver: MEMORY
             resolver_preload: {
-              {{accountPublicKey}}: "{{accountJwt}}"
+              {{globalAuthorityAccountPublicKey}}: "{{globalAuthorityAccountJwt}}"
+              {{globalDirectoryAccountPublicKey}}: "{{globalDirectoryAccountJwt}}"
+              {{regionalControlGruAccountPublicKey}}: "{{regionalControlGruAccountJwt}}"
+              {{regionalControlSfoAccountPublicKey}}: "{{regionalControlSfoAccountJwt}}"
               {{systemAccountPublicKey}}: "{{systemAccountJwt}}"
               {{wrongAccountPublicKey}}: "{{wrongAccountJwt}}"
             }
@@ -666,11 +726,17 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CreatePrivateDirectory(credentials);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var operatorSeed = NKeys.CreateOperatorSeed();
-        var accountSeed = NKeys.CreateAccountSeed();
+        var globalAuthorityAccountSeed = NKeys.CreateAccountSeed();
+        var globalDirectoryAccountSeed = NKeys.CreateAccountSeed();
+        var regionalControlGruAccountSeed = NKeys.CreateAccountSeed();
+        var regionalControlSfoAccountSeed = NKeys.CreateAccountSeed();
         var systemAccountSeed = NKeys.CreateAccountSeed();
         var wrongAccountSeed = NKeys.CreateAccountSeed();
         var operatorPublicKey = NKeys.PublicKeyFromSeed(operatorSeed);
-        var accountPublicKey = NKeys.PublicKeyFromSeed(accountSeed);
+        var globalAuthorityAccountPublicKey = NKeys.PublicKeyFromSeed(globalAuthorityAccountSeed);
+        var globalDirectoryAccountPublicKey = NKeys.PublicKeyFromSeed(globalDirectoryAccountSeed);
+        var regionalControlGruAccountPublicKey = NKeys.PublicKeyFromSeed(regionalControlGruAccountSeed);
+        var regionalControlSfoAccountPublicKey = NKeys.PublicKeyFromSeed(regionalControlSfoAccountSeed);
         var systemAccountPublicKey = NKeys.PublicKeyFromSeed(systemAccountSeed);
         var wrongAccountPublicKey = NKeys.PublicKeyFromSeed(wrongAccountSeed);
         var operatorJwt = EncodeJwt(
@@ -689,10 +755,48 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 ["sub"] = operatorPublicKey,
                 ["type"] = "operator",
             });
-        var accountJwt = EncodeJwt(
+        var globalAuthorityAccountJwt = EncodeJwt(
             operatorSeed,
             operatorPublicKey,
-            AccountClaims(operatorPublicKey, accountPublicKey, now, "control"));
+            AccountClaims(
+                operatorPublicKey,
+                globalAuthorityAccountPublicKey,
+                now,
+                GlobalNatsAccountNames.GlobalAuthority,
+                imports: Array.Empty<Dictionary<string, object?>>(),
+                exports: Array.Empty<Dictionary<string, object?>>()));
+        var globalDirectoryAccountJwt = EncodeJwt(
+            operatorSeed,
+            operatorPublicKey,
+            AccountClaims(
+                operatorPublicKey,
+                globalDirectoryAccountPublicKey,
+                now,
+                GlobalNatsAccountNames.GlobalDirectory,
+                imports: Array.Empty<Dictionary<string, object?>>(),
+                exports: [ServiceExport(GlobalNatsTopology.CellDirectorySubject)]));
+        var regionalControlGruAccountJwt = EncodeJwt(
+            operatorSeed,
+            operatorPublicKey,
+            AccountClaims(
+                operatorPublicKey,
+                regionalControlGruAccountPublicKey,
+                now,
+                GlobalNatsAccountNames.RegionalControl(Cell),
+                imports: Array.Empty<Dictionary<string, object?>>(),
+                exports: Array.Empty<Dictionary<string, object?>>()));
+        var regionalControlSfoAccountJwt = EncodeJwt(
+            operatorSeed,
+            operatorPublicKey,
+            AccountClaims(
+                operatorPublicKey,
+                regionalControlSfoAccountPublicKey,
+                now,
+                GlobalNatsAccountNames.RegionalControl("sfo"),
+                imports: [ServiceImport(
+                    GlobalNatsTopology.CellDirectorySubject,
+                    globalDirectoryAccountPublicKey)],
+                exports: Array.Empty<Dictionary<string, object?>>()));
         var systemAccountJwt = EncodeJwt(
             operatorSeed,
             operatorPublicKey,
@@ -706,8 +810,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var controller = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlGruAccountSeed,
+            regionalControlGruAccountPublicKey,
             "controller-1",
             Role.Controller,
             1,
@@ -715,8 +819,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var controllerTwo = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlGruAccountSeed,
+            regionalControlGruAccountPublicKey,
             "controller-2",
             Role.Controller,
             2,
@@ -724,8 +828,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var infrastructure = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlGruAccountSeed,
+            regionalControlGruAccountPublicKey,
             "infrastructure",
             Role.Infrastructure,
             0,
@@ -733,8 +837,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var journalWriter = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlGruAccountSeed,
+            regionalControlGruAccountPublicKey,
             "journal-writer",
             Role.JournalWriter,
             0,
@@ -742,8 +846,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var cellDirectoryPublisher = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            globalDirectoryAccountSeed,
+            globalDirectoryAccountPublicKey,
             "cell-directory-publisher-sfo",
             Role.CellDirectoryPublisher,
             0,
@@ -751,8 +855,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var cellDirectoryReader = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlSfoAccountSeed,
+            regionalControlSfoAccountPublicKey,
             "cell-directory-reader-sfo",
             Role.CellDirectoryReader,
             0,
@@ -760,8 +864,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var cellDirectoryService = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            globalDirectoryAccountSeed,
+            globalDirectoryAccountPublicKey,
             "cell-directory-service-gru",
             Role.CellDirectoryService,
             0,
@@ -769,10 +873,19 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var operatorRead = CreateUser(
             credentials,
             pki,
-            accountSeed,
-            accountPublicKey,
+            regionalControlGruAccountSeed,
+            regionalControlGruAccountPublicKey,
             "operator-read",
             Role.Operator,
+            0,
+            now);
+        var authority = CreateUser(
+            credentials,
+            pki,
+            globalAuthorityAccountSeed,
+            globalAuthorityAccountPublicKey,
+            "global-authority",
+            Role.GlobalAuthority,
             0,
             now);
         var wrongAccount = CreateUser(
@@ -785,12 +898,18 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             0,
             now);
         return new(
-            accountPublicKey,
-            wrongAccountPublicKey,
             operatorJwtFile,
-            accountJwt,
+            globalAuthorityAccountPublicKey,
+            globalAuthorityAccountJwt,
+            globalDirectoryAccountPublicKey,
+            globalDirectoryAccountJwt,
+            regionalControlGruAccountPublicKey,
+            regionalControlGruAccountJwt,
+            regionalControlSfoAccountPublicKey,
+            regionalControlSfoAccountJwt,
             systemAccountPublicKey,
             systemAccountJwt,
+            wrongAccountPublicKey,
             wrongAccountJwt,
             controller,
             controllerTwo,
@@ -799,6 +918,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             cellDirectoryPublisher,
             cellDirectoryReader,
             cellDirectoryService,
+            authority,
             operatorRead,
             wrongAccount);
     }
@@ -826,7 +946,16 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             $"credentials/{name}.creds",
             $"-----BEGIN NATS USER JWT-----\n{jwt}\n------END NATS USER JWT------\n\n" +
             $"-----BEGIN USER NKEY SEED-----\n{seed}\n------END USER NKEY SEED------\n");
-        return new(name, publicKey, credentialsFile, certificate.CertificateFile, certificate.KeyFile, certificate.SpiffeId);
+        var nkeyFile = WritePrivateFile(root, $"credentials/{name}.nk", $"{seed}\n{publicKey}\n");
+        return new(
+            name,
+            publicKey,
+            issuerPublicKey,
+            credentialsFile,
+            nkeyFile,
+            certificate.CertificateFile,
+            certificate.KeyFile,
+            certificate.SpiffeId);
     }
 
     private static Dictionary<string, object?> AccountClaims(
@@ -834,7 +963,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         string subject,
         long issuedAt,
         string name,
-        bool enableJetStream = true)
+        bool enableJetStream = true,
+        IReadOnlyList<Dictionary<string, object?>>? imports = null,
+        IReadOnlyList<Dictionary<string, object?>>? exports = null)
     {
         var limits = new Dictionary<string, object?>
         {
@@ -854,21 +985,41 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             limits["mem_storage"] = -1;
             limits["streams"] = -1;
         }
+        var nats = new Dictionary<string, object?>
+        {
+            ["limits"] = limits,
+            ["type"] = "account",
+            ["version"] = 2,
+        };
+        if (imports is not null) nats["imports"] = imports;
+        if (exports is not null) nats["exports"] = exports;
         return new()
         {
             ["iat"] = issuedAt,
             ["iss"] = issuer,
             ["jti"] = Jti(subject, issuedAt, name),
             ["name"] = name,
-            ["nats"] = new Dictionary<string, object?>
-            {
-                ["limits"] = limits,
-                ["type"] = "account",
-                ["version"] = 2,
-            },
+            ["nats"] = nats,
             ["sub"] = subject,
         };
     }
+
+    private static Dictionary<string, object?> ServiceExport(string subject) => new()
+    {
+        ["subject"] = subject,
+        ["type"] = "service",
+        ["response_type"] = "Singleton",
+    };
+
+    private static Dictionary<string, object?> ServiceImport(
+        string subject,
+        string sourceAccount) => new()
+        {
+            ["account"] = sourceAccount,
+            ["subject"] = subject,
+            ["to"] = subject,
+            ["type"] = "service",
+        };
 
     private static Dictionary<string, object?> UserClaims(
         string issuer,
@@ -1021,6 +1172,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryReader)),
             Role.CellDirectoryService => From(
                 GlobalNatsPermissions.Create("gru", GlobalNatsRole.CellDirectoryService)),
+            Role.GlobalAuthority => From(
+                GlobalNatsPermissions.Create("gru", GlobalNatsRole.GlobalAuthority)),
             Role.Operator => new(
                 [$"{root}.query.status", $"{root}.query.members"],
                 ["_INBOX.>"]),
@@ -1122,7 +1275,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                  {
                      "controller-1", "controller-2", "infrastructure", "journal-writer",
                      "cell-directory-publisher-sfo", "cell-directory-reader-sfo",
-                     "cell-directory-service-gru", "operator-read", "wrong-account"
+                     "cell-directory-service-gru", "global-authority", "operator-read", "wrong-account"
                  })
         {
             clients[name] = CreateLeaf(
@@ -1290,14 +1443,18 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         internal NatsControlR3L0cIdentity(
             string name,
             string publicKey,
+            string accountPublicKey,
             string credentialsFile,
+            string nkeyFile,
             string certificateFile,
             string keyFile,
             string spiffeId)
         {
             Name = name;
             PublicKey = publicKey;
+            AccountPublicKey = accountPublicKey;
             CredentialsFile = credentialsFile;
+            NKeyFile = nkeyFile;
             CertificateFile = certificateFile;
             KeyFile = keyFile;
             SpiffeId = spiffeId;
@@ -1305,7 +1462,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
         internal string Name { get; }
         internal string PublicKey { get; }
+        internal string AccountPublicKey { get; }
         internal string CredentialsFile { get; }
+        internal string NKeyFile { get; }
         internal string CertificateFile { get; }
         internal string KeyFile { get; }
         internal string SpiffeId { get; }
@@ -1326,12 +1485,18 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         IReadOnlyDictionary<string, NatsControlR3L0cCertificate> ClientCertificates);
 
     private sealed record FixtureIdentities(
-        string AccountPublicKey,
-        string WrongAccountPublicKey,
         string OperatorJwtFile,
-        string AccountJwt,
+        string GlobalAuthorityAccountPublicKey,
+        string GlobalAuthorityAccountJwt,
+        string GlobalDirectoryAccountPublicKey,
+        string GlobalDirectoryAccountJwt,
+        string RegionalControlGruAccountPublicKey,
+        string RegionalControlGruAccountJwt,
+        string RegionalControlSfoAccountPublicKey,
+        string RegionalControlSfoAccountJwt,
         string SystemAccountPublicKey,
         string SystemAccountJwt,
+        string WrongAccountPublicKey,
         string WrongAccountJwt,
         NatsControlR3L0cIdentity Controller,
         NatsControlR3L0cIdentity ControllerTwo,
@@ -1340,6 +1505,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity CellDirectoryPublisher,
         NatsControlR3L0cIdentity CellDirectoryReader,
         NatsControlR3L0cIdentity CellDirectoryService,
+        NatsControlR3L0cIdentity Authority,
         NatsControlR3L0cIdentity Operator,
         NatsControlR3L0cIdentity WrongAccount);
 
@@ -1355,6 +1521,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CellDirectoryPublisher,
         CellDirectoryReader,
         CellDirectoryService,
+        GlobalAuthority,
         Operator,
         WrongAccount,
     }

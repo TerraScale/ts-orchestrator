@@ -45,7 +45,9 @@ public readonly record struct SnapshotAuthorityId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out SnapshotAuthorityId result)
     {
-        result = SnapshotIdentityRules.IsValid(value, maximumLength) ? new SnapshotAuthorityId(value!) : default;
+        result = value is { } candidate && SnapshotIdentityRules.IsValid(candidate, maximumLength)
+            ? new SnapshotAuthorityId(candidate)
+            : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -58,7 +60,9 @@ public readonly record struct SnapshotStreamId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out SnapshotStreamId result)
     {
-        result = SnapshotIdentityRules.IsValid(value, maximumLength) ? new SnapshotStreamId(value!) : default;
+        result = value is { } candidate && SnapshotIdentityRules.IsValid(candidate, maximumLength)
+            ? new SnapshotStreamId(candidate)
+            : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -71,7 +75,9 @@ public readonly record struct SnapshotId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out SnapshotId result)
     {
-        result = SnapshotIdentityRules.IsValid(value, maximumLength) ? new SnapshotId(value!) : default;
+        result = value is { } candidate && SnapshotIdentityRules.IsValid(candidate, maximumLength)
+            ? new SnapshotId(candidate)
+            : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -84,7 +90,9 @@ public readonly record struct SnapshotSchemaId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out SnapshotSchemaId result)
     {
-        result = SnapshotIdentityRules.IsValid(value, maximumLength) ? new SnapshotSchemaId(value!) : default;
+        result = value is { } candidate && SnapshotIdentityRules.IsValid(candidate, maximumLength)
+            ? new SnapshotSchemaId(candidate)
+            : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -97,7 +105,9 @@ public readonly record struct SnapshotSigningKeyId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out SnapshotSigningKeyId result)
     {
-        result = SnapshotIdentityRules.IsValid(value, maximumLength) ? new SnapshotSigningKeyId(value!) : default;
+        result = value is { } candidate && SnapshotIdentityRules.IsValid(candidate, maximumLength)
+            ? new SnapshotSigningKeyId(candidate)
+            : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;

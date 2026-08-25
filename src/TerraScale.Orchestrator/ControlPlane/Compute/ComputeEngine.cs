@@ -20,11 +20,11 @@ public static class ComputeEngine
     private static ComputeDecision DecideScaleOutCore(ScaleOutRequest request)
     {
         var operation = request.Binding?.Operation;
-        if (!ValidBinding(request.Binding, request.MaximumIdentityLength) || !Defined(request.State) ||
-            request.EvaluationSequence <= 0 || !ValidDemand(request.Demand, request.Binding!, request.MaximumIdentityLength) ||
-            !ValidPlan(request.Plan, request.Binding!, request.MaximumIdentityLength))
+        if (request.Binding is not { } binding || !ValidBinding(binding, request.MaximumIdentityLength) ||
+            !Defined(request.State) || request.EvaluationSequence <= 0 ||
+            !ValidDemand(request.Demand, binding, request.MaximumIdentityLength) ||
+            !ValidPlan(request.Plan, binding, request.MaximumIdentityLength))
             return Held(ComputeErrorCode.InvalidInput, operation);
-        var binding = request.Binding!;
         if (request.Demand.ObservationSequence > request.EvaluationSequence)
             return Held(ComputeErrorCode.EvidenceStale, operation);
         var demandFresh = request.Demand.FreshThroughSequence >= request.EvaluationSequence;
@@ -49,10 +49,12 @@ public static class ComputeEngine
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.State >= ScaleOutState.Authorized)
         {
-            var authorizationError = ValidateAuthorization(request.Authorization, binding, request.MaximumIdentityLength);
+            if (request.Authorization is not { } authorization)
+                return Held(ComputeErrorCode.MissingProof, operation);
+            var authorizationError = ValidateAuthorization(authorization, binding, request.MaximumIdentityLength);
             if (authorizationError != ComputeErrorCode.Unspecified) return Held(authorizationError, operation);
-            if (request.Authorization!.AuthorizedNodes != request.Plan.DesiredNodes ||
-                request.Authorization.Resources != request.Plan.Resources)
+            if (authorization.AuthorizedNodes != request.Plan.DesiredNodes ||
+                authorization.Resources != request.Plan.Resources)
                 return Held(ComputeErrorCode.EvidenceMismatch, operation);
         }
         if (request.State == ScaleOutState.Authorized && request.Progress is not null)
@@ -62,10 +64,11 @@ public static class ComputeEngine
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.State >= ScaleOutState.InstanceCreated)
         {
-            if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength) ||
-                request.CreateEvidence!.Status != ProviderCreateStatus.Created || request.CreateEvidence.Resource is null ||
-                !ValidProgress(request.Progress, binding, request.MaximumIdentityLength) ||
-                request.Progress!.Resource != request.CreateEvidence.Resource || request.Progress.Node is null)
+            if (request.CreateEvidence is not { } createEvidence ||
+                !ValidCreate(createEvidence, binding, request.MaximumIdentityLength) ||
+                createEvidence.Status != ProviderCreateStatus.Created || createEvidence.Resource is not { } resource ||
+                request.Progress is not { } progress || !ValidProgress(progress, binding, request.MaximumIdentityLength) ||
+                progress.Resource != resource || progress.Node is null)
                 return Held(ComputeErrorCode.MissingProof, operation);
         }
 
@@ -75,39 +78,57 @@ public static class ComputeEngine
                 return One(new PersistScalePlanIntent(binding, request.Plan.Resources, request.Plan.DesiredNodes,
                     request.Plan.PlanIdentity), ComputeTraceCode.PlanRequired);
             case ScaleOutState.PlanPersisted:
-                return One(new AuthorizeCapacityIntent(binding, request.PersistedPlan!), ComputeTraceCode.AuthorizationReady);
+                if (request.PersistedPlan is not { } persistedPlanForAuthorization)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new AuthorizeCapacityIntent(binding, persistedPlanForAuthorization), ComputeTraceCode.AuthorizationReady);
             case ScaleOutState.Authorized:
-                if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength) ||
-                    request.CreateEvidence!.Status != ProviderCreateStatus.ProvenAbsent)
+                if (request.CreateEvidence is not { } createEvidenceForAuthorization ||
+                    !ValidCreate(createEvidenceForAuthorization, binding, request.MaximumIdentityLength) ||
+                    createEvidenceForAuthorization.Status != ProviderCreateStatus.ProvenAbsent ||
+                    request.PersistedPlan is not { } persistedPlanForCreate ||
+                    request.Authorization is not { } authorizationForCreate)
                     return Held(ComputeErrorCode.MissingProof, operation);
-                return One(new RequestCreateIntent(binding, request.CreateEvidence.CreateKey, request.PersistedPlan!,
-                    request.Authorization!, request.CreateEvidence), ComputeTraceCode.CreateReady);
+                return One(new RequestCreateIntent(binding, createEvidenceForAuthorization.CreateKey, persistedPlanForCreate,
+                    authorizationForCreate, createEvidenceForAuthorization), ComputeTraceCode.CreateReady);
             case ScaleOutState.RequestRecorded:
-                if (!ValidCreate(request.CreateEvidence, binding, request.MaximumIdentityLength))
+                if (request.CreateEvidence is not { } createEvidenceForRecorded ||
+                    !ValidCreate(createEvidenceForRecorded, binding, request.MaximumIdentityLength))
                     return Held(ComputeErrorCode.MissingProof, operation);
-                if (request.CreateEvidence!.Status == ProviderCreateStatus.OutcomeUnknown)
-                    return One(new ObserveCreateIntent(binding, request.CreateEvidence.CreateKey), ComputeTraceCode.ObservationRequired);
-                if (request.CreateEvidence.Status != ProviderCreateStatus.Created || request.CreateEvidence.Resource is null)
+                if (createEvidenceForRecorded.Status == ProviderCreateStatus.OutcomeUnknown)
+                    return One(new ObserveCreateIntent(binding, createEvidenceForRecorded.CreateKey), ComputeTraceCode.ObservationRequired);
+                if (createEvidenceForRecorded.Status != ProviderCreateStatus.Created ||
+                    createEvidenceForRecorded.Resource is not { } resourceForRecorded)
                     return Held(ComputeErrorCode.MissingProof, operation);
-                return DecideCreated(request, request.CreateEvidence.Resource);
+                return DecideCreated(request, resourceForRecorded);
             case ScaleOutState.InstanceCreated:
-                return DecideCreated(request, request.CreateEvidence!.Resource!);
-            case ScaleOutState.Enrolled:
-                if (!ValidProgress(request.Progress, binding, request.MaximumIdentityLength) ||
-                    !ValidOutPrefix(ScaleOutState.Enrolled, request.Progress!) || request.Progress!.Resource is null ||
-                    request.Progress.Node is null)
+                if (request.CreateEvidence is not { } createEvidenceForInstance ||
+                    createEvidenceForInstance.Resource is not { } resourceForInstance)
                     return Held(ComputeErrorCode.MissingProof, operation);
-                return One(new ReadyNodeIntent(binding, request.Progress.Resource!, request.Progress.Node!,
-                    request.Progress.BootstrapProof!, request.Progress.DiskProof!, request.Authorization!.PlacementProof),
+                return DecideCreated(request, resourceForInstance);
+            case ScaleOutState.Enrolled:
+                if (request.Progress is not { } progressForEnrolled ||
+                    !ValidProgress(progressForEnrolled, binding, request.MaximumIdentityLength) ||
+                    !ValidOutPrefix(ScaleOutState.Enrolled, progressForEnrolled) ||
+                    progressForEnrolled.Resource is not { } resourceForEnrolled ||
+                    progressForEnrolled.Node is not { } nodeForEnrolled ||
+                    progressForEnrolled.BootstrapProof is not { } bootstrapProofForEnrolled ||
+                    progressForEnrolled.DiskProof is not { } diskProofForEnrolled ||
+                    request.Authorization is not { } authorizationForEnrolled ||
+                    authorizationForEnrolled.PlacementProof is not { } placementProofForEnrolled)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new ReadyNodeIntent(binding, resourceForEnrolled, nodeForEnrolled,
+                    bootstrapProofForEnrolled, diskProofForEnrolled, placementProofForEnrolled),
                     ComputeTraceCode.ReadinessReady);
             case ScaleOutState.Ready:
-                if (!ValidProgress(request.Progress, binding, request.MaximumIdentityLength) ||
-                    !ValidOutPrefix(ScaleOutState.Ready, request.Progress!))
+                if (request.Progress is not { } progressForReady ||
+                    !ValidProgress(progressForReady, binding, request.MaximumIdentityLength) ||
+                    !ValidOutPrefix(ScaleOutState.Ready, progressForReady))
                     return Held(ComputeErrorCode.PlacementDenied, operation);
                 return Completed();
             case ScaleOutState.Completed:
-                if (!ValidProgress(request.Progress, binding, request.MaximumIdentityLength) ||
-                    !ValidOutPrefix(ScaleOutState.Completed, request.Progress!))
+                if (request.Progress is not { } progressForCompleted ||
+                    !ValidProgress(progressForCompleted, binding, request.MaximumIdentityLength) ||
+                    !ValidOutPrefix(ScaleOutState.Completed, progressForCompleted))
                     return Held(ComputeErrorCode.MissingProof, operation);
                 return Completed();
             default:
@@ -119,13 +140,13 @@ public static class ComputeEngine
     {
         ArgumentNullException.ThrowIfNull(request);
         var operation = request.Binding?.Compute?.Operation;
-        if (!ValidScaleInBinding(request.Binding, request.MaximumIdentityLength) || !Defined(request.State) ||
-            request.EvaluationSequence <= 0 || !ValidScaleInAuthorization(request.Authorization, request.Binding!,
-                request.MaximumIdentityLength) || !ValidScaleInProgress(request.Progress, request.Binding!,
-                request.MaximumIdentityLength))
+        if (request.Binding is not { } binding || !ValidScaleInBinding(binding, request.MaximumIdentityLength) ||
+            !Defined(request.State) || request.EvaluationSequence <= 0 ||
+            request.Authorization is not { } authorization ||
+            !ValidScaleInAuthorization(authorization, binding, request.MaximumIdentityLength) ||
+            request.Progress is not { } progress ||
+            !ValidScaleInProgress(progress, binding, request.MaximumIdentityLength))
             return Held(ComputeErrorCode.InvalidInput, operation);
-        var binding = request.Binding!;
-        var authorization = request.Authorization;
         if (authorization.ObservationSequence > request.EvaluationSequence ||
             authorization.FreshThroughSequence < request.EvaluationSequence)
             return Held(ComputeErrorCode.EvidenceStale, operation);
@@ -147,7 +168,6 @@ public static class ComputeEngine
             (stateful && (authorization.StatefulDisposition != StatefulDisposition.Approved || !authorization.StatefulApproved)))
             return Held(ComputeErrorCode.StatefulVeto, operation);
 
-        var progress = request.Progress!;
         if ((stateful && (progress.VolumeDisposition != VolumeDisposition.RetainedStateful || progress.StatefulOwner is null)) ||
             (!stateful && (progress.VolumeDisposition != VolumeDisposition.DetachedEphemeral || progress.StatefulOwner is not null)))
             return Held(ComputeErrorCode.StatefulVeto, operation);
@@ -161,7 +181,9 @@ public static class ComputeEngine
             case ScaleInState.CandidateSelected:
                 return One(new CordonNodeIntent(binding), ComputeTraceCode.CordonReady);
             case ScaleInState.Cordoned:
-                return One(new DrainNodeIntent(binding, progress.CordonProof!), ComputeTraceCode.DrainReady);
+                if (progress.CordonProof is not { } cordonProof)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new DrainNodeIntent(binding, cordonProof), ComputeTraceCode.DrainReady);
             case ScaleInState.Drained:
                 return One(new DeregisterNodeIntent(binding, authorization.StatefulProof), ComputeTraceCode.DeregistrationReady);
             case ScaleInState.Deregistered:
@@ -172,12 +194,18 @@ public static class ComputeEngine
                 return One(new DetachVolumeIntent(binding, progress.VolumeDisposition, progress.StatefulOwner),
                     ComputeTraceCode.VolumeReady);
             case ScaleInState.StorageHandled:
-                return One(new RevokeNodeIntent(binding, progress.VolumeProof!), ComputeTraceCode.RevocationReady);
+                if (progress.VolumeProof is not { } volumeProof)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new RevokeNodeIntent(binding, volumeProof), ComputeTraceCode.RevocationReady);
             case ScaleInState.Revoked:
-                return One(new TerminateNodeIntent(binding, progress.RevocationProof!, authorization, progress),
+                if (progress.RevocationProof is not { } revocationProof)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new TerminateNodeIntent(binding, revocationProof, authorization, progress),
                     ComputeTraceCode.TerminationReady);
             case ScaleInState.Terminated:
-                return One(new AuditOrphansIntent(binding, progress.TerminationProof!, progress.BootAbsenceProof!),
+                if (progress.TerminationProof is not { } terminationProof || progress.BootAbsenceProof is not { } bootAbsenceProof)
+                    return Held(ComputeErrorCode.MissingProof, operation);
+                return One(new AuditOrphansIntent(binding, terminationProof, bootAbsenceProof),
                     ComputeTraceCode.AuditReady);
             case ScaleInState.Audited:
                 return Completed();
@@ -219,11 +247,11 @@ public static class ComputeEngine
             return Held(ComputeErrorCode.EvidenceMismatch, operation);
         if (request.DisconnectedReplacementRequested)
         {
-            if (request.ReplacementTarget is null)
+            if (request.ReplacementTarget is not { } target)
                 return Held(ComputeErrorCode.MissingProof, operation);
-            if (!ValidReplacementTarget(request.ReplacementTarget, request.Required, request.MaximumIdentityLength))
+            if (!ValidReplacementTarget(target, request.Required, request.MaximumIdentityLength))
                 return Held(ComputeErrorCode.InvalidInput, operation);
-            return One(new AuthorizeSurvivalIntent(request.Required, request.Authority, request.ReplacementTarget!),
+            return One(new AuthorizeSurvivalIntent(request.Required, request.Authority, target),
                 ComputeTraceCode.AuthorizationReady);
         }
         return One(new ReadySurvivalIntent(request.Required), ComputeTraceCode.ReadinessReady);
@@ -231,11 +259,11 @@ public static class ComputeEngine
 
     private static ComputeDecision DecideCreated(ScaleOutRequest request, ProviderResourceId resource)
     {
-        if (!ValidProgress(request.Progress, request.Binding, request.MaximumIdentityLength) ||
-            !ValidOutPrefix(ScaleOutState.InstanceCreated, request.Progress!) ||
-            request.Progress!.Resource != resource || request.Progress.Node is null)
+        if (request.Progress is not { } progress || !ValidProgress(progress, request.Binding, request.MaximumIdentityLength) ||
+            !ValidOutPrefix(ScaleOutState.InstanceCreated, progress) || progress.Resource is not { } progressResource ||
+            progressResource != resource || progress.Node is not { } node || progress.IdentityProof is not { } identityProof)
             return Held(ComputeErrorCode.MissingProof, request.Binding.Operation);
-        return One(new EnrollNodeIntent(request.Binding, resource, request.Progress.Node, request.Progress.IdentityProof!),
+        return One(new EnrollNodeIntent(request.Binding, resource, node, identityProof),
             ComputeTraceCode.EnrollmentReady);
     }
 

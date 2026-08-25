@@ -71,7 +71,7 @@ internal sealed class SystemdHostRuntimeAdapter(
 {
     public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
-        RequireCanonicalSystemdPlan(plan);
+        var systemd = RequireCanonicalSystemdPlan(plan);
         var observation = await ObserveAsync(plan, cancellationToken);
         if (observation.State is SystemdAllocationState.Running or SystemdAllocationState.Starting)
         {
@@ -81,7 +81,7 @@ internal sealed class SystemdHostRuntimeAdapter(
         {
             var start = await commandRunner.RunAsync(
                 "/usr/bin/systemctl",
-                ManagerArguments("start", plan.Systemd!.UnitName),
+                ManagerArguments("start", systemd.UnitName),
                 cancellationToken);
             if (start.ExitCode != 0)
             {
@@ -91,7 +91,6 @@ internal sealed class SystemdHostRuntimeAdapter(
             return;
         }
 
-        var systemd = plan.Systemd!;
         var arguments = new List<string>();
         if (userManager)
         {
@@ -122,10 +121,10 @@ internal sealed class SystemdHostRuntimeAdapter(
         HostRuntimePlan plan,
         CancellationToken cancellationToken)
     {
-        RequireCanonicalSystemdPlan(plan);
+        var systemd = RequireCanonicalSystemdPlan(plan);
         var arguments = ManagerArguments(
             "show",
-            plan.Systemd!.UnitName,
+            systemd.UnitName,
             "--property=LoadState",
             "--property=ActiveState",
             "--property=SubState",
@@ -139,7 +138,7 @@ internal sealed class SystemdHostRuntimeAdapter(
             .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
         if (values.GetValueOrDefault("LoadState") == "not-found")
         {
-            return new(plan.Systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
+            return new(systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
         }
         if (result.ExitCode != 0)
         {
@@ -150,7 +149,7 @@ internal sealed class SystemdHostRuntimeAdapter(
             values.GetValueOrDefault("Description") != PlanDescription(plan))
         {
             throw new InvalidOperationException(
-                $"Existing systemd allocation '{plan.Systemd.UnitName}' is not owned by the canonical plan.");
+                $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
         }
         var state = values.GetValueOrDefault("ActiveState") switch
         {
@@ -166,7 +165,7 @@ internal sealed class SystemdHostRuntimeAdapter(
             ? parsedPid
             : null;
         return new(
-            plan.Systemd.UnitName,
+            systemd.UnitName,
             state,
             pid,
             values.GetValueOrDefault("Result") ?? "unknown");
@@ -174,7 +173,7 @@ internal sealed class SystemdHostRuntimeAdapter(
 
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
-        RequireCanonicalSystemdPlan(plan);
+        var systemd = RequireCanonicalSystemdPlan(plan);
         var observation = await ObserveAsync(plan, cancellationToken);
         if (observation.State is SystemdAllocationState.Absent or SystemdAllocationState.Stopped or
             SystemdAllocationState.Failed or SystemdAllocationState.Stopping)
@@ -183,7 +182,7 @@ internal sealed class SystemdHostRuntimeAdapter(
         }
         var result = await commandRunner.RunAsync(
             "/usr/bin/systemctl",
-            ManagerArguments("stop", plan.Systemd!.UnitName),
+            ManagerArguments("stop", systemd.UnitName),
             cancellationToken);
         if (result.ExitCode != 0)
         {
@@ -199,7 +198,7 @@ internal sealed class SystemdHostRuntimeAdapter(
         ? new[] { "--user" }.Concat(arguments).ToArray()
         : arguments;
 
-    private static void RequireCanonicalSystemdPlan(HostRuntimePlan plan)
+    private static SystemdExecutionPlan RequireCanonicalSystemdPlan(HostRuntimePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (plan.Driver != RuntimeDriver.NativeSystemd || plan.Systemd is null || plan.Oci is not null)
@@ -213,13 +212,19 @@ internal sealed class SystemdHostRuntimeAdapter(
             plan.ArtifactDigest,
             plan.Architecture,
             plan.Resources);
-        if (plan.Systemd.UnitName != expected.Systemd!.UnitName ||
-            plan.Systemd.Executable != expected.Systemd.Executable ||
-            !plan.Systemd.Arguments.SequenceEqual(expected.Systemd.Arguments) ||
-            !plan.Systemd.Properties.SequenceEqual(expected.Systemd.Properties) ||
+        if (expected.Systemd is not { } expectedSystemd)
+        {
+            throw new InvalidOperationException("The systemd execution plan could not be reconstructed from the admitted role.");
+        }
+        var systemd = plan.Systemd;
+        if (systemd.UnitName != expectedSystemd.UnitName ||
+            systemd.Executable != expectedSystemd.Executable ||
+            !systemd.Arguments.SequenceEqual(expectedSystemd.Arguments) ||
+            !systemd.Properties.SequenceEqual(expectedSystemd.Properties) ||
             plan.Resources != expected.Resources)
         {
             throw new InvalidOperationException("The systemd execution plan is not canonical for the admitted role.");
         }
+        return systemd;
     }
 }

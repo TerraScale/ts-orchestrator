@@ -189,14 +189,12 @@ public sealed class ForgejoRepositoryCiSourceGraphTests
                 : $$"""{"repository":"{{dependency}}","reason":"runtime compatibility"}""";
             var content = Encoding.UTF8.GetBytes($$"""
                 {
-                  "apiVersion":"terrascale.ci/v2",
+                  "apiVersion":"terrascale.ci/v3",
                   "repository":"{{repository}}",
-                  "candidateRetentionDays":7,
-                  "promotion":"Package",
                   "repositoryDependencies":[{{dependencyJson}}],
                   "nodes":[
-                    {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Release"],"paths":["src/"]},
-                    {"id":"candidate","kind":"Artifact","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build"]}
+                    {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Build"],"paths":["src/"]},
+                    {"id":"artifact","kind":"Artifact","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build"]}
                   ]
                 }
                 """);

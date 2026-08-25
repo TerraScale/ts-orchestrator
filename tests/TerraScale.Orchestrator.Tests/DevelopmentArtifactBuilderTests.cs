@@ -19,7 +19,7 @@ public sealed class DevelopmentArtifactBuilderTests
             "npm-cli.js");
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(npmCli)!);
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(npmCli, "npm CLI"));
             await File.WriteAllTextAsync(npmCli, "// npm");
 
             var command = DevelopmentArtifactBuilder.ResolveNpmCommand("/missing", root);
@@ -53,7 +53,7 @@ public sealed class DevelopmentArtifactBuilderTests
         var serverOutput = DevelopmentArtifactBuilder.DotNetOutputDirectory(data, "TerraBase.Server");
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(studioArchive)!);
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(studioArchive, "Studio archive"));
             Directory.CreateDirectory(serverOutput);
             await File.WriteAllTextAsync(studioArchive, "studio");
 

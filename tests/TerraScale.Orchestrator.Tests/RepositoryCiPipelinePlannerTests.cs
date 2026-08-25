@@ -29,14 +29,13 @@ public sealed class RepositoryCiPipelinePlannerTests
 
         await Assert.That(pipeline.Profile).IsEqualTo(RepositoryCiProfile.Feature);
         await Assert.That(pipeline.Digest.Length).IsEqualTo(64);
-        await Assert.That(pipeline.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(pipeline.Jobs.Count).IsEqualTo(4);
         await Assert.That(pipeline.Jobs.All(static job => job.Request.Kind == JobKind.ProductValidation)).IsTrue();
         await Assert.That(pipeline.Jobs.All(static job => job.Request.AllowedZones
             .SequenceEqual([TrustZone.UntrustedProduct]))).IsTrue();
         await Assert.That(pipeline.Jobs.SelectMany(static job => job.Request.RequiredCapabilities)
             .All(static capability => capability is RunnerCapability.Compile or RunnerCapability.Test)).IsTrue();
-        await Assert.That(pipeline.Jobs.All(static job => !job.MayPublishCandidateArtifact)).IsTrue();
+        await Assert.That(pipeline.Jobs.All(static job => !job.MayPublishArtifact)).IsTrue();
         foreach (var job in pipeline.Jobs)
         {
             var decision = DeliveryEngine.DecideJob(
@@ -49,10 +48,10 @@ public sealed class RepositoryCiPipelinePlannerTests
     }
 
     [Test]
-    public async Task ReleaseDagSignsCandidateWithoutProductionCapabilities()
+    public async Task BuildDagSignsArtifactsWithoutProductionCapabilities()
     {
         var trigger = ForgejoCiTriggerPlanner.Plan(PullRequest("develop", "main"));
-        var impact = Impact(RepositoryCiProfile.Release);
+        var impact = Impact(RepositoryCiProfile.Build);
 
         var pipeline = RepositoryCiPipelinePlanner.Plan(trigger, impact, Sources(), 8, 10, 100);
 
@@ -66,7 +65,7 @@ public sealed class RepositoryCiPipelinePlannerTests
             .DoesNotContain(RunnerCapability.ProductionDeploy);
         var artifacts = pipeline.Jobs.Where(static job => job.Plan.Node.Kind == RepositoryCiNodeKind.Artifact).ToArray();
         await Assert.That(artifacts.Length).IsEqualTo(2);
-        await Assert.That(artifacts.All(static job => job.MayPublishCandidateArtifact)).IsTrue();
+        await Assert.That(artifacts.All(static job => job.MayPublishArtifact)).IsTrue();
         await Assert.That(artifacts.All(static job => job.Request.RequiredCapabilities
             .SequenceEqual([RunnerCapability.Compile, RunnerCapability.Sign]))).IsTrue();
         foreach (var job in pipeline.Jobs)
@@ -119,7 +118,7 @@ public sealed class RepositoryCiPipelinePlannerTests
     public async Task MismatchedUnsignedOrIncompleteSourceSetsFailClosed()
     {
         var releaseTrigger = ForgejoCiTriggerPlanner.Plan(PullRequest("develop", "main"));
-        var releaseImpact = Impact(RepositoryCiProfile.Release);
+        var releaseImpact = Impact(RepositoryCiProfile.Build);
         await Assert.That(() => RepositoryCiPipelinePlanner.Plan(
                 releaseTrigger, releaseImpact, Sources(signatureVerified: false), 8, 10, 100))
             .Throws<InvalidOperationException>();
@@ -157,7 +156,7 @@ public sealed class RepositoryCiPipelinePlannerTests
             new string('a', 64)));
 
         await Assert.That(() => RepositoryCiPipelinePlanner.Plan(
-                trigger, Impact(RepositoryCiProfile.Release), Sources(), 9, 10, 100))
+                trigger, Impact(RepositoryCiProfile.Build), Sources(), 9, 10, 100))
             .Throws<InvalidOperationException>();
     }
 
@@ -200,16 +199,14 @@ public sealed class RepositoryCiPipelinePlannerTests
             : $$"""{"repository":"{{dependency}}","reason":"Upstream changes require consumer validation"}""";
         return RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{repository}}",
-              "candidateRetentionDays":7,
-              "promotion":"Package",
               "repositoryDependencies":[{{dependencies}}],
               "nodes":[
-                {"id":"candidate","kind":"Artifact","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build","release-tests"]},
-                {"id":"release-tests","kind":"Test","resourceWeight":"Heavy","profiles":["Release"],"dependsOn":["build"]},
-                {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Release"],"paths":["src/"],"dependsOn":["static"]},
-                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Release"],"paths":["src/"]}
+                {"id":"artifact","kind":"Artifact","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build","test"]},
+                {"id":"test","kind":"Test","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build"]},
+                {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Build"],"paths":["src/"],"dependsOn":["static"]},
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]}
               ]
             }
             """));

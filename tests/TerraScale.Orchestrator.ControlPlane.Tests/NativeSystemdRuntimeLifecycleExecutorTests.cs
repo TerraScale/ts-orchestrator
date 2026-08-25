@@ -18,7 +18,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
             var admission = new Admission();
             var executor = new NativeSystemdRuntimeLifecycleExecutor(new Factory(admission));
 
-            var response = await executor.ExecuteAsync(Execution(action), CancellationToken.None);
+            var response = RequireResponse(await executor.ExecuteAsync(Execution(action), CancellationToken.None));
 
             await Assert.That(response.Status).IsEqualTo(RuntimeLifecycleExecutorStatus.Completed);
             await Assert.That(admission.ConvergeCalls).IsEqualTo(action == LifecycleAction.Converge ? 1 : 0);
@@ -47,7 +47,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
             var executor = new NativeSystemdRuntimeLifecycleExecutor(new Factory(admission));
             var request = ObservationRequest(action, previousWatermark: 41);
 
-            var observed = await executor.ObserveAsync(request, CancellationToken.None);
+            var observed = RequireObservation(await executor.ObserveAsync(request, CancellationToken.None));
 
             await Assert.That(observed.Status).IsEqualTo(expected);
             await Assert.That(observed.OperationKey).IsEqualTo(request.OperationKey);
@@ -67,7 +67,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         var rawResult = "host-private-result";
         var admission = new Admission { ObserveException = new InvalidOperationException($"{rawUnit}:{rawResult}:4312") };
         var executor = new NativeSystemdRuntimeLifecycleExecutor(new Factory(admission));
-        var observed = await executor.ObserveAsync(ObservationRequest(LifecycleAction.Stop), CancellationToken.None);
+        var observed = RequireObservation(await executor.ObserveAsync(ObservationRequest(LifecycleAction.Stop), CancellationToken.None));
 
         await Assert.That(observed.Status).IsEqualTo(RuntimeLifecycleObservationStatus.Unknown);
         await Assert.That(observed.ToString()).DoesNotContain(rawUnit);
@@ -75,8 +75,8 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         await Assert.That(observed.ToString()).DoesNotContain("4312");
 
         var admissionFailure = new Factory(new Admission()) { AdmissionException = new InvalidOperationException($"{rawUnit}:{rawResult}") };
-        var admissionObserved = await new NativeSystemdRuntimeLifecycleExecutor(admissionFailure)
-            .ObserveAsync(ObservationRequest(LifecycleAction.Stop), CancellationToken.None);
+        var admissionObserved = RequireObservation(await new NativeSystemdRuntimeLifecycleExecutor(admissionFailure)
+            .ObserveAsync(ObservationRequest(LifecycleAction.Stop), CancellationToken.None));
         await Assert.That(admissionObserved.Status).IsEqualTo(RuntimeLifecycleObservationStatus.Unknown);
         await Assert.That(admissionObserved.ToString()).DoesNotContain(rawUnit);
         await Assert.That(admissionObserved.ToString()).DoesNotContain(rawResult);
@@ -144,14 +144,16 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         var executor = new NativeSystemdRuntimeLifecycleExecutor(new Factory(admission));
         var request = ObservationRequest(LifecycleAction.Converge);
 
-        var first = await executor.ObserveAsync(request, CancellationToken.None);
-        var second = await executor.ObserveAsync(request, CancellationToken.None);
+        var first = RequireObservation(await executor.ObserveAsync(request, CancellationToken.None));
+        var second = RequireObservation(await executor.ObserveAsync(request, CancellationToken.None));
 
         await Assert.That(first.Fingerprint).IsEqualTo(second.Fingerprint);
         await Assert.That(first.ToString()).DoesNotContain(rawUnit);
         await Assert.That(first.ToString()).DoesNotContain(rawResult);
         await Assert.That(first.ToString()).DoesNotContain("9123");
-        await Assert.That(first.ToString()).DoesNotContain(request.Plan.Systemd!.Executable);
+        var executable = request.Plan.Systemd?.Executable
+            ?? throw new InvalidOperationException("The test plan must contain a native systemd execution plan.");
+        await Assert.That(first.ToString()).DoesNotContain(executable);
         await Assert.That(first.ToString()).DoesNotContain("TS_ORCH_CONFIG");
 
         var checkpoint = RuntimeLifecycleCheckpoint.Proposed(OperationRequest()) with
@@ -162,7 +164,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         await Assert.That(checkpoint.ToString()).DoesNotContain(rawUnit);
         await Assert.That(checkpoint.ToString()).DoesNotContain(rawResult);
         await Assert.That(checkpoint.ToString()).DoesNotContain("9123");
-        await Assert.That(checkpoint.ToString()).DoesNotContain(request.Plan.Systemd.Executable);
+        await Assert.That(checkpoint.ToString()).DoesNotContain(executable);
     }
 
     private static RuntimeLifecycleExecutionRequest Execution(LifecycleAction action)
@@ -194,6 +196,12 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         new("terrascale-terrabase-a.service", state, 9123, "private-result");
 
     private static string Digest(string input) => RuntimeLifecycleFingerprint.Hash(input);
+
+    private static RuntimeLifecycleExecutorResponse RequireResponse(RuntimeLifecycleExecutorResponse? response) =>
+        response ?? throw new InvalidOperationException("The executor must return a response for this test.");
+
+    private static RuntimeLifecycleObservation RequireObservation(RuntimeLifecycleObservation? observation) =>
+        observation ?? throw new InvalidOperationException("The executor must return an observation for this test.");
 
     private sealed class Factory(Admission admission) : INativeSystemdRuntimeLifecycleAdmissionFactory
     {

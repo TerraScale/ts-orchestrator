@@ -181,6 +181,33 @@ public sealed class ForgejoWebhookJournalTests
             "push").Envelope!;
     }
 
+    [Test]
+    public async Task WebhookDedupeHistoryIsBounded()
+    {
+        var ledger = new TestLedger();
+        var journal = new ForgejoWebhookJournal(
+            ledger, new TestPublisher(), webhookHistoryCap: 2, pruneInterval: 1);
+
+        foreach (var seed in new[] { 1, 2, 3 })
+            await journal.AcceptAsync(
+                Envelope(
+                    $"refs/heads/feature/bounded-{seed}",
+                    $"00000000-0000-0000-0000-{seed:d12}"), default);
+
+        var deliveries = await CountAsync(ledger, "delivery.>");
+        var payloads = await CountAsync(ledger, "payload.>");
+
+        await Assert.That(deliveries).IsEqualTo(2);
+        await Assert.That(payloads).IsEqualTo(2);
+    }
+
+    private static async Task<int> CountAsync(TestLedger ledger, string filter)
+    {
+        var count = 0;
+        await foreach (var key in ledger.ListKeysAsync(filter, default)) count++;
+        return count;
+    }
+
     internal sealed class TestLedger(
         int failOnMutation = 0,
         Func<string, CancellationToken, Task>? beforeUpdate = null) :
@@ -237,7 +264,7 @@ public sealed class ForgejoWebhookJournalTests
             {
                 FailIfRequested();
                 if (entries.ContainsKey(key)) throw Conflict();
-                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
+                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision, key);
                 entries.Add(key, entry);
                 return Task.FromResult(entry);
             }
@@ -255,7 +282,7 @@ public sealed class ForgejoWebhookJournalTests
             {
                 FailIfRequested();
                 if (!entries.TryGetValue(key, out var current) || current.Revision != expectedRevision) throw Conflict();
-                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision);
+                var entry = new ForgejoDeliveryLedgerEntry(value, ++revision, key);
                 entries[key] = entry;
                 return entry;
             }

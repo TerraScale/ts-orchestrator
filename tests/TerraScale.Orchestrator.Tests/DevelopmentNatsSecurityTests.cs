@@ -134,7 +134,9 @@ public sealed class DevelopmentNatsSecurityTests
                 operatorTls.CertificateFile,
                 operatorTls.KeyFile);
             await Assert.That(certificate.HasPrivateKey).IsTrue();
-            await Assert.That(certificate.Extensions["2.5.29.17"]!.Format(false))
+            var subjectAlternativeName = certificate.Extensions["2.5.29.17"]
+                ?? throw new InvalidOperationException("The operator certificate has no SAN extension.");
+            await Assert.That(subjectAlternativeName.Format(false))
                 .Contains(operatorTls.SpiffeId);
             // Continuous labs remint near expiry; fresh leaves must still outlast a
             // multi-day generation and report no remint need at mint time.
@@ -148,9 +150,11 @@ public sealed class DevelopmentNatsSecurityTests
                 .IsFalse();
             var earliest = DevelopmentPki.TryGetEarliestLeafNotAfter(directory);
             await Assert.That(earliest).IsNotNull();
+            var earliestNotAfter = earliest
+                ?? throw new InvalidOperationException("The PKI fixture has no leaf expiration.");
             await Assert.That(DevelopmentPki.LeavesNeedRemint(
                     directory,
-                    earliest!.Value - DevelopmentPki.LeafRenewalLeadTime + TimeSpan.FromSeconds(1)))
+                    earliestNotAfter - DevelopmentPki.LeafRenewalLeadTime + TimeSpan.FromSeconds(1)))
                 .IsTrue();
             await Assert.That(DevelopmentPki.RemintLeavesIfNeeded(
                     topology,
@@ -177,7 +181,7 @@ public sealed class DevelopmentNatsSecurityTests
             // Intermediate must strictly outlive the leaf so chain creation cannot
             // fail when wall-clock advances between issuer and leaf issuance.
             var intermediatePemPath = Path.Combine(
-                Path.GetDirectoryName(serverTls.Client.CaFile)!,
+                DevelopmentGuards.RequireDirectory(serverTls.Client.CaFile, "Server CA file"),
                 "intermediate.pem");
             using var intermediateCertificate = X509Certificate2.CreateFromPem(
                 File.ReadAllText(intermediatePemPath));
@@ -356,7 +360,7 @@ public sealed class DevelopmentNatsSecurityTests
                 .IsGreaterThan(DevelopmentPki.LeafRenewalLeadTime);
             // Intermediate remains part of the remint survey surface.
             var intermediatePath = Path.Combine(
-                Path.GetDirectoryName(stableCaPath)!,
+                DevelopmentGuards.RequireDirectory(stableCaPath, "Stable CA file"),
                 "intermediate.pem");
             using var intermediate = X509Certificate2.CreateFromPem(File.ReadAllText(intermediatePath));
             await Assert.That(intermediate.NotAfter.ToUniversalTime())
@@ -8010,11 +8014,13 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
                     topology, security, controlNatsName))
                 .IsFalse();
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, controlNatsName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, controlNatsName),
+                    controlNatsName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/operator/operator-read");
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, platformName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, platformName),
+                    platformName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
             await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
                     topology, security, "email-emulator"))
@@ -8307,8 +8313,9 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
                     topology, security, controllerName))
                 .IsFalse();
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, controllerName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, controllerName),
+                    controllerName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/controller/{controllerName}");
             var reconnectLeaves = DevelopmentLab.EnumerateReconnectTlsIdentities(
                     topology, security, controlNatsName)
@@ -8337,8 +8344,9 @@ public sealed class DevelopmentNatsSecurityTests
             // operator-read remains valid — the probe path alone would not force remint.
             await Assert.That(DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile))
                 .IsNull();
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, controlNatsName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, controlNatsName),
+                    controlNatsName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/operator/operator-read");
             // Control NATS must still see the expired controller client leaf.
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
@@ -9459,11 +9467,13 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.ResourceHasInvalidTlsLeaf(
                     topology, security, platformName))
                 .IsFalse();
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, platformName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, platformName),
+                    platformName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
-            await Assert.That(DevelopmentLab.TryGetProbeTlsIdentity(
-                    topology, security, productNatsName)!.SpiffeId)
+            await Assert.That(DevelopmentGuards.RequireTlsIdentity(
+                    DevelopmentLab.TryGetProbeTlsIdentity(topology, security, productNatsName),
+                    productNatsName).SpiffeId)
                 .IsEqualTo($"spiffe://terrascale.tech/cell/{cell}/workload/{platformName}");
             var reconnectLeaves = DevelopmentLab.EnumerateReconnectTlsIdentities(
                     topology, security, productNatsName)
@@ -9496,9 +9506,11 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.AnyProbeTlsLeafInvalid(topology, security)).IsTrue();
             var platformRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(platformTls);
             await Assert.That(platformRefusal).IsNotNull();
-            await Assert.That(platformRefusal!.Healthy).IsFalse();
-            await Assert.That(platformRefusal.Detail).Contains("certificate has expired");
-            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformRefusal.Detail))
+            var platformHealth = platformRefusal ?? throw new InvalidOperationException(
+                "The platform refusal result is unavailable.");
+            await Assert.That(platformHealth.Healthy).IsFalse();
+            await Assert.That(platformHealth.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformHealth.Detail))
                 .IsTrue();
             // Other cells' product NATS stay clean when only this cell's platform is expired.
             foreach (var other in otherCells)
@@ -9619,8 +9631,10 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingDetail)).IsTrue();
             var missingRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(operatorTls);
             await Assert.That(missingRefusal).IsNotNull();
-            await Assert.That(missingRefusal!.Healthy).IsFalse();
-            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingRefusal.Detail)).IsTrue();
+            var missingHealth = missingRefusal ?? throw new InvalidOperationException(
+                "The missing-leaf refusal result is unavailable.");
+            await Assert.That(missingHealth.Healthy).IsFalse();
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(missingHealth.Detail)).IsTrue();
 
             // An on-disk leaf that is already past NotAfter must annotate explicitly even when
             // the outer NATS exception text is generic — and pre-connect refusal must surface
@@ -9640,7 +9654,9 @@ public sealed class DevelopmentNatsSecurityTests
             }
             var expiredStatus = DevelopmentHealthProbe.DescribeLeafValidity(operatorTls.CertificateFile);
             await Assert.That(expiredStatus).IsNotNull();
-            await Assert.That(expiredStatus!).Contains("certificate has expired");
+            var expiredCertificateStatus = expiredStatus ?? throw new InvalidOperationException(
+                "The expired certificate status is unavailable.");
+            await Assert.That(expiredCertificateStatus).Contains("certificate has expired");
             var expiredDetail = DevelopmentHealthProbe.FormatProbeFailure(
                 new NATS.Client.Core.NatsException(
                     "can not start to connect nats server: nats://127.0.0.1:19000"),
@@ -9648,10 +9664,12 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredDetail)).IsTrue();
             var expiredRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(operatorTls);
             await Assert.That(expiredRefusal).IsNotNull();
-            await Assert.That(expiredRefusal!.Healthy).IsFalse();
-            await Assert.That(expiredRefusal.Detail).Contains("Health probe failed:");
-            await Assert.That(expiredRefusal.Detail).Contains("certificate has expired");
-            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredRefusal.Detail)).IsTrue();
+            var expiredHealth = expiredRefusal ?? throw new InvalidOperationException(
+                "The expired-leaf refusal result is unavailable.");
+            await Assert.That(expiredHealth.Healthy).IsFalse();
+            await Assert.That(expiredHealth.Detail).Contains("Health probe failed:");
+            await Assert.That(expiredHealth.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(expiredHealth.Detail)).IsTrue();
 
             // Product-plane twin: an expired gru-platform leaf must refuse the same way so
             // platform health (not only product-NATS ConnectAsync) can force-remint and stop
@@ -9660,9 +9678,11 @@ public sealed class DevelopmentNatsSecurityTests
             File.WriteAllText(platformTls.CertificateFile, File.ReadAllText(operatorTls.CertificateFile));
             var platformRefusal = DevelopmentHealthProbe.TryInvalidLeafProbeFailure(platformTls);
             await Assert.That(platformRefusal).IsNotNull();
-            await Assert.That(platformRefusal!.Healthy).IsFalse();
-            await Assert.That(platformRefusal.Detail).Contains("certificate has expired");
-            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformRefusal.Detail)).IsTrue();
+            var platformHealth = platformRefusal ?? throw new InvalidOperationException(
+                "The platform refusal result is unavailable.");
+            await Assert.That(platformHealth.Healthy).IsFalse();
+            await Assert.That(platformHealth.Detail).Contains("certificate has expired");
+            await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(platformHealth.Detail)).IsTrue();
         }
         finally
         {

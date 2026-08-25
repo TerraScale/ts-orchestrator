@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace TerraScale.Orchestrator.ControlPlane.Evidence;
@@ -7,6 +8,20 @@ internal static class EvidenceRules
 {
     internal static bool ValidId(string? value, int maximumLength) => maximumLength > 0 && value is { Length: > 0 } && value.Length <= maximumLength
         && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or '/' or ':');
+
+    internal static bool TryCreateIdentity<T>(string? value, int maximumLength, Func<string, T> factory,
+        [NotNullWhen(true)] out T? identity)
+        where T : class
+    {
+        if (value is null || !ValidId(value, maximumLength))
+        {
+            identity = null;
+            return false;
+        }
+
+        identity = factory(value);
+        return true;
+    }
 }
 
 public abstract record EvidenceIdentity
@@ -16,28 +31,123 @@ public abstract record EvidenceIdentity
     public override string ToString() => "<evidence-identity>";
 }
 
-public sealed record EvidenceTreeId : EvidenceIdentity { private EvidenceTreeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceTreeId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceDependencyLockId : EvidenceIdentity { private EvidenceDependencyLockId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceDependencyLockId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceSchemaId : EvidenceIdentity { private EvidenceSchemaId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceSchemaId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceTestBinaryId : EvidenceIdentity { private EvidenceTestBinaryId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceTestBinaryId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceArtifactId : EvidenceIdentity { private EvidenceArtifactId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceArtifactId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceSuiteId : EvidenceIdentity { private EvidenceSuiteId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceSuiteId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceTraceId : EvidenceIdentity { private EvidenceTraceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceTraceId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceFuzzTargetId : EvidenceIdentity { private EvidenceFuzzTargetId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceFuzzTargetId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceCorpusId : EvidenceIdentity { private EvidenceCorpusId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceCorpusId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceL0CId : EvidenceIdentity { private EvidenceL0CId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceL0CId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceApproverId : EvidenceIdentity { private EvidenceApproverId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceApproverId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceSigningProfileId : EvidenceIdentity { private EvidenceSigningProfileId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceSigningProfileId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceSigningIdentityId : EvidenceIdentity { private EvidenceSigningIdentityId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceSigningIdentityId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceSignatureId : EvidenceIdentity { private EvidenceSignatureId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceSignatureId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceManifestId : EvidenceIdentity { private EvidenceManifestId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceManifestId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record EvidenceExclusionId : EvidenceIdentity { private EvidenceExclusionId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EvidenceExclusionId? x) { x = EvidenceRules.ValidId(v, m) ? new(v!) : null; return x is not null; } }
+public sealed record EvidenceTreeId : EvidenceIdentity
+{
+    private EvidenceTreeId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceTreeId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceDependencyLockId : EvidenceIdentity
+{
+    private EvidenceDependencyLockId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceDependencyLockId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceSchemaId : EvidenceIdentity
+{
+    private EvidenceSchemaId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceSchemaId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceTestBinaryId : EvidenceIdentity
+{
+    private EvidenceTestBinaryId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceTestBinaryId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceArtifactId : EvidenceIdentity
+{
+    private EvidenceArtifactId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceArtifactId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceSuiteId : EvidenceIdentity
+{
+    private EvidenceSuiteId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceSuiteId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceTraceId : EvidenceIdentity
+{
+    private EvidenceTraceId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceTraceId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceFuzzTargetId : EvidenceIdentity
+{
+    private EvidenceFuzzTargetId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceFuzzTargetId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceCorpusId : EvidenceIdentity
+{
+    private EvidenceCorpusId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceCorpusId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceL0CId : EvidenceIdentity
+{
+    private EvidenceL0CId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceL0CId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceApproverId : EvidenceIdentity
+{
+    private EvidenceApproverId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceApproverId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceSigningProfileId : EvidenceIdentity
+{
+    private EvidenceSigningProfileId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceSigningProfileId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceSigningIdentityId : EvidenceIdentity
+{
+    private EvidenceSigningIdentityId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceSigningIdentityId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceSignatureId : EvidenceIdentity
+{
+    private EvidenceSignatureId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceSignatureId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceManifestId : EvidenceIdentity
+{
+    private EvidenceManifestId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceManifestId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
+
+public sealed record EvidenceExclusionId : EvidenceIdentity
+{
+    private EvidenceExclusionId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, [NotNullWhen(true)] out EvidenceExclusionId? identity) =>
+        EvidenceRules.TryCreateIdentity(value, maximumLength, static valid => new(valid), out identity);
+}
 
 public sealed class EvidenceSha256 : IEquatable<EvidenceSha256>
 {
     private readonly byte[] _bytes;
     private EvidenceSha256(byte[] bytes) => _bytes = bytes;
-    public static bool TryCreate(ReadOnlySpan<byte> bytes, out EvidenceSha256? digest) { digest = bytes.Length == 32 ? new(bytes.ToArray()) : null; return digest is not null; }
+    public static bool TryCreate(ReadOnlySpan<byte> bytes, [NotNullWhen(true)] out EvidenceSha256? digest) { digest = bytes.Length == 32 ? new(bytes.ToArray()) : null; return digest is not null; }
     public byte[] CopyBytes() => _bytes.ToArray();
     public bool Equals(EvidenceSha256? other) => other is not null && _bytes.AsSpan().SequenceEqual(other._bytes);
     public override bool Equals(object? obj) => obj is EvidenceSha256 other && Equals(other);

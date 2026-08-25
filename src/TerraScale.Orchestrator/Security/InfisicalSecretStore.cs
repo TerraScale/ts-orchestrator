@@ -80,41 +80,50 @@ internal sealed class InfisicalConfiguration
             throw new ArgumentException(
                 "Infisical requires project, environment, client ID file, and client secret file together.");
 
-        var serverValue = string.IsNullOrWhiteSpace(server) ? "https://app.infisical.com" : server;
-        if (!Uri.TryCreate(serverValue, UriKind.Absolute, out var serverUri) ||
+        var serverValue = server is { } configuredServer && !string.IsNullOrWhiteSpace(configuredServer)
+            ? configuredServer
+            : "https://app.infisical.com";
+        if (!Uri.TryCreate(serverValue, UriKind.Absolute, out var serverUri) || serverUri is null ||
             serverUri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(serverUri.UserInfo) ||
             !string.IsNullOrEmpty(serverUri.Query) || !string.IsNullOrEmpty(serverUri.Fragment) ||
             serverUri.AbsolutePath != "/" || serverUri.Port <= 0 ||
             serverUri.Scheme == "http" && !IsLoopback(serverUri.Host))
             throw new ArgumentException("The Infisical server URL is invalid or insecure.");
 
-        var resolvedPath = string.IsNullOrWhiteSpace(secretPath) ? "/" : secretPath;
-        RequireText(projectId!, 128, "Infisical project");
-        RequireText(environment!, 64, "Infisical environment");
+        var resolvedPath = secretPath is { } configuredPath && !string.IsNullOrWhiteSpace(configuredPath)
+            ? configuredPath
+            : "/";
+        var resolvedProject = RequireText(projectId, 128, "Infisical project");
+        var resolvedEnvironment = RequireText(environment, 64, "Infisical environment");
         RequireText(resolvedPath, 512, "Infisical secret path", allowSlash: true);
         if (!resolvedPath.StartsWith('/') || resolvedPath.Contains('?') || resolvedPath.Contains('#'))
             throw new ArgumentException("The Infisical secret path must be an absolute vault path.");
-        var resolvedOrganization = string.IsNullOrWhiteSpace(organizationSlug) ? null : organizationSlug;
+        var resolvedOrganization = organizationSlug is { } configuredOrganization &&
+                                   !string.IsNullOrWhiteSpace(configuredOrganization)
+            ? configuredOrganization
+            : null;
         if (resolvedOrganization is not null)
-            RequireText(resolvedOrganization, 64, "Infisical organization slug");
+            resolvedOrganization = RequireText(resolvedOrganization, 64, "Infisical organization slug");
 
         return new(
             new Uri(serverUri.GetLeftPart(UriPartial.Authority) + "/", UriKind.Absolute),
-            projectId!,
-            environment!,
+            resolvedProject,
+            resolvedEnvironment,
             resolvedPath,
-            ResolveCredentialFile(clientIdFile!, "Infisical client ID"),
-            ResolveCredentialFile(clientSecretFile!, "Infisical client secret"),
+            ResolveCredentialFile(clientIdFile, "Infisical client ID"),
+            ResolveCredentialFile(clientSecretFile, "Infisical client secret"),
             resolvedOrganization);
     }
 
     internal string ReadClientId() => ReadCredential(ClientIdFile, "Infisical client ID");
     internal string ReadClientSecret() => ReadCredential(ClientSecretFile, "Infisical client secret");
 
-    private static string ResolveCredentialFile(string value, string name)
+    private static string ResolveCredentialFile(string? value, string name)
     {
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("Infisical credential files require Linux file permissions.");
+        if (value is null || string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"The {name} file is required.");
         var path = Path.GetFullPath(value);
         var file = new FileInfo(path);
         if (!file.Exists || file.LinkTarget is not null || file.Length is < 1 or > 4096 ||
@@ -144,11 +153,14 @@ internal sealed class InfisicalConfiguration
         }
     }
 
-    private static void RequireText(string value, int maximum, string name, bool allowSlash = false)
+    private static string RequireText(string? value, int maximum, string name, bool allowSlash = false)
     {
-        if (value.Length is < 1 || value.Length > maximum || value.Any(character =>
+        if (value is null)
+            throw new ArgumentException($"The {name} is invalid.");
+        if (string.IsNullOrWhiteSpace(value) || value.Length > maximum || value.Any(character =>
                 char.IsControl(character) || char.IsWhiteSpace(character) || !allowSlash && character == '/'))
             throw new ArgumentException($"The {name} is invalid.");
+        return value;
     }
 
     private static bool IsLoopback(string host) =>
@@ -302,7 +314,7 @@ internal sealed class InfisicalSecretStore : IAsyncDisposable
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var document in documents)
         {
-            if (document.SecretValue is null || !values.TryAdd(document.SecretKey, document.SecretValue))
+            if (document.SecretValue is not { } secretValue || !values.TryAdd(document.SecretKey, secretValue))
                 throw new InvalidDataException("Infisical returned missing or duplicate secret values.");
         }
         return new ReadOnlyDictionary<string, string>(values);
@@ -318,9 +330,10 @@ internal sealed class InfisicalSecretStore : IAsyncDisposable
             "&expandSecretReferences=true&recursive=false",
             null,
             cancellationToken);
-        if (response.Secrets is null) throw new InvalidDataException("Infisical returned an invalid secret list.");
+        if (response.Secrets is not { } secrets)
+            throw new InvalidDataException("Infisical returned an invalid secret list.");
         var values = new Dictionary<string, SecretDocument>(StringComparer.Ordinal);
-        foreach (var document in response.Secrets)
+        foreach (var document in secrets)
         {
             var valid = RequireDocument(document);
             values.TryAdd(valid.SecretKey, valid);
@@ -415,9 +428,9 @@ internal sealed class InfisicalSecretStore : IAsyncDisposable
 
     private InfisicalSecret SecretOf(SecretDocument document)
     {
-        if (document.SecretValue is null)
+        if (document.SecretValue is not { } secretValue)
             throw new InvalidDataException("Infisical did not return the requested secret value.");
-        return new(document.SecretKey, document.SecretValue, document.Version, PathOf(document));
+        return new(document.SecretKey, secretValue, document.Version, PathOf(document));
     }
 
     private InfisicalSecretMetadata MetadataOf(SecretDocument document) =>
@@ -425,9 +438,9 @@ internal sealed class InfisicalSecretStore : IAsyncDisposable
 
     private string PathOf(SecretDocument document)
     {
-        var path = string.IsNullOrWhiteSpace(document.SecretPath)
-            ? configuration.SecretPath
-            : document.SecretPath;
+        var path = document.SecretPath is { } secretPath && !string.IsNullOrWhiteSpace(secretPath)
+            ? secretPath
+            : configuration.SecretPath;
         if (path.Length > 512 || !path.StartsWith('/') ||
             path.Any(static character => char.IsControl(character)))
             throw new InvalidDataException("Infisical returned invalid secret metadata.");

@@ -123,10 +123,12 @@ public static class MessagingPolicyEngine
     {
         var policy = request.Policy;
         var operation = request.Proposed;
-        var observation = request.Observation!;
+        if (request.Observation is not { } observation)
+            return Held([Error(MessagingErrorCode.InvalidInput, operation)]);
         var proofError = ValidateSurvivingStoreProof(operation, observation, failed, request.MaximumIdentityLength);
         if (proofError is not null) return Held([proofError]);
-        var proof = failed.SurvivingStoreProof!;
+        if (failed.SurvivingStoreProof is not { } proof)
+            return Held([Error(MessagingErrorCode.ConflictingEvidence, operation)]);
         if (observation.Peers.Any(peer => peer.Server == operation.ReplacementServer || peer.Peer == operation.ReplacementPeer))
             return Held([Error(MessagingErrorCode.ConflictingEvidence, operation)]);
         if (proof.ActiveAttachment is not null && proof.ActiveAttachment != operation.FailedServer)
@@ -498,8 +500,8 @@ public static class MessagingPolicyEngine
 
     private static bool ValidSubjectRoot(string? value, int maximumLength)
     {
-        if (!Valid(value, maximumLength)) return false;
-        var tokens = value!.Split('.');
+        if (value is not { } subject || !Valid(subject, maximumLength)) return false;
+        var tokens = subject.Split('.');
         if (tokens.Length == 0 || tokens.Any(static token => token.Length == 0)) return false;
         for (var index = 0; index < tokens.Length; index++)
         {

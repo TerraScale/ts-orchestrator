@@ -71,7 +71,9 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(first.RequiresReconciliation).IsTrue();
         await Assert.That(originalExecutor.Calls).IsEqualTo(1);
 
-        var persisted = journal.Checkpoint! with
+        var persistedCheckpoint = journal.Checkpoint
+            ?? throw new InvalidOperationException("The first lifecycle execution must persist a checkpoint.");
+        var persisted = persistedCheckpoint with
         {
             LastObservationFingerprint = new RuntimeLifecycleHostObservationFingerprint(Digest("persisted-observation")),
             LastObservationWatermark = 41
@@ -84,11 +86,13 @@ public sealed class RuntimeLifecycleCoordinatorTests
         await Assert.That(terminal.Status).IsEqualTo(RuntimeLifecycleTerminalStatus.Converged);
         await Assert.That(restartedExecutor.Calls).IsEqualTo(0);
         await Assert.That(restartedExecutor.Observations).IsEqualTo(1);
-        await Assert.That(restartedExecutor.LastObservationRequest!.Plan).IsSameReferenceAs(request.Plan);
-        await Assert.That(restartedExecutor.LastObservationRequest.Action).IsEqualTo(request.Action);
-        await Assert.That(restartedExecutor.LastObservationRequest.PlanFingerprint).IsEqualTo(request.PlanFingerprint);
-        await Assert.That(restartedExecutor.LastObservationRequest.PreviousObservationWatermark).IsEqualTo(41UL);
-        await Assert.That(restartedExecutor.LastObservationRequest.WriterEpoch).IsEqualTo(request.WriterEpoch);
+        var observationRequest = restartedExecutor.LastObservationRequest
+            ?? throw new InvalidOperationException("Recovery must record its observation request.");
+        await Assert.That(observationRequest.Plan).IsSameReferenceAs(request.Plan);
+        await Assert.That(observationRequest.Action).IsEqualTo(request.Action);
+        await Assert.That(observationRequest.PlanFingerprint).IsEqualTo(request.PlanFingerprint);
+        await Assert.That(observationRequest.PreviousObservationWatermark).IsEqualTo(41UL);
+        await Assert.That(observationRequest.WriterEpoch).IsEqualTo(request.WriterEpoch);
     }
 
     [Test]
@@ -167,7 +171,7 @@ public sealed class RuntimeLifecycleCoordinatorTests
     [Test]
     public async Task NullExecutorResponseFailsClosedAfterDurableDispatch()
     {
-        var executor = new Executor { Response = null! };
+        var executor = new Executor { Response = null };
         var result = await new RuntimeLifecycleCoordinator(new Journal(), new Authority(), executor).ExecuteAsync(Request(), CancellationToken.None);
         await Assert.That(result.RequiresReconciliation).IsTrue();
         await Assert.That(result.ErrorCode).IsEqualTo(RuntimeLifecycleErrorCode.ExecutorFailed);
@@ -242,14 +246,14 @@ public sealed class RuntimeLifecycleCoordinatorTests
         public RuntimeLifecycleObservation? Observation { get; set; }
         public RuntimeLifecycleObservationRequest? LastObservationRequest { get; private set; }
         public bool ReturnNullObservation { get; set; }
-        public ValueTask<RuntimeLifecycleExecutorResponse> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken)
+        public ValueTask<RuntimeLifecycleExecutorResponse?> ExecuteAsync(RuntimeLifecycleExecutionRequest request, CancellationToken cancellationToken)
         {
-            Calls++; BeforeExecute?.Invoke(); return ValueTask.FromResult(Response!);
+            Calls++; BeforeExecute?.Invoke(); return ValueTask.FromResult(Response);
         }
-        public ValueTask<RuntimeLifecycleObservation> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken)
+        public ValueTask<RuntimeLifecycleObservation?> ObserveAsync(RuntimeLifecycleObservationRequest request, CancellationToken cancellationToken)
         {
             Observations++; LastObservationRequest = request;
-            return ValueTask.FromResult(ReturnNullObservation ? null! : Observation ?? new(request.OperationKey, "unknown", new RuntimeLifecyclePlanFingerprint(Digest("unknown")), LifecycleAction.Converge, new RuntimeLifecycleHostObservationFingerprint(Digest("unknown-observation")), 1, RuntimeLifecycleObservationStatus.Unknown));
+            return ValueTask.FromResult(ReturnNullObservation ? null : Observation ?? new(request.OperationKey, "unknown", new RuntimeLifecyclePlanFingerprint(Digest("unknown")), LifecycleAction.Converge, new RuntimeLifecycleHostObservationFingerprint(Digest("unknown-observation")), 1, RuntimeLifecycleObservationStatus.Unknown));
         }
     }
 }

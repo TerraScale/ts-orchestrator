@@ -4,6 +4,12 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
 public sealed class TerraBaseCoreTests
 {
+    private static T RequireSubject<T>(TerraBaseDecision decision) where T : TerraBaseIntentSubject
+    {
+        if (decision.Subject is T subject) return subject;
+        throw new InvalidOperationException($"Expected a {typeof(T).Name} decision subject.");
+    }
+
     [Test]
     public async Task Permanent_members_and_overlapping_topology_mutation_are_held()
     {
@@ -43,7 +49,7 @@ public sealed class TerraBaseCoreTests
             {PostChangeReplication=TerraBaseProof.Unknown});
         await Assert.That(catchUp.Action).IsEqualTo(TerraBaseAction.CatchUp);
         await Assert.That(catchUp.IsMutationAuthorized).IsTrue();
-        await Assert.That(((TerraBaseTopologyIntentSubject)catchUp.Subject!).ReplicationPosition).IsEqualTo(TerraBaseTestData.O(100));
+        await Assert.That(RequireSubject<TerraBaseTopologyIntentSubject>(catchUp).ReplicationPosition).IsEqualTo(TerraBaseTestData.O(100));
         await Assert.That(transfer.IsMutationAuthorized).IsTrue();
     }
 
@@ -73,7 +79,7 @@ public sealed class TerraBaseCoreTests
         await Assert.That(TerraBaseRetainedVolumePlanner.Plan(s,E([],3)).IsMutationAuthorized).IsFalse();
         await Assert.That(TerraBaseRetainedVolumePlanner.Plan(s,E([],4)).Action).IsEqualTo(TerraBaseAction.StartWithRetainedVolume);
         var exact=TerraBaseRetainedVolumePlanner.Plan(s,E([],4));
-        await Assert.That(((TerraBaseRetainedVolumeIntentSubject)exact.Subject!).NewAuthorityEpoch).IsEqualTo(TerraBaseTestData.O(4));
+        await Assert.That(RequireSubject<TerraBaseRetainedVolumeIntentSubject>(exact).NewAuthorityEpoch).IsEqualTo(TerraBaseTestData.O(4));
     }
 
     [Test]
@@ -92,7 +98,7 @@ public sealed class TerraBaseCoreTests
         var replay=TerraBaseUpgradePlanner.Plan(s,current,target,E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Proven));
         await Assert.That(first.Action).IsEqualTo(TerraBaseAction.Upgrade);
         await Assert.That(replay.Action).IsNotEqualTo(TerraBaseAction.Upgrade);
-        var upgradeSubject=(TerraBaseUpgradeIntentSubject)first.Subject!;
+        var upgradeSubject=RequireSubject<TerraBaseUpgradeIntentSubject>(first);
         await Assert.That(upgradeSubject.Current).IsEqualTo(current);
         await Assert.That(upgradeSubject.Target).IsEqualTo(target);
         await Assert.That(TerraBaseUpgradePlanner.Plan(s,current,TerraBaseTestData.Release("other"),E(TerraBaseUpgradeCompatibility.CompatibleNAndNMinusOne,TerraBaseProof.Proven,TerraBaseProof.Proven)).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
@@ -116,7 +122,7 @@ public sealed class TerraBaseCoreTests
         await Assert.That(accepted.Code).IsEqualTo(TerraBaseCode.Completed);
         await Assert.That(accepted.Action).IsEqualTo(TerraBaseAction.Verify);
         await Assert.That(accepted.IsMutationAuthorized).IsFalse();
-        await Assert.That(((TerraBaseBackupChainIntentSubject)accepted.Subject!).Segments.Count).IsEqualTo(2);
+        await Assert.That(RequireSubject<TerraBaseBackupChainIntentSubject>(accepted).Segments.Count).IsEqualTo(2);
         var wrongSubject=new TerraBaseBackupSubject(s.Cell,s.Database,TerraBaseTestData.O(5),s.TopologyGeneration);
         await Assert.That(TerraBaseBackupPlanner.Accept(s,E([TerraBaseTestData.Segment(1,true,subject:wrongSubject)])).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
         await Assert.That(TerraBaseBackupPlanner.Accept(s,E([TerraBaseTestData.Segment(1,true)],scope:s with{Operation=TerraBaseTestData.Op("other")})).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
@@ -135,7 +141,7 @@ public sealed class TerraBaseCoreTests
             TerraBaseTestData.Object("destination"),TerraBaseTestData.Key("key-ref"),TerraBaseProof.Proven,TerraBaseProof.Proven);
         var fullDecision=TerraBaseBackupPlanner.Authorize(s,full);
         await Assert.That(fullDecision.Action).IsEqualTo(TerraBaseAction.Backup);
-        var fullSubject=(TerraBaseBackupRequestIntentSubject)fullDecision.Subject!;
+        var fullSubject=RequireSubject<TerraBaseBackupRequestIntentSubject>(fullDecision);
         await Assert.That(fullSubject.Destination).IsEqualTo(TerraBaseTestData.Object("destination"));
         await Assert.That(fullSubject.EncryptionKey).IsEqualTo(TerraBaseTestData.Key("key-ref"));
         await Assert.That(fullDecision.ToString()).DoesNotContain("destination");
@@ -171,7 +177,7 @@ public sealed class TerraBaseCoreTests
         await Assert.That(Plan(E(4,5,TerraBaseProof.Proven,chain:otherChain)).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
         var unverifiedChain=TerraBaseTestData.Chain(digest:TerraBaseProof.Unknown);
         await Assert.That(Plan(E(4,5,TerraBaseProof.Proven,chain:unverifiedChain)).Code).IsEqualTo(TerraBaseCode.DigestProofMissing);
-        var subject=(TerraBaseRestoreIntentSubject)completed.Subject!;
+        var subject=RequireSubject<TerraBaseRestoreIntentSubject>(completed);
         await Assert.That(subject.Restore).IsEqualTo(restore);
         await Assert.That(subject.Chain.TerminalBackup).IsEqualTo(terminal);
     }

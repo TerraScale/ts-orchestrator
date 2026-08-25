@@ -120,16 +120,22 @@ public sealed class AvailabilityPolicyEvaluator
             projectedDisrupting.Value <= request.Policy.MaximumConcurrentDisruptions.Value,
             projectedDisrupting.Value, request.Policy.MaximumConcurrentDisruptions.Value));
 
-        var hostGroups = antiAffinityReplicas.Where(observation => observation.NodeId is not null)
-            .GroupBy(observation => observation.NodeId!.Value, StringComparer.Ordinal);
+        var hostGroups = antiAffinityReplicas
+            .Select(observation => observation.NodeId)
+            .OfType<AvailabilityNodeId>()
+            .GroupBy(nodeId => nodeId.Value, StringComparer.Ordinal);
         var colocated = hostGroups.Aggregate(0,
             (total, group) => checked(total + Math.Max(0, group.Count() - 1)));
         trace.Add(request.Policy.OnePerHost
             ? RejectReason(AvailabilityReasonCode.OnePerHost, colocated == 0, checked((ulong)colocated), 0)
             : NotApplicable(AvailabilityReasonCode.OnePerHost));
 
-        var distinctDomains = availableTopologyReplicas.Where(observation => observation.FailureDomainId is not null)
-            .Select(observation => observation.FailureDomainId!.Value).Distinct(StringComparer.Ordinal).Count();
+        var distinctDomains = availableTopologyReplicas
+            .Select(observation => observation.FailureDomainId)
+            .OfType<FailureDomainId>()
+            .Select(domainId => domainId.Value)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
         trace.Add(RejectReason(AvailabilityReasonCode.FailureDomainSpread,
             checked((ulong)distinctDomains) >= request.Policy.RequiredDistinctFailureDomains.Value,
             checked((ulong)distinctDomains), request.Policy.RequiredDistinctFailureDomains.Value));

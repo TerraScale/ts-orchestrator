@@ -78,7 +78,8 @@ public sealed class SnapshotSignedMaterial
             : SnapshotMaterialError.None;
 
         result = error == SnapshotMaterialError.None
-            ? new SnapshotSignedMaterial(authority, stream, snapshotId, schema, signingKey, epoch, streamSequence, generation, stateDigest!)
+            && stateDigest is { IsValid: true } validStateDigest
+            ? new SnapshotSignedMaterial(authority, stream, snapshotId, schema, signingKey, epoch, streamSequence, generation, validStateDigest)
             : null;
         return result is not null;
     }

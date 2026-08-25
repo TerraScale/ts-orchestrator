@@ -30,14 +30,15 @@ internal static class DevelopmentHealthProbe
         return results.ToDictionary(result => result.Name, result => result.Health, StringComparer.Ordinal);
     }
 
-    internal static string? HealthPath(DevelopmentResourceKind kind) => kind switch
+    internal static string HealthPath(DevelopmentResourceKind kind) => kind switch
     {
         DevelopmentResourceKind.TerraBase => "/build/version",
         DevelopmentResourceKind.Authentication or
         DevelopmentResourceKind.Platform or
         DevelopmentResourceKind.EmailEmulator => "/health/ready",
         DevelopmentResourceKind.Dashboard => "/health/ready",
-        _ => null
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(kind), kind, "The resource kind does not expose an HTTP health path.")
     };
 
     /// <summary>
@@ -178,17 +179,19 @@ internal static class DevelopmentHealthProbe
                     {
                         return (resource.Name, platformLeafFailure);
                     }
-                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind), cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
                 case DevelopmentResourceKind.TerraBase:
-                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind), cancellationToken);
                     await ProbeHttpAsync(resource.Port, "/studio/index.html", cancellationToken);
-                    await ProbeTcpAsync(resource.SecondaryPort!.Value, cancellationToken);
+                    await ProbeTcpAsync(
+                        DevelopmentGuards.RequireSecondaryPort(resource),
+                        cancellationToken);
                     return (resource.Name, new(
                         true,
                         $"HTTP {resource.Port}, Studio, and TCP {resource.SecondaryPort} ready."));
                 default:
-                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind)!, cancellationToken);
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind), cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
             }
         }

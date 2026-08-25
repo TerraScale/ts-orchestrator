@@ -224,6 +224,23 @@ public sealed class SecurityDecisionTests
     }
 
     [Test]
+    public async Task LeaseRenewAndRevokeWithMissingLeaseEvidenceDenyWithoutThrowing()
+    {
+        var renew = SecurityDecisionEngine.EvaluateLease(Lease(action: LeaseAction.Renew));
+        var revoke = SecurityDecisionEngine.EvaluateLease(Lease(action: LeaseAction.Revoke));
+
+        foreach (var decision in new[] { renew, revoke })
+        {
+            await Assert.That(decision.Authorized).IsFalse();
+            await Assert.That(decision.Intent).IsTypeOf<HoldSecurityOperationIntent>();
+            await Assert.That(Reason(decision, SecurityDecisionCode.LeaseExact).Outcome)
+                .IsEqualTo(SecurityDecisionOutcome.Rejected);
+            await Assert.That(Reason(decision, SecurityDecisionCode.LeaseValidityAllowsAction).Outcome)
+                .IsEqualTo(SecurityDecisionOutcome.Rejected);
+        }
+    }
+
+    [Test]
     public async Task LeaseRevokeDoesNotDependOnSecretAvailabilityRetentionExpiryOrDuration()
     {
         var missingSecret = SecurityDecisionEngine.EvaluateLease(Lease(

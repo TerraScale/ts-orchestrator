@@ -13,7 +13,8 @@ internal sealed record NativeGitOpsVerifiedConvergenceDispatchV1
 {
     private NativeGitOpsVerifiedConvergenceDispatchV1(NativeGitOpsCellConvergenceCheckpoint checkpoint)
     {
-        var intent = checkpoint.Decision.Intent!;
+        if (checkpoint.Decision.Intent is not { } intent)
+            throw new InvalidOperationException("The convergence checkpoint omitted its dispatch intent.");
         Cell = checkpoint.Cell;
         Generation = checkpoint.Generation;
         GlobalPlanDigest = checkpoint.GlobalPlanDigest;

@@ -54,9 +54,11 @@ public static class StorageCreatePlanner
     {
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace());
-        if (evidence is null || evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume!.EvidenceScope)
-            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, volume?.Trace());
-        var trace = volume!.Trace();
+        if (volume is not { } authorizedVolume)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput);
+        if (evidence is null || evidence.Scope is not { } evidenceScope || !evidenceScope.IsWellFormed || evidenceScope != authorizedVolume.EvidenceScope)
+            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, authorizedVolume.Trace());
+        var trace = authorizedVolume.Trace();
         return checkpoint switch
         {
             StorageCreateCheckpoint.ClaimAccepted => StorageDecision.Emit(StorageAction.Observe, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep, trace),
@@ -64,7 +66,7 @@ public static class StorageCreatePlanner
             StorageCreateCheckpoint.VolumeCreated => StorageDecision.Emit(StorageAction.Attach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep, trace),
             StorageCreateCheckpoint.AttachmentCreated => StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.NextStep, trace),
             StorageCreateCheckpoint.DeviceIdentityVerified => StorageDecision.Emit(StorageAction.Classify, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.NextStep, trace),
-            StorageCreateCheckpoint.Classified => StorageFormatPlanner.Plan(volume, context, evidence),
+            StorageCreateCheckpoint.Classified => StorageFormatPlanner.Plan(authorizedVolume, context, evidence),
             StorageCreateCheckpoint.FormattedIfNew => StorageDecision.Emit(StorageAction.Mount, StorageIntentTarget.Filesystem, StorageDecisionCode.NextStep, trace),
             StorageCreateCheckpoint.Mounted => StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep, trace),
             StorageCreateCheckpoint.OwnershipAndPerformanceVerified or StorageCreateCheckpoint.Ready => StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.Completed, trace),
@@ -79,9 +81,11 @@ public static class StorageFormatPlanner
     {
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace());
-        if (evidence is null || evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume!.EvidenceScope)
-            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, volume?.Trace());
-        var trace = volume!.Trace();
+        if (volume is not { } authorizedVolume)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput);
+        if (evidence is null || evidence.Scope is not { } evidenceScope || !evidenceScope.IsWellFormed || evidenceScope != authorizedVolume.EvidenceScope)
+            return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, authorizedVolume.Trace());
+        var trace = authorizedVolume.Trace();
         if (evidence.ProviderIdentityProof != StorageProof.Proven) return StorageDecision.Hold(StorageDecisionCode.WrongProviderVolume, trace);
         if (evidence.Classification == StorageDeviceClassification.Recognized)
             return evidence.FilesystemIdentityProof == StorageProof.Proven
@@ -145,10 +149,12 @@ public static class StorageAttachmentPlanner
     {
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace());
-        var trace = volume!.Trace();
-        if (targetNode is null || evidence is null || evidence.Scope is null || !evidence.Scope.IsWellFormed)
+        if (volume is not { } authorizedVolume)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput);
+        var trace = authorizedVolume.Trace();
+        if (targetNode is not { } authorizedTarget || evidence is null || evidence.Scope is not { } evidenceScope || !evidenceScope.IsWellFormed)
             return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
-        if (evidence.Scope != volume.EvidenceScope) return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, trace);
+        if (evidenceScope != authorizedVolume.EvidenceScope) return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, trace);
         if (evidence.Proofs().Any(static proof => !Enum.IsDefined(proof)))
             return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
         if (evidence.Proofs().Any(static proof => proof == StorageProof.Contradicted))
@@ -158,14 +164,14 @@ public static class StorageAttachmentPlanner
         if (evidence.Writers.Count == 0)
         {
             if (evidence.ProviderDetached != StorageProof.Proven) return StorageDecision.Emit(StorageAction.Detach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep, trace);
-            if (evidence.ProposedEpoch.Value <= volume.WriterEpoch.Value) return StorageDecision.Hold(StorageDecisionCode.NewWriterEpochRequired, trace);
+            if (evidence.ProposedEpoch.Value <= authorizedVolume.WriterEpoch.Value) return StorageDecision.Hold(StorageDecisionCode.NewWriterEpochRequired, trace);
             return StorageDecision.Emit(StorageAction.Attach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep,
-                volume.Trace(authorizedEpoch: evidence.ProposedEpoch, authorizedNode: targetNode));
+                authorizedVolume.Trace(authorizedEpoch: evidence.ProposedEpoch, authorizedNode: authorizedTarget));
         }
         var current = evidence.Writers[0];
-        if (current.Attachment != volume.Attachment) return StorageDecision.Hold(StorageDecisionCode.WrongOwner, trace);
-        if (current.Epoch != volume.WriterEpoch) return StorageDecision.Hold(StorageDecisionCode.StaleWriterEpoch, trace);
-        if (current.Node == targetNode)
+        if (current.Attachment != authorizedVolume.Attachment) return StorageDecision.Hold(StorageDecisionCode.WrongOwner, trace);
+        if (current.Epoch != authorizedVolume.WriterEpoch) return StorageDecision.Hold(StorageDecisionCode.StaleWriterEpoch, trace);
+        if (current.Node == authorizedTarget)
             return evidence.HealthVerified == StorageProof.Proven
                 ? StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.Completed, trace)
                 : StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.HealthVerificationRequired, trace);
@@ -173,9 +179,9 @@ public static class StorageAttachmentPlanner
             return StorageDecision.Hold(StorageDecisionCode.ReattachProofMissing, trace);
         if (evidence.ProviderDetached != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Detach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep, trace);
-        if (evidence.ProposedEpoch.Value <= current.Epoch.Value || evidence.ProposedEpoch.Value <= volume.WriterEpoch.Value)
+        if (evidence.ProposedEpoch.Value <= current.Epoch.Value || evidence.ProposedEpoch.Value <= authorizedVolume.WriterEpoch.Value)
             return StorageDecision.Hold(StorageDecisionCode.NewWriterEpochRequired, trace);
         return StorageDecision.Emit(StorageAction.Attach, StorageIntentTarget.ProviderAttachment, StorageDecisionCode.NextStep,
-            volume.Trace(authorizedEpoch: evidence.ProposedEpoch, authorizedNode: targetNode));
+            authorizedVolume.Trace(authorizedEpoch: evidence.ProposedEpoch, authorizedNode: authorizedTarget));
     }
 }

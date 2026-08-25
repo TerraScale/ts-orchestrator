@@ -905,20 +905,24 @@ public sealed class NatsCreateNodeOperationJournalTests
             await Assert.That((await jetStream.GetStreamAsync("CELL_EVENTS")).Info.Config.NumReplicas).IsEqualTo(3);
 
             using var startup = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            // Check mode never registers the direct-delivery mutation endpoint: the startup
+            // plan decision is passed explicitly (no verifier is configured here by design).
             var firstRuntime = NatsRuntime.StartAsync(new OrchestratorOptions(
                 OrchestratorCommand.Check,
                 cell.Cell,
                 $"nats://127.0.0.1:{server.Port}",
                 3,
                 Instance: "controller-1",
-                NatsNKeyFile: security.Controllers[1].SeedFile), startup.Token);
+                NatsNKeyFile: security.Controllers[1].SeedFile), startup.Token,
+                registersDirectDeliveryEndpoint: false);
             var secondRuntime = NatsRuntime.StartAsync(new OrchestratorOptions(
                 OrchestratorCommand.Check,
                 cell.Cell,
                 $"nats://127.0.0.1:{server.Port}",
                 3,
                 Instance: "controller-2",
-                NatsNKeyFile: security.Controllers[2].SeedFile), startup.Token);
+                NatsNKeyFile: security.Controllers[2].SeedFile), startup.Token,
+                registersDirectDeliveryEndpoint: false);
             var runtimes = await Task.WhenAll(firstRuntime, secondRuntime);
             await using var runtime = runtimes[0];
             await using var runtimeTwo = runtimes[1];

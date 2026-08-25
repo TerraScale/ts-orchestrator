@@ -102,7 +102,8 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
         foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
         {
             var destination = Path.Combine(target, Path.GetRelativePath(source, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            Directory.CreateDirectory(
+                DevelopmentGuards.RequireDirectory(destination, "Artifact backup destination"));
             File.Copy(file, destination, overwrite: true);
         }
     }

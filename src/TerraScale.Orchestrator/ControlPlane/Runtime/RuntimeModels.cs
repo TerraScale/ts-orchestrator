@@ -337,13 +337,20 @@ public sealed record RuntimeDecisionReason { internal RuntimeDecisionReason(Runt
 
 public abstract record RuntimeIntent
 {
-    private readonly RuntimeOperationId? _operationId;
+    private readonly RuntimeOperationId _operationId;
     private protected RuntimeIntent(RuntimeOperationId operationId) =>
         _operationId = operationId ?? throw new ArgumentNullException(nameof(operationId));
-    private protected RuntimeIntent(RuntimeLifecycleRequest request) =>
-        LifecycleRequest = request ?? throw new ArgumentNullException(nameof(request));
+    private protected RuntimeIntent(RuntimeLifecycleRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _operationId = request.OperationId;
+        LifecycleRequest = request;
+    }
     private protected RuntimeLifecycleRequest? LifecycleRequest { get; }
-    public RuntimeOperationId OperationId => LifecycleRequest?.OperationId ?? _operationId!;
+    public RuntimeOperationId OperationId => _operationId;
+
+    private protected RuntimeLifecycleRequest RequireLifecycleRequest() =>
+        LifecycleRequest ?? throw new InvalidOperationException("This intent does not carry a lifecycle request.");
 }
 public sealed record FetchRuntimeArtifactIntent : RuntimeIntent { internal FetchRuntimeArtifactIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
 public sealed record VerifyRuntimeArtifactIntent : RuntimeIntent { internal VerifyRuntimeArtifactIntent(RuntimeLifecycleRequest r) : base(r.OperationId) => Request = r; public RuntimeLifecycleRequest Request { get; } }
@@ -433,7 +440,7 @@ public sealed record CleanupRuntimeIntent : RuntimeIntent
 public sealed record ObserveExecutorIntent : RuntimeIntent
 {
     internal ObserveExecutorIntent(RuntimeLifecycleRequest request) : base(request) { }
-    public RuntimeLifecycleRequest Request => LifecycleRequest!;
+    public RuntimeLifecycleRequest Request => RequireLifecycleRequest();
     public RuntimeAllocationId AllocationId => Request.Spec.AllocationId;
 }
 public sealed record VerifyUpdateArtifactIntent : RuntimeIntent { internal VerifyUpdateArtifactIntent(SelfUpdateRequest r) : base(r.OperationId) => Request = r; public SelfUpdateRequest Request { get; } }

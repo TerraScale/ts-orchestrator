@@ -11,11 +11,6 @@ internal interface IRepositoryCiJobResultEvidenceVerifier
         CancellationToken cancellationToken);
 }
 
-internal sealed record CiRunnerVerifiedArtifactArchive(
-    string ObjectName,
-    string Sha256,
-    long Bytes);
-
 /// <summary>Verifies the canonical runner evidence object before controller state trusts it.</summary>
 internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objects)
     : IRepositoryCiJobResultEvidenceVerifier
@@ -44,26 +39,6 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
             await VerifyObjectsAsync(stored, cancellationToken)
                 ? stored
                 : null;
-    }
-
-    internal async Task<CiRunnerVerifiedArtifactArchive?> ReadCandidateArchiveAsync(
-        RepositoryCiCandidate candidate,
-        JobId job,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(candidate);
-        ArgumentNullException.ThrowIfNull(job);
-        var result = candidate.Jobs.SingleOrDefault(value => value.Job == job);
-        var artifacts = candidate.Artifacts
-            .Where(value => value.Job == job)
-            .OrderBy(static value => value.Architecture)
-            .ToArray();
-        if (result is null || artifacts.Length == 0 || !Digest(result.EvidenceDigest)) return null;
-        var stored = await ReadStoredAsync(result.EvidenceDigest, cancellationToken);
-        if (stored is null || !MatchesCandidate(candidate, result, artifacts, stored) ||
-            !await VerifyObjectsAsync(stored, cancellationToken))
-            return null;
-        return new(stored.ArtifactObject, stored.ArtifactSha256, stored.ArtifactBytes);
     }
 
     private async Task<CiRunnerStoredWorkloadEvidence?> ReadStoredAsync(
@@ -153,43 +128,6 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
                 stored.ArtifactBytes == 0 && stored.RequiredTestSkips == 0 &&
                 (stored.Artifacts?.Length ?? 0) == 0;
         return logMatches && artifactMatches;
-    }
-
-    private static bool MatchesCandidate(
-        RepositoryCiCandidate candidate,
-        RepositoryCiJobResult result,
-        RepositoryCiArtifactResult[] artifacts,
-        CiRunnerStoredWorkloadEvidence stored)
-    {
-        var workload = stored.Workload;
-        if (stored.SchemaVersion != 2 || stored.RetentionDays != CiRunnerDurableResultSink.RetentionDays ||
-            stored.LogObject is null || stored.LogSha256 is null || stored.ArtifactObject is null ||
-            stored.ArtifactSha256 is null || workload is null || workload.SchemaVersion != 1 ||
-            workload.PipelineDigest != candidate.PipelineDigest || workload.Job != result.Job.Value ||
-            workload.Attempt != result.Attempt || !workload.Succeeded ||
-            workload.FailureKind != RepositoryCiJobFailureKind.Unspecified ||
-            stored.RequiredTestSkips != result.RequiredTestSkips || !result.Succeeded ||
-            result.Attempt != 1 || result.RequiredTestSkips != 0 || !ValidWorkload(workload))
-            return false;
-
-        var logMatches = stored.LogObject == $"ci-result-log-{workload.LogSha256}" &&
-            stored.LogSha256 == workload.LogSha256 && stored.LogBytes == workload.LogBytes;
-        var declared = stored.Artifacts ?? [];
-        var archiveMatches = stored.ArtifactObject == $"ci-result-artifact-{workload.OutputSha256}" &&
-            Digest(stored.ArtifactSha256) && stored.ArtifactBytes > 0 &&
-            stored.ArtifactBytes <= workload.OutputBytes + ArtifactArchiveOverheadBytes &&
-            ValidArtifacts(declared, workload) && declared.Length == artifacts.Length;
-        if (!logMatches || !archiveMatches) return false;
-        for (var index = 0; index < artifacts.Length; index++)
-        {
-            var expected = artifacts[index];
-            var observed = declared[index];
-            if (observed.Artifact != expected.Artifact.Value || observed.Architecture != expected.Architecture ||
-                observed.Digest != expected.Digest.Value ||
-                !observed.Entrypoints.SequenceEqual(expected.Entrypoints, StringComparer.Ordinal))
-                return false;
-        }
-        return true;
     }
 
     private static bool ValidArtifacts(
@@ -306,9 +244,12 @@ internal sealed class CiRunnerDurableEvidenceVerifier(IDeliveryObjectStore objec
             {
                 if (reader.TokenType == JsonTokenType.StartObject) fields.Push(new(StringComparer.Ordinal));
                 else if (reader.TokenType == JsonTokenType.EndObject) fields.Pop();
-                else if (reader.TokenType == JsonTokenType.PropertyName &&
-                    !fields.Peek().Add(reader.GetString()!))
-                    return true;
+                else if (reader.TokenType == JsonTokenType.PropertyName)
+                {
+                    if (!fields.TryPeek(out var current) || reader.GetString() is not { } propertyName ||
+                        !current.Add(propertyName))
+                        return true;
+                }
             }
         }
         catch (JsonException)

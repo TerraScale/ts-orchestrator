@@ -37,10 +37,14 @@ public sealed class ForgejoWebhookConfiguration
             throw new ArgumentException("The Forgejo webhook listen prefix is invalid.");
         if (prefix.Scheme == "http" && !IsLoopback(prefix.Host))
             throw new ArgumentException("Plaintext Forgejo webhook ingress must listen only on loopback.");
-        if (!ForgejoWebhookVerifier.IsRepository(repository))
+        if (repository is not { } configuredRepository ||
+            string.IsNullOrWhiteSpace(configuredRepository) ||
+            !ForgejoWebhookVerifier.IsRepository(configuredRepository))
             throw new ArgumentException("The Forgejo webhook repository must be an owner/name identity.");
 
-        return new(prefix, repository!, ResolveSecretFile(secretFile!));
+        if (secretFile is not { } configuredSecretFile || string.IsNullOrWhiteSpace(configuredSecretFile))
+            throw new ArgumentException("The Forgejo webhook secret file is required.");
+        return new(prefix, configuredRepository, ResolveSecretFile(configuredSecretFile));
     }
 
     private static bool IsLoopback(string host) =>
@@ -221,14 +225,14 @@ internal sealed class ForgejoWebhookServer : IAsyncDisposable
             request.Headers["X-Forgejo-Signature"],
             request.Headers["X-Forgejo-Delivery"],
             request.Headers["X-Forgejo-Event"]);
-        if (!verification.Accepted)
+        if (!verification.Accepted || verification.Envelope is not { } envelope)
             return verification.Error == ForgejoWebhookError.UnsupportedContentType
                 ? HttpStatusCode.UnsupportedMediaType
                 : verification.Error == ForgejoWebhookError.PayloadTooLarge
                     ? HttpStatusCode.RequestEntityTooLarge
                     : HttpStatusCode.Unauthorized;
 
-        var receipt = await journal.AcceptAsync(verification.Envelope!, cancellationToken);
+        var receipt = await journal.AcceptAsync(envelope, cancellationToken);
         return receipt.Disposition switch
         {
             ForgejoWebhookJournalDisposition.Accepted or ForgejoWebhookJournalDisposition.Duplicate =>

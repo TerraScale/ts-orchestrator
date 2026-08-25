@@ -16,7 +16,8 @@ public sealed class PreDeploymentEvidenceTests
     public async Task ObservationAboveExecutionLimitIsRejected()
     {
         var evidence = CreateEvidence();
-        var observations = evidence.ProcessObservations!.ToArray();
+        var observations = (evidence.ProcessObservations ?? throw new InvalidOperationException(
+            "The fixture must include process observations.")).ToArray();
         observations[0] = observations[0] with { PeakMemoryBytes = 20L * 1024 * 1024 * 1024 + 1 };
 
         await Assert.That((evidence with { ProcessObservations = observations }).HasBoundedValidationEvidence())

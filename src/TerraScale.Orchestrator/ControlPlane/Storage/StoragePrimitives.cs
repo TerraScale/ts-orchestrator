@@ -30,33 +30,215 @@ public abstract record StorageIdentity
 }
 
 public sealed record StorageCellId : StorageIdentity
-{ private StorageCellId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageCellId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageCellId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageCellId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageCellId(validValue);
+        return true;
+    }
+}
 public sealed record VolumeClaimId : StorageIdentity
-{ private VolumeClaimId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out VolumeClaimId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private VolumeClaimId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out VolumeClaimId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new VolumeClaimId(validValue);
+        return true;
+    }
+}
 public sealed record ProviderVolumeId : StorageIdentity
-{ private ProviderVolumeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out ProviderVolumeId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private ProviderVolumeId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out ProviderVolumeId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new ProviderVolumeId(validValue);
+        return true;
+    }
+}
 public sealed record StorageAttachmentId : StorageIdentity
-{ private StorageAttachmentId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageAttachmentId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageAttachmentId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageAttachmentId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageAttachmentId(validValue);
+        return true;
+    }
+}
 public sealed record StorageNodeId : StorageIdentity
-{ private StorageNodeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageNodeId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageNodeId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageNodeId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageNodeId(validValue);
+        return true;
+    }
+}
 public sealed record StorageWorkloadId : StorageIdentity
-{ private StorageWorkloadId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageWorkloadId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageWorkloadId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageWorkloadId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageWorkloadId(validValue);
+        return true;
+    }
+}
 public sealed record StorageMemberId : StorageIdentity
-{ private StorageMemberId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageMemberId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageMemberId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageMemberId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageMemberId(validValue);
+        return true;
+    }
+}
 public sealed record FilesystemId : StorageIdentity
-{ private FilesystemId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out FilesystemId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private FilesystemId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out FilesystemId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new FilesystemId(validValue);
+        return true;
+    }
+}
 public sealed record StorageOperationId : StorageIdentity
-{ private StorageOperationId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageOperationId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageOperationId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageOperationId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageOperationId(validValue);
+        return true;
+    }
+}
 public sealed record StorageBackupId : StorageIdentity
-{ private StorageBackupId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageBackupId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageBackupId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageBackupId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageBackupId(validValue);
+        return true;
+    }
+}
 public sealed record StorageFenceId : StorageIdentity
-{ private StorageFenceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageFenceId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageFenceId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageFenceId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageFenceId(validValue);
+        return true;
+    }
+}
 public sealed record EncryptionKeyReference : StorageIdentity
-{ private EncryptionKeyReference(string v) : base(v) { } public static bool TryCreate(string? v, int m, out EncryptionKeyReference? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private EncryptionKeyReference(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out EncryptionKeyReference? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new EncryptionKeyReference(validValue);
+        return true;
+    }
+}
 public sealed record StoragePlacementId : StorageIdentity
-{ private StoragePlacementId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StoragePlacementId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StoragePlacementId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StoragePlacementId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StoragePlacementId(validValue);
+        return true;
+    }
+}
 public sealed record StorageDeviceId : StorageIdentity
-{ private StorageDeviceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out StorageDeviceId? r) { r = StorageIdentityRules.IsValid(v, m) ? new(v!) : null; return r is not null; } }
+{
+    private StorageDeviceId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximumLength, out StorageDeviceId? result)
+    {
+        if (value is not { } validValue || !StorageIdentityRules.IsValid(validValue, maximumLength))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new StorageDeviceId(validValue);
+        return true;
+    }
+}
 
 public readonly record struct StorageBytes
 {

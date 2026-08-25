@@ -58,14 +58,24 @@ internal static class SnapshotTestData
 
     public static SnapshotStateDigest Digest(string value = "state-digest-secret")
     {
-        SnapshotStateDigest.TryCopyFrom(Encoding.UTF8.GetBytes(value), ByteLimit, out var result);
-        return result!;
+        if (SnapshotStateDigest.TryCopyFrom(Encoding.UTF8.GetBytes(value), ByteLimit, out var result)
+            && result is { IsValid: true } validResult)
+        {
+            return validResult;
+        }
+
+        throw new InvalidOperationException("Snapshot test digest could not be created.");
     }
 
     public static SnapshotSignature Signature(string value = "signature-secret")
     {
-        SnapshotSignature.TryCopyFrom(Encoding.UTF8.GetBytes(value), ByteLimit, out var result);
-        return result!;
+        if (SnapshotSignature.TryCopyFrom(Encoding.UTF8.GetBytes(value), ByteLimit, out var result)
+            && result is { IsValid: true } validResult)
+        {
+            return validResult;
+        }
+
+        throw new InvalidOperationException("Snapshot test signature could not be created.");
     }
 
     public static SnapshotSignedMaterial Material(
@@ -79,7 +89,7 @@ internal static class SnapshotTestData
         SnapshotGeneration? generation = null,
         SnapshotStateDigest? digest = null)
     {
-        SnapshotSignedMaterial.TryCreate(
+        if (SnapshotSignedMaterial.TryCreate(
             authority ?? Authority(),
             stream ?? Stream(),
             id ?? Id(),
@@ -90,8 +100,12 @@ internal static class SnapshotTestData
             generation ?? Generation(),
             digest ?? Digest(),
             out var result,
-            out _);
-        return result!;
+            out _) && result is { } validResult)
+        {
+            return validResult;
+        }
+
+        throw new InvalidOperationException("Snapshot test material could not be created.");
     }
 
     public static SignedSnapshot Snapshot(SnapshotSignedMaterial? material = null, SnapshotSignature? signature = null) =>

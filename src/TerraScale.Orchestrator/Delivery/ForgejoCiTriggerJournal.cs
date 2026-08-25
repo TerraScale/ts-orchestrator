@@ -22,9 +22,13 @@ internal sealed record ForgejoCiTriggerJournalReceipt(
     ForgejoCiTriggerPlan Plan);
 
 /// <summary>Persists the closed trust decision for one normalized Forgejo inbox event.</summary>
-internal sealed class ForgejoCiTriggerJournal(IForgejoDeliveryLedger ledger)
+internal sealed class ForgejoCiTriggerJournal(
+    IForgejoDeliveryLedger ledger,
+    int triggerHistoryCap = 4096,
+    int dispatchAnchorRevisionHorizon = 8192)
 {
     private const int MaximumRecordBytes = 16 * 1024;
+    internal const int TriggerHistoryCap = 4096;
 
     internal async Task<ForgejoCiTriggerPlan?> ReadAsync(
         string dedupeKey,
@@ -55,6 +59,7 @@ internal sealed class ForgejoCiTriggerJournal(IForgejoDeliveryLedger ledger)
         try
         {
             await ledger.CreateAsync(key, Serialize(proposed), cancellationToken);
+            await PruneAsync(cancellationToken).ConfigureAwait(false);
             return new(ForgejoCiTriggerJournalDisposition.Recorded, plan);
         }
         catch (ForgejoDeliveryLedgerConflictException)
@@ -63,6 +68,44 @@ internal sealed class ForgejoCiTriggerJournal(IForgejoDeliveryLedger ledger)
                 ?? throw new InvalidDataException("A concurrently committed trigger decision disappeared.");
             return Compare(observed, proposed, plan.Envelope.DedupeKey);
         }
+    }
+
+    /// <summary>
+    /// Bounded oldest-first history prune. The scan lists and reads every key under the prefix,
+    /// but it is still required at each append so the durable history never exceeds its cap.
+    /// Prunability:
+    ///  - Ignored/Held decisions never anchor anything: prunable immediately.
+    ///  - Dispatch decisions anchor redelivery only while their pipeline pointer exists AND the
+    ///    bounded-age horizon has not passed. The KV store exposes no wall clock, so ledger
+    ///    revision distance is the age proxy: once the newest revision is this far beyond the
+    ///    anchor's write, the JetStream delivery budget for that event is long exhausted and the
+    ///    anchor is dead weight. Without this horizon ordinary pushes would eventually exceed
+    ///    any cap with immortal anchors.
+    /// </summary>
+    private async Task PruneAsync(CancellationToken cancellationToken)
+    {
+        // Pruning is cap-driven (checked on every record): trigger records are small KV
+        // pointers, so the scan cost is bounded by the cap itself.
+        if (ledger is not IForgejoDeliveryRetentionLedger retention) return;
+        await DeliveryJournalRetention.PruneAsync(
+            retention,
+            "ci-trigger.",
+            triggerHistoryCap,
+            (entry, newestRevision, _) =>
+            {
+                var document = Deserialize(entry.Value);
+                if (document.Disposition != ForgejoCiTriggerDisposition.Dispatch)
+                    return Task.FromResult(new DeliveryJournalPruneDecision(true));
+                if (newestRevision - entry.Revision < (ulong)dispatchAnchorRevisionHorizon)
+                    return Task.FromResult(new DeliveryJournalPruneDecision(false));
+                // Once the bounded delivery horizon passes, this inbox anchor is no longer an
+                // active redelivery proof. Let it go even if the pipeline pointer exists; the
+                // pipeline journal can then reclaim its paired object on its next append. Keeping
+                // both journals mutually alive would make either cap impossible to satisfy.
+                return Task.FromResult(new DeliveryJournalPruneDecision(true));
+            },
+            "dispatch-decision triggers inside the bounded-age horizon that still anchor pipelines",
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static ForgejoCiTriggerJournalReceipt Compare(
@@ -125,7 +168,6 @@ internal sealed record ForgejoCiTriggerJournalDocument(
     TrustZone TrustZone,
     RunnerCapability[] Capabilities,
     bool MayPublishArtifacts,
-    bool RequiresQualifiedCandidate,
     long AuthorityEpoch,
     long AuthorityRevision)
 {
@@ -145,7 +187,6 @@ internal sealed record ForgejoCiTriggerJournalDocument(
             plan.TrustZone,
             plan.Capabilities.ToArray(),
             plan.MayPublishArtifacts,
-            plan.RequiresQualifiedCandidate,
             authorityEpoch,
             authorityRevision);
     }
@@ -167,7 +208,6 @@ internal sealed record ForgejoCiTriggerJournalDocument(
             JobKind != planned.JobKind || TrustZone != planned.TrustZone ||
             Capabilities is null || !Capabilities.SequenceEqual(planned.Capabilities) ||
             MayPublishArtifacts != planned.MayPublishArtifacts ||
-            RequiresQualifiedCandidate != planned.RequiresQualifiedCandidate ||
             AuthorityEpoch <= 0 || AuthorityRevision <= 0)
             throw new InvalidDataException("A persisted Forgejo trigger decision is invalid.");
     }
@@ -188,7 +228,6 @@ internal sealed record ForgejoCiTriggerJournalDocument(
         value.AppendJoin(',', plan.Capabilities);
         value.Append('\n');
         value.Append(plan.MayPublishArtifacts ? '1' : '0');
-        value.Append(plan.RequiresQualifiedCandidate ? '1' : '0');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
     }
 

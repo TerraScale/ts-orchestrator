@@ -177,7 +177,7 @@ internal static class StoragePlannerReplayCorpus
         var element = item.GetProperty(name);
         if (element.ValueKind != JsonValueKind.String || !ValidString(element.GetString()))
             throw new InvalidDataException("Replay string is invalid.");
-        return element.GetString()!;
+        return element.GetString() ?? throw new InvalidDataException("Replay value must contain text.");
     }
     private static bool ValidString(string? value)
     {

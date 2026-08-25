@@ -4,9 +4,12 @@ using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
+using System.Text;
 using System.Text.Json;
 using TerraScale.Orchestrator.Operations;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -20,6 +23,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly INatsKVStore? delivery;
     private readonly INatsObjStore? bundles;
     private readonly NatsTopology topology;
+    private readonly DirectDeliveryService? directDelivery;
 
     private NatsRuntime(
         NatsClient client,
@@ -29,7 +33,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsJSConsumer? cellSpecConsumer,
         INatsKVStore? delivery,
         INatsObjStore? bundles,
-        NatsTopology topology)
+        NatsTopology topology,
+        DirectDeliveryService? directDelivery)
     {
         this.client = client;
         this.service = service;
@@ -39,6 +44,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.delivery = delivery;
         this.bundles = bundles;
         this.topology = topology;
+        this.directDelivery = directDelivery;
     }
 
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
@@ -46,6 +52,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
     internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
     internal string Cell => topology.Cell;
+    internal DirectDeliveryService? DirectDelivery => directDelivery;
 
     internal NativeGitOpsCellNatsConsumer CreateNativeGitOpsConsumer()
     {
@@ -68,7 +75,10 @@ public sealed class NatsRuntime : IAsyncDisposable
 
     public static async Task<NatsRuntime> StartAsync(
         OrchestratorOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Protocol.ICommandSignatureVerifier? commandSignatureVerifier = null,
+        Delivery.DirectDeliveryDeploymentMode deploymentMode = Delivery.DirectDeliveryDeploymentMode.Development,
+        bool registersDirectDeliveryEndpoint = true)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -112,7 +122,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 await VerifyAnonymousDeniedAsync(options.NatsUrl, options.NatsTls, cancellationToken);
             }
             var nativeGitOpsEnabled = NativeGitOpsRuntime.IsEnabled(
-                options.GlobalNats is not null,
+                options.GlobalNats is not null &&
+                    GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(options.Cell),
                 options.CommandIdentity?.TrustKeyFiles.Count > 0);
             var state = await OpenStateWithRetryAsync(
                 client, topology, nativeGitOpsEnabled, cancellationToken);
@@ -161,6 +172,27 @@ public sealed class NatsRuntime : IAsyncDisposable
                 () => authority.Snapshot,
                 cancellationToken);
 
+            DirectDeliveryService? directDelivery = null;
+            if (state.Delivery is not null)
+            {
+                var ledger = new NatsForgejoDeliveryLedger(state.Delivery);
+                directDelivery = new DirectDeliveryService(
+                    new DirectDeliveryDevelopmentAuthorizer(() =>
+                        authority.Snapshot.Ready && authority.Snapshot.IsLeader),
+                    new DirectDeliveryDevelopmentProvenance(deploymentMode),
+                    new DirectDeliveryDevelopmentTargetResolver(new NatsDirectDeliveryTarget(ledger)),
+                    new NatsDirectDeliveryJournal(ledger),
+                    new DirectDeliverySourceArtifactBuilder(),
+                    auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
+                    authorityIsCurrent: request =>
+                    {
+                        var current = authority.Snapshot;
+                        return current.Ready && current.IsLeader &&
+                            current.KvRevision == request.AuthorityGeneration &&
+                            current.Epoch == request.WriterEpoch;
+                    });
+            }
+
             var services = client.CreateServicesContext();
             var service = await services.AddServiceAsync(
                 new NatsSvcConfig(topology.ServiceName, "1.0.0")
@@ -183,6 +215,49 @@ public sealed class NatsRuntime : IAsyncDisposable
                 subject: topology.HealthSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1" },
                 cancellationToken: cancellationToken);
+
+            if (directDelivery is not null)
+            {
+                // The direct-delivery mutation endpoint is only as strong as its admission seam:
+                // fail closed at startup in run mode without a signed-command verifier instead of
+                // ever accepting an unsigned production mutation. The startup plan owns the
+                // decision (Run-only); this runtime never re-derives it from options.
+                if (registersDirectDeliveryEndpoint && commandSignatureVerifier is null)
+                    throw new InvalidOperationException(
+                        "The direct delivery mutation endpoint requires a configured command identity verifier.");
+                if (registersDirectDeliveryEndpoint && commandSignatureVerifier is not null)
+                {
+                    await service.AddEndpointAsync<string>(
+                        async message =>
+                        {
+                            var wire = DirectDeliveryCommandWire.Decode(
+                                Encoding.UTF8.GetBytes(message.Data ?? string.Empty),
+                                Flatten(message.Headers),
+                                options.Cell,
+                                DateTimeOffset.UtcNow,
+                                TimeSpan.FromMinutes(5),
+                                commandSignatureVerifier,
+                                authority.Snapshot.KvRevision,
+                                authority.Snapshot.Epoch);
+                            var receipt = wire.Error == DirectDeliveryCommandWireError.None && wire.Request is not null
+                                ? await directDelivery.DeliverAsync(wire.Request, cancellationToken)
+                                    .ConfigureAwait(false)
+                                : Refused(wire);
+                            await message.ReplyAsync(
+                                DeliveryWireCodec.SerializeReceipt(receipt),
+                                cancellationToken: cancellationToken).ConfigureAwait(false);
+                        },
+                        name: "direct_delivery",
+                        subject: topology.DirectDeliverySubject,
+                        metadata: new Dictionary<string, string>
+                        {
+                            ["protocol"] = DeliveryRequest.CurrentSchemaVersion.ToString(),
+                            ["mutation"] = "direct",
+                            ["admission"] = "signed-envelope",
+                        },
+                        cancellationToken: cancellationToken);
+                }
+            }
 
             await service.AddEndpointAsync<string>(
                 message => message.ReplyAsync(
@@ -252,7 +327,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 state.CellSpecConsumer,
                 state.Delivery,
                 state.Bundles,
-                topology);
+                topology,
+                directDelivery);
         }
         catch
         {
@@ -454,7 +530,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         var jetStream = client.CreateJetStreamContext();
         foreach (var expected in topology.Streams)
         {
-            var stream = await jetStream.GetStreamAsync(expected.Name!, cancellationToken: cancellationToken);
+            if (expected.Name is not { } streamName)
+                throw new InvalidOperationException("The infrastructure-provisioned NATS stream has no name.");
+            var stream = await jetStream.GetStreamAsync(streamName, cancellationToken: cancellationToken);
             NatsOperationJournalStore.ValidateExactStreamConfiguration(stream.Info.Config, expected);
         }
 
@@ -471,9 +549,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore? delivery = null;
         INatsObjStore? bundles = null;
         INatsJSConsumer? cellSpecConsumer = null;
+        delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
         if (nativeGitOpsEnabled)
         {
-            delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
             bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
             NatsOperationJournalStore.ValidateExactObjectConfiguration(
                 (await bundles.GetStatusAsync(cancellationToken)).Info.Config, topology.Bundles);
@@ -501,7 +579,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         NATS.Client.JetStream.Models.ConsumerConfig expected,
         CancellationToken cancellationToken)
     {
-        var consumer = await jetStream.GetConsumerAsync(stream, expected.Name!, cancellationToken);
+        if (expected.Name is not { } consumerName)
+            throw new InvalidOperationException("The infrastructure-provisioned NATS consumer has no name.");
+        var consumer = await jetStream.GetConsumerAsync(stream, consumerName, cancellationToken);
         await consumer.RefreshAsync(cancellationToken);
         if (!CiRunnerConsumerReconciler.Matches(consumer.Info, expected, stream))
             throw new InvalidOperationException("The infrastructure-provisioned NATS consumer does not match its closed profile.");
@@ -600,6 +680,39 @@ public sealed class NatsRuntime : IAsyncDisposable
         headers is not null &&
         headers.TryGetLastValue(name, out var value) &&
         string.Equals(value, expected, StringComparison.Ordinal);
+
+    private static List<KeyValuePair<string, string>> Flatten(NatsHeaders? headers)
+    {
+        var flattened = new List<KeyValuePair<string, string>>();
+        if (headers is null) return flattened;
+        foreach (var (key, values) in headers)
+        foreach (var value in values)
+            flattened.Add(new KeyValuePair<string, string>(key, value ?? string.Empty));
+        return flattened;
+    }
+
+    /// <summary>
+    /// The redacted receipt for a mutation refused before dispatch: malformed wire input is an
+    /// input error; any envelope rejection (signature, cell, validity window) is a denial.
+    /// </summary>
+    private static DeliveryReceipt Refused(DirectDeliveryCommandWireReceipt wire) =>
+        new(
+            DeliveryRequest.CurrentSchemaVersion,
+            "invalid",
+            DeliveryReceiptStatus.Failed,
+            null,
+            null,
+            null,
+            new DeliveryProvenance(false, null, null),
+            new DeliveryHealth([], false),
+            new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired),
+            "refused",
+            new DeliveryErrorInfo(
+                wire.Error == DirectDeliveryCommandWireError.MalformedEnvelope
+                    ? DirectDeliveryErrorCode.InvalidInput
+                    : DirectDeliveryErrorCode.UnauthorizedActor,
+                "The signed direct-delivery command envelope was rejected before dispatch.",
+                "Check the command signature, cell, validity window, and canonical request bytes."));
 
     private sealed record RuntimeState(
         INatsJSConsumer StartupConsumer,

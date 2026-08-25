@@ -49,9 +49,13 @@ public sealed class ForgejoSourceConfiguration
             !string.IsNullOrEmpty(uri.Fragment) || !uri.AbsolutePath.EndsWith('/') ||
             uri.Scheme == "http" && !IsLoopback(uri.Host))
             throw new ArgumentException("The Forgejo source server URL is invalid or insecure.");
-        if (!ForgejoWebhookVerifier.IsRepository(repository))
+        if (repository is not { } configuredRepository ||
+            string.IsNullOrWhiteSpace(configuredRepository) ||
+            !ForgejoWebhookVerifier.IsRepository(configuredRepository))
             throw new ArgumentException("The Forgejo source repository must be an owner/name identity.");
-        return new(uri, repository!, ResolveTokenFile(tokenFile!));
+        if (tokenFile is not { } configuredTokenFile || string.IsNullOrWhiteSpace(configuredTokenFile))
+            throw new ArgumentException("The Forgejo source token file is required.");
+        return new(uri, configuredRepository, ResolveTokenFile(configuredTokenFile));
     }
 
     internal string ReadToken()
@@ -565,8 +569,12 @@ public sealed class ForgejoSourceClient : IForgejoRepositorySourceClient
         {
             if (reader.TokenType == JsonTokenType.StartObject) objectFields.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) objectFields.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !objectFields.Peek().Add(reader.GetString()!))
-                return true;
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (!objectFields.TryPeek(out var current) || reader.GetString() is not { } propertyName ||
+                    !current.Add(propertyName))
+                    return true;
+            }
         }
         return objectFields.Count != 0;
     }

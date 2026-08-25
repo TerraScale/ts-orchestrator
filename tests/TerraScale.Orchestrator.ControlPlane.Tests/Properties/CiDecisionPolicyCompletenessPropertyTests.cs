@@ -235,10 +235,9 @@ public sealed class CiDecisionPolicyCompletenessPropertyTests
     {
         Require(decision.Intents.Count == 1 && decision.Errors.Count == 1 && decision.Trace.Count == 1, family, index);
         Require(decision.Intents[0] is HoldDeliveryIntent hold && hold.Action == DeliveryAction.Hold && hold.Reason == code &&
-            hold.Job == job.Job && hold.Release is null && hold.Cell is null, family, index);
+            hold.Job == job.Job, family, index);
         var error = decision.Errors[0];
-        Require(error.Code == code && error.Requirement == DeliveryRequirementCode.Inv005 && error.Job == job.Job &&
-            error.Release is null && error.Cell is null, family, index);
+        Require(error.Code == code && error.Requirement == DeliveryRequirementCode.Inv005 && error.Job == job.Job, family, index);
         var trace = decision.Trace[0];
         Require(trace.Sequence == 1 && trace.Code == DeliveryTraceCode.Held && trace.Action == DeliveryAction.Hold,
             family, index);

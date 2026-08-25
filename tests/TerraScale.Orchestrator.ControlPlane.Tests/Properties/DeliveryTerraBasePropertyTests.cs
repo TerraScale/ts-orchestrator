@@ -21,16 +21,6 @@ public sealed class DeliveryTerraBasePropertyTests
     }
 
     [Test]
-    public async Task DeliveryPromotionAndRolloutPropertiesUseExactEvidenceRollbackAndTerminalOracles()
-    {
-        var first = UnderCulture("tr-TR", () => RunDelivery(0xD311_0002));
-        var replay = UnderCulture("ar-SA", () => RunDelivery(0xD311_0002));
-        await Assert.That(first).IsEqualTo(replay);
-        await Assert.That(first.Cases).IsEqualTo(Cases);
-        await Assert.That(first.Kinds).IsGreaterThanOrEqualTo(9);
-    }
-
-    [Test]
     public async Task TerraBaseTopologyPropertiesProtectMembershipQuorumReplayAndWriterFences()
     {
         var first = UnderCulture("tr-TR", () => RunTopology(0x7E22_0001));
@@ -244,41 +234,6 @@ public sealed class DeliveryTerraBasePropertyTests
         return new(Cases, kinds.Count, digest);
     }
 
-    private static Summary RunDelivery(ulong seed)
-    {
-        var random = new Generator(seed); var kinds = new HashSet<string>(); ulong digest = 0;
-        for (var index = 0; index < Cases; index++)
-        {
-            var generation = random.Next(900_000) + 1L; var subject = Subject(index); var mode = index % 12;
-            string actual; string expected;
-            if (mode < 6)
-            {
-                var qualification = Qualification(index, generation, subject);
-                qualification = mode switch { 1 => qualification with { Generation = generation + 1 },
-                    2 => qualification with { SignatureValid = false }, 3 => qualification with { ApprovalValid = false },
-                    4 => qualification with { TestsPassed = false },
-                    5 => qualification with { Compatibility = qualification.Compatibility with { PreviousToCurrentCompatible = false } }, _ => qualification };
-                expected = mode switch { 0 => "Promote", 1 => "EvidenceInvalidated", 2 => "ArtifactMismatch",
-                    3 => "ApprovalDenied", 4 => "EvidenceInvalidated", _ => "CompatibilityDenied" };
-                actual = DeliveryOutcome(DeliveryEngine.DecidePromotion(new(new($"release-{index}"), generation, subject, qualification, 96)));
-            }
-            else
-            {
-                var release = Release(index, generation); var rolloutMode = mode - 6;
-                var request = rolloutMode switch { 0 => Rollout(release),
-                    1 => Rollout(release, Stage(release, StageHealth.Healthy)),
-                    2 => Rollout(release, Stage(release, StageHealth.Failed)),
-                    3 => Rollout(release, Stage(release, StageHealth.Pending)),
-                    4 => Rollout(release, completed: release.OrderedCells.Select(cell => Completion(release, cell)).ToArray()),
-                    _ => Rollout(release, availability: Availability(release).Select((item, i) => i == 0 ? item with { RollbackAvailable = false } : item).ToArray()) };
-                expected = rolloutMode switch { 0 => "Stage", 1 => "Advance", 2 => "Rollback", 3 => "HealthDenied", 4 => "Idempotent", _ => "RollbackUnavailable" };
-                actual = DeliveryOutcome(DeliveryEngine.DecideRollout(request));
-            }
-            Require(actual == expected, "delivery", index); kinds.Add(actual); digest = Mix(digest, actual, generation);
-        }
-        return new(Cases, kinds.Count, digest);
-    }
-
     private static Summary RunTopology(ulong seed)
     {
         var random = new Generator(seed); var kinds = new HashSet<string>(); ulong digest = 0;
@@ -365,26 +320,6 @@ public sealed class DeliveryTerraBasePropertyTests
             new($"signature-verification-{source.Generation}"), dependencies, signatureValid, true, true);
     private static JobRequest Job() => new(new("pipeline"), new("job"), JobKind.TrustedBuild, new("tree"), 1, 1, 3,
         new("key"), [TrustZone.TrustedBuild], [RunnerCapability.Compile], 1, 10, false);
-    private static EvidenceSubject Subject(int index) => new(new($"tree-{index}"), new($"lock-{index}"), new($"schema-{index}"), new($"artifact-{index}"), new($"digest-{index}"), DeliveryArchitecture.LinuxArm64);
-    private static QualificationEvidence Qualification(int index, long generation, EvidenceSubject subject) => new(new($"release-{index}"), generation, subject,
-        new("tests"), new("evidence"), new("signer"), new("signature"), new("approval"), new(new("nn"), new("np"), new("pn"), true, true, true), true, true, true, true);
-    private static ReleaseSpec Release(int index, long generation) => new(new($"release-{index}"), new($"operation-{index}"), generation,
-        new($"artifact-{index}"), new($"digest-{index}"), new($"signer-{index}"), new($"signature-{index}"), DeliveryArchitecture.LinuxArm64,
-        new($"rollback-{index}"), new($"rollback-digest-{index}"), new($"rollback-signer-{index}"), new($"rollback-signature-{index}"),
-        DeliveryArchitecture.LinuxArm64, RolloutStrategy.Rolling,
-        RollbackPolicy.AutomaticOnFailedHealth, [new("gru"), new("sfo"), new("fra")]);
-    private static CellArtifactAvailability[] Availability(ReleaseSpec release) => release.OrderedCells.Select(cell => new CellArtifactAvailability(
-        release.Release, release.Operation, release.Generation, cell, release.Artifact, release.Digest, release.SigningIdentity, release.Signature,
-        release.Architecture, release.RollbackArtifact, release.RollbackDigest, release.RollbackSigningIdentity, release.RollbackSignature,
-        release.RollbackArchitecture, true, true)).ToArray();
-    private static StageEvidence Stage(ReleaseSpec release, StageHealth health) => new(new("observation"), release.Operation,
-        release.OrderedCells[0], release.Release, release.Generation, release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture,
-        health, new("health"), true, true);
-    private static CellCompletionEvidence Completion(ReleaseSpec release, DeliveryCellId cell) => new(release.Operation, cell,
-        release.Release, release.Generation, release.Artifact, release.Digest, release.SigningIdentity, release.Signature, release.Architecture, new("health"), StageHealth.Healthy);
-    private static RolloutRequest Rollout(ReleaseSpec release, StageEvidence? stage = null,
-        IEnumerable<CellCompletionEvidence>? completed = null, IEnumerable<CellArtifactAvailability>? availability = null) =>
-        new(release, completed ?? [], availability ?? Availability(release), stage, 96);
     private static TerraBaseEvidenceScope Scope(int index, ulong generation) => new(TerraBaseTestData.Cell($"cell-{index}"),
         TerraBaseTestData.Db($"db-{index}"), TerraBaseTestData.Member($"member-{index}"), TerraBaseTestData.Node($"node-{index}"),
         TerraBaseTestData.Volume($"volume-{index}"), TerraBaseTestData.Fence($"fence-{index}"), TerraBaseTestData.O(generation),

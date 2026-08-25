@@ -13,20 +13,20 @@ public sealed record RepositoryCiPipelineJob
         ForgejoResolvedRevision source,
         JobRequest request,
         IReadOnlyList<JobId> dependsOn,
-        bool mayPublishCandidateArtifact)
+        bool mayPublishArtifact)
     {
         Plan = plan;
         Source = source;
         Request = request;
         DependsOn = dependsOn;
-        MayPublishCandidateArtifact = mayPublishCandidateArtifact;
+        MayPublishArtifact = mayPublishArtifact;
     }
 
     public RepositoryCiPlannedJob Plan { get; }
     public ForgejoResolvedRevision Source { get; }
     public JobRequest Request { get; }
     public IReadOnlyList<JobId> DependsOn { get; }
-    public bool MayPublishCandidateArtifact { get; }
+    public bool MayPublishArtifact { get; }
 }
 
 public sealed class RepositoryCiPipelinePlan
@@ -35,14 +35,12 @@ public sealed class RepositoryCiPipelinePlan
         PipelineId pipeline,
         string digest,
         string impactDigest,
-        int candidateRetentionDays,
         RepositoryCiProfile profile,
         IReadOnlyList<RepositoryCiPipelineJob> jobs)
     {
         Pipeline = pipeline;
         Digest = digest;
         ImpactDigest = impactDigest;
-        CandidateRetentionDays = candidateRetentionDays;
         Profile = profile;
         Jobs = jobs;
     }
@@ -50,7 +48,6 @@ public sealed class RepositoryCiPipelinePlan
     public PipelineId Pipeline { get; }
     public string Digest { get; }
     public string ImpactDigest { get; }
-    public int CandidateRetentionDays { get; }
     public RepositoryCiProfile Profile { get; }
     public IReadOnlyList<RepositoryCiPipelineJob> Jobs { get; }
 }
@@ -72,16 +69,15 @@ public static class RepositoryCiPipelinePlanner
         ArgumentNullException.ThrowIfNull(trigger);
         ArgumentNullException.ThrowIfNull(impact);
         ArgumentNullException.ThrowIfNull(sources);
-        if (trigger.Disposition != ForgejoCiTriggerDisposition.Dispatch || trigger.RequiresQualifiedCandidate)
-            throw new InvalidOperationException("Only validation or candidate triggers can create a CI pipeline.");
+        if (trigger.Disposition != ForgejoCiTriggerDisposition.Dispatch)
+            throw new InvalidOperationException("Only dispatchable validation or build triggers can create a CI pipeline.");
         var expectedProfile = trigger.JobKind switch
         {
             JobKind.ProductValidation => RepositoryCiProfile.Feature,
-            JobKind.TrustedBuild => RepositoryCiProfile.Release,
+            JobKind.TrustedBuild => RepositoryCiProfile.Build,
             _ => throw new InvalidOperationException("The Forgejo trigger cannot create repository CI work."),
         };
         if (impact.Profile != expectedProfile || !IsDigest(impact.Digest) ||
-            impact.CandidateRetentionDays is < 1 or > 30 ||
             impact.Jobs is not { Count: > 0 and <= MaximumJobs })
             throw new ArgumentException("The CI impact plan does not match the trigger policy.", nameof(impact));
         if (generation <= 0 || minimumRunnerSequence <= 0 || maximumRunnerSequence < minimumRunnerSequence)
@@ -99,8 +95,8 @@ public static class RepositoryCiPipelinePlanner
         if (!sourceByRepository.TryGetValue(trigger.Envelope.Repository, out var triggeringSource) ||
             !StringComparer.OrdinalIgnoreCase.Equals(triggeringSource.Commit, trigger.Envelope.Revision))
             throw new ArgumentException("The signed Forgejo revision is not the exact triggering source.", nameof(sources));
-        if (expectedProfile == RepositoryCiProfile.Release && sourceArray.Any(static source => !source.SignatureVerified))
-            throw new InvalidOperationException("Every release pipeline source requires a verified commit signature.");
+        if (expectedProfile == RepositoryCiProfile.Build && sourceArray.Any(static source => !source.SignatureVerified))
+            throw new InvalidOperationException("Every trusted build source requires a verified commit signature.");
 
         var digest = PipelineDigest(
             trigger,
@@ -147,7 +143,6 @@ public static class RepositoryCiPipelinePlanner
             pipeline,
             digest,
             impact.Digest,
-            impact.CandidateRetentionDays,
             expectedProfile,
             ReadOnly(jobs));
     }
@@ -160,9 +155,6 @@ public static class RepositoryCiPipelinePlanner
             var job = impact.Jobs[index];
             if (job is null || job.Node is null || job.DependsOn is null || job.Reasons is null ||
                 !ForgejoWebhookVerifier.IsRepository(job.Repository) ||
-                !Enum.IsDefined(job.Promotion) ||
-                job.Node.Kind == RepositoryCiNodeKind.Artifact &&
-                    job.Promotion == RepositoryCiPromotionStrategy.None ||
                 job.Id != $"{job.Repository}:{job.Node.Id}" || !IsNodeId(job.Node.Id) ||
                 job.Node.Profiles is null || !job.Node.Profiles.Contains(impact.Profile) ||
                 job.Reasons is not { Count: > 0 and <= 128 } ||
@@ -214,8 +206,6 @@ public static class RepositoryCiPipelinePlanner
         value.AppendJoin(',', trigger.Capabilities);
         value.Append('\n');
         value.Append(impact.Digest);
-        value.Append('\n');
-        value.Append(impact.CandidateRetentionDays);
         value.Append('\n');
         value.Append(generation);
         value.Append(':');

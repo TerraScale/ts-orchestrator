@@ -65,10 +65,15 @@ public static class TerraBaseBackupPlanner
         if (request.NoConflictingOperation != TerraBaseProof.Proven) return TerraBaseDecision.Hold(TerraBaseCode.ConflictingTopologyMutation, trace);
         if (!request.IsFull)
         {
-            var parentCode = Validate(expected, request.ParentChain, false, out var parent);
+            if (request.ParentSequence is not { IsValid: true } parentSequence
+                || request.ParentBackup is not { } parentBackup
+                || request.ParentChain is not { } parentChain)
+                return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
+
+            var parentCode = Validate(expected, parentChain, false, out var parent);
             if (parentCode != TerraBaseCode.Completed) return TerraBaseDecision.Hold(parentCode, trace);
-            if (parent[^1].Sequence != request.ParentSequence || parent[^1].Backup != request.ParentBackup
-                || request.Sequence.Value != request.ParentSequence!.Value.Value + 1)
+            if (parent[^1].Sequence != parentSequence || parent[^1].Backup != parentBackup
+                || request.Sequence.Value != parentSequence.Value + 1)
                 return TerraBaseDecision.Hold(TerraBaseCode.ChainGap, trace);
         }
         return TerraBaseDecision.Emit(TerraBaseAction.Backup, TerraBaseTarget.BackupChain, TerraBaseCode.NextStep, trace,

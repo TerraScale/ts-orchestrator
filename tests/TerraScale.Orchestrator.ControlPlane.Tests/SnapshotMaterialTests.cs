@@ -14,15 +14,20 @@ public sealed class SnapshotMaterialTests
 
         await Assert.That(result.IsValid).IsTrue();
         await Assert.That(verifier.LastMaterial).IsSameReferenceAs(material);
-        await Assert.That(verifier.LastMaterial!.Authority).IsEqualTo(SnapshotTestData.Authority());
-        await Assert.That(verifier.LastMaterial.Stream).IsEqualTo(SnapshotTestData.Stream());
-        await Assert.That(verifier.LastMaterial.SnapshotId).IsEqualTo(SnapshotTestData.Id());
-        await Assert.That(verifier.LastMaterial.Schema).IsEqualTo(SnapshotTestData.Schema());
-        await Assert.That(verifier.LastMaterial.SigningKey).IsEqualTo(SnapshotTestData.Key());
-        await Assert.That(verifier.LastMaterial.Epoch).IsEqualTo(SnapshotTestData.Epoch());
-        await Assert.That(verifier.LastMaterial.StreamSequence).IsEqualTo(SnapshotTestData.Sequence());
-        await Assert.That(verifier.LastMaterial.Generation).IsEqualTo(SnapshotTestData.Generation());
-        await Assert.That(verifier.LastMaterial.StateDigest).IsEqualTo(SnapshotTestData.Digest());
+        if (verifier.LastMaterial is not { } verifiedMaterial)
+        {
+            throw new InvalidOperationException("The signature verifier did not receive snapshot material.");
+        }
+
+        await Assert.That(verifiedMaterial.Authority).IsEqualTo(SnapshotTestData.Authority());
+        await Assert.That(verifiedMaterial.Stream).IsEqualTo(SnapshotTestData.Stream());
+        await Assert.That(verifiedMaterial.SnapshotId).IsEqualTo(SnapshotTestData.Id());
+        await Assert.That(verifiedMaterial.Schema).IsEqualTo(SnapshotTestData.Schema());
+        await Assert.That(verifiedMaterial.SigningKey).IsEqualTo(SnapshotTestData.Key());
+        await Assert.That(verifiedMaterial.Epoch).IsEqualTo(SnapshotTestData.Epoch());
+        await Assert.That(verifiedMaterial.StreamSequence).IsEqualTo(SnapshotTestData.Sequence());
+        await Assert.That(verifiedMaterial.Generation).IsEqualTo(SnapshotTestData.Generation());
+        await Assert.That(verifiedMaterial.StateDigest).IsEqualTo(SnapshotTestData.Digest());
         await Assert.That(material.ToString()).IsEqualTo("<snapshot-signed-material>");
         await Assert.That(snapshot.ToString()).IsEqualTo("<signed-snapshot>");
     }

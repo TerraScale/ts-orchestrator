@@ -139,8 +139,7 @@ public static class NativeGitOpsCellSpecCompiler
         {
             (false, true) => NativeGitOpsChangeKind.Create,
             (true, false) => NativeGitOpsChangeKind.GuardedRetirement,
-            _ when change.Accepted!.Suspended != change.Proposed!.Suspended =>
-                change.Proposed.Suspended ? NativeGitOpsChangeKind.Suspend : NativeGitOpsChangeKind.Resume,
+            (true, true) => ChangedKind(change),
             _ => change.Kind,
         };
         return new(
@@ -150,6 +149,15 @@ public static class NativeGitOpsCellSpecCompiler
             proposed ? change.Proposed : null,
             GitOpsChildOwnership.RegionalJournal,
             GitOpsRemovalPolicy.GuardedRetirement);
+    }
+
+    private static NativeGitOpsChangeKind ChangedKind(NativeGitOpsChange change)
+    {
+        if (change.Accepted is not { } acceptedPlan || change.Proposed is not { } proposedPlan)
+            throw new InvalidDataException("A native GitOps update is missing one of its workload plans.");
+        return acceptedPlan.Suspended != proposedPlan.Suspended
+            ? proposedPlan.Suspended ? NativeGitOpsChangeKind.Suspend : NativeGitOpsChangeKind.Resume
+            : change.Kind;
     }
 
     private static IEnumerable<NativeGitOpsCellChange> OrderStopping(
@@ -170,7 +178,8 @@ public static class NativeGitOpsCellSpecCompiler
         var ordered = new List<NativeGitOpsCellChange>(actions.Count);
         while (ready.Count > 0)
         {
-            var id = ready.Min!;
+            if (ready.Min is not { } id)
+                throw new InvalidDataException("The native GitOps retirement graph lost its next workload.");
             ready.Remove(id);
             var action = actions[id];
             ordered.Add(action);
@@ -229,8 +238,10 @@ public static class NativeGitOpsCellSpecCompiler
                 WriteDigest(writer, "proposedWorkloadSha256", change.Proposed);
                 if (change.Kind == NativeGitOpsChangeKind.GuardedRetirement)
                 {
+                    if (change.Accepted is not { } retiredWorkload)
+                        throw new InvalidDataException("A guarded native GitOps retirement is missing its workload.");
                     writer.WritePropertyName("retiredWorkload");
-                    WriteWorkload(writer, change.Accepted!);
+                    WriteWorkload(writer, retiredWorkload);
                 }
                 writer.WriteEndObject();
             }

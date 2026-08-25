@@ -28,6 +28,13 @@ public sealed class SubjectPermissionPattern : IEquatable<SubjectPermissionPatte
             return false;
         }
 
+        if (value is null)
+        {
+            result = null;
+            error = SubjectGrammarError.Empty;
+            return false;
+        }
+
         for (var index = 0; index < tokens.Length; index++)
         {
             var token = tokens[index];
@@ -57,7 +64,7 @@ public sealed class SubjectPermissionPattern : IEquatable<SubjectPermissionPatte
             }
         }
 
-        result = new SubjectPermissionPattern(value!, tokens);
+        result = new SubjectPermissionPattern(value, tokens);
         return true;
     }
 

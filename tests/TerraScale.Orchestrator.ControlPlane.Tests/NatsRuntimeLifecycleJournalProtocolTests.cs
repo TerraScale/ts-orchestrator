@@ -22,7 +22,10 @@ public sealed class NatsRuntimeLifecycleJournalProtocolTests
         await Assert.That(serialized).DoesNotContain("ImageReference");
         await Assert.That(serialized).DoesNotContain("ContainerId");
         await Assert.That(serialized).DoesNotContain("credentials");
-        await Assert.That(RuntimeLifecycleNatsProtocol.TryDeserialize(serialized, out var parsed)).IsTrue();
+        if (!RuntimeLifecycleNatsProtocol.TryDeserialize(serialized, out var parsed) || parsed is null)
+        {
+            throw new InvalidOperationException("The canonical checkpoint must deserialize.");
+        }
         await Assert.That(RuntimeLifecycleNatsProtocol.IsCheckpoint(parsed, "gru", key, 1)).IsTrue();
 
         var tampered = parsed with { EventDigest = new RuntimeDigest(Digest("tampered")) };
@@ -38,6 +41,17 @@ public sealed class NatsRuntimeLifecycleJournalProtocolTests
         next = next with { EventDigest = RuntimeLifecycleFingerprint.Event(next) };
         await Assert.That(RuntimeLifecycleNatsProtocol.IsChained(parsed, next)).IsTrue();
         await Assert.That(RuntimeLifecycleNatsProtocol.IsChained(parsed, next with { PreviousEventDigest = new RuntimeDigest(Digest("foreign-chain")) })).IsFalse();
+    }
+
+    [Test]
+    public async Task NullAndMalformedCheckpointPayloadsFailClosedWithoutFabricatedOutput()
+    {
+        await Assert.That(RuntimeLifecycleNatsProtocol.TryDeserialize(null, out var nullCheckpoint)).IsFalse();
+        await Assert.That(nullCheckpoint).IsNull();
+        await Assert.That(RuntimeLifecycleNatsProtocol.TryDeserialize("null", out var jsonNullCheckpoint)).IsFalse();
+        await Assert.That(jsonNullCheckpoint).IsNull();
+        await Assert.That(RuntimeLifecycleNatsProtocol.TryDeserialize("{\"unexpected\":true}", out var malformedCheckpoint)).IsFalse();
+        await Assert.That(malformedCheckpoint).IsNull();
     }
 
     [Test]

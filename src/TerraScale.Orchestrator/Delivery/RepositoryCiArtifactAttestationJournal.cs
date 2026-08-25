@@ -28,7 +28,9 @@ internal enum RepositoryCiArtifactProofKind
 /// </summary>
 internal sealed class RepositoryCiArtifactAttestationJournal(
     IForgejoDeliveryLedger ledger,
-    IDeliveryObjectStore objects)
+    IDeliveryObjectStore objects,
+    int proofHistoryCap = 8192,
+    int pruneInterval = 64)
 {
     private const int MaximumPointerBytes = 8 * 1024;
     private const int MaximumProofBytes = 64 * 1024;
@@ -96,6 +98,20 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
         return document?.Runtime();
     }
 
+    /// <summary>The authority epoch of the durable artifact-signature pointer, or -1 when absent.</summary>
+    internal async Task<long> ReadArtifactAuthorityEpochAsync(
+        RepositoryCiArtifactSubject subject,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = await ledger.GetAsync(
+            Index(RepositoryCiArtifactProofKind.ArtifactSignature,
+                RepositoryCiArtifactAttestation.SubjectDigest(subject)),
+            cancellationToken);
+        return entry is null
+            ? -1
+            : DeserializePointer(entry.Value).AuthorityEpoch;
+    }
+
     private async Task<RepositoryCiArtifactAttestationJournalDisposition> RecordAsync(
         RepositoryCiArtifactProofKind kind,
         string subjectDigest,
@@ -133,6 +149,7 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
         try
         {
             await ledger.CreateAsync(key, Serialize(proposed), cancellationToken);
+            await PruneAsync(cancellationToken).ConfigureAwait(false);
             return RepositoryCiArtifactAttestationJournalDisposition.Recorded;
         }
         catch (ForgejoDeliveryLedgerConflictException)
@@ -141,6 +158,29 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
                 throw new InvalidDataException("A concurrent artifact proof pointer disappeared.");
             return Compare(observed, proposed);
         }
+    }
+
+    /// <summary>
+    /// Bounded oldest-first proof-pointer retention. Pruning a
+    /// pointer deletes its proof object with it; a later gate run for the same exact subject
+    /// re-derives and re-records the proof (signatures are subject-bound, not content history).
+    /// </summary>
+    private async Task PruneAsync(CancellationToken cancellationToken)
+    {
+        if (ledger is not IForgejoDeliveryRetentionLedger retention) return;
+        // The configured interval is an optimization hint only; skipping a scan would permit
+        // the durable proof-key count to exceed the declared cap.
+        _ = pruneInterval;
+        await DeliveryJournalRetention.PruneAsync(
+            retention,
+            "ci-artifact-proof.",
+            proofHistoryCap,
+            (entry, _, _) => Task.FromResult(new DeliveryJournalPruneDecision(
+                true,
+                DeserializePointer(entry.Value).ObjectName)),
+            "artifact proof pointers",
+            cancellationToken,
+            objects as IDeliveryRetentionObjectStore).ConfigureAwait(false);
     }
 
     private async Task<RepositoryCiArtifactProofDocument?> ReadAsync(
@@ -323,19 +363,21 @@ internal sealed record RepositoryCiArtifactProofDocument(
 
     internal RepositoryCiSignedArtifact Artifact()
     {
-        OpaqueSignature.TryCopyFrom(Signature, out var signature);
-        return new(Subject.Value(), new(SigningIdentity), new(SignatureId), signature!);
+        if (!OpaqueSignature.TryCopyFrom(Signature, out var signature) || signature is null)
+            throw new InvalidDataException("The artifact proof signature is missing.");
+        return new(Subject.Value(), new(SigningIdentity), new(SignatureId), signature);
     }
 
     internal RepositoryCiSignedRuntimeObservation Runtime()
     {
-        OpaqueSignature.TryCopyFrom(Signature, out var signature);
+        if (!OpaqueSignature.TryCopyFrom(Signature, out var signature) || signature is null)
+            throw new InvalidDataException("The runtime proof signature is missing.");
         return new(
             Subject.Value(),
             SigningIdentity,
             new(ObservedRuntimeDigest),
             new(SignatureId),
-            signature!);
+            signature);
     }
 
     internal void Validate()

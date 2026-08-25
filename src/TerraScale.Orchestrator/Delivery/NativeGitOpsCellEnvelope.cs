@@ -61,7 +61,8 @@ public static class NativeGitOpsCellEnvelope
         var identities = CreateIdentities(descriptor, spec.Cell, spec.PayloadSha256, writerEpoch);
         var payload = OpaquePayload.CopyFrom(spec.Payload.Span);
         var digestBytes = SHA256.HashData(spec.Payload.Span);
-        PayloadDigest.TryCopyFrom(digestBytes, out var digest);
+        if (!PayloadDigest.TryCopyFrom(digestBytes, out var digest) || digest is null)
+            throw new InvalidDataException("The native GitOps cell payload digest could not be constructed.");
         var material = new CommandSignedMaterial(
             identities.Protocol,
             identities.Cell,
@@ -74,7 +75,7 @@ public static class NativeGitOpsCellEnvelope
             expiresAt,
             identities.Attempt,
             payload,
-            digest!);
+            digest);
         var signature = signer.Sign(material);
         if (signature is not { IsValid: true } || signature.Length > MaximumSignatureBytes)
             throw new InvalidDataException("The native GitOps cell signer returned an invalid signature.");
@@ -90,7 +91,7 @@ public static class NativeGitOpsCellEnvelope
             expiresAt,
             identities.Attempt,
             payload,
-            digest!,
+            digest,
             signature);
     }
 
@@ -179,7 +180,11 @@ public static class NativeGitOpsCellEnvelope
             expected.PayloadSha256,
             expectedWriterEpoch);
         var digestBytes = SHA256.HashData(envelope.Payload.Bytes);
-        PayloadDigest.TryCopyFrom(digestBytes, out var digest);
+        if (!PayloadDigest.TryCopyFrom(digestBytes, out var digest) || digest is null)
+            return new(
+                NativeGitOpsCellEnvelopeError.WrongCellSpec,
+                CommandValidationError.MalformedEnvelope,
+                null);
         if (envelope.ProtocolVersion != identities.Protocol || envelope.Cell != identities.Cell ||
             envelope.AggregateId != identities.Aggregate || envelope.DesiredGeneration != identities.Generation ||
             envelope.WriterEpoch != identities.Epoch || envelope.OperationId != identities.Operation ||
@@ -326,8 +331,12 @@ public static class NativeGitOpsCellEnvelope
         {
             if (reader.TokenType == JsonTokenType.StartObject) objects.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) objects.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !objects.Peek().Add(reader.GetString()!))
-                throw new JsonException("A native GitOps cell payload contains duplicate fields.");
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (objects.Count == 0 || reader.GetString() is not { } propertyName ||
+                    !objects.Peek().Add(propertyName))
+                    throw new JsonException("A native GitOps cell payload contains duplicate or malformed fields.");
+            }
         }
     }
 

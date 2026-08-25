@@ -16,6 +16,8 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string MembersSubject => $"{Root}.query.members";
 
+    public string DirectDeliverySubject => $"{Root}.command.delivery";
+
     public string OperationJournalCreateSubject => $"{Root}.internal.operation-journal.create";
 
     public string OperationJournalUpdateSubject => $"{Root}.internal.operation-journal.update";

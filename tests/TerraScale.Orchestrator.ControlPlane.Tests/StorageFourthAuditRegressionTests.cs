@@ -20,10 +20,11 @@ public sealed class StorageFourthAuditRegressionTests
         };
 
         await Assert.That(baseline.Action).IsEqualTo(StorageAction.Create);
-        await Assert.That(ReferenceEquals(baseline.Scope!.EncryptionKey, key)).IsTrue();
-        await Assert.That(ReferenceEquals(baseline.Scope.Placement, placement)).IsTrue();
-        await Assert.That(baseline.Scope.Domain).IsEqualTo(StorageDomain.TerraBase);
-        await Assert.That(baseline.Scope.MountPurpose).IsEqualTo(StorageMountPurpose.DatabaseData);
+        var baselineScope = StorageTestData.Require(baseline.Scope);
+        await Assert.That(ReferenceEquals(baselineScope.EncryptionKey, key)).IsTrue();
+        await Assert.That(ReferenceEquals(baselineScope.Placement, placement)).IsTrue();
+        await Assert.That(baselineScope.Domain).IsEqualTo(StorageDomain.TerraBase);
+        await Assert.That(baselineScope.MountPurpose).IsEqualTo(StorageMountPurpose.DatabaseData);
         foreach (var variant in variants)
         {
             await Assert.That(variant.Action).IsEqualTo(StorageAction.Create);
@@ -43,12 +44,12 @@ public sealed class StorageFourthAuditRegressionTests
             .ToArray();
         var decisionRoutes = exportedMethods
             .Where(method => !method.IsSpecialName && method.ReturnType == typeof(StorageDecision))
-            .Select(method => $"{method.DeclaringType!.Name}.{method.Name}")
+            .Select(method => $"{StorageTestData.Require(method.DeclaringType).Name}.{method.Name}")
             .Order(StringComparer.Ordinal)
             .ToArray();
         var projectedRoutes = exportedMethods
             .Where(method => method.ReturnType == typeof(StorageNumericTrace) || method.ReturnType == typeof(StorageIntentScope))
-            .Select(method => $"{method.DeclaringType!.Name}.{method.Name}")
+            .Select(method => $"{StorageTestData.Require(method.DeclaringType).Name}.{method.Name}")
             .Order(StringComparer.Ordinal)
             .ToArray();
 
@@ -70,17 +71,17 @@ public sealed class StorageFourthAuditRegressionTests
             "StorageDecision.get_Scope", "StorageDecision.get_Trace", "StorageIntentScope.<Clone>$",
             "StorageNumericTrace.<Clone>$", "StorageNumericTrace.get_Scope",
         });
-        foreach (var value in new object[] { decision.Trace!, decision.Scope! })
+        foreach (var value in new object[] { StorageTestData.Require(decision.Trace), StorageTestData.Require(decision.Scope) })
         {
             var cloneMethod = value.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance |
                 BindingFlags.DeclaredOnly).Single(method => method.Name == "<Clone>$");
-            var clone = cloneMethod.Invoke(value, null)!;
+            var clone = StorageTestData.Require(cloneMethod.Invoke(value, null));
             await Assert.That(clone).IsEqualTo(value);
             await Assert.That(ReferenceEquals(clone, value)).IsFalse();
         }
         await Assert.That(decision.ToString()).DoesNotContain("secret-key");
         await Assert.That(decision.ToString()).DoesNotContain("secret-placement");
-        await Assert.That(decision.Scope!.ToString()).IsEqualTo("<storage-intent-scope>");
+        await Assert.That(StorageTestData.Require(decision.Scope).ToString()).IsEqualTo("<storage-intent-scope>");
     }
 
     private static StorageDecision Create(EncryptionKeyReference key, StoragePlacementId placement,

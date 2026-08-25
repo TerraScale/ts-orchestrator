@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Text.Json;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
@@ -16,6 +18,268 @@ namespace TerraScale.Orchestrator.Tests;
 [NotInParallel("NatsR3")]
 public sealed class NatsControlR3L0cTests
 {
+    [Test]
+    public async Task FixtureAccountJwtClaimsAreExactAndCrossAccountServiceSurvivesReconnect()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        var authority = NatsClaim(fixture.GlobalAuthorityAccountJwt);
+        var directory = NatsClaim(fixture.GlobalDirectoryAccountJwt);
+        var regional = NatsClaim(fixture.RegionalControlSfoAccountJwt);
+        await Assert.That(fixture.GlobalAuthorityAccountPublicKey)
+            .IsNotEqualTo(fixture.GlobalDirectoryAccountPublicKey);
+        await Assert.That(fixture.GlobalDirectoryAccountPublicKey)
+            .IsNotEqualTo(fixture.RegionalControlSfoAccountPublicKey);
+        await Assert.That(fixture.Authority.AccountPublicKey)
+            .IsEqualTo(fixture.GlobalAuthorityAccountPublicKey);
+        await Assert.That(ReadUserIssuer(fixture.Authority))
+            .IsEqualTo(fixture.GlobalAuthorityAccountPublicKey);
+
+        var authorityNats = authority.GetProperty("nats");
+        await Assert.That(authorityNats.GetProperty("exports").GetArrayLength()).IsEqualTo(0);
+        await Assert.That(authorityNats.GetProperty("imports").GetArrayLength()).IsEqualTo(0);
+
+        var exports = directory.GetProperty("nats").GetProperty("exports");
+        await Assert.That(exports.GetArrayLength()).IsEqualTo(1);
+        var serviceExport = exports[0];
+        await Assert.That(serviceExport.EnumerateObject().Select(static property => property.Name))
+            .IsEquivalentTo(["subject", "type", "response_type"]);
+        await Assert.That(serviceExport.GetProperty("subject").GetString())
+            .IsEqualTo(GlobalNatsTopology.CellDirectorySubject);
+        await Assert.That(serviceExport.GetProperty("type").GetString()).IsEqualTo("service");
+        await Assert.That(serviceExport.GetProperty("response_type").GetString()).IsEqualTo("Singleton");
+        await Assert.That(directory.GetProperty("nats").GetProperty("imports").GetArrayLength())
+            .IsEqualTo(0);
+
+        var imports = regional.GetProperty("nats").GetProperty("imports");
+        await Assert.That(imports.GetArrayLength()).IsEqualTo(1);
+        var serviceImport = imports[0];
+        await Assert.That(serviceImport.EnumerateObject().Select(static property => property.Name))
+            .IsEquivalentTo(["account", "subject", "to", "type"]);
+        await Assert.That(serviceImport.GetProperty("account").GetString())
+            .IsEqualTo(fixture.GlobalDirectoryAccountPublicKey);
+        await Assert.That(serviceImport.GetProperty("subject").GetString())
+            .IsEqualTo(GlobalNatsTopology.CellDirectorySubject);
+        await Assert.That(serviceImport.GetProperty("type").GetString()).IsEqualTo("service");
+        await Assert.That(regional.GetProperty("nats").GetProperty("exports").GetArrayLength())
+            .IsEqualTo(0);
+
+        await using var serviceClient = await fixture.ConnectAsync(fixture.CellDirectoryService);
+        await using var service = await serviceClient.CreateServicesContext().AddServiceAsync(
+            new NatsSvcConfig("terrascale-global-cell-directory-gru", "1.0.0")
+            {
+                QueueGroup = "ts-orch-global-cell-directory"
+            });
+        await service.AddEndpointAsync<string>(
+            message => message.ReplyAsync("directory-snapshot"),
+            name: "cells",
+            subject: GlobalNatsTopology.CellDirectorySubject);
+
+        await using (var reader = await fixture.ConnectAsync(fixture.CellDirectoryReader))
+        {
+            var response = await reader.RequestAsync<string, string>(
+                GlobalNatsTopology.CellDirectorySubject,
+                string.Empty);
+            response.EnsureSuccess();
+            await Assert.That(response.Data).IsEqualTo("directory-snapshot");
+        }
+
+        await using var reconnectedReader = await fixture.ConnectAsync(fixture.CellDirectoryReader);
+        await Assert.That(async () => _ = await reconnectedReader.RequestAsync<string, string>(
+                "$KV.GLOBAL_CELLS.cell.sfo", "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await reconnectedReader.RequestAsync<string, string>(
+                GlobalNatsTopology.CiSubject, "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await reconnectedReader.RequestAsync<string, string>(
+                "$KV.ORCH_LEADERS.global", "forbidden"))
+            .Throws<NatsException>();
+    }
+
+    [Test]
+    public async Task ProductionDirectoryAndServiceR3RuntimePublishesSnapshotThroughRegionalImport()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionGlobalCellDirectoryAsync();
+
+        var endpoint = $"tls://127.0.0.1:{fixture.ClientPorts[0]}";
+        var directoryConfiguration = new GlobalDirectoryNatsConfiguration(
+            endpoint,
+            fixture.CellDirectoryPublisher.NKeyFile,
+            new(
+                fixture.CaFile,
+                fixture.CellDirectoryPublisher.CertificateFile,
+                fixture.CellDirectoryPublisher.KeyFile),
+            3,
+            "sfo");
+        var serviceConfiguration = new GlobalDirectoryServiceNatsConfiguration(
+            endpoint,
+            fixture.CellDirectoryService.NKeyFile,
+            new(
+                fixture.CaFile,
+                fixture.CellDirectoryService.CertificateFile,
+                fixture.CellDirectoryService.KeyFile),
+            3,
+            "gru");
+        var membership = SfoMembershipSnapshot();
+        var authority = new RegionalAuthoritySnapshot(
+            "leader",
+            true,
+            1,
+            1,
+            DateTimeOffset.UtcNow.AddSeconds(15),
+            DateTimeOffset.UtcNow,
+            null);
+
+        GlobalCellDirectoryRuntime? directory = null;
+        GlobalCellDirectoryServiceRuntime? service = null;
+        NatsClient? reader = null;
+        try
+        {
+            var observedDirectory = directory = await GlobalCellDirectoryRuntime.StartAsync(
+                directoryConfiguration,
+                () => membership,
+                () => authority,
+                publishEnabled: true);
+            var observedService = service = await GlobalCellDirectoryServiceRuntime.StartAsync(
+                serviceConfiguration,
+                () => observedDirectory.Snapshot);
+            var observedReader = reader = await fixture.ConnectAsync(fixture.CellDirectoryReader);
+
+            GlobalCellDirectorySnapshot? snapshot = null;
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                try
+                {
+                    var response = await observedReader.RequestAsync<string, string>(
+                        GlobalNatsTopology.CellDirectorySubject,
+                        "snapshot");
+                    response.EnsureSuccess();
+                    snapshot = JsonSerializer.Deserialize(
+                        response.Data ?? throw new InvalidDataException("The directory service returned no snapshot."),
+                        GlobalCellDirectoryJsonContext.Default.GlobalCellDirectorySnapshot);
+                    if (snapshot is { ActiveCells: 1 } &&
+                        snapshot.Cells is [{ Cell: "sfo", IsStale: false }])
+                        break;
+                }
+                catch (NatsException) when (attempt < 49)
+                {
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+
+            await Assert.That(snapshot).IsNotNull();
+            snapshot!.Validate();
+            await Assert.That(snapshot.Condition).IsEqualTo(GlobalCellDirectoryCondition.Healthy);
+            await Assert.That(snapshot.ActiveCells).IsEqualTo(1);
+            await Assert.That(snapshot.Cells[0].Cell).IsEqualTo("sfo");
+            await Assert.That(snapshot.Cells[0].Cluster).IsEqualTo("orchestrator-control-sfo");
+            await Assert.That(snapshot.Cells[0].IsStale).IsFalse();
+
+            await observedService.DisposeAsync();
+            service = null;
+            await Assert.That(async () => _ = await observedReader.RequestAsync<string, string>(
+                    GlobalNatsTopology.CellDirectorySubject,
+                    "after-dispose"))
+                .Throws<NatsException>();
+        }
+        finally
+        {
+            if (reader is not null)
+                await reader.DisposeAsync();
+            if (service is not null)
+                await service.DisposeAsync();
+            if (directory is not null)
+                await directory.DisposeAsync();
+        }
+
+        await Assert.That(directory?.Completion.IsCompleted ?? true).IsTrue();
+    }
+
+    [Test]
+    public async Task ProductionGlobalAuthorityR3RuntimeReconcilesItsTopologyAndCannotCrossAccountBoundaries()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionGlobalCellDirectoryAsync();
+
+        var topology = new GlobalNatsTopology(3);
+        var endpoint = $"tls://127.0.0.1:{fixture.ClientPorts[0]}";
+        var configuration = new GlobalAuthorityNatsConfiguration(
+            endpoint,
+            fixture.Authority.NKeyFile,
+            new(
+                fixture.CaFile,
+                fixture.Authority.CertificateFile,
+                fixture.Authority.KeyFile),
+            3,
+            "gru");
+
+        await using var runtime = await GlobalNatsRuntime.StartAsync(
+            configuration,
+            "global-authority-1",
+            "gru",
+            ciRunnerNatsSigner: null,
+            cancellationToken: CancellationToken.None);
+        await using var authority = await fixture.ConnectAsync(fixture.Authority);
+        var jetStream = authority.CreateJetStreamContext();
+
+        foreach (var expected in topology.Streams)
+        {
+            if (expected.Name is not { } streamName || expected.Subjects is not { } subjects)
+                throw new InvalidOperationException("The expected control stream topology is incomplete.");
+            var stream = await jetStream.GetStreamAsync(streamName);
+            await stream.RefreshAsync();
+            await Assert.That(stream.Info.Config.NumReplicas).IsEqualTo(3);
+            await Assert.That(stream.Info.Config.Subjects).IsEquivalentTo(subjects);
+        }
+
+        var stores = jetStream.CreateKeyValueStoreContext();
+        var releases = await stores.GetStoreAsync(topology.Releases.Bucket);
+        var releaseRevision = await releases.CreateAsync("release.conformance", "accepted");
+        var release = await releases.GetEntryAsync<string>("release.conformance");
+        release.EnsureSuccess();
+        await Assert.That(release.Revision).IsEqualTo(releaseRevision);
+
+        var runnerJobs = await stores.GetStoreAsync(topology.RunnerJobs.Bucket);
+        var jobRevision = await runnerJobs.CreateAsync("ci.runner.conformance.job.1", "accepted");
+        var job = await runnerJobs.GetEntryAsync<string>("ci.runner.conformance.job.1");
+        job.EnsureSuccess();
+        await Assert.That(job.Revision).IsEqualTo(jobRevision);
+
+        var objects = jetStream.CreateObjectStoreContext();
+        foreach (var bucket in new[] { topology.Bundles.Bucket, topology.RunnerBundles.Bucket })
+        {
+            var store = await objects.GetObjectStoreAsync(bucket);
+            _ = await store.PutAsync("conformance", new byte[] { 3, 5, 8 });
+            await Assert.That(await store.GetBytesAsync("conformance"))
+                .IsEquivalentTo(new byte[] { 3, 5, 8 });
+        }
+
+        foreach (var subject in new[]
+                 {
+                     "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
+                     "$KV.GLOBAL_CELLS.cell.gru",
+                     "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME",
+                     "$KV.ORCH_RUNTIME.runtime.protected",
+                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS",
+                     "$KV.ORCH_OPERATIONS.operation.protected",
+                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS",
+                     "$KV.ORCH_OPERATION_PROOFS.proof.protected",
+                     "$JS.API.STREAM.INFO.CELL_SPEC",
+                     "$JS.API.STREAM.INFO.UNRELATED",
+                 })
+        {
+            await Assert.That(async () => _ = await authority.RequestAsync<string, string>(subject, "{}"))
+                .Throws<NatsException>();
+        }
+    }
+
     [Test]
     public async Task CellDirectoryReaderCanOnlyCallTheAuthenticatedReadOnlyService()
     {
@@ -44,6 +308,12 @@ public sealed class NatsControlR3L0cTests
 
         await Assert.That(async () => _ = await reader.RequestAsync<string, string>(
                 "$KV.GLOBAL_CELLS.cell.sfo", "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await reader.RequestAsync<string, string>(
+                GlobalNatsTopology.CiSubject, "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await reader.RequestAsync<string, string>(
+                "$KV.ORCH_LEADERS.global", "forbidden"))
             .Throws<NatsException>();
         await Assert.That(async () => _ = await serviceClient.RequestAsync<string, string>(
                 "$KV.GLOBAL_CELLS.cell.gru", "forbidden"))
@@ -76,6 +346,9 @@ public sealed class NatsControlR3L0cTests
             .Throws<NatsException>();
         await Assert.That(async () => _ = await publisher.RequestAsync<string, string>(
                 "$KV.ORCH_LEADERS.global", "forbidden"))
+            .Throws<NatsException>();
+        await Assert.That(async () => _ = await publisher.RequestAsync<string, string>(
+                GlobalNatsTopology.CiSubject, "forbidden"))
             .Throws<NatsException>();
     }
 
@@ -459,5 +732,57 @@ public sealed class NatsControlR3L0cTests
         {
             return false;
         }
+    }
+
+    private static RegionalRuntimeMembershipSnapshot SfoMembershipSnapshot()
+    {
+        var observedAt = DateTimeOffset.UtcNow;
+        var health = new RegionalRuntimeMembershipHealth(
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            true,
+            0,
+            RegionalRuntimeMembershipCondition.Healthy,
+            observedAt);
+        var member = new RegionalRuntimeMember(
+            1,
+            "sfo",
+            "orchestrator-control-sfo",
+            "controller-1",
+            Guid.NewGuid().ToString("N"),
+            "test-build",
+            ["authority", "messaging"],
+            observedAt.AddSeconds(-1),
+            observedAt,
+            observedAt.AddSeconds(30),
+            "leader",
+            true,
+            1,
+            1);
+        return new(2, "sfo", observedAt, health, [member]);
+    }
+
+    private static JsonElement NatsClaim(string jwt)
+    {
+        var segments = jwt.Split('.');
+        return JsonDocument.Parse(Encoding.UTF8.GetString(Base64UrlDecode(segments[1]))).RootElement.Clone();
+    }
+
+    private static string ReadUserIssuer(NatsControlR3L0cFixture.NatsControlR3L0cIdentity identity)
+    {
+        var jwt = File.ReadLines(identity.CredentialsFile)
+            .First(line => line.Length > 0 && line[0] != '-');
+        return NatsClaim(jwt).GetProperty("iss").GetString()!;
+    }
+
+    private static byte[] Base64UrlDecode(string value)
+    {
+        value = value.Replace('-', '+').Replace('_', '/');
+        return Convert.FromBase64String(value.PadRight(value.Length + ((4 - value.Length % 4) % 4), '='));
     }
 }

@@ -19,7 +19,7 @@ public enum RepositoryCiProfile
 {
     Unspecified,
     Feature,
-    Release,
+    Build,
 }
 
 public enum RepositoryCiResourceWeight
@@ -28,18 +28,6 @@ public enum RepositoryCiResourceWeight
     Light,
     Medium,
     Heavy,
-}
-
-public enum RepositoryCiPromotionStrategy
-{
-    Unspecified,
-    None,
-    Package,
-    OciImage,
-    Pages,
-    NativeRolling,
-    NativeBlueGreen,
-    NativeOrdered,
 }
 
 public enum RepositoryCiArchitecture
@@ -97,16 +85,12 @@ public sealed class RepositoryCiDescriptorV2
         string apiVersion,
         string repository,
         string digest,
-        int candidateRetentionDays,
-        RepositoryCiPromotionStrategy promotion,
         IReadOnlyList<RepositoryCiDependency> repositoryDependencies,
         IReadOnlyList<RepositoryCiNode> nodes)
     {
         ApiVersion = apiVersion;
         Repository = repository;
         Digest = digest;
-        CandidateRetentionDays = candidateRetentionDays;
-        Promotion = promotion;
         RepositoryDependencies = repositoryDependencies;
         Nodes = nodes;
     }
@@ -114,8 +98,6 @@ public sealed class RepositoryCiDescriptorV2
     public string ApiVersion { get; }
     public string Repository { get; }
     public string Digest { get; }
-    public int CandidateRetentionDays { get; }
-    public RepositoryCiPromotionStrategy Promotion { get; }
     public IReadOnlyList<RepositoryCiDependency> RepositoryDependencies { get; }
     public IReadOnlyList<RepositoryCiNode> Nodes { get; }
 }
@@ -123,7 +105,8 @@ public sealed class RepositoryCiDescriptorV2
 /// <summary>Compiles the command-free repository CI policy used by the native affected graph.</summary>
 public static class RepositoryCiDescriptor
 {
-    public const string ApiVersion = "terrascale.ci/v2";
+    public const string ApiVersion = "terrascale.ci/v3";
+    private const string RetiredApiVersion = "terrascale.ci/v2";
     public const int MaximumBytes = 256 * 1024;
     public const int MaximumNodes = 256;
     public const int MaximumItemsPerNode = 64;
@@ -150,25 +133,23 @@ public static class RepositoryCiDescriptor
                 descriptor.Span,
                 RepositoryCiDescriptorJsonContext.Default.RepositoryCiDescriptorDocument)
                 ?? throw new JsonException();
+            // Retired-schema detection precedes unknown-field rejection so callers receive one
+            // actionable migration error instead of per-field "unknown field" noise.
+            if (document.ApiVersion == RetiredApiVersion)
+                throw new InvalidDataException(RetiredSchemaMessage(document));
+            if (document.ApiVersion is not { } apiVersion || apiVersion != ApiVersion)
+                throw new InvalidDataException(
+                    $"The repository CI descriptor apiVersion '{document.ApiVersion}' is not supported; this control plane requires '{ApiVersion}'.");
             RejectUnknown(document.Extra);
-            if (document.ApiVersion != ApiVersion || !ForgejoWebhookVerifier.IsRepository(document.Repository))
+            if (document.Repository is not { } repository ||
+                !ForgejoWebhookVerifier.IsRepository(repository))
                 throw new InvalidDataException("The repository CI descriptor identity is invalid or unsupported.");
-            if (document.CandidateRetentionDays is < 1 or > 30 ||
-                !ParseEnum(document.Promotion, out RepositoryCiPromotionStrategy promotion))
-                throw new InvalidDataException("The repository CI candidate policy is invalid.");
-
             var dependencies = ParseRepositoryDependencies(document);
-            var nodes = OrderAndValidate(ParseNodes(document, promotion));
-            if (promotion != RepositoryCiPromotionStrategy.None &&
-                !nodes.Any(static node => node.Kind == RepositoryCiNodeKind.Artifact &&
-                    node.Profiles.Contains(RepositoryCiProfile.Release)))
-                throw new InvalidDataException("A promotable repository CI policy requires a release artifact node.");
+            var nodes = OrderAndValidate(ParseNodes(document));
             return new(
                 ApiVersion,
-                document.Repository!,
-                ComputeDigest(document.Repository!, document.CandidateRetentionDays, promotion, dependencies, nodes),
-                document.CandidateRetentionDays,
-                promotion,
+                repository,
+                ComputeDigest(repository, dependencies, nodes),
                 ReadOnly(dependencies),
                 ReadOnly(nodes));
         }
@@ -190,19 +171,17 @@ public static class RepositoryCiDescriptor
         {
             if (value is null) throw new InvalidDataException("A repository CI dependency is missing.");
             RejectUnknown(value.Extra);
-            if (!ForgejoWebhookVerifier.IsRepository(value.Repository) ||
-                value.Repository == document.Repository || !unique.Add(value.Repository!) ||
-                !IsReason(value.Reason))
+            if (value.Repository is not { } repository || value.Reason is not { } reason ||
+                !ForgejoWebhookVerifier.IsRepository(repository) || repository == document.Repository ||
+                !unique.Add(repository) || !IsReason(reason))
                 throw new InvalidDataException("A repository CI dependency is invalid.");
-            dependencies.Add(new(value.Repository!, value.Reason!));
+            dependencies.Add(new(repository, reason));
         }
         dependencies.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Repository, right.Repository));
         return dependencies;
     }
 
-    private static List<RepositoryCiNode> ParseNodes(
-        RepositoryCiDescriptorDocument document,
-        RepositoryCiPromotionStrategy promotion)
+    private static List<RepositoryCiNode> ParseNodes(RepositoryCiDescriptorDocument document)
     {
         if (document.Nodes is not { Length: > 0 and <= MaximumNodes })
             throw new InvalidDataException("The repository CI node list must be bounded and non-empty.");
@@ -212,17 +191,17 @@ public static class RepositoryCiDescriptor
         {
             if (value is null) throw new InvalidDataException("A repository CI node is missing.");
             RejectUnknown(value.Extra);
-            if (!IsToken(value.Id) || !ids.Add(value.Id!) ||
+            if (value.Id is not { } id || !IsToken(id) || !ids.Add(id) ||
                 !ParseEnum(value.Kind, out RepositoryCiNodeKind kind) ||
                 !ParseEnum(value.ResourceWeight, out RepositoryCiResourceWeight weight))
                 throw new InvalidDataException("A repository CI node identity or policy is invalid.");
             var profiles = ParseProfiles(value.Profiles, kind);
-            var architectures = ParseArchitectures(value.Architectures, kind, promotion);
+            var architectures = ParseArchitectures(value.Architectures, kind);
             var paths = ParseStrings(value.Paths, IsSafePath, required: false);
             var dependencies = ParseStrings(value.DependsOn, IsToken, required: false);
             if (paths.Count == 0 && dependencies.Count == 0)
                 throw new InvalidDataException("Every repository CI node must have a direct path or dependency.");
-            nodes.Add(new(value.Id!, kind, weight, profiles, architectures, paths, dependencies));
+            nodes.Add(new(id, kind, weight, profiles, architectures, paths, dependencies));
         }
         return nodes;
     }
@@ -245,27 +224,20 @@ public static class RepositoryCiDescriptor
 
     private static IReadOnlyList<RepositoryCiArchitecture> ParseArchitectures(
         string[]? values,
-        RepositoryCiNodeKind kind,
-        RepositoryCiPromotionStrategy promotion)
+        RepositoryCiNodeKind kind)
     {
-        values ??= kind == RepositoryCiNodeKind.Artifact && IsNative(promotion)
-            ? [nameof(RepositoryCiArchitecture.LinuxX64), nameof(RepositoryCiArchitecture.LinuxArm64)]
-            : [nameof(RepositoryCiArchitecture.Any)];
+        values ??= [nameof(RepositoryCiArchitecture.Any)];
         if (values.Length is < 1 or > 2)
             throw new InvalidDataException("A repository CI architecture list violates its technical bound.");
         var architectures = new HashSet<RepositoryCiArchitecture>();
         foreach (var value in values)
             if (!ParseEnum(value, out RepositoryCiArchitecture architecture) || !architectures.Add(architecture))
                 throw new InvalidDataException("A repository CI architecture is invalid.");
-        var expected = kind != RepositoryCiNodeKind.Artifact || promotion is
-            RepositoryCiPromotionStrategy.Package or RepositoryCiPromotionStrategy.OciImage or
-            RepositoryCiPromotionStrategy.Pages
-                ? [RepositoryCiArchitecture.Any]
-                : IsNative(promotion)
-                    ? [RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]
-                    : architectures.ToArray();
+        var expected = kind != RepositoryCiNodeKind.Artifact
+            ? [RepositoryCiArchitecture.Any]
+            : architectures.ToArray();
         if (!architectures.SetEquals(expected))
-            throw new InvalidDataException("A repository CI architecture list does not satisfy its promotion policy.");
+            throw new InvalidDataException("A repository CI architecture list does not satisfy the artifact policy.");
         return ReadOnly(architectures.Order().ToArray());
     }
 
@@ -280,7 +252,7 @@ public static class RepositoryCiDescriptor
         var unique = new HashSet<string>(StringComparer.Ordinal);
         foreach (var value in values)
         {
-            if (!validate(value) || !unique.Add(value!))
+            if (value is not { } text || !validate(text) || !unique.Add(text))
                 throw new InvalidDataException("A repository CI node list contains an invalid item.");
         }
         return ReadOnly(unique.Order(StringComparer.Ordinal).ToArray());
@@ -310,7 +282,8 @@ public static class RepositoryCiDescriptor
         var ordered = new List<RepositoryCiNode>(nodes.Count);
         while (ready.Count > 0)
         {
-            var id = ready.Min!;
+            if (ready.Min is not { } id)
+                throw new InvalidDataException("The repository CI node graph lost a ready node.");
             ready.Remove(id);
             ordered.Add(byId[id]);
             foreach (var dependent in dependents[id].Order(StringComparer.Ordinal))
@@ -334,8 +307,6 @@ public static class RepositoryCiDescriptor
 
     private static string ComputeDigest(
         string repository,
-        int retentionDays,
-        RepositoryCiPromotionStrategy promotion,
         IReadOnlyList<RepositoryCiDependency> dependencies,
         IReadOnlyList<RepositoryCiNode> nodes)
     {
@@ -345,8 +316,6 @@ public static class RepositoryCiDescriptor
             writer.WriteStartObject();
             writer.WriteString("apiVersion", ApiVersion);
             writer.WriteString("repository", repository);
-            writer.WriteNumber("candidateRetentionDays", retentionDays);
-            writer.WriteString("promotion", promotion.ToString());
             writer.WriteStartArray("repositoryDependencies");
             foreach (var dependency in dependencies)
             {
@@ -394,16 +363,52 @@ public static class RepositoryCiDescriptor
         while (reader.Read())
         {
             if (reader.TokenType == JsonTokenType.StartObject) objects.Push(new(StringComparer.Ordinal));
-            else if (reader.TokenType == JsonTokenType.EndObject) objects.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !objects.Peek().Add(reader.GetString()!))
-                throw new InvalidDataException("The repository CI descriptor contains duplicate fields.");
+            else if (reader.TokenType == JsonTokenType.EndObject)
+            {
+                if (objects.Count == 0)
+                    throw new InvalidDataException("The repository CI descriptor contains an unmatched object end.");
+                objects.Pop();
+            }
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (!objects.TryPeek(out var properties) || reader.GetString() is not { } property ||
+                    !properties.Add(property))
+                    throw new InvalidDataException("The repository CI descriptor contains duplicate fields.");
+            }
         }
     }
 
     private static void RejectUnknown(Dictionary<string, JsonElement>? values)
     {
         if (values is { Count: > 0 })
-            throw new InvalidDataException("The repository CI descriptor contains an unknown field.");
+            throw new InvalidDataException(
+                $"The repository CI descriptor contains unknown fields ({string.Join(", ", values.Keys.Order(StringComparer.Ordinal))}); " +
+                $"remove them or move to a newer descriptor schema. Supported fields are defined by '{ApiVersion}'.");
+    }
+
+    /// <summary>
+    /// One bounded, actionable migration error for the retired candidate-era schema. Sibling
+    /// repositories still carry v2 descriptors; their CI fails closed with these exact steps.
+    /// </summary>
+    private static string RetiredSchemaMessage(RepositoryCiDescriptorDocument document)
+    {
+        var retired = new List<string>();
+        if (document.Extra is { } extra)
+        {
+            foreach (var field in extra.Keys.Order(StringComparer.Ordinal))
+                retired.Add(field);
+        }
+        var profiles = (document.Nodes ?? [])
+            .SelectMany(static node => node?.Profiles ?? [])
+            .Where(static profile => profile == "Release")
+            .ToList();
+        if (profiles.Count > 0)
+            retired.Add("profiles \"Release\"");
+        var present = retired.Count > 0 ? $" (retired content found: {string.Join(", ", retired)})" : "";
+        return
+            $"The repository CI descriptor uses retired schema '{RetiredApiVersion}'{present}. " +
+            $"Migrate the descriptor: delete 'candidateRetentionDays' and 'promotion', rename every 'Release' profile to 'Build', " +
+            $"and set apiVersion to '{ApiVersion}'. Descriptor owners migrate their own repository; CI for unmigrated repositories stays closed.";
     }
 
     private static bool ParseEnum<T>(string? value, out T parsed) where T : struct, Enum =>
@@ -427,10 +432,6 @@ public static class RepositoryCiDescriptor
     private static bool IsReason(string? value) => value is { Length: >= 1 and <= 256 } &&
         value == value.Trim() && !value.Any(char.IsControl);
 
-    private static bool IsNative(RepositoryCiPromotionStrategy strategy) => strategy is
-        RepositoryCiPromotionStrategy.NativeRolling or RepositoryCiPromotionStrategy.NativeBlueGreen or
-        RepositoryCiPromotionStrategy.NativeOrdered;
-
     private static IReadOnlyList<T> ReadOnly<T>(T[] values) => new ReadOnlyCollection<T>(values);
     private static IReadOnlyList<T> ReadOnly<T>(List<T> values) => new ReadOnlyCollection<T>(values.ToArray());
 }
@@ -439,8 +440,6 @@ internal sealed class RepositoryCiDescriptorDocument
 {
     public string? ApiVersion { get; set; }
     public string? Repository { get; set; }
-    public int CandidateRetentionDays { get; set; }
-    public string? Promotion { get; set; }
     public RepositoryCiDependencyDocument?[]? RepositoryDependencies { get; set; }
     public RepositoryCiNodeDocument?[]? Nodes { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }

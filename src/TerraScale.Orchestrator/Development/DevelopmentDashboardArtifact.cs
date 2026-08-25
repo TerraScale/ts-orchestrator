@@ -27,7 +27,8 @@ internal static class DevelopmentDashboardArtifact
                 {
                     var relative = Path.GetRelativePath(source, sourceFile);
                     var destination = Path.Combine(staging, relative);
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    Directory.CreateDirectory(
+                        DevelopmentGuards.RequireDirectory(destination, "Dashboard artifact destination"));
                     File.Copy(sourceFile, destination);
                 }
                 Directory.Move(staging, target);

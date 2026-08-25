@@ -20,6 +20,31 @@ internal interface IRepositoryCiArtifactSignatureVerifier
         OpaqueSignature signature);
 }
 
+/// <summary>The exact signed identity of one CI artifact; every attestation proof is bound to it.</summary>
+internal sealed record RepositoryCiArtifactSubject(
+    string PipelineDigest,
+    JobId Job,
+    ArtifactId Artifact,
+    RepositoryCiArchitecture Architecture,
+    DigestId Digest,
+    string EntrypointsDigest);
+
+internal sealed record RepositoryCiVerifiedArtifactAttestation(
+    SigningIdentityId SigningIdentity,
+    SignatureId Signature,
+    DigestId? ObservedRuntimeDigest);
+
+/// <summary>
+/// Owns registry/package signature verification and native execution evidence. A null result means
+/// the exact artifact subject is not qualified; callers never infer either proof from build output.
+/// </summary>
+internal interface IRepositoryCiArtifactAttestationVerifier
+{
+    Task<RepositoryCiVerifiedArtifactAttestation?> VerifyAsync(
+        RepositoryCiArtifactSubject subject,
+        CancellationToken cancellationToken);
+}
+
 internal sealed record RepositoryCiSignedArtifact(
     RepositoryCiArtifactSubject Subject,
     SigningIdentityId SigningIdentity,
@@ -107,11 +132,13 @@ internal static class RepositoryCiArtifactAttestation
         IRepositoryCiArtifactSignatureVerifier verifier)
     {
         ArgumentNullException.ThrowIfNull(verifier);
-        return StructurallyValid(runtime) && runtime!.ObservedRuntimeDigest == runtime.Subject.Digest &&
-            verifier.Verify(
-                runtime.RunnerIdentity,
-                RuntimeMaterial(runtime.Subject, runtime.RunnerIdentity, runtime.ObservedRuntimeDigest),
-                runtime.Signature) == VerificationOutcome.Valid;
+        if (runtime is not { } observation || !StructurallyValid(observation) ||
+            observation.ObservedRuntimeDigest != observation.Subject.Digest)
+            return false;
+        return verifier.Verify(
+            observation.RunnerIdentity,
+            RuntimeMaterial(observation.Subject, observation.RunnerIdentity, observation.ObservedRuntimeDigest),
+            observation.Signature) == VerificationOutcome.Valid;
     }
 
     internal static string SubjectDigest(RepositoryCiArtifactSubject subject)
@@ -280,7 +307,7 @@ internal sealed class RepositoryCiSignedArtifactAttestationVerifier(
 internal sealed class RepositoryCiArtifactProofAuthorityLostException : Exception { }
 
 /// <summary>
-/// Mints the controller-owned artifact signature only after the candidate reader has derived an
+/// Mints the controller-owned artifact signature only after the attestation gate has derived an
 /// exact subject from read-verified runner evidence. Native-runtime proof remains independent.
 /// </summary>
 internal sealed class RepositoryCiIssuingArtifactAttestationVerifier(
@@ -319,7 +346,19 @@ internal sealed class RepositoryCiIssuingArtifactAttestationVerifier(
             if (disposition == RepositoryCiArtifactAttestationJournalDisposition.StaleAuthority)
                 throw new RepositoryCiArtifactProofAuthorityLostException();
             if (disposition == RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict)
-                throw new InvalidDataException("The artifact subject already has a different signed proof.");
+            {
+                // Signatures are randomized, so two leaders attesting the same exact subject under
+                // the same authority produce different bytes and the CAS keeps one winner. The
+                // durable winner is authoritative: adopt it when it verifies against the same
+                // trust roots instead of failing the pipeline.
+                var winnerEpoch = await journal.ReadArtifactAuthorityEpochAsync(subject, cancellationToken);
+                if (winnerEpoch > authorityEpoch)
+                    throw new RepositoryCiArtifactProofAuthorityLostException();
+                if (await verifier.VerifyAsync(subject, cancellationToken) is { } winner)
+                    return winner;
+                throw new InvalidDataException(
+                    "The artifact subject already has a different signed proof that does not verify.");
+            }
             if (disposition is not (RepositoryCiArtifactAttestationJournalDisposition.Recorded or
                     RepositoryCiArtifactAttestationJournalDisposition.Duplicate))
                 throw new InvalidDataException("The artifact proof journal returned an unspecified disposition.");

@@ -110,7 +110,7 @@ internal sealed class ForgejoRepositoryCiSourceGraph : IAsyncDisposable
         var profile = trigger.JobKind switch
         {
             ControlPlane.Delivery.JobKind.ProductValidation => RepositoryCiProfile.Feature,
-            ControlPlane.Delivery.JobKind.TrustedBuild => RepositoryCiProfile.Release,
+            ControlPlane.Delivery.JobKind.TrustedBuild => RepositoryCiProfile.Build,
             _ => throw new InvalidOperationException("The trigger cannot resolve a CI source graph."),
         };
         var snapshot = await SnapshotAsync(trigger, "develop", exactRootMain: false, cancellationToken);
@@ -132,7 +132,7 @@ internal sealed class ForgejoRepositoryCiSourceGraph : IAsyncDisposable
             snapshot.Descriptors,
             trigger.Envelope.Repository,
             changedPaths,
-            RepositoryCiProfile.Release);
+            RepositoryCiProfile.Build);
         return Array.AsReadOnly(snapshot.Observations
             .Where(observation => affected.Contains(observation.Revision.Repository))
             .ToArray());

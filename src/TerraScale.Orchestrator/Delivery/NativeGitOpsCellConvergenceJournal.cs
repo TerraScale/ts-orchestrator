@@ -105,9 +105,14 @@ internal sealed class NativeGitOpsCellConvergenceJournal(IForgejoDeliveryLedger 
         {
             var entry = await ledger.GetAsync(key, cancellationToken);
             var current = entry is null ? null : Deserialize(entry.Value);
+            var currentCheckpoint = current is null
+                ? null
+                : entry is { } currentEntry
+                    ? current.Checkpoint(currentEntry.Revision)
+                    : throw new InvalidDataException("A native GitOps convergence record lost its durable revision.");
             var comparison = Compare(current, spec, accepted);
             if (comparison is { } rejected)
-                return new(rejected, current?.Checkpoint(entry!.Revision));
+                return new(rejected, currentCheckpoint);
             var baseline = Baseline(current, spec, accepted.Cell);
             var decision = NativeGitOpsCellConvergencePlanner.Decide(
                 accepted,
@@ -127,13 +132,15 @@ internal sealed class NativeGitOpsCellConvergenceJournal(IForgejoDeliveryLedger 
             if (current is not null && proposed.SameCheckpoint(current))
                 return new(
                     NativeGitOpsCellConvergenceJournalDisposition.Duplicate,
-                    current.Checkpoint(entry!.Revision));
+                    currentCheckpoint ?? throw new InvalidDataException(
+                        "A duplicate native GitOps convergence record lost its durable revision."));
             if (current is not null && accepted.Generation == current.Generation &&
                 accepted.WriterEpoch == current.WriterEpoch &&
                 observationWatermark <= current.ObservationWatermark)
                 return new(
                     NativeGitOpsCellConvergenceJournalDisposition.StaleObservation,
-                    current.Checkpoint(entry!.Revision));
+                    currentCheckpoint ?? throw new InvalidDataException(
+                        "A stale native GitOps convergence record lost its durable revision."));
             if (!authorityStillValid())
                 return new(NativeGitOpsCellConvergenceJournalDisposition.StaleAuthority, null);
             try
@@ -196,9 +203,12 @@ internal sealed class NativeGitOpsCellConvergenceJournal(IForgejoDeliveryLedger 
         if (spec.AcceptedGeneration is null) return null;
         if (current is null)
             throw new InvalidOperationException("A noninitial CellSpec requires accepted regional history.");
-        return current.Generation == spec.Generation
-            ? new(cell, current.AcceptedBaseGeneration!.Value, current.AcceptedBaseGlobalPlanDigest!)
-            : new(cell, current.Generation, current.GlobalPlanDigest);
+        if (current.Generation != spec.Generation)
+            return new(cell, current.Generation, current.GlobalPlanDigest);
+        if (current.AcceptedBaseGeneration is not { } acceptedBaseGeneration ||
+            current.AcceptedBaseGlobalPlanDigest is not { } acceptedBaseGlobalPlanDigest)
+            throw new InvalidDataException("A native GitOps convergence record is missing its accepted base proof.");
+        return new(cell, acceptedBaseGeneration, acceptedBaseGlobalPlanDigest);
     }
 
     private static NativeGitOpsCellConvergenceDocument Deserialize(string value)
@@ -356,6 +366,8 @@ internal sealed record NativeGitOpsCellConvergenceDocument(
 
     private bool ValidDecision()
     {
+        if (!Enum.IsDefined(State) || !Enum.IsDefined(HoldReason) || !Enum.IsDefined(IntentKind))
+            return false;
         var hasIntent = IntentKind != NativeGitOpsCellConvergenceIntentKind.Unspecified;
         var intentValid = hasIntent && !string.IsNullOrWhiteSpace(IntentWorkloadId) &&
             IntentGeneration > 0 && Digest(IntentWorkloadSha256) &&
@@ -385,20 +397,30 @@ internal sealed record NativeGitOpsCellConvergenceDocument(
 
     private NativeGitOpsCellConvergenceDecision Decision()
     {
-        NativeGitOpsCellConvergenceIntent? intent = IntentKind == NativeGitOpsCellConvergenceIntentKind.Unspecified
-            ? null
-            : new(
-                IntentKind,
-                IntentWorkloadId!,
-                IntentGeneration!.Value,
-                IntentWorkloadSha256!,
-                IntentObservationEvidenceSha256,
-                RollbackQualifiedGeneration is null
-                    ? null
-                    : new(
-                        RollbackQualifiedGeneration.Value,
-                        RollbackGlobalPlanDigest!,
-                        RollbackQualificationProofSha256!));
+        if (IntentKind == NativeGitOpsCellConvergenceIntentKind.Unspecified)
+            return new(State, HoldReason, null, ConvergenceDigest);
+        if (IntentWorkloadId is not { } workloadId || IntentGeneration is not { } generation ||
+            IntentWorkloadSha256 is not { } workloadSha256)
+            throw new InvalidDataException("A native GitOps convergence intent is missing its required proof.");
+        NativeGitOpsRollbackTarget? rollbackTarget = null;
+        if (RollbackQualifiedGeneration is { } qualifiedGeneration)
+        {
+            if (RollbackGlobalPlanDigest is not { } globalPlanDigest ||
+                RollbackQualificationProofSha256 is not { } qualificationProofSha256)
+                throw new InvalidDataException("A native GitOps rollback intent is missing its qualification proof.");
+            rollbackTarget = new(qualifiedGeneration, globalPlanDigest, qualificationProofSha256);
+        }
+        else if (RollbackGlobalPlanDigest is not null || RollbackQualificationProofSha256 is not null)
+        {
+            throw new InvalidDataException("A native GitOps rollback intent has an incomplete target.");
+        }
+        var intent = new NativeGitOpsCellConvergenceIntent(
+            IntentKind,
+            workloadId,
+            generation,
+            workloadSha256,
+            IntentObservationEvidenceSha256,
+            rollbackTarget);
         return new(State, HoldReason, intent, ConvergenceDigest);
     }
 

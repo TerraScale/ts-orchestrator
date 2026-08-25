@@ -623,7 +623,8 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
                 var destination = Path.Combine(
                     staging,
                     Path.GetRelativePath(runtime.Destination, file));
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                Directory.CreateDirectory(
+                    DevelopmentGuards.RequireDirectory(destination, "Runtime volume destination"));
                 File.Copy(file, destination, overwrite: true);
             }
 
@@ -696,7 +697,7 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
         .Concat(topology.GlobalResources)
         .SelectMany(resource => new[] { resource.Port, resource.SecondaryPort })
         .Where(port => port.HasValue)
-        .Select(port => port!.Value)
+        .Select(port => port ?? throw new InvalidOperationException("A published development port is missing."))
         .Distinct()
         .Order()
         .ToArray();

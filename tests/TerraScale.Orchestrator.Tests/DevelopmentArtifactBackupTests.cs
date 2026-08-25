@@ -14,7 +14,7 @@ public sealed class DevelopmentArtifactBackupTests
         try
         {
             Directory.CreateDirectory(platform);
-            Directory.CreateDirectory(Path.GetDirectoryName(pointer)!);
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(pointer, "Dashboard pointer"));
             await File.WriteAllTextAsync(Path.Combine(platform, "TerraScale.Platform.dll"), "healthy");
             await File.WriteAllTextAsync(pointer, "healthy-dashboard");
 

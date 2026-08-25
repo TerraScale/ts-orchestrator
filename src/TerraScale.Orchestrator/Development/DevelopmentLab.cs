@@ -42,7 +42,9 @@ public static class DevelopmentLab
         OrchestratorOptions options,
         CancellationToken cancellationToken)
     {
-        var state = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
+        var state = await DevelopmentStateStore.ReadAsync(
+            DevelopmentGuards.RequireLabOption(options.StateFile, nameof(options.StateFile)),
+            cancellationToken);
         if (state is null)
         {
             Console.Error.WriteLine("The Orchestrator development lab has no recorded state.");
@@ -61,7 +63,7 @@ public static class DevelopmentLab
     {
         await PreDeploymentEvidence.RequireAsync(
             options.EvidenceFile,
-            options.WorkspaceRoot!,
+            DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
             topology.Profile,
             cancellationToken);
         using var validationLease = LocalValidationLease.Acquire();
@@ -71,34 +73,39 @@ public static class DevelopmentLab
                 TimeSpan.FromMinutes(2),
                 cancellationToken)
             : null;
-        Directory.CreateDirectory(options.DataDirectory!);
+        Directory.CreateDirectory(
+            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)));
         if (HasProductWorkloads(topology))
         {
             await DevelopmentArtifactBuilder.BuildAsync(
-                options.WorkspaceRoot!,
-                options.DataDirectory!,
+                DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
+                DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                 cancellationToken);
         }
-        var previous = await DevelopmentStateStore.ReadAsync(options.StateFile!, cancellationToken);
+        var previous = await DevelopmentStateStore.ReadAsync(
+            DevelopmentGuards.RequireLabOption(options.StateFile, nameof(options.StateFile)),
+            cancellationToken);
         var generation = (previous?.Generation ?? 0) + 1;
         var startedAt = DateTimeOffset.UtcNow;
         var reconciliationQueue = Channel.CreateBounded<DevelopmentReconcilePlan>(16);
         var reconciliations = new ConcurrentDictionary<string, DevelopmentReconciliationProgress>(
             StringComparer.Ordinal);
         var incidents = new Dictionary<string, DevelopmentIncident>(StringComparer.Ordinal);
-        File.Delete(options.EndpointsFile!);
+        File.Delete(DevelopmentGuards.RequireLabOption(options.EndpointsFile, nameof(options.EndpointsFile)));
 
         var supervisor = new DevelopmentProcessSupervisor(
             topology,
-            options.WorkspaceRoot!,
-            options.DataDirectory!,
+            DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
+            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
             options.Instance);
         try
         {
             await using (supervisor)
             {
                 await supervisor.InitializeAsync(cancellationToken);
-                var natsSecurity = DevelopmentNatsSecurity.Create(topology, options.DataDirectory!);
+                var natsSecurity = DevelopmentNatsSecurity.Create(
+                    topology,
+                    DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)));
                 await PersistAsync(
                     options,
                     topology,
@@ -128,7 +135,9 @@ public static class DevelopmentLab
                             supervisor,
                             cell,
                             kind,
-                            Path.Combine(options.DataDirectory!, "nats"),
+                            Path.Combine(
+                                DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
+                                "nats"),
                             natsSecurity.Cell(cell.Cell));
                         await NatsDevelopmentCluster.WaitReadyAsync(
                             resources, supervisor, natsSecurity.Cell(cell.Cell), cancellationToken);
@@ -136,7 +145,11 @@ public static class DevelopmentLab
                 }
 
                 await ProvisionControllerTopologiesAsync(topology, natsSecurity, cancellationToken);
-                StartControllers(supervisor, topology, natsSecurity, options.WorkspaceRoot!);
+                StartControllers(
+                    supervisor,
+                    topology,
+                    natsSecurity,
+                    DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)));
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
                 supervisor.ThrowIfAnyExited();
                 if (HasProductWorkloads(topology))
@@ -144,8 +157,8 @@ public static class DevelopmentLab
                     await DevelopmentWorkloadRuntime.StartAsync(
                         supervisor,
                         topology,
-                        options.WorkspaceRoot!,
-                        options.DataDirectory!,
+                        DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
+                        DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                         natsSecurity,
                         cancellationToken);
                 }
@@ -168,7 +181,7 @@ public static class DevelopmentLab
                 Console.WriteLine($"TerraScale Orchestrator development topology generation {generation} is ready.");
 
                 await using var controlSocket = DevelopmentControlSocket.Start(
-                    options.SocketFile!,
+                    DevelopmentGuards.RequireLabOption(options.SocketFile, nameof(options.SocketFile)),
                     request => AcceptReconciliation(topology, reconciliationQueue, reconciliations, request));
                 var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
                 while (!cancellationToken.IsCancellationRequested)
@@ -192,7 +205,7 @@ public static class DevelopmentLab
                     // clients reload the same PEM paths. Remint before health-driven restarts.
                     if (await TryRemintAndRestartTlsConsumersAsync(
                             topology,
-                            options.DataDirectory!,
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                             supervisor,
                             natsSecurity,
                             force: false,
@@ -262,7 +275,7 @@ public static class DevelopmentLab
                     if (AnyProbeTlsLeafInvalid(topology, natsSecurity) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
-                            options.DataDirectory!,
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                             supervisor,
                             natsSecurity,
                             force: true,
@@ -276,12 +289,14 @@ public static class DevelopmentLab
                     // consumer's probe leaf is already invalid, then restart victims.
                     var exitedResources = supervisor.ExitedResources();
                     if (exitedResources.Count > 0 &&
-                        (DevelopmentPki.LeavesNeedRemint(options.DataDirectory!, DateTimeOffset.UtcNow) ||
+                        (DevelopmentPki.LeavesNeedRemint(
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
+                            DateTimeOffset.UtcNow) ||
                          exitedResources.Any(name =>
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, name))) &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
-                            options.DataDirectory!,
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                             supervisor,
                             natsSecurity,
                             force: true,
@@ -325,7 +340,7 @@ public static class DevelopmentLab
                     if (certificateFailure &&
                         await TryRemintAndRestartTlsConsumersAsync(
                             topology,
-                            options.DataDirectory!,
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                             supervisor,
                             natsSecurity,
                             force: true,
@@ -2483,11 +2498,11 @@ public static class DevelopmentLab
                              ResourceHasInvalidTlsLeaf(topology, natsSecurity, observation.Key) ||
                              RequiresForceRemintOnPersistentUnhealth(topology, observation.Key) ||
                              DevelopmentPki.LeavesNeedRemint(
-                                 options.DataDirectory!,
+                                 DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                                  DateTimeOffset.UtcNow)) &&
                             await TryRemintAndRestartTlsConsumersAsync(
                                 topology,
-                                options.DataDirectory!,
+                                DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                                 supervisor,
                                 natsSecurity,
                                 force: true,
@@ -2528,7 +2543,7 @@ public static class DevelopmentLab
                 CancellationToken.None,
                 reconciliations.Values,
                 incidents.Values);
-            File.Delete(options.EndpointsFile!);
+            File.Delete(DevelopmentGuards.RequireLabOption(options.EndpointsFile, nameof(options.EndpointsFile)));
         }
         return 0;
     }
@@ -2624,12 +2639,12 @@ public static class DevelopmentLab
                 reconciliations.Values,
                 incidents.Values);
             backup = DevelopmentArtifactBackup.Capture(
-                options.DataDirectory!,
+                DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                 work.ReconciliationId,
                 kinds);
             await DevelopmentArtifactBuilder.BuildAsync(
-                options.WorkspaceRoot!,
-                options.DataDirectory!,
+                DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
+                DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
                 cancellationToken,
                 kinds);
 
@@ -2641,7 +2656,8 @@ public static class DevelopmentLab
                 {
                     supervisor.UpdateWorkingDirectory(
                         resource.Name,
-                        DevelopmentDashboardArtifact.Resolve(options.DataDirectory!));
+                        DevelopmentDashboardArtifact.Resolve(
+                            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory))));
                 }
                 await supervisor.RestartAsync(resource.Name);
                 await WaitForResourceHealthyAsync(
@@ -2686,7 +2702,8 @@ public static class DevelopmentLab
                         {
                             supervisor.UpdateWorkingDirectory(
                                 resource.Name,
-                                DevelopmentDashboardArtifact.Resolve(options.DataDirectory!));
+                                DevelopmentDashboardArtifact.Resolve(
+                                    DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory))));
                         }
                         await supervisor.RestartAsync(resource.Name);
                         await WaitForResourceHealthyAsync(
@@ -4935,15 +4952,18 @@ public static class DevelopmentLab
             reconciliations?.OrderBy(item => item.UpdatedAt).TakeLast(20).ToArray() ?? [],
             incidents?.OrderBy(item => item.ObservedAt).TakeLast(50).ToArray() ?? []);
         var endpointValues = all.Where(observation => observation.Endpoint is not null)
-            .ToDictionary(observation => observation.Name, observation => observation.Endpoint!, StringComparer.Ordinal);
+            .ToDictionary(
+                observation => observation.Name,
+                DevelopmentGuards.RequireEndpoint,
+                StringComparer.Ordinal);
         AddDevHostAliases(endpointValues, topology);
         var endpoints = new DevelopmentEndpointMap(
             1,
             generation,
             endpointValues);
         await DevelopmentStateStore.WriteAsync(
-            options.StateFile!,
-            options.EndpointsFile!,
+            DevelopmentGuards.RequireLabOption(options.StateFile, nameof(options.StateFile)),
+            DevelopmentGuards.RequireLabOption(options.EndpointsFile, nameof(options.EndpointsFile)),
             runtimeState,
             publishEndpoints ? endpoints : null,
             cancellationToken);
@@ -4957,7 +4977,10 @@ public static class DevelopmentLab
         DateTimeOffset observedAt)
     {
         supervisor.Processes.TryGetValue(resource.Name, out var process);
-        var exited = process?.HasExited == true;
+        var exitedProcess = process is { HasExited: true } exitedProcessValue
+            ? exitedProcessValue
+            : null;
+        var exited = exitedProcess is not null;
         DevelopmentResourceHealth? resourceHealth = null;
         if (health is not null)
         {
@@ -4982,8 +5005,8 @@ public static class DevelopmentLab
             process is not null && !exited ? supervisor.GetContainerProcessId(resource.Name) : null,
             process is not null ? supervisor.GetContainerId(resource.Name) : null,
             Endpoint(resource),
-            exited
-                ? $"Exited with code {process!.ExitCode}."
+            exitedProcess is { } exitedValue
+                ? $"Exited with code {exitedValue.ExitCode}."
                 : resourceHealth?.Detail ?? state.ToString(),
             observedAt);
     }

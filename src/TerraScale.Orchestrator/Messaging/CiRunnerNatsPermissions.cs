@@ -35,12 +35,15 @@ internal static class CiRunnerNatsPermissions
     {
         ArgumentNullException.ThrowIfNull(topology);
         var consumer = topology.CiJobConsumer(zone, runner);
-        var consumerName = consumer.Name!;
+        if (consumer.Name is not { Length: > 0 } consumerName)
+            throw new InvalidOperationException("The CI runner consumer must have a name.");
+        if (consumer.FilterSubject is not { Length: > 0 } filterSubject)
+            throw new InvalidOperationException("The CI runner consumer must have a filter subject.");
         var journalPrefix = GlobalNatsTopology.CiRunnerJournalPrefix(runner);
         var runnerObjects = $"OBJ_{GlobalNatsTopology.RunnerBundlesBucket}";
         return new(
             consumerName,
-            consumer.FilterSubject!,
+            filterSubject,
             [
                 $"$JS.ACK.{GlobalNatsTopology.CiStream}.{consumerName}.>",
                 $"$JS.API.CONSUMER.INFO.{GlobalNatsTopology.CiStream}.{consumerName}",

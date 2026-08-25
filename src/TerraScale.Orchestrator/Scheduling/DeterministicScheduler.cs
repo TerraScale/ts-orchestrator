@@ -220,15 +220,20 @@ public sealed class DeterministicScheduler
                 return 1;
             }
 
-            var comparison = left.Score!.WeightedWaste.CompareTo(right.Score!.WeightedWaste);
+            if (left.Score is not { } leftScore || right.Score is not { } rightScore)
+            {
+                throw new ArgumentException("Only eligible evaluations can be ranked.");
+            }
+
+            var comparison = leftScore.WeightedWaste.CompareTo(rightScore.WeightedWaste);
             if (comparison != 0)
             {
                 return comparison;
             }
 
-            for (var index = 0; index < left.Score.Components.Count; index++)
+            for (var index = 0; index < leftScore.Components.Count; index++)
             {
-                comparison = left.Score.Components[index].Remaining.CompareTo(right.Score.Components[index].Remaining);
+                comparison = leftScore.Components[index].Remaining.CompareTo(rightScore.Components[index].Remaining);
                 if (comparison != 0)
                 {
                     return comparison;

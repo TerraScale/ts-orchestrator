@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -31,7 +32,6 @@ public sealed class RepositoryCiPipelineJournalTests
             .IsEquivalentTo([Repository, Downstream]);
         await Assert.That(recovered).IsNotNull();
         await Assert.That(recovered!.Digest).IsEqualTo(recorded.Plan.Digest);
-        await Assert.That(recovered.CandidateRetentionDays).IsEqualTo(7);
         await Assert.That(recovered.Jobs.Select(static job => job.Request.Job))
             .IsEquivalentTo(recorded.Plan.Jobs.Select(static job => job.Request.Job));
         await Assert.That(objects.Count).IsEqualTo(1);
@@ -118,6 +118,235 @@ public sealed class RepositoryCiPipelineJournalTests
             .Throws<InvalidDataException>();
     }
 
+    [Test]
+    public async Task RetiredSchemaTwoPipelineObjectsAreRejectedWithAnActionableError()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var journal = new RepositoryCiPipelineJournal(ledger, objects);
+        await WriteRetiredSchemaTwoAsync(ledger, objects);
+
+        var exception = Failure(() => journal.ReadAsync(Trigger().Envelope.DedupeKey));
+
+        await Assert.That(exception).IsNotNull();
+        await Assert.That(exception!.Message).Contains("retired schema 2");
+        await Assert.That(exception.Message).Contains("candidate-promotion stage");
+        await Assert.That(exception.Message).Contains("do not retry the same delivery");
+    }
+
+    /// <summary>
+    /// Fabricates exactly what a pre-reconciliation deployment wrote: a schema-2 pipeline object
+    /// with its intact content digest and pointer, so the rejection is exercised end to end.
+    /// </summary>
+    private static async Task WriteRetiredSchemaTwoAsync(
+        ForgejoWebhookJournalTests.TestLedger ledger,
+        TestObjectStore objects)
+    {
+        var trigger = Trigger();
+        var plan = RepositoryCiPipelineJournal.CreatePlan(
+            trigger,
+            Descriptors(),
+            [new RepositoryCiChange(Repository, ["src/file.cs"])],
+            Sources(),
+            7,
+            10,
+            100);
+        var document = RepositoryCiPipelineObjectDocument.From(
+            trigger,
+            Descriptors(),
+            [new RepositoryCiChange(Repository, ["src/file.cs"])],
+            Sources(),
+            7,
+            10,
+            100,
+            plan) with { SchemaVersion = 2 };
+        var content = JsonSerializer.SerializeToUtf8Bytes(
+            document,
+            RepositoryCiPipelineJournalJsonContext.Default.RepositoryCiPipelineObjectDocument);
+        var contentDigest = Convert.ToHexStringLower(SHA256.HashData(content));
+        var pointer = RepositoryCiPipelinePointerDocument.From(
+            trigger.Envelope.DedupeKey,
+            plan.Digest,
+            contentDigest,
+            5,
+            9);
+        await objects.PutAsync(pointer.ObjectName, content, default);
+        var dedupeDigest = Convert.ToHexStringLower(SHA256.HashData(
+            Encoding.UTF8.GetBytes(trigger.Envelope.DedupeKey)));
+        await ledger.CreateAsync(
+            $"ci-pipeline.{dedupeDigest}",
+            JsonSerializer.Serialize(
+                pointer,
+                RepositoryCiPipelineJournalJsonContext.Default.RepositoryCiPipelinePointerDocument),
+            default);
+    }
+
+    [Test]
+    public async Task UnanchoredPipelineHistoryIsBoundedOldestFirst()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var journal = new RepositoryCiPipelineJournal(ledger, objects, pipelineHistoryCap: 2);
+
+        foreach (var index in new[] { 1, 2, 3 })
+            await RecordDistinctAsync(journal, index);
+
+        await Assert.That(await CountPipelinesAsync(ledger)).IsEqualTo(2);
+        // The two retained pointers each own one immutable pipeline object; only the oldest
+        // pointer/object pair is deleted when the cap is enforced.
+        await Assert.That(objects.Count).IsEqualTo(2);
+        await Assert.That(objects.Deletions).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task PairedTriggerAndPipelineHistoryIsBoundedNotDeadlocked()
+    {
+        // Normal dispatch creates a (trigger, pipeline, object) triple for every event. The two
+        // journals must NOT keep each other alive forever: past the bounded-age horizon the
+        // trigger anchor goes first, which frees the pipeline pointer (and its object) on the
+        // next append — the paired history stays bounded and ingestion never halts.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var journal = new RepositoryCiPipelineJournal(ledger, objects, pipelineHistoryCap: 2);
+        var triggers = new ForgejoCiTriggerJournal(ledger, triggerHistoryCap: 2, dispatchAnchorRevisionHorizon: 0);
+        foreach (var index in new[] { 1, 2, 3 })
+        {
+            await triggers.RecordAsync(DistinctTrigger(index), 7, 9, static () => true);
+            await RecordDistinctAsync(journal, index);
+        }
+
+        await Assert.That(await CountTriggersAsync(ledger)).IsEqualTo(2);
+        await Assert.That(await CountPipelinesAsync(ledger)).IsEqualTo(2);
+        await Assert.That(objects.Count).IsEqualTo(2);
+        await Assert.That(objects.Deletions).IsGreaterThanOrEqualTo(1);
+        await Assert.That(await triggers.ReadAsync(DistinctTrigger(1).Envelope.DedupeKey)).IsNull();
+        await Assert.That(await journal.ReadAsync(DistinctTrigger(3).Envelope.DedupeKey)).IsNotNull();
+    }
+
+    [Test]
+    public async Task InsideTheHorizonAnchoredPipelinesStillFailClosed()
+    {
+        // Before the horizon passes, a trigger-anchored pipeline is NOT prunable and the cap
+        // fails closed loudly instead of growing without bound (retention overflow is
+        // operational: the consumer retries, never silently drops).
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var journal = new RepositoryCiPipelineJournal(ledger, objects, pipelineHistoryCap: 2);
+        var triggers = new ForgejoCiTriggerJournal(ledger, dispatchAnchorRevisionHorizon: 1_000);
+        foreach (var index in new[] { 1, 2, 3 })
+            await triggers.RecordAsync(DistinctTrigger(index), 7, 9, static () => true);
+        foreach (var index in new[] { 1, 2 })
+            await RecordDistinctAsync(journal, index);
+
+        await Assert.That(async () => await RecordDistinctAsync(journal, 3))
+            .Throws<JournalRetentionOverflowException>();
+        await Assert.That(await CountPipelinesAsync(ledger)).IsEqualTo(3);
+    }
+
+    [Test]
+    public async Task ASharedContentObjectSurvivesASiblingPointerPrune()
+    {
+        // Two dedupe keys can reference the same content-addressed object. Pruning one pointer
+        // must never delete the object under the other: the sibling's next read would fail its
+        // integrity check deterministically.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var objects = new TestObjectStore();
+        var journal = new RepositoryCiPipelineJournal(ledger, objects, pipelineHistoryCap: 2);
+        var triggers = new ForgejoCiTriggerJournal(ledger);
+        await triggers.RecordAsync(DistinctTrigger(1), 7, 9, static () => true);
+        await RecordDistinctAsync(journal, 1);
+        var firstDedupe = DistinctTrigger(1).Envelope.DedupeKey;
+        var firstKey = "ci-pipeline." + Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(firstDedupe)));
+        var sharedJson = (await ledger.GetAsync(firstKey, default))!.Value;
+        var objectsBefore = objects.Count;
+
+        // A second pointer at a different dedupe key referencing the SAME object bytes.
+        var secondDedupe = DistinctTrigger(2).Envelope.DedupeKey;
+        var secondKey = "ci-pipeline." + Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(secondDedupe)));
+        await ledger.CreateAsync(secondKey, sharedJson, default);
+
+        // Recording a third pair trips the cap: the oldest PRUNABLE pointer (the unanchored
+        // shared sibling) goes, but the shared object must survive for the anchored pointer.
+        await triggers.RecordAsync(DistinctTrigger(3), 7, 9, static () => true);
+        await RecordDistinctAsync(journal, 3);
+
+        await Assert.That(await ledger.GetAsync(secondKey, default)).IsNull();
+        await Assert.That(await ledger.GetAsync(firstKey, default)).IsNotNull();
+        // The shared object survives the sibling's prune; only the third pair's OWN object was
+        // added since the snapshot.
+        await Assert.That(objects.Count).IsEqualTo(objectsBefore + 1);
+        await Assert.That(objects.Deletions).IsEqualTo(0);
+    }
+
+    private static async Task<int> CountTriggersAsync(ForgejoWebhookJournalTests.TestLedger ledger)
+    {
+        var count = 0;
+        await foreach (var key in ledger.ListKeysAsync("ci-trigger.>", default))
+            count++;
+        return count;
+    }
+
+    private static async Task<RepositoryCiPipelineJournalReceipt> RecordDistinctAsync(
+        RepositoryCiPipelineJournal journal,
+        int seed) => await journal.PlanAndRecordAsync(
+        DistinctTrigger(seed),
+        [
+            Descriptor(Downstream, DownstreamCommit, Repository),
+            Descriptor(Repository, SeedCommit(seed)),
+        ],
+        [new RepositoryCiChange(Repository, ["src/file.cs"])],
+        [
+            new(Downstream, DownstreamCommit, DownstreamTree, false),
+            new(Repository, SeedCommit(seed), Tree, false),
+        ],
+        7,
+        10,
+        100,
+        5,
+        9,
+        static () => true);
+
+    private static ForgejoCiTriggerPlan DistinctTrigger(int seed) => ForgejoCiTriggerPlanner.Plan(new(
+        Guid.Parse($"00000000-0000-0000-0000-{seed:d12}"),
+        ForgejoWebhookKind.Push,
+        "push",
+        Repository,
+        Repository,
+        BaseCommit,
+        SeedCommit(seed),
+        "refs/heads/develop",
+        null,
+        null,
+        false,
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"distinct:{seed}")))));
+
+    private static string SeedCommit(int seed) =>
+        seed.ToString("x40", System.Globalization.CultureInfo.InvariantCulture)
+            .Replace("0", "1", StringComparison.Ordinal);
+
+    private static async Task<int> CountPipelinesAsync(ForgejoWebhookJournalTests.TestLedger ledger)
+    {
+        var count = 0;
+        await foreach (var key in ledger.ListKeysAsync("ci-pipeline.>", default))
+            count++;
+        return count;
+    }
+
+    private static InvalidDataException? Failure(Func<Task> read)
+    {
+        try
+        {
+            read().GetAwaiter().GetResult();
+            return null;
+        }
+        catch (InvalidDataException exception)
+        {
+            return exception;
+        }
+    }
+
     private static Task<RepositoryCiPipelineJournalReceipt> RecordAsync(
         RepositoryCiPipelineJournal journal,
         long generation = 7,
@@ -175,14 +404,12 @@ public sealed class RepositoryCiPipelineJournalTests
             : $$"""{"repository":"{{dependency}}","reason":"upstream product contract"}""";
         var content = Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{repository}}",
-              "candidateRetentionDays":7,
-              "promotion":"None",
               "repositoryDependencies":[{{dependencies}}],
               "nodes":[
-                {"id":"build","kind":"Build","resourceWeight":"Medium","profiles":["Feature","Release"],"paths":["src/"],"dependsOn":["static"]},
-                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Release"],"paths":["src/"]}
+                {"id":"build","kind":"Build","resourceWeight":"Medium","profiles":["Feature","Build"],"paths":["src/"],"dependsOn":["static"]},
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]}
               ]
             }
             """);
@@ -195,7 +422,7 @@ public sealed class RepositoryCiPipelineJournalTests
             content);
     }
 
-    private sealed class TestObjectStore : IDeliveryObjectStore
+    private sealed class TestObjectStore : IDeliveryObjectStore, IDeliveryRetentionObjectStore
     {
         private readonly Dictionary<string, byte[]> values = new(StringComparer.Ordinal);
         private readonly object sync = new();
@@ -216,6 +443,28 @@ public sealed class RepositoryCiPipelineJournalTests
                 return Task.FromResult(values.TryGetValue(name, out var content)
                     ? content.ToArray()
                     : throw new IOException("Missing test object."));
+        }
+
+        internal int Deletions { get; private set; }
+
+        public Task DeleteIfExistsAsync(string name, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (sync) values.Remove(name);
+            Deletions++;
+            return Task.CompletedTask;
+        }
+
+        internal void RewriteFirstSchemaVersion(int schemaVersion)
+        {
+            lock (sync)
+            {
+                var name = values.Keys.Order(StringComparer.Ordinal).First();
+                var node = System.Text.Json.Nodes.JsonNode.Parse(
+                    System.Text.Encoding.UTF8.GetString(values[name]));
+                node!["SchemaVersion"] = schemaVersion;
+                values[name] = System.Text.Encoding.UTF8.GetBytes(node.ToJsonString());
+            }
         }
 
         internal void CorruptFirst()

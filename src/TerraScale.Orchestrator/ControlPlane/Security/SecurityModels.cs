@@ -507,8 +507,8 @@ public sealed record SecretLeaseRequest
         RequestedDuration = requestedDuration ?? throw new ArgumentNullException(nameof(requestedDuration));
         CurrentRevocationGeneration = currentRevocationGeneration ?? throw new ArgumentNullException(nameof(currentRevocationGeneration));
         ExistingLease = existingLease;
-        if ((action == LeaseAction.Grant) == (existingLease is not null))
-            throw new ArgumentException("Grant forbids an existing lease; renew/revoke require one.", nameof(existingLease));
+        if (action == LeaseAction.Grant && existingLease is not null)
+            throw new ArgumentException("Grant forbids an existing lease.", nameof(existingLease));
     }
     public LeaseAction Action { get; }
     public SecurityOperationId OperationId { get; }

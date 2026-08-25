@@ -128,13 +128,21 @@ internal sealed class NativeGitOpsCellInbox(NativeGitOpsCellAcceptanceJournal jo
                 acceptance.Disposition,
                 acceptance.ProtocolError,
                 null);
-        if (convergenceRecorded is not null &&
-            !await convergenceRecorded(acceptance.Acceptance!, cancellationToken))
-            return new(
-                NativeGitOpsCellDeliveryDisposition.ConvergenceNotRecorded,
-                acceptance.Disposition,
-                acceptance.ProtocolError,
-                acceptance.Acceptance);
+        if (convergenceRecorded is not null)
+        {
+            if (acceptance.Acceptance is not { } accepted)
+                return new(
+                    NativeGitOpsCellDeliveryDisposition.ConvergenceNotRecorded,
+                    acceptance.Disposition,
+                    acceptance.ProtocolError,
+                    null);
+            if (!await convergenceRecorded(accepted, cancellationToken))
+                return new(
+                    NativeGitOpsCellDeliveryDisposition.ConvergenceNotRecorded,
+                    acceptance.Disposition,
+                    acceptance.ProtocolError,
+                    accepted);
+        }
         if (!authorityStillValid())
             return new(
                 NativeGitOpsCellDeliveryDisposition.AuthorityLostAfterAcceptance,

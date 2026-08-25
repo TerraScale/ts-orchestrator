@@ -235,8 +235,8 @@ public sealed class ReconciliationEngineTests
         var descendant = (HoldResource)cycle.Steps.Single(static step => step.Desired.Identity.Value == "c").Output;
         await Assert.That(descendant.Reason).IsEqualTo(ReconciliationReasonCode.CyclicDependency);
         await Assert.That(descendant.RootResource.Value).IsEqualTo("b");
-        await Assert.That(cycle.Steps.Single(static step => step.Desired.Identity.Value == "c").Trace.Single().RelatedResource!.Value)
-            .IsEqualTo("b");
+        await Assert.That(cycle.Steps.Single(static step => step.Desired.Identity.Value == "c").Trace.Single().RelatedResource
+            is { Value: "b" }).IsTrue();
     }
 
     [Test]

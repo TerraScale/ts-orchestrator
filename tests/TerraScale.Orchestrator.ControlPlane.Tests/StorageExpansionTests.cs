@@ -17,14 +17,16 @@ public sealed class StorageExpansionTests
             filesystemType:StorageFilesystemType.Xfs,layout:StorageLayout.Lvm),StorageTestData.Context(),xfsEvidence);
         var ext4=StorageExpansionPlanner.Plan(StorageTestData.Volume(provider:200,block:200,
             filesystemType:StorageFilesystemType.Ext4,layout:StorageLayout.Partition),StorageTestData.Context(),ext4Evidence);
+        var xfsScope = StorageTestData.Require(xfs.Scope);
+        var ext4Scope = StorageTestData.Require(ext4.Scope);
 
         await Assert.That(xfs.Action).IsEqualTo(StorageAction.Grow);
         await Assert.That(ext4.Action).IsEqualTo(StorageAction.Grow);
         await Assert.That(xfs).IsNotEqualTo(ext4);
-        await Assert.That(xfs.Scope!.FilesystemType).IsEqualTo(StorageFilesystemType.Xfs);
-        await Assert.That(xfs.Scope.Layout).IsEqualTo(StorageLayout.Lvm);
-        await Assert.That(ext4.Scope!.FilesystemType).IsEqualTo(StorageFilesystemType.Ext4);
-        await Assert.That(ext4.Scope.Layout).IsEqualTo(StorageLayout.Partition);
+        await Assert.That(xfsScope.FilesystemType).IsEqualTo(StorageFilesystemType.Xfs);
+        await Assert.That(xfsScope.Layout).IsEqualTo(StorageLayout.Lvm);
+        await Assert.That(ext4Scope.FilesystemType).IsEqualTo(StorageFilesystemType.Ext4);
+        await Assert.That(ext4Scope.Layout).IsEqualTo(StorageLayout.Partition);
     }
 
     [Test]
@@ -228,7 +230,7 @@ public sealed class StorageExpansionTests
             var decision=StorageExpansionPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Expansion(conflicts:conflict));
             await Assert.That(decision.Action).IsEqualTo(StorageAction.Hold);
             await Assert.That(decision.Code).IsEqualTo(StorageDecisionCode.ConflictingOperation);
-            await Assert.That(decision.Trace!.Conflicts).IsEqualTo(conflict);
+            await Assert.That(StorageTestData.Require(decision.Trace).Conflicts).IsEqualTo(conflict);
         }
     }
 

@@ -1,10 +1,9 @@
-using System.Text.Json;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
-using NATS.Client.Services;
 using NATS.Net;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Delivery;
 
@@ -16,20 +15,17 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly RegionalAuthorityCoordinator authority;
     private readonly ForgejoCiEventConsumer ciEvents;
     private readonly RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs;
-    private readonly RepositoryCiCandidateRetentionWorker retention;
     private readonly RepositoryCiController? ciController;
     private readonly INatsJSConsumer? cellSpecConsumer;
-    private readonly GlobalCellDirectoryRuntime cellDirectory;
-    private readonly INatsSvcServer cellDirectoryService;
     private readonly GlobalNatsTopology topology;
     private readonly string cell;
+    private readonly DirectDeliveryService directDelivery;
 
     private GlobalNatsRuntime(
         NatsClient client,
         RegionalAuthorityCoordinator authority,
         ForgejoCiEventConsumer ciEvents,
         RepositoryCiRuntimeObservationNatsConsumer? runtimeProofs,
-        RepositoryCiCandidateRetentionWorker retention,
         RepositoryCiController? ciController,
         CiRunnerConsumerReconciler ciRunners,
         CiRunnerNatsCredentialIssuer? ciRunnerCredentials,
@@ -38,20 +34,16 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         NativeGitOpsSourceJournal nativeGitOpsSources,
         RepositoryCiPipelineJournal pipelines,
         RepositoryCiJobJournal jobs,
-        RepositoryCiPromotionJournal promotions,
-        RepositoryCiCandidateJournal candidates,
         NativeGitOpsGlobalHandoffRuntime? nativeGitOpsHandoffs,
         INatsJSConsumer? cellSpecConsumer,
-        GlobalCellDirectoryRuntime cellDirectory,
-        INatsSvcServer cellDirectoryService,
         GlobalNatsTopology topology,
-        string cell)
+        string cell,
+        DirectDeliveryService directDelivery)
     {
         this.client = client;
         this.authority = authority;
         this.ciEvents = ciEvents;
         this.runtimeProofs = runtimeProofs;
-        this.retention = retention;
         this.ciController = ciController;
         CiRunners = ciRunners;
         CiRunnerCredentials = ciRunnerCredentials;
@@ -60,22 +52,17 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         NativeGitOpsSources = nativeGitOpsSources;
         Pipelines = pipelines;
         Jobs = jobs;
-        Promotions = promotions;
-        Candidates = candidates;
         NativeGitOpsHandoffs = nativeGitOpsHandoffs;
         this.cellSpecConsumer = cellSpecConsumer;
-        this.cellDirectory = cellDirectory;
-        this.cellDirectoryService = cellDirectoryService;
         this.topology = topology;
         this.cell = cell;
+        this.directDelivery = directDelivery;
     }
 
     public Task Completion => Task.WhenAny(
         authority.Completion,
         ciEvents.Completion,
-        runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan),
-        retention.Completion,
-        cellDirectory.Completion).Unwrap();
+        runtimeProofs?.Completion ?? Task.Delay(Timeout.InfiniteTimeSpan)).Unwrap();
     public ForgejoWebhookJournal ForgejoWebhooks { get; }
     public CiRunnerConsumerReconciler CiRunners { get; }
     public CiRunnerNatsCredentialIssuer? CiRunnerCredentials { get; }
@@ -83,12 +70,9 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     public NativeGitOpsSourceJournal NativeGitOpsSources { get; }
     public RepositoryCiPipelineJournal Pipelines { get; }
     public RepositoryCiJobJournal Jobs { get; }
-    public RepositoryCiPromotionJournal Promotions { get; }
-    public RepositoryCiCandidateJournal Candidates { get; }
     internal NativeGitOpsGlobalHandoffRuntime? NativeGitOpsHandoffs { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
-    internal GlobalCellDirectorySnapshot CellDirectorySnapshot => cellDirectory.Snapshot;
-
+    internal DirectDeliveryService DirectDelivery => directDelivery;
     internal NativeGitOpsGlobalCellNatsConsumer CreateNativeGitOpsConsumer(
         NativeGitOpsCellPublisher regionalPublisher,
         string expectedCell)
@@ -100,13 +84,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             new NativeGitOpsGlobalCellRelay(regionalPublisher), topology, cell);
     }
 
-    public static async Task<GlobalNatsRuntime> StartAsync(
+    public static Task<GlobalNatsRuntime> StartAsync(
         GlobalNatsConfiguration configuration,
         string instance,
         string cell,
-        Func<RegionalRuntimeMembershipSnapshot> regionalMembership,
-        Func<RegionalAuthoritySnapshot> regionalAuthority,
-        bool publishCellAdvertisement,
         INatsAccountJwtSigner? ciRunnerNatsSigner,
         CancellationToken cancellationToken,
         ForgejoSourceConfiguration? ciSource = null,
@@ -117,16 +98,90 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
         IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null,
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
-        bool nativeGitOpsConsumerEnabled = false)
+        bool nativeGitOpsConsumerEnabled = false,
+        bool ciConsumptionEnabled = true,
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development) =>
+        StartAsync(
+            GlobalAuthorityNatsConfiguration.From(configuration, cell),
+            instance,
+            cell,
+            ciRunnerNatsSigner,
+            cancellationToken,
+            ciSource,
+            ciSourceGraph,
+            ciPool,
+            ciJobSigner,
+            ciArtifactSigner,
+            ciArtifactSignatures,
+            ciRuntimeSignatures,
+            nativeGitOpsSigner,
+            nativeGitOpsConsumerEnabled,
+            ciConsumptionEnabled,
+            deliveryDeploymentMode);
+
+    internal static Task<GlobalNatsRuntime> StartAsync(
+        GlobalAuthorityNatsConfiguration configuration,
+        string instance,
+        string cell,
+        INatsAccountJwtSigner? ciRunnerNatsSigner,
+        CancellationToken cancellationToken,
+        ForgejoSourceConfiguration? ciSource = null,
+        ForgejoRepositoryCiSourceGraphConfiguration? ciSourceGraph = null,
+        OciCiRunnerPoolConfiguration? ciPool = null,
+        IRepositoryCiJobSigner? ciJobSigner = null,
+        IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
+        IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
+        IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null,
+        INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
+        bool nativeGitOpsConsumerEnabled = false,
+        bool ciConsumptionEnabled = true,
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development) =>
+        StartCoreAsync(
+            configuration,
+            instance,
+            cell,
+            ciRunnerNatsSigner,
+            cancellationToken,
+            ciSource,
+            ciSourceGraph,
+            ciPool,
+            ciJobSigner,
+            ciArtifactSigner,
+            ciArtifactSignatures,
+            ciRuntimeSignatures,
+            nativeGitOpsSigner,
+            nativeGitOpsConsumerEnabled,
+            ciConsumptionEnabled,
+            deliveryDeploymentMode);
+
+    private static async Task<GlobalNatsRuntime> StartCoreAsync(
+        GlobalAuthorityNatsConfiguration configuration,
+        string instance,
+        string cell,
+        INatsAccountJwtSigner? ciRunnerNatsSigner,
+        CancellationToken cancellationToken,
+        ForgejoSourceConfiguration? ciSource = null,
+        ForgejoRepositoryCiSourceGraphConfiguration? ciSourceGraph = null,
+        OciCiRunnerPoolConfiguration? ciPool = null,
+        IRepositoryCiJobSigner? ciJobSigner = null,
+        IRepositoryCiArtifactAttestationSigner? ciArtifactSigner = null,
+        IRepositoryCiArtifactSignatureVerifier? ciArtifactSignatures = null,
+        IRepositoryCiArtifactSignatureVerifier? ciRuntimeSignatures = null,
+        INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
+        bool nativeGitOpsConsumerEnabled = false,
+        bool ciConsumptionEnabled = true,
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development)
     {
+        if (!GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(cell))
+            throw new ArgumentException(
+                "GlobalNatsRuntime is a GRU-only global-authority runtime.",
+                nameof(cell));
         ArgumentNullException.ThrowIfNull(configuration);
-        ArgumentNullException.ThrowIfNull(regionalMembership);
-        ArgumentNullException.ThrowIfNull(regionalAuthority);
-        if (ciPool is not null && (ciArtifactSigner is null || ciArtifactSignatures is null ||
-                ciRuntimeSignatures is null) && (ciArtifactSigner is not null ||
-                ciArtifactSignatures is not null || ciRuntimeSignatures is not null))
-            throw new ArgumentException("OCI CI artifact signing and both proof verifiers must be configured together.");
-        var topology = new GlobalNatsTopology(3);
+        if (!string.Equals(configuration.Cell, cell, StringComparison.Ordinal))
+            throw new ArgumentException(
+                "The global authority configuration cell must match the startup cell.",
+                nameof(cell));
+        var topology = new GlobalNatsTopology(configuration.Replicas);
         var client = new NatsClient(new NatsOpts
         {
             Url = configuration.Url,
@@ -144,9 +199,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 
         RegionalAuthorityCoordinator? authority = null;
         RepositoryCiController? ciController = null;
-        RepositoryCiCandidateRetentionWorker? retention = null;
-        GlobalCellDirectoryRuntime? cellDirectory = null;
-        INatsSvcServer? cellDirectoryService = null;
         try
         {
             await client.ConnectAsync();
@@ -160,44 +212,28 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 cancellationToken);
             if (!authority.Snapshot.Ready)
                 throw new InvalidOperationException("Global authority did not reach a ready leader or follower state.");
-            cellDirectory = GlobalCellDirectoryRuntime.Start(
-                state.Cells, cell, regionalMembership, regionalAuthority, publishCellAdvertisement);
-            var services = client.CreateServicesContext();
-            cellDirectoryService = await services.AddServiceAsync(
-                new NatsSvcConfig($"terrascale-global-cell-directory-{cell}", "1.0.0")
-                {
-                    Description = "TerraScale read-only global cell directory",
-                    Metadata = new Dictionary<string, string>
-                    {
-                        ["cell"] = cell,
-                        ["readOnly"] = "true"
-                    },
-                    QueueGroup = "ts-orch-global-cell-directory"
-                },
-                cancellationToken);
-            await cellDirectoryService.AddEndpointAsync<string>(
-                message => message.ReplyAsync(
-                    JsonSerializer.Serialize(
-                        cellDirectory.Snapshot,
-                        GlobalCellDirectoryJsonContext.Default.GlobalCellDirectorySnapshot),
-                    cancellationToken: cancellationToken),
-                name: "cells",
-                subject: GlobalNatsTopology.CellDirectorySubject,
-                metadata: new Dictionary<string, string>
-                {
-                    ["protocol"] = "1",
-                    ["readOnly"] = "true",
-                    ["source"] = topology.Cells.Bucket
-                },
-                cancellationToken: cancellationToken);
             var ledger = new NatsForgejoDeliveryLedger(state.Releases);
             var objects = new NatsDeliveryObjectStore(state.Bundles);
             var runnerLedger = new NatsForgejoDeliveryLedger(state.RunnerJobs);
             var runnerObjects = new NatsDeliveryObjectStore(state.RunnerBundles);
+            var directDelivery = new DirectDeliveryService(
+                new DirectDeliveryDevelopmentAuthorizer(() =>
+                    authority.Snapshot.Ready && authority.Snapshot.IsLeader),
+                new DirectDeliveryDevelopmentProvenance(deliveryDeploymentMode),
+                new DirectDeliveryDevelopmentTargetResolver(new NatsDirectDeliveryTarget(ledger)),
+                new NatsDirectDeliveryJournal(ledger),
+                new DirectDeliverySourceArtifactBuilder(),
+                auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
+                authorityIsCurrent: request =>
+                {
+                    var current = authority.Snapshot;
+                    return current.Ready && current.IsLeader &&
+                        current.KvRevision == request.AuthorityGeneration &&
+                        current.Epoch == request.WriterEpoch;
+                });
             var triggerJournal = new ForgejoCiTriggerJournal(ledger);
             var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
             var jobs = new RepositoryCiJobJournal(ledger);
-            var candidates = new RepositoryCiCandidateJournal(ledger, objects);
             var nativeGitOpsSources = new NativeGitOpsSourceJournal(ledger, objects);
             var nativeGitOpsHandoffs = nativeGitOpsSigner is null
                 ? null
@@ -211,15 +247,23 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     nativeGitOpsSigner,
                     () => authority.Snapshot);
             var runnerConsumers = new CiRunnerConsumerReconciler(client.CreateJetStreamContext(), topology);
-            RepositoryCiQualificationController? qualificationController = null;
             if (ciPool is not null)
             {
                 if (ciSource is null || ciJobSigner is null)
                     throw new ArgumentException("OCI CI requires Forgejo source access and a command signer.");
-                var sourceGraph = ForgejoRepositoryCiSourceGraph.Create(
-                    ciSource,
-                    ciSourceGraph ?? ForgejoRepositoryCiSourceGraphConfiguration.Load(null, ciSource)!);
-                var source = sourceGraph.RootClient!;
+                // The build-profile acknowledge gate needs the full artifact-signing triple; a
+                // pool without it can never acknowledge trusted-build work, so startup fails
+                // closed instead of silently dropping deliveries after MaxDeliver.
+                if (ciArtifactSigner is null || ciArtifactSignatures is null || ciRuntimeSignatures is null)
+                    throw new ArgumentException(
+                        "The OCI CI runner pool requires the artifact attestation signer and both proof verifiers " +
+                        "(command identity trust must be configured).");
+                var graphConfiguration = ciSourceGraph ?? ForgejoRepositoryCiSourceGraphConfiguration.Load(null, ciSource)
+                    ?? throw new InvalidOperationException(
+                        "The repository CI source graph configuration is unavailable.");
+                var sourceGraph = ForgejoRepositoryCiSourceGraph.Create(ciSource, graphConfiguration);
+                if (sourceGraph.RootClient is not { } source)
+                    throw new InvalidOperationException("The repository CI source graph has no root client.");
                 IOciCiRunnerCapacityAdapter? capacity = null;
                 try
                 {
@@ -245,7 +289,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                             return Task.FromResult(slot.Isolation(job));
                         });
                     var availability = new OciCiRunnerAvailability();
-                    Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null;
+                    Func<RepositoryCiPipelinePlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? attestArtifacts = null;
                     if (ciArtifactSigner is not null && ciArtifactSignatures is not null &&
                         ciRuntimeSignatures is not null)
                     {
@@ -253,54 +297,62 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         var attestations = new RepositoryCiArtifactAttestationJournal(
                             runnerLedger,
                             runnerObjects);
-                        var verifier = new RepositoryCiSignedArtifactAttestationVerifier(
-                            attestations.ReadArtifactAsync,
-                            attestations.ReadRuntimeAsync,
+                        var gate = new RepositoryCiArtifactAttestationGate(
+                            jobs.ReadAsync,
+                            (job, innerToken) => executions.ReadAsync(
+                                job.RunnerId,
+                                job.Document.PipelineDigest,
+                                job.Job.Request.Job.Value,
+                                innerToken),
+                            new CiRunnerDurableEvidenceVerifier(runnerObjects),
+                            attestations,
+                            ciArtifactSigner,
                             ciArtifactSignatures,
                             ciRuntimeSignatures);
-                        recordCandidate = async (pipeline, token) =>
+                        attestArtifacts = async (pipeline, token) =>
                         {
                             var lease = authority.Snapshot;
                             if (!lease.Ready || !lease.IsLeader || lease.Epoch <= 0 || lease.KvRevision <= 0)
-                                return false;
+                                return ForgejoCiEventProcessDisposition.Retry;
                             bool StillValid() => RepositoryCiController.SameAuthority(lease, authority.Snapshot);
-                            var artifacts = new RepositoryCiCandidateArtifactReader(
-                                (job, innerToken) => executions.ReadAsync(
-                                    job.RunnerId,
-                                    job.Document.PipelineDigest,
-                                    job.Job.Request.Job.Value,
-                                    innerToken),
-                                new(runnerObjects),
-                                new RepositoryCiIssuingArtifactAttestationVerifier(
-                                    attestations,
-                                    ciArtifactSigner,
-                                    verifier,
-                                    lease.Epoch,
-                                    lease.KvRevision,
-                                    StillValid));
-                            RepositoryCiCandidateCoordinationReceipt receipt;
+                            RepositoryCiArtifactAttestationGateReceipt receipt;
                             try
                             {
-                                receipt = await new RepositoryCiCandidateCoordinator(
-                                        candidates,
-                                        jobs.ReadAsync,
-                                        artifacts.ReadAsync)
-                                    .CoordinateAsync(
-                                        pipeline,
-                                        lease.Epoch,
-                                        lease.KvRevision,
-                                        StillValid,
-                                        token);
+                                receipt = await gate.RecordAsync(
+                                    pipeline,
+                                    lease.Epoch,
+                                    lease.KvRevision,
+                                    StillValid,
+                                    token);
                             }
                             catch (RepositoryCiArtifactProofAuthorityLostException)
                             {
-                                return false;
+                                return ForgejoCiEventProcessDisposition.Retry;
                             }
-                            if (receipt.IsRecorded) return true;
-                            if (receipt.Disposition == RepositoryCiCandidateCoordinationDisposition.AuthorityLost)
-                                return false;
-                            throw new InvalidDataException(
-                                $"Repository CI candidate recording failed closed: {receipt.Disposition}.");
+                            catch (InvalidDataException exception) when (exception.Message.Contains(
+                                "retired schema 2", StringComparison.Ordinal))
+                            {
+                                // A candidate-era pipeline record can never attest: the controller
+                                // reports the commit failed and the delivery is terminated.
+                                return ForgejoCiEventProcessDisposition.Terminal;
+                            }
+                            return receipt.Disposition switch
+                            {
+                                RepositoryCiArtifactAttestationGateDisposition.Attested =>
+                                    ForgejoCiEventProcessDisposition.Handled,
+                                // Retryable: the runtime-proof consumer or a later authority
+                                // epoch makes progress; redeliver with a delay.
+                                RepositoryCiArtifactAttestationGateDisposition.AuthorityLost or
+                                RepositoryCiArtifactAttestationGateDisposition.PipelineActive or
+                                RepositoryCiArtifactAttestationGateDisposition.ProofNotYetConsumed =>
+                                    ForgejoCiEventProcessDisposition.Retry,
+                                // Permanent: the durable evidence cannot match this subject.
+                                RepositoryCiArtifactAttestationGateDisposition.EvidenceMismatch or
+                                RepositoryCiArtifactAttestationGateDisposition.PipelineFailed =>
+                                    ForgejoCiEventProcessDisposition.Terminal,
+                                _ => throw new InvalidDataException(
+                                    $"Repository CI artifact attestation failed closed: {receipt.Disposition}."),
+                            };
                         };
                     }
                     ciController = new(
@@ -323,19 +375,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         () => authority.Snapshot,
                         instance,
                         ownedSource: sourceGraph,
-                        recordCandidate: recordCandidate);
-                    var qualificationCoordinator = new RepositoryCiQualificationCoordinator(
-                        triggerJournal,
-                        candidates,
-                        async (trigger, token) =>
-                        {
-                            var paths = await source.ReadChangedPathsAsync(trigger.Envelope, token);
-                            return await sourceGraph.ReadCurrentMainSourcesAsync(trigger, paths, token);
-                        });
-                    qualificationController = new(
-                        qualificationCoordinator.CoordinateAsync,
-                        () => authority.Snapshot,
-                        source.ReportCommitStatusAsync);
+                        attestArtifacts: attestArtifacts);
                 }
                 catch
                 {
@@ -356,27 +396,23 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 state.CiConsumer,
                 new(triggerJournal, () => authority.Snapshot),
                 () => authority.Snapshot,
-                ciController is null || qualificationController is null
+                ciController is null
                     ? null
-                    : (trigger, token) => trigger.RequiresQualifiedCandidate
-                        ? qualificationController.RunToCompletionAsync(trigger, token)
-                        : ciController.RunToCompletionAsync(trigger, token));
+                    : (trigger, token) => ciController.RunToCompletionAsync(trigger, token),
+                enabled: ciConsumptionEnabled);
             var runtimeProofs = ciRuntimeSignatures is null
                 ? null
                 : RepositoryCiRuntimeObservationNatsConsumer.Start(
                     state.CiRuntimeProofConsumer,
                     new(new(runnerLedger, runnerObjects), ciRuntimeSignatures),
                     () => authority.Snapshot,
-                    topology);
-            retention = RepositoryCiCandidateRetentionWorker.Start(
-                new(candidates, ledger),
-                () => authority.Snapshot);
+                    topology,
+                    enabled: ciConsumptionEnabled);
             return new(
                 client,
                 authority,
                 ciEvents,
                 runtimeProofs,
-                retention,
                 ciController,
                 runnerConsumers,
                 ciRunnerNatsSigner is null ? null : new(topology, ciRunnerNatsSigner),
@@ -385,20 +421,14 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 nativeGitOpsSources,
                 new(ledger, objects),
                 new(ledger),
-                new(ledger),
-                candidates,
                 nativeGitOpsHandoffs,
                 state.CellSpecConsumer,
-                cellDirectory,
-                cellDirectoryService,
                 topology,
-                cell);
+                cell,
+                directDelivery);
         }
         catch
         {
-            if (cellDirectoryService is not null) await cellDirectoryService.DisposeAsync();
-            if (cellDirectory is not null) await cellDirectory.DisposeAsync();
-            if (retention is not null) await retention.DisposeAsync();
             if (ciController is not null) await ciController.DisposeAsync();
             if (authority is not null) await authority.DisposeAsync();
             await client.DisposeAsync();
@@ -422,7 +452,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                     await jetStream.CreateOrUpdateStreamAsync(stream, cancellationToken);
                 var keyValue = jetStream.CreateKeyValueStoreContext();
                 var leaders = await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
-                var cells = await keyValue.CreateOrUpdateStoreAsync(topology.Cells, cancellationToken);
                 var releases = await keyValue.CreateOrUpdateStoreAsync(topology.Releases, cancellationToken);
                 var runnerJobs = await keyValue.CreateOrUpdateStoreAsync(topology.RunnerJobs, cancellationToken);
                 var objectStore = jetStream.CreateObjectStoreContext();
@@ -452,7 +481,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 }
                 return new(
                     leaders,
-                    cells,
                     releases,
                     runnerJobs,
                     bundles,
@@ -489,50 +517,29 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     {
         try
         {
-            await cellDirectoryService.DisposeAsync();
+            if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
         }
         finally
         {
             try
             {
-                await cellDirectory.DisposeAsync();
+                await ciEvents.DisposeAsync();
             }
             finally
             {
                 try
                 {
-                    await retention.DisposeAsync();
+                    if (ciController is not null) await ciController.DisposeAsync();
                 }
                 finally
                 {
                     try
                     {
-                        if (runtimeProofs is not null) await runtimeProofs.DisposeAsync();
+                        await authority.DisposeAsync();
                     }
                     finally
                     {
-                        try
-                        {
-                            await ciEvents.DisposeAsync();
-                        }
-                        finally
-                        {
-                            try
-                            {
-                                if (ciController is not null) await ciController.DisposeAsync();
-                            }
-                            finally
-                            {
-                                try
-                                {
-                                    await authority.DisposeAsync();
-                                }
-                                finally
-                                {
-                                    await client.DisposeAsync();
-                                }
-                            }
-                        }
+                        await client.DisposeAsync();
                     }
                 }
             }
@@ -541,7 +548,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
 
     private sealed record GlobalState(
         INatsKVStore Leaders,
-        INatsKVStore Cells,
         INatsKVStore Releases,
         INatsKVStore RunnerJobs,
         INatsObjStore Bundles,

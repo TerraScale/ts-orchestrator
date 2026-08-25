@@ -69,8 +69,14 @@ public sealed class RuntimeLifecycleCoordinator(
                         return await MarkUncertainAsync(checkpoint, gate).ConfigureAwait(false);
                     var advanced = await AdvanceAsync(checkpoint, RuntimeLifecyclePhase.InFlight, RuntimeLifecycleCallStatus.InFlight, null, 0, RuntimeLifecycleTerminalStatus.None, RuntimeLifecycleErrorCode.None, cancellationToken).ConfigureAwait(false);
                     if (advanced.Retry) continue;
-                    if (advanced.Error != RuntimeLifecycleErrorCode.None) return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, advanced.Error);
-                    return await CallOnceAndRequireObservationAsync(request, advanced.Checkpoint!, cancellationToken).ConfigureAwait(false);
+                    if (advanced.Error != RuntimeLifecycleErrorCode.None || advanced.Checkpoint is null)
+                    {
+                        var error = advanced.Error == RuntimeLifecycleErrorCode.None
+                            ? RuntimeLifecycleErrorCode.InvalidCheckpoint
+                            : advanced.Error;
+                        return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, error);
+                    }
+                    return await CallOnceAndRequireObservationAsync(request, advanced.Checkpoint, cancellationToken).ConfigureAwait(false);
                 }
                 case RuntimeLifecyclePhase.InFlight:
                 case RuntimeLifecyclePhase.Uncertain:
@@ -102,7 +108,7 @@ public sealed class RuntimeLifecycleCoordinator(
 
     private async ValueTask<RuntimeLifecycleResult> CallOnceAndRequireObservationAsync(RuntimeLifecycleOperationRequest request, RuntimeLifecycleCheckpoint checkpoint, CancellationToken cancellationToken)
     {
-        RuntimeLifecycleExecutorResponse response;
+        RuntimeLifecycleExecutorResponse? response;
         try
         {
             response = await _executor.ExecuteAsync(new(checkpoint.OperationKey, checkpoint.DispatchToken, request.Plan, checkpoint.Action, checkpoint.WriterEpoch), cancellationToken).ConfigureAwait(false);
@@ -132,7 +138,7 @@ public sealed class RuntimeLifecycleCoordinator(
 
     private async ValueTask<RuntimeLifecycleResult> RecoverByObservationAsync(RuntimeLifecycleOperationRequest request, RuntimeLifecycleCheckpoint checkpoint, CancellationToken cancellationToken)
     {
-        RuntimeLifecycleObservation observation;
+        RuntimeLifecycleObservation? observation;
         var observationRequest = new RuntimeLifecycleObservationRequest(checkpoint.OperationKey, request.Plan, checkpoint.Action, checkpoint.PlanFingerprint, checkpoint.LastObservationWatermark, checkpoint.WriterEpoch, checkpoint.DispatchToken);
         try { observation = await _executor.ObserveAsync(observationRequest, cancellationToken).ConfigureAwait(false); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Result(checkpoint, RuntimeLifecycleTerminalStatus.ReconciliationRequired, RuntimeLifecycleErrorCode.CancelledAfterDispatch); }

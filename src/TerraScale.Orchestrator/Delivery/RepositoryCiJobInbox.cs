@@ -578,7 +578,9 @@ internal sealed class RepositoryCiJobInbox(
                 acceptance.ProtocolError,
                 null);
 
-        var execution = await executions.PrepareAsync(acceptance.Acceptance!, now, cancellationToken);
+        if (acceptance.Acceptance is not { } accepted)
+            throw new InvalidDataException("An acknowledgeable CI acceptance has no accepted command.");
+        var execution = await executions.PrepareAsync(accepted, now, cancellationToken);
         if (!execution.CanAcknowledge)
             return new(
                 RepositoryCiJobDeliveryDisposition.Rejected,

@@ -28,8 +28,8 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
 
         await Assert.That(receipt!.Disposition)
             .IsEqualTo(RepositoryCiPipelineRunCoordinationDisposition.Succeeded);
-        await Assert.That(receipt.Run!.Results.Count).IsEqualTo(fixture.Pipeline.Jobs.Count);
-        await Assert.That(receipt.Run.Results.All(static value => value.Succeeded)).IsTrue();
+        await Assert.That(receipt.Run!.Jobs.Count).IsEqualTo(fixture.Pipeline.Jobs.Count);
+        await Assert.That(receipt.Run.Jobs.All(static value => value.Phase == RepositoryCiJobPhase.Succeeded)).IsTrue();
         await Assert.That(fixture.Transport.Jobs.Count).IsEqualTo(fixture.Pipeline.Jobs.Count);
         await Assert.That(fixture.Transport.Jobs.Distinct(StringComparer.Ordinal).Count())
             .IsEqualTo(fixture.Pipeline.Jobs.Count);
@@ -65,7 +65,7 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
             .IsEqualTo(RepositoryCiPipelineRunCoordinationDisposition.Failed);
         await Assert.That(receipt.Run!.State).IsEqualTo(RepositoryCiPipelineRunState.Failed);
         await Assert.That(fixture.Transport.Jobs.Count).IsEqualTo(initialReady);
-        await Assert.That(receipt.Run.Results.Any(static value => !value.Succeeded)).IsTrue();
+        await Assert.That(receipt.Run!.Jobs.Any(static value => value.Phase == RepositoryCiJobPhase.Failed)).IsTrue();
     }
 
     [Test]
@@ -88,8 +88,8 @@ public sealed class RepositoryCiPipelineRunCoordinatorTests
 
         await Assert.That(receipt!.Disposition)
             .IsEqualTo(RepositoryCiPipelineRunCoordinationDisposition.Succeeded);
-        await Assert.That(receipt.Run!.Results.All(static value => value.Succeeded)).IsTrue();
-        await Assert.That(receipt.Run.Results.Any(static value => value.Attempt == 2)).IsTrue();
+        await Assert.That(receipt.Run!.Jobs.All(static value => value.Phase == RepositoryCiJobPhase.Succeeded)).IsTrue();
+        await Assert.That(receipt.Run.Jobs.Any(static value => value.Attempt == 2)).IsTrue();
         await Assert.That(fixture.Transport.Jobs.Count).IsEqualTo(fixture.Pipeline.Jobs.Count + 1);
     }
 

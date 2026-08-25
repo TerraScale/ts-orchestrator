@@ -245,9 +245,10 @@ internal sealed class DevelopmentControlSocket : IAsyncDisposable
         }
         this.path = Path.GetFullPath(path);
         this.handle = handle;
-        Directory.CreateDirectory(Path.GetDirectoryName(this.path)!);
+        Directory.CreateDirectory(
+            DevelopmentGuards.RequireDirectory(this.path, "Development control socket"));
         File.SetUnixFileMode(
-            Path.GetDirectoryName(this.path)!,
+            DevelopmentGuards.RequireDirectory(this.path, "Development control socket"),
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         File.Delete(this.path);
         listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);

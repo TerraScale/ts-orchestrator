@@ -17,8 +17,8 @@ public sealed class StorageDeletionTests
         await Assert.That(elastic.Action).IsEqualTo(StorageAction.Delete);
         await Assert.That(disposable.Action).IsEqualTo(StorageAction.Delete);
         await Assert.That(elastic).IsNotEqualTo(disposable);
-        await Assert.That(elastic.Scope!.Retention).IsEqualTo(StorageRetention.ElasticQuarantine);
-        await Assert.That(disposable.Scope!.Retention).IsEqualTo(StorageRetention.ExplicitDisposable);
+        await Assert.That(StorageTestData.Require(elastic.Scope).Retention).IsEqualTo(StorageRetention.ElasticQuarantine);
+        await Assert.That(StorageTestData.Require(disposable.Scope).Retention).IsEqualTo(StorageRetention.ExplicitDisposable);
 
         var backupA=StorageTestData.Backup("verified-backup-a");
         var backupB=StorageTestData.Backup("verified-backup-b");
@@ -30,8 +30,8 @@ public sealed class StorageDeletionTests
             StorageTestData.Deletion(scope:volumeB.EvidenceScope));
 
         await Assert.That(decisionA).IsNotEqualTo(decisionB);
-        await Assert.That(ReferenceEquals(decisionA.Scope!.Backup,backupA)).IsTrue();
-        await Assert.That(ReferenceEquals(decisionB.Scope!.Backup,backupB)).IsTrue();
+        await Assert.That(ReferenceEquals(StorageTestData.Require(decisionA.Scope).Backup,backupA)).IsTrue();
+        await Assert.That(ReferenceEquals(StorageTestData.Require(decisionB.Scope).Backup,backupB)).IsTrue();
         await Assert.That(decisionA.ToString()).DoesNotContain(backupA.Value);
         await Assert.That(decisionB.ToString()).DoesNotContain(backupB.Value);
     }
@@ -85,12 +85,13 @@ public sealed class StorageDeletionTests
         var evidence=StorageTestData.Deletion();
         var first=StorageDeletionPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),evidence);
         var replay=StorageDeletionPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),evidence);
+        var firstScope = StorageTestData.Require(first.Scope);
         await Assert.That(first.Action).IsEqualTo(StorageAction.Delete);
         await Assert.That(first.Target).IsEqualTo(StorageIntentTarget.ProviderVolume);
-        await Assert.That(first.Scope!.ProviderVolume).IsEqualTo(StorageTestData.Provider());
-        await Assert.That(first.Scope.Operation).IsEqualTo(StorageTestData.Operation());
-        await Assert.That(first.Scope.Fence).IsEqualTo(StorageTestData.Fence());
-        await Assert.That(first.Scope.ToString()).DoesNotContain("provider-volume-a");
+        await Assert.That(firstScope.ProviderVolume).IsEqualTo(StorageTestData.Provider());
+        await Assert.That(firstScope.Operation).IsEqualTo(StorageTestData.Operation());
+        await Assert.That(firstScope.Fence).IsEqualTo(StorageTestData.Fence());
+        await Assert.That(firstScope.ToString()).DoesNotContain("provider-volume-a");
         await Assert.That(first).IsEqualTo(replay);
     }
 

@@ -41,9 +41,11 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(resources.Length).IsEqualTo(22);
         var ports = resources.Select(resource => resource.Port)
             .Concat(resources.Where(resource => resource.ClusterPort is not null)
-                .Select(resource => resource.ClusterPort!.Value))
+                .Select(resource => resource.ClusterPort ?? throw new InvalidOperationException(
+                    $"Resource '{resource.Name}' has no cluster port.")))
             .Concat(resources.Where(resource => resource.SecondaryPort is not null)
-                .Select(resource => resource.SecondaryPort!.Value))
+                .Select(resource => resource.SecondaryPort ?? throw new InvalidOperationException(
+                    $"Resource '{resource.Name}' has no secondary port.")))
             .ToArray();
         await Assert.That(ports.Distinct().Count()).IsEqualTo(ports.Length);
         await Assert.That(resources.Select(resource => resource.Name).Distinct().Count()).IsEqualTo(resources.Length);
@@ -228,7 +230,8 @@ public sealed class DevelopmentTopologyTests
                 .IsEqualTo($"tls://127.0.0.1:{cell.OfKind(DevelopmentResourceKind.ControlNats).Single().Port}");
             await Assert.That(options.Instance).IsEqualTo($"controller-{controller.Replica}");
             await Assert.That(options.InfrastructureNatsNKeyFile).IsEqualTo(security.Infrastructure.SeedFile);
-            await Assert.That(options.InfrastructureNatsTls!.CertificateFile)
+            await Assert.That((options.InfrastructureNatsTls ?? throw new InvalidOperationException(
+                "Journal provisioning must include infrastructure TLS.")).CertificateFile)
                 .IsEqualTo(security.Tls.Control.Clients["operator-read"].CertificateFile);
         }
         finally
@@ -372,25 +375,27 @@ public sealed class DevelopmentTopologyTests
                 root);
 
             await Assert.That(runtime).IsNotNull();
-            await Assert.That(runtime!.Destination).IsEqualTo(
+            var runtimeVolume = runtime ?? throw new InvalidOperationException(
+                "The TerraBase topology must include a writable runtime volume.");
+            await Assert.That(runtimeVolume.Destination).IsEqualTo(
                 Path.Combine(root, "artifacts", "dotnet", "bin", "TerraBase.Server", "release"));
-            await Assert.That(runtime.Source).IsEqualTo(
+            await Assert.That(runtimeVolume.Source).IsEqualTo(
                 Path.Combine(root, "workloads", "gru-terrabase-1", "runtime"));
 
-            Directory.CreateDirectory(Path.Combine(runtime.Destination, "nested"));
-            File.WriteAllText(Path.Combine(runtime.Destination, "TerraBase.Server.dll"), "first");
-            File.WriteAllText(Path.Combine(runtime.Destination, "nested", "asset.json"), "asset");
-            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtime);
+            Directory.CreateDirectory(Path.Combine(runtimeVolume.Destination, "nested"));
+            File.WriteAllText(Path.Combine(runtimeVolume.Destination, "TerraBase.Server.dll"), "first");
+            File.WriteAllText(Path.Combine(runtimeVolume.Destination, "nested", "asset.json"), "asset");
+            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtimeVolume);
 
             await Assert.That(File.ReadAllText(
-                Path.Combine(runtime.Source, "TerraBase.Server.dll"))).IsEqualTo("first");
+                Path.Combine(runtimeVolume.Source, "TerraBase.Server.dll"))).IsEqualTo("first");
             await Assert.That(File.ReadAllText(
-                Path.Combine(runtime.Source, "nested", "asset.json"))).IsEqualTo("asset");
+                Path.Combine(runtimeVolume.Source, "nested", "asset.json"))).IsEqualTo("asset");
 
-            File.WriteAllText(Path.Combine(runtime.Destination, "TerraBase.Server.dll"), "second");
-            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtime);
+            File.WriteAllText(Path.Combine(runtimeVolume.Destination, "TerraBase.Server.dll"), "second");
+            DevelopmentProcessSupervisor.PrepareWritableRuntimeVolume(runtimeVolume);
             await Assert.That(File.ReadAllText(
-                Path.Combine(runtime.Source, "TerraBase.Server.dll"))).IsEqualTo("second");
+                Path.Combine(runtimeVolume.Source, "TerraBase.Server.dll"))).IsEqualTo("second");
 
             await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeVolume(
                 topology,

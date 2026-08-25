@@ -28,7 +28,7 @@ public sealed class RepositoryCiJobResultReconcilerTests
         var completed = await fixture.ReconcileAsync();
         var duplicate = await fixture.ReconcileAsync();
         var run = await fixture.Jobs.ReadAsync(fixture.Pipeline);
-        var result = run.Results.Single(value => value.Job == fixture.JobId);
+        var result = run.Jobs.Single(value => value.Job.Request.Job == fixture.JobId);
 
         await Assert.That(runnerLease.Disposition).IsEqualTo(RepositoryCiJobExecutionDisposition.Acquired);
         await Assert.That(running.Disposition).IsEqualTo(RepositoryCiJobResultReconcileDisposition.Running);
@@ -36,7 +36,7 @@ public sealed class RepositoryCiJobResultReconcilerTests
         await Assert.That(runnerCompleted.Disposition).IsEqualTo(RepositoryCiJobExecutionDisposition.Completed);
         await Assert.That(completed.Disposition).IsEqualTo(RepositoryCiJobResultReconcileDisposition.Completed);
         await Assert.That(duplicate.Disposition).IsEqualTo(RepositoryCiJobResultReconcileDisposition.Duplicate);
-        await Assert.That(result.Succeeded).IsTrue();
+        await Assert.That(result.Phase).IsEqualTo(RepositoryCiJobPhase.Succeeded);
         await Assert.That(result.EvidenceDigest).IsEqualTo(Digest('a'));
     }
 

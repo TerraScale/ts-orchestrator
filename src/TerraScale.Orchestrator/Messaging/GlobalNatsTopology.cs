@@ -15,8 +15,11 @@ public sealed class GlobalNatsTopology
     public const string CiJobSubjectPrefix = $"{Root}.ci.job";
     public const string CiRuntimeProofSubject = $"{Root}.ci.runtime-proof";
     public const string CellDirectorySubject = $"{Root}.query.cells";
+    public const string CellSpecSubjectPrefix = $"{Root}.desired.gitops";
+    public const string CellsBucket = "GLOBAL_CELLS";
     public const string RunnerJobsBucket = "CI_RUNNER_JOBS";
     public const string RunnerBundlesBucket = "CI_RUNNER_BUNDLES";
+    public const string CiRunnerJournalKeyPrefix = "ci.runner";
 
     public GlobalNatsTopology(int replicas)
     {
@@ -61,7 +64,7 @@ public sealed class GlobalNatsTopology
         NumberOfReplicas = Replicas,
     };
 
-    public NatsKVConfig Cells => new("GLOBAL_CELLS")
+    public NatsKVConfig Cells => new(CellsBucket)
     {
         Description = "Durable read-only regional cell advertisements",
         History = 16,
@@ -73,7 +76,9 @@ public sealed class GlobalNatsTopology
 
     public NatsKVConfig Releases => new("GLOBAL_RELEASES")
     {
-        Description = "Candidate, release-set, approval, promotion, and rollback journal",
+        // Durable bucket name kept from the retired stage for store continuity; its content is
+        // the direct-delivery and CI journal ledger, not a candidate/promotion stage journal.
+        Description = "Durable delivery and CI journal ledger (triggers, pipelines, direct operations)",
         History = 64,
         MaxAge = TimeSpan.FromDays(365),
         MaxValueSize = 16 * 1024,
@@ -215,13 +220,11 @@ public sealed class GlobalNatsTopology
     {
         if (!IsCellToken(cell))
             throw new ArgumentException("The global CellSpec cell is not a lowercase DNS-style token.", nameof(cell));
-        return $"{Root}.desired.gitops.{cell}";
+        return $"{CellSpecSubjectPrefix}.{cell}";
     }
 
     internal static bool IsCellToken(string? cell) =>
-        cell is { Length: >= 1 and <= 63 } &&
-        cell[0] != '-' && cell[^1] != '-' &&
-        cell.All(static character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
+        CellTokenRule.IsValid(cell);
 
     internal static string CellAdvertisementKey(string cell)
     {
@@ -231,7 +234,7 @@ public sealed class GlobalNatsTopology
     }
 
     public static string CiRunnerJournalPrefix(string runner) =>
-        $"ci.runner.{CiRunnerIdentityHash(runner)}.job";
+        $"{CiRunnerJournalKeyPrefix}.{CiRunnerIdentityHash(runner)}.job";
 
     public static string CiRunnerIdentityHash(string runner)
     {

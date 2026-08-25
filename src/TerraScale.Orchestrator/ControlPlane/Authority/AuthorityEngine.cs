@@ -114,7 +114,7 @@ public static class AuthorityEngine
 
     private static AuthorityDecision Renew(AuthorityState state, RenewAuthority command)
     {
-        if (state.Status != AuthorityStatus.Leader || state.Confirmed is null)
+        if (state.Status != AuthorityStatus.Leader || state.Confirmed is not { Lease: { } confirmedLease })
             return Reject(state, Error(AuthorityErrorCode.InvalidTransition, "INV-004", "Renewal requires confirmed leader state."));
         var completed = CompletedRequestReuse(state, command.RequestId);
         if (completed is not null) return Reject(state, completed);
@@ -130,7 +130,7 @@ public static class AuthorityEngine
         if (!CanAdd(command.Health.ServerTime, command.LeaseDuration))
             return Hold(state, command, Error(AuthorityErrorCode.ArithmeticOverflow, "INV-004", "Renewal expiry overflows timestamp range."));
 
-        var lease = new AuthorityLease(command.CandidateId, state.Confirmed.Lease!.LeaseId,
+        var lease = new AuthorityLease(command.CandidateId, confirmedLease.LeaseId,
             command.Health.ServerTime, command.LeaseDuration);
         var pending = new PendingAuthoritySet(command.RequestId, command.Current.KvRevision,
             command.Current.Epoch, command.Current.Epoch, lease, command.Current, command.Health, true);
@@ -154,8 +154,11 @@ public static class AuthorityEngine
             return Hold(state, command, Error(AuthorityErrorCode.ArithmeticOverflow, "INV-004", "KV revision cannot advance."));
         var exact = EnsureExactCurrent(state, command.Current, command.Health);
         if (exact is not null) return LoseAuthority(state, command, command.Current, exact);
+        if (command.Current.Lease is not { } currentLease)
+            return LoseAuthority(state, command, command.Current,
+                Error(AuthorityErrorCode.LeaseExpired, "INV-004", "No active lease is observed."));
         var pending = new PendingAuthorityDelete(command.RequestId, command.Current.KvRevision,
-            command.Current.Epoch, command.Current.Lease!, command.Health);
+            command.Current.Epoch, currentLease, command.Health);
         var @event = Stamp(state, (sequence, previous, digest) => new AuthorityDeleteRequested(
             sequence, previous, digest, command.AuthorityId, command.CandidateId, command.RequestId, pending));
         return Commit(state, @event, [new CompareAndDeleteLeaseIntent(command.AuthorityId,
@@ -198,19 +201,21 @@ public static class AuthorityEngine
         var pending = state.PendingSet;
         if (command.Outcome == AuthorityCasOutcome.Succeeded)
         {
-            var observationError = command.Observation is null ? Error(AuthorityErrorCode.InvalidInput, "INV-005", "Successful CAS requires an observation.") : ValidateObservation(command.Observation);
+            if (command.Observation is not { } observation)
+                return Reject(state, Error(AuthorityErrorCode.InvalidInput, "INV-005", "Successful CAS requires an observation."));
+            var observationError = ValidateObservation(observation);
             if (observationError is not null) return Reject(state, observationError);
             long revision;
             try { revision = checked(pending.ExpectedRevision + 1); }
             catch (OverflowException) { return Hold(state, command, Error(AuthorityErrorCode.ArithmeticOverflow, "INV-004", "KV revision overflowed.")); }
-            if (command.Observation!.KvRevision != revision || command.Observation.Epoch != pending.ProposedEpoch ||
-                command.Observation.Lease != pending.ProposedLease)
-                return Fence(state, command, command.Observation, Error(AuthorityErrorCode.RevisionMismatch, "INV-004", "Successful CAS observation does not exactly match the proposed lease."));
-            var safety = SafetyError(command.Health) ?? LeaseError(command.Observation, command.Health);
-            if (safety is not null) return LoseAuthority(state, command, command.Observation, safety);
+            if (observation.KvRevision != revision || observation.Epoch != pending.ProposedEpoch ||
+                observation.Lease != pending.ProposedLease)
+                return Fence(state, command, observation, Error(AuthorityErrorCode.RevisionMismatch, "INV-004", "Successful CAS observation does not exactly match the proposed lease."));
+            var safety = SafetyError(command.Health) ?? LeaseError(observation, command.Health);
+            if (safety is not null) return LoseAuthority(state, command, observation, safety);
             var confirmed = Stamp(state, (sequence, previous, digest) => new AuthoritySetConfirmed(
                 sequence, previous, digest, command.AuthorityId, command.CandidateId, command.RequestId,
-                command.Observation, command.Health, pending.IsRenewal));
+                observation, command.Health, pending.IsRenewal));
             return Commit(state, confirmed, mutationPermit: CreatePermit(command));
         }
 

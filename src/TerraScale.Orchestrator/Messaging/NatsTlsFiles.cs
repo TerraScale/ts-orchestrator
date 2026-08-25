@@ -17,14 +17,18 @@ public sealed record NatsTlsFiles(string CaFile, string CertificateFile, string 
         {
             throw new ArgumentException($"{optionPrefix} requires CA, certificate, and key files together.");
         }
+        if (caFile is null || certificateFile is null || keyFile is null)
+        {
+            throw new ArgumentException($"{optionPrefix} requires non-empty CA, certificate, and key file paths.");
+        }
         if (!OperatingSystem.IsLinux())
         {
             throw new PlatformNotSupportedException("NATS TLS credential files require Linux file permissions.");
         }
 
-        var ca = ResolvePublic(caFile!, $"{optionPrefix} CA");
-        var certificate = ResolvePublic(certificateFile!, $"{optionPrefix} certificate");
-        var key = ResolvePrivate(keyFile!, $"{optionPrefix} key");
+        var ca = ResolvePublic(caFile, $"{optionPrefix} CA");
+        var certificate = ResolvePublic(certificateFile, $"{optionPrefix} certificate");
+        var key = ResolvePrivate(keyFile, $"{optionPrefix} key");
         try
         {
             using var identity = X509Certificate2.CreateFromPemFile(certificate, key);

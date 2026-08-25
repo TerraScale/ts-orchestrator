@@ -449,10 +449,12 @@ internal sealed class CiRunnerNatsRuntime : IAsyncDisposable
             var expected = topology.CiJobConsumer(
                 configuration.Zone == TrustZone.UntrustedProduct ? "untrusted-product" : "trusted-build",
                 configuration.Runner);
+            if (expected.Name is not { } consumerName)
+                throw new InvalidOperationException("The CI runner consumer profile has no durable name.");
             var jetStream = client.CreateJetStreamContext();
             var consumer = await jetStream.GetConsumerAsync(
                 GlobalNatsTopology.CiStream,
-                expected.Name!,
+                consumerName,
                 cancellationToken);
             await consumer.RefreshAsync(cancellationToken);
             if (!CiRunnerConsumerReconciler.Matches(consumer.Info, expected))

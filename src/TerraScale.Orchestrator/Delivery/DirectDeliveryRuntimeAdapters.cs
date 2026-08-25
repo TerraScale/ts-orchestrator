@@ -1,0 +1,686 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using NATS.Client.KeyValueStore;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
+using TerraScale.Orchestrator.Protocol;
+
+namespace TerraScale.Orchestrator.Delivery;
+
+/// <summary>Raised when a concurrent delivery admitted the same operationId with a different request.</summary>
+internal sealed class DirectDeliveryJournalConflictException : Exception
+{
+    public DirectDeliveryJournalConflictException() : base(
+        "The direct delivery operation was admitted concurrently with a different request.") { }
+}
+
+/// <summary>
+/// Durable direct-operation records backed by the provisioned NATS KV ledger. The first append
+/// is a compare-and-set admission: a concurrent create loses and a different request fingerprint
+/// can never overwrite the winner, and completed operation history is pruned under a bound.
+/// </summary>
+internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) : IDeliveryJournal
+{
+    internal const int DefaultOperationHistoryCap = 1024;
+    internal const int DefaultPruneInterval = 1;
+    private const string OperationKeyPrefix = "direct.operation.";
+    private const int MaximumRecordBytes = 64 * 1024;
+    // direct.target.* records hold only each region's CURRENT deployed digest; the pre-mutation
+    // digests rollback needs live in the direct.operation.* records. They are live state and are
+    // never pruned by the history bound.
+    private readonly IForgejoDeliveryLedger ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
+    private readonly IForgejoDeliveryRetentionLedger? retention = ledger as IForgejoDeliveryRetentionLedger;
+    private readonly int operationHistoryCap = DefaultOperationHistoryCap;
+    private readonly int pruneInterval = DefaultPruneInterval;
+    private int appendsSincePrune;
+
+    internal NatsDirectDeliveryJournal(
+        IForgejoDeliveryLedger ledger,
+        IForgejoDeliveryRetentionLedger retention,
+        int operationHistoryCap = DefaultOperationHistoryCap,
+        int pruneInterval = DefaultPruneInterval) : this(ledger)
+    {
+        this.retention = retention ?? throw new ArgumentNullException(nameof(retention));
+        if (operationHistoryCap is < 1 or > 65_536)
+            throw new ArgumentOutOfRangeException(nameof(operationHistoryCap));
+        if (pruneInterval is < 1 or > 65_536)
+            throw new ArgumentOutOfRangeException(nameof(pruneInterval));
+        this.operationHistoryCap = operationHistoryCap;
+        this.pruneInterval = pruneInterval;
+    }
+
+    public async ValueTask<DeliveryJournalRecord?> ReadAsync(
+        string operationId,
+        CancellationToken cancellationToken)
+    {
+        var entry = await ledger.GetAsync(Key(operationId), cancellationToken).ConfigureAwait(false);
+        if (entry is null) return null;
+        var record = Read(entry.Value);
+        if (!string.Equals(record.OperationId, operationId, StringComparison.Ordinal))
+            throw new InvalidDataException("A direct delivery journal record changed operation identity.");
+        return record;
+    }
+
+    public async ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        Validate(record);
+        var value = JsonSerializer.Serialize(record, DeliveryWireCodec.JsonOptions);
+        if (Encoding.UTF8.GetByteCount(value) > MaximumRecordBytes)
+            throw new InvalidDataException("The direct delivery journal record exceeded its bound.");
+        var key = Key(record.OperationId);
+        var existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
+        {
+            try
+            {
+                await ledger.CreateAsync(key, value, cancellationToken).ConfigureAwait(false);
+            }
+            catch (ForgejoDeliveryLedgerConflictException)
+            {
+                // Admission race: another writer created the record between our read and create.
+                // Same request converges (progress append); a different request is fenced out.
+                existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false)
+                    ?? throw new DirectDeliveryJournalConflictException();
+                EnsureContinuity(Read(existing.Value), record);
+                try
+                {
+                    await ledger.UpdateAsync(key, value, existing.Revision, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ForgejoDeliveryLedgerConflictException)
+                {
+                    // A second-order conflict on the recovery write is the same admission race.
+                    throw new DirectDeliveryJournalConflictException();
+                }
+            }
+        }
+        else
+        {
+            EnsureContinuity(Read(existing.Value), record);
+            try
+            {
+                await ledger.UpdateAsync(key, value, existing.Revision, cancellationToken).ConfigureAwait(false);
+            }
+            catch (ForgejoDeliveryLedgerConflictException)
+            {
+                throw new DirectDeliveryJournalConflictException();
+            }
+        }
+        // The cap is an invariant, not an eventual target. The interval remains a constructor
+        // compatibility input but cannot permit an append to leave the durable key count above
+        // the configured bound.
+        _ = Interlocked.Increment(ref appendsSincePrune);
+        await DeliveryJournalRetention.PruneAsync(
+            retention,
+            OperationKeyPrefix,
+            operationHistoryCap,
+            (entry, _, token) => Task.FromResult(new DeliveryJournalPruneDecision(
+                IsPrunable(Read(entry.Value)))),
+            "in-flight or rollback-recovery-pending direct delivery operations",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void EnsureContinuity(DeliveryJournalRecord current, DeliveryJournalRecord record)
+    {
+        if (!string.Equals(current.RequestFingerprint, record.RequestFingerprint, StringComparison.Ordinal) ||
+            current.ArtifactDigest is not null && record.ArtifactDigest is not null &&
+            !string.Equals(current.ArtifactDigest, record.ArtifactDigest, StringComparison.Ordinal) ||
+            current.AuthorityGeneration != record.AuthorityGeneration ||
+            current.WriterEpoch != record.WriterEpoch ||
+            current.Attempt != record.Attempt)
+            throw new DirectDeliveryJournalConflictException();
+        // Terminal success is absorbing: once a delivery is durably Succeeded or RolledBack, a
+        // late concurrent append of the same request (a stale Accepted/Applying/transient-Failed
+        // record) must never regress it — that would fabricate a rollback for a completed
+        // delivery. Replayable failure states stay overwritable by design.
+        if (current.State is DeliveryJournalState.Succeeded or DeliveryJournalState.RolledBack &&
+            record.State != current.State)
+            throw new DirectDeliveryJournalConflictException();
+        if (StateRank(record.State) < StateRank(current.State) &&
+            !(current.State == DeliveryJournalState.Failed && IsReplayable(current)))
+            throw new DirectDeliveryJournalConflictException();
+        if (current.Regions is { } currentRegions && record.Regions is { } nextRegions)
+        {
+            var next = nextRegions.ToDictionary(static region => region.Region, StringComparer.Ordinal);
+            foreach (var previous in currentRegions)
+            {
+                if (!next.TryGetValue(previous.Region, out var candidate)) continue;
+                if (StateRank(candidate.State) < StateRank(previous.State))
+                    throw new DirectDeliveryJournalConflictException();
+                // Recorded write-ahead rollback material is durable: a later append (including
+                // the create-race recovery write) may never clear or change it — resetting the
+                // pre-mutation digests would erase the only exact rollback target.
+                if (previous.PreviousArtifactDigest is { } recorded &&
+                    candidate.PreviousArtifactDigest != recorded)
+                    throw new DirectDeliveryJournalConflictException();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Prunable means terminal AND recovered: a Failed record that still owes rollback recovery
+    /// (rollback-pending/failed regions, or a rollback-failed receipt) holds the only durable
+    /// copy of the pre-mutation digests and must never be pruned.
+    /// </summary>
+    private static bool IsPrunable(DeliveryJournalRecord record) =>
+        record.State switch
+        {
+            DeliveryJournalState.Succeeded => true,
+            DeliveryJournalState.RolledBack => true,
+            DeliveryJournalState.Failed =>
+                record.Regions?.Any(static region =>
+                    region.State is "rollback_failed" or "rollback_pending") != true &&
+                record.Receipt?.Error.Code != DirectDeliveryErrorCode.RollbackFailed,
+            _ => false,
+        };
+
+    private static DeliveryJournalRecord Read(string value)
+    {
+        if (value is null || Encoding.UTF8.GetByteCount(value) is < 2 or > MaximumRecordBytes)
+            throw new InvalidDataException("A direct delivery journal record is empty or oversized.");
+        try
+        {
+            var record = JsonSerializer.Deserialize<DeliveryJournalRecord>(value, DeliveryWireCodec.JsonOptions)
+                ?? throw new JsonException();
+            Validate(record);
+            if (!string.Equals(JsonSerializer.Serialize(record, DeliveryWireCodec.JsonOptions), value,
+                    StringComparison.Ordinal))
+                throw new InvalidDataException("A direct delivery journal record is not canonical.");
+            return record;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("A direct delivery journal record is invalid.", exception);
+        }
+    }
+
+    private static void Validate(DeliveryJournalRecord record)
+    {
+        if (record.OperationId is not { Length: > 0 and <= 128 } operationId || operationId.Any(char.IsControl) ||
+            record.RequestFingerprint is not { Length: 71 } fingerprint || !Sha256(fingerprint) ||
+            record.State is not (DeliveryJournalState.Accepted or DeliveryJournalState.Applying or
+                DeliveryJournalState.RollingBack or DeliveryJournalState.Failed or DeliveryJournalState.RolledBack or
+                DeliveryJournalState.Succeeded or "applied" or "healthy") || record.AuthorityGeneration <= 0 || record.WriterEpoch <= 0 ||
+            record.Attempt <= 0 || record.Attempt > 1_000_000 ||
+            record.ArtifactDigest is not null && !Sha256(record.ArtifactDigest))
+            throw new InvalidDataException("A direct delivery journal record identity or state is invalid.");
+        if (record.Regions is { } regions)
+        {
+            if (regions.Count is < 1 or > DirectDeliveryCoordinator.MaximumRegionCount)
+                throw new InvalidDataException("A direct delivery journal region set is invalid.");
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var region in regions)
+            {
+                if (region is null or { Region.Length: 0 or > DirectDeliveryCoordinator.MaximumTextLength } ||
+                    region.Region.Any(char.IsControl) || !seen.Add(region.Region) ||
+                    region.State is not ("pending" or "applying" or "applied" or "healthy" or "health_failed" or
+                        "failed" or "rolling_back" or "rollback_pending" or "rollback_failed" or "rollback_succeeded") ||
+                    region.PreviousArtifactDigest is not null && !Sha256(region.PreviousArtifactDigest) ||
+                    region.PreviousManifestDigest is not null && !Sha256(region.PreviousManifestDigest) ||
+                    (region.PreviousArtifactDigest is null) != (region.PreviousManifestDigest is null) ||
+                    region.ErrorCode is not null && !KnownError(region.ErrorCode))
+                    throw new InvalidDataException("A direct delivery journal region record is invalid.");
+            }
+        }
+        if (record.Receipt is not null)
+            ValidateReceipt(record.Receipt, record.OperationId);
+    }
+
+    private static void ValidateReceipt(DeliveryReceipt receipt, string operationId)
+    {
+        if (receipt.SchemaVersion != DeliveryRequest.CurrentSchemaVersion ||
+            receipt.OperationId != operationId || receipt.Status is not (DeliveryReceiptStatus.Succeeded or
+                DeliveryReceiptStatus.Failed or DeliveryReceiptStatus.RolledBack) ||
+            receipt.ArtifactDigest is not null && !Sha256(receipt.ArtifactDigest) ||
+            receipt.Provenance is null || receipt.Health is null || receipt.Rollback is null ||
+            receipt.AuditId is not { Length: > 0 and <= DirectDeliveryCoordinator.MaximumOperationIdLength } ||
+            receipt.AuditId.Any(char.IsControl) || receipt.Rollback.Status is not (DeliveryRollbackStatus.NotRequired or
+                DeliveryRollbackStatus.Succeeded or DeliveryRollbackStatus.Failed) ||
+            receipt.Rollback.TargetArtifactDigest is not null && !Sha256(receipt.Rollback.TargetArtifactDigest) ||
+            receipt.Rollback.TargetManifestDigest is not null && !Sha256(receipt.Rollback.TargetManifestDigest) ||
+            (receipt.Rollback.TargetArtifactDigest is null) != (receipt.Rollback.TargetManifestDigest is null) ||
+            receipt.Error is null && receipt.Status == DeliveryReceiptStatus.Failed ||
+            receipt.Error is not null && receipt.Error.Code is not null && !KnownError(receipt.Error.Code))
+            throw new InvalidDataException("A direct delivery receipt is invalid.");
+        if (receipt.Provenance.ConfigurationRevision is not null && !Sha256(receipt.Provenance.ConfigurationRevision) ||
+            receipt.Provenance.MigrationRevision is not null && !Sha256(receipt.Provenance.MigrationRevision) ||
+            receipt.Health.Checks is null || receipt.Health.Checks.Count > 128 ||
+            receipt.Health.Checks.Any(static check => check is null || check.Name is not { Length: > 0 and <= 512 } ||
+                check.Name.Any(char.IsControl) || check.Status is not (DeliveryHealthStatus.Passed or DeliveryHealthStatus.Failed)))
+            throw new InvalidDataException("A direct delivery receipt evidence section is invalid.");
+    }
+
+    private static bool IsReplayable(DeliveryJournalRecord record) =>
+        record.Receipt?.Error.Code is DirectDeliveryErrorCode.JournalUnavailable or DirectDeliveryErrorCode.Cancelled or
+            DirectDeliveryErrorCode.AuthorizationUnavailable or DirectDeliveryErrorCode.ProvenanceUnavailable;
+
+    private static int StateRank(string state) => state switch
+    {
+        DeliveryJournalState.Accepted => 0,
+        DeliveryJournalState.Applying => 1,
+        "applied" => 2,
+        DeliveryJournalState.RollingBack => 3,
+        "healthy" => 4,
+        DeliveryJournalState.Failed => 5,
+        DeliveryJournalState.RolledBack or DeliveryJournalState.Succeeded => 6,
+        _ => -1,
+    };
+
+    private static bool Sha256(string value) => value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
+        value[7..].Length == 64 && value[7..].All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F');
+
+    private static bool KnownError(string value) => value is DirectDeliveryErrorCode.InvalidInput or
+        DirectDeliveryErrorCode.UnsupportedSchema or DirectDeliveryErrorCode.MissingSourceAndArtifact or
+        DirectDeliveryErrorCode.InvalidDigest or DirectDeliveryErrorCode.StaleDigest or DirectDeliveryErrorCode.UnknownTarget or
+        DirectDeliveryErrorCode.UnauthorizedActor or DirectDeliveryErrorCode.UnboundedText or DirectDeliveryErrorCode.ProvenanceFailed or
+        DirectDeliveryErrorCode.HealthFailed or DirectDeliveryErrorCode.ConvergenceFailed or DirectDeliveryErrorCode.RollbackFailed or
+        DirectDeliveryErrorCode.JournalUnavailable or DirectDeliveryErrorCode.OperationConflict or DirectDeliveryErrorCode.Cancelled or
+        DirectDeliveryErrorCode.MutationFailed or DirectDeliveryErrorCode.AuthorizationUnavailable or
+        DirectDeliveryErrorCode.ProvenanceUnavailable or DirectDeliveryErrorCode.AuthorityFenced;
+
+    private static string Key(string operationId)
+    {
+        if (operationId is not { Length: > 0 and <= 128 } || operationId.Any(char.IsControl))
+            throw new ArgumentException("The direct delivery operation identity is invalid.", nameof(operationId));
+        return $"direct.operation.{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(operationId)))}";
+    }
+}
+
+/// <summary>
+/// Operational (never payload) condition: the durable journal history exceeded its retention cap
+/// with records that cannot be pruned. Consumers retry this condition while deterministic durable
+/// conflicts remain terminal.
+/// </summary>
+internal sealed class JournalRetentionOverflowException : Exception
+{
+    public JournalRetentionOverflowException(string message) : base(message) { }
+}
+
+/// <summary>A prune decision for one durable journal entry, including its object-store payload.</summary>
+internal sealed record DeliveryJournalPruneDecision(bool Prunable, string? ObjectNameToDelete = null);
+
+/// <summary>
+/// Bounded oldest-first pruning for durable delivery journal keys. Records the caller cannot
+/// prove prunable (in-flight, unacknowledged, recovery-pending, or unreadable) are never pruned;
+/// if the bound is exceeded unrecoverably the prune fails closed with a
+/// <see cref="JournalRetentionOverflowException"/> instead of growing without limit. When the
+/// decider names the entry's object-store payload, the object is deleted with its pointer so the
+/// bounded history also bounds object storage.
+/// </summary>
+internal static class DeliveryJournalRetention
+{
+    internal static async Task PruneAsync(
+        IForgejoDeliveryRetentionLedger? retention,
+        string keyPrefix,
+        int cap,
+        Func<ForgejoDeliveryLedgerEntry, ulong, CancellationToken, Task<DeliveryJournalPruneDecision>> decide,
+        string unprunableDescription,
+        CancellationToken cancellationToken,
+        IDeliveryRetentionObjectStore? objects = null)
+    {
+        if (retention is null) return;
+        if (retention is not IForgejoDeliveryLedger ledger)
+            throw new ArgumentException("The retention ledger cannot read entry revisions.", nameof(retention));
+        var keys = new List<string>();
+        await foreach (var key in retention.ListKeysAsync($"{keyPrefix}>", cancellationToken)
+                           .WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            if (!key.StartsWith(keyPrefix, StringComparison.Ordinal))
+                throw new InvalidDataException("Delivery journal retention discovered an invalid key.");
+            keys.Add(key);
+        }
+        if (keys.Count <= cap) return;
+
+        // Oldest-first by ledger revision (a monotonically increasing write order); the newest
+        // observed revision is the decider's bounded-age horizon reference.
+        var candidates = new List<(string Key, ulong Revision)>(keys.Count);
+        foreach (var key in keys)
+        {
+            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry) continue;
+            candidates.Add((key, entry.Revision));
+        }
+        var newestRevision = candidates.Count == 0 ? 0UL : candidates.Max(static candidate => candidate.Revision);
+        foreach (var (key, revision) in candidates.OrderBy(static candidate => candidate.Revision))
+        {
+            if (keys.Count <= cap) return;
+            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry) continue;
+            // Retention ledgers return values independently of their keys; restore the key on
+            // the callback entry so callers can safely bind sibling anchors and object names.
+            var decision = await decide(entry with { Key = key }, newestRevision, cancellationToken)
+                .ConfigureAwait(false);
+            if (!decision.Prunable) continue;
+            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } current) continue;
+            await retention.DeleteAsync(key, current.Revision, cancellationToken).ConfigureAwait(false);
+            if (decision.ObjectNameToDelete is { } objectName && objects is not null)
+                await objects.DeleteIfExistsAsync(objectName, cancellationToken).ConfigureAwait(false);
+            keys.Remove(key);
+        }
+        if (keys.Count > cap)
+            throw new JournalRetentionOverflowException(
+                $"The durable delivery journal exceeded its retention cap of {cap} keys for '{keyPrefix}': " +
+                $"{keys.Count - cap} keys are {unprunableDescription} that cannot be pruned. " +
+                "Raise the retention cap or let the bounded-age horizon pass; delivery retries after operator action.");
+    }
+}
+
+/// <summary>
+/// Development-grade authorization boundary: the current regional/global leader authorizes
+/// directly requested product mutations. Named Development because production trust must come
+/// from the signed command-envelope seam, not a leadership probe alone.
+/// </summary>
+internal sealed class DirectDeliveryDevelopmentAuthorizer(Func<bool> isLeader) : IDeliveryAuthorizer
+{
+    private readonly Func<bool> isLeader = isLeader ?? throw new ArgumentNullException(nameof(isLeader));
+
+    public ValueTask<DeliveryAuthorizationResult> AuthorizeAsync(
+        DeliveryRequest request,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(new DeliveryAuthorizationResult(
+            isLeader() && request.RequestedBy is { Length: > 0 }));
+    }
+}
+
+/// <summary>
+/// The deployment mode a composition admits for direct delivery. Composition supplies the mode
+/// from configuration — callers must never be able to select it per request.
+/// </summary>
+public enum DirectDeliveryDeploymentMode
+{
+    /// <summary>Local and development targets only; production targets are refused.</summary>
+    Development,
+    /// <summary>
+    /// Production composition: this shape-check provenance cannot bind production artifacts, so
+    /// every request is refused until the real provenance binder exists (#3/#6).
+    /// </summary>
+    Production,
+}
+
+/// <summary>
+/// Development-grade provenance boundary: it binds the exact digest shapes carried by the
+/// request but does not yet verify the artifact against an independent evidence source. The
+/// deployment mode comes from composition configuration: production mode refuses everything;
+/// development mode blesses only non-production targets.
+/// </summary>
+internal sealed class DirectDeliveryDevelopmentProvenance(
+    DirectDeliveryDeploymentMode mode = DirectDeliveryDeploymentMode.Development) : IDeliveryProvenanceVerifier
+{
+    private readonly DirectDeliveryDeploymentMode mode = mode;
+
+    public ValueTask<DeliveryProvenanceResult> VerifyAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        // Composition-level refusal, never keyed off the request-controlled environment string:
+        // under production mode even a request relabeled "development" is refused.
+        if (mode == DirectDeliveryDeploymentMode.Production ||
+            string.Equals(request.Target?.Environment, "production", StringComparison.Ordinal))
+            return ValueTask.FromResult(new DeliveryProvenanceResult(
+                false,
+                false,
+                request.ConfigurationRevision,
+                request.MigrationRevision));
+        var valid = request.ConfigurationRevision is { Length: 71 } configuration &&
+                    configuration.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
+                    artifact.Digest is { Length: 71 } digest &&
+                    digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
+                    artifact.ManifestDigest is { Length: 71 } manifest &&
+                    manifest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase);
+        return ValueTask.FromResult(new DeliveryProvenanceResult(
+            valid,
+            false,
+            request.ConfigurationRevision,
+            request.MigrationRevision));
+    }
+}
+
+/// <summary>Builds a deterministic exact artifact for source-only direct requests.</summary>
+internal sealed class DirectDeliverySourceArtifactBuilder : IDeliveryArtifactBuilder
+{
+    public ValueTask<DeliveryArtifact?> BuildAsync(
+        DeliveryRequest request,
+        DeliverySource source,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var material = string.Join('\n', source.Repository, source.Commit, source.TreeDigest,
+            request.ConfigurationRevision, request.MigrationRevision);
+        var digest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
+        var manifest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            $"manifest\n{source.Repository}\n{source.TreeDigest}")));
+        return ValueTask.FromResult<DeliveryArtifact?>(new(digest, manifest, "service"));
+    }
+}
+
+/// <summary>
+/// Durable regional target state. The adapter performs the mutation through the provisioned
+/// regional ledger and reports health from the exact stored artifact digest.
+/// </summary>
+internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : IDeliveryTarget
+{
+    private readonly IForgejoDeliveryLedger ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
+
+    public async ValueTask<string?> ObserveCurrentDigestAsync(
+        DeliveryRequest request,
+        string region,
+        CancellationToken cancellationToken)
+    {
+        var current = await ObserveCurrentArtifactAsync(request, region, cancellationToken).ConfigureAwait(false);
+        return current?.Digest;
+    }
+
+    public async ValueTask<DeliveryArtifact?> ObserveCurrentArtifactAsync(
+        DeliveryRequest request,
+        string region,
+        CancellationToken cancellationToken)
+    {
+        var existing = await ledger.GetAsync(
+                Key(RequiredTarget(request), region), cancellationToken).ConfigureAwait(false);
+        if (existing is null) return null;
+        var state = Read(existing.Value);
+        return new DeliveryArtifact(state.ArtifactDigest, state.ManifestDigest, state.Kind);
+    }
+
+    public async ValueTask<DeliveryMutationResult> ApplyAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        string region,
+        CancellationToken cancellationToken)
+    {
+        var key = Key(RequiredTarget(request), region);
+        var existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false);
+        var previous = existing is null ? null : Read(existing.Value).ArtifactDigest;
+        if (StringComparer.OrdinalIgnoreCase.Equals(previous, RequiredDigest(artifact)))
+            // The region already runs the requested digest: nothing mutated, so there is no
+            // rollback target — reporting the requested digest as "previous" would let a later
+            // rollback "restore" an artifact this delivery never replaced.
+            return new(true, false, null);
+
+        var state = JsonSerializer.Serialize(new DirectDeliveryState(
+            RequiredDigest(artifact), RequiredManifestDigest(artifact), RequiredKind(artifact)),
+            DeliveryWireCodec.JsonOptions);
+        try
+        {
+            if (existing is null)
+                await ledger.CreateAsync(key, state, cancellationToken).ConfigureAwait(false);
+            else
+                await ledger.UpdateAsync(key, state, existing.Revision, cancellationToken).ConfigureAwait(false);
+            return new(true, true, previous,
+                PreviousManifestDigest: existing is null ? null : Read(existing.Value).ManifestDigest);
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            return new(false, false, previous, DirectDeliveryErrorCode.MutationFailed);
+        }
+    }
+
+    public async ValueTask<DeliveryHealthResult> CheckHealthAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        string region,
+        CancellationToken cancellationToken)
+    {
+        var entry = await ledger.GetAsync(Key(RequiredTarget(request), region), cancellationToken).ConfigureAwait(false);
+        var passed = entry is not null && StringComparer.OrdinalIgnoreCase.Equals(
+            Read(entry.Value).ArtifactDigest,
+            RequiredDigest(artifact));
+        return new(passed, [new($"{region}-delivery", passed ? DeliveryHealthStatus.Passed : DeliveryHealthStatus.Failed)]);
+    }
+
+    public async ValueTask<DeliveryConvergenceResult> CheckConvergenceAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        IReadOnlyList<string> orderedRegions,
+        CancellationToken cancellationToken)
+    {
+        foreach (var region in orderedRegions)
+        {
+            var entry = await ledger.GetAsync(Key(RequiredTarget(request), region), cancellationToken).ConfigureAwait(false);
+            if (entry is null || !StringComparer.OrdinalIgnoreCase.Equals(
+                    Read(entry.Value).ArtifactDigest, RequiredDigest(artifact)))
+                return new(false);
+        }
+        return new(true);
+    }
+
+    public async ValueTask<DeliveryRollbackResult> RollbackAsync(
+        DeliveryRequest request,
+        string region,
+        string targetArtifactDigest,
+        CancellationToken cancellationToken)
+        => new(false, targetArtifactDigest);
+
+    public async ValueTask<DeliveryRollbackResult> RollbackAsync(
+        DeliveryRequest request,
+        string region,
+        string targetArtifactDigest,
+        string? targetManifestDigest,
+        CancellationToken cancellationToken)
+    {
+        var key = Key(RequiredTarget(request), region);
+        if (!IsDigest(targetArtifactDigest) || targetManifestDigest is not { } manifest || !IsDigest(manifest))
+            return new(false, targetArtifactDigest);
+        var existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
+            return new(false, targetArtifactDigest);
+        var current = Read(existing.Value);
+        var rollback = JsonSerializer.Serialize(
+            current with
+            {
+                ArtifactDigest = targetArtifactDigest,
+                ManifestDigest = manifest,
+            },
+            DeliveryWireCodec.JsonOptions);
+        try
+        {
+            await ledger.UpdateAsync(key, rollback, existing.Revision, cancellationToken).ConfigureAwait(false);
+            return new(true, targetArtifactDigest,
+                new DeliveryArtifact(targetArtifactDigest, manifest, current.Kind));
+        }
+        catch (ForgejoDeliveryLedgerConflictException)
+        {
+            return new(false, targetArtifactDigest);
+        }
+    }
+
+    private static DeliveryTarget RequiredTarget(DeliveryRequest request) =>
+        request.Target is { } target
+            ? target
+            : throw new InvalidDataException("A direct delivery mutation has no admitted target.");
+
+    private static string RequiredDigest(DeliveryArtifact artifact) =>
+        artifact.Digest is { } digest
+            ? digest
+            : throw new InvalidDataException("A direct delivery mutation has no artifact digest.");
+
+    private static string RequiredManifestDigest(DeliveryArtifact artifact) =>
+        artifact.ManifestDigest is { } manifest
+            ? manifest
+            : throw new InvalidDataException("A direct delivery mutation has no manifest digest.");
+
+    private static string RequiredKind(DeliveryArtifact artifact) =>
+        artifact.Kind is { } kind
+            ? kind
+            : throw new InvalidDataException("A direct delivery mutation has no artifact kind.");
+
+    private static string Key(DeliveryTarget target, string region) =>
+        target.Service is not { } service || target.Environment is not { } environment
+            ? throw new InvalidDataException("A direct delivery target is not admitted.")
+            : $"direct.target.{Token(service)}.{Token(environment)}.{Token(region)}";
+
+    private static string Token(string value) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..32];
+
+    private static DirectDeliveryState Read(string value) =>
+        JsonSerializer.Deserialize<DirectDeliveryState>(value, DeliveryWireCodec.JsonOptions)
+        ?? throw new InvalidDataException("A direct delivery target record is empty.");
+
+    private static bool IsDigest(string? value) => value is { Length: 71 } &&
+        value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
+        value[7..].All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f' or
+            >= 'A' and <= 'F');
+
+    private sealed record DirectDeliveryState(string ArtifactDigest, string ManifestDigest, string Kind);
+}
+
+internal sealed class DirectDeliveryDevelopmentTargetResolver(IDeliveryTarget target) : IDeliveryTargetResolver
+{
+    private readonly IDeliveryTarget target = target ?? throw new ArgumentNullException(nameof(target));
+    private static readonly HashSet<string> KnownServices = new(StringComparer.Ordinal)
+    {
+        "authentication", "dashboard", "platform", "terrabase",
+    };
+    private static readonly HashSet<string> KnownEnvironments = new(StringComparer.Ordinal)
+    {
+        "local", "development",
+    };
+    private static readonly HashSet<string> KnownRegions = new(StringComparer.Ordinal)
+    {
+        "gru", "sfo", "fra",
+    };
+
+    public ValueTask<IDeliveryTarget?> ResolveAsync(DeliveryTarget target, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (target.Service is not { } service || !KnownServices.Contains(service) ||
+            target.Environment is not { } environment || !KnownEnvironments.Contains(environment) ||
+            target.Regions is not { Count: > 0 } regions ||
+            regions.Any(region => !KnownRegions.Contains(region)))
+            return ValueTask.FromResult<IDeliveryTarget?>(null);
+        // The runtime adapter receives the admitted request on every operation. Returning a
+        // target for an unrecognized identity would let a caller alias arbitrary ledger keys;
+        // the allowlist above is the development admission boundary.
+        return ValueTask.FromResult<IDeliveryTarget?>(new BoundTarget(this.target, target));
+    }
+
+    private sealed class BoundTarget(IDeliveryTarget inner, DeliveryTarget admitted) : IDeliveryTarget
+    {
+        private bool Matches(DeliveryRequest request) => request.Target is { } target &&
+            string.Equals(target.Service, admitted.Service, StringComparison.Ordinal) &&
+            string.Equals(target.Environment, admitted.Environment, StringComparison.Ordinal) &&
+            target.Regions is { } regions && regions.SequenceEqual(admitted.Regions ?? []);
+
+        public ValueTask<string?> ObserveCurrentDigestAsync(DeliveryRequest request, string region, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.ObserveCurrentDigestAsync(request, region, cancellationToken) : ValueTask.FromResult<string?>(null);
+
+        public ValueTask<DeliveryArtifact?> ObserveCurrentArtifactAsync(DeliveryRequest request, string region, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.ObserveCurrentArtifactAsync(request, region, cancellationToken) : ValueTask.FromResult<DeliveryArtifact?>(null);
+
+        public ValueTask<DeliveryMutationResult> ApplyAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.ApplyAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
+
+        public ValueTask<DeliveryHealthResult> CheckHealthAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.CheckHealthAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryHealthResult(false));
+
+        public ValueTask<DeliveryConvergenceResult> CheckConvergenceAsync(DeliveryRequest request, DeliveryArtifact artifact, IReadOnlyList<string> regions, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.CheckConvergenceAsync(request, artifact, regions, cancellationToken) : ValueTask.FromResult(new DeliveryConvergenceResult(false));
+
+        public ValueTask<DeliveryRollbackResult> RollbackAsync(DeliveryRequest request, string region, string targetArtifactDigest, string? targetManifestDigest, CancellationToken cancellationToken) =>
+            Matches(request) && targetManifestDigest is not null
+                ? inner.RollbackAsync(request, region, targetArtifactDigest, targetManifestDigest, cancellationToken)
+                : ValueTask.FromResult(new DeliveryRollbackResult(false, targetArtifactDigest));
+    }
+}

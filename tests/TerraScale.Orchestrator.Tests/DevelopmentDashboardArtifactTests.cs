@@ -14,7 +14,7 @@ public sealed class DevelopmentDashboardArtifactTests
         var chunk = Path.Combine(standalone, "dist", "server", "chunk.js");
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(chunk)!);
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(chunk, "Dashboard chunk"));
             await File.WriteAllTextAsync(Path.Combine(standalone, "server.js"), "import './dist/server/chunk.js';");
             await File.WriteAllTextAsync(chunk, "export const version = 1;");
 

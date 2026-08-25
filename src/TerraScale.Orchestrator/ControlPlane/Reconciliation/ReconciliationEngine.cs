@@ -20,10 +20,16 @@ public static class ReconciliationEngine
         var observations = observed.ToDictionary(static item => item.Identity, ResourceIdentityComparer.Instance);
         var missing = errors
             .Where(static error => error.Code == ReconciliationErrorCode.MissingDependency)
-            .GroupBy(static error => error.Resource!, ResourceIdentityComparer.Instance)
+            .Select(static error => error switch
+            {
+                { Resource: { } resource, RelatedResource: { } relatedResource } => (resource, relatedResource),
+                _ => throw new InvalidOperationException(
+                    "A missing-dependency error must identify both the resource and its dependency."),
+            })
+            .GroupBy(static error => error.resource, ResourceIdentityComparer.Instance)
             .ToDictionary(
                 static group => group.Key,
-                static group => group.Select(static error => error.RelatedResource!).OrderBy(static id => id.Value, Sorter).First(),
+                static group => group.Select(static error => error.relatedResource).OrderBy(static id => id.Value, Sorter).First(),
                 ResourceIdentityComparer.Instance);
 
         var (order, cyclic) = TopologicalOrder(resources);
@@ -157,34 +163,39 @@ public static class ReconciliationEngine
         var identities = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
         foreach (var resource in desired)
         {
-            if (resource is null || !Valid(resource.Identity?.Value, policy.MaximumIdentityLength))
+            if (resource is null)
             {
                 errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, null, null));
                 continue;
             }
-            if (!identities.Add(resource.Identity!))
-                errors.Add(Error(ReconciliationErrorCode.DuplicateResource, resource.Identity, null));
+            if (resource.Identity is not { } identity || !Valid(identity.Value, policy.MaximumIdentityLength))
+            {
+                errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, null, null));
+                continue;
+            }
+            if (!identities.Add(identity))
+                errors.Add(Error(ReconciliationErrorCode.DuplicateResource, identity, null));
             if (!Valid(resource.Kind, policy.MaximumKindLength))
-                errors.Add(Error(ReconciliationErrorCode.InvalidKind, resource.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.InvalidKind, identity, null));
             else if (!allowedKinds.Contains(resource.Kind))
-                errors.Add(Error(ReconciliationErrorCode.KindNotAllowed, resource.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.KindNotAllowed, identity, null));
             if (resource.Generation <= 0)
-                errors.Add(Error(ReconciliationErrorCode.InvalidGeneration, resource.Identity, null));
-            if (policy.GenerationFloors.TryGetValue(resource.Identity!, out var floor) && resource.Generation < floor)
-                errors.Add(Error(ReconciliationErrorCode.GenerationRegression, resource.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.InvalidGeneration, identity, null));
+            if (policy.GenerationFloors.TryGetValue(identity, out var floor) && resource.Generation < floor)
+                errors.Add(Error(ReconciliationErrorCode.GenerationRegression, identity, null));
             if (!Valid(resource.Digest, policy.MaximumDigestLength))
-                errors.Add(Error(ReconciliationErrorCode.InvalidDigest, resource.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.InvalidDigest, identity, null));
             if (resource.Dependencies.Count > policy.MaximumDependenciesPerResource)
-                errors.Add(Error(ReconciliationErrorCode.DependencyLimitExceeded, resource.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.DependencyLimitExceeded, identity, null));
             var dependencySet = new HashSet<ResourceIdentity>(ResourceIdentityComparer.Instance);
             foreach (var dependency in resource.Dependencies)
             {
-                if (!Valid(dependency?.Value, policy.MaximumIdentityLength))
-                    errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, resource.Identity, null));
-                else if (!dependencySet.Add(dependency!))
-                    errors.Add(Error(ReconciliationErrorCode.DuplicateDependency, resource.Identity, dependency));
-                else if (ResourceIdentityComparer.Instance.Equals(resource.Identity, dependency))
-                    errors.Add(Error(ReconciliationErrorCode.SelfDependency, resource.Identity, dependency));
+                if (dependency is not { } dependencyIdentity || !Valid(dependencyIdentity.Value, policy.MaximumIdentityLength))
+                    errors.Add(Error(ReconciliationErrorCode.InvalidIdentity, identity, null));
+                else if (!dependencySet.Add(dependencyIdentity))
+                    errors.Add(Error(ReconciliationErrorCode.DuplicateDependency, identity, dependencyIdentity));
+                else if (ResourceIdentityComparer.Instance.Equals(identity, dependencyIdentity))
+                    errors.Add(Error(ReconciliationErrorCode.SelfDependency, identity, dependencyIdentity));
             }
         }
 
@@ -202,22 +213,30 @@ public static class ReconciliationEngine
         var desiredByIdentity = desired.ToDictionary(static item => item.Identity, ResourceIdentityComparer.Instance);
         foreach (var observation in observed)
         {
-            if (observation is null || !Valid(observation.Identity?.Value, policy.MaximumIdentityLength) ||
+            if (observation is null)
+            {
+                errors.Add(Error(ReconciliationErrorCode.InvalidObservation, null, null));
+                continue;
+            }
+            if (observation.Identity is not { } identity || !Valid(identity.Value, policy.MaximumIdentityLength) ||
                 !Valid(observation.Kind, policy.MaximumKindLength) ||
                 observation.Generation <= 0 || !Valid(observation.Digest, policy.MaximumDigestLength) ||
                 !Valid(observation.ObservationId, policy.MaximumObservationIdLength) || observation.FreshnessSequence < 0 ||
                 !Enum.IsDefined(observation.Condition))
             {
                 errors.Add(Error(ReconciliationErrorCode.InvalidObservation,
-                    Valid(observation?.Identity?.Value, policy.MaximumIdentityLength) ? observation!.Identity : null, null));
+                    observation.Identity is { } candidate && Valid(candidate.Value, policy.MaximumIdentityLength)
+                        ? candidate
+                        : null,
+                    null));
                 continue;
             }
-            if (!observationIdentities.Add(observation.Identity!))
-                errors.Add(Error(ReconciliationErrorCode.DuplicateObservation, observation.Identity, null));
-            if (!desiredByIdentity.TryGetValue(observation.Identity!, out var desiredResource))
-                errors.Add(Error(ReconciliationErrorCode.ObservationWithoutDesired, observation.Identity, null));
+            if (!observationIdentities.Add(identity))
+                errors.Add(Error(ReconciliationErrorCode.DuplicateObservation, identity, null));
+            if (!desiredByIdentity.TryGetValue(identity, out var desiredResource))
+                errors.Add(Error(ReconciliationErrorCode.ObservationWithoutDesired, identity, null));
             else if (!Sorter.Equals(observation.Kind, desiredResource.Kind))
-                errors.Add(Error(ReconciliationErrorCode.IdentityMismatch, observation.Identity, null));
+                errors.Add(Error(ReconciliationErrorCode.IdentityMismatch, identity, null));
         }
 
         return errors;

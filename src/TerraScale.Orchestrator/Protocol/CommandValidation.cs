@@ -281,12 +281,18 @@ public static class CommandEnvelopeValidator
             return CommandValidationResult.Rejected(CommandValidationError.InvalidValidationContext);
         }
 
-        if (!IsWellFormed(envelope))
+        if (context.PayloadDigestVerifier is not { } payloadDigestVerifier
+            || context.SignatureVerifier is not { } signatureVerifier)
+        {
+            return CommandValidationResult.Rejected(CommandValidationError.InvalidValidationContext);
+        }
+
+        if (envelope is null || !IsWellFormed(envelope))
         {
             return CommandValidationResult.Rejected(CommandValidationError.MalformedEnvelope);
         }
 
-        if (!context.Accepts(envelope!.ProtocolVersion))
+        if (!context.Accepts(envelope.ProtocolVersion))
         {
             return CommandValidationResult.Rejected(CommandValidationError.UnsupportedProtocolVersion);
         }
@@ -329,7 +335,7 @@ public static class CommandEnvelopeValidator
         VerificationOutcome digestOutcome;
         try
         {
-            digestOutcome = context.PayloadDigestVerifier!.Verify(envelope.Payload, envelope.PayloadDigest);
+            digestOutcome = payloadDigestVerifier.Verify(envelope.Payload, envelope.PayloadDigest);
         }
         catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
         {
@@ -349,7 +355,7 @@ public static class CommandEnvelopeValidator
         VerificationOutcome signatureOutcome;
         try
         {
-            signatureOutcome = context.SignatureVerifier!.Verify(envelope.SignedMaterial, envelope.Signature);
+            signatureOutcome = signatureVerifier.Verify(envelope.SignedMaterial, envelope.Signature);
         }
         catch (Exception exception) when (!ProtocolExceptionPolicy.IsFatal(exception))
         {
@@ -364,9 +370,8 @@ public static class CommandEnvelopeValidator
         };
     }
 
-    private static bool IsWellFormed(CommandEnvelope? envelope) =>
-        envelope is not null
-        && envelope.ProtocolVersion.IsValid
+    private static bool IsWellFormed(CommandEnvelope envelope) =>
+        envelope.ProtocolVersion.IsValid
         && envelope.Cell.IsValid
         && envelope.AggregateId.IsValid
         && envelope.DesiredGeneration.IsValid

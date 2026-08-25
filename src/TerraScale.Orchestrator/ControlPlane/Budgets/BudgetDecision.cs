@@ -264,15 +264,26 @@ public static class BudgetAuthorizationEngine
         {
             return BudgetDecision.Held(evidence.Error);
         }
+        if (evidence.CellUsage is not { } cellUsage
+            || evidence.GlobalUsage is not { } globalUsage
+            || evidence.NodeUsage is not { } nodeUsage
+            || evidence.PriceUsage is not { } priceUsage)
+        {
+            return BudgetDecision.Held(BudgetDecisionReason.MissingEvidence);
+        }
 
         var add = proposal.Direction == BudgetChangeDirection.Increase;
         var cellCombined = add
-            ? evidence.CellUsage!.Usage.TryAdd(proposal.Delta, out var projectedCell)
-            : evidence.CellUsage!.Usage.TrySubtract(proposal.Delta, out projectedCell);
+            ? cellUsage.Usage.TryAdd(proposal.Delta, out var projectedCell)
+            : cellUsage.Usage.TrySubtract(proposal.Delta, out projectedCell);
         var globalCombined = add
-            ? evidence.GlobalUsage!.Usage.TryAdd(proposal.Delta, out var projectedGlobal)
-            : evidence.GlobalUsage!.Usage.TrySubtract(proposal.Delta, out projectedGlobal);
+            ? globalUsage.Usage.TryAdd(proposal.Delta, out var projectedGlobal)
+            : globalUsage.Usage.TrySubtract(proposal.Delta, out projectedGlobal);
         if (!cellCombined || !globalCombined)
+        {
+            return BudgetDecision.Held(add ? BudgetDecisionReason.ArithmeticOverflow : BudgetDecisionReason.ArithmeticUnderflow);
+        }
+        if (projectedCell is not { } projectedCellValue || projectedGlobal is not { } projectedGlobalValue)
         {
             return BudgetDecision.Held(add ? BudgetDecisionReason.ArithmeticOverflow : BudgetDecisionReason.ArithmeticUnderflow);
         }
@@ -281,8 +292,8 @@ public static class BudgetAuthorizationEngine
         try
         {
             projectedNodes = add
-                ? checked(evidence.NodeUsage!.CurrentCount + proposal.NodeCount)
-                : checked(evidence.NodeUsage!.CurrentCount - proposal.NodeCount);
+                ? checked(nodeUsage.CurrentCount + proposal.NodeCount)
+                : checked(nodeUsage.CurrentCount - proposal.NodeCount);
         }
         catch (OverflowException)
         {
@@ -293,19 +304,18 @@ public static class BudgetAuthorizationEngine
             return BudgetDecision.Held(BudgetDecisionReason.ArithmeticUnderflow);
         }
 
-        var providerExceeded = projectedCell!.ExceededBy(policy.ProviderAccountCellLimit)
-            | projectedGlobal!.ExceededBy(policy.ProviderAccountGlobalLimit);
+        var providerExceeded = projectedCellValue.ExceededBy(policy.ProviderAccountCellLimit)
+            | projectedGlobalValue.ExceededBy(policy.ProviderAccountGlobalLimit);
         var trace = new BudgetDecisionTrace(
-            evidence.CellUsage.Usage, projectedCell, evidence.GlobalUsage.Usage, projectedGlobal, proposal.Delta,
+            cellUsage.Usage, projectedCellValue, globalUsage.Usage, projectedGlobalValue, proposal.Delta,
             policy.Bands.AutomaticCellMaximum, policy.Bands.AutomaticGlobalMaximum,
             policy.Bands.ApprovalCellMaximum, policy.Bands.ApprovalGlobalMaximum,
             policy.CellCeiling, policy.GlobalCeiling, policy.ProviderAccountCellLimit, policy.ProviderAccountGlobalLimit,
-            evidence.NodeUsage.CurrentCount, projectedNodes,
+            nodeUsage.CurrentCount, projectedNodes,
             nodePolicy.Minimum, nodePolicy.Warm, nodePolicy.Maximum, policy.MaximumEvidenceAge,
-            evidence.CellUsage.Age, evidence.GlobalUsage.Age, evidence.NodeUsage.Age, evidence.PriceUsage!.Age,
+            cellUsage.Age, globalUsage.Age, nodeUsage.Age, priceUsage.Age,
             providerExceeded);
-        var basis = new BudgetDecisionBasis(policy, evidence.CellUsage, evidence.GlobalUsage,
-            evidence.NodeUsage, evidence.PriceUsage);
+        var basis = new BudgetDecisionBasis(policy, cellUsage, globalUsage, nodeUsage, priceUsage);
         if (providerExceeded != BudgetDimension.None)
         {
             return BudgetDecision.Create(BudgetDecisionKind.Forbidden, BudgetDecisionReason.ProviderAccountLimitExceeded,
@@ -347,8 +357,8 @@ public static class BudgetAuthorizationEngine
                 trace, proposal, basis);
         }
 
-        var budgetExceeded = projectedCell.ExceededBy(policy.CellCeiling)
-            | projectedGlobal.ExceededBy(policy.GlobalCeiling);
+        var budgetExceeded = projectedCellValue.ExceededBy(policy.CellCeiling)
+            | projectedGlobalValue.ExceededBy(policy.GlobalCeiling);
         if (budgetExceeded != BudgetDimension.None)
         {
             trace = ReplaceBinding(trace, budgetExceeded);
@@ -356,8 +366,8 @@ public static class BudgetAuthorizationEngine
                 trace, proposal, basis);
         }
 
-        var approvalExceeded = projectedCell.ExceededBy(policy.Bands.ApprovalCellMaximum)
-            | projectedGlobal.ExceededBy(policy.Bands.ApprovalGlobalMaximum);
+        var approvalExceeded = projectedCellValue.ExceededBy(policy.Bands.ApprovalCellMaximum)
+            | projectedGlobalValue.ExceededBy(policy.Bands.ApprovalGlobalMaximum);
         if (approvalExceeded != BudgetDimension.None)
         {
             trace = ReplaceBinding(trace, approvalExceeded);
@@ -365,8 +375,8 @@ public static class BudgetAuthorizationEngine
                 trace, proposal, basis);
         }
 
-        var automaticExceeded = projectedCell.ExceededBy(policy.Bands.AutomaticCellMaximum)
-            | projectedGlobal.ExceededBy(policy.Bands.AutomaticGlobalMaximum);
+        var automaticExceeded = projectedCellValue.ExceededBy(policy.Bands.AutomaticCellMaximum)
+            | projectedGlobalValue.ExceededBy(policy.Bands.AutomaticGlobalMaximum);
         var warmProtected = !add && projectedNodes < nodePolicy.Warm;
         if (automaticExceeded != BudgetDimension.None || warmProtected)
         {
@@ -415,17 +425,20 @@ public static class BudgetAuthorizationEngine
         foreach (var item in usageSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
-            usage.Add(item!);
+            if (item is not { } usageItem) return new(BudgetDecisionReason.MissingEvidence, null, null, null, null);
+            usage.Add(usageItem);
         }
         foreach (var item in nodeSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
-            nodes.Add(item!);
+            if (item is not { } nodeItem) return new(BudgetDecisionReason.MissingEvidence, null, null, null, null);
+            nodes.Add(nodeItem);
         }
         foreach (var item in priceSnapshot)
         {
             if (!Take(item, policy.MaximumEvidenceCount, ref count, out var error)) return new(error, null, null, null, null);
-            prices.Add(item!);
+            if (item is not { } priceItem) return new(BudgetDecisionReason.MissingEvidence, null, null, null, null);
+            prices.Add(priceItem);
         }
 
         if (usage.Any(item => item.CostCenter != policy.CostCenter

@@ -167,7 +167,78 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
         await Assert.That(fixture.Objects.Values).IsEmpty();
     }
 
-    private Fixture Create()
+    [Test]
+    public async Task ConcurrentSameSubjectAttestationsAdoptTheDurableWinner()
+    {
+        // Randomized signatures mean two leaders attesting the same exact subject under the same
+        // authority produce different bytes; the CAS keeps one winner and the loser must adopt it
+        // instead of failing the pipeline.
+        var fixture = Create();
+        await fixture.Journal.RecordRuntimeAsync(fixture.Runtime, 7, 11, static () => true);
+        var verifier = new RepositoryCiSignedArtifactAttestationVerifier(
+            fixture.Journal.ReadArtifactAsync,
+            fixture.Journal.ReadRuntimeAsync,
+            new TrustingArtifactVerifier(),
+            runtimeTrust);
+        var first = new RepositoryCiIssuingArtifactAttestationVerifier(
+            fixture.Journal, new RandomizedSigner(10), verifier, 7, 20, static () => true);
+        var second = new RepositoryCiIssuingArtifactAttestationVerifier(
+            fixture.Journal, new RandomizedSigner(11), verifier, 7, 21, static () => true);
+
+        var results = await Task.WhenAll(
+            first.VerifyAsync(fixture.Subject, default),
+            second.VerifyAsync(fixture.Subject, default));
+
+        await Assert.That(results[0]).IsNotNull();
+        await Assert.That(results[1]).IsNotNull();
+        await Assert.That(await fixture.Journal.ReadArtifactAsync(fixture.Subject)).IsNotNull();
+        await Assert.That(fixture.Ledger.Mutations).IsEqualTo(2);
+    }
+
+    private sealed class RandomizedSigner(byte domain) : IRepositoryCiArtifactAttestationSigner
+    {
+        public string Identity => $"test-random-{domain}";
+
+        public OpaqueSignature Sign(ReadOnlyMemory<byte> canonicalMaterial)
+        {
+            var bytes = new byte[canonicalMaterial.Length + 2];
+            bytes[0] = domain;
+            bytes[1] = (byte)RandomNumberGenerator.GetInt32(256);
+            canonicalMaterial.Span.CopyTo(bytes.AsSpan(2));
+            OpaqueSignature.TryCopyFrom(SHA256.HashData(bytes), out var signature);
+            return signature!;
+        }
+    }
+
+    private sealed class TrustingArtifactVerifier : IRepositoryCiArtifactSignatureVerifier
+    {
+        public VerificationOutcome Verify(
+            string signingIdentity,
+            ReadOnlyMemory<byte> canonicalMaterial,
+            OpaqueSignature signature) => VerificationOutcome.Valid;
+    }
+
+    [Test]
+    public async Task BoundedProofHistoryPrunesPointersAndTheirObjects()
+    {
+        var fixture = Create(cap: 2, pruneInterval: 1);
+        foreach (var index in new[] { 2, 3 })
+        {
+            var subject = fixture.Subject with { Job = new($"candidate-job-{index}") };
+            var artifact = RepositoryCiArtifactAttestation.Sign(subject, artifactTrust);
+            var runtime = RepositoryCiArtifactAttestation.ObserveRuntime(subject, subject.Digest, runtimeTrust);
+            await fixture.Journal.RecordArtifactAsync(artifact, 7, 11, static () => true);
+            await fixture.Journal.RecordRuntimeAsync(runtime, 7, 12, static () => true);
+        }
+
+        // Four proofs recorded under a cap of two: the two oldest pointers and their proof
+        // objects are gone, the two newest stay, and object storage shrank with the pointers.
+        await Assert.That(fixture.Ledger.Values.Count).IsEqualTo(2);
+        await Assert.That(fixture.Objects.Values.Count).IsEqualTo(2);
+        await Assert.That(fixture.Objects.Deletions).IsGreaterThanOrEqualTo(2);
+    }
+
+    private Fixture Create(int cap = 8192, int pruneInterval = 64)
     {
         var subject = new RepositoryCiArtifactSubject(
             Digest('a'),
@@ -188,7 +259,7 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
             runtime,
             ledger,
             objects,
-            new(ledger, objects));
+            new(ledger, objects, cap, pruneInterval));
     }
 
     private sealed record Fixture(
@@ -222,9 +293,18 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
             : VerificationOutcome.Invalid;
     }
 
-    private sealed class TestObjectStore : IDeliveryObjectStore
+    private sealed class TestObjectStore : IDeliveryObjectStore, IDeliveryRetentionObjectStore
     {
         internal Dictionary<string, byte[]> Values { get; } = new(StringComparer.Ordinal);
+        internal int Deletions { get; private set; }
+
+        public Task DeleteIfExistsAsync(string name, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Values.Remove(name);
+            Deletions++;
+            return Task.CompletedTask;
+        }
 
         public Task PutAsync(string name, ReadOnlyMemory<byte> content, CancellationToken cancellationToken)
         {

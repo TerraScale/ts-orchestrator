@@ -32,11 +32,25 @@ public sealed class ForgejoWebhookJournal
 
     internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger) : this(ledger, NullForgejoEventPublisher.Instance) { }
 
-    internal ForgejoWebhookJournal(IForgejoDeliveryLedger ledger, IForgejoEventPublisher publisher)
+    internal ForgejoWebhookJournal(
+        IForgejoDeliveryLedger ledger,
+        IForgejoEventPublisher publisher,
+        int webhookHistoryCap = 4096,
+        int pruneInterval = 32)
     {
         this.ledger = ledger;
         this.publisher = publisher;
+        if (webhookHistoryCap is < 2 or > 262_144)
+            throw new ArgumentOutOfRangeException(nameof(webhookHistoryCap));
+        if (pruneInterval is < 1 or > 65_536)
+            throw new ArgumentOutOfRangeException(nameof(pruneInterval));
+        this.webhookHistoryCap = webhookHistoryCap;
+        this.pruneInterval = pruneInterval;
     }
+
+    private readonly int webhookHistoryCap;
+    private readonly int pruneInterval;
+    private int prunesSinceScan;
 
     public async Task<ForgejoWebhookJournalReceipt> AcceptAsync(
         ForgejoWebhookEnvelope envelope,
@@ -50,14 +64,37 @@ public sealed class ForgejoWebhookJournal
         var delivery = await EnsureAsync(DeliveryIndex(envelope), pending, cancellationToken);
         if (!delivery.Matches) return new(ForgejoWebhookJournalDisposition.DeliveryCollision);
 
-        var wasComplete = delivery.Document!.State == ForgejoWebhookJournalState.Accepted &&
-                          payload.Document!.State == ForgejoWebhookJournalState.Accepted;
+        var wasComplete = delivery.Document.State == ForgejoWebhookJournalState.Accepted &&
+                          payload.Document.State == ForgejoWebhookJournalState.Accepted;
         if (!wasComplete) await publisher.PublishAsync(envelope, cancellationToken);
         await MarkAcceptedAsync(PayloadIndex(envelope), payload, cancellationToken);
         await MarkAcceptedAsync(DeliveryIndex(envelope), delivery, cancellationToken);
+        await PruneAsync(cancellationToken).ConfigureAwait(false);
         return new(wasComplete
             ? ForgejoWebhookJournalDisposition.Duplicate
             : ForgejoWebhookJournalDisposition.Accepted);
+    }
+
+    /// <summary>
+    /// Bounded oldest-first retention for the webhook dedupe indexes (payload.* and delivery.*),
+    /// amortized over every N accepted events. Dedupe older than the bound no longer protects
+    /// against replayed events, which the signed Forgejo delivery identity already bounds.
+    /// </summary>
+    private async Task PruneAsync(CancellationToken cancellationToken)
+    {
+        if (ledger is not IForgejoDeliveryRetentionLedger retention) return;
+        if (Interlocked.Increment(ref prunesSinceScan) < pruneInterval) return;
+        prunesSinceScan = 0;
+        foreach (var prefix in new[] { "payload.", "delivery." })
+        {
+            await DeliveryJournalRetention.PruneAsync(
+                retention,
+                prefix,
+                webhookHistoryCap,
+                (_, _, _) => Task.FromResult(new DeliveryJournalPruneDecision(true)),
+                "webhook dedupe indexes",
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<IndexReservation> EnsureAsync(
@@ -92,7 +129,7 @@ public sealed class ForgejoWebhookJournal
         var current = reservation;
         for (var attempt = 0; attempt < MaximumConflictRetries; attempt++)
         {
-            if (current.Document!.State == ForgejoWebhookJournalState.Accepted) return;
+            if (current.Document.State == ForgejoWebhookJournalState.Accepted) return;
             try
             {
                 await ledger.UpdateAsync(
@@ -106,7 +143,7 @@ public sealed class ForgejoWebhookJournal
             {
                 var observed = await ledger.GetAsync(key, cancellationToken)
                     ?? throw new InvalidDataException("A reserved Forgejo webhook journal index disappeared.");
-                current = Read(observed, reservation.Document!);
+                current = Read(observed, reservation.Document);
                 if (!current.Matches)
                     throw new InvalidDataException("A reserved Forgejo webhook journal index changed identity.");
             }
@@ -149,7 +186,7 @@ public sealed class ForgejoWebhookJournal
 
     private sealed record IndexReservation(
         bool Matches,
-        ForgejoWebhookJournalDocument? Document,
+        ForgejoWebhookJournalDocument Document,
         ulong Revision);
 
     private sealed class NullForgejoEventPublisher : IForgejoEventPublisher
@@ -230,7 +267,8 @@ internal sealed record ForgejoWebhookJournalDocument(
         >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
 }
 
-internal sealed record ForgejoDeliveryLedgerEntry(string Value, ulong Revision);
+/// <summary>The durable value plus its revision and key (key set by ledger implementations).</summary>
+internal sealed record ForgejoDeliveryLedgerEntry(string Value, ulong Revision, string Key = "");
 
 internal interface IForgejoDeliveryLedger
 {
@@ -260,7 +298,8 @@ internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) :
             entry.EnsureSuccess();
             return new(
                 entry.Value ?? throw new InvalidDataException("A Forgejo webhook journal record is empty."),
-                entry.Revision);
+                entry.Revision,
+                key);
         }
         catch (NatsKVKeyNotFoundException)
         {
@@ -280,7 +319,7 @@ internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) :
         try
         {
             var revision = await store.CreateAsync(key, value, cancellationToken: cancellationToken);
-            return new(value, revision);
+            return new(value, revision, key);
         }
         catch (NatsKVCreateException exception)
         {
@@ -297,7 +336,7 @@ internal sealed class NatsForgejoDeliveryLedger(INatsKVStore store) :
         try
         {
             var updated = await store.UpdateAsync(key, value, revision, cancellationToken: cancellationToken);
-            return new(value, updated);
+            return new(value, updated, key);
         }
         catch (NatsKVWrongLastRevisionException exception)
         {

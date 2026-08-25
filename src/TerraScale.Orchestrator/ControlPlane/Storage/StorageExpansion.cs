@@ -43,9 +43,11 @@ public static class StorageExpansionPlanner
     {
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace(evidence?.Conflicts ?? StorageConflictClass.None));
-        var trace = volume!.Trace(evidence?.Conflicts ?? StorageConflictClass.None);
+        if (volume is not { } authorizedVolume)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput);
+        var trace = authorizedVolume.Trace(evidence?.Conflicts ?? StorageConflictClass.None);
         if (evidence is null) return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
-        if (evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume.EvidenceScope)
+        if (evidence.Scope is not { } evidenceScope || !evidenceScope.IsWellFormed || evidenceScope != authorizedVolume.EvidenceScope)
             return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, trace);
         if (evidence.Conflicts != StorageConflictClass.None) return StorageDecision.Hold(StorageDecisionCode.ConflictingOperation, trace);
         if (evidence.OrderedProofs().Any(static proof => proof == StorageProof.Contradicted))
@@ -57,13 +59,13 @@ public static class StorageExpansionPlanner
             if (proof != StorageProof.Proven) gap = true;
             else if (gap) return StorageDecision.Hold(StorageDecisionCode.ConflictingObservation, trace);
         }
-        if (volume.RequestedBytes.Value < volume.FilesystemBytes.Value) return StorageDecision.Hold(StorageDecisionCode.ShrinkForbidden, trace);
-        if (volume.RequestedBytes.Value == volume.FilesystemBytes.Value
+        if (authorizedVolume.RequestedBytes.Value < authorizedVolume.FilesystemBytes.Value) return StorageDecision.Hold(StorageDecisionCode.ShrinkForbidden, trace);
+        if (authorizedVolume.RequestedBytes.Value == authorizedVolume.FilesystemBytes.Value
             && evidence.IntentPersisted != StorageProof.Proven)
             return StorageDecision.Hold(StorageDecisionCode.NoGrowthRequested, trace);
         try
         {
-            if (checked(volume.UsedBytes.Value + volume.FreeBytes.Value) != volume.FilesystemBytes.Value)
+            if (checked(authorizedVolume.UsedBytes.Value + authorizedVolume.FreeBytes.Value) != authorizedVolume.FilesystemBytes.Value)
                 return StorageDecision.Hold(StorageDecisionCode.SizeDisagreement, trace);
         }
         catch (OverflowException)
@@ -76,27 +78,27 @@ public static class StorageExpansionPlanner
         if (evidence.PrechecksPassed != StorageProof.Proven || evidence.RecoveryPointVerified != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep, trace);
         if (evidence.ProviderRequestRecorded != StorageProof.Proven)
-            return volume.ProviderBytes.Value >= volume.RequestedBytes.Value
+            return authorizedVolume.ProviderBytes.Value >= authorizedVolume.RequestedBytes.Value
                 ? StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep, trace)
                 : StorageDecision.Emit(StorageAction.Extend, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep, trace);
         if (evidence.ProviderSizeVerified != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Observe, StorageIntentTarget.ProviderVolume, StorageDecisionCode.ProviderConvergencePending, trace);
-        if (volume.ProviderBytes.Value < volume.RequestedBytes.Value)
+        if (authorizedVolume.ProviderBytes.Value < authorizedVolume.RequestedBytes.Value)
             return StorageDecision.Emit(StorageAction.Observe, StorageIntentTarget.ProviderVolume, StorageDecisionCode.ProviderConvergencePending, trace);
         if (evidence.GuestRescanned != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Rescan, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.NextStep, trace);
-        if (volume.BlockBytes.Value < volume.RequestedBytes.Value)
+        if (authorizedVolume.BlockBytes.Value < authorizedVolume.RequestedBytes.Value)
             return StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.DeviceIdentity, StorageDecisionCode.SizeDisagreement, trace);
         if (evidence.LayoutExtended != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Extend, StorageIntentTarget.StorageLayout, StorageDecisionCode.NextStep, trace);
         if (evidence.FilesystemGrown != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Grow, StorageIntentTarget.Filesystem, StorageDecisionCode.NextStep, trace);
-        if (volume.FilesystemBytes.Value < volume.RequestedBytes.Value)
+        if (authorizedVolume.FilesystemBytes.Value < authorizedVolume.RequestedBytes.Value)
             return StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Filesystem, StorageDecisionCode.SizeDisagreement, trace);
         if (evidence.SizesVerified != StorageProof.Proven
-            || volume.ProviderBytes.Value < volume.RequestedBytes.Value
-            || volume.BlockBytes.Value < volume.RequestedBytes.Value
-            || volume.FilesystemBytes.Value < volume.RequestedBytes.Value)
+            || authorizedVolume.ProviderBytes.Value < authorizedVolume.RequestedBytes.Value
+            || authorizedVolume.BlockBytes.Value < authorizedVolume.RequestedBytes.Value
+            || authorizedVolume.FilesystemBytes.Value < authorizedVolume.RequestedBytes.Value)
             return StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Filesystem, StorageDecisionCode.SizeDisagreement, trace);
         if (evidence.ApplicationHealthVerified != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Verify, StorageIntentTarget.Application, StorageDecisionCode.NextStep, trace);

@@ -134,4 +134,46 @@ public sealed class OrchestratorRuntimeConfigurationTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public async Task TypedConfigurationCarriesSeparateDirectoryAndServiceIdentities()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"orchestrator-config-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1,
+                cell = "gru",
+                natsUrl = "tls://regional-control.internal:4222",
+                replicas = 3,
+                instance = "1",
+                globalDirectoryNatsUrl = "tls://control-nats-gru.internal:4222",
+                globalDirectoryNatsNKeyFile = "/run/credentials/global-directory.nk",
+                globalDirectoryNatsTlsCaFile = "/run/credentials/global-ca.pem",
+                globalDirectoryNatsTlsCertificateFile = "/run/credentials/global-directory.pem",
+                globalDirectoryNatsTlsKeyFile = "/run/credentials/global-directory-key.pem",
+                globalDirectoryServiceNatsUrl = "tls://control-nats-gru.internal:4222",
+                globalDirectoryServiceNatsNKeyFile = "/run/credentials/global-directory-service.nk",
+                globalDirectoryServiceNatsTlsCaFile = "/run/credentials/global-ca.pem",
+                globalDirectoryServiceNatsTlsCertificateFile = "/run/credentials/global-directory-service.pem",
+                globalDirectoryServiceNatsTlsKeyFile = "/run/credentials/global-directory-service-key.pem"
+            }));
+
+            var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
+
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"))
+                .IsEqualTo("tls://control-nats-gru.internal:4222");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE"))
+                .IsEqualTo("/run/credentials/global-directory.nk");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"))
+                .IsEqualTo("tls://control-nats-gru.internal:4222");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE"))
+                .IsEqualTo("/run/credentials/global-directory-service.nk");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

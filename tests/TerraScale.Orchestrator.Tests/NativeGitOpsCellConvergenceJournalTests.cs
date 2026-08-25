@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -177,6 +178,63 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
         await Assert.That(async () => await journal.ReadAsync("gru")).Throws<InvalidDataException>();
         await Assert.That(async () => await Advance(journal, accepted, [], watermark: 8))
             .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task DurableRecordMissingAcceptedBaseProofFailsValidationBeforeBaseline()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NativeGitOpsCellConvergenceJournal(ledger);
+        var generationOneContent = Plan(1, PlatformV1);
+        await Advance(journal, Accepted(null, generationOneContent), [], watermark: 1);
+
+        var generationTwo = Accepted(generationOneContent, Plan(2, PlatformV2)) with
+        {
+            StreamSequence = 2,
+            SignatureSha256 = Hash("signature-generation-2-malformed-base"),
+            JournalRevision = 2,
+        };
+        await Advance(journal, generationTwo, [], watermark: 2);
+
+        ledger.RewriteFirst(value =>
+        {
+            var document = JsonNode.Parse(value)?.AsObject()
+                ?? throw new InvalidDataException("The test convergence journal record is invalid.");
+            document["AcceptedBaseGeneration"] = null;
+            document["AcceptedBaseGlobalPlanDigest"] = null;
+            return document.ToJsonString();
+        });
+
+        await Assert.That(async () => await journal.ReadAsync("gru"))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task UnknownConvergenceEnumValuesFailClosedBeforeDispatch()
+    {
+        foreach (var field in new[] { "IntentKind", "HoldReason" })
+        {
+            var ledger = new ForgejoWebhookJournalTests.TestLedger();
+            var journal = new NativeGitOpsCellConvergenceJournal(ledger);
+            await Advance(journal, Accepted(null, Plan(1, PlatformV1)), [], watermark: 1);
+
+            ledger.RewriteFirst(value => RewriteEnum(value, field, 99));
+
+            await Assert.That(async () => await journal.ReadAsync("gru"))
+                .Throws<InvalidDataException>();
+        }
+    }
+
+    private static string RewriteEnum(string value, string field, int numericValue)
+    {
+        var document = JsonNode.Parse(value)?.AsObject()
+            ?? throw new InvalidDataException("The test convergence journal record is invalid.");
+        document[field] = numericValue;
+        document["CheckpointDigest"] = string.Empty;
+        var digest = Convert.ToHexStringLower(SHA256.HashData(
+            Encoding.UTF8.GetBytes(document.ToJsonString())));
+        document["CheckpointDigest"] = digest;
+        return document.ToJsonString();
     }
 
     private static Task<NativeGitOpsCellConvergenceJournalReceipt> Advance(

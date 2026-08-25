@@ -23,13 +23,15 @@ public static class NetworkEndpointPlanner
     public static NetworkDecision PlanRegister(NetworkEndpointScope? expected, NetworkEndpointEvidence? e)
     {
         var trace = expected is null ? null : Trace(expected);
-        var code = Validate(expected, e); if (code != NetworkCode.Completed) return NetworkDecision.Hold(code, trace);
-        var scope = expected!; var validTrace = trace!;
+        var code = Validate(expected, e);
+        if (code != NetworkCode.Completed || expected is null || e is null || trace is null)
+            return NetworkDecision.Hold(code, trace);
+        var scope = expected; var validTrace = trace;
         if (scope.ServiceKind is NetworkServiceKind.Administration or NetworkServiceKind.Monitoring && scope.Exposure != NetworkExposure.Private)
             return NetworkDecision.Hold(NetworkCode.ForbiddenExposure, trace);
         if (scope.Exposure == NetworkExposure.Public && scope.Protocol == NetworkProtocol.Http)
             return NetworkDecision.Hold(NetworkCode.ForbiddenExposure, trace);
-        if (e!.RegistryAdmitted != NetworkProof.Proven) return NetworkDecision.Hold(NetworkCode.DefaultDeny, trace);
+        if (e.RegistryAdmitted != NetworkProof.Proven) return NetworkDecision.Hold(NetworkCode.DefaultDeny, trace);
         if (e.ProcessLive != NetworkProof.Proven) return NetworkDecision.Hold(NetworkCode.ReadinessRequired, trace);
         if (e.Ready != NetworkProof.Proven) return NetworkDecision.Hold(NetworkCode.ReadinessRequired, trace);
         if (e.BackendHealth != NetworkHealth.Healthy) return NetworkDecision.Hold(NetworkCode.BackendHealthRequired, trace);
@@ -46,9 +48,12 @@ public static class NetworkEndpointPlanner
 
     public static NetworkDecision PlanRemoval(NetworkEndpointScope? expected, NetworkEndpointEvidence? e)
     {
-        var trace = expected is null ? null : Trace(expected); var code = Validate(expected, e); if (code != NetworkCode.Completed) return NetworkDecision.Hold(code, trace); var scope = expected!; var validTrace = trace!;
-        var subject = Subject(NetworkEndpointPlanKind.Removal, scope, e!);
-        if (e!.BackendHealth is NetworkHealth.Unknown or NetworkHealth.Stale) return NetworkDecision.Hold(NetworkCode.BackendHealthRequired, trace);
+        var trace = expected is null ? null : Trace(expected); var code = Validate(expected, e);
+        if (code != NetworkCode.Completed || expected is null || e is null || trace is null)
+            return NetworkDecision.Hold(code, trace);
+        var scope = expected; var validTrace = trace;
+        var subject = Subject(NetworkEndpointPlanKind.Removal, scope, e);
+        if (e.BackendHealth is NetworkHealth.Unknown or NetworkHealth.Stale) return NetworkDecision.Hold(NetworkCode.BackendHealthRequired, trace);
         if (e.DeregistrationRequested != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Deregister, NetworkTarget.Backend, NetworkCode.DeregisterBeforeDrain, subject, validTrace);
         if (e.Deregistered != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Observe, NetworkTarget.Backend, NetworkCode.DeregisterBeforeDrain, subject, validTrace);
         if (e.Drained != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Observe, NetworkTarget.Backend, NetworkCode.DeregisterBeforeDrain, subject, validTrace);
@@ -57,9 +62,12 @@ public static class NetworkEndpointPlanner
 
     public static NetworkDecision PlanEmergencyWithdrawal(NetworkEndpointScope? expected, NetworkEndpointEvidence? e)
     {
-        var trace = expected is null ? null : Trace(expected); var code = Validate(expected, e); if (code != NetworkCode.Completed) return NetworkDecision.Hold(code, trace); var scope = expected!; var validTrace = trace!;
-        var subject = Subject(NetworkEndpointPlanKind.EmergencyWithdrawal, scope, e!);
-        if (e!.DnsWithdrawalRequested != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.DnsUpdate, NetworkTarget.Dns, NetworkCode.EmergencyWithdrawal, subject, validTrace);
+        var trace = expected is null ? null : Trace(expected); var code = Validate(expected, e);
+        if (code != NetworkCode.Completed || expected is null || e is null || trace is null)
+            return NetworkDecision.Hold(code, trace);
+        var scope = expected; var validTrace = trace;
+        var subject = Subject(NetworkEndpointPlanKind.EmergencyWithdrawal, scope, e);
+        if (e.DnsWithdrawalRequested != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.DnsUpdate, NetworkTarget.Dns, NetworkCode.EmergencyWithdrawal, subject, validTrace);
         if (e.DnsWithdrawn != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Observe, NetworkTarget.Dns, NetworkCode.EmergencyWithdrawal, subject, validTrace);
         if (e.LoadBalancerWithdrawalRequested != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Deregister, NetworkTarget.LoadBalancer, NetworkCode.EmergencyWithdrawal, subject, validTrace);
         if (e.LoadBalancerWithdrawn != NetworkProof.Proven) return NetworkDecision.Emit(NetworkAction.Observe, NetworkTarget.LoadBalancer, NetworkCode.EmergencyWithdrawal, subject, validTrace);

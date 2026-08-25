@@ -105,12 +105,18 @@ internal sealed class NativeGitOpsLiveReceiptJournal(IForgejoDeliveryLedger ledg
             var entry = await ledger.GetAsync(key, cancellationToken);
             var current = entry is null ? null : Deserialize(entry.Value);
             var disposition = Compare(current, proposed);
+            var currentDurable = current is not null && entry is { } currentEntry
+                ? current.Durable(currentEntry.Revision)
+                : null;
             if (disposition is NativeGitOpsLiveReceiptJournalDisposition.Duplicate)
-                return new(disposition.Value, NativeGitOpsCellConvergenceReceiptError.None,
-                    current!.Durable(entry!.Revision));
+            {
+                if (currentDurable is null)
+                    throw new InvalidDataException("A duplicate native GitOps live receipt lost its durable revision.");
+                return new(disposition.Value, NativeGitOpsCellConvergenceReceiptError.None, currentDurable);
+            }
             if (disposition is not null)
                 return new(disposition.Value, NativeGitOpsCellConvergenceReceiptError.None,
-                    current?.Durable(entry!.Revision));
+                    currentDurable);
             if (!authorityStillValid())
                 return new(
                     NativeGitOpsLiveReceiptJournalDisposition.StaleAuthority,
@@ -255,8 +261,10 @@ internal sealed record NativeGitOpsLiveReceiptDocument(
 
     private NativeGitOpsCellConvergenceReceiptEnvelope Envelope()
     {
-        OpaqueSignature.TryCopyFrom(Convert.FromBase64String(SignatureBase64), out var signature);
-        return new(Receipt, signature!);
+        if (!OpaqueSignature.TryCopyFrom(Convert.FromBase64String(SignatureBase64), out var signature) ||
+            signature is null)
+            throw new InvalidDataException("A native GitOps live receipt signature could not be decoded.");
+        return new(Receipt, signature);
     }
 }
 

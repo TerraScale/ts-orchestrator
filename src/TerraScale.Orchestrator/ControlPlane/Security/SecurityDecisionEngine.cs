@@ -13,9 +13,7 @@ public static class SecurityDecisionEngine
         var duplicates = Duplicates(bootstrapGroups.Select(g => g.Count()).Concat(attestationGroups.Select(g => g.Count())));
         var conflicts = bootstrapGroups.Count(g => g.Select(BootstrapProjection).Distinct(StringComparer.Ordinal).Skip(1).Any()) +
                         attestationGroups.Count(g => g.Select(AttestationProjection).Distinct(StringComparer.Ordinal).Skip(1).Any());
-        var bootstrap = request.BootstrapEvidence.Count == 1 ? request.BootstrapEvidence[0] : null;
-        var attestation = request.Attestations.Count == 1 ? request.Attestations[0] : null;
-        var complete = bootstrap is not null && attestation is not null;
+        var complete = request.BootstrapEvidence.Count == 1 && request.Attestations.Count == 1;
         var trace = new List<SecurityDecisionReason>
         {
             Hold(SecurityDecisionCode.EvidenceComplete, complete, complete ? 2UL : 0UL, 2),
@@ -23,10 +21,14 @@ public static class SecurityDecisionEngine
             Hold(SecurityDecisionCode.EvidenceConsistent, conflicts == 0, checked((ulong)conflicts), 0),
         };
         if (trace.Any(r => r.Outcome == SecurityDecisionOutcome.Held)) return Deny(request.OperationId, trace);
+        if (request.BootstrapEvidence is not [var exactBootstrap] ||
+            request.Attestations is not [var exactAttestation])
+        {
+            trace[0] = Hold(SecurityDecisionCode.EvidenceComplete, false, 0, 2);
+            return Deny(request.OperationId, trace);
+        }
 
         var principal = request.ExpectedPrincipal;
-        var exactBootstrap = bootstrap!;
-        var exactAttestation = attestation!;
         trace.Add(Reject(SecurityDecisionCode.OperationMatches, exactBootstrap.OperationId == request.OperationId, exactBootstrap.OperationId == request.OperationId ? 1UL : 0UL, 1));
         var principalMatches = exactBootstrap.PrincipalId == principal.Id && exactAttestation.PrincipalId == principal.Id &&
                                exactBootstrap.Audience == principal.Kind && exactAttestation.Kind == principal.Kind &&
@@ -219,17 +221,20 @@ public static class SecurityDecisionEngine
         var privilege = PrivilegeBounded(principal.Principal, capability, resourceScope);
         trace.Add(Reject(SecurityDecisionCode.PrivilegeBounded, privilege, privilege ? 1UL : 0UL, 1));
         var exactLease = request.Action == LeaseAction.Grant ||
-                         ExistingLeaseCoreExact(request) &&
-                         (revoking || request.ExistingLease!.PolicyGeneration == request.Policy.Generation);
+                         request.ExistingLease is { } existingLease &&
+                         ExistingLeaseCoreExact(existingLease, request) &&
+                         (revoking || existingLease.PolicyGeneration == request.Policy.Generation);
         trace.Add(request.Action == LeaseAction.Grant ? NotApplicable(SecurityDecisionCode.LeaseExact) : Reject(SecurityDecisionCode.LeaseExact, exactLease, exactLease ? 1UL : 0UL, 1));
         var actionValidity = request.Action switch
         {
             LeaseAction.Grant => request.RequestedLeaseGeneration.Value == 1,
-            LeaseAction.Renew => request.ExistingLease!.Status == LeaseStatus.Active &&
-                                 request.ExistingLease.Validity is ValidityStatus.Valid or ValidityStatus.RenewalDue &&
-                                 IsNext(request.ExistingLease.Generation, request.RequestedLeaseGeneration),
-            LeaseAction.Revoke => request.ExistingLease!.Status == LeaseStatus.Active &&
-                                  request.RequestedLeaseGeneration == request.ExistingLease.Generation,
+            LeaseAction.Renew => request.ExistingLease is { } renewLease &&
+                                 renewLease.Status == LeaseStatus.Active &&
+                                 renewLease.Validity is ValidityStatus.Valid or ValidityStatus.RenewalDue &&
+                                 IsNext(renewLease.Generation, request.RequestedLeaseGeneration),
+            LeaseAction.Revoke => request.ExistingLease is { } revokeLease &&
+                                  revokeLease.Status == LeaseStatus.Active &&
+                                  request.RequestedLeaseGeneration == revokeLease.Generation,
             _ => false,
         };
         trace.Add(Reject(SecurityDecisionCode.LeaseValidityAllowsAction, actionValidity, actionValidity ? 1UL : 0UL, 1));
@@ -276,9 +281,11 @@ public static class SecurityDecisionEngine
             : Deny(request.OperationId, trace);
     }
 
-    private static bool ExistingLeaseCoreExact(SecretLeaseRequest request)
+    private static bool ExistingLeaseCoreExact(SecretLeaseRequest request) =>
+        request.ExistingLease is { } lease && ExistingLeaseCoreExact(lease, request);
+
+    private static bool ExistingLeaseCoreExact(SecretLeaseEvidence lease, SecretLeaseRequest request)
     {
-        var lease = request.ExistingLease!;
         return lease.LeaseId == request.RequestedLeaseId &&
                lease.PrincipalId == request.PrincipalEvidence.Principal.Id && lease.SecretId == request.Secret.SecretId &&
                lease.Version == request.Secret.Version && lease.CellId == request.Secret.CellId &&

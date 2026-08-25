@@ -58,6 +58,15 @@ try
     var options = OrchestratorOptions.Parse(
         args,
         ResolvedEnvironment);
+    var startupPlan = OrchestratorRuntimeComposition.Plan(options);
+    // Composition-level deployment mode for the direct-delivery provenance boundary: callers
+    // must never select trust per request, so it is read from configuration once at startup.
+    var deliveryDeploymentMode = string.Equals(
+        ResolvedEnvironment("TS_ORCH_DELIVERY_DEPLOYMENT_MODE"),
+        "production",
+        StringComparison.OrdinalIgnoreCase)
+        ? TerraScale.Orchestrator.Delivery.DirectDeliveryDeploymentMode.Production
+        : TerraScale.Orchestrator.Delivery.DirectDeliveryDeploymentMode.Development;
     if (options.Command is OrchestratorCommand.Lab)
     {
         return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);
@@ -94,13 +103,47 @@ try
     using var startupActivity = telemetry.StartRuntime();
     var startupTimestamp = Stopwatch.GetTimestamp();
     NatsRuntime? runtime = null;
+    GlobalCellDirectoryLifecycle? directoryLifecycle = null;
     GlobalNatsRuntime? globalRuntime = null;
     NativeGitOpsRuntime? nativeGitOpsRuntime = null;
     try
     {
-        runtime = await NatsRuntime.StartAsync(options, shutdown.Token);
+        runtime = await NatsRuntime.StartAsync(
+            options,
+            shutdown.Token,
+            commandIdentity?.Verifier,
+            deliveryDeploymentMode,
+            startupPlan.RegistersDirectDeliveryEndpoint);
+        if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
+            throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
         telemetry.ObserveMembership(() => observedRuntime.MembershipHealth);
+        if (options.GlobalDirectoryNats is not null)
+        {
+            try
+            {
+                directoryLifecycle = GlobalCellDirectoryLifecycle.Start(
+                    options.GlobalDirectoryNats,
+                    options.GlobalDirectoryServiceNats,
+                    () => observedRuntime.MembershipSnapshot,
+                    () => observedRuntime.AuthoritySnapshot,
+                    publishEnabled: options.Command is OrchestratorCommand.Run,
+                    shutdown.Token,
+                    exception => Console.Error.WriteLine(
+                        $"Global directory is unavailable ({exception.GetType().Name}); regional control remains active."));
+                var observedDirectory = directoryLifecycle;
+                telemetry.ObserveCellDirectory(() => observedDirectory.Snapshot);
+            }
+            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(
+                    $"Global directory is unavailable ({exception.GetType().Name}); regional control remains active.");
+            }
+        }
         if (options.GlobalNats is not null)
         {
             var verifier = commandIdentity?.Verifier;
@@ -114,9 +157,6 @@ try
                     options.GlobalNats,
                     options.Instance,
                     options.Cell,
-                    () => runtime.MembershipSnapshot,
-                    () => runtime.AuthoritySnapshot,
-                    options.Command is OrchestratorCommand.Run,
                     ciRunnerNatsIdentity,
                     shutdown.Token,
                     options.ForgejoSource,
@@ -127,24 +167,28 @@ try
                     commandIdentity?.Verifier,
                     commandIdentity?.Verifier,
                     commandIdentity?.Signer,
-                    verifier is not null);
-            }
-            catch (NatsException exception)
-            {
-                Console.Error.WriteLine(
-                    $"Global control is unavailable ({exception.GetType().Name}); regional control remains active.");
-            }
-            if (globalRuntime is not null)
-            {
-                var observedGlobalRuntime = globalRuntime;
-                telemetry.ObserveCellDirectory(() => observedGlobalRuntime.CellDirectorySnapshot);
-                if (options.Command is OrchestratorCommand.Run && NativeGitOpsRuntime.IsEnabled(
-                        globalNatsConfigured: true,
+                    verifier is not null,
+                    ciConsumptionEnabled: startupPlan.StartsCiConsumption,
+                    deliveryDeploymentMode: deliveryDeploymentMode);
+                if (startupPlan.StartsDirectDelivery && globalRuntime.DirectDelivery is null)
+                    throw new InvalidOperationException("The global direct delivery mutation path was not composed with durable adapters.");
+                if (globalRuntime is not null && options.Command is OrchestratorCommand.Run &&
+                    NativeGitOpsRuntime.IsEnabled(
+                        globalNatsConfigured: GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(options.Cell),
                         trustedVerifierConfigured: verifier is not null))
                     nativeGitOpsRuntime = NativeGitOpsRuntime.Start(
                         runtime,
                         globalRuntime,
                         verifier ?? throw new InvalidOperationException("Native GitOps verifier is unavailable."));
+            }
+            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(
+                    $"Global control is unavailable ({exception.GetType().Name}); regional control remains active.");
             }
         }
     }
@@ -156,12 +200,14 @@ try
     {
         if (nativeGitOpsRuntime is not null) await nativeGitOpsRuntime.DisposeAsync();
         if (globalRuntime is not null) await globalRuntime.DisposeAsync();
+        if (directoryLifecycle is not null) await directoryLifecycle.DisposeAsync();
         if (runtime is not null) await runtime.DisposeAsync();
         telemetry.RecordFailure(Stopwatch.GetElapsedTime(startupTimestamp), exception);
         startupActivity?.SetStatus(ActivityStatusCode.Error, exception.GetType().Name);
         throw;
     }
     await using var ownedRuntime = runtime;
+    await using var ownedDirectoryLifecycle = directoryLifecycle;
     await using var ownedGlobalRuntime = globalRuntime;
     await using var ownedNativeGitOpsRuntime = nativeGitOpsRuntime;
     ForgejoWebhookServer? webhookServer = null;

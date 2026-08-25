@@ -180,7 +180,8 @@ public static class NativeGitOpsManifest
         var ordered = new List<NativeGitOpsWorkloadPlan>(workloads.Count);
         while (ready.Count > 0)
         {
-            var id = ready.Min!;
+            if (ready.Min is not { } id)
+                throw new InvalidDataException("The native GitOps dependency graph lost its next workload.");
             ready.Remove(id);
             ordered.Add(byId[id]);
             foreach (var dependent in dependents[id].Order(StringComparer.Ordinal))
@@ -254,8 +255,12 @@ public static class NativeGitOpsManifest
         {
             if (reader.TokenType == JsonTokenType.StartObject) objects.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) objects.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !objects.Peek().Add(reader.GetString()!))
-                throw new InvalidDataException("The native GitOps manifest contains duplicate fields.");
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (objects.Count == 0 || reader.GetString() is not { } propertyName ||
+                    !objects.Peek().Add(propertyName))
+                    throw new InvalidDataException("The native GitOps manifest contains duplicate or malformed fields.");
+            }
         }
     }
 

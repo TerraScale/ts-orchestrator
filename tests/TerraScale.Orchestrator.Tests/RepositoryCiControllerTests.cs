@@ -232,7 +232,7 @@ public sealed class RepositoryCiControllerTests
 
             var handled = await controller.RunToCompletionAsync(trigger, default);
 
-            await Assert.That(handled).IsTrue();
+            await Assert.That(handled).IsEqualTo(ForgejoCiEventProcessDisposition.Handled);
             await Assert.That(statuses).IsEquivalentTo([$"{Commit}:Error"]);
             await Assert.That(await pipelines.ReadAsync(trigger.Envelope.DedupeKey)).IsNull();
         }
@@ -244,22 +244,32 @@ public sealed class RepositoryCiControllerTests
     }
 
     [Test]
-    public async Task SuccessfulReleaseRequiresDurableCandidateBeforeAcknowledgement()
+    public async Task SuccessfulBuildRequiresDurableArtifactAttestationBeforeAcknowledgement()
     {
-        var release = RepositoryCiCandidateCoordinatorTests.ReleasePipeline();
+        var release = BuildPipeline();
         var receipt = new RepositoryCiControllerReceipt(
             RepositoryCiControllerDisposition.Succeeded,
             release);
         var calls = 0;
 
+        // No attestation wiring composed: the gate returns Retry (never a silent ack), so the
+        // delivery stays pending instead of being dropped after MaxDeliver.
         var missingVerifier = await RepositoryCiController.CanAcknowledgeAsync(receipt, null);
-        var held = await RepositoryCiController.CanAcknowledgeAsync(
+        var retryable = await RepositoryCiController.CanAcknowledgeAsync(
             receipt,
             (_, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 calls++;
-                return Task.FromResult(false);
+                return Task.FromResult(ForgejoCiEventProcessDisposition.Retry);
+            });
+        var terminal = await RepositoryCiController.CanAcknowledgeAsync(
+            receipt,
+            (_, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                calls++;
+                return Task.FromResult(ForgejoCiEventProcessDisposition.Terminal);
             });
         var recorded = await RepositoryCiController.CanAcknowledgeAsync(
             receipt,
@@ -267,21 +277,22 @@ public sealed class RepositoryCiControllerTests
             {
                 token.ThrowIfCancellationRequested();
                 calls++;
-                return Task.FromResult(true);
+                return Task.FromResult(ForgejoCiEventProcessDisposition.Handled);
             });
         var failed = await RepositoryCiController.CanAcknowledgeAsync(
             receipt with { Disposition = RepositoryCiControllerDisposition.Failed },
-            (_, _) => throw new InvalidOperationException("A failed pipeline tried to record a candidate."));
+            (_, _) => throw new InvalidOperationException("A failed pipeline tried to attest artifacts."));
         var feature = await RepositoryCiController.CanAcknowledgeAsync(
             receipt with { Pipeline = RepositoryCiPipelineJournalTests.Pipeline() },
-            (_, _) => throw new InvalidOperationException("A feature pipeline tried to record a candidate."));
+            (_, _) => throw new InvalidOperationException("A feature pipeline tried to attest artifacts."));
 
-        await Assert.That(missingVerifier).IsFalse();
-        await Assert.That(held).IsFalse();
-        await Assert.That(recorded).IsTrue();
-        await Assert.That(failed).IsTrue();
-        await Assert.That(feature).IsTrue();
-        await Assert.That(calls).IsEqualTo(2);
+        await Assert.That(missingVerifier).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(retryable).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(terminal).IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+        await Assert.That(recorded).IsEqualTo(ForgejoCiEventProcessDisposition.Handled);
+        await Assert.That(failed).IsEqualTo(ForgejoCiEventProcessDisposition.Handled);
+        await Assert.That(feature).IsEqualTo(ForgejoCiEventProcessDisposition.Handled);
+        await Assert.That(calls).IsEqualTo(3);
     }
 
     private static async Task<OciCiRunnerPoolConfiguration> PoolAsync(string root)
@@ -309,6 +320,51 @@ public sealed class RepositoryCiControllerTests
             }
         }));
         return OciCiRunnerPoolConfiguration.Load(path)!;
+    }
+
+    /// <summary>
+    /// Ported from the retired candidate coordinator tests: an exact trusted-build pipeline with a
+    /// two-architecture artifact node, now used to prove the attestation acknowledge gate.
+    /// </summary>
+    private static RepositoryCiPipelinePlan BuildPipeline()
+    {
+        var descriptor = RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes($$"""
+            {
+              "apiVersion":"terrascale.ci/v3",
+              "repository":"{{Repository}}",
+              "repositoryDependencies":[],
+              "nodes":[
+                {"id":"artifact","kind":"Artifact","resourceWeight":"Heavy","profiles":["Build"],"architectures":["LinuxX64","LinuxArm64"],"dependsOn":["build","test"]},
+                {"id":"test","kind":"Test","resourceWeight":"Heavy","profiles":["Build"],"dependsOn":["build"]},
+                {"id":"build","kind":"Build","resourceWeight":"Heavy","profiles":["Feature","Build"],"paths":["src/"],"dependsOn":["static"]},
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]}
+              ]
+            }
+            """));
+        var impact = RepositoryCiImpactPlanner.Plan(
+            [descriptor],
+            [new RepositoryCiChange(Repository, ["src/file.cs"])],
+            RepositoryCiProfile.Build);
+        var trigger = ForgejoCiTriggerPlanner.Plan(new ForgejoWebhookEnvelope(
+            Guid.Parse("f6266f16-1bf3-46a5-9ea4-602e06ead473"),
+            ForgejoWebhookKind.PullRequest,
+            "synchronized",
+            Repository,
+            Repository,
+            new string('d', 40),
+            new string('b', 40),
+            "develop",
+            "main",
+            42,
+            false,
+            new string('a', 64)));
+        return RepositoryCiPipelinePlanner.Plan(
+            trigger,
+            impact,
+            [new ForgejoResolvedRevision(Repository, new string('b', 40), new string('c', 40), true)],
+            7,
+            10,
+            100);
     }
 
     private static ForgejoCiTriggerPlan Trigger() => ForgejoCiTriggerPlanner.Plan(new(
@@ -343,13 +399,11 @@ public sealed class RepositoryCiControllerTests
     {
         var content = Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{Repository}}",
-              "candidateRetentionDays":7,
-              "promotion":"None",
               "repositoryDependencies":[],
               "nodes":[
-                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Release"],"paths":["src/"]}
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]}
               ]
             }
             """);

@@ -5,20 +5,26 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 internal static class StorageTestData
 {
     private const int Limit=64;
-    public static StorageCellId Cell(string v="gru"){StorageCellId.TryCreate(v,Limit,out var r);return r!;}
-    public static VolumeClaimId Claim(string v="claim-a"){VolumeClaimId.TryCreate(v,Limit,out var r);return r!;}
-    public static ProviderVolumeId Provider(string v="provider-volume-a"){ProviderVolumeId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageAttachmentId Attachment(string v="attachment-a"){StorageAttachmentId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageNodeId Node(string v="node-a"){StorageNodeId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageWorkloadId Workload(string v="terrabase"){StorageWorkloadId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageMemberId Member(string v="member-a"){StorageMemberId.TryCreate(v,Limit,out var r);return r!;}
-    public static FilesystemId Filesystem(string v="filesystem-secret"){FilesystemId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageOperationId Operation(string v="operation-a"){StorageOperationId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageBackupId Backup(string v="backup-a"){StorageBackupId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageFenceId Fence(string v="fence-a"){StorageFenceId.TryCreate(v,Limit,out var r);return r!;}
-    public static EncryptionKeyReference Key(string v="key-secret"){EncryptionKeyReference.TryCreate(v,Limit,out var r);return r!;}
-    public static StoragePlacementId Placement(string v="ad-1/fd-1"){StoragePlacementId.TryCreate(v,Limit,out var r);return r!;}
-    public static StorageDeviceId Device(string v="device-stable-a"){StorageDeviceId.TryCreate(v,Limit,out var r);return r!;}
+    public static StorageCellId Cell(string v="gru") => Create(StorageCellId.TryCreate(v, Limit, out var result), result);
+    public static VolumeClaimId Claim(string v="claim-a") => Create(VolumeClaimId.TryCreate(v, Limit, out var result), result);
+    public static ProviderVolumeId Provider(string v="provider-volume-a") => Create(ProviderVolumeId.TryCreate(v, Limit, out var result), result);
+    public static StorageAttachmentId Attachment(string v="attachment-a") => Create(StorageAttachmentId.TryCreate(v, Limit, out var result), result);
+    public static StorageNodeId Node(string v="node-a") => Create(StorageNodeId.TryCreate(v, Limit, out var result), result);
+    public static StorageWorkloadId Workload(string v="terrabase") => Create(StorageWorkloadId.TryCreate(v, Limit, out var result), result);
+    public static StorageMemberId Member(string v="member-a") => Create(StorageMemberId.TryCreate(v, Limit, out var result), result);
+    public static FilesystemId Filesystem(string v="filesystem-secret") => Create(FilesystemId.TryCreate(v, Limit, out var result), result);
+    public static StorageOperationId Operation(string v="operation-a") => Create(StorageOperationId.TryCreate(v, Limit, out var result), result);
+    public static StorageBackupId Backup(string v="backup-a") => Create(StorageBackupId.TryCreate(v, Limit, out var result), result);
+    public static StorageFenceId Fence(string v="fence-a") => Create(StorageFenceId.TryCreate(v, Limit, out var result), result);
+    public static EncryptionKeyReference Key(string v="key-secret") => Create(EncryptionKeyReference.TryCreate(v, Limit, out var result), result);
+    public static StoragePlacementId Placement(string v="ad-1/fd-1") => Create(StoragePlacementId.TryCreate(v, Limit, out var result), result);
+    public static StorageDeviceId Device(string v="device-stable-a") => Create(StorageDeviceId.TryCreate(v, Limit, out var result), result);
+
+    public static T Require<T>(T? value) where T : class =>
+        value ?? throw new InvalidOperationException("Storage test fixture construction returned no value.");
+
+    private static T Create<T>(bool success, T? value) where T : class =>
+        success ? Require(value) : throw new InvalidOperationException("Storage test fixture construction failed.");
     public static StorageBytes B(long v){StorageBytes.TryCreate(v,out var r);return r;}
     public static StorageGeneration Generation(ulong v=4){StorageGeneration.TryCreate(v,out var r);return r;}
     public static StorageWriterEpoch Epoch(ulong v=7){StorageWriterEpoch.TryCreate(v,out var r);return r;}

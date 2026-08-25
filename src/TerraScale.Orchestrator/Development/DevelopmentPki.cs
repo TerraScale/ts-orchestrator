@@ -140,12 +140,16 @@ internal static class DevelopmentPki
     internal static bool LeavesNeedRemint(string dataDirectory, DateTimeOffset utcNow)
     {
         var survey = SurveyLeaves(dataDirectory);
-        if (survey.UnreadableLeaves || survey.EarliestNotAfter is null)
+        if (survey.UnreadableLeaves)
+        {
+            return true;
+        }
+        if (survey.EarliestNotAfter is not { } earliestNotAfter)
         {
             return true;
         }
 
-        return survey.EarliestNotAfter.Value <= utcNow + LeafRenewalLeadTime;
+        return earliestNotAfter <= utcNow + LeafRenewalLeadTime;
     }
 
     /// <summary>
@@ -201,7 +205,7 @@ internal static class DevelopmentPki
                 // NotAfter is local DateTime on some runtimes; normalize to UTC offset.
                 var notAfter = new DateTimeOffset(
                     DateTime.SpecifyKind(certificate.NotAfter.ToUniversalTime(), DateTimeKind.Utc));
-                if (earliest is null || notAfter < earliest.Value)
+                if (earliest is not { } currentEarliest || notAfter < currentEarliest)
                 {
                     earliest = notAfter;
                 }
@@ -460,13 +464,18 @@ internal static class DevelopmentPki
         request.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(request.PublicKey, false));
         if (!certificateAuthority)
         {
+            if (string.IsNullOrWhiteSpace(spiffeId) || string.IsNullOrWhiteSpace(dnsName))
+            {
+                throw new InvalidOperationException(
+                    "A development leaf certificate requires both a SPIFFE ID and a DNS name.");
+            }
             var usages = new OidCollection();
             if (serverAuth) usages.Add(new Oid("1.3.6.1.5.5.7.3.1"));
             if (clientAuth) usages.Add(new Oid("1.3.6.1.5.5.7.3.2"));
             request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(usages, true));
             var names = new SubjectAlternativeNameBuilder();
-            names.AddUri(new Uri(spiffeId!, UriKind.Absolute));
-            names.AddDnsName(dnsName!);
+            names.AddUri(new Uri(spiffeId, UriKind.Absolute));
+            names.AddDnsName(dnsName);
             names.AddDnsName("localhost");
             if (serverAuth) names.AddIpAddress(IPAddress.Loopback);
             request.CertificateExtensions.Add(names.Build(critical: false));

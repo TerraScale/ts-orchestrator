@@ -28,6 +28,13 @@ public sealed class ConcreteSubject : IEquatable<ConcreteSubject>, IComparable<C
             return false;
         }
 
+        if (value is null)
+        {
+            result = null;
+            error = SubjectGrammarError.Empty;
+            return false;
+        }
+
         if (tokens.Any(static token => token.Contains('*', StringComparison.Ordinal)
             || token.Contains('>', StringComparison.Ordinal)))
         {
@@ -36,7 +43,7 @@ public sealed class ConcreteSubject : IEquatable<ConcreteSubject>, IComparable<C
             return false;
         }
 
-        result = new ConcreteSubject(value!, tokens);
+        result = new ConcreteSubject(value, tokens);
         return true;
     }
 

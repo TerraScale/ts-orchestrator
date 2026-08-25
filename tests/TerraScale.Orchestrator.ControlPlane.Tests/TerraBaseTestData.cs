@@ -5,19 +5,83 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 internal static class TerraBaseTestData
 {
     private const int M=64;
-    public static TerraBaseCellId Cell(string v="gru"){TerraBaseCellId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseDatabaseId Db(string v="db"){TerraBaseDatabaseId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseMemberId Member(string v="d"){TerraBaseMemberId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseNodeId Node(string v="n4"){TerraBaseNodeId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseVolumeId Volume(string v="volume"){TerraBaseVolumeId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseBackupId Backup(string v="backup"){TerraBaseBackupId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseRestoreId Restore(string v="restore"){TerraBaseRestoreId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseReleaseId Release(string v="release"){TerraBaseReleaseId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseOperationId Op(string v="op"){TerraBaseOperationId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseFenceId Fence(string v="fence"){TerraBaseFenceId.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseDigestRef Digest(string v="digest-secret"){TerraBaseDigestRef.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseObjectRef Object(string v="object-secret"){TerraBaseObjectRef.TryCreate(v,M,out var x);return x!;}
-    public static TerraBaseKeyRef Key(string v="key-secret"){TerraBaseKeyRef.TryCreate(v,M,out var x);return x!;}
+    public static TerraBaseCellId Cell(string v="gru")
+    {
+        if (!TerraBaseCellId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test cell id.");
+        return result;
+    }
+
+    public static TerraBaseDatabaseId Db(string v="db")
+    {
+        if (!TerraBaseDatabaseId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test database id.");
+        return result;
+    }
+
+    public static TerraBaseMemberId Member(string v="d")
+    {
+        if (!TerraBaseMemberId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test member id.");
+        return result;
+    }
+
+    public static TerraBaseNodeId Node(string v="n4")
+    {
+        if (!TerraBaseNodeId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test node id.");
+        return result;
+    }
+
+    public static TerraBaseVolumeId Volume(string v="volume")
+    {
+        if (!TerraBaseVolumeId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test volume id.");
+        return result;
+    }
+
+    public static TerraBaseBackupId Backup(string v="backup")
+    {
+        if (!TerraBaseBackupId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test backup id.");
+        return result;
+    }
+
+    public static TerraBaseRestoreId Restore(string v="restore")
+    {
+        if (!TerraBaseRestoreId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test restore id.");
+        return result;
+    }
+
+    public static TerraBaseReleaseId Release(string v="release")
+    {
+        if (!TerraBaseReleaseId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test release id.");
+        return result;
+    }
+
+    public static TerraBaseOperationId Op(string v="op")
+    {
+        if (!TerraBaseOperationId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test operation id.");
+        return result;
+    }
+
+    public static TerraBaseFenceId Fence(string v="fence")
+    {
+        if (!TerraBaseFenceId.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test fence id.");
+        return result;
+    }
+
+    public static TerraBaseDigestRef Digest(string v="digest-secret")
+    {
+        if (!TerraBaseDigestRef.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test digest reference.");
+        return result;
+    }
+
+    public static TerraBaseObjectRef Object(string v="object-secret")
+    {
+        if (!TerraBaseObjectRef.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test object reference.");
+        return result;
+    }
+
+    public static TerraBaseKeyRef Key(string v="key-secret")
+    {
+        if (!TerraBaseKeyRef.TryCreate(v, M, out var result)) throw new InvalidOperationException("Invalid test key reference.");
+        return result;
+    }
     public static TerraBaseOrdinal O(ulong v){TerraBaseOrdinal.TryCreate(v,out var x);return x;}
     public static TerraBaseEvidenceScope Scope()=>new(Cell(),Db(),Member(),Node(),Volume(),Fence(),O(4),O(8),O(3),Op());
     public static TerraBaseTopologyEvidence Topology(TerraBaseMemberKind kind=TerraBaseMemberKind.Elastic,TerraBaseEvidenceScope? scope=null,

@@ -285,7 +285,11 @@ internal sealed class CiRunnerNatsCredentialIssuer
             lifetime.Ticks % TimeSpan.TicksPerSecond != 0)
             throw new ArgumentOutOfRangeException(nameof(lifetime));
         var expected = topology.CiJobConsumer(registration.Zone, runner);
-        if (registration.Consumer != expected.Name || registration.Subject != expected.FilterSubject)
+        if (expected.Name is not { Length: > 0 } expectedName)
+            throw new InvalidOperationException("The CI runner consumer must have a name.");
+        if (expected.FilterSubject is not { Length: > 0 } expectedFilterSubject)
+            throw new InvalidOperationException("The CI runner consumer must have a filter subject.");
+        if (registration.Consumer != expectedName || registration.Subject != expectedFilterSubject)
             throw new InvalidOperationException("A matching reconciled CI runner consumer is required before identity issuance.");
 
         var issuedSeconds = now.ToUnixTimeSeconds();
@@ -298,11 +302,10 @@ internal sealed class CiRunnerNatsCredentialIssuer
         {
             var publicKey = NKeys.PublicKeyFromSeed(seed);
             var plan = CiRunnerNatsPermissions.Create(topology, registration.Zone, runner);
-            var name = expected.Name!;
             var token = await NatsUserJwtCodec.EncodeAsync(
                 signer,
                 publicKey,
-                name,
+                expectedName,
                 plan,
                 issuedSeconds,
                 expiresSeconds,

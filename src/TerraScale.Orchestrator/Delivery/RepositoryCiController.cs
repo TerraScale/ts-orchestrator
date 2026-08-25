@@ -16,9 +16,7 @@ internal enum RepositoryCiControllerDisposition
 
 internal sealed record RepositoryCiControllerReceipt(
     RepositoryCiControllerDisposition Disposition,
-    RepositoryCiPipelinePlan? Pipeline);
-
-/// <summary>
+    RepositoryCiPipelinePlan? Pipeline);/// <summary>
 /// Connects durable pipeline ticks to a bounded pool of standalone OCI preemptible runners and
 /// does not acknowledge the originating Forgejo event until both jobs and idle-node cleanup settle.
 /// </summary>
@@ -31,7 +29,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
     private readonly OciCiRunnerAvailability availability;
     private readonly Func<string, string, CancellationToken, Task> reconcileConsumer;
     private readonly Func<string, ForgejoCommitStatusState, CancellationToken, Task> reportStatus;
-    private readonly Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate;
+    private readonly Func<RepositoryCiPipelinePlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? attestArtifacts;
     private readonly OciCiRunnerPoolConfiguration pool;
     private readonly IOciCiRunnerCapacityAdapter capacity;
     private readonly Func<RegionalAuthoritySnapshot> authority;
@@ -54,7 +52,7 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         string controllerId,
         TimeProvider? timeProvider = null,
         IAsyncDisposable? ownedSource = null,
-        Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate = null)
+        Func<RepositoryCiPipelinePlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? attestArtifacts = null)
     {
         this.pipelines = pipelines ?? throw new ArgumentNullException(nameof(pipelines));
         this.pipelineCoordinator = pipelineCoordinator ?? throw new ArgumentNullException(nameof(pipelineCoordinator));
@@ -72,10 +70,10 @@ internal sealed class RepositoryCiController : IAsyncDisposable
         this.controllerId = controllerId;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.ownedSource = ownedSource;
-        this.recordCandidate = recordCandidate;
+        this.attestArtifacts = attestArtifacts;
     }
 
-    internal async Task<bool> RunToCompletionAsync(
+    internal async Task<ForgejoCiEventProcessDisposition> RunToCompletionAsync(
         ForgejoCiTriggerPlan trigger,
         CancellationToken cancellationToken)
     {
@@ -87,40 +85,42 @@ internal sealed class RepositoryCiController : IAsyncDisposable
                 RepositoryCiControllerDisposition.Failed or
                 RepositoryCiControllerDisposition.NotDispatchable)
             {
-                if (!await CanAcknowledgeAsync(receipt, recordCandidate, cancellationToken))
-                    return false;
-                await reportStatus(
-                    trigger.Envelope.Revision,
-                    receipt.Disposition switch
+                var gate = await CanAcknowledgeAsync(receipt, attestArtifacts, cancellationToken);
+                if (gate == ForgejoCiEventProcessDisposition.Retry)
+                    return ForgejoCiEventProcessDisposition.Retry;
+                var status = gate == ForgejoCiEventProcessDisposition.Terminal
+                    ? ForgejoCommitStatusState.Failure
+                    : receipt.Disposition switch
                     {
                         RepositoryCiControllerDisposition.Succeeded => ForgejoCommitStatusState.Success,
                         RepositoryCiControllerDisposition.Failed => ForgejoCommitStatusState.Failure,
                         _ => ForgejoCommitStatusState.Error,
-                    },
-                    cancellationToken);
-                return true;
+                    };
+                await reportStatus(trigger.Envelope.Revision, status, cancellationToken);
+                return gate;
             }
             if (receipt.Disposition == RepositoryCiControllerDisposition.AuthorityLost)
-                return false;
+                return ForgejoCiEventProcessDisposition.Retry;
             if (receipt.Disposition != RepositoryCiControllerDisposition.Active)
                 throw new InvalidDataException("The repository CI controller returned an unspecified state.");
             await Task.Delay(pool.PollInterval, cancellationToken);
         }
     }
 
-    internal static Task<bool> CanAcknowledgeAsync(
+    internal static Task<ForgejoCiEventProcessDisposition> CanAcknowledgeAsync(
         RepositoryCiControllerReceipt receipt,
-        Func<RepositoryCiPipelinePlan, CancellationToken, Task<bool>>? recordCandidate,
+        Func<RepositoryCiPipelinePlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? attestArtifacts,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         if (receipt.Disposition != RepositoryCiControllerDisposition.Succeeded)
-            return Task.FromResult(true);
+            return Task.FromResult(ForgejoCiEventProcessDisposition.Handled);
         var pipeline = receipt.Pipeline ??
             throw new InvalidDataException("A successful CI controller receipt has no pipeline.");
-        return pipeline.Profile == RepositoryCiProfile.Release
-            ? recordCandidate?.Invoke(pipeline, cancellationToken) ?? Task.FromResult(false)
-            : Task.FromResult(true);
+        return pipeline.Profile == RepositoryCiProfile.Build
+            ? attestArtifacts?.Invoke(pipeline, cancellationToken)
+                ?? Task.FromResult(ForgejoCiEventProcessDisposition.Retry)
+            : Task.FromResult(ForgejoCiEventProcessDisposition.Handled);
     }
 
     internal async Task<RepositoryCiControllerReceipt> ProcessOnceAsync(
@@ -149,7 +149,9 @@ internal sealed class RepositoryCiController : IAsyncDisposable
                 return Result(RepositoryCiControllerDisposition.AuthorityLost);
             if (!planned.IsPlanned)
                 throw new InvalidDataException($"Repository CI planning failed closed: {planned.Disposition}.");
-            pipeline = planned.Plan!;
+            if (planned.Plan is not { } plannedPipeline)
+                throw new InvalidDataException("Repository CI planning returned no pipeline.");
+            pipeline = plannedPipeline;
         }
 
         availability.Clear();

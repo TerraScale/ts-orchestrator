@@ -26,10 +26,15 @@ public sealed record NatsAuthoritativeJournalConfiguration(
         if (supplied == 0) return null;
         if (supplied != values.Length)
             throw new ArgumentException("TS_ORCH_JOURNAL requires NKey, mTLS, authority public-key, reply signing-key, and eligible controller identities together.");
+        if (nkeyFile is null || caFile is null || certificateFile is null || keyFile is null ||
+            authorityPublicKeyFile is null || replySigningKeyFile is null || eligibleControllerIdentities is null)
+            throw new ArgumentException("TS_ORCH_JOURNAL requires non-empty credential, key, and controller identity paths.");
 
-        var resolvedNkey = NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_JOURNAL_NATS_NKEY_FILE")!;
-        var tls = NatsTlsFiles.Resolve(caFile, certificateFile, keyFile, "TS_ORCH_JOURNAL_NATS_TLS")!;
-        var path = Path.GetFullPath(authorityPublicKeyFile!);
+        var resolvedNkey = NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_JOURNAL_NATS_NKEY_FILE") ??
+            throw new ArgumentException("TS_ORCH_JOURNAL_NATS_NKEY_FILE is missing.");
+        var tls = NatsTlsFiles.Resolve(caFile, certificateFile, keyFile, "TS_ORCH_JOURNAL_NATS_TLS") ??
+            throw new ArgumentException("TS_ORCH_JOURNAL_NATS_TLS credentials are missing.");
+        var path = Path.GetFullPath(authorityPublicKeyFile);
         var file = new FileInfo(path);
         if (!file.Exists || file.Length is < 1 or > 8_192)
             throw new ArgumentException("TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE must identify a bounded authority public key file.");
@@ -44,7 +49,7 @@ public sealed record NatsAuthoritativeJournalConfiguration(
                 throw new CryptographicException("Authority verification key must use NIST P-256.");
             var publicKey = authority.ExportSubjectPublicKeyInfo();
             if (publicKey.Length == 0) throw new CryptographicException("Authority public key is empty.");
-            var replyPath = ResolveReplySigningKey(replySigningKeyFile!);
+            var replyPath = ResolveReplySigningKey(replySigningKeyFile);
             using var reply = ECDsa.Create();
             reply.ImportFromPem(File.ReadAllText(replyPath));
             var replyPublicKey = reply.ExportSubjectPublicKeyInfo();
@@ -53,7 +58,7 @@ public sealed record NatsAuthoritativeJournalConfiguration(
                 throw new CryptographicException("Reply signing key must be a distinct NIST P-256 key.");
             if (tls.HasSubjectPublicKeyInfo(publicKey) || tls.HasSubjectPublicKeyInfo(replyPublicKey))
                 throw new CryptographicException("Authority keys must be distinct from the journal writer TLS identity.");
-            var controllers = ParseControllerIdentities(eligibleControllerIdentities!);
+            var controllers = ParseControllerIdentities(eligibleControllerIdentities);
             if (controllers.Contains(NatsCredentialFile.PublicKey(resolvedNkey)))
                 throw new ArgumentException("TS_ORCH_JOURNAL_CONTROLLER_NKEYS must not contain the journal writer NKey public identity.");
             return new(resolvedNkey, tls, publicKey, replyPath, replyPublicKey, controllers);

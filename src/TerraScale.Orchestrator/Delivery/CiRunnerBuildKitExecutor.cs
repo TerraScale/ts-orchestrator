@@ -512,8 +512,12 @@ internal sealed class CiRunnerBuildKitExecutor(ICiRunnerBuildKitProcess process)
         {
             if (reader.TokenType == JsonTokenType.StartObject) fields.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) fields.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !fields.Peek().Add(reader.GetString()!))
-                return true;
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (!fields.TryPeek(out var current) || reader.GetString() is not { } propertyName ||
+                    !current.Add(propertyName))
+                    return true;
+            }
         }
         return fields.Count != 0;
     }

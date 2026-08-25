@@ -358,7 +358,8 @@ internal static class RepositoryCiJobWireCodec
         ReadOnlySpan<byte> digest)
     {
         var identities = Identities(document);
-        PayloadDigest.TryCopyFrom(digest, out var payloadDigest);
+        if (!PayloadDigest.TryCopyFrom(digest, out var payloadDigest) || payloadDigest is null)
+            throw Invalid();
         return new(
             identities.Protocol,
             identities.Cell,
@@ -371,7 +372,7 @@ internal static class RepositoryCiJobWireCodec
             DateTimeOffset.FromUnixTimeMilliseconds(document.ExpiresAtUnixMilliseconds),
             identities.Attempt,
             OpaquePayload.CopyFrom(payload),
-            payloadDigest!);
+            payloadDigest);
     }
 
     private static CommandEnvelope Envelope(
@@ -381,8 +382,9 @@ internal static class RepositoryCiJobWireCodec
         ReadOnlySpan<byte> signature)
     {
         var identities = Identities(document);
-        PayloadDigest.TryCopyFrom(digest, out var payloadDigest);
-        OpaqueSignature.TryCopyFrom(signature, out var opaqueSignature);
+        if (!PayloadDigest.TryCopyFrom(digest, out var payloadDigest) || payloadDigest is null ||
+            !OpaqueSignature.TryCopyFrom(signature, out var opaqueSignature) || opaqueSignature is null)
+            throw Invalid();
         return new(
             identities.Protocol,
             identities.Cell,
@@ -395,8 +397,8 @@ internal static class RepositoryCiJobWireCodec
             DateTimeOffset.FromUnixTimeMilliseconds(document.ExpiresAtUnixMilliseconds),
             identities.Attempt,
             OpaquePayload.CopyFrom(payload),
-            payloadDigest!,
-            opaqueSignature!);
+            payloadDigest,
+            opaqueSignature);
     }
 
     private static CommandIdentities Identities(RepositoryCiJobWireDocument document)
@@ -409,7 +411,7 @@ internal static class RepositoryCiJobWireCodec
             !IdempotencyKey.TryCreate(document.Idempotency, out var idempotency) ||
             !DeliveryAttempt.TryCreate(document.Attempt, out var attempt))
             throw Invalid();
-        return new(protocol!, cell!, aggregate!, generation!, epoch!, operation!, idempotency!, attempt!);
+        return new(protocol, cell, aggregate, generation, epoch, operation, idempotency, attempt);
     }
 
     private static InvalidDataException Invalid() => new("The CI job wire message is invalid.");
@@ -474,7 +476,7 @@ internal sealed record RepositoryCiJobWireDocument(
     string AttemptChainDigest,
     string RetryAuthorizationDigest,
     string[] Dependencies,
-    bool MayPublishCandidateArtifact)
+    bool MayPublishArtifact)
 {
     private const long MaximumUnixMilliseconds = 253_402_300_799_999;
 
@@ -533,7 +535,7 @@ internal sealed record RepositoryCiJobWireDocument(
             prepared.Document.AttemptChainDigest,
             prepared.Document.RetryAuthorizationDigest,
             job.DependsOn.Select(static dependency => dependency.Value).ToArray(),
-            job.MayPublishCandidateArtifact);
+            job.MayPublishArtifact);
     }
 
     internal void Validate()
@@ -569,9 +571,9 @@ internal sealed record RepositoryCiJobWireDocument(
             Kind == JobKind.ProductValidation &&
                 (Profile != RepositoryCiProfile.Feature || AllowedZones[0] != TrustZone.UntrustedProduct ||
                     RequiredCapabilities.Any(static capability => capability is not (
-                        RunnerCapability.Compile or RunnerCapability.Test)) || MayPublishCandidateArtifact) ||
+                        RunnerCapability.Compile or RunnerCapability.Test)) || MayPublishArtifact) ||
             Kind == JobKind.TrustedBuild &&
-                (Profile != RepositoryCiProfile.Release || AllowedZones[0] != TrustZone.TrustedBuild ||
+                (Profile != RepositoryCiProfile.Build || AllowedZones[0] != TrustZone.TrustedBuild ||
                     !SourceSignatureVerified || RequiredCapabilities.Any(static capability => capability is not (
                         RunnerCapability.Compile or RunnerCapability.Test or RunnerCapability.Sign))) ||
             Kind is not (JobKind.ProductValidation or JobKind.TrustedBuild) ||
@@ -631,7 +633,7 @@ internal sealed record RepositoryCiJobWireDocument(
         value.Append('\n');
         value.AppendJoin(',', Dependencies);
         value.Append('\n');
-        value.Append(MayPublishCandidateArtifact ? '1' : '0');
+        value.Append(MayPublishArtifact ? '1' : '0');
         return Hash(value.ToString());
     }
 
@@ -648,15 +650,15 @@ internal sealed record RepositoryCiJobWireDocument(
         RepositoryCiNodeKind.Static or RepositoryCiNodeKind.Build =>
             Architectures.SequenceEqual([RepositoryCiArchitecture.Any]) &&
             RequiredCapabilities.SequenceEqual([RunnerCapability.Compile]) &&
-            !MayPublishCandidateArtifact,
+            !MayPublishArtifact,
         RepositoryCiNodeKind.Test =>
             Architectures.SequenceEqual([RepositoryCiArchitecture.Any]) &&
             RequiredCapabilities.SequenceEqual([RunnerCapability.Test]) &&
-            !MayPublishCandidateArtifact,
+            !MayPublishArtifact,
         RepositoryCiNodeKind.Artifact =>
             Kind == JobKind.TrustedBuild &&
             RequiredCapabilities.SequenceEqual([RunnerCapability.Compile, RunnerCapability.Sign]) &&
-            MayPublishCandidateArtifact,
+            MayPublishArtifact,
         _ => false,
     };
 

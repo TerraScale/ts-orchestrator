@@ -26,7 +26,6 @@ public sealed class ForgejoCiTriggerPlannerTests
         await Assert.That(plan.TrustZone).IsEqualTo(TrustZone.UntrustedProduct);
         await Assert.That(plan.Capabilities).IsEquivalentTo([RunnerCapability.Compile, RunnerCapability.Test]);
         await Assert.That(plan.MayPublishArtifacts).IsFalse();
-        await Assert.That(plan.RequiresQualifiedCandidate).IsFalse();
         await Assert.That(DeliveryEngine.DecideJob(job,
             [new(new("untrusted-1"), TrustZone.UntrustedProduct, 20, true,
                 [RunnerCapability.Compile, RunnerCapability.Test])], 96).Errors).IsEmpty();
@@ -42,7 +41,7 @@ public sealed class ForgejoCiTriggerPlannerTests
         var plan = ForgejoCiTriggerPlanner.Plan(PullRequest("develop", "main", Repository));
         var job = plan.CreateJobRequest(Resolved(), 8, 10, 100);
 
-        await Assert.That(plan.Reason).IsEqualTo(ForgejoCiTriggerReason.ReleaseCandidate);
+        await Assert.That(plan.Reason).IsEqualTo(ForgejoCiTriggerReason.TrustedArtifactBuild);
         await Assert.That(plan.JobKind).IsEqualTo(JobKind.TrustedBuild);
         await Assert.That(plan.TrustZone).IsEqualTo(TrustZone.TrustedBuild);
         await Assert.That(plan.Capabilities).IsEquivalentTo([
@@ -69,17 +68,15 @@ public sealed class ForgejoCiTriggerPlannerTests
     }
 
     [Test]
-    public async Task MainPushCanOnlyPromoteAnAlreadyQualifiedCandidate()
+    public async Task MainPushIsHeldForNativeDelivery()
     {
         var plan = ForgejoCiTriggerPlanner.Plan(Push("refs/heads/main"));
 
-        await Assert.That(plan.JobKind).IsEqualTo(JobKind.Promotion);
-        await Assert.That(plan.TrustZone).IsEqualTo(TrustZone.ProductionRelease);
-        await Assert.That(plan.Capabilities).IsEquivalentTo([
-            RunnerCapability.Promote, RunnerCapability.ProductionDeploy]);
-        await Assert.That(plan.Capabilities).DoesNotContain(RunnerCapability.Compile);
+        await Assert.That(plan.Disposition).IsEqualTo(ForgejoCiTriggerDisposition.Held);
+        await Assert.That(plan.JobKind).IsEqualTo(JobKind.Unspecified);
+        await Assert.That(plan.TrustZone).IsEqualTo(TrustZone.Unspecified);
+        await Assert.That(plan.Capabilities).IsEmpty();
         await Assert.That(plan.MayPublishArtifacts).IsFalse();
-        await Assert.That(plan.RequiresQualifiedCandidate).IsTrue();
         await Assert.That(() => plan.CreateJobRequest(Resolved(), 9, 10, 100))
             .Throws<InvalidOperationException>();
     }
@@ -195,12 +192,6 @@ public sealed class ForgejoCiTriggerPlannerTests
                     !plan.Capabilities.SequenceEqual([
                         RunnerCapability.Compile, RunnerCapability.Test, RunnerCapability.Sign]))
                     throw new InvalidOperationException("Trusted build authority widened.");
-                break;
-            case JobKind.Promotion:
-                if (plan.TrustZone != TrustZone.ProductionRelease || !plan.RequiresQualifiedCandidate ||
-                    !plan.Capabilities.SequenceEqual([
-                        RunnerCapability.Promote, RunnerCapability.ProductionDeploy]))
-                    throw new InvalidOperationException("Promotion authority widened.");
                 break;
             default:
                 throw new InvalidOperationException("Unexpected Forgejo CI job kind.");

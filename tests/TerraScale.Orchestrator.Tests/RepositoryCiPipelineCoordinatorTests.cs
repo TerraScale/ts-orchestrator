@@ -202,14 +202,12 @@ public sealed class RepositoryCiPipelineCoordinatorTests
     {
         var content = Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{Repository}}",
-              "candidateRetentionDays":7,
-              "promotion":"None",
               "repositoryDependencies":[],
               "nodes":[
-                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Release"],"paths":["src/"]},
-                {"id":"test","kind":"Test","resourceWeight":"Medium","profiles":["Feature","Release"],"paths":["src/"],"dependsOn":["static"]}
+                {"id":"static","kind":"Static","resourceWeight":"Light","profiles":["Feature","Build"],"paths":["src/"]},
+                {"id":"test","kind":"Test","resourceWeight":"Medium","profiles":["Feature","Build"],"paths":["src/"],"dependsOn":["static"]}
               ]
             }
             """);

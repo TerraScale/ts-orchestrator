@@ -171,15 +171,13 @@ remain the responsibility of the managed Alloy/Collector role.
 
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
-Regional controller candidates opt in to the separate global control account
-only with the complete `TS_ORCH_GLOBAL_NATS_*` configuration. The connection
-requires R3, a `tls://` endpoint, a valid private user NKey seed, and a complete
-mTLS identity distinct from the regional account. The endpoint may be the same
-GRU control-NATS cluster because account authorization is separate. Startup
-then reconciles `GLOBAL_SPEC`, the global-account `ORCH_LEADERS`, the bounded
-`GLOBAL_CELLS` regional-advertisement KV bucket, the
-64-revision-per-release `GLOBAL_RELEASES` KV journal, and the R3
-`GLOBAL_BUNDLES` content store plus `GLOBAL_CI` inbox before reporting ready:
+The legacy `TS_ORCH_GLOBAL_NATS_*` configuration is a GRU-only global-authority
+alias. It requires R3, a `tls://` endpoint, a valid private user NKey seed, and
+a complete mTLS identity distinct from the regional account. The authority
+runtime owns `GLOBAL_SPEC`, `ORCH_LEADERS`, releases, CI, GitOps, and its
+Object Store buckets. It does not create, reconcile, or read `GLOBAL_CELLS`.
+The endpoint may be the same GRU control-NATS cluster because account
+authorization is separate:
 
 ```bash
 TS_ORCH_GLOBAL_NATS_URL=tls://control-nats-gru.internal:4222 \
@@ -193,19 +191,73 @@ terrascale-orchestrator check
 Supplying any subset, reusing either regional identity, using plaintext, or
 configuring fewer than three replicas fails before the global connection.
 
-The current regional authority leader renews one versioned `GLOBAL_CELLS`
-record every five seconds with a twenty-second semantic lease. Its key is
-stable (`cell.<cell>`), CAS updates fence concurrent leaders, and the contract
-orders replacements by regional authority epoch, authority revision, then
-advertisement sequence. Every connected controller watches the bucket and
-serves the read-only projection at `ts.orch.v1.global.query.cells` through a
-NATS service queue group. Duplicate delivery yields one entry; malformed,
-cross-key, and older advertisements cannot replace newer state. A WAN outage
-does not delete regional truth or revoke regional authority: the remote entry
-becomes stale after its lease while local reconciliation continues, and the
-publisher resumes from the durable record after reconnect. Metrics expose only
-aggregate active/stale cell counts and rejected-advertisement totals, without
-remote cell, controller, peer, or session labels.
+Directory publisher/watch is configured separately and is available to GRU,
+SFO, and FRA. It attaches to the infrastructure-provisioned `GLOBAL_CELLS`
+bucket and never creates or updates the bucket configuration. Its identity is
+distinct from regional control and global authority credentials:
+
+```bash
+TS_ORCH_GLOBAL_DIRECTORY_NATS_URL=tls://control-nats-gru.internal:4222 \
+TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE=/run/credentials/global-directory.nk \
+TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
+TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE=/run/credentials/global-directory.pem \
+TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE=/run/credentials/global-directory-key.pem \
+terrascale-orchestrator run
+```
+
+On GRU, the optional read-only query service uses another complete identity.
+It exports only `ts.orch.v1.global.query.cells` and publishes service replies
+through the `_R_.>` response permission. The service cannot read or mutate
+`GLOBAL_CELLS` directly:
+
+```bash
+TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL=tls://control-nats-gru.internal:4222 \
+TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE=/run/credentials/global-directory-service.nk \
+TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
+TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE=/run/credentials/global-directory-service.pem \
+TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE=/run/credentials/global-directory-service-key.pem \
+terrascale-orchestrator run
+```
+
+The equivalent typed runtime JSON uses `globalDirectoryNats*` and
+`globalDirectoryServiceNats*` fields. The legacy `globalNats*` fields remain
+the GRU-only authority alias:
+
+```json
+{
+  "schemaVersion": 1,
+  "cell": "gru",
+  "natsUrl": "tls://regional-control.internal:4222",
+  "replicas": 3,
+  "instance": "controller-1",
+  "globalNatsUrl": "tls://control-nats-gru.internal:4222",
+  "globalNatsNKeyFile": "/run/credentials/global-controller.nk",
+  "globalNatsTlsCaFile": "/run/credentials/global-ca.pem",
+  "globalNatsTlsCertificateFile": "/run/credentials/global-controller.pem",
+  "globalNatsTlsKeyFile": "/run/credentials/global-controller-key.pem",
+  "globalDirectoryNatsUrl": "tls://control-nats-gru.internal:4222",
+  "globalDirectoryNatsNKeyFile": "/run/credentials/global-directory.nk",
+  "globalDirectoryNatsTlsCaFile": "/run/credentials/global-ca.pem",
+  "globalDirectoryNatsTlsCertificateFile": "/run/credentials/global-directory.pem",
+  "globalDirectoryNatsTlsKeyFile": "/run/credentials/global-directory-key.pem",
+  "globalDirectoryServiceNatsUrl": "tls://control-nats-gru.internal:4222",
+  "globalDirectoryServiceNatsNKeyFile": "/run/credentials/global-directory-service.nk",
+  "globalDirectoryServiceNatsTlsCaFile": "/run/credentials/global-ca.pem",
+  "globalDirectoryServiceNatsTlsCertificateFile": "/run/credentials/global-directory-service.pem",
+  "globalDirectoryServiceNatsTlsKeyFile": "/run/credentials/global-directory-service-key.pem"
+}
+```
+
+The directory publisher/watch identity can publish only its own
+`GLOBAL_CELLS.cell.<cell>` advertisement and watch the projection. A regional
+controller with only this configuration has no global authority, release, CI,
+Object Store, stream-management, consumer-management, or native GitOps
+capability. A WAN outage does not delete regional truth or revoke regional
+authority: the remote entry becomes stale after its lease while local
+reconciliation continues, and the publisher resumes from the durable record
+after reconnect. Metrics expose only aggregate active/stale cell counts and
+rejected-advertisement totals, without remote cell, controller, peer, or
+session labels.
 
 `check` watches and validates the directory but never publishes a cell record.
 In `run`, a failed initial global connection leaves the regional controller
@@ -217,7 +269,7 @@ marked unavailable and relinquishes its in-memory election state before retry,
 so a disconnected global candidate cannot retain mutation authority.
 
 `GlobalNatsPermissions` now defines separate directory-publisher,
-directory-reader, and directory-service roles. A publisher can mutate only
+directory-reader, directory-service, and global-authority roles. A publisher can mutate only
 `$KV.GLOBAL_CELLS.cell.<its-cell>` and has the bounded JetStream subjects needed
 to read and watch the directory. A reader can only request
 `ts.orch.v1.global.query.cells` and receive its inbox reply. The service role
@@ -228,11 +280,9 @@ conformance fixture proves authenticated read-only service request/reply. It
 also proves that an SFO publisher can write and watch `cell.sfo` while the
 servers reject `cell.gru` and `ORCH_LEADERS` mutations.
 
-Production account provisioning does not consume this contract yet. The
-global runtime still combines directory, authority, release, and CI access in
-one connection, and the repository does not yet prove gateway account
-imports/exports or reconnect behavior. Those remain deployment-blocking
-security gates.
+Production account provisioning consumes these role contracts separately. No
+gateway topology, WAN JetStream quorum, or performance claim is implied by
+this composition split.
 
 Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
 binds the signed repository to the configured endpoint. Its normalized event
@@ -367,18 +417,17 @@ authentication, collision, timeout, and journal failures never return a 2xx.
 After exact commit/tree resolution, the closed CI trigger policy maps feature
 PRs targeting `develop` and direct `develop` pushes to compile/test-only
 untrusted validation. Only a same-repository `develop` → `main` PR may request
-a trusted compile/test/sign candidate build, and that job receives no
-production-deploy capability. A `main` push cannot build anything or directly
-create runner work; it can only request resolution of the exact already
-qualified candidate before promotion. Forks and lookalike branches targeting
+a trusted compile/test/sign build, and that job receives no production-deploy
+capability. A `main` push cannot build anything or directly create runner work;
+it can only request resolution of the exact already qualified artifact before
+publication. Forks and lookalike branches targeting
 `main`, protected-branch deletions, metadata-only actions, tags, and unsupported
 refs cannot widen those trust or capability sets.
 
-The command-free `terrascale.ci/v2` descriptor contract admits only closed
-static/build/test/artifact nodes, feature/release profiles, bounded resource
+The command-free `terrascale.ci/v3` descriptor contract admits only closed
+static/build/test/artifact nodes, feature/build profiles, bounded resource
 weights, safe repository-relative path prefixes, explicit repository edges
-with reasons, candidate retention, native/package/pages promotion policy, and
-architecture sets. Its compiler rejects unknown or duplicate fields,
+with reasons, and architecture sets. Its compiler rejects unknown or duplicate fields,
 free-form commands, retired Flux strategies, missing/profile-narrowing edges,
 cycles, unsafe paths, and native candidates that do not cover Linux x64 and
 ARM64. The affected planner then requires every changed path to select an
@@ -439,45 +488,25 @@ overhead is reserved inside the signed ephemeral-disk budget. The isolated
 `runner` process mode owns that BuildKit daemon and exits when its bounded idle
 window expires; normal controller startup never invokes BuildKit.
 
-Release DAGs bind every affected repository to an exact commit and tree before
-creating least-privilege trusted-build work. Candidate qualification requires
-every planned job exactly once on its first attempt, no required skips,
-content-addressed evidence, signed artifacts for every declared architecture,
-and exact runtime-digest proof for native artifacts. A later `main` push
-qualifies that candidate only when protected `main` observations for the whole
-release set have the same tested trees; Forgejo may use different merge commit
-IDs. A pure authorization gate can then create production-release work only
-when signed deployment evidence, dependency and generated-schema locks, pinned
-toolchain evidence, explicit approval, and all three compatibility directions
-verify against that exact qualified release-set digest. The request identity is
-also bound to its controller generation and runner evidence window. This still
-uses no credential and executes no deployment. Its CAS journal admits one
-authorization per qualified release set, fences takeover by authority epoch
-and a monotonic token, resumes exact phase operations idempotently, requires
-SFO then FRA then GRU verification, and unwinds affected regions in reverse.
-The promotion coordinator journals every stable operation identity before its
-external side effect, passes the current fencing token to an injected actuator,
-and replays the same operation after interruption. It drives publish, SFO, FRA,
-and GRU in order; any failed forward phase enters the journal's exact reverse
-rollback path, whose own failed operation is safely resumable. Authority loss
-stops before the next side effect, and a higher epoch adopts the phase with a
-new fence. Package and native-strategy candidates now retain their per-
-repository promotion policy and can be published through the Forgejo generic-
-package API under the exact candidate version. That coordinator reopens and
-verifies every content-addressed runner archive before the first upload, streams only the matching
-durable object under current authority, reconciles immutable retries by exact
-digest and length readback, and emits stable publication evidence. OCI registry
-publication is now a first-class closed strategy: it accepts exactly one
-non-executable `Any` artifact, reopens its exact verified outer archive,
-checks the nested OCI layout/index for Linux amd64 and arm64, and uploads
-through a bounded skopeo process using the candidate digest as its immutable
-tag. Exact registry readback is required before regional rollout; duplicate
-and rollback paths retain immutable content. Pages publishers, the live
-regional actuator implementation, runtime wiring, and live-verification
-implementations remain separate gates. The promotion adapter composes package
-and OCI publication before SFO and retains immutable archives during rollback.
+The live delivery model has no candidate, qualification, or promotion stage.
+CI produces immutable content and signed artifact-attestation evidence for the
+exact pipeline subject; the runtime-proof journal independently records the
+observed digest and architecture. The attestation gate requires both proofs,
+the exact durable result sink, and current authority before a delivery is
+accepted. Native GitOps carries the admitted desired state to each regional
+cell, while direct delivery accepts only a signed command with exact artifact
+and manifest identities. Every direct mutation journals authority generation,
+writer epoch, per-region progress, and exact rollback provenance. Authority is
+rechecked immediately before dispatch, each mutation, and rollback; takeover
+or newer state prevents an old writer from changing the target. A failed health
+or convergence check rolls back only when the current target still matches the
+artifact this operation installed, and never overwrites a newer deployment.
 
-Candidates and their later main-tree qualifications survive controller restart.
+The durable delivery records retain only exact immutable pipeline content,
+artifact-attestation proofs, and native runtime observations. Each pointer is
+content-addressed, read back before acknowledgement, and fenced by the current
+authority epoch. Corrupt or missing objects, altered subjects, interrupted
+writes, and authority loss fail closed; retries reuse the same identity.
 `GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
 while `GLOBAL_RELEASES` commits only a small immutable pointer after reading the
 object back. Recovery revalidates and re-hashes the pipeline, impact, exact
@@ -663,10 +692,10 @@ This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
 descriptor can select only the closed `static`, `build`, `test`, and `artifact`
 targets; it cannot inject an executable or argument. The recipe uses the
-multi-architecture .NET 10.0.302 SDK manifest pinned at
-`sha256:ed034a8bf0b24ded0cbbac07e17825d8e9ebfe21e308191d0f7421eaf5ad4664`,
+multi-architecture .NET 11.0.100-preview.7 SDK manifest pinned at
+`sha256:b8cc28b501af233e51be59583a41bf3ebde7fc8656418a7dd305b90b21a7f3f9`,
 runs all five TUnit modules sequentially with four tests at most, and publishes
-separate self-contained Orchestrator and CLI candidates for Linux x64 and
+separate self-contained Orchestrator and CLI artifacts for Linux x64 and
 ARM64.
 
 Native GitOps desired state is a fresh TerraScale document rather than a

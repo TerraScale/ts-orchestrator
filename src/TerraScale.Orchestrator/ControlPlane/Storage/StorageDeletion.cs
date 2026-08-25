@@ -53,10 +53,12 @@ public static class StorageDeletionPlanner
     {
         var validation = StorageAuthority.Validate(volume, context);
         if (validation != StorageDecisionCode.Completed) return StorageDecision.Hold(validation, volume?.Trace());
-        var trace = volume!.Trace();
+        if (volume is not { } authorizedVolume)
+            return StorageDecision.Hold(StorageDecisionCode.InvalidInput);
+        var trace = authorizedVolume.Trace();
         if (evidence is null) return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
-        if (volume.Retention == StorageRetention.Permanent) return StorageDecision.Hold(StorageDecisionCode.PermanentRetention, trace);
-        if (evidence.Scope is null || !evidence.Scope.IsWellFormed || evidence.Scope != volume.EvidenceScope)
+        if (authorizedVolume.Retention == StorageRetention.Permanent) return StorageDecision.Hold(StorageDecisionCode.PermanentRetention, trace);
+        if (evidence.Scope is not { } evidenceScope || !evidenceScope.IsWellFormed || evidenceScope != authorizedVolume.EvidenceScope)
             return StorageDecision.Hold(StorageDecisionCode.WrongEvidenceScope, trace);
         if (evidence.AllProofs().Any(static proof => !Enum.IsDefined(proof)))
             return StorageDecision.Hold(StorageDecisionCode.InvalidInput, trace);
@@ -64,9 +66,9 @@ public static class StorageDeletionPlanner
             return StorageDecision.Hold(StorageDecisionCode.StepContradicted, trace);
         if (evidence.CommonPreconditions().Any(static proof => proof != StorageProof.Proven))
             return StorageDecision.Hold(StorageDecisionCode.DeletionProofMissing, trace);
-        if (volume.Retention == StorageRetention.ElasticQuarantine && evidence.Quarantined != StorageProof.Proven)
+        if (authorizedVolume.Retention == StorageRetention.ElasticQuarantine && evidence.Quarantined != StorageProof.Proven)
             return StorageDecision.Hold(StorageDecisionCode.QuarantineProofMissing, trace);
-        if (volume.Retention == StorageRetention.ExplicitDisposable && evidence.DisposablePolicyVerified != StorageProof.Proven)
+        if (authorizedVolume.Retention == StorageRetention.ExplicitDisposable && evidence.DisposablePolicyVerified != StorageProof.Proven)
             return StorageDecision.Hold(StorageDecisionCode.DisposableProofMissing, trace);
         if (evidence.DeletionRequested != StorageProof.Proven)
             return StorageDecision.Emit(StorageAction.Delete, StorageIntentTarget.ProviderVolume, StorageDecisionCode.NextStep, trace);

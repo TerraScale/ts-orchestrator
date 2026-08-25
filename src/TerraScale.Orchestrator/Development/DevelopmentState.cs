@@ -119,7 +119,7 @@ internal static class DevelopmentStateStore
         T value,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(path, "Development state file"));
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         await File.WriteAllTextAsync(
             temporary,

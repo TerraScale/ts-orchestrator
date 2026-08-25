@@ -107,16 +107,19 @@ public sealed class DevelopmentControlSocketTests
                 topology,
                 Request("TerraBase", ["../secret"])))
             .Throws<InvalidDataException>();
+        var emptyError = empty ?? throw new InvalidOperationException("The empty-path assertion did not throw.");
+        var oversizedError = oversized ?? throw new InvalidOperationException("The oversized-path assertion did not throw.");
+        var unsafePathError = unsafePath ?? throw new InvalidOperationException("The unsafe-path assertion did not throw.");
 
-        await Assert.That(empty!.Message)
+        await Assert.That(emptyError.Message)
             .IsEqualTo("Changed paths must be a non-empty list of relative repository paths.");
-        await Assert.That(oversized!.Message)
+        await Assert.That(oversizedError.Message)
             .IsEqualTo(
                 $"Changed paths exceed the maximum of {DevelopmentReconcilePlanner.MaximumChangedPaths} entries.");
-        await Assert.That(unsafePath!.Message)
+        await Assert.That(unsafePathError.Message)
             .IsEqualTo("Changed paths must be bounded relative repository paths.");
-        await Assert.That(empty.Message).IsNotEqualTo(oversized.Message);
-        await Assert.That(oversized.Message).IsNotEqualTo(unsafePath.Message);
+        await Assert.That(emptyError.Message).IsNotEqualTo(oversizedError.Message);
+        await Assert.That(oversizedError.Message).IsNotEqualTo(unsafePathError.Message);
     }
 
     [Test]

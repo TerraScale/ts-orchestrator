@@ -215,22 +215,27 @@ internal static class NativeGitOpsCellConvergencePlanner
             spec.Generation,
             NativeGitOpsCellSpecCompiler.WorkloadDigest(workload),
             workload.DependsOn.Select(static dependency => new ResourceIdentity(dependency)))).ToArray();
+        var activeById = active.ToDictionary(static workload => workload.Id, StringComparer.Ordinal);
         var usable = active.Select(workload => observed.GetValueOrDefault(workload.Id))
-            .Where(value => value is not null && value.FreshnessSequence >= minimumFreshnessSequence &&
-                value.State is NativeGitOpsWorkloadState.Healthy or NativeGitOpsWorkloadState.Unhealthy)
-            .Select(value => new ObservedResourceState(
-                new(value!.WorkloadId),
-                active.Single(workload => workload.Id == value.WorkloadId).Role.ToString(),
-                value.Generation,
-                value.WorkloadSha256!,
-                value.EvidenceSha256,
-                value.FreshnessSequence,
-                value.State == NativeGitOpsWorkloadState.Healthy ||
-                value.Generation != spec.Generation ||
-                value.WorkloadSha256 != NativeGitOpsCellSpecCompiler.WorkloadDigest(
-                    active.Single(workload => workload.Id == value.WorkloadId))
-                    ? ObservedCondition.Ready
-                    : ObservedCondition.Failed))
+            .Select(value => value is { } observation &&
+                observation.FreshnessSequence >= minimumFreshnessSequence &&
+                observation.State is NativeGitOpsWorkloadState.Healthy or NativeGitOpsWorkloadState.Unhealthy &&
+                observation.WorkloadSha256 is { } workloadSha256
+                ? new ObservedResourceState(
+                    new(observation.WorkloadId),
+                    activeById[observation.WorkloadId].Role.ToString(),
+                    observation.Generation,
+                    workloadSha256,
+                    observation.EvidenceSha256,
+                    observation.FreshnessSequence,
+                    observation.State == NativeGitOpsWorkloadState.Healthy ||
+                    observation.Generation != spec.Generation ||
+                    workloadSha256 != NativeGitOpsCellSpecCompiler.WorkloadDigest(
+                        activeById[observation.WorkloadId])
+                        ? ObservedCondition.Ready
+                        : ObservedCondition.Failed)
+                : null)
+            .OfType<ObservedResourceState>()
             .ToArray();
         var policy = new ReconciliationPolicy(
             active.Select(static value => value.Role.ToString()).Distinct(StringComparer.Ordinal),
@@ -262,7 +267,11 @@ internal static class NativeGitOpsCellConvergencePlanner
             }
             var hold = (HoldResource)step.Output;
             if (hold.Reason == ReconciliationReasonCode.FailedObservation)
-                return Rollback(spec, workload, observation!, rollbackTarget);
+            {
+                if (observation is not { } failedObservation)
+                    return Hold(NativeGitOpsCellConvergenceHoldReason.InvalidObservation);
+                return Rollback(spec, workload, failedObservation, rollbackTarget);
+            }
             return Hold(hold.Reason switch
             {
                 ReconciliationReasonCode.FutureObservation => NativeGitOpsCellConvergenceHoldReason.FutureGeneration,
@@ -303,8 +312,8 @@ internal static class NativeGitOpsCellConvergencePlanner
         NativeGitOpsRetirementEvidence? evidence,
         long minimumFreshnessSequence)
     {
-        var generation = spec.AcceptedGeneration!.Value;
-        var digest = change.AcceptedWorkloadSha256!;
+        if (spec.AcceptedGeneration is not { } generation || change.AcceptedWorkloadSha256 is not { } digest)
+            return Hold(NativeGitOpsCellConvergenceHoldReason.RetirementProofMismatch);
         if (observation is null || observation.FreshnessSequence < minimumFreshnessSequence)
             return Intent(NativeGitOpsCellConvergenceIntentKind.Observe, generation, change.WorkloadId, digest, observation);
         if (observation.State == NativeGitOpsWorkloadState.Absent) return null;

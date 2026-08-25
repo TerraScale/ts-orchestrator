@@ -57,7 +57,7 @@ internal sealed class RepositoryCiPipelineCoordinator(
         var trigger = await triggers.ReadAsync(dedupeKey, cancellationToken);
         if (trigger is null)
             return Result(RepositoryCiPipelineCoordinationDisposition.TriggerMissing);
-        if (trigger.Disposition != ForgejoCiTriggerDisposition.Dispatch || trigger.RequiresQualifiedCandidate)
+        if (trigger.Disposition != ForgejoCiTriggerDisposition.Dispatch)
             return Result(RepositoryCiPipelineCoordinationDisposition.TriggerNotDispatchable);
 
         var existing = await pipelines.ReadAsync(dedupeKey, cancellationToken);

@@ -142,7 +142,8 @@ internal sealed class CiRunnerSourceMaterializer(IDeliveryObjectStore bundles)
                     if (entry.Length < 0 || entry.Length > MaximumFileBytes ||
                         expanded > expandedLimit - entry.Length || entry.DataStream is null)
                         throw new InvalidDataException("The CI source archive exceeded its file or expansion bound.");
-                    var directory = Path.GetDirectoryName(destination)!;
+                    var directory = Path.GetDirectoryName(destination)
+                        ?? throw new InvalidDataException("The CI source archive file has no parent directory.");
                     EnsurePrivateDirectory(root, directory);
                     await CopyFileAsync(entry.DataStream, destination, entry.Length, cancellationToken);
                     var executable = (entry.Mode & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute |

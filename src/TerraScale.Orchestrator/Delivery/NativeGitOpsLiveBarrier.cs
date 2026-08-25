@@ -99,7 +99,8 @@ internal static class NativeGitOpsCellConvergenceReceipt
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
         ArgumentNullException.ThrowIfNull(signer);
-        if (!checkpoint.Decision.IsConverged || expiresAt <= issuedAt)
+        if (!checkpoint.Decision.IsConverged || checkpoint.Decision.ConvergenceDigest is not { } convergenceDigest ||
+            expiresAt <= issuedAt)
             throw new ArgumentException("A signed convergence receipt requires a complete checkpoint and validity window.");
         var receipt = new NativeGitOpsCellConvergenceReceiptData(
             1,
@@ -108,7 +109,7 @@ internal static class NativeGitOpsCellConvergenceReceipt
             checkpoint.GlobalPlanDigest,
             checkpoint.HandoffDigest,
             checkpoint.PayloadSha256,
-            checkpoint.Decision.ConvergenceDigest!,
+            convergenceDigest,
             checkpoint.WriterEpoch,
             checkpoint.AcceptanceStreamSequence,
             checkpoint.AcceptanceRevision,
@@ -244,7 +245,9 @@ internal static class NativeGitOpsLiveBarrierEvaluator
                 verifier);
             if (!validation.IsValid)
                 throw new InvalidDataException($"A native GitOps live receipt failed validation: {validation.Error}.");
-            verified.Add(new(validation.Receipt!, validation.SignatureSha256!));
+            if (validation.Receipt is not { } receipt || validation.SignatureSha256 is not { } signatureSha256)
+                throw new InvalidDataException("A native GitOps live receipt validation omitted its proof.");
+            verified.Add(new(receipt, signatureSha256));
         }
         var missing = handoff.Cells.Select(static value => value.Cell)
             .Except(verified.Select(static value => value.Receipt.Cell), StringComparer.Ordinal)

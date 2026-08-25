@@ -20,40 +20,40 @@ internal static class InfisicalCli
         var configuration = InfisicalConfiguration.Resolve(environment)
             ?? throw new ArgumentException("Infisical is not configured.");
         await using var store = InfisicalSecretStore.Create(configuration);
-        switch (command.Action)
+        switch (command)
         {
-            case InfisicalCliAction.List:
+            case { Action: InfisicalCliAction.List, Name: null, File: null }:
                 foreach (var secret in await store.ListAsync(cancellationToken))
                     Console.WriteLine($"{secret.Path}\t{secret.Name}\tversion {secret.Version}");
                 break;
-            case InfisicalCliAction.Get:
+            case { Action: InfisicalCliAction.Get, Name: { } name, File: { } file }:
             {
-                var secret = await store.GetAsync(command.Name!, cancellationToken);
-                WriteSecret(command.File!, secret.Value);
-                Console.WriteLine($"wrote {secret.Path}:{secret.Name}@{secret.Version} to {Path.GetFullPath(command.File!)}");
+                var secret = await store.GetAsync(name, cancellationToken);
+                WriteSecret(file, secret.Value);
+                Console.WriteLine($"wrote {secret.Path}:{secret.Name}@{secret.Version} to {Path.GetFullPath(file)}");
                 break;
             }
-            case InfisicalCliAction.Create:
+            case { Action: InfisicalCliAction.Create, Name: { } name, File: { } file }:
             {
                 var secret = await store.CreateAsync(
-                    command.Name!,
-                    ReadSecret(command.File!),
+                    name,
+                    ReadSecret(file),
                     cancellationToken);
                 Console.WriteLine($"created {secret.Path}:{secret.Name}@{secret.Version}");
                 break;
             }
-            case InfisicalCliAction.Update:
+            case { Action: InfisicalCliAction.Update, Name: { } name, File: { } file }:
             {
                 var secret = await store.UpdateAsync(
-                    command.Name!,
-                    ReadSecret(command.File!),
+                    name,
+                    ReadSecret(file),
                     cancellationToken);
                 Console.WriteLine($"updated {secret.Path}:{secret.Name}@{secret.Version}");
                 break;
             }
-            case InfisicalCliAction.Delete:
+            case { Action: InfisicalCliAction.Delete, Name: { } name, File: null }:
             {
-                var secret = await store.DeleteAsync(command.Name!, cancellationToken);
+                var secret = await store.DeleteAsync(name, cancellationToken);
                 Console.WriteLine($"deleted {secret.Path}:{secret.Name}@{secret.Version}");
                 break;
             }

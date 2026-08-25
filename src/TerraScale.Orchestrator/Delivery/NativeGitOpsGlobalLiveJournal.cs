@@ -120,10 +120,17 @@ internal sealed class NativeGitOpsGlobalLiveJournal(IForgejoDeliveryLedger ledge
             var entry = await ledger.GetAsync(Index, cancellationToken);
             var current = entry is null ? null : Deserialize(entry.Value);
             var disposition = Compare(current, proposed);
+            var currentDurable = current is not null && entry is { } currentEntry
+                ? current.Durable(currentEntry.Revision)
+                : null;
             if (disposition is NativeGitOpsGlobalLiveJournalDisposition.Duplicate)
-                return new(disposition.Value, current!.Durable(entry!.Revision));
+            {
+                if (currentDurable is null)
+                    throw new InvalidDataException("A duplicate native GitOps global live record lost its durable revision.");
+                return new(disposition.Value, currentDurable);
+            }
             if (disposition is not null)
-                return new(disposition.Value, current?.Durable(entry!.Revision));
+                return new(disposition.Value, currentDurable);
             if (!authorityStillValid())
                 return new(NativeGitOpsGlobalLiveJournalDisposition.StaleAuthority, null);
             try
@@ -290,12 +297,14 @@ internal sealed record NativeGitOpsGlobalLiveDocument(
                 verified.Receipt.CheckpointJournalRevision,
                 receipt.JournalRevision);
         }).ToArray();
+        if (barrier.BarrierDigest is not { } barrierDigest)
+            throw new InvalidDataException("A complete native GitOps barrier omitted its digest.");
         var document = new NativeGitOpsGlobalLiveDocument(
             1,
             barrier.Generation,
             barrier.GlobalPlanDigest,
             barrier.HandoffDigest,
-            barrier.BarrierDigest!,
+            barrierDigest,
             string.Empty,
             cells,
             globalAuthorityEpoch,
@@ -332,9 +341,12 @@ internal sealed record NativeGitOpsGlobalLiveDocument(
             Generation,
             GlobalPlanDigest,
             HandoffDigest,
-            Cells.Select(static cell => new NativeGitOpsCellDigest(
-                cell.Cell,
-                PayloadSha256(cell.PayloadSha256Base64)!)).ToArray());
+            Cells.Select(static cell =>
+            {
+                var payloadSha256 = PayloadSha256(cell.PayloadSha256Base64)
+                    ?? throw new InvalidDataException("A native GitOps global live proof has an invalid payload digest.");
+                return new NativeGitOpsCellDigest(cell.Cell, payloadSha256);
+            }).ToArray());
         if (!NativeGitOpsCellEnvelope.IsValidDescriptor(handoff) ||
             ComputeCompletionDigest(this) != CompletionDigest)
             throw new InvalidDataException("A native GitOps global live journal proof failed integrity verification.");

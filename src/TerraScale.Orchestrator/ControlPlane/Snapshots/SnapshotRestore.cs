@@ -244,7 +244,12 @@ public static class SnapshotRestorePlanner
             return SnapshotRestorePlanResult.Rejected(validation.Error);
         }
 
-        var material = snapshot!.SignedMaterial;
+        if (snapshot is not { SignedMaterial: { } signedMaterial })
+        {
+            return SnapshotRestorePlanResult.Rejected(SnapshotValidationError.MalformedSnapshot);
+        }
+
+        var material = signedMaterial;
         if (material.StreamSequence.Value == ulong.MaxValue)
         {
             return SnapshotRestorePlanResult.Overflow();

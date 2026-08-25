@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TerraScale.Orchestrator.Messaging;
@@ -39,15 +40,20 @@ internal static class RuntimeLifecycleNatsProtocol
         return value;
     }
 
-    internal static bool TryDeserialize(string? value, out RuntimeLifecycleCheckpoint checkpoint)
+    internal static bool TryDeserialize(
+        string? value,
+        [NotNullWhen(true)] out RuntimeLifecycleCheckpoint? checkpoint)
     {
-        checkpoint = null!;
+        checkpoint = null;
         try
         {
             if (string.IsNullOrWhiteSpace(value) || System.Text.Encoding.UTF8.GetByteCount(value) > MaximumCheckpointBytes)
                 return false;
-            checkpoint = JsonSerializer.Deserialize(value, RuntimeLifecycleJournalJsonContext.Default.RuntimeLifecycleCheckpoint)!;
-            return checkpoint is not null && Serialize(checkpoint) == value;
+            var deserialized = JsonSerializer.Deserialize(value, RuntimeLifecycleJournalJsonContext.Default.RuntimeLifecycleCheckpoint);
+            if (deserialized is null || Serialize(deserialized) != value)
+                return false;
+            checkpoint = deserialized;
+            return true;
         }
         catch (JsonException)
         {

@@ -216,8 +216,12 @@ internal static class NativeGitOpsCellPayload
         {
             if (reader.TokenType == JsonTokenType.StartObject) objects.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) objects.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !objects.Peek().Add(reader.GetString()!))
-                throw Invalid();
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (objects.Count == 0 || reader.GetString() is not { } propertyName ||
+                    !objects.Peek().Add(propertyName))
+                    throw Invalid();
+            }
         }
     }
 

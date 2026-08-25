@@ -5,21 +5,23 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 internal static class EvidenceTestData
 {
     private const int M=80;
-    public static EvidenceSha256 D(byte value){EvidenceSha256.TryCreate(Enumerable.Repeat(value,32).ToArray(),out var x);return x!;}
+    private static T Require<T>(bool created, T? value) where T : class =>
+        created && value is not null ? value : throw new InvalidOperationException("Evidence test data factory returned an invalid value.");
+    public static EvidenceSha256 D(byte value)=>Require(EvidenceSha256.TryCreate(Enumerable.Repeat(value,32).ToArray(),out var x),x);
     public static EvidenceCount C(ulong value){EvidenceCount.TryCreate(value,out var x);return x;}
     public static EvidenceNonNegativeCount Z(ulong value=0){EvidenceNonNegativeCount.TryCreate(value,out var x);return x;}
     public static EvidencePercentage P(ushort value){EvidencePercentage.TryCreate(value,out var x);return x;}
     public static EvidenceDurationSeconds T(ulong value){EvidenceDurationSeconds.TryCreate(value,out var x);return x;}
     public static EvidenceGeneration G(ulong value){EvidenceGeneration.TryCreate(value,out var x);return x;}
     public static EvidenceSequence Q(ulong value){EvidenceSequence.TryCreate(value,out var x);return x;}
-    public static EvidenceTreeId Tree(string v="tree"){EvidenceTreeId.TryCreate(v,M,out var x);return x!;}public static EvidenceDependencyLockId Lock(string v="lock"){EvidenceDependencyLockId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceSchemaId Schema(string v="schema"){EvidenceSchemaId.TryCreate(v,M,out var x);return x!;}public static EvidenceTestBinaryId Binary(string v="tests"){EvidenceTestBinaryId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceArtifactId Artifact(string v){EvidenceArtifactId.TryCreate(v,M,out var x);return x!;}public static EvidenceSuiteId Suite(string v="control"){EvidenceSuiteId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceTraceId Trace(string v="trace"){EvidenceTraceId.TryCreate(v,M,out var x);return x!;}public static EvidenceFuzzTargetId FuzzTarget(string v="manifest"){EvidenceFuzzTargetId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceCorpusId Corpus(string v="corpus"){EvidenceCorpusId.TryCreate(v,M,out var x);return x!;}public static EvidenceL0CId L0C(string v="nats"){EvidenceL0CId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceApproverId Approver(string v="owner"){EvidenceApproverId.TryCreate(v,M,out var x);return x!;}public static EvidenceSigningProfileId Profile(string v="profile"){EvidenceSigningProfileId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceSigningIdentityId Signer(string v="signer"){EvidenceSigningIdentityId.TryCreate(v,M,out var x);return x!;}public static EvidenceSignatureId SignatureId(string v="signature"){EvidenceSignatureId.TryCreate(v,M,out var x);return x!;}
-    public static EvidenceManifestId ManifestId(string v="manifest"){EvidenceManifestId.TryCreate(v,M,out var x);return x!;}public static EvidenceExclusionId Exclusion(string v="generated"){EvidenceExclusionId.TryCreate(v,M,out var x);return x!;}
+    public static EvidenceTreeId Tree(string v="tree")=>Require(EvidenceTreeId.TryCreate(v,M,out var x),x);public static EvidenceDependencyLockId Lock(string v="lock")=>Require(EvidenceDependencyLockId.TryCreate(v,M,out var x),x);
+    public static EvidenceSchemaId Schema(string v="schema")=>Require(EvidenceSchemaId.TryCreate(v,M,out var x),x);public static EvidenceTestBinaryId Binary(string v="tests")=>Require(EvidenceTestBinaryId.TryCreate(v,M,out var x),x);
+    public static EvidenceArtifactId Artifact(string v)=>Require(EvidenceArtifactId.TryCreate(v,M,out var x),x);public static EvidenceSuiteId Suite(string v="control")=>Require(EvidenceSuiteId.TryCreate(v,M,out var x),x);
+    public static EvidenceTraceId Trace(string v="trace")=>Require(EvidenceTraceId.TryCreate(v,M,out var x),x);public static EvidenceFuzzTargetId FuzzTarget(string v="manifest")=>Require(EvidenceFuzzTargetId.TryCreate(v,M,out var x),x);
+    public static EvidenceCorpusId Corpus(string v="corpus")=>Require(EvidenceCorpusId.TryCreate(v,M,out var x),x);public static EvidenceL0CId L0C(string v="nats")=>Require(EvidenceL0CId.TryCreate(v,M,out var x),x);
+    public static EvidenceApproverId Approver(string v="owner")=>Require(EvidenceApproverId.TryCreate(v,M,out var x),x);public static EvidenceSigningProfileId Profile(string v="profile")=>Require(EvidenceSigningProfileId.TryCreate(v,M,out var x),x);
+    public static EvidenceSigningIdentityId Signer(string v="signer")=>Require(EvidenceSigningIdentityId.TryCreate(v,M,out var x),x);public static EvidenceSignatureId SignatureId(string v="signature")=>Require(EvidenceSignatureId.TryCreate(v,M,out var x),x);
+    public static EvidenceManifestId ManifestId(string v="manifest")=>Require(EvidenceManifestId.TryCreate(v,M,out var x),x);public static EvidenceExclusionId Exclusion(string v="generated")=>Require(EvidenceExclusionId.TryCreate(v,M,out var x),x);
 
     public static EvidenceSuiteResult SuiteResult(EvidenceDomain domain=EvidenceDomain.Control,EvidenceSuiteId? suite=null,EvidenceCount? tests=null,EvidenceCount? properties=null,
         EvidencePercentage? branch=null,EvidencePercentage? mutation=null,EvidenceNonNegativeCount? survivors=null,EvidenceCount? schedules=null,
@@ -30,13 +32,13 @@ internal static class EvidenceTestData
         EvidenceSchemaId? schema=null,EvidenceSha256? schemaDigest=null,IEnumerable<EvidenceTestBinary?>? binaries=null,IEnumerable<EvidenceArchitectureArtifact?>? artifacts=null,
         IEnumerable<EvidenceSuiteResult?>? suites=null,EvidenceRequirementTrace? trace=null,IEnumerable<EvidenceFuzzResult?>? fuzz=null,
         IEnumerable<EvidenceModelCorpus?>? models=null,EvidenceL0CResult? l0c=null,EvidenceCheckResults? checks=null,EvidenceSha256? toolchain=null,
-        EvidenceApproverId? approver=null,EvidenceExecutionKind execution=EvidenceExecutionKind.Cold,EvidenceReuseProof? reuseProof=null,IEnumerable<EvidenceExclusion?>? exclusions=null,int maximum=64)=>new(
+        EvidenceApproverId? approver=null,EvidenceExecutionKind execution=EvidenceExecutionKind.Cold,EvidenceReuseProof? reuseProof=null,IEnumerable<EvidenceExclusion?>? exclusions=null,int maximum=64,bool defaultReuseProof=true)=>new(
         tree??Tree(),treeDigest??D(1),dependencyLock??Lock(),dependencyDigest??D(2),schema??Schema(),schemaDigest??D(3),
         binaries??[new(Binary(),D(4))],artifacts??[new(Artifact("orchestrator-x64"),EvidenceArchitecture.LinuxX64,D(5)),new(Artifact("orchestrator-arm64"),EvidenceArchitecture.LinuxArm64,D(6))],
         suites??[SuiteResult()],trace??new(Trace(),D(7),C(20),C(10),C(5),C(8)),
         fuzz??[new(FuzzTarget(),Corpus(),D(8),T(60),C(10_000),EvidenceResult.Passed)],models??[new(EvidenceDomain.Control,Corpus("model"),D(9))],
         l0c??new(L0C(),D(10),EvidenceResult.Passed),checks??new(EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Passed),
-        toolchain??D(11),approver??Approver(),execution,execution==EvidenceExecutionKind.ContentAddressedReuse?reuseProof??new(ReuseFingerprint(),ReuseFingerprint(),EvidenceChangeKind.ShardOnly):reuseProof,exclusions??[],maximum);
+        toolchain??D(11),approver??Approver(),execution,execution==EvidenceExecutionKind.ContentAddressedReuse&&defaultReuseProof?reuseProof??new(ReuseFingerprint(),ReuseFingerprint(),EvidenceChangeKind.ShardOnly):reuseProof,exclusions??[],maximum);
     public static EvidenceReuseFingerprint ReuseFingerprint(byte offset=0)=>new(D((byte)(1+offset)),D((byte)(2+offset)),D((byte)(3+offset)),D((byte)(4+offset)),
         D((byte)(5+offset)),D((byte)(6+offset)),D((byte)(7+offset)),D((byte)(8+offset)));
 

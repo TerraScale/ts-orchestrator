@@ -110,8 +110,7 @@ internal sealed record RepositoryCiJobJournalReceipt(
 internal sealed record RepositoryCiPipelineRunSnapshot(
     RepositoryCiPipelineRunState State,
     IReadOnlyList<RepositoryCiJobSnapshot> Jobs,
-    IReadOnlyList<RepositoryCiPipelineJob> Ready,
-    IReadOnlyList<RepositoryCiJobResult> Results);
+    IReadOnlyList<RepositoryCiPipelineJob> Ready);
 
 /// <summary>Persists one fenced execution record per immutable affected-pipeline job.</summary>
 internal sealed class RepositoryCiJobJournal
@@ -207,20 +206,10 @@ internal sealed class RepositoryCiJobJournal
                         byId[dependency.Value].Phase == RepositoryCiJobPhase.Succeeded))
                 .Select(static snapshot => snapshot.Job).ToArray()
             : [];
-        var results = snapshots.Where(static snapshot => snapshot.Phase is
-                RepositoryCiJobPhase.Succeeded or RepositoryCiJobPhase.Failed)
-            .Select(static snapshot => new RepositoryCiJobResult(
-                snapshot.Job.Request.Job,
-                snapshot.Attempt,
-                snapshot.Phase == RepositoryCiJobPhase.Succeeded,
-                snapshot.RequiredTestSkips,
-                snapshot.EvidenceDigest))
-            .ToArray();
         return new(
             state,
             Array.AsReadOnly(snapshots.ToArray()),
-            Array.AsReadOnly(ready),
-            Array.AsReadOnly(results));
+            Array.AsReadOnly(ready));
     }
 
     internal async Task<RepositoryCiJobJournalReceipt> PrepareDispatchAsync(
@@ -711,7 +700,7 @@ internal sealed class RepositoryCiJobJournal
                 request.MaximumRunnerSequence,
                 retryAuthorized: true),
             planned.DependsOn,
-            planned.MayPublishCandidateArtifact);
+            planned.MayPublishArtifact);
     }
 
     internal static bool Retryable(RepositoryCiJobFailureKind failure) => failure is
@@ -809,7 +798,7 @@ internal sealed class RepositoryCiJobJournal
         value.Write('\n');
         value.Write(string.Join(',', job.DependsOn.Select(static dependency => dependency.Value)));
         value.Write('\n');
-        value.Write(job.MayPublishCandidateArtifact ? '1' : '0');
+        value.Write(job.MayPublishArtifact ? '1' : '0');
         return Hash(value.ToString());
     }
 

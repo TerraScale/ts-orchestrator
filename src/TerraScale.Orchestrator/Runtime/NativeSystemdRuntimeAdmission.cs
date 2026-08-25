@@ -232,8 +232,10 @@ internal sealed class NativeSystemdRuntimeAdmission
                 exception);
         }
 
-        var actualSystemd = candidate.Systemd;
-        var expectedSystemd = expected.Systemd!;
+        if (candidate.Systemd is not { } actualSystemd || expected.Systemd is not { } expectedSystemd)
+        {
+            throw new InvalidOperationException("The systemd execution plan is incomplete.");
+        }
         if (candidate.SchemaVersion != expected.SchemaVersion ||
             candidate.Role != expected.Role ||
             candidate.Driver != expected.Driver ||
@@ -243,9 +245,7 @@ internal sealed class NativeSystemdRuntimeAdmission
             candidate.Resources != expected.Resources ||
             !string.Equals(actualSystemd.UnitName, expectedSystemd.UnitName, StringComparison.Ordinal) ||
             !string.Equals(actualSystemd.Executable, expectedSystemd.Executable, StringComparison.Ordinal) ||
-            actualSystemd.Arguments is null ||
             !actualSystemd.Arguments.SequenceEqual(expectedSystemd.Arguments, StringComparer.Ordinal) ||
-            actualSystemd.Properties is null ||
             !actualSystemd.Properties.SequenceEqual(expectedSystemd.Properties, StringComparer.Ordinal))
         {
             throw new InvalidOperationException(

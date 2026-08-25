@@ -35,10 +35,11 @@ public sealed class StorageLifecycleTests
         var wrongOwner=StorageFormatPlanner.Plan(volume,StorageTestData.Context(member:StorageTestData.Member("other")),StorageTestData.Format());
         var staleFence=StorageFormatPlanner.Plan(volume,StorageTestData.Context(fence:StorageTestData.Fence("other")),StorageTestData.Format());
         var noBlank=StorageFormatPlanner.Plan(volume,StorageTestData.Context(),StorageTestData.Format(blank:StorageProof.Unknown));
+        var validScope = StorageTestData.Require(valid.Scope);
 
         await Assert.That(valid.Action).IsEqualTo(StorageAction.Format);
-        await Assert.That(valid.Scope!.DeviceId).IsEqualTo(StorageTestData.Device());
-        await Assert.That(valid.Scope.FilesystemId).IsEqualTo(StorageTestData.Filesystem());
+        await Assert.That(validScope.DeviceId).IsEqualTo(StorageTestData.Device());
+        await Assert.That(validScope.FilesystemId).IsEqualTo(StorageTestData.Filesystem());
         await Assert.That(wrongProvider.Code).IsEqualTo(StorageDecisionCode.WrongProviderVolume);
         await Assert.That(wrongOwner.Code).IsEqualTo(StorageDecisionCode.WrongOwner);
         await Assert.That(staleFence.Code).IsEqualTo(StorageDecisionCode.WrongFence);
@@ -98,7 +99,7 @@ public sealed class StorageLifecycleTests
         await Assert.That(detach.Action).IsEqualTo(StorageAction.Detach);
         await Assert.That(stale.Code).IsEqualTo(StorageDecisionCode.NewWriterEpochRequired);
         await Assert.That(attach.Action).IsEqualTo(StorageAction.Attach);
-        await Assert.That(attach.Trace!.Epoch).IsEqualTo(StorageTestData.Epoch(8));
+        await Assert.That(StorageTestData.Require(attach.Trace).Epoch).IsEqualTo(StorageTestData.Epoch(8));
     }
 
     [Test]
@@ -110,7 +111,7 @@ public sealed class StorageLifecycleTests
         var complete=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),E(StorageProof.Proven));
         await Assert.That(unknown.Action).IsEqualTo(StorageAction.Hold);
         await Assert.That(complete.Action).IsEqualTo(StorageAction.Attach);
-        await Assert.That(complete.Trace!.Epoch).IsEqualTo(StorageTestData.Epoch(8));
+        await Assert.That(StorageTestData.Require(complete.Trace).Epoch).IsEqualTo(StorageTestData.Epoch(8));
         var stale=new StorageReattachEvidence(StorageTestData.Scope(),[],StorageProof.Proven,StorageProof.Proven,
             StorageProof.Proven,StorageProof.Unknown,StorageProof.Proven,StorageTestData.Epoch(7),2);
         var staleDecision=StorageAttachmentPlanner.Plan(StorageTestData.Volume(),StorageTestData.Context(),StorageTestData.Node("new"),stale);

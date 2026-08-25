@@ -47,7 +47,7 @@ public sealed class CiRunnerExecutionPlannerTests
 
         var plan = CiRunnerExecutionPlanner.Create(value.Accepted, value.Runner, value.Isolation);
 
-        await Assert.That(plan.Build.Target).IsEqualTo("ci-candidate");
+        await Assert.That(plan.Build.Target).IsEqualTo("ci-artifact");
         await Assert.That(plan.Build.Architectures).IsEquivalentTo([
             RepositoryCiArchitecture.LinuxX64,
             RepositoryCiArchitecture.LinuxArm64]);
@@ -202,20 +202,18 @@ public sealed class CiRunnerExecutionPlannerTests
     {
         var descriptor = RepositoryCiDescriptor.Parse(Encoding.UTF8.GetBytes($$"""
             {
-              "apiVersion":"terrascale.ci/v2",
+              "apiVersion":"terrascale.ci/v3",
               "repository":"{{Repository}}",
-              "candidateRetentionDays":7,
-              "promotion":"NativeRolling",
               "repositoryDependencies":[],
               "nodes":[
-                {"id":"candidate","kind":"Artifact","resourceWeight":"Heavy","profiles":["Release"],"paths":["src/"]}
+                {"id":"artifact","kind":"Artifact","resourceWeight":"Heavy","profiles":["Build"],"architectures":["LinuxX64","LinuxArm64"],"paths":["src/"]}
               ]
             }
             """));
         var impact = RepositoryCiImpactPlanner.Plan(
             [descriptor],
             [new RepositoryCiChange(Repository, ["src/file.cs"])],
-            RepositoryCiProfile.Release);
+            RepositoryCiProfile.Build);
         var envelope = new ForgejoWebhookEnvelope(
             Guid.Parse("f6266f16-1bf3-46a5-9ea4-602e06ead473"),
             ForgejoWebhookKind.PullRequest,

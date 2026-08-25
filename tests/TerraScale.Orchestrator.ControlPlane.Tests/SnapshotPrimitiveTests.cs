@@ -44,15 +44,20 @@ public sealed class SnapshotPrimitiveTests
         var expected = source.ToArray();
         await Assert.That(SnapshotStateDigest.TryCopyFrom(source, source.Length, out var digest)).IsTrue();
         await Assert.That(SnapshotSignature.TryCopyFrom(source, source.Length, out var signature)).IsTrue();
+        if (digest is not { IsValid: true } validDigest || signature is not { IsValid: true } validSignature)
+        {
+            throw new InvalidOperationException("The bounded opaque values were not created.");
+        }
+
         source.AsSpan().Fill(0);
-        var exported = digest!.Bytes.ToArray();
+        var exported = validDigest.Bytes.ToArray();
         exported.AsSpan().Fill(255);
 
-        await Assert.That(digest.Bytes.SequenceEqual(expected)).IsTrue();
-        await Assert.That(signature!.Bytes.SequenceEqual(expected)).IsTrue();
-        await Assert.That(digest).IsEqualTo(SnapshotTestData.Digest("credential-looking-secret"));
-        await Assert.That(digest.ToString()).DoesNotContain("credential-looking-secret");
-        await Assert.That(signature.ToString()).DoesNotContain("credential-looking-secret");
+        await Assert.That(validDigest.Bytes.SequenceEqual(expected)).IsTrue();
+        await Assert.That(validSignature.Bytes.SequenceEqual(expected)).IsTrue();
+        await Assert.That(validDigest).IsEqualTo(SnapshotTestData.Digest("credential-looking-secret"));
+        await Assert.That(validDigest.ToString()).DoesNotContain("credential-looking-secret");
+        await Assert.That(validSignature.ToString()).DoesNotContain("credential-looking-secret");
         await Assert.That(SnapshotStateDigest.TryCopyFrom([], 1, out _)).IsFalse();
         await Assert.That(SnapshotStateDigest.TryCopyFrom([1], 0, out _)).IsFalse();
         await Assert.That(SnapshotSignature.TryCopyFrom([1, 2], 1, out _)).IsFalse();

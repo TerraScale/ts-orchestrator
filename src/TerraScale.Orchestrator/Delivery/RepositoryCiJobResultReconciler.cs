@@ -68,7 +68,9 @@ internal sealed class RepositoryCiJobResultReconciler(
                 cancellationToken);
             if (!ExactTerminal(job, terminal))
                 return Result(RepositoryCiJobResultReconcileDisposition.IdentityConflict, job, terminal);
-            if (!await evidence.VerifyAsync(terminal!, cancellationToken))
+            if (terminal is null)
+                throw new InvalidDataException("An exact terminal CI result has no execution evidence.");
+            if (!await evidence.VerifyAsync(terminal, cancellationToken))
                 return Result(RepositoryCiJobResultReconcileDisposition.EvidenceConflict, job, terminal);
             return Result(
                 RepositoryCiJobResultReconcileDisposition.Duplicate,

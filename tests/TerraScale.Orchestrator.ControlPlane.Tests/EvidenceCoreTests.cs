@@ -6,6 +6,9 @@ namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
 public sealed class EvidenceCoreTests
 {
+    private static T Require<T>(T? value) where T : class =>
+        value ?? throw new InvalidOperationException("Evidence test assertion unexpectedly received null.");
+
     [Test]
     public async Task Accepted_decision_binds_every_manifest_and_signing_scope_field()
     {
@@ -37,7 +40,7 @@ public sealed class EvidenceCoreTests
         await Assert.That(exact.IsAuthorized&&variants.All(x=>x.IsAuthorized)).IsTrue();
         await Assert.That(exact).IsEqualTo(replay);
         foreach(var variant in variants)await Assert.That(variant).IsNotEqualTo(exact);
-        var scope=exact.AuthorizationScope!;
+        var scope=Require(exact.AuthorizationScope);
         await Assert.That(ReferenceEquals(scope.Manifest,exactManifest)).IsTrue();
         await Assert.That(ReferenceEquals(scope.SigningProfile,exactProfile)).IsTrue();
         await Assert.That(ReferenceEquals(scope.SigningIdentity,exactSigner)).IsTrue();
@@ -54,16 +57,17 @@ public sealed class EvidenceCoreTests
         var sourceEnvelope=EvidenceTestData.Envelope(generation:sourceGeneration,expiry:sourceExpiry);
         var sourceDecision=EvidenceTestData.Gate(envelope:sourceEnvelope,
             context:EvidenceTestData.Context(generation:sourceGeneration,expectedExpiry:sourceExpiry));
-        await Assert.That(sourceDecision.AuthorizationScope!.Generation).IsEqualTo(sourceEnvelope.Material.Generation);
-        await Assert.That(sourceDecision.AuthorizationScope.ExpirySequence).IsEqualTo(sourceEnvelope.Material.ExpirySequence);
+        var sourceScope=Require(sourceDecision.AuthorizationScope);
+        await Assert.That(sourceScope.Generation).IsEqualTo(sourceEnvelope.Material.Generation);
+        await Assert.That(sourceScope.ExpirySequence).IsEqualTo(sourceEnvelope.Material.ExpirySequence);
     }
 
     [Test]
     public async Task Primitives_are_bounded_defensive_canonical_and_construction_closed()
     {
         var bytes=Enumerable.Repeat((byte)7,32).ToArray();EvidenceSha256.TryCreate(bytes,out var digest);bytes[0]=9;
-        var copy=digest!.CopyBytes();copy[1]=8;
-        await Assert.That(digest.Equals(EvidenceTestData.D(7))).IsTrue();
+        var copy=Require(digest).CopyBytes();copy[1]=8;
+        await Assert.That(Require(digest).Equals(EvidenceTestData.D(7))).IsTrue();
         await Assert.That(EvidenceSha256.TryCreate(new byte[31],out _)).IsFalse();
         await Assert.That(EvidenceTreeId.TryCreate("two words",32,out _)).IsFalse();
         await Assert.That(typeof(EvidenceDecision).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
@@ -74,15 +78,16 @@ public sealed class EvidenceCoreTests
         var publicScopeFactories=typeof(EvidenceAuthorizationScope).Assembly.GetExportedTypes()
             .SelectMany(type=>type.GetMethods(BindingFlags.Public|BindingFlags.Instance|BindingFlags.Static|BindingFlags.DeclaredOnly))
             .Where(method=>method.ReturnType==typeof(EvidenceAuthorizationScope)).ToArray();
-        await Assert.That(publicScopeFactories.Select(method=>$"{method.DeclaringType!.Name}.{method.Name}").Order())
+        await Assert.That(publicScopeFactories.Select(method=>$"{Require(method.DeclaringType).Name}.{method.Name}").Order())
             .IsEquivalentTo(new[]{"EvidenceAuthorizationScope.<Clone>$","EvidenceDecision.get_AuthorizationScope"});
         await Assert.That(publicScopeFactories.Where(method=>method.Name!="<Clone>$"&&!method.IsSpecialName)).IsEmpty();
         var scopeClone=typeof(EvidenceAuthorizationScope).GetMethods(BindingFlags.Public|BindingFlags.Instance)
             .SingleOrDefault(method=>method.Name=="<Clone>$");
         await Assert.That(scopeClone).IsNotNull();
-        await Assert.That(scopeClone!.IsPublic).IsTrue();
-        await Assert.That(scopeClone.ReturnType).IsEqualTo(typeof(EvidenceAuthorizationScope));
-        await Assert.That(scopeClone.GetParameters()).IsEmpty();
+        var clone=Require(scopeClone);
+        await Assert.That(clone.IsPublic).IsTrue();
+        await Assert.That(clone.ReturnType).IsEqualTo(typeof(EvidenceAuthorizationScope));
+        await Assert.That(clone.GetParameters()).IsEmpty();
         await Assert.That(typeof(EvidencePolicyResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(typeof(EvidenceReuseResult).GetConstructors(BindingFlags.Public|BindingFlags.Instance)).IsEmpty();
         await Assert.That(default(EvidencePolicyResult).Code).IsEqualTo(EvidenceCode.Unknown);
@@ -92,13 +97,14 @@ public sealed class EvidenceCoreTests
         var closed=EvidenceTestData.Gate();await Assert.That(Enum.IsDefined(closed.Action)).IsTrue();await Assert.That(Enum.IsDefined(closed.Code)).IsTrue();
         await Assert.That(typeof(EvidenceDecision).GetProperties().All(property=>property.SetMethod is null)).IsTrue();
         await Assert.That(typeof(EvidenceAuthorizationScope).GetProperties().All(property=>property.SetMethod is null)).IsTrue();
-        await Assert.That(typeof(EvidenceIdentity).GetProperty(nameof(EvidenceIdentity.Value))!.SetMethod is null).IsTrue();
+        var identityValueProperty=Require(typeof(EvidenceIdentity).GetProperty(nameof(EvidenceIdentity.Value)));
+        await Assert.That(identityValueProperty.SetMethod is null).IsTrue();
         var binaries=new[]{new EvidenceTestBinary(EvidenceTestData.Binary(),EvidenceTestData.D(4))};var subject=EvidenceTestData.Subject(binaries:binaries);binaries[0]=new(EvidenceTestData.Binary("forged"),EvidenceTestData.D(31));
         await Assert.That(subject.TestBinaries[0].Identity).IsEqualTo(EvidenceTestData.Binary());
         var signatureBytes=new byte[]{1,2,3};var signature=new EvidenceOpaqueSignature(signatureBytes,8);signatureBytes[0]=9;await Assert.That(signature.CopyBytes()[0]).IsEqualTo((byte)1);
         var original=CultureInfo.CurrentCulture;try{CultureInfo.CurrentCulture=new CultureInfo("ar-SA");await Assert.That(EvidenceTestData.C(123).ToString()).IsEqualTo("123");}finally{CultureInfo.CurrentCulture=original;}
         await Assert.That(EvidenceTestData.Gate().ToString()).DoesNotContain("signer");
-        await Assert.That(EvidenceTestData.Gate().AuthorizationScope!.ToString()).IsEqualTo("<evidence-authorization-scope>");
+        await Assert.That(Require(EvidenceTestData.Gate().AuthorizationScope).ToString()).IsEqualTo("<evidence-authorization-scope>");
         await Assert.That(EvidenceTestData.Envelope().ToString()).DoesNotContain("signature");
     }
 
@@ -121,6 +127,8 @@ public sealed class EvidenceCoreTests
         await Assert.That(EvidencePolicyEvaluator.Evaluate(EvidenceTestData.Manifest(),EvidenceTestData.Policy(domains:[EvidenceDomain.Control,EvidenceDomain.Storage])).Code).IsEqualTo(EvidenceCode.MissingDomain);
         var reused=EvidenceTestData.Subject(execution:EvidenceExecutionKind.ContentAddressedReuse);
         await Assert.That(EvidencePolicyEvaluator.Evaluate(EvidenceTestData.Manifest(reused),EvidenceTestData.Policy()).Code).IsEqualTo(EvidenceCode.FullExecutionRequired);
+        var missingReuseProof=EvidenceTestData.Subject(execution:EvidenceExecutionKind.ContentAddressedReuse,defaultReuseProof:false);
+        await Assert.That(EvidencePolicyEvaluator.Evaluate(EvidenceTestData.Manifest(missingReuseProof),EvidenceTestData.Policy(cold:false)).Code).IsEqualTo(EvidenceCode.InvalidInput);
         var failedScan=EvidenceTestData.Subject(checks:new(EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Passed,EvidenceResult.Failed));
         await Assert.That(EvidencePolicyEvaluator.Evaluate(EvidenceTestData.Manifest(failedScan),EvidenceTestData.Policy()).Code).IsEqualTo(EvidenceCode.ResultFailed);
         var excessive=EvidenceTestData.Subject(binaries:Enumerable.Range(0,65).Select(i=>(EvidenceTestBinary?)new(EvidenceTestData.Binary($"b{i}"),EvidenceTestData.D(4))));

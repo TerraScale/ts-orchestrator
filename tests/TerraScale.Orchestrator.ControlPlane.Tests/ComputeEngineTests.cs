@@ -579,6 +579,38 @@ public sealed class ComputeEngineTests
         await AssertHeld(ComputeEngine.DecideSurvival(Survival(Bundle(generation: 0))), ComputeErrorCode.InvalidInput);
     }
 
+    [Test]
+    public async Task RuntimeNullStateValuesFailClosedWithoutNullDereferences()
+    {
+        var scaleOut = Out(ScaleOutState.Authorized);
+        var nullCreateEvidence = Construct<ScaleOutRequest>(
+            scaleOut.Binding, scaleOut.State, scaleOut.Demand, scaleOut.Plan, scaleOut.PersistedPlan,
+            scaleOut.Authorization, null, scaleOut.Progress, scaleOut.EvaluationSequence,
+            scaleOut.MaximumIdentityLength);
+        await AssertHeld(ComputeEngine.DecideScaleOut(nullCreateEvidence), ComputeErrorCode.MissingProof);
+
+        var scaleIn = In(ScaleInState.CandidateSelected);
+        var nullProgress = Construct<ScaleInRequest>(
+            scaleIn.Binding, scaleIn.State, scaleIn.Authorization, null, scaleIn.EvaluationSequence,
+            scaleIn.MaximumIdentityLength);
+        await AssertHeld(ComputeEngine.DecideScaleIn(nullProgress), ComputeErrorCode.InvalidInput);
+
+        var survival = Survival();
+        var nullRequired = Construct<SurvivalRequest>(
+            null, survival.Evidence, survival.Authority, survival.CurrentAcceptedGeneration,
+            survival.EvaluationPosition, survival.DisconnectedReplacementRequested, survival.ReplacementTarget,
+            survival.MaximumIdentityLength);
+        await AssertHeld(ComputeEngine.DecideSurvival(nullRequired), ComputeErrorCode.InvalidInput);
+    }
+
+    private static T Construct<T>(params object?[] arguments) where T : class
+    {
+        var value = Activator.CreateInstance(typeof(T), arguments);
+        return value is T result
+            ? result
+            : throw new InvalidOperationException($"Could not construct {typeof(T).Name}.");
+    }
+
     private static ComputeBinding Binding() => new(new("gru"), new("app"), new("template-1"), new("a1-flex"),
         new("fault-domain-1"), new("node-image"), new("image-digest"), new("demand-1"), new("operation-1"),
         new("provider-fingerprint"), 7, 3);

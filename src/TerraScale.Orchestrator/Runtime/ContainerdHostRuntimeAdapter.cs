@@ -55,8 +55,7 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
 
     public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
-        RequireCanonicalOciPlan(plan);
-        var oci = plan.Oci!;
+        var oci = RequireCanonicalOciPlan(plan);
         var fingerprint = CanonicalPlanFingerprint.Compute(plan);
         var observation = await client.ObserveAsync(Namespace, oci.ContainerId, cancellationToken);
         if (observation.State != ContainerdAllocationState.Absent)
@@ -102,16 +101,16 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         HostRuntimePlan plan,
         CancellationToken cancellationToken)
     {
-        RequireCanonicalOciPlan(plan);
+        var oci = RequireCanonicalOciPlan(plan);
         var observation = await client.ObserveAsync(
             Namespace,
-            plan.Oci!.ContainerId,
+            oci.ContainerId,
             cancellationToken);
         if (observation.State != ContainerdAllocationState.Absent)
         {
             RequireMatchingAllocation(
                 observation,
-                plan.Oci,
+                oci,
                 CanonicalPlanFingerprint.Compute(plan));
         }
         return observation;
@@ -119,17 +118,17 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
 
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
-        RequireCanonicalOciPlan(plan);
+        var oci = RequireCanonicalOciPlan(plan);
         var observation = await ObserveAsync(plan, cancellationToken);
         if (observation.State is ContainerdAllocationState.Running)
         {
-            await client.StopAsync(Namespace, plan.Oci!.ContainerId, cancellationToken);
+            await client.StopAsync(Namespace, oci.ContainerId, cancellationToken);
         }
     }
 
     public async Task DeleteAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
-        RequireCanonicalOciPlan(plan);
+        var oci = RequireCanonicalOciPlan(plan);
         var observation = await ObserveAsync(plan, cancellationToken);
         if (observation.State == ContainerdAllocationState.Absent)
         {
@@ -137,9 +136,9 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         }
         if (observation.State == ContainerdAllocationState.Running)
         {
-            await client.StopAsync(Namespace, plan.Oci!.ContainerId, cancellationToken);
+            await client.StopAsync(Namespace, oci.ContainerId, cancellationToken);
         }
-        await client.DeleteAsync(Namespace, plan.Oci!.ContainerId, cancellationToken);
+        await client.DeleteAsync(Namespace, oci.ContainerId, cancellationToken);
     }
 
     private static void RequireMatchingAllocation(
@@ -156,7 +155,7 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         }
     }
 
-    private static void RequireCanonicalOciPlan(HostRuntimePlan plan)
+    private static OciExecutionPlan RequireCanonicalOciPlan(HostRuntimePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (plan.Driver != RuntimeDriver.OciContainer || plan.Oci is null || plan.Systemd is not null)
@@ -171,7 +170,10 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
             plan.Architecture,
             plan.Resources);
         var actualOci = plan.Oci;
-        var expectedOci = expected.Oci!;
+        if (expected.Oci is not { } expectedOci)
+        {
+            throw new InvalidOperationException("The OCI execution plan could not be reconstructed from the admitted role.");
+        }
         if (plan.SchemaVersion != expected.SchemaVersion ||
             actualOci.ContainerId != expectedOci.ContainerId ||
             actualOci.ImageReference != expectedOci.ImageReference ||
@@ -188,6 +190,7 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         {
             throw new InvalidOperationException("The OCI execution plan is not canonical for the admitted role.");
         }
+        return actualOci;
     }
 }
 

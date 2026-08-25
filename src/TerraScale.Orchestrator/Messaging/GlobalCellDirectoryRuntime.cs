@@ -1,7 +1,9 @@
 using System.Text.Json;
+using System.Runtime.ExceptionServices;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
+using NATS.Net;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -9,7 +11,7 @@ namespace TerraScale.Orchestrator.Messaging;
 /// Publishes the local regional leader's renewable advertisement and watches the
 /// durable global KV projection. WAN failures are retried and never revoke local authority.
 /// </summary>
-internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
+internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeInstance
 {
     internal static readonly TimeSpan AdvertisementInterval = TimeSpan.FromSeconds(5);
     internal static readonly TimeSpan AdvertisementLease = GlobalCellAdvertisement.SemanticLease;
@@ -18,6 +20,7 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
     private readonly string cell;
     private readonly Func<RegionalRuntimeMembershipSnapshot> membership;
     private readonly Func<RegionalAuthoritySnapshot> authority;
+    private readonly NatsClient? ownedClient;
     private readonly CancellationTokenSource stopping = new();
     private readonly GlobalCellDirectory directory = new();
     private readonly Task watchLoop;
@@ -29,12 +32,14 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
         string cell,
         Func<RegionalRuntimeMembershipSnapshot> membership,
         Func<RegionalAuthoritySnapshot> authority,
-        bool publishEnabled)
+        bool publishEnabled,
+        NatsClient? ownedClient = null)
     {
         this.store = store;
         this.cell = cell;
         this.membership = membership;
         this.authority = authority;
+        this.ownedClient = ownedClient;
         watchLoop = WatchAsync(stopping.Token);
         publishLoop = publishEnabled
             ? PublishAsync(stopping.Token)
@@ -43,6 +48,10 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
 
     internal Task Completion => Task.WhenAny(watchLoop, publishLoop).Unwrap();
     internal GlobalCellDirectorySnapshot Snapshot => directory.Snapshot();
+    internal GlobalCellDirectoryCondition Health => Snapshot.Condition;
+
+    Task IGlobalCellDirectoryRuntimeInstance.Completion => Completion;
+    GlobalCellDirectorySnapshot IGlobalCellDirectoryRuntimeInstance.Snapshot => Snapshot;
 
     internal static GlobalCellDirectoryRuntime Start(
         INatsKVStore store,
@@ -57,6 +66,62 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(membership);
         ArgumentNullException.ThrowIfNull(authority);
         return new(store, cell, membership, authority, publishEnabled);
+    }
+
+    /// <summary>
+    /// Starts a directory-only connection. The adapter reconciles only the
+    /// GLOBAL_CELLS KV store and does not create global streams, authority KV,
+    /// CI state, or Object Store buckets.
+    /// </summary>
+    internal static async Task<GlobalCellDirectoryRuntime> StartAsync(
+        GlobalDirectoryNatsConfiguration configuration,
+        Func<RegionalRuntimeMembershipSnapshot> membership,
+        Func<RegionalAuthoritySnapshot> authority,
+        bool publishEnabled = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(membership);
+        ArgumentNullException.ThrowIfNull(authority);
+        var client = new NatsClient(new NatsOpts
+        {
+            Url = configuration.Url,
+            RetryOnInitialConnect = false,
+            RequestTimeout = TimeSpan.FromSeconds(15),
+            AuthOpts = new NatsAuthOpts { NKeyFile = configuration.NKeyFile },
+            TlsOpts = new NatsTlsOpts
+            {
+                Mode = TlsMode.Require,
+                CaFile = configuration.Tls.CaFile,
+                CertFile = configuration.Tls.CertificateFile,
+                KeyFile = configuration.Tls.KeyFile,
+            },
+        });
+        try
+        {
+            await client.ConnectAsync();
+            var store = await OpenExistingStoreAsync(
+                client.CreateJetStreamContext().CreateKeyValueStoreContext(), cancellationToken);
+            return new(store, configuration.Cell, membership, authority, publishEnabled, client);
+        }
+        catch
+        {
+            await client.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens the infrastructure-provisioned directory bucket without a
+    /// configuration object. This keeps directory startup from creating or
+    /// mutating the GLOBAL_CELLS stream.
+    /// </summary>
+    internal static Task<INatsKVStore> OpenExistingStoreAsync(
+        INatsKVContext keyValue,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(keyValue);
+        return keyValue.GetStoreAsync(GlobalNatsTopology.CellsBucket, cancellationToken).AsTask();
     }
 
     internal static GlobalCellAdvertisement CreateAdvertisement(
@@ -92,10 +157,45 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        await stopping.CancelAsync();
-        await IgnoreCancellationAsync(watchLoop);
-        await IgnoreCancellationAsync(publishLoop);
-        stopping.Dispose();
+        Exception? failure = null;
+        try
+        {
+            await stopping.CancelAsync();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+
+        try
+        {
+            failure ??= await ObserveCompletionAsync(watchLoop);
+        }
+        finally
+        {
+            try
+            {
+                failure ??= await ObserveCompletionAsync(publishLoop);
+            }
+            finally
+            {
+                stopping.Dispose();
+                if (ownedClient is not null)
+                {
+                    try
+                    {
+                        await ownedClient.DisposeAsync();
+                    }
+                    catch (Exception exception)
+                    {
+                        failure ??= exception;
+                    }
+                }
+            }
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private async Task PublishAsync(CancellationToken cancellationToken)
@@ -242,14 +342,20 @@ internal sealed class GlobalCellDirectoryRuntime : IAsyncDisposable
         exception is NatsException or NatsJSApiNoResponseException or NatsJSTimeoutException or
             NatsJSConnectionException;
 
-    private static async Task IgnoreCancellationAsync(Task task)
+    private static async Task<Exception?> ObserveCompletionAsync(Task task)
     {
         try
         {
             await task;
+            return null;
         }
         catch (OperationCanceledException)
         {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
         }
     }
 }

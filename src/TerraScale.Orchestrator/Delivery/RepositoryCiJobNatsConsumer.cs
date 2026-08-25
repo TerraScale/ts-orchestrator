@@ -87,10 +87,12 @@ internal sealed class RepositoryCiJobNatsConsumer
                 Disposition = RepositoryCiJobDeliveryDisposition.Acknowledged,
             }, null);
         }
+        if (prepared.Receipt.Acceptance is not { } accepted)
+            throw new InvalidDataException("An acknowledgeable CI delivery has no accepted command.");
 
         var execution = await ExecuteWithProgressAsync(
             token => ExecuteUntilSettledAsync(
-                inner => execute(prepared.Receipt.Acceptance!, inner),
+                inner => execute(accepted, inner),
                 inner => Task.Delay(ExecutionRecoveryInterval, inner),
                 MaximumExecutionRecoveryWaits,
                 token),

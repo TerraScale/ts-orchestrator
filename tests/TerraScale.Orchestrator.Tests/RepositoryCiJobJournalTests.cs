@@ -24,7 +24,7 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(run.Jobs.Count).IsEqualTo(pipeline.Jobs.Count);
         await Assert.That(run.Ready.Count).IsEqualTo(2);
         await Assert.That(run.Ready.All(static job => job.DependsOn.Count == 0)).IsTrue();
-        await Assert.That(run.Results).IsEmpty();
+        await Assert.That(run.Jobs.All(static job => job.Phase == RepositoryCiJobPhase.Pending)).IsTrue();
         await Assert.That(ledger.Mutations).IsEqualTo(pipeline.Jobs.Count);
     }
 
@@ -98,8 +98,8 @@ public sealed class RepositoryCiJobJournalTests
 
         await Assert.That(run.State).IsEqualTo(RepositoryCiPipelineRunState.Succeeded);
         await Assert.That(run.Ready).IsEmpty();
-        await Assert.That(run.Results.Count).IsEqualTo(pipeline.Jobs.Count);
-        await Assert.That(run.Results.All(static result => result.Succeeded && result.Attempt == 1)).IsTrue();
+        await Assert.That(run.Jobs.All(static job =>
+            job.Phase == RepositoryCiJobPhase.Succeeded && job.Attempt == 1)).IsTrue();
     }
 
     [Test]
@@ -120,8 +120,7 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(run.State).IsEqualTo(RepositoryCiPipelineRunState.Failed);
         await Assert.That(run.Ready).IsEmpty();
         await Assert.That(stopped.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.PipelineFailed);
-        await Assert.That(run.Results).HasSingleItem();
-        await Assert.That(run.Results[0].Succeeded).IsFalse();
+        await Assert.That(run.Jobs.Count(static job => job.Phase == RepositoryCiJobPhase.Failed)).IsEqualTo(1);
     }
 
     [Test]
@@ -204,7 +203,7 @@ public sealed class RepositoryCiJobJournalTests
         var running = await AdvanceAsync(journal, dispatched.Job!, RepositoryCiJobPhase.Running, 6);
         await AdvanceAsync(journal, running.Job!, RepositoryCiJobPhase.Succeeded, 7);
         var run = await journal.ReadAsync(pipeline);
-        var result = run.Results.Single(value => value.Job == root.Request.Job);
+        var retried = run.Jobs.Single(value => value.Job.Request.Job == root.Request.Job);
 
         await Assert.That(scheduled.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.RetryScheduled);
         await Assert.That(scheduled.Job!.RetryNotBefore).IsEqualTo(clock.GetUtcNow());
@@ -218,8 +217,8 @@ public sealed class RepositoryCiJobJournalTests
         await Assert.That(stale.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleLease);
         await Assert.That(stalePrepare.Disposition).IsEqualTo(RepositoryCiJobJournalDisposition.StaleAuthority);
         await Assert.That(prepared.Job!.FencingToken).IsEqualTo(3);
-        await Assert.That(result.Attempt).IsEqualTo(2);
-        await Assert.That(result.Succeeded).IsTrue();
+        await Assert.That(retried.Attempt).IsEqualTo(2);
+        await Assert.That(retried.Phase).IsEqualTo(RepositoryCiJobPhase.Succeeded);
     }
 
     [Test]

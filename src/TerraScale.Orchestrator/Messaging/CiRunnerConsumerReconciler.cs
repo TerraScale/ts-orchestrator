@@ -28,6 +28,10 @@ internal sealed class CiRunnerConsumerReconciler
         CancellationToken cancellationToken = default)
     {
         var expected = topology.CiJobConsumer(zone, runner);
+        if (expected.Name is not { Length: > 0 } expectedName)
+            throw new InvalidOperationException("NATS returned a CI runner consumer without a name.");
+        if (expected.FilterSubject is not { Length: > 0 } expectedFilterSubject)
+            throw new InvalidOperationException("NATS returned a CI runner consumer without a filter subject.");
         var consumer = await jetStream.CreateOrUpdateConsumerAsync(
             GlobalNatsTopology.CiStream,
             expected,
@@ -35,9 +39,9 @@ internal sealed class CiRunnerConsumerReconciler
         await consumer.RefreshAsync(cancellationToken);
         if (!Matches(consumer.Info, expected))
             throw new InvalidOperationException(
-                $"NATS returned an unsafe CI runner consumer configuration for {expected.Name}.");
+                $"NATS returned an unsafe CI runner consumer configuration for {expectedName}.");
 
-        return new(zone, expected.Name!, expected.FilterSubject!);
+        return new(zone, expectedName, expectedFilterSubject);
     }
 
     internal static bool Matches(
@@ -47,12 +51,15 @@ internal sealed class CiRunnerConsumerReconciler
     {
         ArgumentNullException.ThrowIfNull(observed);
         ArgumentNullException.ThrowIfNull(expected);
+        if (expected.Name is not { Length: > 0 } expectedName ||
+            expected.FilterSubject is not { Length: > 0 } expectedFilterSubject)
+            return false;
         var actual = observed.Config;
         return observed.StreamName == expectedStream &&
-               observed.Name == expected.Name &&
+               observed.Name == expectedName &&
                !observed.IsPaused &&
                !observed.PushBound &&
-               actual.Name == expected.Name &&
+               actual.Name == expectedName &&
                actual.DurableName == expected.DurableName &&
                actual.Description == expected.Description &&
                actual.DeliverPolicy == expected.DeliverPolicy &&
@@ -63,7 +70,7 @@ internal sealed class CiRunnerConsumerReconciler
                actual.AckPolicy == expected.AckPolicy &&
                actual.AckWait == expected.AckWait &&
                actual.MaxDeliver == expected.MaxDeliver &&
-               actual.FilterSubject == expected.FilterSubject &&
+               actual.FilterSubject == expectedFilterSubject &&
                IsEmpty(actual.FilterSubjects) &&
                actual.ReplayPolicy == expected.ReplayPolicy &&
                actual.SampleFreq is null &&

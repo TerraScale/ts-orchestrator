@@ -72,7 +72,8 @@ public sealed class NetworkRouteEvidence : IEquatable<NetworkRouteEvidence>
     private static void Add(ref HashCode hash, string type, IReadOnlyList<string> values)
     { hash.Add(type, StringComparer.Ordinal); hash.Add(values.Count); foreach (var value in values) hash.Add(value, StringComparer.Ordinal); }
     private static string Frame(string value) => $"{value.Length}:{value}";
-    private static string IdentityKey(NetworkIdentity value) => $"identity:{Frame(value.GetType().FullName!)}:{Frame(value.Value)}";
+    internal static string RuntimeTypeDiscriminator(Type type) => type.FullName ?? type.Name;
+    private static string IdentityKey(NetworkIdentity value) => $"identity:{Frame(RuntimeTypeDiscriminator(value.GetType()))}:{Frame(value.Value)}";
     private static string PrefixKey(NetworkPrefix value) => $"prefix:{value.Address.BitLength}:{Convert.ToHexString(value.Address.Bytes)}:{value.Bits}";
     private static string RouteKey(NetworkRouteObservation value) => $"route:{IdentityKey(value.Route)}:{IdentityKey(value.Owner)}:{IdentityKey(value.NextPeer)}:{(value.LearnedFromPeer is null ? "null" : IdentityKey(value.LearnedFromPeer))}:{(int)value.TrustPlane}:{PrefixKey(value.Destination)}";
     private static string LinkKey(NetworkPeerLink value) => $"link:{IdentityKey(value.From)}:{IdentityKey(value.To)}";

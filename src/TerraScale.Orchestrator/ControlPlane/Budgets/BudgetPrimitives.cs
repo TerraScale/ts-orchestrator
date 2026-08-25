@@ -76,7 +76,7 @@ public readonly record struct BudgetCellId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out BudgetCellId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new BudgetCellId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new BudgetCellId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -89,7 +89,7 @@ public readonly record struct BudgetNodeClassId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out BudgetNodeClassId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new BudgetNodeClassId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new BudgetNodeClassId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -102,7 +102,7 @@ public readonly record struct BudgetCostCenterId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out BudgetCostCenterId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new BudgetCostCenterId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new BudgetCostCenterId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -115,7 +115,7 @@ public readonly record struct BudgetResourceId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out BudgetResourceId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new BudgetResourceId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new BudgetResourceId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -128,7 +128,7 @@ public readonly record struct PriceEvidenceId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out PriceEvidenceId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new PriceEvidenceId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new PriceEvidenceId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;
@@ -141,7 +141,7 @@ public readonly record struct BudgetApprovalId
     public bool IsValid => Value is not null;
     public static bool TryCreate(string? value, int maximumLength, out BudgetApprovalId result)
     {
-        result = BudgetIdentityRules.IsValid(value, maximumLength) ? new BudgetApprovalId(value!) : default;
+        result = value is { } validValue && BudgetIdentityRules.IsValid(validValue, maximumLength) ? new BudgetApprovalId(validValue) : default;
         return result.IsValid;
     }
     public override string ToString() => Value ?? string.Empty;

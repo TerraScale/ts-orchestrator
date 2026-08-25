@@ -64,7 +64,7 @@ internal sealed class NativeGitOpsGlobalHandoffDispatcher(
         var published = 0;
         foreach (var cell in handoff.Cells)
         {
-            if (exact && current!.Cells.Any(acknowledgement =>
+            if (exact && current is { } exactCurrent && exactCurrent.Cells.Any(acknowledgement =>
                     acknowledgement.Cell == cell.Cell && acknowledgement.WireSha256 == cell.WireSha256))
                 continue;
             var attempt = await publisher.PublishCellAsync(
@@ -103,7 +103,7 @@ internal sealed class NativeGitOpsGlobalHandoffDispatcher(
                 current = await journal.ReadAsync(handoff.Repository, handoff.Branch, cancellationToken);
                 exact = current is not null &&
                     NativeGitOpsGlobalHandoffPublishJournal.SamePreparedHandoff(current, handoff);
-                if (exact && current!.Cells.Any(acknowledgement =>
+                if (exact && current is { } exactCurrentAfterContention && exactCurrentAfterContention.Cells.Any(acknowledgement =>
                         acknowledgement.Cell == cell.Cell &&
                         acknowledgement.WireSha256 == cell.WireSha256 &&
                         acknowledgement.StreamSequence == publication.StreamSequence))

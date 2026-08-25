@@ -143,8 +143,9 @@ internal sealed class EcdsaCommandSigner :
         lock (sync)
             signature = key.SignHash(digest, DSASignatureFormat.Rfc3279DerSequence);
         var encoded = EcdsaCommandSignatureEnvelope.Encode(keyId, signature);
-        OpaqueSignature.TryCopyFrom(encoded, out var result);
-        return result!;
+        if (!OpaqueSignature.TryCopyFrom(encoded, out var result) || result is null)
+            throw new CryptographicException("The command signature envelope is empty.");
+        return result;
     }
 
     public void Dispose() => key.Dispose();
@@ -214,18 +215,20 @@ internal sealed class EcdsaCommandSignatureVerifier :
                 if (pem.Contains("PRIVATE KEY", StringComparison.Ordinal))
                     throw new ArgumentException("A command trust key must not contain private key material.", nameof(paths));
                 var key = ECDsa.Create();
+                var ownsKey = true;
                 try
                 {
                     key.ImportFromPem(pem);
                     EcdsaCommandSigner.ValidateKey(key, requirePrivate: false);
                     var keyId = Convert.ToHexStringLower(SHA256.HashData(key.ExportSubjectPublicKeyInfo()));
-                    if (!keys.TryAdd(keyId, new(key)))
+                    if (keys.ContainsKey(keyId))
                         throw new ArgumentException("The command trust set contains a duplicate key.", nameof(paths));
-                    key = null!;
+                    keys.Add(keyId, new TrustedKey(key));
+                    ownsKey = false;
                 }
                 finally
                 {
-                    key?.Dispose();
+                    if (ownsKey) key.Dispose();
                 }
             }
             return new(keys);

@@ -137,11 +137,14 @@ internal static class NativeGitOpsCellWireCodec
             expiresAt.ToString("O", CultureInfo.InvariantCulture) != values[Expires])
             throw Invalid();
         var digestBytes = HexDigest(values[PayloadDigest]);
-        TerraScale.Orchestrator.Protocol.PayloadDigest.TryCopyFrom(digestBytes, out var digest);
+        if (!TerraScale.Orchestrator.Protocol.PayloadDigest.TryCopyFrom(digestBytes, out var digest) ||
+            digest is null)
+            throw Invalid();
         var signatureBytes = Base64(values[Signature]);
         if (signatureBytes.Length is < 1 or > NativeGitOpsCellEnvelope.MaximumSignatureBytes)
             throw Invalid();
-        OpaqueSignature.TryCopyFrom(signatureBytes, out var signature);
+        if (!OpaqueSignature.TryCopyFrom(signatureBytes, out var signature) || signature is null)
+            throw Invalid();
         return new(
             protocol,
             cell,
@@ -154,8 +157,8 @@ internal static class NativeGitOpsCellWireCodec
             expiresAt,
             attempt,
             OpaquePayload.CopyFrom(payload),
-            digest!,
-            signature!);
+            digest,
+            signature);
     }
 
     private static NativeGitOpsCellDigest[] ParseCells(string value)

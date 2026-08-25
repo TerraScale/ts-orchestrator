@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace TerraScale.Orchestrator.ControlPlane.TerraBase;
@@ -58,19 +59,213 @@ internal static class TerraBaseEnumRules
 }
 
 public abstract record TerraBaseIdentity(string Value) { public override string ToString() => Value; }
-public sealed record TerraBaseCellId : TerraBaseIdentity { private TerraBaseCellId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseCellId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseDatabaseId : TerraBaseIdentity { private TerraBaseDatabaseId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseDatabaseId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseMemberId : TerraBaseIdentity { private TerraBaseMemberId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseMemberId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseNodeId : TerraBaseIdentity { private TerraBaseNodeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseNodeId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseVolumeId : TerraBaseIdentity { private TerraBaseVolumeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseVolumeId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseBackupId : TerraBaseIdentity { private TerraBaseBackupId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseBackupId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseRestoreId : TerraBaseIdentity { private TerraBaseRestoreId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseRestoreId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseReleaseId : TerraBaseIdentity { private TerraBaseReleaseId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseReleaseId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseOperationId : TerraBaseIdentity { private TerraBaseOperationId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseOperationId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseFenceId : TerraBaseIdentity { private TerraBaseFenceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseFenceId? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseDigestRef : TerraBaseIdentity { private TerraBaseDigestRef(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseDigestRef? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseObjectRef : TerraBaseIdentity { private TerraBaseObjectRef(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseObjectRef? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record TerraBaseKeyRef : TerraBaseIdentity { private TerraBaseKeyRef(string v) : base(v) { } public static bool TryCreate(string? v, int m, out TerraBaseKeyRef? x) { x = TerraBaseValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
+public sealed record TerraBaseCellId : TerraBaseIdentity
+{
+    private TerraBaseCellId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseCellId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseCellId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseDatabaseId : TerraBaseIdentity
+{
+    private TerraBaseDatabaseId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseDatabaseId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseDatabaseId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseMemberId : TerraBaseIdentity
+{
+    private TerraBaseMemberId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseMemberId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseMemberId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseNodeId : TerraBaseIdentity
+{
+    private TerraBaseNodeId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseNodeId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseNodeId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseVolumeId : TerraBaseIdentity
+{
+    private TerraBaseVolumeId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseVolumeId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseVolumeId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseBackupId : TerraBaseIdentity
+{
+    private TerraBaseBackupId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseBackupId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseBackupId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseRestoreId : TerraBaseIdentity
+{
+    private TerraBaseRestoreId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseRestoreId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseRestoreId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseReleaseId : TerraBaseIdentity
+{
+    private TerraBaseReleaseId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseReleaseId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseReleaseId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseOperationId : TerraBaseIdentity
+{
+    private TerraBaseOperationId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseOperationId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseOperationId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseFenceId : TerraBaseIdentity
+{
+    private TerraBaseFenceId(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseFenceId? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseFenceId(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseDigestRef : TerraBaseIdentity
+{
+    private TerraBaseDigestRef(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseDigestRef? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseDigestRef(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseObjectRef : TerraBaseIdentity
+{
+    private TerraBaseObjectRef(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseObjectRef? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseObjectRef(value);
+        return true;
+    }
+}
+
+public sealed record TerraBaseKeyRef : TerraBaseIdentity
+{
+    private TerraBaseKeyRef(string value) : base(value) { }
+    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseKeyRef? result)
+    {
+        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        {
+            result = null;
+            return false;
+        }
+
+        result = new TerraBaseKeyRef(value);
+        return true;
+    }
+}
 
 public readonly record struct TerraBaseOrdinal
 {

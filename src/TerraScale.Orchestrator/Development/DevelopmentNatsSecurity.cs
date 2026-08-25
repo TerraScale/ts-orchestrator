@@ -155,7 +155,7 @@ internal sealed class DevelopmentNatsSecurity
         {
             throw new PlatformNotSupportedException("The Orchestrator development runtime requires Linux.");
         }
-        EnsurePrivateDirectory(Path.GetDirectoryName(path)!);
+        EnsurePrivateDirectory(DevelopmentGuards.RequireDirectory(path, "NATS secret file"));
         var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         File.WriteAllText(temporary, contents);
         File.SetUnixFileMode(temporary, SecretFileMode);

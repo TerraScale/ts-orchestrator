@@ -21,10 +21,12 @@ internal sealed record RepositoryCiPipelineJournalReceipt(
 /// <summary>Stores exact affected CI inputs by content and CAS-indexes one immutable pipeline per event.</summary>
 internal sealed class RepositoryCiPipelineJournal(
     IForgejoDeliveryLedger ledger,
-    IDeliveryObjectStore objects)
+    IDeliveryObjectStore objects,
+    int pipelineHistoryCap = 1024)
 {
     private const int MaximumPointerBytes = 8 * 1024;
     private const int MaximumObjectBytes = 32 * 1024 * 1024;
+    internal const int PipelineHistoryCap = 1024;
     private const int MaximumRepositories = 64;
 
     internal async Task<RepositoryCiPipelinePlan?> ReadAsync(
@@ -107,6 +109,7 @@ internal sealed class RepositoryCiPipelineJournal(
         try
         {
             await ledger.CreateAsync(key, SerializePointer(proposed), cancellationToken);
+            await PruneAsync(cancellationToken).ConfigureAwait(false);
             return new(RepositoryCiPipelineJournalDisposition.Recorded, plan);
         }
         catch (ForgejoDeliveryLedgerConflictException)
@@ -115,6 +118,42 @@ internal sealed class RepositoryCiPipelineJournal(
                 ?? throw new InvalidDataException("A concurrently committed CI pipeline pointer disappeared.");
             return await CompareAsync(observed, proposed, trigger.Envelope.DedupeKey, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Bounded oldest-first history prune. A pipeline record is
+    /// only prunable once its durable trigger anchor is already gone (the pair stays intact so a
+    /// replayed event converges through dedupe instead of replanning); pruning a pointer also
+    /// deletes its bounded 32 MiB content object, so the bound covers object storage too.
+    /// </summary>
+    private async Task PruneAsync(CancellationToken cancellationToken)
+    {
+        // Pruning is cap-driven (checked on every record) and deletes each pruned pointer's
+        // bounded content object with it, so object storage is bounded by the same cap.
+        if (ledger is not IForgejoDeliveryRetentionLedger retention) return;
+        await DeliveryJournalRetention.PruneAsync(
+            retention,
+            "ci-pipeline.",
+            pipelineHistoryCap,
+            async (entry, _, token) =>
+            {
+                var digest = entry.Key["ci-pipeline.".Length..];
+                // The trigger journal uses the same dedupe digest; its absence is the pruning gate.
+                if (await ledger.GetAsync($"ci-trigger.{digest}", token) is not null)
+                    return new DeliveryJournalPruneDecision(false);
+                var pointer = DeserializePointer(entry.Value);
+                // Content-addressed objects can be shared by two dedupe keys (same deterministic
+                // plan over different events). Deleting the object under a surviving sibling
+                // pointer would corrupt that sibling's next read, so the object is only deleted
+                // when no other pointer references it.
+                if (retention is not null &&
+                    await IsObjectSharedAsync(retention, entry.Key, pointer.ObjectName, token))
+                    return new DeliveryJournalPruneDecision(true);
+                return new DeliveryJournalPruneDecision(true, pointer.ObjectName);
+            },
+            "pipelines whose durable trigger anchor still exists",
+            cancellationToken,
+            objects as IDeliveryRetentionObjectStore).ConfigureAwait(false);
     }
 
     private async Task<RepositoryCiPipelineJournalReceipt> CompareAsync(
@@ -174,7 +213,7 @@ internal sealed class RepositoryCiPipelineJournal(
         var profile = trigger.JobKind switch
         {
             ControlPlane.Delivery.JobKind.ProductValidation => RepositoryCiProfile.Feature,
-            ControlPlane.Delivery.JobKind.TrustedBuild => RepositoryCiProfile.Release,
+            ControlPlane.Delivery.JobKind.TrustedBuild => RepositoryCiProfile.Build,
             _ => throw new InvalidOperationException("The Forgejo trigger cannot create an affected CI pipeline."),
         };
         var impact = RepositoryCiImpactPlanner.Plan(descriptors, changes, profile);
@@ -252,6 +291,30 @@ internal sealed class RepositoryCiPipelineJournal(
     private static string DedupeDigest(string dedupeKey) => Hash(Encoding.UTF8.GetBytes(dedupeKey));
     private static string Hash(ReadOnlySpan<byte> content) => Convert.ToHexStringLower(SHA256.HashData(content));
 
+    /// <summary>
+    /// True when any OTHER ci-pipeline pointer references the same content-addressed object:
+    /// two dedupe keys can deterministically plan to identical bytes, and the shared object must
+    /// survive until the last referencing pointer is pruned.
+    /// </summary>
+    private static async Task<bool> IsObjectSharedAsync(
+        IForgejoDeliveryRetentionLedger retention,
+        string prunedKey,
+        string objectName,
+        CancellationToken cancellationToken)
+    {
+        await foreach (var key in retention.ListKeysAsync("ci-pipeline.>", cancellationToken)
+                           .WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            if (!key.StartsWith("ci-pipeline.", StringComparison.Ordinal) ||
+                string.Equals(key, prunedKey, StringComparison.Ordinal)) continue;
+            var pointer = DeserializePointer(
+                (await ((IForgejoDeliveryLedger)retention).GetAsync(key, cancellationToken)
+                    .ConfigureAwait(false))!.Value);
+            if (pointer.ObjectName == objectName) return true;
+        }
+        return false;
+    }
+
     private static void ValidateDedupeKey(string? value)
     {
         if (value is not { Length: >= 1 and <= 512 } || value.Any(char.IsControl))
@@ -315,7 +378,6 @@ internal sealed record RepositoryCiPipelineObjectDocument(
     string Pipeline,
     string PipelineDigest,
     string ImpactDigest,
-    int CandidateRetentionDays,
     int JobCount)
 {
     internal static RepositoryCiPipelineObjectDocument From(
@@ -327,7 +389,7 @@ internal sealed record RepositoryCiPipelineObjectDocument(
         long minimumRunnerSequence,
         long maximumRunnerSequence,
         RepositoryCiPipelinePlan plan) => new(
-            2,
+            3,
             ForgejoWebhookEventDocument.From(trigger.Envelope),
             descriptorFiles.OrderBy(static file => file.Repository, StringComparer.Ordinal)
                 .Select(RepositoryCiPipelineDescriptorDocument.From).ToArray(),
@@ -341,16 +403,25 @@ internal sealed record RepositoryCiPipelineObjectDocument(
             plan.Pipeline.Value,
             plan.Digest,
             plan.ImpactDigest,
-            plan.CandidateRetentionDays,
             plan.Jobs.Count);
 
     internal RepositoryCiPipelinePlan Restore(string expectedDedupeKey)
     {
-        if (SchemaVersion != 2 || Event is null || Event.DedupeKey != expectedDedupeKey ||
+        if (SchemaVersion == 2)
+            // Deterministic, loud rejection — never digest noise. Schema 2 pipeline objects were
+            // written by the retired candidate-promotion stage; their deterministic digests were
+            // computed over inputs that no longer exist (candidate retention, promotion policy,
+            // 'Release' profiles), so they can be neither migrated nor re-derived. The
+            // originating Forgejo trigger stays durably journaled; a new push replans it.
+            throw new InvalidDataException(
+                "A persisted CI pipeline object uses retired schema 2 from the candidate-promotion stage and cannot be restored under schema 3. " +
+                "The deterministic plan digest inputs changed when the candidate stage was removed. Report the affected commit as failed and push a new change to replan it; " +
+                "do not retry the same delivery.");
+        if (SchemaVersion != 3 || Event is null || Event.DedupeKey != expectedDedupeKey ||
             Descriptors is not { Length: > 0 and <= 64 } || Changes is not { Length: > 0 and <= 64 } ||
             Sources is not { Length: > 0 and <= 64 } || Generation <= 0 || MinimumRunnerSequence <= 0 ||
             MaximumRunnerSequence < MinimumRunnerSequence || !Digest(PipelineDigest) || !Digest(ImpactDigest) ||
-            Pipeline != $"ci-{PipelineDigest[..24]}" || CandidateRetentionDays is < 1 or > 30 || JobCount <= 0)
+            Pipeline != $"ci-{PipelineDigest[..24]}" || JobCount <= 0)
             throw new InvalidDataException("A persisted CI pipeline object is invalid.");
         var trigger = ForgejoCiTriggerPlanner.Plan(Event.ToEnvelope());
         var descriptorFiles = Descriptors.Select(static descriptor => descriptor.ToFile()).ToArray();
@@ -365,8 +436,7 @@ internal sealed record RepositoryCiPipelineObjectDocument(
             MinimumRunnerSequence,
             MaximumRunnerSequence);
         if (plan.Pipeline.Value != Pipeline || plan.Digest != PipelineDigest ||
-            plan.ImpactDigest != ImpactDigest || plan.CandidateRetentionDays != CandidateRetentionDays ||
-            plan.Jobs.Count != JobCount)
+            plan.ImpactDigest != ImpactDigest || plan.Jobs.Count != JobCount)
             throw new InvalidDataException("A persisted CI pipeline object changed its deterministic plan.");
         return plan;
     }

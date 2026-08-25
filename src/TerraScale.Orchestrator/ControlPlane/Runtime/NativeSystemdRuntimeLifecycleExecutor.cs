@@ -62,7 +62,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutor : IRuntimeLifecycleHos
         this.admissionFactory = admissionFactory ?? throw new ArgumentNullException(nameof(admissionFactory));
     }
 
-    public async ValueTask<RuntimeLifecycleExecutorResponse> ExecuteAsync(
+    public async ValueTask<RuntimeLifecycleExecutorResponse?> ExecuteAsync(
         RuntimeLifecycleExecutionRequest request,
         CancellationToken cancellationToken)
     {
@@ -88,7 +88,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutor : IRuntimeLifecycleHos
         return new(RuntimeLifecycleExecutorStatus.Completed);
     }
 
-    public async ValueTask<RuntimeLifecycleObservation> ObserveAsync(
+    public async ValueTask<RuntimeLifecycleObservation?> ObserveAsync(
         RuntimeLifecycleObservationRequest request,
         CancellationToken cancellationToken)
     {

@@ -15,9 +15,9 @@ public static class TerraBaseTopologyPlanner
     {
         if (expected is null || !expected.Valid) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace = Trace(expected, evidence);
-        if (!Scoped(expected, evidence?.Scope)) return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope, trace);
-        if (!Defined(evidence!)) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
-        if (evidence!.MemberKind == TerraBaseMemberKind.Unknown) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
+        if (evidence is null || !Scoped(expected, evidence.Scope)) return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope, trace);
+        if (!Defined(evidence)) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
+        if (evidence.MemberKind == TerraBaseMemberKind.Unknown) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
         if (evidence.MemberKind != TerraBaseMemberKind.Elastic) return TerraBaseDecision.Hold(TerraBaseCode.PermanentMember, trace);
         if (evidence.LossCount == TerraBaseLossCount.Unknown) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
         if (evidence.LossCount == TerraBaseLossCount.TwoOrMore) return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe, trace);
@@ -32,32 +32,32 @@ public static class TerraBaseTopologyPlanner
         {
             if (evidence.Replication != TerraBaseReplication.Unknown || evidence.PostChangeReplication != TerraBaseProof.Unknown)
                 return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
-            return TerraBaseDecision.Emit(TerraBaseAction.Add, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace!,
+            return TerraBaseDecision.Emit(TerraBaseAction.Add, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace,
                 subject);
         }
         if (evidence.Replication == TerraBaseReplication.Conflicting || evidence.Replication == TerraBaseReplication.Future) return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe, trace);
         if (evidence.Replication == TerraBaseReplication.Unknown)
         {
             if (evidence.PostChangeReplication != TerraBaseProof.Unknown) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace!, subject);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace, subject);
         }
         if (evidence.Replication == TerraBaseReplication.Lagging)
         {
             if (evidence.PostChangeReplication != TerraBaseProof.Unknown) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
-            return TerraBaseDecision.Emit(TerraBaseAction.CatchUp, TerraBaseTarget.Member, TerraBaseCode.NextStep, trace!,
+            return TerraBaseDecision.Emit(TerraBaseAction.CatchUp, TerraBaseTarget.Member, TerraBaseCode.NextStep, trace,
                 subject);
         }
-        if (evidence.PostChangeReplication != TerraBaseProof.Proven) return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace!, subject);
-        return TerraBaseDecision.Emit(TerraBaseAction.Verify, TerraBaseTarget.Member, TerraBaseCode.Completed, trace!, subject);
+        if (evidence.PostChangeReplication != TerraBaseProof.Proven) return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace, subject);
+        return TerraBaseDecision.Emit(TerraBaseAction.Verify, TerraBaseTarget.Member, TerraBaseCode.Completed, trace, subject);
     }
 
     public static TerraBaseDecision PlanRemove(TerraBaseEvidenceScope? expected, TerraBaseTopologyEvidence? evidence)
     {
         if (expected is null || !expected.Valid) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput);
         var trace = Trace(expected, evidence);
-        if (!Scoped(expected, evidence?.Scope)) return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope, trace);
-        if (!Defined(evidence!)) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
-        if (evidence!.MemberKind is TerraBaseMemberKind.PermanentA or TerraBaseMemberKind.PermanentB or TerraBaseMemberKind.PermanentC)
+        if (evidence is null || !Scoped(expected, evidence.Scope)) return TerraBaseDecision.Hold(TerraBaseCode.WrongEvidenceScope, trace);
+        if (!Defined(evidence)) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
+        if (evidence.MemberKind is TerraBaseMemberKind.PermanentA or TerraBaseMemberKind.PermanentB or TerraBaseMemberKind.PermanentC)
             return TerraBaseDecision.Hold(TerraBaseCode.PermanentMember, trace);
         if (evidence.MemberKind != TerraBaseMemberKind.Elastic) return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
         if (evidence.NoTopologyMutation != TerraBaseProof.Proven) return TerraBaseDecision.Hold(TerraBaseCode.ConflictingTopologyMutation, trace);
@@ -74,23 +74,24 @@ public static class TerraBaseTopologyPlanner
             if (evidence.NoDatabaseReference != TerraBaseProof.Unknown || evidence.PostChangeReplication != TerraBaseProof.Unknown)
                 return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
             if (evidence.MemberRole == TerraBaseRole.Leader && evidence.LeadershipTransferred != TerraBaseProof.Proven)
-                return TerraBaseDecision.Emit(TerraBaseAction.Transfer, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace!,
+                return TerraBaseDecision.Emit(TerraBaseAction.Transfer, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace,
                     subject);
-            return TerraBaseDecision.Emit(TerraBaseAction.Remove, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace!,
+            return TerraBaseDecision.Emit(TerraBaseAction.Remove, TerraBaseTarget.Topology, TerraBaseCode.NextStep, trace,
                 subject);
         }
         if (evidence.MemberRole == TerraBaseRole.Leader && evidence.LeadershipTransferred != TerraBaseProof.Proven)
             return TerraBaseDecision.Hold(TerraBaseCode.InvalidInput, trace);
         if (evidence.NoDatabaseReference != TerraBaseProof.Proven)
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace!, subject);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace, subject);
         if (evidence.PostChangeReplication == TerraBaseProof.Contradicted) return TerraBaseDecision.Hold(TerraBaseCode.ReplicationUnsafe, trace);
         if (evidence.PostChangeReplication != TerraBaseProof.Proven)
-            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace!, subject);
-        return TerraBaseDecision.Emit(TerraBaseAction.Verify, TerraBaseTarget.Topology, TerraBaseCode.Completed, trace!, subject);
+            return TerraBaseDecision.Emit(TerraBaseAction.Observe, TerraBaseTarget.Application, TerraBaseCode.NextStep, trace, subject);
+        return TerraBaseDecision.Emit(TerraBaseAction.Verify, TerraBaseTarget.Topology, TerraBaseCode.Completed, trace, subject);
     }
 
     private static bool Scoped(TerraBaseEvidenceScope expected, TerraBaseEvidenceScope? actual) => actual == expected;
-    private static TerraBaseTrace? Trace(TerraBaseEvidenceScope? expected, TerraBaseTopologyEvidence? evidence) => expected is null ? null : new(expected, evidence?.ReplicationPosition ?? default, expected.TopologyGeneration);
+    private static TerraBaseTrace Trace(TerraBaseEvidenceScope expected, TerraBaseTopologyEvidence? evidence) =>
+        new(expected, evidence?.ReplicationPosition ?? default, expected.TopologyGeneration);
     private static bool Defined(TerraBaseTopologyEvidence evidence) =>
         TerraBaseEnumRules.Defined(evidence.MemberKind) && TerraBaseEnumRules.Defined(evidence.MemberRole)
         && TerraBaseEnumRules.Defined(evidence.LossCount) && TerraBaseEnumRules.Defined(evidence.LeadershipTransferred)

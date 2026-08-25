@@ -1,10 +1,11 @@
 using System.Globalization;
+using System.Diagnostics.CodeAnalysis;
 
 namespace TerraScale.Orchestrator.ControlPlane.Networking;
 
 internal static class NetworkValueRules
 {
-    internal static bool Valid(string? value, int maximum)
+    internal static bool Valid([NotNullWhen(true)] string? value, int maximum)
     {
         if (maximum <= 0 || string.IsNullOrEmpty(value) || value.Length > maximum) return false;
         for (var i = 0; i < value.Length; i++)
@@ -21,21 +22,21 @@ public abstract record NetworkIdentity
     public string Value { get; }
     public override string ToString() => Value;
 }
-public sealed record NetworkCellId : NetworkIdentity { private NetworkCellId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkCellId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkId : NetworkIdentity { private NetworkId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkSubnetId : NetworkIdentity { private NetworkSubnetId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkSubnetId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkNodeId : NetworkIdentity { private NetworkNodeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkNodeId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkWorkloadId : NetworkIdentity { private NetworkWorkloadId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkWorkloadId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkServiceId : NetworkIdentity { private NetworkServiceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkServiceId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkEndpointId : NetworkIdentity { private NetworkEndpointId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkEndpointId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkRouteId : NetworkIdentity { private NetworkRouteId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkRouteId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkPeerId : NetworkIdentity { private NetworkPeerId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkPeerId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkTunnelId : NetworkIdentity { private NetworkTunnelId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkTunnelId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkDnsId : NetworkIdentity { private NetworkDnsId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkDnsId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkLoadBalancerId : NetworkIdentity { private NetworkLoadBalancerId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkLoadBalancerId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkBackendId : NetworkIdentity { private NetworkBackendId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkBackendId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkCertificateRef : NetworkIdentity { private NetworkCertificateRef(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkCertificateRef? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
-public sealed record NetworkOperationId : NetworkIdentity { private NetworkOperationId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkOperationId? x) { x = NetworkValueRules.Valid(v, m) ? new(v!) : null; return x is not null; } }
+public sealed record NetworkCellId : NetworkIdentity { private NetworkCellId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkCellId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkId : NetworkIdentity { private NetworkId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkSubnetId : NetworkIdentity { private NetworkSubnetId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkSubnetId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkNodeId : NetworkIdentity { private NetworkNodeId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkNodeId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkWorkloadId : NetworkIdentity { private NetworkWorkloadId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkWorkloadId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkServiceId : NetworkIdentity { private NetworkServiceId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkServiceId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkEndpointId : NetworkIdentity { private NetworkEndpointId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkEndpointId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkRouteId : NetworkIdentity { private NetworkRouteId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkRouteId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkPeerId : NetworkIdentity { private NetworkPeerId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkPeerId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkTunnelId : NetworkIdentity { private NetworkTunnelId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkTunnelId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkDnsId : NetworkIdentity { private NetworkDnsId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkDnsId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkLoadBalancerId : NetworkIdentity { private NetworkLoadBalancerId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkLoadBalancerId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkBackendId : NetworkIdentity { private NetworkBackendId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkBackendId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkCertificateRef : NetworkIdentity { private NetworkCertificateRef(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkCertificateRef? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
+public sealed record NetworkOperationId : NetworkIdentity { private NetworkOperationId(string v) : base(v) { } public static bool TryCreate(string? v, int m, out NetworkOperationId? x) { x = NetworkValueRules.Valid(v, m) ? new(v) : null; return x is not null; } }
 
 public readonly record struct NetworkOrdinal
 { private NetworkOrdinal(ulong v) => Value = v; public ulong Value { get; } public bool IsValid => Value > 0; public static bool TryCreate(ulong v, out NetworkOrdinal x) { x = v > 0 ? new(v) : default; return x.IsValid; } public override string ToString() => Value.ToString(CultureInfo.InvariantCulture); }

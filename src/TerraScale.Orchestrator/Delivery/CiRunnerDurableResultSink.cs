@@ -87,14 +87,16 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
             ArchiveEvidence archive;
             try
             {
-                var root = Path.GetFullPath(exportDirectory!);
+                var root = exportDirectory is { } configuredExportDirectory
+                    ? Path.GetFullPath(configuredExportDirectory)
+                    : throw new InvalidDataException("A successful CI result requires an export directory.");
+                EnsureAdmittedRoot(root);
+                var executionPlan = plan ??
+                    throw new InvalidDataException("A successful CI result requires an execution plan.");
                 var manifest = await ReadManifestAsync(root, evidence, cancellationToken);
                 requiredTestSkips = manifest.RequiredTestSkips;
-                manifest = manifest with { Artifacts = ValidateArtifacts(plan!, manifest.Artifacts) };
-                archivePath = Path.Combine(
-                    Directory.GetParent(root)?.FullName ?? throw new InvalidDataException(
-                        "The CI result export has no private output parent."),
-                    "artifact.tar.gz");
+                manifest = manifest with { Artifacts = ValidateArtifacts(executionPlan, manifest.Artifacts) };
+                archivePath = Path.Combine(root, ".terrascale-ci-artifact.tar.gz");
                 archive = await CreateArchiveAsync(root, archivePath, evidence, manifest, cancellationToken);
                 artifacts = archive.Artifacts;
             }
@@ -127,9 +129,11 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
 
             try
             {
+                var archiveFile = archivePath ??
+                    throw new InvalidDataException("The CI result archive path was not created.");
                 artifactObject = $"ci-result-artifact-{evidence.OutputSha256}";
                 await using (var archiveContent = new FileStream(
-                    archivePath!,
+                    archiveFile,
                     FileMode.Open,
                     FileAccess.Read,
                     FileShare.Read,
@@ -211,6 +215,9 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         CancellationToken cancellationToken)
     {
         var path = Path.Combine(root, ResultManifestPath);
+        if (!Path.GetFullPath(path).Equals(Path.Combine(root, ResultManifestPath), StringComparison.Ordinal) ||
+            Path.GetRelativePath(root, path) != ResultManifestPath)
+            throw new InvalidDataException("The CI result manifest path escaped its admitted output root.");
         var info = new FileInfo(path);
         if (!info.Exists || info.LinkTarget is not null ||
             CiRunnerBuildKitExecutor.FileKind(path) != CiRunnerOutputFileKind.Regular ||
@@ -244,7 +251,9 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         CancellationToken cancellationToken)
     {
         var directory = new DirectoryInfo(root);
-        if (!directory.Exists || directory.LinkTarget is not null || File.Exists(archivePath))
+        if (!directory.Exists || directory.LinkTarget is not null ||
+            !IsWithin(root, archivePath) || File.Exists(archivePath) ||
+            Directory.Exists(archivePath) || HasLinkedParent(archivePath))
             throw new InvalidDataException("The CI artifact export or archive path is invalid.");
         var entries = Enumerate(root)
             .OrderBy(static value => value.Relative, StringComparer.Ordinal)
@@ -535,6 +544,32 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         return values;
     }
 
+    private static void EnsureAdmittedRoot(string root)
+    {
+        if (!Path.IsPathFullyQualified(root) || root.Any(char.IsControl) ||
+            root == Path.GetPathRoot(root) || !Directory.Exists(root) ||
+            new DirectoryInfo(root).LinkTarget is not null || HasLinkedParent(root))
+            throw new InvalidDataException("The CI result export root is not an admitted private directory.");
+    }
+
+    private static bool HasLinkedParent(string path)
+    {
+        var current = new DirectoryInfo(Path.GetFullPath(path));
+        while (current is not null)
+        {
+            if (current.LinkTarget is not null) return true;
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    private static bool IsWithin(string root, string path)
+    {
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var normalizedPath = Path.GetFullPath(path);
+        return normalizedPath.StartsWith(normalizedRoot, StringComparison.Ordinal);
+    }
+
     private async Task PutVerifiedAsync(
         string name,
         ReadOnlyMemory<byte> content,
@@ -618,8 +653,12 @@ internal sealed class CiRunnerDurableResultSink(IDeliveryObjectStore objects) : 
         {
             if (reader.TokenType == JsonTokenType.StartObject) fields.Push(new(StringComparer.Ordinal));
             else if (reader.TokenType == JsonTokenType.EndObject) fields.Pop();
-            else if (reader.TokenType == JsonTokenType.PropertyName && !fields.Peek().Add(reader.GetString()!))
-                return true;
+            else if (reader.TokenType == JsonTokenType.PropertyName)
+            {
+                if (!fields.TryPeek(out var current) || reader.GetString() is not { } propertyName ||
+                    !current.Add(propertyName))
+                    return true;
+            }
         }
         return fields.Count != 0;
     }

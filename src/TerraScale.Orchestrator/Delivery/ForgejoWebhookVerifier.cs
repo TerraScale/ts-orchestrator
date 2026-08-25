@@ -112,7 +112,8 @@ public static class ForgejoWebhookVerifier
         if (payload.Length > MaximumPayloadBytes) return Reject(ForgejoWebhookError.PayloadTooLarge);
         if (!IsJson(contentType)) return Reject(ForgejoWebhookError.UnsupportedContentType);
         if (secret is not { Length: >= MinimumSecretBytes }) return Reject(ForgejoWebhookError.InvalidSecret);
-        if (!IsRepository(expectedRepository)) return Reject(ForgejoWebhookError.InvalidExpectedRepository);
+        if (expectedRepository is not { } validatedRepository || !IsRepository(validatedRepository))
+            return Reject(ForgejoWebhookError.InvalidExpectedRepository);
         if (!VerifySignature(payload, secret, signature)) return Reject(ForgejoWebhookError.InvalidSignature);
         if (!Guid.TryParseExact(deliveryId, "D", out var parsedDeliveryId) || parsedDeliveryId == Guid.Empty)
             return Reject(ForgejoWebhookError.InvalidDeliveryId);
@@ -136,8 +137,8 @@ public static class ForgejoWebhookVerifier
             });
             var payloadDigest = Convert.ToHexStringLower(SHA256.HashData(payload));
             return kind == ForgejoWebhookKind.Push
-                ? ParsePush(document.RootElement, parsedDeliveryId, expectedRepository!, payloadDigest)
-                : ParsePullRequest(document.RootElement, parsedDeliveryId, expectedRepository!, payloadDigest);
+                ? ParsePush(document.RootElement, parsedDeliveryId, validatedRepository, payloadDigest)
+                : ParsePullRequest(document.RootElement, parsedDeliveryId, validatedRepository, payloadDigest);
         }
         catch (JsonException)
         {
@@ -265,10 +266,11 @@ public static class ForgejoWebhookVerifier
             {
                 objectFields.Pop();
             }
-            else if (reader.TokenType == JsonTokenType.PropertyName &&
-                     !objectFields.Peek().Add(reader.GetString()!))
+            else if (reader.TokenType == JsonTokenType.PropertyName)
             {
-                return true;
+                if (!objectFields.TryPeek(out var current) || reader.GetString() is not { } propertyName ||
+                    !current.Add(propertyName))
+                    return true;
             }
         }
         return objectFields.Count != 0;
