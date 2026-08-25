@@ -81,7 +81,7 @@ internal static class NatsDevelopmentCluster
         {
             throw new InvalidOperationException("Control NATS security must match the exact lean regional topology.");
         }
-        var root = $"ts.orch.v1.{cell.Cell}";
+        var root = TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.RegionalRoot(cell.Cell);
         var controllerSubjects = new[]
         {
             $"{root}.desired.>", $"{root}.event.>", $"{root}.operation.>", $"{root}.query.>",
@@ -186,7 +186,7 @@ internal static class NatsDevelopmentCluster
                       subscribe: { allow: ["_INBOX.>", "$O.CELL_BUNDLES.C.>", "$O.CELL_BUNDLES.M.>", "$O.ORCH_PROTOCOL_PACKAGE.C.>", "$O.ORCH_PROTOCOL_PACKAGE.M.>"] }
                     } },
                     { nkey: "{{security.Operator.PublicKey}}", permissions: {
-                      publish: { allow: ["ts.orch.v1.{{cell.Cell}}.query.status", "ts.orch.v1.{{cell.Cell}}.query.members"] }
+                      publish: { allow: ["{{TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.ControllerStatusSubject(cell.Cell)}}", "{{TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.ControllerMembersSubject(cell.Cell)}}"] }
                       subscribe: { allow: ["_INBOX.>"] }
                     } }
                   ]

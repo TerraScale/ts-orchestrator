@@ -17,10 +17,13 @@ internal static class RuntimeLifecycleNatsProtocol
     internal const string CreateAction = "runtime-lifecycle-create";
     internal const string UpdateAction = "runtime-lifecycle-update";
 
-    internal static string Subject(string cell, string operation) => $"ts.orch.v1.{RequireCell(cell)}.internal.runtime-lifecycle-journal.{operation}";
+    internal static string Subject(string cell, string operation) =>
+        TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(
+            RequireCell(cell), operation);
 
     internal static string ReplySubject(string cell, string callerIdentity, string nonce) =>
-        $"ts.orch.v1.{RequireCell(cell)}.internal.runtime-lifecycle-journal.reply.{RequireToken(callerIdentity)}.{RequireNonce(nonce)}";
+        TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject(
+            RequireCell(cell), callerIdentity, nonce);
 
     internal static string Key(RuntimeLifecycleOperationKey operationKey)
     {
@@ -123,13 +126,6 @@ internal static class RuntimeLifecycleNatsProtocol
         value.All(static character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
 
     private static string RequireCell(string value) => IsCell(value) ? value : throw new ArgumentOutOfRangeException(nameof(value));
-
-    private static string RequireToken(string value) => value is { Length: > 0 and <= 128 } &&
-        value.All(static character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_')
-        ? value : throw new ArgumentOutOfRangeException(nameof(value));
-
-    private static string RequireNonce(string value) => value is { Length: 32 } && value.All(static character => char.IsAsciiHexDigit(character))
-        ? value : throw new ArgumentOutOfRangeException(nameof(value));
 }
 
 internal sealed record NatsRuntimeLifecycleJournalReadRequest(

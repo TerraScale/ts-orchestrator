@@ -138,7 +138,7 @@ internal sealed class NativeGitOpsCellPublisher(INativeGitOpsCellTransport trans
                 0);
 
         var acknowledgement = await transport.PublishAsync(
-            $"ts.orch.v1.{cell}.desired.gitops",
+            TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.CellSpecSubject(cell),
             $"gitops:{handoff.HandoffDigest}:{cell}:{envelope.WriterEpoch.Value}",
             message,
             cancellationToken);

@@ -3,12 +3,13 @@ using System.Text;
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Messaging;
 
 public sealed class GlobalNatsTopology
 {
-    private const string Root = "ts.orch.v1.global";
+    private const string Root = NatsSubjectTaxonomy.GlobalRoot;
     public const string CellSpecStream = "GLOBAL_SPEC";
     public const string CiStream = "GLOBAL_CI";
     public const string CiSubject = $"{Root}.ci.forgejo";

@@ -96,7 +96,8 @@ public sealed class NatsRuntime : IAsyncDisposable
             clientOptions = clientOptions with
             {
                 AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile },
-                InboxPrefix = $"ts.orch.v1.{options.Cell}.internal.reply.{NatsCredentialFile.PublicKey(options.NatsNKeyFile)}"
+                InboxPrefix = TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.ControllerInboxPrefix(
+                    options.Cell, NatsCredentialFile.PublicKey(options.NatsNKeyFile))
             };
         }
         if (options.NatsTls is not null)

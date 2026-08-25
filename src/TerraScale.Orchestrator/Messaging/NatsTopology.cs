@@ -1,12 +1,13 @@
 using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Messaging;
 
 public sealed record NatsTopology(string Cell, int Replicas, string Instance = "local")
 {
-    private string Root => $"ts.orch.v1.{Cell}";
+    private string Root => NatsSubjectTaxonomy.RegionalRoot(Cell);
 
     public string HealthSubject => $"{Root}.query.health";
 

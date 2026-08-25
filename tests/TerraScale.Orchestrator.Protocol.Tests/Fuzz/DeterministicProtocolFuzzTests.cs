@@ -115,6 +115,8 @@ public sealed class DeterministicProtocolFuzzTests
             "TerraScale.Orchestrator.Protocol.CommandEnvelopeValidator.Validate",
             "TerraScale.Orchestrator.Protocol.DeliveryAttempt.TryCreate",
             "TerraScale.Orchestrator.Protocol.DesiredGeneration.TryCreate",
+            "TerraScale.Orchestrator.Protocol.Messaging.MessageIdentityToken.TryCreate",
+            "TerraScale.Orchestrator.Protocol.Messaging.MessagingEnvelopeValidator.Validate",
             "TerraScale.Orchestrator.Protocol.OpaquePayload.CopyFrom",
             "TerraScale.Orchestrator.Protocol.OpaqueSignature.TryCopyFrom",
             "TerraScale.Orchestrator.Protocol.PayloadDigest.TryCopyFrom",
@@ -142,6 +144,7 @@ public sealed class DeterministicProtocolFuzzTests
             "TerraScale.Orchestrator.Protocol.Subjects.SubjectPermissionPolicy.Authorize",
         });
         await Assert.That(default(CommandValidationResult).IsValid).IsFalse();
+        await Assert.That(default(TerraScale.Orchestrator.Protocol.Messaging.MessagingEnvelopeResult).IsAccepted).IsFalse();
         await Assert.That(default(SubjectPermissionDecision).IsAllowed).IsFalse();
     }
 

@@ -97,7 +97,7 @@ internal sealed class NatsNativeGitOpsGlobalHandoffTransport(NatsClient client)
 internal sealed class NativeGitOpsGlobalHandoffPublisher(INativeGitOpsGlobalHandoffTransport transport)
 {
     internal const string Stream = "GLOBAL_SPEC";
-    private const string SubjectPrefix = "ts.orch.v1.global.desired.gitops";
+    private const string SubjectPrefix = TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.GlobalCellSpecPrefix;
 
     internal async Task<NativeGitOpsGlobalHandoffPublishReceipt> PublishAsync(
         NativeGitOpsPreparedHandoff handoff,
