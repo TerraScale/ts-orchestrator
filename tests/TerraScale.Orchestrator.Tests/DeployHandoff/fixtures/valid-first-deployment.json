@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "operationId": "deploy-op-26-first-deployment",
+  "source": {
+    "repository": "TerraScale/TerraScale.Orchestrator",
+    "commit": "26d399281ef72fa9a216919cf339cf57792f9af9",
+    "treeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "artifact": {
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "manifestDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "kind": "service",
+    "architecture": "linux/amd64"
+  },
+  "target": {
+    "service": "terrascale-orchestrator",
+    "environment": "development",
+    "regions": ["gru"]
+  },
+  "configurationRevision": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "migrationRevision": null,
+  "requestedBy": "ci-bot@terrascale.internal",
+  "reason": "orchestrator-26 first-deployment fixture with no prior artifact",
+  "informational": {
+    "notes": "first deployment: rollback omitted by design",
+    "notificationChannels": []
+  }
+}

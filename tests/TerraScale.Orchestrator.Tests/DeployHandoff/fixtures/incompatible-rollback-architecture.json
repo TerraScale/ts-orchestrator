@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "operationId": "deploy-op-26-rollback-architecture-mismatch",
+  "source": {
+    "repository": "TerraScale/TerraScale.Orchestrator",
+    "commit": "26d399281ef72fa9a216919cf339cf57792f9af9",
+    "treeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "artifact": {
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "manifestDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "kind": "service",
+    "architecture": "linux/amd64"
+  },
+  "rollback": {
+    "artifactDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "manifestDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "kind": "service",
+    "architecture": "linux/arm64"
+  },
+  "target": {
+    "service": "terrascale-orchestrator",
+    "environment": "development",
+    "regions": ["gru", "sfo"]
+  },
+  "configurationRevision": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "migrationRevision": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "requestedBy": "ci-bot@terrascale.internal",
+  "reason": "orchestrator-26 fixture: rollback artifact cannot run on the target architecture"
+}
