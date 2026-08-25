@@ -308,6 +308,31 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
+    public async Task GracefulShutdownTiersCoverEveryResourceExactlyOnceInDependencyOrder()
+    {
+        var topology = DevelopmentTopology.CreateRegional();
+        var order = DevelopmentProcessSupervisor.ShutdownTierOrder();
+
+        // Tier roles stop in strict order: workload consumers, then TerraBase,
+        // then NATS. This prevents services from writing to TerraBase/NATS that
+        // are already gone during lab disposal (DevHost fingerprint 6c66e5034ade).
+        await Assert.That(order)
+            .IsEquivalentTo(["-dashboard", "-platform", "-authentication", "-controller-", "-terrabase-", "-control-nats-", "-product-nats-"]);
+        await Assert.That(string.Join('|', order)).IsEqualTo(
+            "-dashboard|-platform|-authentication|-controller-|-terrabase-|-control-nats-|-product-nats-");
+
+        // Every topology resource matches exactly one tier so graceful teardown
+        // never skips a running container (the pod force-removal then only acts
+        // as the bounded fallback).
+        var resources = topology.Cells.SelectMany(cell => cell.Resources).ToArray();
+        foreach (var resource in resources)
+        {
+            var matches = order.Count(tier => resource.Name.Contains(tier, StringComparison.Ordinal));
+            await Assert.That(matches).IsEqualTo(1).Because($"resource '{resource.Name}' matched {matches} shutdown tiers");
+        }
+    }
+
+    [Test]
     public async Task TerraBaseServerArgumentsRaiseClusterTimeoutsForLabColdStart()
     {
         var resource = DevelopmentTopology.CreateRegional().Cells[0]
