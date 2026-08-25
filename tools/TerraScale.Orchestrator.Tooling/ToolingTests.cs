@@ -104,6 +104,7 @@ internal static class ToolingTests
             ("development evidence bounded execution", DevelopmentEvidenceBounds),
             ("development bounded process observation", DevelopmentBoundedProcessObservation),
             ("development validation lease", DevelopmentValidationLease),
+            ("development validation lease recovers stale holder", DevelopmentValidationLeaseRecoversStaleHolder),
             ("workspace topology lease", DevelopmentWorkspaceTopologyLease),
         };
 
@@ -493,6 +494,16 @@ internal static class ToolingTests
         var scope = $"tooling-test-{Guid.NewGuid():N}";
         using var lease = LocalValidationLease.Acquire(scope);
         AssertThrows<InvalidOperationException>(() => LocalValidationLease.Acquire(scope));
+    }
+
+    private static void DevelopmentValidationLeaseRecoversStaleHolder()
+    {
+        var scope = $"tooling-test-{Guid.NewGuid():N}";
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"terrascale-orchestrator-validation-{scope}.lock");
+        File.WriteAllText(path, "999999999");
+        using var lease = LocalValidationLease.Acquire(scope);
     }
 
     private static void DevelopmentWorkspaceTopologyLease()
