@@ -108,7 +108,9 @@ public sealed class NatsControlR3L0cTests
         var endpoint = $"tls://127.0.0.1:{fixture.ClientPorts[0]}";
         var directoryConfiguration = new GlobalDirectoryNatsConfiguration(
             endpoint,
-            fixture.CellDirectoryPublisher.NKeyFile,
+            NatsAuthenticationFiles.FromCredentialsFile(
+                fixture.CellDirectoryPublisher.CredentialsFile,
+                "TEST_GLOBAL_DIRECTORY"),
             new(
                 fixture.CaFile,
                 fixture.CellDirectoryPublisher.CertificateFile,
@@ -117,7 +119,9 @@ public sealed class NatsControlR3L0cTests
             "sfo");
         var serviceConfiguration = new GlobalDirectoryServiceNatsConfiguration(
             endpoint,
-            fixture.CellDirectoryService.NKeyFile,
+            NatsAuthenticationFiles.FromCredentialsFile(
+                fixture.CellDirectoryService.CredentialsFile,
+                "TEST_GLOBAL_DIRECTORY_SERVICE"),
             new(
                 fixture.CaFile,
                 fixture.CellDirectoryService.CertificateFile,
@@ -212,7 +216,9 @@ public sealed class NatsControlR3L0cTests
         var endpoint = $"tls://127.0.0.1:{fixture.ClientPorts[0]}";
         var configuration = new GlobalAuthorityNatsConfiguration(
             endpoint,
-            fixture.Authority.NKeyFile,
+            NatsAuthenticationFiles.FromCredentialsFile(
+                fixture.Authority.CredentialsFile,
+                "TEST_GLOBAL_AUTHORITY"),
             new(
                 fixture.CaFile,
                 fixture.Authority.CertificateFile,

@@ -187,7 +187,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             Url = configuration.Url,
             RetryOnInitialConnect = false,
             RequestTimeout = TimeSpan.FromSeconds(15),
-            AuthOpts = new NatsAuthOpts { NKeyFile = configuration.NKeyFile },
+            AuthOpts = configuration.Authentication.Options,
             TlsOpts = new NatsTlsOpts
             {
                 Mode = TlsMode.Require,

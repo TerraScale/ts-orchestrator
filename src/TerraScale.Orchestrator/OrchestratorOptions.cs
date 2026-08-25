@@ -72,6 +72,7 @@ public sealed record OrchestratorOptions(
             environment("TS_ORCH_NATS_TLS_KEY_FILE")
         };
         var globalNkey = environment("TS_ORCH_GLOBAL_NATS_NKEY_FILE");
+        var globalCredentials = environment("TS_ORCH_GLOBAL_NATS_CREDENTIALS_FILE");
         var globalTlsValues = new[]
         {
             environment("TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"),
@@ -79,6 +80,7 @@ public sealed record OrchestratorOptions(
             environment("TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE")
         };
         var globalDirectoryNkey = environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE");
+        var globalDirectoryCredentials = environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_CREDENTIALS_FILE");
         var globalDirectoryTlsValues = new[]
         {
             environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE"),
@@ -86,6 +88,7 @@ public sealed record OrchestratorOptions(
             environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE")
         };
         var globalDirectoryServiceNkey = environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE");
+        var globalDirectoryServiceCredentials = environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE");
         var globalDirectoryServiceTlsValues = new[]
         {
             environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE"),
@@ -111,9 +114,9 @@ public sealed record OrchestratorOptions(
         };
         RejectUnownedCredentials(
             command, controllerNkey, controllerTlsValues,
-            environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey, globalTlsValues,
-            environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryTlsValues,
-            environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey, globalDirectoryServiceTlsValues,
+            environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey, globalCredentials, globalTlsValues,
+            environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryCredentials, globalDirectoryTlsValues,
+            environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey, globalDirectoryServiceCredentials, globalDirectoryServiceTlsValues,
             infrastructureNkey, infrastructureTlsValues, journalValues);
         var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check;
         var natsNKeyFile = controllerCredentialsRequired
@@ -178,21 +181,21 @@ public sealed record OrchestratorOptions(
         }
         var globalNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey,
+                environment("TS_ORCH_GLOBAL_NATS_URL"), globalNkey, globalCredentials,
                 globalTlsValues[0], globalTlsValues[1], globalTlsValues[2],
                 replicas,
                 cell)
             : null;
         var globalDirectoryNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalDirectoryNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey,
+                environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryCredentials,
                 globalDirectoryTlsValues[0], globalDirectoryTlsValues[1], globalDirectoryTlsValues[2],
                 replicas,
                 cell)
             : null;
         var globalDirectoryServiceNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalDirectoryServiceNatsConfiguration.Resolve(
-                environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey,
+                environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL"), globalDirectoryServiceNkey, globalDirectoryServiceCredentials,
                 globalDirectoryServiceTlsValues[0], globalDirectoryServiceTlsValues[1], globalDirectoryServiceTlsValues[2],
                 replicas,
                 cell)
@@ -398,12 +401,15 @@ public sealed record OrchestratorOptions(
         IReadOnlyList<string?> controllerTls,
         string? globalUrl,
         string? globalNkey,
+        string? globalCredentials,
         IReadOnlyList<string?> globalTls,
         string? globalDirectoryUrl,
         string? globalDirectoryNkey,
+        string? globalDirectoryCredentials,
         IReadOnlyList<string?> globalDirectoryTls,
         string? globalDirectoryServiceUrl,
         string? globalDirectoryServiceNkey,
+        string? globalDirectoryServiceCredentials,
         IReadOnlyList<string?> globalDirectoryServiceTls,
         string? infrastructureNkey,
         IReadOnlyList<string?> infrastructureTls,
@@ -413,12 +419,15 @@ public sealed record OrchestratorOptions(
             controllerTls.Any(static value => !string.IsNullOrWhiteSpace(value)) ||
             !string.IsNullOrWhiteSpace(globalUrl) ||
             !string.IsNullOrWhiteSpace(globalNkey) ||
+            !string.IsNullOrWhiteSpace(globalCredentials) ||
             globalTls.Any(static value => !string.IsNullOrWhiteSpace(value)) ||
             !string.IsNullOrWhiteSpace(globalDirectoryUrl) ||
             !string.IsNullOrWhiteSpace(globalDirectoryNkey) ||
+            !string.IsNullOrWhiteSpace(globalDirectoryCredentials) ||
             globalDirectoryTls.Any(static value => !string.IsNullOrWhiteSpace(value)) ||
             !string.IsNullOrWhiteSpace(globalDirectoryServiceUrl) ||
             !string.IsNullOrWhiteSpace(globalDirectoryServiceNkey) ||
+            !string.IsNullOrWhiteSpace(globalDirectoryServiceCredentials) ||
             globalDirectoryServiceTls.Any(static value => !string.IsNullOrWhiteSpace(value));
         var hasInfrastructure = !string.IsNullOrWhiteSpace(infrastructureNkey) || infrastructureTls.Any(static value => !string.IsNullOrWhiteSpace(value));
         var hasJournal = journal.Any(static value => !string.IsNullOrWhiteSpace(value));
@@ -444,22 +453,22 @@ public sealed record OrchestratorOptions(
         Messaging.GlobalDirectoryNatsConfiguration? directory,
         Messaging.GlobalDirectoryServiceNatsConfiguration? service)
     {
-        var identities = new List<(string Name, string NKey, Messaging.NatsTlsFiles Tls)>();
+        var identities = new List<(string Name, string PublicKey, Messaging.NatsTlsFiles Tls)>();
         if (regionalNkey is not null && regionalTls is not null)
-            identities.Add(("regional control", regionalNkey, regionalTls));
+            identities.Add(("regional control", Messaging.NatsCredentialFile.PublicKey(regionalNkey), regionalTls));
         if (authority is not null)
-            identities.Add(("global authority", authority.NKeyFile, authority.Tls));
+            identities.Add(("global authority", authority.Authentication.PublicKey, authority.Tls));
         if (directory is not null)
-            identities.Add(("global directory", directory.NKeyFile, directory.Tls));
+            identities.Add(("global directory", directory.Authentication.PublicKey, directory.Tls));
         if (service is not null)
-            identities.Add(("global directory service", service.NKeyFile, service.Tls));
+            identities.Add(("global directory service", service.Authentication.PublicKey, service.Tls));
 
         for (var first = 0; first < identities.Count; first++)
         for (var second = first + 1; second < identities.Count; second++)
         {
             var left = identities[first];
             var right = identities[second];
-            if (Messaging.NatsCredentialFile.SameIdentity(left.NKey, right.NKey) ||
+            if (left.PublicKey == right.PublicKey ||
                 left.Tls.SameIdentity(right.Tls))
                 throw new ArgumentException(
                     $"{left.Name} and {right.Name} NATS identities must be distinct.");
