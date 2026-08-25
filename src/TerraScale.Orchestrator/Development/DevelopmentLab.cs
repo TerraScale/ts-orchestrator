@@ -98,6 +98,8 @@ public static class DevelopmentLab
             DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
             DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)),
             options.Instance);
+        var commandIdentity = DevelopmentCommandIdentity.Create(
+            DevelopmentGuards.RequireLabOption(options.DataDirectory, nameof(options.DataDirectory)));
         try
         {
             await using (supervisor)
@@ -149,7 +151,8 @@ public static class DevelopmentLab
                     supervisor,
                     topology,
                     natsSecurity,
-                    DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)));
+                    DevelopmentGuards.RequireLabOption(options.WorkspaceRoot, nameof(options.WorkspaceRoot)),
+                    commandIdentity);
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
                 supervisor.ThrowIfAnyExited();
                 if (HasProductWorkloads(topology))
@@ -4797,7 +4800,8 @@ public static class DevelopmentLab
         DevelopmentProcessSupervisor supervisor,
         DevelopmentTopology topology,
         DevelopmentNatsSecurity natsSecurity,
-        string workspaceRoot)
+        string workspaceRoot,
+        DevelopmentCommandIdentity commandIdentity)
     {
         var executable = Environment.ProcessPath
             ?? throw new InvalidOperationException("The current Orchestrator executable path is unavailable.");
@@ -4823,6 +4827,8 @@ public static class DevelopmentLab
                         ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.CaFile,
                         ["TS_ORCH_NATS_TLS_CERT_FILE"] = tls.CertificateFile,
                         ["TS_ORCH_NATS_TLS_KEY_FILE"] = tls.KeyFile,
+                        ["TS_ORCH_COMMAND_SIGNING_KEY_FILE"] = commandIdentity.PrivateKeyFile,
+                        ["TS_ORCH_COMMAND_TRUST_KEY_FILES"] = commandIdentity.PublicKeyFile,
                         ["TS_ORCH_INSTANCE"] = ControllerInstance(controller.Replica)
                     });
             }

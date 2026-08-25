@@ -172,7 +172,8 @@ remain the responsibility of the managed Alloy/Collector role.
 Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
 
 The legacy `TS_ORCH_GLOBAL_NATS_*` configuration is a GRU-only global-authority
-alias. It requires R3, a `tls://` endpoint, a valid private user NKey seed, and
+alias. It requires R3, a `tls://` endpoint, either a valid private user NKey seed
+or an owner-private NATS user credentials file, and
 a complete mTLS identity distinct from the regional account. The authority
 runtime owns `GLOBAL_SPEC`, `ORCH_LEADERS`, releases, CI, GitOps, and its
 Object Store buckets. It does not create, reconcile, or read `GLOBAL_CELLS`.
@@ -187,6 +188,10 @@ TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE=/run/credentials/global-controller.pem \
 TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE=/run/credentials/global-controller-key.pem \
 terrascale-orchestrator check
 ```
+
+Operator-JWT clusters use `TS_ORCH_GLOBAL_NATS_CREDENTIALS_FILE` instead of
+`TS_ORCH_GLOBAL_NATS_NKEY_FILE`. The global authority permission JWT requires
+the control servers to set `max_control_line` to at least `65536`.
 
 Supplying any subset, reusing either regional identity, using plaintext, or
 configuring fewer than three replicas fails before the global connection.
@@ -205,6 +210,9 @@ TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE=/run/credentials/global-directory-key
 terrascale-orchestrator run
 ```
 
+Operator-JWT clusters use `TS_ORCH_GLOBAL_DIRECTORY_NATS_CREDENTIALS_FILE`
+instead of `TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE`.
+
 On GRU, the optional read-only query service uses another complete identity.
 It exports only `ts.orch.v1.global.query.cells` and publishes service replies
 through the `_R_.>` response permission. The service cannot read or mutate
@@ -218,6 +226,10 @@ TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE=/run/credentials/global-dire
 TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE=/run/credentials/global-directory-service-key.pem \
 terrascale-orchestrator run
 ```
+
+Operator-JWT clusters use
+`TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE` instead of the
+corresponding NKey file setting.
 
 The equivalent typed runtime JSON uses `globalDirectoryNats*` and
 `globalDirectoryServiceNats*` fields. The legacy `globalNats*` fields remain

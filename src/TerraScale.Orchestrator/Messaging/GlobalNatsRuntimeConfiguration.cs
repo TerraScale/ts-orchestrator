@@ -13,7 +13,7 @@ public sealed class GlobalDirectoryNatsConfiguration
         string nkeyFile,
         NatsTlsFiles tls,
         string cell)
-        : this(url, nkeyFile, tls, 3, cell)
+        : this(url, NatsAuthenticationFiles.FromNKeyFile(nkeyFile), tls, 3, cell)
     {
     }
 
@@ -23,11 +23,29 @@ public sealed class GlobalDirectoryNatsConfiguration
         NatsTlsFiles tls,
         int replicas,
         string cell)
+        : this(url, NatsAuthenticationFiles.FromNKeyFile(nkeyFile), tls, replicas, cell)
+    {
+    }
+
+    internal GlobalDirectoryNatsConfiguration(
+        string url,
+        NatsAuthenticationFiles authentication,
+        NatsTlsFiles tls,
+        string cell)
+        : this(url, authentication, tls, 3, cell)
+    {
+    }
+
+    internal GlobalDirectoryNatsConfiguration(
+        string url,
+        NatsAuthenticationFiles authentication,
+        NatsTlsFiles tls,
+        int replicas,
+        string cell)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
             throw new ArgumentException("The global directory NATS URL must be an absolute tls:// URL.", nameof(url));
-        if (string.IsNullOrWhiteSpace(nkeyFile))
-            throw new ArgumentException("The global directory NATS NKey file is required.", nameof(nkeyFile));
+        ArgumentNullException.ThrowIfNull(authentication);
         ArgumentNullException.ThrowIfNull(tls);
         if (replicas != 3)
             throw new ArgumentException("The global directory requires exactly three replicas.", nameof(replicas));
@@ -35,14 +53,14 @@ public sealed class GlobalDirectoryNatsConfiguration
             throw new ArgumentException("The global directory cell is invalid.", nameof(cell));
 
         Url = uri.ToString();
-        NKeyFile = nkeyFile;
+        Authentication = authentication;
         Tls = tls;
         Replicas = replicas;
         Cell = cell;
     }
 
     internal string Url { get; }
-    internal string NKeyFile { get; }
+    internal NatsAuthenticationFiles Authentication { get; }
     internal NatsTlsFiles Tls { get; }
     internal int Replicas { get; }
     internal string Cell { get; }
@@ -57,15 +75,28 @@ public sealed class GlobalDirectoryNatsConfiguration
         string? certificateFile,
         string? keyFile,
         int replicas,
+        string cell) => Resolve(
+            url, nkeyFile, null, caFile, certificateFile, keyFile, replicas, cell);
+
+    internal static GlobalDirectoryNatsConfiguration? Resolve(
+        string? url,
+        string? nkeyFile,
+        string? credentialsFile,
+        string? caFile,
+        string? certificateFile,
+        string? keyFile,
+        int replicas,
         string cell)
     {
-        ValidateCell(cell);
-        var values = new[] { url, nkeyFile, caFile, certificateFile, keyFile };
+        var values = new[] { url, nkeyFile, credentialsFile, caFile, certificateFile, keyFile };
         var supplied = values.Count(static value => !string.IsNullOrWhiteSpace(value));
         if (supplied == 0) return null;
-        if (supplied != values.Length)
+        ValidateCell(cell);
+        var authentication = NatsAuthenticationFiles.Resolve(
+            nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_DIRECTORY_NATS");
+        if (url is null || authentication is null || caFile is null || certificateFile is null || keyFile is null)
             throw new ArgumentException(
-                "Global directory NATS requires URL, NKey, CA, certificate, and key together.");
+                "Global directory NATS requires URL, authentication, CA, certificate, and key together.");
         if (replicas != 3)
             throw new ArgumentException("Global directory NATS requires exactly three replicas.");
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
@@ -73,7 +104,7 @@ public sealed class GlobalDirectoryNatsConfiguration
 
         return new(
             uri.ToString(),
-            NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE")!,
+            authentication,
             NatsTlsFiles.Resolve(
                 caFile,
                 certificateFile,
@@ -104,6 +135,16 @@ public sealed class GlobalDirectoryServiceNatsConfiguration
         NatsTlsFiles tls,
         int replicas,
         string cell)
+        : this(url, NatsAuthenticationFiles.FromNKeyFile(nkeyFile), tls, replicas, cell)
+    {
+    }
+
+    internal GlobalDirectoryServiceNatsConfiguration(
+        string url,
+        NatsAuthenticationFiles authentication,
+        NatsTlsFiles tls,
+        int replicas,
+        string cell)
     {
         ValidateCell(cell);
         if (cell != "gru")
@@ -111,21 +152,20 @@ public sealed class GlobalDirectoryServiceNatsConfiguration
                 "The global directory service identity is GRU-only.", nameof(cell));
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
             throw new ArgumentException("The global directory service NATS URL must be an absolute tls:// URL.", nameof(url));
-        if (string.IsNullOrWhiteSpace(nkeyFile))
-            throw new ArgumentException("The global directory service NATS NKey file is required.", nameof(nkeyFile));
+        ArgumentNullException.ThrowIfNull(authentication);
         ArgumentNullException.ThrowIfNull(tls);
         if (replicas != 3)
             throw new ArgumentException("The global directory service requires exactly three replicas.", nameof(replicas));
 
         Url = uri.ToString();
-        NKeyFile = nkeyFile;
+        Authentication = authentication;
         Tls = tls;
         Replicas = replicas;
         Cell = cell;
     }
 
     internal string Url { get; }
-    internal string NKeyFile { get; }
+    internal NatsAuthenticationFiles Authentication { get; }
     internal NatsTlsFiles Tls { get; }
     internal int Replicas { get; }
     internal string Cell { get; }
@@ -140,22 +180,35 @@ public sealed class GlobalDirectoryServiceNatsConfiguration
         string? certificateFile,
         string? keyFile,
         int replicas,
+        string cell) => Resolve(
+            url, nkeyFile, null, caFile, certificateFile, keyFile, replicas, cell);
+
+    internal static GlobalDirectoryServiceNatsConfiguration? Resolve(
+        string? url,
+        string? nkeyFile,
+        string? credentialsFile,
+        string? caFile,
+        string? certificateFile,
+        string? keyFile,
+        int replicas,
         string cell)
     {
+        var values = new[] { url, nkeyFile, credentialsFile, caFile, certificateFile, keyFile };
+        var supplied = values.Count(static value => !string.IsNullOrWhiteSpace(value));
+        if (supplied == 0) return null;
         ValidateCell(cell);
         if (cell != "gru")
             throw new ArgumentException(
                 "The global directory service identity is GRU-only.", nameof(cell));
-        var values = new[] { url, nkeyFile, caFile, certificateFile, keyFile };
-        var supplied = values.Count(static value => !string.IsNullOrWhiteSpace(value));
-        if (supplied == 0) return null;
-        if (supplied != values.Length)
+        var authentication = NatsAuthenticationFiles.Resolve(
+            nkeyFile, credentialsFile, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS");
+        if (url is null || authentication is null || caFile is null || certificateFile is null || keyFile is null)
             throw new ArgumentException(
-                "Global directory service NATS requires URL, NKey, CA, certificate, and key together.");
+                "Global directory service NATS requires URL, authentication, CA, certificate, and key together.");
 
         return new(
             url!,
-            NatsCredentialFile.Resolve(nkeyFile, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE")!,
+            authentication,
             NatsTlsFiles.Resolve(
                 caFile,
                 certificateFile,
@@ -185,25 +238,34 @@ internal sealed class GlobalAuthorityNatsConfiguration
         NatsTlsFiles tls,
         int replicas,
         string cell)
+        : this(url, NatsAuthenticationFiles.FromNKeyFile(nkeyFile), tls, replicas, cell)
+    {
+    }
+
+    internal GlobalAuthorityNatsConfiguration(
+        string url,
+        NatsAuthenticationFiles authentication,
+        NatsTlsFiles tls,
+        int replicas,
+        string cell)
     {
         GlobalNatsConfiguration.ValidateLegacyAuthorityAlias(cell);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
             throw new ArgumentException("The global authority NATS URL must be an absolute tls:// URL.", nameof(url));
-        if (string.IsNullOrWhiteSpace(nkeyFile))
-            throw new ArgumentException("The global authority NATS NKey file is required.", nameof(nkeyFile));
+        ArgumentNullException.ThrowIfNull(authentication);
         ArgumentNullException.ThrowIfNull(tls);
         if (replicas != 3)
             throw new ArgumentException("The global authority requires exactly three replicas.", nameof(replicas));
 
         Url = uri.ToString();
-        NKeyFile = nkeyFile;
+        Authentication = authentication;
         Tls = tls;
         Replicas = replicas;
         Cell = cell;
     }
 
     internal string Url { get; }
-    internal string NKeyFile { get; }
+    internal NatsAuthenticationFiles Authentication { get; }
     internal NatsTlsFiles Tls { get; }
     internal int Replicas { get; }
     internal string Cell { get; }
@@ -218,7 +280,7 @@ internal sealed class GlobalAuthorityNatsConfiguration
         ArgumentNullException.ThrowIfNull(configuration);
         return new(
             configuration.Url,
-            configuration.NKeyFile,
+            configuration.Authentication,
             configuration.Tls,
             3,
             cell);

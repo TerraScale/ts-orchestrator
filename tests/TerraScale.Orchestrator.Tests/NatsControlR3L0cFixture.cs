@@ -53,6 +53,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity controller,
         NatsControlR3L0cIdentity controllerTwo,
         NatsControlR3L0cIdentity infrastructure,
+        NatsControlR3L0cIdentity globalDirectoryInfrastructure,
         NatsControlR3L0cIdentity journalWriter,
         NatsControlR3L0cIdentity cellDirectoryPublisher,
         NatsControlR3L0cIdentity cellDirectoryReader,
@@ -78,6 +79,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         Controller = controller;
         ControllerTwo = controllerTwo;
         Infrastructure = infrastructure;
+        GlobalDirectoryInfrastructure = globalDirectoryInfrastructure;
         JournalWriter = journalWriter;
         CellDirectoryPublisher = cellDirectoryPublisher;
         CellDirectoryReader = cellDirectoryReader;
@@ -113,6 +115,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     public NatsControlR3L0cIdentity ControllerTwo { get; }
 
     public NatsControlR3L0cIdentity Infrastructure { get; }
+
+    public NatsControlR3L0cIdentity GlobalDirectoryInfrastructure { get; }
 
     public NatsControlR3L0cIdentity JournalWriter { get; }
 
@@ -228,6 +232,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.Controller,
                 identities.ControllerTwo,
                 identities.Infrastructure,
+                identities.GlobalDirectoryInfrastructure,
                 identities.JournalWriter,
                 identities.CellDirectoryPublisher,
                 identities.CellDirectoryReader,
@@ -346,7 +351,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
     public async Task ProvisionGlobalCellDirectoryAsync(CancellationToken cancellationToken = default)
     {
-        await using var infrastructure = await ConnectAsync(Infrastructure, cancellationToken: cancellationToken);
+        await using var infrastructure = await ConnectAsync(
+            GlobalDirectoryInfrastructure,
+            cancellationToken: cancellationToken);
         var stores = infrastructure.CreateJetStreamContext().CreateKeyValueStoreContext();
         await RetryNatsAsync(
             async () => _ = await stores.CreateOrUpdateStoreAsync(
@@ -680,6 +687,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             server_name: "r3-l0c-{{member + 1}}"
             host: "127.0.0.1"
             port: {{clientPort}}
+            max_control_line: 65536
             operator: "{{operatorJwtFile}}"
             resolver: MEMORY
             resolver_preload: {
@@ -834,6 +842,15 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             Role.Infrastructure,
             0,
             now);
+        var globalDirectoryInfrastructure = CreateUser(
+            credentials,
+            pki,
+            globalDirectoryAccountSeed,
+            globalDirectoryAccountPublicKey,
+            "global-directory-infrastructure",
+            Role.GlobalDirectoryInfrastructure,
+            0,
+            now);
         var journalWriter = CreateUser(
             credentials,
             pki,
@@ -914,6 +931,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             controller,
             controllerTwo,
             infrastructure,
+            globalDirectoryInfrastructure,
             journalWriter,
             cellDirectoryPublisher,
             cellDirectoryReader,
@@ -1166,6 +1184,13 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.internal.runtime-lifecycle-journal.write",
                     "$SRV.>",
                 ]),
+            Role.GlobalDirectoryInfrastructure => new(
+                [
+                    "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS",
+                    "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS",
+                    "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
+                ],
+                ["_INBOX.>"]),
             Role.CellDirectoryPublisher => From(
                 GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryPublisher)),
             Role.CellDirectoryReader => From(
@@ -1274,6 +1299,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         foreach (var name in new[]
                  {
                      "controller-1", "controller-2", "infrastructure", "journal-writer",
+                     "global-directory-infrastructure",
                      "cell-directory-publisher-sfo", "cell-directory-reader-sfo",
                      "cell-directory-service-gru", "global-authority", "operator-read", "wrong-account"
                  })
@@ -1501,6 +1527,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity Controller,
         NatsControlR3L0cIdentity ControllerTwo,
         NatsControlR3L0cIdentity Infrastructure,
+        NatsControlR3L0cIdentity GlobalDirectoryInfrastructure,
         NatsControlR3L0cIdentity JournalWriter,
         NatsControlR3L0cIdentity CellDirectoryPublisher,
         NatsControlR3L0cIdentity CellDirectoryReader,
@@ -1517,6 +1544,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     {
         Controller,
         Infrastructure,
+        GlobalDirectoryInfrastructure,
         JournalWriter,
         CellDirectoryPublisher,
         CellDirectoryReader,

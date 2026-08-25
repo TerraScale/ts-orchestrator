@@ -51,7 +51,7 @@ public sealed class GlobalNatsRuntimeSplitTests
                 3,
                 "sfo"))
             .Throws<ArgumentException>();
-        await Assert.That(() => GlobalDirectoryServiceNatsConfiguration.Resolve(
+        await Assert.That(GlobalDirectoryServiceNatsConfiguration.Resolve(
                 null,
                 null,
                 null,
@@ -59,7 +59,7 @@ public sealed class GlobalNatsRuntimeSplitTests
                 null,
                 3,
                 "fra"))
-            .Throws<ArgumentException>();
+            .IsNull();
     }
 
     [Test]
