@@ -179,6 +179,60 @@ public sealed class DirectDeliveryProductionAdapterTests
     }
 
     [Test]
+    public async Task A_pre_codec_journal_record_reports_the_distinct_non_replayable_remediation()
+    {
+        // End-to-end for the codec-mismatch class: durable bytes written by the previous
+        // record codec (current shape minus the receipt's manifest member) sit under the
+        // requested operationId. The coordinator's read must fail closed as
+        // journal_unavailable with the DISTINCT remediation — these bytes are not a
+        // journal-health problem and can never be replayed by this build.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var request = Request(CommitA);
+        var canonical = System.Text.Json.JsonSerializer.Serialize(new DeliveryJournalRecord(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Succeeded,
+            new DeliveryReceipt(
+                DeliveryRequest.CurrentSchemaVersion,
+                request.OperationId!,
+                DeliveryReceiptStatus.Succeeded,
+                null,
+                ArtifactDigest,
+                null,
+                new DeliveryProvenance(true, ConfigurationDigest, null),
+                new DeliveryHealth([], true),
+                new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired),
+                "audit-legacy",
+                new DeliveryErrorInfo(null, null, null),
+                ManifestDigest) with { ArtifactManifestDigest = null },
+            ArtifactDigest), DeliveryWireCodec.JsonOptions);
+        var preCodec = canonical.Replace(",\"artifactManifestDigest\":null}", "}", StringComparison.Ordinal);
+        await Assert.That(preCodec).IsNotEqualTo(canonical);
+        await ledger.CreateAsync(
+            $"direct.operation.{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(request.OperationId!)))}",
+            preCodec,
+            default);
+        var mutations = ledger.Mutations;
+        var coordinator = new DirectDeliveryService(
+            new AllowAuthorizer(),
+            new DirectDeliveryDevelopmentProvenance(),
+            new FixedResolver(new FencedTarget()),
+            new NatsDirectDeliveryJournal(new LedgerAdapter(ledger)),
+            auditIdFactory: static () => "audit-test");
+
+        var receipt = await coordinator.DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.JournalUnavailable);
+        await Assert.That(receipt.Error.Remediation).Contains("predates the current record codec");
+        await Assert.That(receipt.Error.Remediation).Contains("clear or drain");
+        await Assert.That(receipt.Error.Remediation).DoesNotContain("replays its durable progress");
+        // Fail closed without mutation: only the injected record exists, nothing was applied.
+        await Assert.That(ledger.Mutations).IsEqualTo(mutations);
+        await Assert.That(await CountKeysAsync(ledger, "direct.target.>")).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Multi_region_health_failure_rolls_back_and_journals_through_the_durable_journal()
     {
         // The durable journal must ACCEPT the full multi-region progress sequence — the
@@ -363,7 +417,7 @@ public sealed class DirectDeliveryProductionAdapterTests
             new(DeliveryRequest.CurrentSchemaVersion, "rank-5", DeliveryReceiptStatus.Failed, null, ArtifactDigest,
                 null, new DeliveryProvenance(false, null, null), new DeliveryHealth([], false),
                 new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), "audit-test",
-                new(DirectDeliveryErrorCode.HealthFailed, null, null)),
+                new(DirectDeliveryErrorCode.HealthFailed, null, null), ManifestDigest),
             ArtifactDigest,
             [new("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
         await Assert.That(await Rejects(() => journal.AppendAsync(new("rank-5", fingerprint, DeliveryJournalState.Applying,

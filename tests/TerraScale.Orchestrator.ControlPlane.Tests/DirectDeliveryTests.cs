@@ -28,6 +28,12 @@ public sealed class DirectDeliveryTests
         await Assert.That(roundTrip.Artifact).IsEqualTo(request.Artifact);
         await Assert.That(roundTrip.Target!.Regions!).IsEquivalentTo(request.Target!.Regions!);
         await Assert.That(DeliveryWireCodec.SerializeReceipt(SuccessReceipt())).DoesNotContain("secret");
+        // The receipt names BOTH artifact identities of the exact delivered artifact (AC1): the
+        // digest alone cannot prove which manifest-bearing artifact ran.
+        var receiptJson = DeliveryWireCodec.SerializeReceipt(SuccessReceipt());
+        await Assert.That(receiptJson).Contains("\"artifactDigest\":");
+        await Assert.That(receiptJson).Contains("\"artifactManifestDigest\":");
+        await Assert.That(SuccessReceipt().ArtifactManifestDigest).IsEqualTo(ValidDigest);
     }
 
     [Test]
@@ -48,6 +54,12 @@ public sealed class DirectDeliveryTests
             .IsEquivalentTo(["healthy", "healthy"]);
         await Assert.That(receipt.Provenance.Verified).IsTrue();
         await Assert.That(receipt.Health.Converged).IsTrue();
+        await Assert.That(receipt.SchemaVersion).IsEqualTo(1);
+        await Assert.That(receipt.ArtifactDigest).IsEqualTo(ArtifactDigest);
+        await Assert.That(receipt.ArtifactManifestDigest).IsEqualTo(ValidDigest);
+        await Assert.That(receipt.AuditId).IsEqualTo("audit-test");
+        await Assert.That(receipt.Provenance.ConfigurationRevision).IsEqualTo(ValidDigest);
+        await Assert.That(journal.Records[^1].Receipt).IsEqualTo(receipt);
     }
 
     [Test]
@@ -236,6 +248,34 @@ public sealed class DirectDeliveryTests
     }
 
     [Test]
+    public async Task Same_operation_id_with_a_different_configuration_or_migration_revision_fails_closed()
+    {
+        var target = new RecordingTarget();
+        var journal = new InMemoryDeliveryJournal();
+        var coordinator = Coordinator(target, journal);
+
+        _ = await coordinator.DeliverAsync(Request());
+        var configurationConflict = await coordinator.DeliverAsync(Request() with
+        {
+            ConfigurationRevision = OtherArtifactDigest,
+        });
+        var migrationConflict = await coordinator.DeliverAsync(Request() with
+        {
+            MigrationRevision = OtherArtifactDigest,
+        });
+
+        // The configuration and migration revisions are part of the canonical request
+        // fingerprint: an operationId admitted for one configuration can never be replayed
+        // against another (AC3), even though every other field is identical.
+        await Assert.That(configurationConflict.Error.Code).IsEqualTo(DirectDeliveryErrorCode.OperationConflict);
+        await Assert.That(configurationConflict.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(migrationConflict.Error.Code).IsEqualTo(DirectDeliveryErrorCode.OperationConflict);
+        await Assert.That(migrationConflict.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(target.Calls.Count(static value => value.StartsWith("apply:", StringComparison.Ordinal)))
+            .IsEqualTo(2);
+    }
+
+    [Test]
     public async Task Stale_digests_and_unverified_provenance_fail_without_mutation()
     {
         var stale = Coordinator(new RecordingTarget(), new InMemoryDeliveryJournal(),
@@ -250,6 +290,12 @@ public sealed class DirectDeliveryTests
         await Assert.That(unverifiedReceipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.ProvenanceFailed);
         await Assert.That(staleReceipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
         await Assert.That(unverifiedReceipt.Provenance.Verified).IsFalse();
+        // M2: a post-build denial still names the full artifact identity pair, exactly like the
+        // pre-change receipts named the digest — the pair rule never silently drops it.
+        await Assert.That(staleReceipt.ArtifactDigest).IsEqualTo(ArtifactDigest);
+        await Assert.That(staleReceipt.ArtifactManifestDigest).IsEqualTo(ValidDigest);
+        await Assert.That(unverifiedReceipt.ArtifactDigest).IsEqualTo(ArtifactDigest);
+        await Assert.That(unverifiedReceipt.ArtifactManifestDigest).IsEqualTo(ValidDigest);
     }
 
     [Test]
@@ -261,6 +307,31 @@ public sealed class DirectDeliveryTests
 
         await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
         await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.JournalUnavailable);
+    }
+
+    [Test]
+    public async Task A_corrupt_journal_record_fails_closed_as_unavailability_without_mutation()
+    {
+        var target = new RecordingTarget();
+        var coordinator = Coordinator(target, new CorruptJournal());
+
+        var receipt = await coordinator.DeliverAsync(Request());
+
+        // Corruption is an operational condition of the durable boundary, not a verdict on the
+        // request: it surfaces as the bounded, actionable journal_unavailable failure with a
+        // stable catalog code, and the target is never mutated on its way out.
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.JournalUnavailable);
+        await Assert.That(target.Calls).IsEmpty();
+        // A record this build's codec cannot round-trip is NOT a journal-health problem: the
+        // remediation must say the record predates the codec and cannot be replayed — never
+        // "restore journal health and retry", which can never succeed against these bytes.
+        await Assert.That(receipt.Error.Remediation).Contains("predates the current record codec");
+        await Assert.That(receipt.Error.Remediation).Contains("clear or drain");
+        await Assert.That(receipt.Error.Remediation).DoesNotContain("replays its durable progress");
+        // M2: the post-build failure receipt still names the full artifact identity pair.
+        await Assert.That(receipt.ArtifactDigest).IsEqualTo(ArtifactDigest);
+        await Assert.That(receipt.ArtifactManifestDigest).IsEqualTo(ValidDigest);
     }
 
     [Test]
@@ -1303,7 +1374,7 @@ public sealed class DirectDeliveryTests
     private static DeliveryReceipt SuccessReceipt() => new(
         1, "operation-1", DeliveryReceiptStatus.Succeeded, null, ArtifactDigest, null,
         new(true, ValidDigest, null), new([], true), new(false, null, DeliveryRollbackStatus.NotRequired),
-        "audit-test", new(null, null, null));
+        "audit-test", new(null, null, null), ValidDigest);
 
     private const string Commit = "0123456789abcdef0123456789abcdef01234567";
     private const string ValidDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -1333,6 +1404,20 @@ public sealed class DirectDeliveryTests
 
         public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
             throw new IOException("The durable delivery journal is unavailable.");
+    }
+
+    /// <summary>
+    /// A journal whose durable bytes are corrupt: the read fails before any record shape is
+    /// available, exactly like an unreadable NATS KV entry (InvalidDataException from
+    /// NatsDirectDeliveryJournal.ReadAsync).
+    /// </summary>
+    private sealed class CorruptJournal : IDeliveryJournal
+    {
+        public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
+            throw new InvalidDataException("A direct delivery journal record is invalid.");
+
+        public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
+            throw new InvalidDataException("A direct delivery journal record is invalid.");
     }
 
     private sealed class CancellingTarget : IDeliveryTarget

@@ -352,12 +352,12 @@ public sealed class NatsDirectDeliveryJournalTests
     private static DeliveryReceipt SuccessReceipt(string operationId = "operation") => new(
         1, operationId, DeliveryReceiptStatus.Succeeded, null, ArtifactDigest, null,
         new(true, ValidDigest, null), new([], true),
-        new(false, null, DeliveryRollbackStatus.NotRequired), "audit", new(null, null, null));
+        new(false, null, DeliveryRollbackStatus.NotRequired), "audit", new(null, null, null), ValidDigest);
 
     private static DeliveryReceipt FailedReceipt(string code, string operationId = "operation") => new(
         1, operationId, DeliveryReceiptStatus.Failed, null, ArtifactDigest, null,
         new(false, null, null), new([], false),
-        new(false, null, DeliveryRollbackStatus.NotRequired), "audit", new(code, null, null));
+        new(false, null, DeliveryRollbackStatus.NotRequired), "audit", new(code, null, null), ValidDigest);
 
     private static async Task<int> CountOperationsAsync(ForgejoWebhookJournalTests.TestLedger ledger)
     {
@@ -374,6 +374,98 @@ public sealed class NatsDirectDeliveryJournalTests
             Artifact = request.Artifact,
             Target = request.Target,
         });
+
+    [Test]
+    public async Task ACorruptDurableRecordFailsClosedAsABoundedJournalFailure()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger);
+        var request = Request("operation-corrupt", ArtifactDigest);
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            Fingerprint(request),
+            DeliveryJournalState.Accepted,
+            null,
+            request.Artifact!.Digest), default);
+        ledger.CorruptFirst();
+
+        // Corruption anywhere in the durable bytes (record JSON, canonical shape, or the
+        // receipt evidence section) is a typed operational failure — never a silent replay of
+        // unvalidated state, and never a mutation on the way out.
+        await Assert.That(async () => await journal.ReadAsync("operation-corrupt", default))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task ALegacyRecordUnderCapPressureFailsBoundedInsteadOfKillingEveryAppend()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        // A pre-change record: current-shape JSON minus the receipt's manifest-digest member.
+        // It deserializes but cannot round-trip canonically — exactly the durable bytes a
+        // previous record codec wrote.
+        var legacy = Request("operation-legacy", ArtifactDigest);
+        var canonical = System.Text.Json.JsonSerializer.Serialize(new DeliveryJournalRecord(
+            legacy.OperationId!,
+            Fingerprint(legacy),
+            DeliveryJournalState.Succeeded,
+            SuccessReceipt("operation-legacy") with { ArtifactManifestDigest = null },
+            legacy.Artifact!.Digest), DeliveryWireCodec.JsonOptions);
+        var preChange = canonical.Replace(",\"artifactManifestDigest\":null}", "}", StringComparison.Ordinal);
+        await Assert.That(preChange).IsNotEqualTo(canonical);
+        await ledger.CreateAsync(LegacyOperationKey("operation-legacy"), preChange, default);
+
+        // The fresh append's prune scan cannot read the legacy record: it must be retained
+        // fail-closed (never deleted) while the scan continues to the bounded cap-overflow
+        // error — not a raw InvalidDataException escaping the prune and killing every append.
+        await Assert.That(async () => await journal.AppendAsync(new(
+                "operation-fresh",
+                Fingerprint(Request("operation-fresh", ArtifactDigest)),
+                DeliveryJournalState.Accepted,
+                null,
+                ArtifactDigest), default))
+            .Throws<JournalRetentionOverflowException>();
+        // Both records survive: the unreadable legacy record was not deleted, and the fresh
+        // append itself landed before the prune surfaced the bounded overflow.
+        await Assert.That(await CountOperationsAsync(ledger)).IsEqualTo(2);
+        await Assert.That(await ledger.GetAsync(LegacyOperationKey("operation-legacy"), default))
+            .IsNotNull();
+    }
+
+    /// <summary>The journal's hashed operation key, mirrored for injecting pre-change bytes.</summary>
+    private static string LegacyOperationKey(string operationId) =>
+        $"direct.operation.{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(operationId)))}";
+
+    [Test]
+    public async Task AReceiptNamingOneArtifactIdentityWithoutTheOtherIsInvalid()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger);
+        var request = Request("operation-half-pair", ArtifactDigest);
+        var halfPair = SuccessReceipt("operation-half-pair") with { ArtifactManifestDigest = null };
+
+        await Assert.That(async () => await journal.AppendAsync(new(
+                "operation-half-pair",
+                Fingerprint(request),
+                DeliveryJournalState.Succeeded,
+                halfPair,
+                request.Artifact!.Digest), default))
+            .Throws<InvalidDataException>();
+
+        await journal.AppendAsync(new(
+            "operation-both-null",
+            Fingerprint(request),
+            DeliveryJournalState.Failed,
+            FailedReceipt(DirectDeliveryErrorCode.HealthFailed, "operation-both-null") with
+            {
+                ArtifactDigest = null,
+                ArtifactManifestDigest = null,
+            },
+            null), default);
+        var record = await journal.ReadAsync("operation-both-null", default);
+        await Assert.That(record!.Receipt!.ArtifactDigest).IsNull();
+        await Assert.That(record.Receipt.ArtifactManifestDigest).IsNull();
+    }
 
     [Test]
     public async Task ProvenanceRefusalIsBoundToCompositionModeNotTheRequestLabel()

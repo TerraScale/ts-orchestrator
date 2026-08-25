@@ -219,6 +219,146 @@ public sealed class RepositoryCiArtifactAttestationJournalTests
     }
 
     [Test]
+    public async Task LostAdmissionRaceReclaimsTheOrphanedProofObject()
+    {
+        // The race: the reader sees no pointer, a concurrent winner creates one for DIFFERENT
+        // proof bytes, and this attempt's CAS loses. The loser's content-addressed object is
+        // unreferenced by any durable pointer and must be reclaimed, not leaked forever.
+        var fixture = Create();
+        var replacement = RepositoryCiArtifactAttestation.Sign(fixture.Subject, new HashSignature(3));
+        var winnerContent = RepositoryCiArtifactAttestationJournal.Serialize(
+            RepositoryCiArtifactProofDocument.From(replacement));
+        await fixture.Objects.PutAsync(ProofObjectName(winnerContent), winnerContent, default);
+        var raced = new RepositoryCiArtifactAttestationJournal(
+            new ProofRaceLedger(winnerContent), fixture.Objects);
+
+        var loser = await raced.RecordArtifactAsync(fixture.Artifact, 7, 11, static () => true);
+
+        await Assert.That(loser)
+            .IsEqualTo(RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict);
+        // Exactly the winner's object survives: the loser's was reclaimed after the lost race.
+        await Assert.That(fixture.Objects.Values.Count).IsEqualTo(1);
+        await Assert.That(fixture.Objects.Values.Keys.Single()).IsEqualTo(ProofObjectName(winnerContent));
+        await Assert.That(fixture.Objects.Deletions).IsEqualTo(1);
+        // The durable winner still reads back intact (its object was never touched).
+        await Assert.That(await raced.ReadArtifactAsync(fixture.Subject)).IsEqualTo(replacement);
+    }
+
+    [Test]
+    public async Task LostAdmissionRaceAgainstIdenticalBytesKeepsTheSharedObject()
+    {
+        // Same-content CAS loss: the winner's pointer names the SAME content-addressed object
+        // the loser just wrote, so reclamation must keep it — deleting it would orphan the
+        // winner's durable pointer.
+        var fixture = Create();
+        var winnerContent = RepositoryCiArtifactAttestationJournal.Serialize(
+            RepositoryCiArtifactProofDocument.From(fixture.Artifact));
+        var raced = new RepositoryCiArtifactAttestationJournal(
+            new ProofRaceLedger(winnerContent), fixture.Objects);
+
+        var duplicate = await raced.RecordArtifactAsync(fixture.Artifact, 7, 11, static () => true);
+
+        await Assert.That(duplicate)
+            .IsEqualTo(RepositoryCiArtifactAttestationJournalDisposition.Duplicate);
+        await Assert.That(fixture.Objects.Values.Count).IsEqualTo(1);
+        await Assert.That(fixture.Objects.Deletions).IsEqualTo(0);
+        await Assert.That(await raced.ReadArtifactAsync(fixture.Subject)).IsEqualTo(fixture.Artifact);
+    }
+
+    [Test]
+    public async Task APointerFlippingToTheLosersContentBeforeReclaimKeepsTheObject()
+    {
+        // TOCTOU collapse: between the conflict disposition and the reclaim's delete, the
+        // durable pointer at the key is replaced by one naming the LOSER's exact content
+        // (retention pruned the winner; a same-content writer re-created it). The reclaim
+        // re-reads the pointer and must skip the delete — deleting would orphan the new
+        // winner's durable pointer.
+        var fixture = Create();
+        var winnerContent = RepositoryCiArtifactAttestationJournal.Serialize(
+            RepositoryCiArtifactProofDocument.From(
+                RepositoryCiArtifactAttestation.Sign(fixture.Subject, new HashSignature(3))));
+        var raced = new RepositoryCiArtifactAttestationJournal(
+            new ProofRaceLedger(winnerContent, flipToProposedOnReclaim: true), fixture.Objects);
+
+        var loser = await raced.RecordArtifactAsync(fixture.Artifact, 7, 11, static () => true);
+
+        await Assert.That(loser)
+            .IsEqualTo(RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict);
+        // The winner's pointer AND object were pruned before the flip, so the loser's object
+        // is the only one — and it SURVIVES the reclaim (a reclaim that deleted would leave
+        // zero objects and a dangling pointer).
+        var loserObject = RepositoryCiArtifactAttestationJournal.Serialize(
+            RepositoryCiArtifactProofDocument.From(fixture.Artifact));
+        await Assert.That(fixture.Objects.Values.Count).IsEqualTo(1);
+        await Assert.That(fixture.Objects.Values.Keys.Single()).IsEqualTo(ProofObjectName(loserObject));
+        await Assert.That(fixture.Objects.Deletions).IsEqualTo(0);
+        // The flipped pointer names the loser's content, whose object survived: it reads back.
+        await Assert.That(await raced.ReadArtifactAsync(fixture.Subject)).IsEqualTo(fixture.Artifact);
+    }
+
+    private static string ProofObjectName(byte[] content) =>
+        $"ci-artifact-proof-{Convert.ToHexStringLower(SHA256.HashData(content))}";
+
+    /// <summary>
+    /// A ledger that loses the create compare-and-set exactly like a concurrent winner: a
+    /// durable pointer for <paramref name="winnerContent"/> appears between the journal's read
+    /// and its create, so the create throws the admission conflict instead of admitting. With
+    /// <paramref name="flipToProposedOnReclaim"/>, the read AFTER the conflict handler's read
+    /// returns the PROPOSED pointer instead — simulating the winner being replaced by the
+    /// loser's own content before the reclaim's delete.
+    /// </summary>
+    private sealed class ProofRaceLedger(byte[] winnerContent, bool flipToProposedOnReclaim = false) : IForgejoDeliveryLedger
+    {
+        private readonly Dictionary<string, ForgejoDeliveryLedgerEntry> entries = new(StringComparer.Ordinal);
+        private string? proposedPointer;
+        private int readsAfterConflict;
+
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken)
+        {
+            if (entries.TryGetValue(key, out var entry) && flipToProposedOnReclaim &&
+                proposedPointer is not null && ++readsAfterConflict >= 2)
+                return Task.FromResult<ForgejoDeliveryLedgerEntry?>(new(proposedPointer, entry.Revision + 1, key));
+            return Task.FromResult(entries.GetValueOrDefault(key));
+        }
+
+        public Task<ForgejoDeliveryLedgerEntry> CreateAsync(
+            string key, string value, CancellationToken cancellationToken)
+        {
+            if (entries.ContainsKey(key)) throw new ForgejoDeliveryLedgerConflictException(new InvalidOperationException());
+            var document = RepositoryCiArtifactAttestationJournal.DeserializeProof(winnerContent);
+            var pointer = new RepositoryCiArtifactProofPointerDocument(
+                1,
+                RepositoryCiArtifactProofKind.ArtifactSignature,
+                RepositoryCiArtifactAttestation.SubjectDigest(document.Subject.Value()),
+                Convert.ToHexStringLower(SHA256.HashData(winnerContent)),
+                ProofObjectName(winnerContent),
+                7,
+                11);
+            var pointerJson = System.Text.Json.JsonSerializer.Serialize(
+                pointer,
+                RepositoryCiArtifactAttestationJournalJsonContext.Default.RepositoryCiArtifactProofPointerDocument);
+            entries[key] = new(pointerJson, 1, key);
+            proposedPointer = value;
+            throw new ForgejoDeliveryLedgerConflictException(new InvalidOperationException());
+        }
+
+        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+            string key, string value, ulong revision, CancellationToken cancellationToken) =>
+            throw new ForgejoDeliveryLedgerConflictException(new InvalidOperationException());
+
+        public async IAsyncEnumerable<string> ListKeysAsync(
+            string filter,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public Task DeleteAsync(string key, ulong revision, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
+    [Test]
     public async Task BoundedProofHistoryPrunesPointersAndTheirObjects()
     {
         var fixture = Create(cap: 2, pruneInterval: 1);

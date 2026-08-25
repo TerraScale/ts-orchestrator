@@ -263,6 +263,11 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
             receipt.OperationId != operationId || receipt.Status is not (DeliveryReceiptStatus.Succeeded or
                 DeliveryReceiptStatus.Failed or DeliveryReceiptStatus.RolledBack) ||
             receipt.ArtifactDigest is not null && !Sha256(receipt.ArtifactDigest) ||
+            receipt.ArtifactManifestDigest is not null && !Sha256(receipt.ArtifactManifestDigest) ||
+            // The deployed artifact's digest and manifest travel as a pair, exactly like the
+            // rollback target's: a receipt that names one without the other cannot prove which
+            // exact artifact (or rollback) it is about.
+            (receipt.ArtifactDigest is null) != (receipt.ArtifactManifestDigest is null) ||
             receipt.Provenance is null || receipt.Health is null || receipt.Rollback is null ||
             receipt.AuditId is not { Length: > 0 and <= DirectDeliveryCoordinator.MaximumOperationIdLength } ||
             receipt.AuditId.Any(char.IsControl) || receipt.Rollback.Status is not (DeliveryRollbackStatus.NotRequired or
@@ -391,14 +396,30 @@ internal static class DeliveryJournalRetention
             candidates.Add((key, entry.Revision));
         }
         var newestRevision = candidates.Count == 0 ? 0UL : candidates.Max(static candidate => candidate.Revision);
+        var unreadable = 0;
         foreach (var (key, revision) in candidates.OrderBy(static candidate => candidate.Revision))
         {
             if (keys.Count <= cap) return;
             if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry) continue;
-            // Retention ledgers return values independently of their keys; restore the key on
-            // the callback entry so callers can safely bind sibling anchors and object names.
-            var decision = await decide(entry with { Key = key }, newestRevision, cancellationToken)
-                .ConfigureAwait(false);
+            DeliveryJournalPruneDecision decision;
+            try
+            {
+                // Retention ledgers return values independently of their keys; restore the key on
+                // the callback entry so callers can safely bind sibling anchors and object names.
+                decision = await decide(entry with { Key = key }, newestRevision, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException)
+            {
+                // A record the decider cannot read (a pre-codec shape, or corrupted bytes) is
+                // retained fail-closed: NEVER deleted. One such record must not kill every
+                // append either — the scan continues, the unreadable record keeps counting
+                // against the cap, and the bounded overflow path below produces the operator
+                // error instead of an untyped read failure escaping the prune. Direct reads
+                // of the same record still surface the typed journal failure.
+                unreadable++;
+                continue;
+            }
             if (!decision.Prunable) continue;
             if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } current) continue;
             await retention.DeleteAsync(key, current.Revision, cancellationToken).ConfigureAwait(false);
@@ -409,8 +430,11 @@ internal static class DeliveryJournalRetention
         if (keys.Count > cap)
             throw new JournalRetentionOverflowException(
                 $"The durable delivery journal exceeded its retention cap of {cap} keys for '{keyPrefix}': " +
-                $"{keys.Count - cap} keys are {unprunableDescription} that cannot be pruned. " +
-                "Raise the retention cap or let the bounded-age horizon pass; delivery retries after operator action.");
+                $"{keys.Count - cap} keys are {unprunableDescription} that cannot be pruned" +
+                (unreadable > 0
+                    ? $" ({unreadable} could not be read by the current record codec and are retained for manual reconciliation)"
+                    : string.Empty) +
+                ". Raise the retention cap or let the bounded-age horizon pass; delivery retries after operator action.");
     }
 }
 

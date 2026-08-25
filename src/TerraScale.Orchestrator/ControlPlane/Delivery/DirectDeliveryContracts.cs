@@ -136,6 +136,12 @@ public sealed record DeliveryRollback(
     [property: JsonPropertyName("targetManifestDigest")] string? TargetManifestDigest = null);
 
 /// <summary>The redacted, durable authority returned by direct delivery.</summary>
+/// <remarks>
+/// <see cref="ArtifactDigest"/> and <see cref="ArtifactManifestDigest"/> travel as a pair — an
+/// admitted artifact always carries both identities — exactly like the rollback target's digest
+/// and manifest in <see cref="DeliveryRollback"/>. Pre-artifact failures (validation,
+/// authorization, a failed build) record neither.
+/// </remarks>
 public sealed record DeliveryReceipt(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
     [property: JsonPropertyName("operationId")] string OperationId,
@@ -147,7 +153,8 @@ public sealed record DeliveryReceipt(
     [property: JsonPropertyName("health")] DeliveryHealth Health,
     [property: JsonPropertyName("rollback")] DeliveryRollback Rollback,
     [property: JsonPropertyName("auditId")] string AuditId,
-    [property: JsonPropertyName("error")] DeliveryErrorInfo Error);
+    [property: JsonPropertyName("error")] DeliveryErrorInfo Error,
+    [property: JsonPropertyName("artifactManifestDigest")] string? ArtifactManifestDigest = null);
 
 public sealed record DeliveryAuthorizationResult(bool Authorized);
 

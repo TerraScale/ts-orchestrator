@@ -156,7 +156,52 @@ internal sealed class RepositoryCiArtifactAttestationJournal(
         {
             var observed = await ledger.GetAsync(key, cancellationToken) ??
                 throw new InvalidDataException("A concurrent artifact proof pointer disappeared.");
-            return Compare(observed, proposed);
+            var winner = DeserializePointer(observed.Value);
+            var disposition = winner.ContentDigest == proposed.ContentDigest
+                ? RepositoryCiArtifactAttestationJournalDisposition.Duplicate
+                : RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict;
+            if (disposition == RepositoryCiArtifactAttestationJournalDisposition.IdentityConflict)
+                await ReclaimOrphanedProofAsync(key, proposed, cancellationToken);
+            return disposition;
+        }
+    }
+
+    /// <summary>
+    /// Bounded GC for the content-addressed proof object this attempt wrote before losing the
+    /// admission CAS. Called only when the durable winner at the same key references DIFFERENT
+    /// proof bytes: an object name is the digest of proof bytes that embed the exact subject and
+    /// kind, so no pointer at any other key can ever name this object, and every future pointer
+    /// attempt at this key loses the same CAS against the winner. Immediately before deleting,
+    /// the durable pointer is re-read and the delete is SKIPPED when it now names our exact
+    /// content — a winner replaced between the disposition and this reclaim (retention prune
+    /// followed by a same-content recreate) makes our object the live one. The residual window
+    /// (a concurrent writer's object Put done, its pointer Create not yet durable) cannot be
+    /// closed without a fencing design and is accepted: it can leak one bounded object, never
+    /// leave a dangling pointer whose winner references different bytes. A reclaim that itself
+    /// fails is swallowed because the disposition is already a computed fact.
+    /// </summary>
+    private async Task ReclaimOrphanedProofAsync(
+        string key,
+        RepositoryCiArtifactProofPointerDocument proposed,
+        CancellationToken cancellationToken)
+    {
+        if (objects is not IDeliveryRetentionObjectStore retention) return;
+        try
+        {
+            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is { } current)
+            {
+                var pointer = DeserializePointer(current.Value);
+                if (pointer.ContentDigest == proposed.ContentDigest)
+                    return;
+            }
+            await retention.DeleteIfExistsAsync(proposed.ObjectName, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException and
+            not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            // Best-effort reclamation only: a failed re-read or delete must not change the
+            // admission outcome the durable winner already decided (a failed re-read keeps
+            // the object — the conservative side).
         }
     }
 

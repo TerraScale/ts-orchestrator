@@ -140,7 +140,8 @@ public class DirectDeliveryCoordinator
         // The constructed artifact is part of the canonical operation identity. A source-only
         // request can never silently reuse an operation for a different build output.
         if (Admit(wire with { Artifact = artifact }) is not { } built)
-            return FailureReceipt(wire, DirectDeliveryErrorCode.InvalidInput, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.InvalidInput, artifact.Digest,
+                artifactManifestDigest: artifact.ManifestDigest);
         admitted = built;
         wire = built.Wire;
         var operationId = admitted.OperationId;
@@ -153,11 +154,18 @@ public class DirectDeliveryCoordinator
         }
         catch (OperationCanceledException)
         {
-            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest, artifactManifestDigest: artifact.ManifestDigest);
         }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
-            return FailureReceipt(wire, DirectDeliveryErrorCode.JournalUnavailable, artifact.Digest);
+            // Routed through the failure-detail mapping: an unreadable durable record (a
+            // pre-codec shape or corruption) must NOT get the "restore journal health and
+            // retry" remediation — no amount of health restoration makes those bytes
+            // replayable by this build.
+            return WithJournalFailureDetail(
+                FailureReceipt(wire, DirectDeliveryErrorCode.JournalUnavailable, artifact.Digest,
+                    artifactManifestDigest: artifact.ManifestDigest),
+                exception);
         }
 
         if (existing is not null)
@@ -167,7 +175,8 @@ public class DirectDeliveryCoordinator
             // consistent with digest semantics everywhere else in this seam.
             if (!string.Equals(existing.RequestFingerprint, fingerprint, StringComparison.Ordinal) ||
                 existing.ArtifactDigest is not null && !string.Equals(existing.ArtifactDigest, artifact.Digest, StringComparison.OrdinalIgnoreCase))
-                return FailureReceipt(wire, DirectDeliveryErrorCode.OperationConflict, artifact.Digest);
+                return FailureReceipt(wire, DirectDeliveryErrorCode.OperationConflict, artifact.Digest,
+                    artifactManifestDigest: artifact.ManifestDigest);
             if (existing.Receipt is not null && !NeedsRollbackRecovery(existing) && !IsReplayableFailure(existing))
                 return existing.Receipt;
         }
@@ -175,7 +184,8 @@ public class DirectDeliveryCoordinator
         // Resolution is a dispatch boundary. A leader/takeover transition between envelope
         // validation and adapter selection must fence the operation before it can reach a target.
         if (!AuthorityIsCurrent(wire))
-            return FailureReceipt(wire, DirectDeliveryErrorCode.AuthorityFenced, artifact.Digest, provenance: null);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.AuthorityFenced, artifact.Digest,
+                provenance: null, artifactManifestDigest: artifact.ManifestDigest);
 
         IDeliveryTarget? target;
         try
@@ -184,15 +194,17 @@ public class DirectDeliveryCoordinator
         }
         catch (OperationCanceledException)
         {
-            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest, artifactManifestDigest: artifact.ManifestDigest);
         }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
-            return FailureReceipt(wire, DirectDeliveryErrorCode.UnknownTarget, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.UnknownTarget, artifact.Digest,
+                artifactManifestDigest: artifact.ManifestDigest);
         }
 
         if (target is null)
-            return FailureReceipt(wire, DirectDeliveryErrorCode.UnknownTarget, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.UnknownTarget, artifact.Digest,
+                artifactManifestDigest: artifact.ManifestDigest);
 
         DeliveryProvenanceResult provenance;
         try
@@ -201,19 +213,20 @@ public class DirectDeliveryCoordinator
         }
         catch (OperationCanceledException)
         {
-            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest, artifactManifestDigest: artifact.ManifestDigest);
         }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
             return FailureReceipt(wire, IsTransientInfrastructure(exception)
                 ? DirectDeliveryErrorCode.ProvenanceUnavailable
-                : DirectDeliveryErrorCode.ProvenanceFailed, artifact.Digest);
+                : DirectDeliveryErrorCode.ProvenanceFailed, artifact.Digest,
+                artifactManifestDigest: artifact.ManifestDigest);
         }
 
         if (provenance is null || provenance.Stale)
-            return FailureReceipt(wire, DirectDeliveryErrorCode.StaleDigest, artifact.Digest, provenance);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.StaleDigest, artifact.Digest, provenance, artifact.ManifestDigest);
         if (!provenance.Verified)
-            return FailureReceipt(wire, DirectDeliveryErrorCode.ProvenanceFailed, artifact.Digest, provenance);
+            return FailureReceipt(wire, DirectDeliveryErrorCode.ProvenanceFailed, artifact.Digest, provenance, artifact.ManifestDigest);
 
         var progress = ProgressSnapshot(regions, existing?.Regions);
         if (existing is null)
@@ -227,15 +240,16 @@ public class DirectDeliveryCoordinator
             {
                 // Admission fencing: a concurrent delivery won the operationId with a different
                 // request fingerprint; only the winner may mutate.
-                return FailureReceipt(wire, DirectDeliveryErrorCode.OperationConflict, artifact.Digest);
+                return FailureReceipt(wire, DirectDeliveryErrorCode.OperationConflict, artifact.Digest,
+                    artifactManifestDigest: artifact.ManifestDigest);
             }
             catch (OperationCanceledException)
             {
-                return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest, provenance);
+                return FailureReceipt(wire, DirectDeliveryErrorCode.Cancelled, artifact.Digest, provenance, artifact.ManifestDigest);
             }
             catch (Exception exception) when (IsAdapterFailure(exception))
             {
-                return FailureReceipt(wire, DirectDeliveryErrorCode.JournalUnavailable, artifact.Digest, provenance);
+                return FailureReceipt(wire, DirectDeliveryErrorCode.JournalUnavailable, artifact.Digest, provenance, artifact.ManifestDigest);
             }
         }
 
@@ -281,7 +295,8 @@ public class DirectDeliveryCoordinator
                     wire,
                     DirectDeliveryErrorCode.JournalUnavailable,
                     artifact.Digest,
-                    provenance),
+                    provenance,
+                    artifact.ManifestDigest),
                 exception);
         }
         catch (DirectDeliveryJournalConflictException exception)
@@ -296,7 +311,8 @@ public class DirectDeliveryCoordinator
                     wire,
                     DirectDeliveryErrorCode.JournalUnavailable,
                     artifact.Digest,
-                    provenance),
+                    provenance,
+                    artifact.ManifestDigest),
                 exception);
         }
         catch (OperationCanceledException)
@@ -363,7 +379,8 @@ public class DirectDeliveryCoordinator
                     wire,
                     DirectDeliveryErrorCode.JournalUnavailable,
                     artifact.Digest,
-                    provenance),
+                    provenance,
+                    artifact.ManifestDigest),
                 exception);
     }
 
@@ -624,7 +641,7 @@ public class DirectDeliveryCoordinator
         if (mutated.Count == 0)
         {
             var failureReceipt = CreateReceipt(request, DeliveryReceiptStatus.Failed, artifact.Digest, provenance, checks, false,
-                new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), errorCode);
+                new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), errorCode, artifact.ManifestDigest);
             // First-deployment contract: a region deployed for the first time has no prior
             // artifact to roll back to, so it stays deployed after this failure. The receipt
             // says so explicitly instead of implying a rollback happened or was possible. An
@@ -668,7 +685,7 @@ public class DirectDeliveryCoordinator
             ? DeliveryReceiptStatus.RolledBack
             : DeliveryReceiptStatus.Failed;
         var receipt = CreateReceipt(request, status, artifact.Digest, provenance, checks,
-            status == DeliveryReceiptStatus.RolledBack, rollback, finalError ?? errorCode);
+            status == DeliveryReceiptStatus.RolledBack, rollback, finalError ?? errorCode, artifact.ManifestDigest);
         // First-deployment contract: pristine regions that were deployed and NOT rolled back
         // (no prior artifact exists) stay deployed; the receipt says so instead of implying the
         // whole target was restored.
@@ -943,7 +960,8 @@ public class DirectDeliveryCoordinator
             checks,
             succeeded,
             rollback,
-            succeeded ? null : DirectDeliveryErrorCode.RollbackFailed);
+            succeeded ? null : DirectDeliveryErrorCode.RollbackFailed,
+            artifact.ManifestDigest);
         return await PersistedOrSurfacedAsync(
             receipt,
             operationId,
@@ -1000,6 +1018,22 @@ public class DirectDeliveryCoordinator
                         Message = "The durable delivery journal is over its retention cap with unprunable records.",
                         Remediation =
                             "Raise the retention cap or let the bounded-age horizon pass, then retry the same operationId; the operation replays its durable progress.",
+                    },
+                };
+            }
+            if (cause is InvalidDataException)
+            {
+                // The durable record exists but this build's codec cannot round-trip it: it was
+                // written before the current record shape (or the bytes are corrupt). This is
+                // NOT a journal-health problem — no restoration makes those bytes readable,
+                // and replaying the same operationId can never succeed against them.
+                return receipt with
+                {
+                    Error = receipt.Error with
+                    {
+                        Message = "A durable delivery journal record for this operation cannot be read by the current record codec.",
+                        Remediation =
+                            "The journal record predates the current record codec and cannot be replayed; clear or drain the affected operation before continuing.",
                     },
                 };
             }
@@ -1219,16 +1253,18 @@ public class DirectDeliveryCoordinator
         DeliveryProvenanceResult provenance,
         IReadOnlyList<DeliveryHealthCheck> checks,
         bool converged) => CreateReceipt(request, DeliveryReceiptStatus.Succeeded, artifact.Digest, provenance,
-            checks, converged, new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), null);
+            checks, converged, new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), null,
+            artifact.ManifestDigest);
 
     private DeliveryReceipt FailureReceipt(
         DeliveryRequest? request,
         string errorCode,
         string? artifactDigest = null,
-        DeliveryProvenanceResult? provenance = null) => CreateReceipt(request, DeliveryReceiptStatus.Failed, artifactDigest,
+        DeliveryProvenanceResult? provenance = null,
+        string? artifactManifestDigest = null) => CreateReceipt(request, DeliveryReceiptStatus.Failed, artifactDigest,
             provenance ?? new DeliveryProvenanceResult(false, false, request?.ConfigurationRevision, request?.MigrationRevision),
             Array.Empty<DeliveryHealthCheck>(), false,
-            new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), errorCode);
+            new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), errorCode, artifactManifestDigest);
 
     private DeliveryReceipt CreateReceipt(
         DeliveryRequest? request,
@@ -1238,7 +1274,8 @@ public class DirectDeliveryCoordinator
         IReadOnlyList<DeliveryHealthCheck> checks,
         bool converged,
         DeliveryRollback rollback,
-        string? errorCode)
+        string? errorCode,
+        string? artifactManifestDigest = null)
     {
         var safeOperationId = request is { OperationId: { } boundedOperationId } &&
                 IsBoundedText(boundedOperationId, MaximumOperationIdLength)
@@ -1249,19 +1286,26 @@ public class DirectDeliveryCoordinator
                 (check.Status == DeliveryHealthStatus.Passed || check.Status == DeliveryHealthStatus.Failed))
             .ToArray();
         var error = errorCode is null ? new DeliveryErrorInfo(null, null, null) : Error(errorCode);
+        // The two artifact identities are recorded as an atomic pair: a receipt that names one
+        // without the other cannot prove which exact artifact it is about, so a request whose
+        // artifact half-failed validation records neither (the journal enforces the same rule).
+        var artifactIdentity = SafeArtifactIdentity(
+            artifactDigest,
+            artifactManifestDigest ?? request?.Artifact?.ManifestDigest);
         return new DeliveryReceipt(
             DeliveryRequest.CurrentSchemaVersion,
             safeOperationId,
             status,
             SafeSource(request?.Source),
-            SafeDigest(artifactDigest),
+            artifactIdentity.Digest,
             SafeTarget(request?.Target),
             new DeliveryProvenance(provenance.Verified, SafeDigest(provenance.ConfigurationRevision ?? request?.ConfigurationRevision),
                 SafeDigest(provenance.MigrationRevision ?? request?.MigrationRevision)),
             new DeliveryHealth(safeChecks, converged),
             rollback,
             SafeAuditId(),
-            error);
+            error,
+            artifactIdentity.ManifestDigest);
     }
 
     private string SafeAuditId()
@@ -1421,6 +1465,22 @@ public class DirectDeliveryCoordinator
     private static bool IsHex(char value) => value is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
 
     private static string? SafeDigest(string? value) => IsDigest(value) ? value : null;
+
+    /// <summary>
+    /// The receipt's artifact digest and manifest digest as a both-or-neither pair: only an
+    /// artifact whose BOTH identities parse as digests is recorded, so a receipt can never claim
+    /// one identity of an artifact it could not fully identify.
+    /// </summary>
+    private static (string? Digest, string? ManifestDigest) SafeArtifactIdentity(
+        string? digest,
+        string? manifestDigest)
+    {
+        var safeDigest = SafeDigest(digest);
+        var safeManifest = SafeDigest(manifestDigest);
+        return safeDigest is null || safeManifest is null
+            ? (null, null)
+            : (safeDigest, safeManifest);
+    }
 
     private static DeliverySource? SafeSource(DeliverySource? source) =>
         source is not null && ValidateSource(source) is null
