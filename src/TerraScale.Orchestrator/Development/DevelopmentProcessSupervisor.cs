@@ -221,6 +221,71 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
             victim => RemoveContainerAsync(victim.Name, victim.Process, stopTimeoutSeconds)));
     }
 
+    /// <summary>
+    /// Stops every running container in reverse dependency order: workload
+    /// consumers (Dashboard, Platform, Authentication, controllers) drain
+    /// first, then TerraBase, then NATS. Each tier stops in parallel with a
+    /// short SIGTERM budget; anything that outlives the budget is removed by
+    /// the force-removal in <see cref="DisposeAsync"/>. Best effort: teardown
+    /// never throws — a failed stop must not block the rest of disposal.
+    /// </summary>
+    private async Task StopGracefullyAsync()
+    {
+        foreach (var tier in ShutdownTiers)
+        {
+            var names = processes
+                .Where(pair => !pair.Value.HasExited && tier.Contains(pair.Key))
+                .Select(pair => pair.Key)
+                .ToArray();
+            if (names.Length == 0)
+            {
+                continue;
+            }
+            foreach (var name in names)
+            {
+                if (processes.Remove(name, out var process))
+                {
+                    startedAt.Remove(name);
+                    try
+                    {
+                        await RemoveContainerAsync(name, process, stopTimeoutSeconds: ShutdownStopTimeoutSeconds);
+                    }
+                    catch (Exception exception) when (
+                        exception is InvalidOperationException or System.ComponentModel.Win32Exception or ObjectDisposedException)
+                    {
+                        // Best effort: the pod force-removal below reclaims stragglers.
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shutdown tiers in stop order. Container names follow the
+    /// <c>{cell}-{role}-{replica}</c> topology convention, so substring match
+    /// on the role is exact for this topology and cannot span tiers.
+    /// </summary>
+    private static readonly string[][] ShutdownTiers =
+    [
+        // Workload consumers first: they hold TerraBase and NATS clients with
+        // in-flight reconciliation work that must drain before dependencies die.
+        ["-dashboard", "-platform", "-authentication", "-controller-"],
+        // TerraBase next: it is a dependency of every service above but a
+        // consumer of nothing below.
+        ["-terrabase-"],
+        // NATS last: controllers, Platform, and Authentication still publish
+        // while winding down.
+        ["-control-nats-", "-product-nats-"]
+    ];
+
+    /// <summary>Per-container SIGTERM budget during graceful teardown.</summary>
+    internal const int ShutdownStopTimeoutSeconds = 10;
+
+    /// <summary>
+    /// Exposes the shutdown tier ordering for tests.
+    /// </summary>
+    internal static IReadOnlyList<string> ShutdownTierOrder() => ShutdownTiers.SelectMany(tier => tier).ToArray();
+
     public async Task<Process> RestartAsync(string name)
     {
         if (!specifications.TryGetValue(name, out var specification))
@@ -437,6 +502,14 @@ internal sealed class DevelopmentProcessSupervisor : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await stopping.CancelAsync();
+        // Graceful, dependency-ordered teardown first. The previous one-shot pod
+        // force-removal killed TerraBase and NATS while Platform was still
+        // serving reconciliations, so every lab restart surfaced connection
+        // refused / ServiceUnavailable errors from the still-running services
+        // (DevHost fingerprint 6c66e5034ade). Stopping the consumers before
+        // their dependencies quiesces those in-flight calls cleanly; the pod
+        // removal below remains the bounded fallback for anything left.
+        await StopGracefullyAsync();
         // Tear down the whole owned pod in one shot. Sequential per-container
         // stops with 15s timeouts can exceed DevHost's graceful SIGTERM budget
         // (90–180s) on the regional topology, leaving pasta dead and the pod Degraded.
