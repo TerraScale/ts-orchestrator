@@ -52,7 +52,7 @@ The adapter must reject a context whose authorization state, commit digest, payl
 
 - Every mutating adapter call consumes an exact committed `AuthorizedForProviderCall` record; an adapter cannot invent business intent or execute a merely `Prepared` operation.
 - Exactly one logical operation may own a target transition. A leadership change changes the executor, not the authorized terminal outcome.
-- All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second VM ([scale-out rule, lines 706-725](../../ORCHESTRATOR.md#L706-L725)).
+- All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second instance ([scale-out rule, lines 706-725](../../ORCHESTRATOR.md#L706-L725)).
 - The irreversible commit requires fresh observation, exact target identity, generation match, an unexpired deadline, all required approvals, and positive ownership under ADR 0004.
 - Wall-clock anomalies before commit hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps ([partition rule, line 589](../../ORCHESTRATOR.md#L589)). After commit, anomaly or expiry can hold dispatch but cannot erase or alter the committed authorization; resume/reconciliation stays on the same operation.
 - An unknown response is reconciled through read/work-request APIs before retry or compensation.
@@ -137,7 +137,7 @@ The incomplete read-only OCI audit grants no mutation authority and establishes 
 - **L4:** targeted disposable OCI A1/IAM/storage/LB tests after the exact-tree credential gate. Delay real work requests across leadership change and prove a new leader resumes the same operation without duplicate creation or conflicting destruction.
 - **Security:** demonstrate that an identity cannot mutate another region/compartment or an unlisted resource/action, and that access denial never falls back to broader credentials.
 
-Phase 4 cannot exit until crash/retry and leadership loss at every provider and handoff checkpoint produces exactly one owned terminal outcome and unowned resources remain untouched ([specification, lines 1538-1548](../../ORCHESTRATOR.md#L1538-L1548)). No test described here authorizes a VM or cloud call before the exact-tree pre-deployment gate.
+Phase 4 cannot exit until crash/retry and leadership loss at every provider and handoff checkpoint produces exactly one owned terminal outcome and unowned resources remain untouched ([specification, lines 1538-1548](../../ORCHESTRATOR.md#L1538-L1548)). No test described here authorizes a cloud instance or API call before the exact-tree pre-deployment gate.
 
 ## Traceability
 

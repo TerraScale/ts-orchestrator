@@ -1,6 +1,6 @@
 # Run customer workloads as WASI Components
 
-Status: accepted on 2026-08-23
+Status: superseded by [ADR 0031](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) on 2026-08-24; accepted on 2026-08-23
 
 Tracking: [TerraScale.Orchestrator#27](https://git.terrascale.tech/TerraScale/TerraScale.Orchestrator/issues/27)
 

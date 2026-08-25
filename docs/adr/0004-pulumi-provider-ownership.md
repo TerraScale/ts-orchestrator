@@ -88,7 +88,7 @@ The readiness map labels this draft-ready but requires exact OCI IAM/tag schemas
 - **L4:** use only fresh disposable OCI resources after the exact-tree pre-deployment gate; prove a later Pulumi run cannot mutate transferred resources and the regional actuator cannot mutate foundation or unowned resources.
 - **L5:** retain a signed inventory/receipt trail across the production soak and verify no drift creates dual ownership.
 
-No SUT VM or OCI mutation is authorized by this ADR. The repository's exact-tree pre-deployment evidence gate remains mandatory ([specification, lines 1114-1122](../../ORCHESTRATOR.md#L1114-L1122)).
+No SUT cloud instance or OCI mutation is authorized by this ADR. The repository's exact-tree pre-deployment evidence gate remains mandatory ([specification, lines 1114-1122](../../ORCHESTRATOR.md#L1114-L1122)).
 
 ## Traceability
 

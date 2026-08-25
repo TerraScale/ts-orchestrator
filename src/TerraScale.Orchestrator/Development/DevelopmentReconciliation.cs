@@ -29,7 +29,6 @@ internal static class DevelopmentReconciliation
         }
 
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .ToDictionary(resource => resource.Name, StringComparer.Ordinal);
         var desired = resources.Values
             .OrderBy(resource => resource.Name, StringComparer.Ordinal)
@@ -123,8 +122,7 @@ internal static class DevelopmentReconciliation
                 cell,
                 DevelopmentResourceKind.ProductNats,
                 DevelopmentResourceKind.TerraBase),
-            DevelopmentResourceKind.Platform => Names(cell, DevelopmentResourceKind.Authentication)
-                .Concat(topology.GlobalResources.Select(item => item.Name)).ToArray(),
+            DevelopmentResourceKind.Platform => Names(cell, DevelopmentResourceKind.Authentication),
             DevelopmentResourceKind.Dashboard => Names(cell, DevelopmentResourceKind.Platform),
             _ => []
         };

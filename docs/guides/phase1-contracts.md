@@ -278,7 +278,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 |---|---|---|---|
 | `phase1-observability-projection-provenance-audit4` | Phase 1 observability managed-projection provenance audit 4 | no | `ObservedGrafanaResource` previously represented only resource identity, scope, generation, digest, broad projection kind, and ownership. It… |
 | `phase1-observability-projection-audit3` | Phase 1 observability projection checkpoint audit | yes | The Grafana projection decision previously checked that desired state and inventory shared one candidate generation and inventory sequence. … |
-| `phase1-observability-properties` | Phase 1 observability projection and authorization property shard | yes | This is bounded deterministic feature-shard evidence, not full L0 or deployment qualification. It starts no adapter, process, network, VM, o… |
+| `phase1-observability-properties` | Phase 1 observability projection and authorization property shard | yes | This is bounded deterministic feature-shard evidence, not full L0 or deployment qualification. It starts no adapter, process, network, cloud instance, o… |
 
 ## Control operations
 
@@ -490,7 +490,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 | `phase1-runtime-health-intent-audit` | Phase 1 runtime health-intent audit handoff | yes | This audit reviewed the pure Runtime lifecycle and self-update decisions for one remaining accepted-output ambiguity after the cleanup-conte… |
 | `phase1-runtime-selfupdate-completeness` | Phase 1 runtime self-update completeness shard handoff | yes | 1. Exact, explicitly `Incompatible` N/N-1 evidence after local verification was classified as a generic denial. The local-known-good rollbac… |
 | `phase1-runtime-soak-audit` | Phase 1 runtime self-update soak audit handoff | yes | `SelfUpdateRequest.SoakDuration` was captured but never evaluated. A healthy update at `OldSlotRetainedUntilSoak` immediately emitted `Compl… |
-| `phase1-runtime-upgrade-properties` | Phase 1 runtime self-upgrade deterministic property shard handoff | yes | This is bounded deterministic feature-shard evidence, not full L0 or deployment qualification. It starts no process, VM, network, cloud, fil… |
+| `phase1-runtime-upgrade-properties` | Phase 1 runtime self-upgrade deterministic property shard handoff | yes | This is bounded deterministic feature-shard evidence, not full L0 or deployment qualification. It starts no process, cloud instance, network, cloud, fil… |
 
 ## Deterministic scheduler
 

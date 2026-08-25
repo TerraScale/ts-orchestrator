@@ -74,7 +74,6 @@ internal static partial class DevelopmentReconcilePlanner
 
         var kinds = Impact(request.Repository, request.ChangedPaths);
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Where(resource => kinds.Contains(resource.Kind))
             .OrderBy(resource => Order(resource.Kind))
             .ThenBy(resource => resource.Cell, StringComparer.Ordinal)
@@ -103,7 +102,8 @@ internal static partial class DevelopmentReconcilePlanner
 
     /// <summary>
     /// Paths that never map to a development workload for TerraScale.Internals.
-    /// Docs, agent rules, CI/tooling config, and root markdown may pull without restart.
+    /// Docs, agent rules, CI/tooling config, root markdown, and the Aspire-only
+    /// local emulators may pull without restart.
     /// </summary>
     internal static bool IsNonRuntimeInternalsPath(string path)
     {
@@ -118,7 +118,8 @@ internal static partial class DevelopmentReconcilePlanner
             path.StartsWith(".github/", StringComparison.Ordinal) ||
             path.StartsWith(".agents/", StringComparison.Ordinal) ||
             path.StartsWith(".codex/", StringComparison.Ordinal) ||
-            path.StartsWith(".terrascale/", StringComparison.Ordinal))
+            path.StartsWith(".terrascale/", StringComparison.Ordinal) ||
+            path.StartsWith("src/Hosting/TerraScale.LocalEmulators/", StringComparison.Ordinal))
         {
             return true;
         }
@@ -169,18 +170,10 @@ internal static partial class DevelopmentReconcilePlanner
                 kinds.Add(DevelopmentResourceKind.Platform);
                 kinds.Add(DevelopmentResourceKind.Dashboard);
             }
-            else if (path.StartsWith("src/Hosting/TerraScale.LocalEmulators/", StringComparison.Ordinal))
-            {
-                kinds.Add(DevelopmentResourceKind.EmailEmulator);
-                kinds.Add(DevelopmentResourceKind.Authentication);
-                kinds.Add(DevelopmentResourceKind.Platform);
-                kinds.Add(DevelopmentResourceKind.Dashboard);
-            }
             else if (path is "Directory.Build.props" or "Directory.Packages.props" or
                      "global.json" or "TerraScale.Internals.slnx")
             {
                 kinds.UnionWith([
-                    DevelopmentResourceKind.EmailEmulator,
                     DevelopmentResourceKind.Authentication,
                     DevelopmentResourceKind.Platform,
                     DevelopmentResourceKind.Dashboard
@@ -202,11 +195,10 @@ internal static partial class DevelopmentReconcilePlanner
 
     private static int Order(DevelopmentResourceKind kind) => kind switch
     {
-        DevelopmentResourceKind.EmailEmulator => 0,
-        DevelopmentResourceKind.TerraBase => 1,
-        DevelopmentResourceKind.Authentication => 2,
-        DevelopmentResourceKind.Platform => 3,
-        DevelopmentResourceKind.Dashboard => 4,
+        DevelopmentResourceKind.TerraBase => 0,
+        DevelopmentResourceKind.Authentication => 1,
+        DevelopmentResourceKind.Platform => 2,
+        DevelopmentResourceKind.Dashboard => 3,
         _ => 5
     };
 

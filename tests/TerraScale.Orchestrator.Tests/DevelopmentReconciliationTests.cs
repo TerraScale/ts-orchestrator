@@ -11,9 +11,9 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 1, []);
 
-        await Assert.That(result.DesiredResources).IsEqualTo(22);
+        await Assert.That(result.DesiredResources).IsEqualTo(21);
         await Assert.That(result.ObservedResources).IsEqualTo(0);
-        await Assert.That(result.ObserveIntents).IsEqualTo(22);
+        await Assert.That(result.ObserveIntents).IsEqualTo(21);
         await Assert.That(result.Errors).IsEmpty();
     }
 
@@ -22,7 +22,6 @@ public sealed class DevelopmentReconciliationTests
     {
         var topology = DevelopmentTopology.CreateRegional();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Select((resource, index) => new DevelopmentResourceObservation(
                 resource.Name,
                 resource.Cell,
@@ -39,8 +38,8 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 7, observations);
 
-        await Assert.That(result.ObservedResources).IsEqualTo(22);
-        await Assert.That(result.ConvergedResources).IsEqualTo(22);
+        await Assert.That(result.ObservedResources).IsEqualTo(21);
+        await Assert.That(result.ConvergedResources).IsEqualTo(21);
         await Assert.That(result.ReconcileIntents).IsEqualTo(0);
         await Assert.That(result.ObserveIntents).IsEqualTo(0);
         await Assert.That(result.HeldResources).IsEqualTo(0);
@@ -80,7 +79,6 @@ public sealed class DevelopmentReconciliationTests
     {
         var topology = DevelopmentTopology.CreateRegional();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Select((resource, index) => new DevelopmentResourceObservation(
                 resource.Name,
                 resource.Cell,
@@ -97,7 +95,7 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 11, observations);
 
-        await Assert.That(result.ConvergedResources).IsEqualTo(20);
+        await Assert.That(result.ConvergedResources).IsEqualTo(19);
         await Assert.That(result.ReconcileIntents).IsEqualTo(0);
         await Assert.That(result.HeldResources).IsEqualTo(2);
         await Assert.That(result.Errors).IsEmpty();

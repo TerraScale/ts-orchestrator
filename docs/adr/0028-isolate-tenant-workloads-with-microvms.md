@@ -1,6 +1,6 @@
 # Isolate tenant workloads with microVMs
 
-Status: superseded by [ADR 0030](0030-run-customer-workloads-as-wasi-components.md)
+Status: superseded by [ADR 0030](0030-run-customer-workloads-as-wasi-components.md); permanently retired by [ADR 0031](0031-run-tenant-workloads-as-unprivileged-oci-containers.md)
 
 Every tenant allocation runs inside a microVM with a dedicated guest kernel. The admitted OCI artifact remains the workload package, while the microVM is the security boundary between customer code, other tenants, and the host. Shared-kernel hardening alone is not sufficient for tenant isolation. Trusted first-party infrastructure may continue to use separately admitted native or container runtimes.
 

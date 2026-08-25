@@ -23,8 +23,6 @@ internal static class DevelopmentArtifactBuilder
         {
             (DevelopmentResourceKind.TerraBase,
                 Path.Combine(workspaceRoot, "TerraBase", "src", "TerraBase.Server", "TerraBase.Server.csproj")),
-            (DevelopmentResourceKind.EmailEmulator,
-                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Hosting", "TerraScale.LocalEmulators", "TerraScale.LocalEmulators.csproj")),
             (DevelopmentResourceKind.Authentication,
                 Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj")),
             (DevelopmentResourceKind.Platform,

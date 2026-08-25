@@ -52,7 +52,6 @@ public sealed class RuntimePlannerEndToEndTests
         await Assert.That(root.GetProperty("profile").GetString())
             .IsEqualTo("regional");
         await Assert.That(root.GetProperty("cells").GetArrayLength()).IsEqualTo(3);
-        await Assert.That(root.GetProperty("globalResources").GetArrayLength()).IsEqualTo(1);
         var resources = root.GetProperty("cells")
             .EnumerateArray()
             .SelectMany(cell => cell.GetProperty("resources").EnumerateArray())

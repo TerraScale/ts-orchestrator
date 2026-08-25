@@ -2846,7 +2846,6 @@ public static class DevelopmentLab
         catch (Exception exception)
         {
             var resource = topology.Cells.SelectMany(cell => cell.Resources)
-                .Concat(topology.GlobalResources)
                 .Single(candidate => candidate.Name == resourceName);
             RecordIncident(
                 incidents,
@@ -2960,8 +2959,7 @@ public static class DevelopmentLab
         DevelopmentNatsSecurity natsSecurity)
     {
         foreach (var resource in topology.Cells
-                     .SelectMany(cell => cell.Resources)
-                     .Concat(topology.GlobalResources))
+                     .SelectMany(cell => cell.Resources))
         {
             if (ResourceHasInvalidTlsLeaf(topology, natsSecurity, resource.Name))
             {
@@ -4720,7 +4718,6 @@ public static class DevelopmentLab
         string resourceName) =>
         topology.Cells
             .SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, resourceName, StringComparison.Ordinal));
 
@@ -4791,7 +4788,6 @@ public static class DevelopmentLab
     internal static IReadOnlyList<string> TlsClientResourceNames(DevelopmentTopology topology) =>
         topology.Cells
             .SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Where(resource => resource.Kind is not DevelopmentResourceKind.ControlNats
                 and not DevelopmentResourceKind.ProductNats)
             .Select(resource => resource.Name)
@@ -4930,7 +4926,6 @@ public static class DevelopmentLab
     {
         var observedAt = DateTimeOffset.UtcNow;
         var all = topology.Cells.SelectMany(cell => cell.Resources)
-            .Concat(topology.GlobalResources)
             .Select(resource => Observe(resource, supervisor, state, health, observedAt))
             .ToArray();
         var reconciliation = DevelopmentReconciliation.Evaluate(topology, generation, all);
@@ -5018,8 +5013,7 @@ public static class DevelopmentLab
         DevelopmentResourceKind.TerraBase or
         DevelopmentResourceKind.Authentication or
         DevelopmentResourceKind.Platform or
-        DevelopmentResourceKind.Dashboard or
-        DevelopmentResourceKind.EmailEmulator =>
+        DevelopmentResourceKind.Dashboard =>
             $"http://127.0.0.1:{resource.Port}",
         _ => null
     };
