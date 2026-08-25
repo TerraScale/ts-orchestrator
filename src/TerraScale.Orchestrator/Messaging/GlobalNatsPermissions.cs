@@ -26,6 +26,9 @@ internal sealed record GlobalNatsPermissionPlan
 /// <summary>
 /// Produces the complete NATS subject permissions for one global-control role.
 /// Callers grant the returned subjects as an allowlist with no implicit defaults.
+/// The global authority enumerates KV keys (retention/pruning scans) and watches through
+/// inbox-delivered ephemeral consumers only; it is deliberately granted no <c>$KV.*</c>
+/// subscription on its own buckets and no durable/pull/ack/flow-control consumer shapes.
 /// </summary>
 internal static class GlobalNatsPermissions
 {
@@ -44,8 +47,10 @@ internal static class GlobalNatsPermissions
                     "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
                     "$JS.FC.KV_GLOBAL_CELLS.>",
                     $"$KV.GLOBAL_CELLS.{GlobalNatsTopology.CellAdvertisementKey(cell)}",
-                    GlobalNatsTopology.CellDirectorySubject,
                 ],
+                // The publisher never publishes the directory query subject: only the
+                // GRU directory service answers there (readers request, the service
+                // replies), so this role must not carry a publish grant for it.
                 ["$KV.GLOBAL_CELLS.>", "_INBOX.>"]),
             GlobalNatsRole.CellDirectoryReader => new(
                 [GlobalNatsTopology.CellDirectorySubject],
@@ -129,15 +134,19 @@ internal static class GlobalNatsPermissions
         ];
     }
 
+    /// <summary>
+    /// KV key enumeration (retention/pruning scans over <c>NatsForgejoDeliveryLedger.ListKeysAsync</c>
+    /// and directory watches) as implemented by NATS.Net 2.7.2 creates an ephemeral ordered push
+    /// consumer via one <c>$JS.API.CONSUMER.CREATE.KV_{bucket}.&lt;ephemeral&gt;.&lt;filter&gt;</c>
+    /// publish and receives every entry on a fresh <c>_INBOX.&lt;nuid&gt;.*</c> subscription. It never
+    /// creates durable consumers, never pulls (<c>MSG.NEXT</c>), never acknowledges
+    /// (<c>$JS.ACK</c>), and never answers flow control (<c>$JS.FC</c>), so exactly the two
+    /// consumer-create publish forms below — plus the role's inbox subscription — are required.
+    /// </summary>
     private static IEnumerable<string> KeyValueWatchPermissions(string bucket) =>
     [
         $"$JS.API.CONSUMER.CREATE.KV_{bucket}",
         $"$JS.API.CONSUMER.CREATE.KV_{bucket}.>",
-        $"$JS.API.CONSUMER.DURABLE.CREATE.KV_{bucket}.>",
-        $"$JS.API.CONSUMER.INFO.KV_{bucket}.>",
-        $"$JS.API.CONSUMER.MSG.NEXT.KV_{bucket}.>",
-        $"$JS.ACK.KV_{bucket}.>",
-        $"$JS.FC.KV_{bucket}.>",
     ];
 
     private static IEnumerable<string> ConsumerPermissions(

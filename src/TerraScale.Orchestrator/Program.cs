@@ -198,8 +198,6 @@ try
                     ciConsumptionEnabled: startupPlan.StartsCiConsumption,
                     deliveryDeploymentMode: deliveryDeploymentMode,
                     admittedDeliveryTargets: admittedDeliveryTargets);
-                if (startupPlan.StartsDirectDelivery && globalRuntime.DirectDelivery is null)
-                    throw new InvalidOperationException("The global direct delivery mutation path was not composed with durable adapters.");
                 if (globalRuntime is not null && options.Command is OrchestratorCommand.Run &&
                     NativeGitOpsRuntime.IsEnabled(
                         globalNatsConfigured: GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(options.Cell),
@@ -218,6 +216,16 @@ try
                 Console.Error.WriteLine(
                     $"Global control is unavailable ({exception.GetType().Name}); regional control remains active.");
             }
+
+            // Evaluated outside the availability swallow above: a started global runtime
+            // that lacks durable direct-delivery adapters is a fatal composition bug, not a
+            // degraded-control condition — the process must fail instead of continuing with
+            // a broken mutation path (the outer handler disposes what started and rethrows).
+            if (globalRuntime is not null)
+                OrchestratorRuntimeComposition.EnsureGlobalDirectDeliveryComposed(
+                    startupPlan.StartsDirectDelivery,
+                    globalRuntimeStarted: true,
+                    composedDirectDelivery: globalRuntime.DirectDelivery is not null);
         }
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)

@@ -68,6 +68,39 @@ public sealed class OrchestratorRuntimeCompositionTests
             1));
 
     [Test]
+    public async Task MissingGlobalDirectDeliveryAdaptersFailClosedWhileUnavailabilityDegrades()
+    {
+        // A started global runtime without durable direct-delivery adapters is a fatal
+        // composition bug: the guard must throw, mirroring the regional twin invariant.
+        await Assert.That(() => OrchestratorRuntimeComposition.EnsureGlobalDirectDeliveryComposed(
+                startsDirectDelivery: true,
+                globalRuntimeStarted: true,
+                composedDirectDelivery: false))
+            .Throws<InvalidOperationException>();
+
+        // A runtime that never started (global control unavailable) legitimately degrades
+        // to regional control and must never be reported as a mis-composition.
+        await Assert.That(() => OrchestratorRuntimeComposition.EnsureGlobalDirectDeliveryComposed(
+                startsDirectDelivery: true,
+                globalRuntimeStarted: false,
+                composedDirectDelivery: false))
+            .ThrowsNothing();
+
+        // A correctly composed runtime, and compositions that do not serve direct
+        // delivery (for example the Lab command), stay valid.
+        await Assert.That(() => OrchestratorRuntimeComposition.EnsureGlobalDirectDeliveryComposed(
+                startsDirectDelivery: true,
+                globalRuntimeStarted: true,
+                composedDirectDelivery: true))
+            .ThrowsNothing();
+        await Assert.That(() => OrchestratorRuntimeComposition.EnsureGlobalDirectDeliveryComposed(
+                startsDirectDelivery: false,
+                globalRuntimeStarted: true,
+                composedDirectDelivery: false))
+            .ThrowsNothing();
+    }
+
+    [Test]
     public async Task ForgejoWithACiExecutorStillComposes()
     {
         var plan = OrchestratorRuntimeComposition.Describe(

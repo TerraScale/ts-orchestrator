@@ -98,7 +98,7 @@ public sealed class GlobalNatsTopology
 
     public NatsObjConfig Bundles => new("GLOBAL_BUNDLES")
     {
-        Description = "Content-addressed global candidate and handoff records",
+        Description = "Content-addressed global CI pipeline and native GitOps handoff records",
         MaxBytes = 1024L * 1024 * 1024,
         NumberOfReplicas = Replicas,
     };

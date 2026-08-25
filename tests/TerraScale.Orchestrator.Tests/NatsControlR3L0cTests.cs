@@ -9,6 +9,7 @@ using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
 using NATS.Net;
+using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -284,6 +285,93 @@ public sealed class NatsControlR3L0cTests
             await Assert.That(async () => _ = await authority.RequestAsync<string, string>(subject, "{}"))
                 .Throws<NatsException>();
         }
+    }
+
+    [Test]
+    public async Task GlobalAuthorityRetentionEnumerationRunsUnderItsOwnEnforcedPermissions()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionGlobalCellDirectoryAsync();
+
+        var topology = new GlobalNatsTopology(3);
+        var endpoint = $"tls://127.0.0.1:{fixture.ClientPorts[0]}";
+        var configuration = new GlobalAuthorityNatsConfiguration(
+            endpoint,
+            NatsAuthenticationFiles.FromCredentialsFile(
+                fixture.Authority.CredentialsFile,
+                "TEST_GLOBAL_AUTHORITY"),
+            new(
+                fixture.CaFile,
+                fixture.Authority.CertificateFile,
+                fixture.Authority.KeyFile),
+            3,
+            "gru");
+
+        await using var runtime = await GlobalNatsRuntime.StartAsync(
+            configuration,
+            "global-authority-1",
+            "gru",
+            ciRunnerNatsSigner: null,
+            cancellationToken: CancellationToken.None);
+        // Production-shaped request timeout (the runtime's own connections allow 15s):
+        // consumer creation on an R3 stream needs a raft-quorum ack from all three
+        // members, which the fixture's tight 3s probe timeout cannot absorb while the
+        // runtime reconciles its topology on a loaded host.
+        var authorityClient = new NatsClient(fixture.ClientOptions(fixture.Authority) with
+        {
+            RequestTimeout = TimeSpan.FromSeconds(15),
+        });
+        await using (authorityClient)
+        {
+            await authorityClient.ConnectAsync();
+            var store = await authorityClient.CreateJetStreamContext().CreateKeyValueStoreContext()
+                .GetStoreAsync(topology.Releases.Bucket);
+            await RetentionUnderEnforcedPermissionsAsync(store);
+        }
+    }
+
+    private static async Task RetentionUnderEnforcedPermissionsAsync(INatsKVStore store)
+    {
+        var ledger = new NatsForgejoDeliveryLedger(store);
+
+        // Seed journal keys through the production ledger exactly as the journals do.
+        foreach (var key in new[] { "r3retention.a", "r3retention.b", "r3retention.c", "r3retention.d" })
+            _ = await ledger.CreateAsync(key, $"journal-{key}", CancellationToken.None);
+
+        // Key enumeration (ListKeysAsync -> NatsKVStore.GetKeysAsync) is the live
+        // retention/pruning surface. NATS.Net 2.7.2 implements it with one
+        // $JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES.<ephemeral>.$KV.GLOBAL_RELEASES.<filter>
+        // publish and an _INBOX.<nuid>.* subscription: the enforced authority JWT —
+        // whose plan grants only the consumer-create forms plus _INBOX.> and no
+        // $KV.GLOBAL_RELEASES subscription — must admit exactly that and nothing more.
+        // Like every production caller, the filter ends with the > wildcard: a
+        // prefix without it makes the client's inline-filter consumer-create subject
+        // end in an empty token, which the server denies as a permissions violation.
+        var enumerated = new List<string>();
+        await foreach (var key in ledger.ListKeysAsync("r3retention.>", CancellationToken.None))
+            enumerated.Add(key);
+        await Assert.That(enumerated.Order(StringComparer.Ordinal)).IsEquivalentTo(
+            ["r3retention.a", "r3retention.b", "r3retention.c", "r3retention.d"]);
+
+        // The production pruning call drives enumeration, reads revisions, and deletes
+        // oldest-first down to the retention cap through the same enforced identity.
+        await DeliveryJournalRetention.PruneAsync(
+            ledger,
+            "r3retention.",
+            cap: 2,
+            (entry, _, _) => Task.FromResult(new DeliveryJournalPruneDecision(Prunable: true)),
+            "prunable test records",
+            CancellationToken.None);
+
+        var remaining = new List<string>();
+        await foreach (var key in ledger.ListKeysAsync("r3retention.>", CancellationToken.None))
+            remaining.Add(key);
+        await Assert.That(remaining.Order(StringComparer.Ordinal))
+            .IsEquivalentTo(["r3retention.c", "r3retention.d"]);
+        foreach (var pruned in new[] { "r3retention.a", "r3retention.b" })
+            await Assert.That(await ledger.GetAsync(pruned, CancellationToken.None)).IsNull();
     }
 
     [Test]

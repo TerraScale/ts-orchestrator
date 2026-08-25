@@ -1,9 +1,32 @@
+using System.Reflection;
+using NATS.Client.JetStream;
+using NATS.Client.ObjectStore;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
 public sealed class GlobalNatsCompositionTests
 {
+    [Test]
+    public async Task GlobalCellDirectoryRuntimeDeclaresNoStreamOrObjectStoreCreationSurface()
+    {
+        // The directory runtime is a read-only projection: it must never accept a JetStream
+        // context, an object-store context, or a bound stream handle (NATS.Net 2.7.2 has no
+        // separate stream-manager interface — NatsJSStream itself carries update/delete/purge),
+        // because each could create or mutate global state.
+        var forbidden = new[] { typeof(INatsJSContext), typeof(INatsObjContext), typeof(NatsJSStream) };
+        var surface = typeof(GlobalCellDirectoryRuntime)
+            .GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Cast<MethodBase>()
+            .Concat(typeof(GlobalCellDirectoryRuntime).GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance |
+                BindingFlags.DeclaredOnly));
+        await Assert.That(surface
+                .SelectMany(method => method.GetParameters())
+                .Any(parameter => forbidden.Any(type => type.IsAssignableFrom(parameter.ParameterType))))
+            .IsFalse();
+    }
+
     [Test]
     public async Task AbsentOptionalGlobalConfigurationKeepsRegionalAutonomy()
     {

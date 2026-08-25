@@ -86,4 +86,23 @@ internal static class OrchestratorRuntimeComposition
             StartsCiConsumption: StartsCiConsumption,
             RegistersDirectDeliveryEndpoint: RegistersDirectDeliveryEndpoint);
     }
+
+    /// <summary>
+    /// Fail-closed composition invariant, evaluated AFTER the global runtime's
+    /// availability swallow: when the global authority runtime actually started in a
+    /// composition that serves direct delivery, its durable global adapters must have
+    /// been composed — a missing adapter is a composition bug and must fail the process,
+    /// never degrade to a warning. A runtime that never started (global control
+    /// unavailable) legitimately degrades to regional control and must not be mistaken
+    /// for a mis-composed one.
+    /// </summary>
+    internal static void EnsureGlobalDirectDeliveryComposed(
+        bool startsDirectDelivery,
+        bool globalRuntimeStarted,
+        bool composedDirectDelivery)
+    {
+        if (startsDirectDelivery && globalRuntimeStarted && !composedDirectDelivery)
+            throw new InvalidOperationException(
+                "The global direct delivery mutation path was not composed with durable adapters.");
+    }
 }

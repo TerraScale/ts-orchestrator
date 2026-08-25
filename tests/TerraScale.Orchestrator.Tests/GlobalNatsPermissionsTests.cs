@@ -32,13 +32,26 @@ public sealed class GlobalNatsPermissionsTests
             "$JS.API.DIRECT.GET.KV_GLOBAL_CELLS.$KV.GLOBAL_CELLS.cell.gru",
             "$JS.API.CONSUMER.CREATE.KV_GLOBAL_CELLS.ordered.$KV.GLOBAL_CELLS.cell.gru",
             "$JS.FC.KV_GLOBAL_CELLS.ordered",
-            GlobalNatsTopology.CellDirectorySubject,
         };
         foreach (var subject in requiredPublish)
             await Assert.That(Allows(plan.Publish, subject)).IsTrue();
 
         await Assert.That(Allows(plan.Subscribe, "_INBOX.directory.reply")).IsTrue();
         await Assert.That(Allows(plan.Subscribe, "$KV.GLOBAL_CELLS.cell.gru")).IsTrue();
+    }
+
+    [Test]
+    public async Task CellDirectoryPublisherNeverPublishesTheReadOnlyQuerySubject()
+    {
+        var plan = GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryPublisher);
+
+        // Only the GRU directory service answers the query subject (the reader requests,
+        // the service replies); the publisher's advertisement path never publishes it.
+        await Assert.That(Allows(plan.Publish, GlobalNatsTopology.CellDirectorySubject)).IsFalse();
+        var service = GlobalNatsPermissions.Create("gru", GlobalNatsRole.CellDirectoryService);
+        await Assert.That(Allows(service.Publish, GlobalNatsTopology.CellDirectorySubject)).IsFalse();
+        var reader = GlobalNatsPermissions.Create("gru", GlobalNatsRole.CellDirectoryReader);
+        await Assert.That(Allows(reader.Publish, GlobalNatsTopology.CellDirectorySubject)).IsTrue();
     }
 
     [Test]
@@ -140,13 +153,15 @@ public sealed class GlobalNatsPermissionsTests
                 GlobalNatsTopology.CellSpecSubject("sfo"),
                 GlobalNatsTopology.CiJobSubject("untrusted-product", "runner-static"),
                 GlobalNatsTopology.CiJobSubject("trusted-build", "runner-static"),
+                // Key enumeration (NatsForgejoDeliveryLedger.ListKeysAsync -> GetKeysAsync)
+                // creates an ephemeral ordered consumer and receives on an inbox: exactly
+                // these consumer-create publish forms are required, and nothing else in
+                // the watch shape (durable/pull/ack/flow-control) is ever exercised. The
+                // literal trailing filter token carries the caller's wildcard (e.g.
+                // "...ephemeral.$KV.GLOBAL_RELEASES.release.>"), which the wildcard-free
+                // suffix below represents within the concrete subject grammar.
                 "$JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES",
-                "$JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES.retention-watch",
-                "$JS.API.CONSUMER.DURABLE.CREATE.KV_GLOBAL_RELEASES.retention-watch",
-                "$JS.API.CONSUMER.INFO.KV_GLOBAL_RELEASES.retention-watch",
-                "$JS.API.CONSUMER.MSG.NEXT.KV_GLOBAL_RELEASES.retention-watch",
-                "$JS.ACK.KV_GLOBAL_RELEASES.retention-watch.sequence",
-                "$JS.FC.KV_GLOBAL_RELEASES.retention-watch.flow",
+                "$JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES.ephemeral-enumeration.$KV.GLOBAL_RELEASES.release.alpha.1",
                 "$JS.API.CONSUMER.CREATE.GLOBAL_CI.ci_runner_untrusted_product_abc123.ts.orch.v1.global.ci.job.untrusted-product.abc123",
                 "$JS.API.CONSUMER.INFO.GLOBAL_CI.ci_runner_untrusted_product_abc123",
                 "$JS.API.CONSUMER.MSG.NEXT.GLOBAL_CI.ci_runner_untrusted_product_abc123",
@@ -156,7 +171,17 @@ public sealed class GlobalNatsPermissionsTests
         foreach (var subject in requiredPublish)
             await Assert.That(Allows(plan.Publish, subject)).IsTrue();
 
+        // Enumeration is inbox-delivered: the authority's only subscription is its inbox,
+        // with no $KV.* subscription on its own buckets.
+        await Assert.That(plan.Subscribe).IsEquivalentTo(["_INBOX.>"]);
         await Assert.That(Allows(plan.Subscribe, "_INBOX.global.reply")).IsTrue();
+        foreach (var subject in new[]
+                 {
+                     "$KV.GLOBAL_RELEASES.release.42",
+                     "$KV.CI_RUNNER_JOBS.ci.runner.hash.job.17",
+                     "$KV.GLOBAL_CELLS.cell.gru",
+                 })
+            await Assert.That(Allows(plan.Subscribe, subject)).IsFalse();
         foreach (var subject in new[]
                  {
                      "$KV.GLOBAL_CELLS.cell.gru",
@@ -173,6 +198,14 @@ public sealed class GlobalNatsPermissionsTests
                      "$KV.CI_RUNNER_JOBS.ci.other.hash.job.17",
                      "$KV.CI_RUNNER_JOBS.ci.runner.hash.other.17",
                      "$KV.CI_RUNNER_JOBS.other.runner.hash.job.17",
+                     // Unused watch shapes stay ungranted: enumeration never creates
+                     // durable consumers, never pulls, never acks, and never answers
+                     // flow control on the releases bucket.
+                     "$JS.API.CONSUMER.DURABLE.CREATE.KV_GLOBAL_RELEASES.retention-watch",
+                     "$JS.API.CONSUMER.INFO.KV_GLOBAL_RELEASES.retention-watch",
+                     "$JS.API.CONSUMER.MSG.NEXT.KV_GLOBAL_RELEASES.retention-watch",
+                     "$JS.ACK.KV_GLOBAL_RELEASES.retention-watch.sequence",
+                     "$JS.FC.KV_GLOBAL_RELEASES.retention-watch.flow",
                      "$JS.API.CONSUMER.CREATE.KV_GLOBAL_CELLS.retention-watch",
                      "$JS.FC.KV_GLOBAL_CELLS.retention-watch.flow",
                      "$JS.API.CONSUMER.CREATE.GLOBAL_CI.ci_runner_untrusted_product_abc123.ts.orch.v1.global.ci.forgejo",

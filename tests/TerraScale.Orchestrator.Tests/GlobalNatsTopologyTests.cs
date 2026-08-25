@@ -193,6 +193,77 @@ public sealed class GlobalNatsTopologyTests
         }
     }
 
+    [Test]
+    public async Task AuthorityAndDirectoryRolesRequireDistinctIdentitiesEndToEnd()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-global-nats-{Guid.NewGuid():N}");
+        try
+        {
+            var topology = DevelopmentTopology.CreateRegional();
+            var security = DevelopmentNatsSecurity.Create(topology, directory);
+            var gru = security.Cell("gru");
+            var controller = topology.Cells.Single(candidate => candidate.Cell == "gru")
+                .OfKind(DevelopmentResourceKind.ControllerAgent).Single();
+            var regionalNkey = gru.Controllers[controller.Replica].SeedFile;
+            var regionalTls = gru.Tls.Control.Clients[controller.Name];
+            var authorityNkey = gru.Operator.SeedFile;
+            var authorityTls = gru.Tls.Control.Clients["operator-read"];
+            // A third, genuinely distinct role identity from the SFO control plane.
+            var sfo = security.Cell("sfo");
+            var sfoController = topology.Cells.Single(candidate => candidate.Cell == "sfo")
+                .OfKind(DevelopmentResourceKind.ControllerAgent).Single();
+            var directoryNkey = sfo.Controllers[sfoController.Replica].SeedFile;
+            var directoryTls = sfo.Tls.Control.Clients[sfoController.Name];
+
+            Dictionary<string, string> Values(string directoryNkeyFile, DevelopmentTlsIdentity directoryIdentity) =>
+                new(StringComparer.Ordinal)
+                {
+                    ["TS_ORCH_CELL"] = "gru",
+                    ["TS_ORCH_REPLICAS"] = "3",
+                    ["TS_ORCH_NATS_URL"] = "tls://regional-control.internal:4222",
+                    ["TS_ORCH_NATS_NKEY_FILE"] = regionalNkey,
+                    ["TS_ORCH_NATS_TLS_CA_FILE"] = regionalTls.CaFile,
+                    ["TS_ORCH_NATS_TLS_CERT_FILE"] = regionalTls.CertificateFile,
+                    ["TS_ORCH_NATS_TLS_KEY_FILE"] = regionalTls.KeyFile,
+                    ["TS_ORCH_GLOBAL_NATS_URL"] = "tls://global-control.internal:4222",
+                    ["TS_ORCH_GLOBAL_NATS_NKEY_FILE"] = authorityNkey,
+                    ["TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"] = authorityTls.CaFile,
+                    ["TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"] = authorityTls.CertificateFile,
+                    ["TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"] = authorityTls.KeyFile,
+                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"] = "tls://global-directory.internal:4222",
+                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE"] = directoryNkeyFile,
+                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE"] = directoryIdentity.CaFile,
+                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE"] = directoryIdentity.CertificateFile,
+                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE"] = directoryIdentity.KeyFile,
+                };
+
+            // Positive control first: fully distinct authority and directory identities parse.
+            var options = OrchestratorOptions.Parse(
+                ["check"],
+                name => Values(directoryNkey, directoryTls).GetValueOrDefault(name));
+            await Assert.That(options.GlobalNats).IsNotNull();
+            await Assert.That(options.GlobalDirectoryNats).IsNotNull();
+
+            // The directory pointing at the authority's exact seed file must fail parsing.
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["check"],
+                    name => Values(authorityNkey, directoryTls).GetValueOrDefault(name)))
+                .Throws<ArgumentException>();
+
+            // Distinct seeds are not enough: reusing the authority's TLS identity (the
+            // same certificate and key files) must fail parsing too.
+            await Assert.That(() => OrchestratorOptions.Parse(
+                    ["check"],
+                    name => Values(directoryNkey, authorityTls).GetValueOrDefault(name)))
+                .Throws<ArgumentException>();
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static Dictionary<string, string> Values(
         string regionalNkey,
         DevelopmentTlsIdentity regionalTls,
