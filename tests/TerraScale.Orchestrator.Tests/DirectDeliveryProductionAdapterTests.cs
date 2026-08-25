@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Delivery.DeployHandoff;
@@ -175,6 +176,475 @@ public sealed class DirectDeliveryProductionAdapterTests
         await Assert.That(record.Regions!.Single(static region => region.Region == "gru")
             .PreviousArtifactDigest).IsEqualTo(PreviousArtifactDigest);
         await Assert.That(ledger.Mutations).IsGreaterThan(mutations);
+    }
+
+    [Test]
+    public async Task Multi_region_health_failure_rolls_back_and_journals_through_the_durable_journal()
+    {
+        // The durable journal must ACCEPT the full multi-region progress sequence — the
+        // per-region write-ahead, the health failure, the reverse rollback, and the terminal
+        // rolled_back record — or per-region rollback progress (and rollback itself) only
+        // exists against the in-memory journal.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var target = new FencedTarget { FailHealthInRegion = "sfo" };
+        target.Seed("gru", PreviousArtifactDigest, PreviousManifestDigest);
+        target.Seed("sfo", PreviousArtifactDigest, PreviousManifestDigest);
+        var coordinator = new DirectDeliveryService(
+            new AllowAuthorizer(),
+            new DirectDeliveryDevelopmentProvenance(),
+            new FixedResolver(target),
+            new NatsDirectDeliveryJournal(new LedgerAdapter(ledger)),
+            auditIdFactory: static () => "audit-test");
+
+        var receipt = await coordinator.DeliverAsync(Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        });
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Rollback.TargetArtifactDigest).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("gru")).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("sfo")).IsEqualTo(PreviousArtifactDigest);
+        var record = await new NatsDirectDeliveryJournal(new LedgerAdapter(ledger))
+            .ReadAsync("operation-provenance", default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+        await Assert.That(record.Regions!.Select(static region => region.State))
+            .IsEquivalentTo(["rollback_succeeded", "rollback_succeeded"]);
+        await Assert.That(record.Regions!.Select(static region => region.PreviousArtifactDigest!))
+            .IsEquivalentTo([PreviousArtifactDigest, PreviousArtifactDigest]);
+    }
+
+    [Test]
+    public async Task Fenced_apply_compare_and_swaps_the_observed_previous_digest()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var target = new NatsDirectDeliveryTarget(new LedgerAdapter(ledger));
+        var request = Request(CommitA);
+        var next = Artifact(UnrecordedArtifactDigest, OtherManifestDigest);
+
+        // A pristine region satisfies a pristine expectation and applies.
+        var applied = await target.ApplyFencedAsync(request, Artifact(), "gru", null, default);
+        await Assert.That(applied.Succeeded).IsTrue();
+        await Assert.That(applied.Mutated).IsTrue();
+        await Assert.That(applied.PreviousArtifactDigest).IsNull();
+
+        // A stale expectation — the write-ahead observed a pristine region while a concurrent
+        // writer deployed — refuses the mutation with the typed race outcome and mutates
+        // nothing: the concurrent owner keeps the region.
+        var raced = await target.ApplyFencedAsync(request, next, "gru", null, default);
+        await Assert.That(raced.Succeeded).IsFalse();
+        await Assert.That(raced.Mutated).IsFalse();
+        await Assert.That(raced.FailureCode).IsEqualTo(DirectDeliveryErrorCode.MutationRace);
+        await Assert.That((await target.ObserveCurrentArtifactAsync(request, "gru", default))!.Digest)
+            .IsEqualTo(ArtifactDigest);
+
+        // The matching expectation applies and reports the exact replaced digest.
+        var fenced = await target.ApplyFencedAsync(request, next, "gru", ArtifactDigest, default);
+        await Assert.That(fenced.Succeeded).IsTrue();
+        await Assert.That(fenced.Mutated).IsTrue();
+        await Assert.That(fenced.PreviousArtifactDigest).IsEqualTo(ArtifactDigest);
+
+        // A replay of the same artifact is an idempotent no-op, never a race.
+        var replay = await target.ApplyFencedAsync(request, next, "gru", ArtifactDigest, default);
+        await Assert.That(replay.Succeeded).IsTrue();
+        await Assert.That(replay.Mutated).IsFalse();
+        await Assert.That(replay.PreviousArtifactDigest).IsNull();
+    }
+
+    [Test]
+    public async Task A_receipt_less_failure_with_forward_debt_resumes_rollback_through_the_durable_journal()
+    {
+        // B1 characterization against the REAL journal: the coordinator persisted Failed with
+        // receipt null and regions still in forward phases carrying write-ahead debt (crash or
+        // journal outage between the failure record and the terminal receipt). Replay must
+        // resume the FAILURE path — rollback recovery — and must never come back as a
+        // permanent journal_unavailable, and never re-apply the failed delivery.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger));
+        var request = Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        };
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Failed,
+            Receipt: null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "health_failed", PreviousArtifactDigest, null, PreviousManifestDigest),
+            ]), default);
+        // The crashed run left both regions deployed with the requested artifact.
+        var target = new FencedTarget();
+        target.Seed("gru", ArtifactDigest, ManifestDigest);
+        target.Seed("sfo", ArtifactDigest, ManifestDigest);
+
+        var receipt = await CoordinatorOver(new LedgerAdapter(ledger), target).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Code).IsNull();
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.DigestOf("gru")).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("sfo")).IsEqualTo(PreviousArtifactDigest);
+        var record = await journal.ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+        await Assert.That(record.Regions!.Select(static region => region.State))
+            .IsEquivalentTo(["rollback_succeeded", "rollback_succeeded"]);
+    }
+
+    [Test]
+    public async Task A_receipt_less_failure_without_debt_replays_the_apply_path()
+    {
+        // The other B1 half: a receipt-less Failed record with NO write-ahead debt (the
+        // mutation failed before anything was mutated) owes no rollback — replay re-enters the
+        // apply path (the journal must accept lower-rank progress after a receipt-less
+        // failure) and the delivery can succeed once the dependency recovered.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger));
+        var request = Request(CommitA);
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Failed,
+            Receipt: null,
+            ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "failed")]), default);
+        var target = new FencedTarget();
+        target.Seed("gru", PreviousArtifactDigest, PreviousManifestDigest);
+
+        var receipt = await CoordinatorOver(new LedgerAdapter(ledger), target).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Succeeded);
+        await Assert.That(target.Calls).Contains("apply:gru");
+        var record = await journal.ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.Succeeded);
+    }
+
+    [Test]
+    public async Task Journal_state_ranks_accept_only_forward_phase_sequences()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger));
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
+
+        // healthy → applying: region two's write-ahead after region one's health gate (the
+        // multi-region interleave every delivery performs).
+        await journal.AppendAsync(new("rank-1", fingerprint, "healthy", null, ArtifactDigest,
+            [new("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest),
+                new("sfo", "pending")]), default);
+        await journal.AppendAsync(new("rank-1", fingerprint, DeliveryJournalState.Applying, null, ArtifactDigest,
+            [new("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest),
+                new("sfo", DeliveryJournalState.Applying, PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+
+        // applied → rollback_pending: failure handling converts forward progress into debt.
+        await journal.AppendAsync(new("rank-2", fingerprint, "applied", null, ArtifactDigest,
+            [new("gru", "applied", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        await journal.AppendAsync(new("rank-2", fingerprint, DeliveryJournalState.Failed, null, ArtifactDigest,
+            [new("gru", "rollback_pending", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+
+        // rollback_pending → applied: debt may never be silently un-owed.
+        await journal.AppendAsync(new("rank-3", fingerprint, DeliveryJournalState.Failed, null, ArtifactDigest,
+            [new("gru", "rollback_pending", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        await Assert.That(await Rejects(() => journal.AppendAsync(new("rank-3", fingerprint, "applied", null,
+            ArtifactDigest, [new("gru", "applied", PreviousArtifactDigest, null, PreviousManifestDigest)]), default)))
+            .IsTrue();
+
+        // failed WITHOUT a receipt → applying: a receipt-less failure is re-enterable (B1).
+        await journal.AppendAsync(new("rank-4", fingerprint, DeliveryJournalState.Failed, null, ArtifactDigest,
+            [new("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        await journal.AppendAsync(new("rank-4", fingerprint, DeliveryJournalState.Applying, null, ArtifactDigest,
+            [new("gru", DeliveryJournalState.Applying, PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+
+        // failed WITH a (non-replayable) receipt → applying: re-entering a decided failure is
+        // rejected — the durable record owns the outcome.
+        await journal.AppendAsync(new("rank-5", fingerprint, DeliveryJournalState.Failed,
+            new(DeliveryRequest.CurrentSchemaVersion, "rank-5", DeliveryReceiptStatus.Failed, null, ArtifactDigest,
+                null, new DeliveryProvenance(false, null, null), new DeliveryHealth([], false),
+                new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), "audit-test",
+                new(DirectDeliveryErrorCode.HealthFailed, null, null)),
+            ArtifactDigest,
+            [new("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        await Assert.That(await Rejects(() => journal.AppendAsync(new("rank-5", fingerprint, DeliveryJournalState.Applying,
+            null, ArtifactDigest,
+            [new("gru", DeliveryJournalState.Applying, PreviousArtifactDigest, null, PreviousManifestDigest)]), default)))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task Degraded_rollback_bookkeeping_replays_recovery_through_the_durable_journal()
+    {
+        // The journal degrades exactly when rollback progress is written: the rollback itself
+        // completes (best-effort bookkeeping never aborts it), the receipt says it is not
+        // durable yet, and a replay against the recovered journal resumes from the durable
+        // receipt-less failure record with forward debt (the B1 shape, produced for real).
+        var ledger = new DegradeableLedger
+        {
+            FailWhenValue = value => value.Contains("rolling_back") || value.Contains("rollback_succeeded") ||
+                value.Contains("rollback_failed") || value.Contains("rollback_pending"),
+        };
+        var target = new FencedTarget { FailHealthInRegion = "sfo" };
+        target.Seed("gru", PreviousArtifactDigest, PreviousManifestDigest);
+        target.Seed("sfo", PreviousArtifactDigest, PreviousManifestDigest);
+        var request = Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        };
+
+        var first = await CoordinatorOver(ledger, target).DeliverAsync(request);
+
+        await Assert.That(first.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(first.Error.Remediation).Contains("journal currently unavailable");
+        await Assert.That(target.DigestOf("gru")).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("sfo")).IsEqualTo(PreviousArtifactDigest);
+        var degraded = await new NatsDirectDeliveryJournal(ledger).ReadAsync(request.OperationId!, default);
+        await Assert.That(degraded!.State).IsEqualTo(DeliveryJournalState.Failed);
+        await Assert.That(degraded.Receipt).IsNull();
+        await Assert.That(degraded.Regions!.Select(static region => region.State))
+            .IsEquivalentTo(["healthy", "health_failed"]);
+
+        // Recovery: the journal is repaired and the same operationId replays its durable debt.
+        ledger.Repaired = true;
+        target.Calls.Clear();
+        var replay = await CoordinatorOver(ledger, target).DeliverAsync(request);
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        var record = await new NatsDirectDeliveryJournal(ledger).ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+        await Assert.That(record.Receipt!.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+    }
+
+    [Test]
+    public async Task A_lost_terminal_rollback_receipt_replays_to_rolled_back_without_new_mutations()
+    {
+        // The terminal rolled_back receipt persist fails (journal outage at the very end): the
+        // receipt is still returned, the durable record holds rollback_succeeded progress, and
+        // the replay converges through recovery alone — one convergence call, zero applies,
+        // zero rollback mutations.
+        var ledger = new DegradeableLedger { FailWhenValue = value => value.Contains("\"receipt\":{\"") };
+        var target = new FencedTarget { FailHealthInRegion = "sfo" };
+        target.Seed("gru", PreviousArtifactDigest, PreviousManifestDigest);
+        target.Seed("sfo", PreviousArtifactDigest, PreviousManifestDigest);
+        var request = Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        };
+
+        var first = await CoordinatorOver(ledger, target).DeliverAsync(request);
+
+        await Assert.That(first.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(first.Error.Remediation).Contains("journal currently unavailable");
+
+        ledger.Repaired = true;
+        target.Calls.Clear();
+        var replay = await CoordinatorOver(ledger, target).DeliverAsync(request);
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(string.Join('|', target.Calls)).IsEqualTo("rollback-converge");
+        var record = await new NatsDirectDeliveryJournal(ledger).ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+    }
+
+    [Test]
+    public async Task Restart_mid_rollback_resumes_from_the_durable_rolling_back_record()
+    {
+        // A process restart while the rollback was between regions: the durable record is
+        // RollingBack with one region restored and one still owing. Replay completes only the
+        // owing region and never re-applies.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger));
+        var request = Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        };
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.RollingBack,
+            Receipt: null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "rollback_succeeded", AltPreviousArtifactDigest, null, AltPreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "rollback_failed", PreviousArtifactDigest, null, PreviousManifestDigest),
+            ]), default);
+        var target = new FencedTarget();
+        target.Seed("gru", AltPreviousArtifactDigest, AltPreviousManifestDigest);
+        target.Seed("sfo", ArtifactDigest, ManifestDigest);
+
+        var receipt = await CoordinatorOver(new LedgerAdapter(ledger), target).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.Calls.Any(static call => call.StartsWith("rollback:gru"))).IsFalse();
+        await Assert.That(target.Calls).Contains("rollback:sfo");
+        await Assert.That(target.DigestOf("sfo")).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("gru")).IsEqualTo(AltPreviousArtifactDigest);
+        var record = await journal.ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+    }
+
+    [Test]
+    public async Task A_target_revision_cas_loss_reports_the_typed_mutation_race()
+    {
+        // The digest fence matched, but the ledger's revision compare-and-set lost to a
+        // concurrent writer: the adapter must report the typed mutation race (not a generic
+        // mutation failure) and leave the region to the concurrent owner.
+        var ledger = new ConflictOnUpdateLedger();
+        var target = new NatsDirectDeliveryTarget(ledger);
+        var request = Request(CommitA);
+
+        // Seed the region through the create path (updates are not armed yet).
+        var seeded = await target.ApplyFencedAsync(request, Artifact(), "gru", null, default);
+        await Assert.That(seeded.Succeeded).IsTrue();
+
+        ledger.ConflictUpdates = true;
+        var raced = await target.ApplyFencedAsync(
+            request, Artifact(UnrecordedArtifactDigest, OtherManifestDigest), "gru", ArtifactDigest, default);
+
+        await Assert.That(raced.Succeeded).IsFalse();
+        await Assert.That(raced.Mutated).IsFalse();
+        await Assert.That(raced.FailureCode).IsEqualTo(DirectDeliveryErrorCode.MutationRace);
+        await Assert.That((await target.ObserveCurrentArtifactAsync(request, "gru", default))!.Digest)
+            .IsEqualTo(ArtifactDigest);
+    }
+
+    [Test]
+    public async Task A_concurrent_same_request_update_race_loses_to_the_winner_without_a_lost_update()
+    {
+        // Two same-request journal appends both read revision R; a competing writer commits
+        // first. The loser gets the typed continuity conflict and the durable record keeps the
+        // winner's value — a lost update would silently drop durable progress.
+        var request = Request(CommitA);
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(request);
+        var competingValue = JsonSerializer.Serialize(
+            new DeliveryJournalRecord(
+                "operation-race", fingerprint, DeliveryJournalState.Applying, null, ArtifactDigest,
+                [new DeliveryRegionProgress("gru", DeliveryJournalState.Applying, PreviousArtifactDigest, null, PreviousManifestDigest)]),
+            DeliveryWireCodec.JsonOptions);
+        ForgejoWebhookJournalTests.TestLedger? ledger = null;
+        var interleaved = false;
+        ledger = new ForgejoWebhookJournalTests.TestLedger(beforeUpdate: (key, token) =>
+        {
+            if (interleaved || ledger is null || !key.StartsWith("direct.operation.", StringComparison.Ordinal))
+                return Task.CompletedTask;
+            interleaved = true;
+            var current = ledger.GetAsync(key, token).GetAwaiter().GetResult();
+            return current is null
+                ? Task.CompletedTask
+                : ledger.UpdateAsync(key, competingValue, current.Revision, token);
+        });
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger!));
+        await journal.AppendAsync(new(
+            "operation-race", fingerprint, DeliveryJournalState.Accepted, null, ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "pending")]), default);
+
+        DirectDeliveryJournalConflictException? thrown = null;
+        try
+        {
+            await journal.AppendAsync(new(
+                "operation-race", fingerprint, "applied", null, ArtifactDigest,
+                [new DeliveryRegionProgress("gru", "applied", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        }
+        catch (DirectDeliveryJournalConflictException exception)
+        {
+            thrown = exception;
+        }
+
+        await Assert.That(thrown).IsNotNull();
+        var durable = await journal.ReadAsync("operation-race", default);
+        await Assert.That(durable!.State).IsEqualTo(DeliveryJournalState.Applying);
+    }
+
+    [Test]
+    public async Task Retention_never_prunes_a_receipt_less_failure_that_owes_rollback_recovery()
+    {
+        // The B1 recovery shape (receipt-less Failed with forward-phase write-ahead debt) is
+        // the only durable copy of the pre-mutation digests: under retention-cap pressure the
+        // journal must fail closed (overflow) rather than delete it, or a retry would re-apply
+        // over an owed rollback.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
+
+        await journal.AppendAsync(new("retain-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "health_failed", PreviousArtifactDigest, null, PreviousManifestDigest),
+            ]), default);
+
+        var overflowed = false;
+        try
+        {
+            await journal.AppendAsync(new("retain-2", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+                ArtifactDigest,
+                [new DeliveryRegionProgress("gru", "applied", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        }
+        catch (TerraScale.Orchestrator.Delivery.JournalRetentionOverflowException)
+        {
+            overflowed = true;
+        }
+
+        await Assert.That(overflowed).IsTrue();
+        var owed = await journal.ReadAsync("retain-1", default);
+        await Assert.That(owed).IsNotNull();
+        await Assert.That(owed!.Regions!.Single(static region => region.Region == "gru").PreviousArtifactDigest)
+            .IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(await journal.ReadAsync("retain-2", default)).IsNotNull();
+    }
+
+    [Test]
+    public async Task Retention_never_prunes_a_receipt_less_completed_rollback()
+    {
+        // rollback_succeeded without a durable receipt still owes its terminal record: deleting
+        // it would let replay re-apply the artifact over a finished rollback.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
+
+        await journal.AppendAsync(new("retain-done-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+            ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "rollback_succeeded", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+
+        var overflowed = false;
+        try
+        {
+            await journal.AppendAsync(new("retain-done-2", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+                ArtifactDigest,
+                [new DeliveryRegionProgress("gru", "rollback_succeeded", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        }
+        catch (TerraScale.Orchestrator.Delivery.JournalRetentionOverflowException)
+        {
+            overflowed = true;
+        }
+
+        await Assert.That(overflowed).IsTrue();
+        await Assert.That(await journal.ReadAsync("retain-done-1", default)).IsNotNull();
+        await Assert.That(await journal.ReadAsync("retain-done-2", default)).IsNotNull();
+    }
+
+    [Test]
+    public async Task Retention_still_prunes_recovered_failures_without_rollback_debt()
+    {
+        // Positive control: a receipt-less Failed record with NO write-ahead debt owes nothing
+        // and stays prunable — the guard protects recovery material, not every failure.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
+
+        await journal.AppendAsync(new("retain-free-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+            ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "failed")]), default);
+        await journal.AppendAsync(new("retain-free-2", fingerprint, DeliveryJournalState.Succeeded, Receipt: null,
+            ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "healthy")]), default);
+
+        await Assert.That(await journal.ReadAsync("retain-free-1", default)).IsNull();
+        await Assert.That(await journal.ReadAsync("retain-free-2", default)).IsNotNull();
     }
 
     [Test]
@@ -428,6 +898,30 @@ public sealed class DirectDeliveryProductionAdapterTests
     private const string UnrecordedArtifactDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
     private const string PreviousArtifactDigest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
     private const string PreviousManifestDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    private const string AltPreviousArtifactDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+    private const string AltPreviousManifestDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+
+    /// <summary>Builds the coordinator over the real durable journal with development-grade boundaries.</summary>
+    private static DirectDeliveryService CoordinatorOver(IForgejoDeliveryLedger ledger, IDeliveryTarget target) => new(
+        new AllowAuthorizer(),
+        new DirectDeliveryDevelopmentProvenance(),
+        new FixedResolver(target),
+        new NatsDirectDeliveryJournal(ledger),
+        auditIdFactory: static () => "audit-test");
+
+    /// <summary>Deterministically reports whether one append is rejected as a continuity conflict.</summary>
+    private static async Task<bool> Rejects(Func<ValueTask> append)
+    {
+        try
+        {
+            await append();
+            return false;
+        }
+        catch (DirectDeliveryJournalConflictException)
+        {
+            return true;
+        }
+    }
 
     /// <summary>A deterministic admitted signing identity: signs and verifies the same digest.</summary>
     internal sealed class HashSignature(byte domain) :
@@ -514,6 +1008,168 @@ public sealed class DirectDeliveryProductionAdapterTests
 
         public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(string key, string value, ulong revision, CancellationToken cancellationToken) =>
             ledger.UpdateAsync(key, value, revision, cancellationToken);
+    }
+
+    /// <summary>An always-authorizing development authorizer for journal-integration scenarios.</summary>
+    private sealed class AllowAuthorizer : IDeliveryAuthorizer
+    {
+        public ValueTask<DeliveryAuthorizationResult> AuthorizeAsync(
+            DeliveryRequest request,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new DeliveryAuthorizationResult(true));
+    }
+
+    /// <summary>Resolves one fixed target for journal-integration scenarios.</summary>
+    private sealed class FixedResolver(IDeliveryTarget deliveryTarget) : IDeliveryTargetResolver
+    {
+        public ValueTask<IDeliveryTarget?> ResolveAsync(DeliveryTarget target, CancellationToken cancellationToken) =>
+            ValueTask.FromResult<IDeliveryTarget?>(deliveryTarget);
+    }
+
+    /// <summary>
+    /// A deterministic in-memory target with a digest compare-and-swap fence and health
+    /// injection, used to drive the REAL durable journal through multi-region failure and
+    /// rollback sequences.
+    /// </summary>
+    private sealed class FencedTarget : IDeliveryTarget
+    {
+        private readonly Dictionary<string, (string Digest, string Manifest)> deployed = new(StringComparer.Ordinal);
+        public string? FailHealthInRegion { get; init; }
+
+        /// <summary>Every adapter call, named for assertions (observe/apply/health/rollback/converge).</summary>
+        public List<string> Calls { get; } = [];
+
+        public void Seed(string region, string digest, string manifest) => deployed[region] = (digest, manifest);
+
+        public string? DigestOf(string region) =>
+            deployed.TryGetValue(region, out var value) ? value.Digest : null;
+
+        public ValueTask<DeliveryArtifact?> ObserveCurrentArtifactAsync(
+            DeliveryRequest request, string region, CancellationToken cancellationToken)
+        {
+            Calls.Add($"observe:{region}");
+            return ValueTask.FromResult(deployed.TryGetValue(region, out var value)
+                ? new DeliveryArtifact(value.Digest, value.Manifest, "service")
+                : null);
+        }
+
+        public ValueTask<string?> ObserveCurrentDigestAsync(
+            DeliveryRequest request, string region, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(deployed.TryGetValue(region, out var value) ? value.Digest : null);
+
+        public ValueTask<DeliveryMutationResult> ApplyAsync(
+            DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
+            ApplyFencedAsync(request, artifact, region, null, cancellationToken);
+
+        public ValueTask<DeliveryMutationResult> ApplyFencedAsync(
+            DeliveryRequest request,
+            DeliveryArtifact artifact,
+            string region,
+            string? expectedPreviousArtifactDigest,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add($"apply:{region}");
+            var current = deployed.TryGetValue(region, out var value) ? value.Digest : null;
+            if (string.Equals(current, artifact.Digest, StringComparison.OrdinalIgnoreCase))
+                return ValueTask.FromResult(new DeliveryMutationResult(true, false, null));
+            if (!string.Equals(current, expectedPreviousArtifactDigest, StringComparison.OrdinalIgnoreCase))
+                return ValueTask.FromResult(new DeliveryMutationResult(
+                    false, false, current, DirectDeliveryErrorCode.MutationRace));
+            var previousManifest = deployed.TryGetValue(region, out var previous) ? previous.Manifest : null;
+            deployed[region] = (artifact.Digest!, artifact.ManifestDigest!);
+            return ValueTask.FromResult(new DeliveryMutationResult(true, true, current,
+                PreviousManifestDigest: previousManifest));
+        }
+
+        public ValueTask<DeliveryHealthResult> CheckHealthAsync(
+            DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken)
+        {
+            var rollback = !string.Equals(artifact.Digest, ArtifactDigest, StringComparison.OrdinalIgnoreCase);
+            Calls.Add(rollback ? $"rollback-health:{region}" : $"health:{region}");
+            var failed = !rollback && region == FailHealthInRegion;
+            return ValueTask.FromResult(new DeliveryHealthResult(!failed,
+                [new($"{region}-health", failed ? DeliveryHealthStatus.Failed : DeliveryHealthStatus.Passed)]));
+        }
+
+        public ValueTask<DeliveryConvergenceResult> CheckConvergenceAsync(
+            DeliveryRequest request, DeliveryArtifact artifact, IReadOnlyList<string> orderedRegions, CancellationToken cancellationToken)
+        {
+            var rollback = !string.Equals(artifact.Digest, ArtifactDigest, StringComparison.OrdinalIgnoreCase);
+            Calls.Add(rollback ? "rollback-converge" : "converge");
+            return ValueTask.FromResult(new DeliveryConvergenceResult(orderedRegions.All(region =>
+                deployed.TryGetValue(region, out var value) &&
+                string.Equals(value.Digest, artifact.Digest, StringComparison.OrdinalIgnoreCase))));
+        }
+
+        public ValueTask<DeliveryRollbackResult> RollbackAsync(
+            DeliveryRequest request,
+            string region,
+            string targetArtifactDigest,
+            string? targetManifestDigest,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add($"rollback:{region}");
+            var manifest = targetManifestDigest ??
+                (deployed.TryGetValue(region, out var value) ? value.Manifest : targetArtifactDigest);
+            deployed[region] = (targetArtifactDigest, manifest);
+            return ValueTask.FromResult(new DeliveryRollbackResult(
+                true, targetArtifactDigest, new DeliveryArtifact(targetArtifactDigest, manifest, "service")));
+        }
+    }
+
+    /// <summary>
+    /// A ledger whose writes fail while a value predicate matches (and until repaired): used to
+    /// degrade the durable journal at an exact point in a delivery sequence while the target
+    /// stays healthy, then replay against the same durable state.
+    /// </summary>
+    private sealed class DegradeableLedger : IForgejoDeliveryLedger
+    {
+        private readonly ForgejoWebhookJournalTests.TestLedger inner = new();
+
+        public Func<string, bool>? FailWhenValue { get; set; }
+        public bool Repaired { get; set; }
+
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken) =>
+            inner.GetAsync(key, cancellationToken);
+
+        public async Task<ForgejoDeliveryLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken)
+        {
+            await GuardAsync(value);
+            return await inner.CreateAsync(key, value, cancellationToken);
+        }
+
+        public async Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+            string key, string value, ulong expectedRevision, CancellationToken cancellationToken)
+        {
+            await GuardAsync(value);
+            return await inner.UpdateAsync(key, value, expectedRevision, cancellationToken);
+        }
+
+        private Task GuardAsync(string value) =>
+            !Repaired && FailWhenValue?.Invoke(value) == true
+                ? Task.FromException(new IOException("journal degraded"))
+                : Task.CompletedTask;
+    }
+
+    /// <summary>A ledger whose updates all conflict once armed: revision compare-and-set loss.</summary>
+    private sealed class ConflictOnUpdateLedger : IForgejoDeliveryLedger
+    {
+        private readonly ForgejoWebhookJournalTests.TestLedger inner = new();
+
+        public bool ConflictUpdates { get; set; }
+
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken) =>
+            inner.GetAsync(key, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken) =>
+            inner.CreateAsync(key, value, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+            string key, string value, ulong expectedRevision, CancellationToken cancellationToken) =>
+            ConflictUpdates
+                ? Task.FromException<ForgejoDeliveryLedgerEntry>(
+                    new ForgejoDeliveryLedgerConflictException(new InvalidOperationException("simulated revision race")))
+                : inner.UpdateAsync(key, value, expectedRevision, cancellationToken);
     }
 
     /// <summary>A ledger whose every operation fails with an infrastructure-class exception.</summary>

@@ -124,7 +124,7 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
     {
         if (!string.Equals(current.RequestFingerprint, record.RequestFingerprint, StringComparison.Ordinal) ||
             current.ArtifactDigest is not null && record.ArtifactDigest is not null &&
-            !string.Equals(current.ArtifactDigest, record.ArtifactDigest, StringComparison.Ordinal) ||
+            !string.Equals(current.ArtifactDigest, record.ArtifactDigest, StringComparison.OrdinalIgnoreCase) ||
             current.AuthorityGeneration != record.AuthorityGeneration ||
             current.WriterEpoch != record.WriterEpoch ||
             current.Attempt != record.Attempt)
@@ -136,8 +136,8 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
         if (current.State is DeliveryJournalState.Succeeded or DeliveryJournalState.RolledBack &&
             record.State != current.State)
             throw new DirectDeliveryJournalConflictException();
-        if (StateRank(record.State) < StateRank(current.State) &&
-            !(current.State == DeliveryJournalState.Failed && IsReplayable(current)))
+        if (RecordStateRank(record.State) < RecordStateRank(current.State) &&
+            !(current.State == DeliveryJournalState.Failed && (IsReplayable(current) || current.Receipt is null)))
             throw new DirectDeliveryJournalConflictException();
         if (current.Regions is { } currentRegions && record.Regions is { } nextRegions)
         {
@@ -145,13 +145,21 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
             foreach (var previous in currentRegions)
             {
                 if (!next.TryGetValue(previous.Region, out var candidate)) continue;
-                if (StateRank(candidate.State) < StateRank(previous.State))
+                if (RegionStateRank(candidate.State) < RegionStateRank(previous.State))
                     throw new DirectDeliveryJournalConflictException();
                 // Recorded write-ahead rollback material is durable: a later append (including
                 // the create-race recovery write) may never clear or change it — resetting the
-                // pre-mutation digests would erase the only exact rollback target.
+                // pre-mutation digests would erase the only exact rollback target. BOTH halves
+                // of the rollback identity are guarded: restoring the artifact digest against a
+                // changed manifest digest would restore an unverifiable artifact. Digests are
+                // compared case-insensitively, consistent with digest semantics everywhere else
+                // in this seam (the coordinator adopts adapter-reported digests on
+                // OrdinalIgnoreCase agreement; a case-only difference is the same digest).
                 if (previous.PreviousArtifactDigest is { } recorded &&
-                    candidate.PreviousArtifactDigest != recorded)
+                    !string.Equals(candidate.PreviousArtifactDigest, recorded, StringComparison.OrdinalIgnoreCase))
+                    throw new DirectDeliveryJournalConflictException();
+                if (previous.PreviousManifestDigest is { } recordedManifest &&
+                    !string.Equals(candidate.PreviousManifestDigest, recordedManifest, StringComparison.OrdinalIgnoreCase))
                     throw new DirectDeliveryJournalConflictException();
             }
         }
@@ -159,9 +167,18 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
 
     /// <summary>
     /// Prunable means terminal AND recovered: a Failed record that still owes rollback recovery
-    /// (rollback-pending/failed regions, or a rollback-failed receipt) holds the only durable
-    /// copy of the pre-mutation digests and must never be pruned.
+    /// (rollback-pending/failed regions, a rollback-failed receipt, or a receipt-less record
+    /// whose regions still carry write-ahead rollback material) holds the only durable copy of
+    /// the pre-mutation digests and must never be pruned.
     /// </summary>
+    /// <remarks>
+    /// Third agreeing site: the coordinator's <c>NeedsRollbackRecovery</c>/<c>HasWriteAheadDebt</c>
+    /// decide that a durable shape owes rollback recovery, this journal's replay continuity
+    /// rules decide which progress appends that recovery may write, and this predicate decides
+    /// whether retention may delete the record at all. All three must classify the same shapes
+    /// the same way: pruning a record those route to recovery would destroy the only durable
+    /// pre-mutation digests, and a retry would re-apply over an owed or finished rollback.
+    /// </remarks>
     private static bool IsPrunable(DeliveryJournalRecord record) =>
         record.State switch
         {
@@ -170,9 +187,23 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
             DeliveryJournalState.Failed =>
                 record.Regions?.Any(static region =>
                     region.State is "rollback_failed" or "rollback_pending") != true &&
-                record.Receipt?.Error.Code != DirectDeliveryErrorCode.RollbackFailed,
+                record.Receipt?.Error.Code != DirectDeliveryErrorCode.RollbackFailed &&
+                !(record.Receipt is null && HasWriteAheadRollbackMaterial(record)),
             _ => false,
         };
+
+    /// <summary>
+    /// Mirrors the coordinator's write-ahead-debt test, including completed
+    /// <c>rollback_succeeded</c> regions: deleting a receipt-less completed rollback would let
+    /// replay re-apply the artifact over a finished rollback. Digest presence uses the same
+    /// content-addressed hex shape the journal validates elsewhere.
+    /// </summary>
+    private static bool HasWriteAheadRollbackMaterial(DeliveryJournalRecord record) =>
+        record.Regions?.Any(static region =>
+            region.State is "applied" or "healthy" or "health_failed" or "rollback_pending" or
+                "rollback_failed" or "rollback_succeeded" &&
+            region.PreviousArtifactDigest is { } artifact && Sha256(artifact) &&
+            region.PreviousManifestDigest is { } manifest && Sha256(manifest)) == true;
 
     private static DeliveryJournalRecord Read(string value)
     {
@@ -254,15 +285,35 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
         record.Receipt?.Error.Code is DirectDeliveryErrorCode.JournalUnavailable or DirectDeliveryErrorCode.Cancelled or
             DirectDeliveryErrorCode.AuthorizationUnavailable or DirectDeliveryErrorCode.ProvenanceUnavailable;
 
-    private static int StateRank(string state) => state switch
+    /// <summary>
+    /// Phase classes for the operation-record state: in-flight work is freely re-sequenced (a
+    /// multi-region delivery interleaves applying/applied/healthy/rolling_back per region), a
+    /// replayable failure may be re-entered, and terminal states are absorbing (enforced
+    /// separately above). A total order over the in-flight names would reject region two's
+    /// write-ahead after region one's health gate and make every multi-region delivery
+    /// impossible, so the rank is a class, not a sequence.
+    /// </summary>
+    private static int RecordStateRank(string state) => state switch
     {
-        DeliveryJournalState.Accepted => 0,
-        DeliveryJournalState.Applying => 1,
-        "applied" => 2,
-        DeliveryJournalState.RollingBack => 3,
-        "healthy" => 4,
-        DeliveryJournalState.Failed => 5,
-        DeliveryJournalState.RolledBack or DeliveryJournalState.Succeeded => 6,
+        DeliveryJournalState.Accepted or DeliveryJournalState.Applying or "applied" or
+            DeliveryJournalState.RollingBack or "healthy" => 0,
+        DeliveryJournalState.Failed => 1,
+        DeliveryJournalState.RolledBack or DeliveryJournalState.Succeeded => 2,
+        _ => -1,
+    };
+
+    /// <summary>
+    /// Phase classes for one region's progress: pending, forward delivery (whose gates re-run
+    /// idempotently on replay), and rollback recovery (whose states legitimately cycle —
+    /// rollback_failed retried, rollback_succeeded demoted when convergence fails). The durable
+    /// protections that matter per region are the phase never going backwards and the write-ahead
+    /// digest immutability above, not an intra-phase ordering.
+    /// </summary>
+    private static int RegionStateRank(string state) => state switch
+    {
+        "pending" => 0,
+        "applying" or "applied" or "healthy" or "health_failed" or "failed" => 1,
+        "rollback_pending" or "rolling_back" or "rollback_failed" or "rollback_succeeded" => 2,
         _ => -1,
     };
 
@@ -275,7 +326,7 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
         DirectDeliveryErrorCode.UnauthorizedActor or DirectDeliveryErrorCode.UnboundedText or DirectDeliveryErrorCode.ProvenanceFailed or
         DirectDeliveryErrorCode.HealthFailed or DirectDeliveryErrorCode.ConvergenceFailed or DirectDeliveryErrorCode.RollbackFailed or
         DirectDeliveryErrorCode.JournalUnavailable or DirectDeliveryErrorCode.OperationConflict or DirectDeliveryErrorCode.Cancelled or
-        DirectDeliveryErrorCode.MutationFailed or DirectDeliveryErrorCode.AuthorizationUnavailable or
+        DirectDeliveryErrorCode.MutationFailed or DirectDeliveryErrorCode.MutationRace or DirectDeliveryErrorCode.AuthorizationUnavailable or
         DirectDeliveryErrorCode.ProvenanceUnavailable or DirectDeliveryErrorCode.AuthorityFenced;
 
     private static string Key(string operationId)
@@ -490,19 +541,55 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
         DeliveryRequest request,
         DeliveryArtifact artifact,
         string region,
+        CancellationToken cancellationToken) =>
+        await ApplyCoreAsync(request, artifact, region, expectedPreviousDigest: null, fence: false, cancellationToken)
+            .ConfigureAwait(false);
+
+    public async ValueTask<DeliveryMutationResult> ApplyFencedAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        string region,
+        string? expectedPreviousArtifactDigest,
+        CancellationToken cancellationToken) =>
+        await ApplyCoreAsync(request, artifact, region, expectedPreviousArtifactDigest, fence: true, cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// One mutation path for the unfenced legacy call and the fenced per-mutation fence. The
+    /// fence is a compare-and-swap at mutation time: the region must STILL hold the digest the
+    /// coordinator durably recorded as its rollback target, otherwise a concurrent writer raced
+    /// the observe→apply window and the adapter reports the typed mutation race WITHOUT
+    /// mutating — leaving the region to its concurrent owner instead of recording a stale
+    /// rollback target.
+    /// </summary>
+    private async ValueTask<DeliveryMutationResult> ApplyCoreAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        string region,
+        string? expectedPreviousDigest,
+        bool fence,
         CancellationToken cancellationToken)
     {
         var key = Key(RequiredTarget(request), region);
         var existing = await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false);
-        var previous = existing is null ? null : Read(existing.Value).ArtifactDigest;
-        if (StringComparer.OrdinalIgnoreCase.Equals(previous, RequiredDigest(artifact)))
+        var current = existing is null ? null : Read(existing.Value).ArtifactDigest;
+        var requested = RequiredDigest(artifact);
+        if (StringComparer.OrdinalIgnoreCase.Equals(current, requested))
             // The region already runs the requested digest: nothing mutated, so there is no
             // rollback target — reporting the requested digest as "previous" would let a later
-            // rollback "restore" an artifact this delivery never replaced.
+            // rollback "restore" an artifact this delivery never replaced. This also makes a
+            // crash-replayed fence (region already applied, journal still 'applying') a no-op
+            // instead of a false race.
             return new(true, false, null);
-
+        if (fence && !StringComparer.OrdinalIgnoreCase.Equals(current, expectedPreviousDigest))
+            // The current digest is neither the requested artifact nor the recorded previous
+            // one (including a pristine expectation met by a deployed region): a concurrent
+            // mutation owns this region now. Do not mutate and do not let this delivery record
+            // rollback material for a replacement it never performed.
+            return new(false, false, current, DirectDeliveryErrorCode.MutationRace);
+        var previous = current;
         var state = JsonSerializer.Serialize(new DirectDeliveryState(
-            RequiredDigest(artifact), RequiredManifestDigest(artifact), RequiredKind(artifact)),
+            requested, RequiredManifestDigest(artifact), RequiredKind(artifact)),
             DeliveryWireCodec.JsonOptions);
         try
         {
@@ -515,7 +602,10 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
         }
         catch (ForgejoDeliveryLedgerConflictException)
         {
-            return new(false, false, previous, DirectDeliveryErrorCode.MutationFailed);
+            // The revision compare-and-set lost: another writer mutated the region between this
+            // call's read and write, so the digest fence no longer holds either — the typed race
+            // outcome, never a generic mutation failure.
+            return new(false, false, previous, DirectDeliveryErrorCode.MutationRace);
         }
     }
 
@@ -673,6 +763,10 @@ internal sealed class DirectDeliveryDevelopmentTargetResolver(IDeliveryTarget ta
 
         public ValueTask<DeliveryMutationResult> ApplyAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
             Matches(request) ? inner.ApplyAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
+
+        public ValueTask<DeliveryMutationResult> ApplyFencedAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, string? expectedPreviousArtifactDigest, CancellationToken cancellationToken) =>
+            Matches(request) ? inner.ApplyFencedAsync(request, artifact, region, expectedPreviousArtifactDigest, cancellationToken)
+                : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
 
         public ValueTask<DeliveryHealthResult> CheckHealthAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
             Matches(request) ? inner.CheckHealthAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryHealthResult(false));

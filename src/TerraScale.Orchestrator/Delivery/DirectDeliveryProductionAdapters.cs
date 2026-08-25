@@ -388,6 +388,10 @@ internal sealed class BoundDeliveryTarget(IDeliveryTarget inner, DeliveryTarget 
         Matches(request) ? inner.ApplyAsync(request, artifact, region, cancellationToken)
             : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
 
+    public ValueTask<DeliveryMutationResult> ApplyFencedAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, string? expectedPreviousArtifactDigest, CancellationToken cancellationToken) =>
+        Matches(request) ? inner.ApplyFencedAsync(request, artifact, region, expectedPreviousArtifactDigest, cancellationToken)
+            : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
+
     public ValueTask<DeliveryHealthResult> CheckHealthAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
         Matches(request) ? inner.CheckHealthAsync(request, artifact, region, cancellationToken)
             : ValueTask.FromResult(new DeliveryHealthResult(false));

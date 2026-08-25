@@ -140,6 +140,11 @@ public sealed class DirectDeliveryTests
 
         await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
         await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        // AC4: even a failed rollback names the exact digest (and manifest identity) the
+        // operator must restore, with bounded remediation text.
+        await Assert.That(receipt.Rollback.TargetArtifactDigest).IsEqualTo(PreviousDigest);
+        await Assert.That(receipt.Rollback.TargetManifestDigest).IsEqualTo(PreviousDigest);
+        await Assert.That(receipt.Error.Remediation).Contains("Restore the recorded target artifact digest");
         await Assert.That(json).DoesNotContain("provider-detail");
         await Assert.That(json).DoesNotContain("secret");
     }
@@ -299,6 +304,10 @@ public sealed class DirectDeliveryTests
             var target = new RecordingTarget();
             var journal = new InMemoryDeliveryJournal();
             var request = Request();
+            // The journal claims both regions are already healthy with this artifact, so the
+            // target is seeded to actually run it: the replayed convergence must verify it.
+            target.SeedCurrentDigest("gru", ArtifactDigest);
+            target.SeedCurrentDigest("sfo", ArtifactDigest);
             // A journaled terminal-looking receipt whose failure is recoverable in place.
             await journal.AppendAsync(new(
                 request.OperationId!,
@@ -491,6 +500,562 @@ public sealed class DirectDeliveryTests
         await Assert.That(receipt.Error.Remediation).Contains("Raise the retention cap");
     }
 
+    [Test]
+    public async Task Rollback_convergence_verifies_each_region_against_its_own_recorded_previous_digest()
+    {
+        // M5: regions can legitimately hold DISTINCT previous digests; convergence after
+        // rollback must verify each region against its own write-ahead digest, not one digest
+        // across every region.
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        target.SeedCurrentArtifact("gru", AltPreviousDigest, AltPreviousManifestDigest);
+        target.SeedCurrentArtifact("sfo", PreviousDigest, PreviousManifestDigest);
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Succeeded);
+        // The receipt's single rollback target names the first reverse-order region's digest.
+        await Assert.That(receipt.Rollback.TargetArtifactDigest).IsEqualTo(PreviousDigest);
+        await Assert.That(receipt.Rollback.TargetManifestDigest).IsEqualTo(PreviousManifestDigest);
+        await Assert.That(target.RollbackDigests).IsEquivalentTo([
+            ("gru", AltPreviousDigest),
+            ("sfo", PreviousDigest),
+        ]);
+        await Assert.That(target.ConvergenceCalls).IsEquivalentTo([
+            (new[] { "gru" }, AltPreviousDigest),
+            (new[] { "sfo" }, PreviousDigest),
+        ]);
+    }
+
+    [Test]
+    public async Task Rollback_convergence_keeps_the_shared_fast_path_when_every_region_shares_one_previous_digest()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.ConvergenceCalls.Count).IsEqualTo(1);
+        await Assert.That(target.ConvergenceCalls[0].Regions).IsEquivalentTo(["gru", "sfo"]);
+        await Assert.That(target.ConvergenceCalls[0].Digest).IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task Failed_rollback_convergence_demotes_completed_regions_and_reports_failed()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo", FailRollbackConvergence = true };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Failed);
+        // Both mutations really rolled back, but convergence is part of the rollback gate: the
+        // durable progress must not claim rollback_succeeded.
+        await Assert.That(journal.Records[^1].Regions!.Select(static region => region.State))
+            .IsEquivalentTo(["rollback_failed", "rollback_failed"]);
+    }
+
+    [Test]
+    public async Task A_throwing_or_cancelled_rollback_convergence_is_contained_as_a_rollback_failure()
+    {
+        foreach (var (throwing, cancelling) in new[] { (true, false), (false, true) })
+        {
+            var target = new RecordingTarget
+            {
+                FailHealthInRegion = "sfo",
+                ThrowRollbackConvergence = throwing,
+                CancelRollbackConvergence = cancelling,
+            };
+            var journal = new InMemoryDeliveryJournal();
+
+            var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+            await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+            await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+            await Assert.That(journal.Records[^1].Regions!.Select(static region => region.State))
+                .IsEquivalentTo(["rollback_failed", "rollback_failed"]);
+        }
+    }
+
+    [Test]
+    public async Task A_concurrent_mutation_racing_the_fence_is_not_applied_not_rolled_back_and_typed()
+    {
+        // E11: a concurrent writer mutates sfo between the write-ahead observation and the
+        // fenced apply. The adapter must refuse the mutation, the region must keep the
+        // concurrent writer's digest, only genuinely mutated regions roll back, and the
+        // receipt must carry the typed mutation-race code with bounded remediation.
+        var target = new RecordingTarget { ConcurrentMutationInRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationRace);
+        await Assert.That(receipt.Error.Remediation).Contains("new delivery request");
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Succeeded);
+        await Assert.That(target.RollbackDigests.Select(static digest => digest.Region))
+            .IsEquivalentTo(["gru"]);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(OtherArtifactDigest);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "sfo").State)
+            .IsEqualTo(DeliveryJournalState.Failed);
+        await Assert.That(regions.Single(static region => region.Region == "sfo").ErrorCode)
+            .IsEqualTo(DirectDeliveryErrorCode.MutationRace);
+        await Assert.That(regions.Single(static region => region.Region == "gru").State)
+            .IsEqualTo("rollback_succeeded");
+    }
+
+    [Test]
+    public async Task A_mutation_race_on_the_first_region_fails_without_any_rollback()
+    {
+        var target = new RecordingTarget { ConcurrentMutationInRegion = "gru" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationRace);
+        await Assert.That(receipt.Rollback.Attempted).IsFalse();
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.NotRequired);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("rollback", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(OtherArtifactDigest);
+    }
+
+    [Test]
+    public async Task A_fenced_apply_treats_a_region_already_at_the_requested_digest_as_a_noop()
+    {
+        // The crash-replay shape: the region already runs the requested artifact, so the fence
+        // must converge instead of reporting a race, and no rollback target is recorded.
+        var target = new RecordingTarget();
+        target.SeedCurrentArtifact("gru", ArtifactDigest, ValidDigest);
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Succeeded);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "gru").PreviousArtifactDigest)
+            .IsNull();
+        await Assert.That(regions.Single(static region => region.Region == "sfo").PreviousArtifactDigest)
+            .IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task An_adapter_previous_digest_disagreeing_with_the_write_ahead_never_rewrites_it()
+    {
+        // An unfenced adapter whose reported previous digest disagrees with the durable
+        // write-ahead (it raced) must not overwrite the durable rollback material.
+        var target = new RecordingTarget { ReportRacedPrevious = true };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Succeeded);
+        await Assert.That(journal.Records[^1].Regions!.Select(static region => region.PreviousArtifactDigest!))
+            .IsEquivalentTo([PreviousDigest, PreviousDigest]);
+    }
+
+    [Test]
+    public async Task Mid_rollback_journal_failure_completes_the_rollback_and_surfaces_the_degraded_state()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var flaky = new RollbackProgressFilteredJournal();
+
+        var receipt = await Coordinator(target, flaky).DeliverAsync(Request());
+
+        // The degraded journal never aborts the in-progress rollback: both regions are really
+        // restored, and the receipt says the record is not durable yet.
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Remediation).Contains("journal currently unavailable");
+        await Assert.That(target.RollbackDigests.Select(static digest => digest.Region))
+            .IsEquivalentTo(["gru", "sfo"]);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+
+        // Replay against a recovered journal converges from the durable progress.
+        var healthy = new InMemoryDeliveryJournal();
+        foreach (var record in flaky.Records) await healthy.AppendAsync(record, default);
+        var replayTarget = new RecordingTarget { FailHealthInRegion = "sfo" };
+        replayTarget.SeedCurrentDigest("gru", PreviousDigest);
+        replayTarget.SeedCurrentDigest("sfo", PreviousDigest);
+
+        var replay = await Coordinator(replayTarget, healthy).DeliverAsync(Request());
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(replayTarget.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(replayTarget.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task A_completed_rollback_whose_receipt_never_persisted_converges_on_replay_without_reapplying()
+    {
+        // The terminal rolled-back receipt append fails: the receipt is still returned, and a
+        // replay must converge to rolled_back through recovery — re-applying the artifact over
+        // a finished rollback would destroy the recovery the journal owes.
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var flaky = new ReceiptFilteredJournal();
+
+        var receipt = await Coordinator(target, flaky).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Remediation).Contains("journal currently unavailable");
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+
+        var healthy = new InMemoryDeliveryJournal();
+        foreach (var record in flaky.Records) await healthy.AppendAsync(record, default);
+        var replayTarget = new RecordingTarget();
+        replayTarget.SeedCurrentDigest("gru", PreviousDigest);
+        replayTarget.SeedCurrentDigest("sfo", PreviousDigest);
+
+        var replay = await Coordinator(replayTarget, healthy).DeliverAsync(Request());
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(string.Join('|', replayTarget.Calls)).IsEqualTo("rollback-converge");
+    }
+
+    [Test]
+    public async Task Cancellation_during_rollback_bookkeeping_returns_the_receipt_and_keeps_the_target()
+    {
+        // Cancellation-shaped journal failures mid-rollback must degrade to best-effort
+        // bookkeeping: the rollback finishes, the receipt is returned (never thrown), and the
+        // durable write-ahead keeps the recovery target.
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var journal = new CancelledRollbackJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Remediation).Contains("journal currently unavailable");
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task Adapter_cancellation_at_the_rollback_point_is_durable_and_resumes_to_rolled_back()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo", CancelRollback = true };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        // Every rollback attempt failed, and the receipt still names the exact digest to
+        // restore from the durable write-ahead record.
+        await Assert.That(receipt.Rollback.TargetArtifactDigest).IsEqualTo(PreviousDigest);
+        await Assert.That(receipt.Rollback.TargetManifestDigest).IsEqualTo(PreviousDigest);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Select(static region => region.ErrorCode!))
+            .IsEquivalentTo([DirectDeliveryErrorCode.Cancelled, DirectDeliveryErrorCode.Cancelled]);
+
+        // Recovery after the dependency returns: the same operationId resumes the rollback.
+        var replayTarget = new RecordingTarget();
+        replayTarget.SeedCurrentDigest("gru", ArtifactDigest);
+        replayTarget.SeedCurrentDigest("sfo", ArtifactDigest);
+
+        var replay = await Coordinator(replayTarget, journal).DeliverAsync(Request());
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(replayTarget.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
+    public async Task Boundary_cancellation_before_any_mutation_reports_cancelled()
+    {
+        var authorization = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            authorizer: new ThrowingAuthorizer(new OperationCanceledException()))
+            .DeliverAsync(Request());
+        var provenance = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            provenance: new ThrowingProvenance(new OperationCanceledException()))
+            .DeliverAsync(Request());
+
+        await Assert.That(authorization.Error.Code).IsEqualTo(DirectDeliveryErrorCode.Cancelled);
+        await Assert.That(provenance.Error.Code).IsEqualTo(DirectDeliveryErrorCode.Cancelled);
+    }
+
+    [Test]
+    public async Task Malformed_mutation_results_fail_closed()
+    {
+        var nulled = await Coordinator(
+            new RecordingTarget { ApplyNullResult = true }, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+        var failed = await Coordinator(
+            new RecordingTarget { ApplyFailedResult = true }, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+        var invalidPrevious = await Coordinator(
+            new RecordingTarget { ApplyInvalidPrevious = true }, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+        var throwingObserve = await Coordinator(
+            new RecordingTarget { ThrowObserveInRegion = "gru" }, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+        var invalidObserve = await Coordinator(
+            new RecordingTarget { ObserveInvalidDigests = true }, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+
+        await Assert.That(nulled.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        await Assert.That(failed.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        // An unprovable previous digest makes the mutation unsafe to leave unrecoverable.
+        await Assert.That(invalidPrevious.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        await Assert.That(throwingObserve.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        await Assert.That(invalidObserve.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+    }
+
+    [Test]
+    public async Task An_apply_that_throws_after_mutating_still_rolls_back_to_the_write_ahead_digest()
+    {
+        var target = new RecordingTarget
+        {
+            CrashAfterApply = true,
+            ApplyException = new IOException("provider-detail Bearer sekrit-token-123"),
+        };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        await Assert.That(target.RollbackDigests).IsEquivalentTo([("gru", PreviousDigest)]);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task Health_check_exceptions_are_health_failures_with_rollback()
+    {
+        var forward = new RecordingTarget { ThrowHealthInRegion = "sfo" };
+        var forwardReceipt = await Coordinator(forward, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+        var rollback = new RecordingTarget { FailHealthInRegion = "sfo", ThrowRollbackHealthInRegion = "gru" };
+        var rollbackReceipt = await Coordinator(rollback, new InMemoryDeliveryJournal()).DeliverAsync(Request());
+
+        await Assert.That(forwardReceipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(forwardReceipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.HealthFailed);
+        await Assert.That(rollbackReceipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(rollbackReceipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+    }
+
+    [Test]
+    public async Task A_rollback_observing_a_foreign_digest_fails_without_mutating_the_region()
+    {
+        // An external writer replaced sfo after its failed health check: the rollback
+        // observation sees neither the requested nor the recorded previous digest, so the
+        // region is left to its new owner instead of being clobbered by our rollback.
+        var target = new RecordingTarget { FailHealthInRegion = "sfo", ForeignDigestAtRollbackRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        await Assert.That(target.RollbackDigests.Select(static digest => digest.Region))
+            .IsEquivalentTo(["gru"]);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(OtherArtifactDigest);
+    }
+
+    [Test]
+    public async Task A_rollback_result_that_does_not_match_the_requested_digest_fails_closed()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo", CorruptRollbackResultRegion = "gru" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.RollbackFailed);
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Failed);
+        await Assert.That(journal.Records[^1].Regions!.Single(static region => region.Region == "gru").State)
+            .IsEqualTo("rollback_failed");
+    }
+
+    [Test]
+    public async Task Restart_mid_rollback_resumes_from_durable_progress_without_reapplying()
+    {
+        var journal = new InMemoryDeliveryJournal();
+        var request = Request();
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.RollingBack,
+            null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "rollback_succeeded", AltPreviousDigest, null, AltPreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "rollback_failed", PreviousDigest, null, PreviousManifestDigest),
+            ]), default);
+        var target = new RecordingTarget();
+        target.SeedCurrentArtifact("gru", AltPreviousDigest, AltPreviousManifestDigest);
+        target.SeedCurrentArtifact("sfo", ArtifactDigest, ValidDigest);
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.RollbackDigests).IsEquivalentTo([("sfo", PreviousDigest)]);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(AltPreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task Adapter_secret_material_never_reaches_receipts()
+    {
+        const string token = "sekrit-token-123";
+        const string customer = "customer-acct-99";
+        const string raw = "raw-provider-response-body";
+        var receipts = new List<DeliveryReceipt>
+        {
+            await Coordinator(
+                    new RecordingTarget(),
+                    new InMemoryDeliveryJournal(),
+                    authorizer: new ThrowingAuthorizer(new IOException($"Bearer {token}")))
+                .DeliverAsync(Request()),
+            await Coordinator(
+                    new RecordingTarget(),
+                    new InMemoryDeliveryJournal(),
+                    provenance: new ThrowingProvenance(new IOException($"{customer} {raw}")))
+                .DeliverAsync(Request()),
+            await Coordinator(new RecordingTarget(), new ThrowingJournal()).DeliverAsync(Request()),
+            await Coordinator(
+                    new RecordingTarget
+                    {
+                        CrashAfterApply = true,
+                        ApplyException = new IOException($"Bearer {token} {customer}"),
+                    },
+                    new InMemoryDeliveryJournal())
+                .DeliverAsync(Request()),
+            await Coordinator(
+                    new RecordingTarget { FailHealthInRegion = "sfo", ThrowRollbackHealthInRegion = "gru" },
+                    new InMemoryDeliveryJournal())
+                .DeliverAsync(Request()),
+        };
+
+        foreach (var receipt in receipts)
+        {
+            var json = DeliveryWireCodec.SerializeReceipt(receipt);
+            await Assert.That(json).DoesNotContain(token);
+            await Assert.That(json).DoesNotContain(customer);
+            await Assert.That(json).DoesNotContain(raw);
+            await Assert.That(json).DoesNotContain("Bearer");
+            await Assert.That(json).DoesNotContain("provider-detail");
+        }
+    }
+
+    [Test]
+    public async Task Cancellation_after_a_landed_mutation_collects_its_write_ahead_debt()
+    {
+        // The mutation landed, then a cancel-shaped failure hit before the 'applied' persist:
+        // the write-ahead debt must drive a rollback (the region is restored), never a silent
+        // unhealth-checked deployment.
+        var target = new RecordingTarget { CrashAfterApply = true, ApplyException = new OperationCanceledException() };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.RollbackDigests).IsEquivalentTo([("gru", PreviousDigest)]);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "gru").State)
+            .IsEqualTo("rollback_succeeded");
+        await Assert.That(regions.Single(static region => region.Region == "gru").PreviousArtifactDigest)
+            .IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task Cancelled_rollback_after_a_landed_mutation_keeps_the_cancelled_code_and_debt()
+    {
+        // The mutation landed, a cancel-shaped failure followed, and the rollback was also
+        // cancelled: the receipt keeps the replayable 'cancelled' code (the rollback failed
+        // only because everything was cancelled), the debt is durable as rollback progress,
+        // and a retry resumes the rollback — never a re-apply.
+        var target = new RecordingTarget
+        {
+            CrashAfterApply = true,
+            ApplyException = new OperationCanceledException(),
+            CancelRollback = true,
+        };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.Cancelled);
+        var regions = journal.Records[^1].Regions!;
+        var gru = regions.Single(static region => region.Region == "gru");
+        await Assert.That(gru.State).IsEqualTo("rollback_failed");
+        await Assert.That(gru.ErrorCode).IsEqualTo(DirectDeliveryErrorCode.Cancelled);
+        await Assert.That(gru.PreviousArtifactDigest).IsEqualTo(PreviousDigest);
+
+        // Recovery: the same operationId resumes and completes the rollback.
+        var replayTarget = new RecordingTarget();
+        replayTarget.SeedCurrentDigest("gru", ArtifactDigest);
+        replayTarget.SeedCurrentDigest("sfo", PreviousDigest);
+        var replay = await Coordinator(replayTarget, journal).DeliverAsync(Request());
+
+        await Assert.That(replay.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(replayTarget.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
+    public async Task A_cancelled_apply_that_never_landed_collects_its_debt_idempotently()
+    {
+        // The apply was cancelled before mutating, but its write-ahead was already durable:
+        // recording the debt is safe because collection is idempotent — the rollback observes
+        // the region already at its previous digest and converges without a second mutation.
+        var target = new RecordingTarget { CancelApplyInRegion = "gru" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.RollbackDigests).IsEmpty();
+        // The region was never mutated: no digest was ever recorded for it.
+        await Assert.That(target.CurrentDigestOf("gru")).IsNull();
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "gru").State)
+            .IsEqualTo("rollback_succeeded");
+    }
+
+    [Test]
+    public async Task Cancellation_escaping_a_progress_persist_still_returns_a_receipt_with_debt()
+    {
+        // The 'applied' progress persist itself is cancelled after the mutation landed: the
+        // escaped cancellation is contained into the failure path (debt, best-effort durable
+        // progress, terminal receipt) instead of throwing out of the coordinator.
+        var target = new RecordingTarget();
+        var journal = new CancelOnStateJournal("applied");
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "gru").State)
+            .IsEqualTo("rollback_succeeded");
+        await Assert.That(regions.Single(static region => region.Region == "gru").PreviousArtifactDigest)
+            .IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task A_continuity_conflict_surfaces_a_distinct_remediation_not_journal_repair()
+    {
+        var target = new RecordingTarget();
+        var journal = new ConflictOnStateJournal("applied");
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.JournalUnavailable);
+        await Assert.That(receipt.Error.Message).Contains("conflicting progress append");
+        await Assert.That(receipt.Error.Remediation).Contains("Reconcile the region state");
+        await Assert.That(receipt.Error.Remediation).DoesNotContain("Restore journal health");
+    }
+
     private sealed class ConflictOnFirstAppendJournal : IDeliveryJournal
     {
         private readonly InMemoryDeliveryJournal inner = new();
@@ -524,7 +1089,7 @@ public sealed class DirectDeliveryTests
                 : inner.AppendAsync(record, cancellationToken);
     }
 
-    /// <summary>Fails appends whose record state matches the filter; everything else persists.</summary>    /// <summary>Fails appends whose record state matches the filter; everything else persists.</summary>
+    /// <summary>Fails appends whose record state matches the filter; everything else persists.</summary>
     private sealed class StateFilteredJournal(string failingState) : IDeliveryJournal
     {
         private readonly InMemoryDeliveryJournal inner = new();
@@ -545,12 +1110,87 @@ public sealed class DirectDeliveryTests
     {
         private readonly InMemoryDeliveryJournal inner = new();
 
+        public IReadOnlyList<DeliveryJournalRecord> Records => inner.Records;
+
         public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
             inner.ReadAsync(operationId, cancellationToken);
 
         public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
             record.Receipt is not null
                 ? ValueTask.FromException(new IOException("journal degraded"))
+                : inner.AppendAsync(record, cancellationToken);
+    }
+
+    /// <summary>
+    /// Fails every append whose regions entered a rollback phase: the failure record persists,
+    /// then all rollback bookkeeping (and the rollback receipt) hits a degraded journal.
+    /// </summary>
+    private sealed class RollbackProgressFilteredJournal : IDeliveryJournal
+    {
+        private readonly InMemoryDeliveryJournal inner = new();
+
+        public IReadOnlyList<DeliveryJournalRecord> Records => inner.Records;
+
+        public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
+            inner.ReadAsync(operationId, cancellationToken);
+
+        public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
+            IsRollback(record)
+                ? ValueTask.FromException(new IOException("journal degraded during rollback"))
+                : inner.AppendAsync(record, cancellationToken);
+
+        internal static bool IsRollback(DeliveryJournalRecord record) =>
+            record.Regions?.Any(static region =>
+                region.State is "rolling_back" or "rollback_failed" or "rollback_succeeded" or "rollback_pending") == true;
+    }
+
+    /// <summary>
+    /// Cancels every append whose regions entered a rollback phase: cancellation-shaped journal
+    /// failures mid-rollback must degrade to best-effort bookkeeping, never abort the rollback.
+    /// </summary>
+    private sealed class CancelledRollbackJournal : IDeliveryJournal
+    {
+        private readonly InMemoryDeliveryJournal inner = new();
+
+        public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
+            inner.ReadAsync(operationId, cancellationToken);
+
+        public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
+            RollbackProgressFilteredJournal.IsRollback(record)
+                ? ValueTask.FromException(new OperationCanceledException())
+                : inner.AppendAsync(record, cancellationToken);
+    }
+
+    /// <summary>
+    /// Cancels the append whose record state matches the filter: a cancelled progress persist
+    /// after a landed mutation must be contained, never escape the coordinator.
+    /// </summary>
+    private sealed class CancelOnStateJournal(string failingState) : IDeliveryJournal
+    {
+        private readonly InMemoryDeliveryJournal inner = new();
+
+        public IReadOnlyList<DeliveryJournalRecord> Records => inner.Records;
+
+        public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
+            inner.ReadAsync(operationId, cancellationToken);
+
+        public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
+            record.State == failingState
+                ? ValueTask.FromException(new OperationCanceledException())
+                : inner.AppendAsync(record, cancellationToken);
+    }
+
+    /// <summary>Throws the typed continuity conflict on the append whose record state matches.</summary>
+    private sealed class ConflictOnStateJournal(string failingState) : IDeliveryJournal
+    {
+        private readonly InMemoryDeliveryJournal inner = new();
+
+        public ValueTask<DeliveryJournalRecord?> ReadAsync(string operationId, CancellationToken cancellationToken) =>
+            inner.ReadAsync(operationId, cancellationToken);
+
+        public ValueTask AppendAsync(DeliveryJournalRecord record, CancellationToken cancellationToken) =>
+            record.State == failingState
+                ? ValueTask.FromException(new DirectDeliveryJournalConflictException())
                 : inner.AppendAsync(record, cancellationToken);
     }
 
@@ -671,6 +1311,8 @@ public sealed class DirectDeliveryTests
     private const string OtherArtifactDigest = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
     private const string PreviousDigest = ValidDigest;
     private const string PreviousManifestDigest = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    private const string AltPreviousDigest = "sha256:1032457689abcdef1032457689abcdef1032457689abcdef1032457689abcdef";
+    private const string AltPreviousManifestDigest = "sha256:89abcdef89abcdef89abcdef89abcdef89abcdef89abcdef89abcdef89abcdef";
 
     private sealed class Authorizer(bool authorized) : IDeliveryAuthorizer
     {
@@ -877,10 +1519,47 @@ public sealed class DirectDeliveryTests
         public string? FailHealthInRegion { get; init; }
         public string? FailRollbackInRegion { get; init; }
         public string? FailRollbackHealthInRegion { get; init; }
+        /// <summary>When set, a concurrent writer mutates this region inside the observe→apply window (mutation-race simulation).</summary>
+        public string? ConcurrentMutationInRegion { get; init; }
+        /// <summary>When set, the fenced/unfenced apply for this region is cancelled before mutating.</summary>
+        public string? CancelApplyInRegion { get; init; }
+        /// <summary>When set, the fenced/unfenced apply reports a raced previous digest that disagrees with the durable write-ahead.</summary>
+        public bool ReportRacedPrevious { get; init; }
+        /// <summary>When set, rollback convergence reports non-convergence.</summary>
+        public bool FailRollbackConvergence { get; init; }
+        /// <summary>When set, rollback convergence throws an infrastructure failure.</summary>
+        public bool ThrowRollbackConvergence { get; init; }
+        /// <summary>When set, rollback convergence is cancelled.</summary>
+        public bool CancelRollbackConvergence { get; init; }
+        /// <summary>When set, an external writer replaces this region's digest right after its forward health check fails.</summary>
+        public string? ForeignDigestAtRollbackRegion { get; init; }
+        /// <summary>When set, RollbackAsync reports success with a different artifact than the requested rollback target.</summary>
+        public string? CorruptRollbackResultRegion { get; init; }
+        /// <summary>When set, ObserveCurrentArtifactAsync throws for the matching region.</summary>
+        public string? ThrowObserveInRegion { get; init; }
+        /// <summary>When set, observation reports digest shapes that are not valid digests.</summary>
+        public bool ObserveInvalidDigests { get; init; }
+        /// <summary>When set, the forward health check throws for the matching region.</summary>
+        public string? ThrowHealthInRegion { get; init; }
+        /// <summary>When set, the rollback health check throws for the matching region.</summary>
+        public string? ThrowRollbackHealthInRegion { get; init; }
+        /// <summary>When set, ApplyAsync returns null (an adapter that lost its result).</summary>
+        public bool ApplyNullResult { get; init; }
+        /// <summary>When set, ApplyAsync reports an unsuccessful mutation.</summary>
+        public bool ApplyFailedResult { get; init; }
+        /// <summary>When set, ApplyAsync reports a mutated result with an invalid previous digest.</summary>
+        public bool ApplyInvalidPrevious { get; init; }
+        /// <summary>When set, every rollback mutation is cancelled.</summary>
+        public bool CancelRollback { get; init; }
+        /// <summary>The exception ApplyAsync throws after mutating, when <see cref="CrashAfterApply"/> is set.</summary>
+        public Exception? ApplyException { get; init; }
         private readonly Dictionary<string, string?> currentDigests = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string?> currentManifests = new(StringComparer.Ordinal);
         /// <summary>When set, ApplyAsync throws after mutating (crash-window simulation).</summary>
         public bool CrashAfterApply { get; set; }
+
+        /// <summary>Every convergence invocation: the ordered regions it covered and the digest it verified.</summary>
+        public List<(string[] Regions, string Digest)> ConvergenceCalls { get; } = [];
 
         /// <summary>Seeds one region's pre-delivery digest (defaults to the previous digest).</summary>
         public void SeedCurrentDigest(string region, string? digest) =>
@@ -914,6 +1593,10 @@ public sealed class DirectDeliveryTests
             DeliveryRequest request, string region, CancellationToken cancellationToken)
         {
             Calls.Add($"observe:{region}");
+            if (region == ThrowObserveInRegion)
+                return ValueTask.FromException<DeliveryArtifact?>(new IOException("provider-detail observe failed"));
+            if (ObserveInvalidDigests)
+                return ValueTask.FromResult<DeliveryArtifact?>(new DeliveryArtifact("sha256:nope", "sha256:nope", "service"));
             // Adapter contract: null means the region has no deployed artifact yet (pristine).
             var digest = CurrentOf(region);
             return ValueTask.FromResult<DeliveryArtifact?>(digest is null
@@ -931,21 +1614,76 @@ public sealed class DirectDeliveryTests
         public ValueTask<DeliveryMutationResult> ApplyAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken)
         {
             Calls.Add($"apply:{region}");
+            return ValueTask.FromResult(Mutate(artifact, region));
+        }
+
+        public ValueTask<DeliveryMutationResult> ApplyFencedAsync(
+            DeliveryRequest request,
+            DeliveryArtifact artifact,
+            string region,
+            string? expectedPreviousArtifactDigest,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add($"apply:{region}");
+            if (region == CancelApplyInRegion)
+            {
+                var cancelled = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cancelled.Cancel();
+                return ValueTask.FromCanceled<DeliveryMutationResult>(cancelled.Token);
+            }
+            var previous = CurrentOf(region);
+            if (region == ConcurrentMutationInRegion)
+            {
+                // The interleave under test: a concurrent writer mutates the region between the
+                // coordinator's write-ahead observation and this mutation.
+                currentDigests[region] = OtherArtifactDigest;
+                currentManifests[region] = OtherArtifactDigest;
+                previous = OtherArtifactDigest;
+            }
+            if (previous is not null && string.Equals(previous, artifact.Digest, StringComparison.OrdinalIgnoreCase))
+                return ValueTask.FromResult(new DeliveryMutationResult(true, false, null));
+            if (!string.Equals(previous, expectedPreviousArtifactDigest, StringComparison.OrdinalIgnoreCase))
+                return ValueTask.FromResult(new DeliveryMutationResult(
+                    false, false, previous, DirectDeliveryErrorCode.MutationRace));
+            return ValueTask.FromResult(Mutate(artifact, region));
+        }
+
+        private DeliveryMutationResult Mutate(DeliveryArtifact artifact, string region)
+        {
             var previous = CurrentOf(region);
             currentDigests[region] = artifact.Digest;
             currentManifests[region] = artifact.ManifestDigest;
+            if (ApplyNullResult)
+                return null!;
+            if (ApplyFailedResult)
+                return new(false, false, previous);
+            if (ApplyInvalidPrevious)
+                return new(true, true, "sha256:not-a-digest", PreviousManifestDigest: null);
             if (CrashAfterApply)
-                throw new IOException("simulated crash between apply and applied-persist");
-            return ValueTask.FromResult(previous is not null &&
+                throw ApplyException ?? new IOException("simulated crash between apply and applied-persist");
+            if (ReportRacedPrevious && previous is not null)
+                return new(true, true, OtherArtifactDigest, PreviousManifestDigest: OtherArtifactDigest);
+            return previous is not null &&
                 string.Equals(previous, artifact.Digest, StringComparison.OrdinalIgnoreCase)
                     ? new DeliveryMutationResult(true, false, null)
-                    : new DeliveryMutationResult(true, true, previous));
+                    : new DeliveryMutationResult(true, true, previous);
         }
 
         public ValueTask<DeliveryHealthResult> CheckHealthAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken)
         {
-            var rollback = artifact.Digest == PreviousDigest;
+            var rollback = artifact.Digest == PreviousDigest || artifact.Digest == AltPreviousDigest;
             Calls.Add(rollback ? $"rollback-health:{region}" : $"health:{region}");
+            if (!rollback && region == ForeignDigestAtRollbackRegion)
+            {
+                // The drift under test: an external writer replaces the region right after its
+                // forward health check failed, so the rollback observation sees a foreign digest.
+                currentDigests[region] = OtherArtifactDigest;
+                currentManifests[region] = OtherArtifactDigest;
+            }
+            if (!rollback && region == ThrowHealthInRegion)
+                return ValueTask.FromException<DeliveryHealthResult>(new IOException("provider-detail health failed"));
+            if (rollback && region == ThrowRollbackHealthInRegion)
+                return ValueTask.FromException<DeliveryHealthResult>(new IOException("provider-detail rollback health failed"));
             var failed = rollback ? region == FailRollbackHealthInRegion : region == FailHealthInRegion;
             return ValueTask.FromResult(new DeliveryHealthResult(!failed,
                 [new($"{region}-health", failed ? DeliveryHealthStatus.Failed : DeliveryHealthStatus.Passed)]));
@@ -953,8 +1691,23 @@ public sealed class DirectDeliveryTests
 
         public ValueTask<DeliveryConvergenceResult> CheckConvergenceAsync(DeliveryRequest request, DeliveryArtifact artifact, IReadOnlyList<string> orderedRegions, CancellationToken cancellationToken)
         {
-            Calls.Add(artifact.Digest == PreviousDigest ? "rollback-converge" : "converge");
-            return ValueTask.FromResult(new DeliveryConvergenceResult(true));
+            var rollback = artifact.Digest == PreviousDigest || artifact.Digest == AltPreviousDigest;
+            Calls.Add(rollback ? "rollback-converge" : "converge");
+            ConvergenceCalls.Add((orderedRegions.ToArray(), artifact.Digest!));
+            if (rollback && ThrowRollbackConvergence)
+                return ValueTask.FromException<DeliveryConvergenceResult>(new IOException("provider-detail convergence failed"));
+            if (rollback && CancelRollbackConvergence)
+            {
+                var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                source.Cancel();
+                return ValueTask.FromCanceled<DeliveryConvergenceResult>(source.Token);
+            }
+            if (rollback && FailRollbackConvergence)
+                return ValueTask.FromResult(new DeliveryConvergenceResult(false));
+            // Honest convergence: every covered region must currently hold the verified digest.
+            var converged = orderedRegions.All(region =>
+                string.Equals(CurrentOf(region), artifact.Digest, StringComparison.OrdinalIgnoreCase));
+            return ValueTask.FromResult(new DeliveryConvergenceResult(converged));
         }
 
         public ValueTask<DeliveryRollbackResult> RollbackAsync(DeliveryRequest request, string region, string targetArtifactDigest, CancellationToken cancellationToken)
@@ -970,6 +1723,15 @@ public sealed class DirectDeliveryTests
             CancellationToken cancellationToken)
         {
             Calls.Add($"rollback:{region}");
+            if (CancelRollback)
+            {
+                var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                source.Cancel();
+                return ValueTask.FromCanceled<DeliveryRollbackResult>(source.Token);
+            }
+            if (region == CorruptRollbackResultRegion)
+                return ValueTask.FromResult(new DeliveryRollbackResult(
+                    true, OtherArtifactDigest, new DeliveryArtifact(OtherArtifactDigest, OtherArtifactDigest, "service")));
             RollbackDigests.Add((region, targetArtifactDigest));
             RollbackManifests.Add((region, targetManifestDigest ?? targetArtifactDigest));
             currentDigests[region] = targetArtifactDigest;

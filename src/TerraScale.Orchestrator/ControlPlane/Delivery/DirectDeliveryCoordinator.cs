@@ -162,8 +162,11 @@ public class DirectDeliveryCoordinator
 
         if (existing is not null)
         {
+            // The request fingerprint is exact identity (hash of the canonical request); the
+            // artifact digest is content-addressed hex and compares case-insensitively,
+            // consistent with digest semantics everywhere else in this seam.
             if (!string.Equals(existing.RequestFingerprint, fingerprint, StringComparison.Ordinal) ||
-                existing.ArtifactDigest is not null && !string.Equals(existing.ArtifactDigest, artifact.Digest, StringComparison.Ordinal))
+                existing.ArtifactDigest is not null && !string.Equals(existing.ArtifactDigest, artifact.Digest, StringComparison.OrdinalIgnoreCase))
                 return FailureReceipt(wire, DirectDeliveryErrorCode.OperationConflict, artifact.Digest);
             if (existing.Receipt is not null && !NeedsRollbackRecovery(existing) && !IsReplayableFailure(existing))
                 return existing.Receipt;
@@ -242,7 +245,6 @@ public class DirectDeliveryCoordinator
             var recovery = await RollbackAsync(
                 wire,
                 operationId,
-                regions,
                 artifact,
                 target,
                 progress,
@@ -282,8 +284,32 @@ public class DirectDeliveryCoordinator
                     provenance),
                 exception);
         }
+        catch (DirectDeliveryJournalConflictException exception)
+        {
+            // A same-request CAS loss on a later progress persist ('applied', 'healthy', or the
+            // failure record): the concurrent winner owns the durable progress and retrying the
+            // same operationId self-heals from it. Same J2 mapping as the applying-persist
+            // conflict inside ApplyInOrderAsync — never a target rollback, and never an
+            // uncaught exception escaping the receipt contract.
+            return WithJournalFailureDetail(
+                FailureReceipt(
+                    wire,
+                    DirectDeliveryErrorCode.JournalUnavailable,
+                    artifact.Digest,
+                    provenance),
+                exception);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation escaping a post-mutation progress persist ('applied' or 'healthy'):
+            // the in-memory progress already carries the region's state, the failure path
+            // records any write-ahead debt best-effort with a live token, and the caller still
+            // receives a receipt — cancellation must never leave the operation without one.
+            return await CompleteFailureAsync(wire, operationId, fingerprint, artifact, provenance, target, checks, progress, mutated,
+                DirectDeliveryErrorCode.Cancelled, cancellationToken).ConfigureAwait(false);
+        }
         if (failure is not null)
-            return await CompleteFailureAsync(wire, operationId, regions, fingerprint, artifact, provenance, target, checks, progress, mutated, failure,
+            return await CompleteFailureAsync(wire, operationId, fingerprint, artifact, provenance, target, checks, progress, mutated, failure,
                 cancellationToken).ConfigureAwait(false);
 
         DeliveryConvergenceResult convergence;
@@ -294,17 +320,17 @@ public class DirectDeliveryCoordinator
         }
         catch (OperationCanceledException)
         {
-            return await CompleteFailureAsync(wire, operationId, regions, fingerprint, artifact, provenance, target, checks, progress, mutated,
+            return await CompleteFailureAsync(wire, operationId, fingerprint, artifact, provenance, target, checks, progress, mutated,
                 DirectDeliveryErrorCode.Cancelled, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
-            return await CompleteFailureAsync(wire, operationId, regions, fingerprint, artifact, provenance, target, checks, progress, mutated,
+            return await CompleteFailureAsync(wire, operationId, fingerprint, artifact, provenance, target, checks, progress, mutated,
                 DirectDeliveryErrorCode.ConvergenceFailed, cancellationToken).ConfigureAwait(false);
         }
 
         if (convergence is null || !convergence.Converged)
-            return await CompleteFailureAsync(wire, operationId, regions, fingerprint, artifact, provenance, target, checks, progress, mutated,
+            return await CompleteFailureAsync(wire, operationId, fingerprint, artifact, provenance, target, checks, progress, mutated,
                 DirectDeliveryErrorCode.ConvergenceFailed, cancellationToken).ConfigureAwait(false);
 
         var receipt = SuccessReceipt(wire, artifact, provenance, checks, convergence.Converged);
@@ -381,14 +407,6 @@ public class DirectDeliveryCoordinator
                     // Write-ahead rollback target: persist the region's current digest in the
                     // 'applying' record BEFORE mutating, so a crash between ApplyAsync and the
                     // 'applied' persist keeps the exact previous digest durably recoverable.
-                    // TOCTOU precision: on the normal (uncontended) path the adapter's own
-                    // CAS-reported PreviousArtifactDigest below is authoritative and overrides
-                    // this observation. If a DIFFERENT writer mutates the region between this
-                    // observe and our ApplyAsync, the adapter's reported previous digest belongs
-                    // to that interleaved mutation and rollback could restore a digest this
-                    // delivery never replaced; the durable write-ahead value is kept in that
-                    // case. That residual interleave window is recorded for #4 (deep rework
-                    // owner: per-mutation fencing tokens at the target seam).
                     var writeAhead = await target.ObserveCurrentArtifactAsync(request, region, cancellationToken)
                         .ConfigureAwait(false);
                     if (writeAhead is not null &&
@@ -418,10 +436,36 @@ public class DirectDeliveryCoordinator
                         artifact.Digest, progress, cancellationToken, request).ConfigureAwait(false);
                     if (!AuthorityIsCurrent(request))
                         return DirectDeliveryErrorCode.AuthorityFenced;
-                    mutation = await target.ApplyAsync(request, artifact, region, cancellationToken).ConfigureAwait(false);
+                    // Per-mutation fence at the target seam (E11): the adapter applies only when
+                    // the region STILL holds the digest this delivery durably recorded as the
+                    // rollback target. A concurrent mutation inside the observe→apply window
+                    // reports the typed mutation-race outcome instead of leaving a stale
+                    // rollback target behind. Digest-only adapters cannot fence and keep the
+                    // write-ahead record as their only rollback material.
+                    var expectedPrevious = writeAhead?.Digest ?? current.PreviousArtifactDigest;
+                    mutation = await target.ApplyFencedAsync(request, artifact, region, expectedPrevious, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
+                    // Cancellation with a durably recorded write-ahead must not silently drop
+                    // the region's recovery target: the region is marked as rollback debt so
+                    // the failure path below collects it (idempotently — the rollback's
+                    // already-restored observation converges for a mutation that never
+                    // landed), and the best-effort persist uses a live token because the
+                    // caller's is dead. A region with no write-ahead debt (pristine, or
+                    // already running the requested digest) mutated nothing worth debt.
+                    if (current.State == DeliveryJournalState.Applying &&
+                        IsDigest(current.PreviousArtifactDigest) && IsDigest(current.PreviousManifestDigest))
+                    {
+                        progress[progress.IndexOf(current)] = current with
+                        {
+                            State = "rollback_pending",
+                            ErrorCode = DirectDeliveryErrorCode.Cancelled,
+                        };
+                        await TryPersistProgressAsync(operationId, fingerprint, request, artifact, progress, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
                     return DirectDeliveryErrorCode.Cancelled;
                 }
                 catch (DeliveryJournalUnavailableException)
@@ -438,6 +482,21 @@ public class DirectDeliveryCoordinator
                 }
                 catch (Exception exception) when (IsAdapterFailure(exception))
                 {
+                    // The mutation was in flight when the adapter failed, so whether it landed
+                    // is unknown. A region whose write-ahead was durably recorded carries its
+                    // previous digests as rollback debt: the rollback's already-restored
+                    // observation makes collection idempotent (an unmutated region converges
+                    // without a second mutation). A failure before the write-ahead (observation)
+                    // mutated nothing and records a plain failure.
+                    progress[progress.IndexOf(progress.Single(value => value.Region == region))] = current with
+                    {
+                        State = current.State == DeliveryJournalState.Applying
+                            ? "rollback_pending"
+                            : DeliveryJournalState.Failed,
+                        ErrorCode = DirectDeliveryErrorCode.MutationFailed,
+                    };
+                    await PersistAsync(operationId, fingerprint, DeliveryJournalState.Failed, null,
+                        artifact.Digest, progress, cancellationToken, request).ConfigureAwait(false);
                     return DirectDeliveryErrorCode.MutationFailed;
                 }
             }
@@ -458,22 +517,37 @@ public class DirectDeliveryCoordinator
 
             if (!mutation.Succeeded)
             {
+                // Typed-outcome preservation: only the whitelisted adapter failure codes are
+                // durable/receipt material — an adapter's free-text code must never reach the
+                // journal or a receipt. mutation_race keeps its distinct, bounded remediation;
+                // everything else collapses to mutation_failed.
+                var failureCode = mutation.FailureCode == DirectDeliveryErrorCode.MutationRace
+                    ? DirectDeliveryErrorCode.MutationRace
+                    : DirectDeliveryErrorCode.MutationFailed;
                 progress[progress.IndexOf(progress.Single(value => value.Region == region))] = current with
                 {
                     State = DeliveryJournalState.Failed,
-                    ErrorCode = mutation.FailureCode ?? DirectDeliveryErrorCode.MutationFailed,
+                    ErrorCode = failureCode,
                 };
                 await PersistAsync(operationId, fingerprint, DeliveryJournalState.Failed, null,
                     artifact.Digest, progress, cancellationToken, request).ConfigureAwait(false);
-                return DirectDeliveryErrorCode.MutationFailed;
+                return failureCode;
             }
 
             if (mutation.Mutated)
             {
-                // The adapter's own previous digest is authoritative at mutation time; it can
-                // only differ from the write-ahead when a concurrent writer raced us, in which
-                // case the durable write-ahead value remains the safe rollback target.
-                if (IsDigest(mutation.PreviousArtifactDigest) && IsDigest(mutation.PreviousManifestDigest))
+                // The adapter's mutation-time previous digest is authoritative only when it is
+                // the FIRST durable rollback material (digest-only adapters, whose observation
+                // cannot run) or when it agrees with the already-durable write-ahead (the fenced
+                // path guarantees agreement). When it disagrees with a durable value, a
+                // concurrent writer raced an unfenced adapter: the durable observation stays the
+                // rollback target, because rewriting recorded rollback material is forbidden —
+                // the journal would reject it and the older digest is the one this delivery
+                // durably committed to restore.
+                if (IsDigest(mutation.PreviousArtifactDigest) && IsDigest(mutation.PreviousManifestDigest) &&
+                    (current.PreviousArtifactDigest is null ||
+                     (string.Equals(current.PreviousArtifactDigest, mutation.PreviousArtifactDigest, StringComparison.OrdinalIgnoreCase) &&
+                      string.Equals(current.PreviousManifestDigest, mutation.PreviousManifestDigest, StringComparison.OrdinalIgnoreCase))))
                     current = current with
                     {
                         PreviousArtifactDigest = mutation.PreviousArtifactDigest,
@@ -534,7 +608,6 @@ public class DirectDeliveryCoordinator
     private async ValueTask<DeliveryReceipt> CompleteFailureAsync(
         DeliveryRequest request,
         string operationId,
-        IReadOnlyList<string> regions,
         string fingerprint,
         DeliveryArtifact artifact,
         DeliveryProvenanceResult provenance,
@@ -554,8 +627,12 @@ public class DirectDeliveryCoordinator
                 new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired), errorCode);
             // First-deployment contract: a region deployed for the first time has no prior
             // artifact to roll back to, so it stays deployed after this failure. The receipt
-            // says so explicitly instead of implying a rollback happened or was possible.
-            if (progress.Any(static region => region.State is "applied" or "healthy" or "health_failed"))
+            // says so explicitly instead of implying a rollback happened or was possible. An
+            // 'applying' region (cancelled or crashed between the write-ahead and the
+            // 'applied' persist) has no debt by construction here and is named too: it was
+            // left unhealth-checked, never silently.
+            if (progress.Any(static region =>
+                    region.State is "applied" or "healthy" or "health_failed" or DeliveryJournalState.Applying))
             {
                 failureReceipt = failureReceipt with
                 {
@@ -575,12 +652,18 @@ public class DirectDeliveryCoordinator
         }
 
         var rollbackChecks = new List<DeliveryHealthCheck>();
-        var rollback = await RollbackAsync(request, operationId, regions, artifact, target, progress, fingerprint, rollbackChecks, cancellationToken)
+        var rollback = await RollbackAsync(request, operationId, artifact, target, progress, fingerprint, rollbackChecks, cancellationToken)
             .ConfigureAwait(false);
         checks.AddRange(rollbackChecks);
+        // A rollback that failed because the OPERATION was cancelled keeps the replayable
+        // 'cancelled' code (the retry guidance and IsReplayableFailure depend on it): the
+        // regions' durable rollback_failed progress still records the recovery debt. Only a
+        // rollback that failed on its own merits reports rollback_failed.
         var finalError = rollback.Status == DeliveryRollbackStatus.Succeeded
             ? (string?)null
-            : DirectDeliveryErrorCode.RollbackFailed;
+            : errorCode == DirectDeliveryErrorCode.Cancelled
+                ? DirectDeliveryErrorCode.Cancelled
+                : DirectDeliveryErrorCode.RollbackFailed;
         var status = rollback.Status == DeliveryRollbackStatus.Succeeded
             ? DeliveryReceiptStatus.RolledBack
             : DeliveryReceiptStatus.Failed;
@@ -589,7 +672,8 @@ public class DirectDeliveryCoordinator
         // First-deployment contract: pristine regions that were deployed and NOT rolled back
         // (no prior artifact exists) stay deployed; the receipt says so instead of implying the
         // whole target was restored.
-        if (progress.Any(static region => region.State is "applied" or "healthy" or "health_failed"))
+        if (progress.Any(static region =>
+                region.State is "applied" or "healthy" or "health_failed" or DeliveryJournalState.Applying))
         {
             receipt = receipt with
             {
@@ -610,14 +694,16 @@ public class DirectDeliveryCoordinator
             status == DeliveryReceiptStatus.RolledBack ? DeliveryJournalState.RolledBack : DeliveryJournalState.Failed,
             artifact.Digest,
             progress,
-            cancellationToken,
+            // The terminal receipt persist is not cancellable work: its content is already
+            // decided, so a dead caller token (e.g. cancellation between the rollback and this
+            // persist) must not cost durability of the outcome.
+            CancellationToken.None,
             request).ConfigureAwait(false);
     }
 
     private async ValueTask<DeliveryRollback> RollbackAsync(
         DeliveryRequest request,
         string operationId,
-        IReadOnlyList<string> regions,
         DeliveryArtifact artifact,
         IDeliveryTarget target,
         List<DeliveryRegionProgress> progress,
@@ -635,12 +721,14 @@ public class DirectDeliveryCoordinator
         foreach (var mutation in mutated.AsEnumerable().Reverse())
         {
             var current = progress.Single(value => value.Region == mutation.Region);
+            // The recovery target is named from the first reverse-order region's durable
+            // write-ahead digests whether or not its rollback completes: a rollback mutation or
+            // health failure must still report the exact digest the operator has to restore
+            // (AC4), not a digestless failure.
+            targetDigest ??= mutation.PreviousArtifactDigest;
+            targetManifestDigest ??= mutation.PreviousManifestDigest;
             if (current.State == "rollback_succeeded")
-            {
-                targetDigest ??= mutation.PreviousArtifactDigest;
-                targetManifestDigest ??= mutation.PreviousManifestDigest;
                 continue;
-            }
             progress[progress.IndexOf(current)] = current with { State = DeliveryJournalState.RollingBack, ErrorCode = null };
             await TryPersistProgressAsync(operationId, fingerprint, request, artifact, progress, cancellationToken).ConfigureAwait(false);
             try
@@ -700,8 +788,6 @@ public class DirectDeliveryCoordinator
                     await TryPersistProgressAsync(operationId, fingerprint, request, artifact, progress, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
-                targetDigest ??= result.TargetArtifactDigest ?? mutation.PreviousArtifactDigest;
-                targetManifestDigest ??= result.Artifact?.ManifestDigest ?? mutation.PreviousManifestDigest;
                 var rollbackArtifact = result.Artifact;
                 if (rollbackArtifact is null)
                     throw new InvalidDataException("The rollback adapter omitted exact artifact provenance.");
@@ -756,14 +842,14 @@ public class DirectDeliveryCoordinator
             {
                 if (!IsDigest(targetDigest) || !IsDigest(targetManifestDigest))
                     return new DeliveryRollback(true, null, DeliveryRollbackStatus.Failed);
-                var rollbackArtifact = new DeliveryArtifact(targetDigest, targetManifestDigest, artifact.Kind);
-                var convergence = await target.CheckConvergenceAsync(
-                    request,
-                    rollbackArtifact,
-                    regions,
-                    cancellationToken).ConfigureAwait(false);
-                if (convergence is null || !convergence.Converged)
-                    succeeded = false;
+                // M5: rollback convergence is PER-REGION. Regions can legitimately hold distinct
+                // previous digests, so each mutated region is verified against ITS recorded
+                // write-ahead previous digest; the shared single-call fast path is kept only
+                // when every mutated region shares one previous artifact. Unmutated regions
+                // (pristine, or already running the requested digest) are not part of the
+                // rollback and must not be converged against a previous digest they never held.
+                succeeded = await VerifyRollbackConvergenceAsync(
+                    request, artifact, target, mutated, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -792,7 +878,49 @@ public class DirectDeliveryCoordinator
             true,
             targetDigest,
             succeeded ? DeliveryRollbackStatus.Succeeded : DeliveryRollbackStatus.Failed,
-            succeeded ? targetManifestDigest : null);
+            // Both identities travel together (the journal validates digest/manifest presence as
+            // a pair), and a failed rollback still names the exact digest to restore.
+            targetManifestDigest);
+    }
+
+    /// <summary>
+    /// Verifies rollback convergence per mutated region against that region's own recorded
+    /// write-ahead previous digest, preserving the one-call fast path when all mutated regions
+    /// share the same previous artifact.
+    /// </summary>
+    private static async ValueTask<bool> VerifyRollbackConvergenceAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        IDeliveryTarget target,
+        IReadOnlyList<MutationSnapshot> mutated,
+        CancellationToken cancellationToken)
+    {
+        var shared = new DeliveryArtifact(
+            mutated[0].PreviousArtifactDigest,
+            mutated[0].PreviousManifestDigest,
+            artifact.Kind);
+        var mutatedRegions = mutated.Select(static mutation => mutation.Region).ToArray();
+        if (mutated.All(mutation => SameArtifact(
+                new DeliveryArtifact(mutation.PreviousArtifactDigest, mutation.PreviousManifestDigest, artifact.Kind),
+                shared)))
+        {
+            var convergence = await target.CheckConvergenceAsync(request, shared, mutatedRegions, cancellationToken)
+                .ConfigureAwait(false);
+            return convergence is not null && convergence.Converged;
+        }
+
+        foreach (var mutation in mutated)
+        {
+            var expected = new DeliveryArtifact(
+                mutation.PreviousArtifactDigest,
+                mutation.PreviousManifestDigest,
+                artifact.Kind);
+            var convergence = await target.CheckConvergenceAsync(request, expected, [mutation.Region], cancellationToken)
+                .ConfigureAwait(false);
+            if (convergence is null || !convergence.Converged)
+                return false;
+        }
+        return true;
     }
 
     private async ValueTask<DeliveryReceipt> CompleteRollbackAsync(
@@ -847,6 +975,22 @@ public class DirectDeliveryCoordinator
     {
         for (var cause = exception; cause is not null; cause = cause.InnerException)
         {
+            if (cause is DirectDeliveryJournalConflictException)
+            {
+                // A continuity/write-ahead conflict is not journal ill-health: the durable
+                // journal is fine and refused a progress append that contradicts the record
+                // it owns. "Restore journal health" would send the operator to fix the wrong
+                // thing entirely.
+                return receipt with
+                {
+                    Error = receipt.Error with
+                    {
+                        Message = "The durable delivery journal rejected a conflicting progress append for this operation.",
+                        Remediation =
+                            "Another writer advanced this operation's durable progress (continuity or write-ahead rollback-material conflict); no update was lost. Reconcile the region state, then submit a new delivery request.",
+                    },
+                };
+            }
             if (cause is TerraScale.Orchestrator.Delivery.JournalRetentionOverflowException)
             {
                 return receipt with
@@ -907,8 +1051,11 @@ public class DirectDeliveryCoordinator
 
     /// <summary>
     /// Best-effort bookkeeping persist for rollback progress: the rollback mutation itself must
-    /// proceed even when the journal is degraded (the alternative — aborting mid-rollback —
-    /// destroys the recovery path). The final receipt path surfaces the degraded state.
+    /// proceed even when the journal is degraded OR the operation's cancellation fired — the
+    /// alternative (aborting mid-rollback because OUR bookkeeping failed) destroys the recovery
+    /// path. This helper therefore never throws: the durable record may lag the actual
+    /// rollback, the final receipt path surfaces the degraded state, and a retry replays the
+    /// durable progress to convergence.
     /// </summary>
     private async ValueTask TryPersistProgressAsync(
         string operationId,
@@ -923,14 +1070,11 @@ public class DirectDeliveryCoordinator
             await PersistAsync(operationId, fingerprint, DeliveryJournalState.Failed, null,
                 artifact.Digest, progress, cancellationToken, request).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
-            // Journal degraded during rollback bookkeeping: the durable record lags the actual
-            // rollback, and the receipt path below reports the journal-down state.
+            // Journal degraded (or cancelled) during rollback bookkeeping: the durable record
+            // lags the actual rollback, and the receipt path below reports the journal-down
+            // state. The in-progress rollback is never aborted mid-region.
         }
     }
 
@@ -981,27 +1125,49 @@ public class DirectDeliveryCoordinator
                 .ConfigureAwait(false);
             return true;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
         catch (Exception exception) when (IsAdapterFailure(exception))
         {
-            // Not silent: the caller rewrites the returned receipt's remediation so the operator
-            // sees that the receipt itself is not durable yet; a retry replays durable progress.
+            // Not silent — including cancellation: the receipt is still returned with its
+            // remediation rewritten so the operator sees it is not durable yet, and a retry of
+            // the same operationId replays the durable progress. Throwing here would lose the
+            // only in-memory copy of a completed rollback's outcome.
             return false;
         }
     }
 
     /// <summary>
     /// A journaled record whose rollback is still pending: recovery must resume or complete the
-    /// rollback instead of replaying a terminal receipt.
+    /// rollback instead of replaying a terminal receipt. A FAILURE whose terminal receipt never
+    /// became durable (crash or journal outage between the failure-progress persist and the
+    /// receipt persist) also owes recovery when its regions still carry forward write-ahead
+    /// debt: the delivery already failed, so replay must resume the failure path (rollback),
+    /// never re-apply a failed delivery. A receipt-less record in an in-flight state
+    /// (accepted/applying/applied/healthy) is NOT a failure: it resumes the apply path — rolling
+    /// back a healthy converged deployment because its receipt lagged would destroy good work.
+    /// THREE sites must stay in agreement: this predicate and
+    /// <c>NatsDirectDeliveryJournal.EnsureContinuity</c> (every durable shape classified here as
+    /// recovery is re-enterable there — a receipt-less Failed record accepts lower-rank progress
+    /// appends) and <c>NatsDirectDeliveryJournal.IsPrunable</c> (every recovery-owing shape is
+    /// retained under retention-cap pressure). No shape may be unresumable in one place,
+    /// unprunable-but-reshapable in another, or deletable in a third.
     /// </summary>
     private static bool NeedsRollbackRecovery(DeliveryJournalRecord? record) =>
         record is not null &&
         (record.State == DeliveryJournalState.RollingBack ||
             record.Regions?.Any(static region => region.State is "rollback_failed" or "rollback_pending") == true ||
-            record.Receipt?.Error.Code == DirectDeliveryErrorCode.RollbackFailed);
+            record.Receipt?.Error.Code == DirectDeliveryErrorCode.RollbackFailed ||
+            (record.State == DeliveryJournalState.Failed && record.Receipt is null && HasWriteAheadDebt(record)));
+
+    /// <summary>
+    /// True when any region holds durable write-ahead rollback material in a phase that has not
+    /// been restored yet (forward delivery phases, or rollback phases that replay finishes).
+    /// A receipt-less record with such debt owes its rollback.
+    /// </summary>
+    private static bool HasWriteAheadDebt(DeliveryJournalRecord record) =>
+        record.Regions?.Any(static region =>
+            region.State is "applied" or "healthy" or "health_failed" or "rollback_pending" or
+                "rollback_failed" or "rollback_succeeded" &&
+            IsDigest(region.PreviousArtifactDigest) && IsDigest(region.PreviousManifestDigest)) == true;
 
     /// <summary>
     /// A journaled failure that is recoverable in place: the same operationId replays its durable
@@ -1286,6 +1452,7 @@ public class DirectDeliveryCoordinator
         DirectDeliveryErrorCode.ProvenanceUnavailable => new(code, "The provenance evidence source is temporarily unreachable.", "Retry the same operationId after the evidence source is reachable."),
         DirectDeliveryErrorCode.AuthorityFenced => new(code, "The delivery authority changed before the mutation completed.", "Sign and submit a new delivery request under the current authority: the fenced request's authority generation and writer epoch are bound into the operation fingerprint, so retrying the same operationId can never be admitted."),
         DirectDeliveryErrorCode.MutationFailed => new(code, "The target mutation failed.", "Inspect the target and retry after remediation."),
+        DirectDeliveryErrorCode.MutationRace => new(code, "A concurrent mutation changed the region between admission and mutation.", "The region was left untouched by this delivery. Inspect the concurrent writer, then submit a new delivery request for the digest you actually want deployed; the recorded rollback target of this operationId is spent."),
         _ => new(DirectDeliveryErrorCode.InvalidInput, "The delivery request is invalid.", "Correct the request and retry."),
     };
 

@@ -89,6 +89,13 @@ public static class DirectDeliveryErrorCode
     public const string OperationConflict = "operation_conflict";
     public const string Cancelled = "cancelled";
     public const string MutationFailed = "mutation_failed";
+    /// <summary>
+    /// A concurrent mutation changed the region between the coordinator's write-ahead
+    /// observation and the fenced mutation, so the recorded previous digest went stale and the
+    /// adapter refused to mutate. Distinct from <see cref="MutationFailed"/>: the region was
+    /// left untouched by the delivery.
+    /// </summary>
+    public const string MutationRace = "mutation_race";
     public const string AuthorityFenced = "authority_fenced";
     /// <summary>Transient: the authorization boundary could not be reached (distinct from a denial).</summary>
     public const string AuthorizationUnavailable = "authorization_unavailable";
@@ -114,6 +121,14 @@ public sealed record DeliveryHealth(
     [property: JsonPropertyName("checks")] IReadOnlyList<DeliveryHealthCheck> Checks,
     [property: JsonPropertyName("converged")] bool Converged);
 
+/// <summary>The exact rollback outcome recorded for the operation.</summary>
+/// <remarks>
+/// <see cref="TargetArtifactDigest"/> is single-valued and names the first reverse-order
+/// mutated region's recorded previous digest: with heterogeneous per-region previous digests
+/// (regions legitimately holding distinct prior artifacts) it is a representative recovery
+/// anchor, not the per-region truth. Each region's own write-ahead previous digest/manifest in
+/// the durable journal record remains authoritative for what THAT region must restore.
+/// </remarks>
 public sealed record DeliveryRollback(
     [property: JsonPropertyName("attempted")] bool Attempted,
     [property: JsonPropertyName("targetArtifactDigest")] string? TargetArtifactDigest,
@@ -224,6 +239,34 @@ public interface IDeliveryTarget
         DeliveryArtifact artifact,
         string region,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Fenced mutation: applies <paramref name="artifact"/> only when the region's CURRENT
+    /// deployed digest still equals <paramref name="expectedPreviousArtifactDigest"/> —
+    /// compare-and-swap semantics evaluated at mutation time, closing the observe→apply window
+    /// in which a concurrent writer could make the coordinator's recorded previous digest
+    /// stale. Contract for implementing adapters:
+    /// <list type="number">
+    /// <item>When the region already runs the requested artifact, report success without
+    /// mutation and no previous digest (idempotent replay, e.g. a crash between the mutation
+    /// and the 'applied' journal persist).</item>
+    /// <item>When the current digest differs from the expected one, do NOT mutate and report
+    /// the typed <see cref="DirectDeliveryErrorCode.MutationRace"/> failure with the observed
+    /// digest as <c>PreviousArtifactDigest</c>.</item>
+    /// <item>On success with mutation, the reported previous digests must equal the expected
+    /// ones (they were just compare-and-swapped).</item>
+    /// </list>
+    /// The default implementation forwards to <see cref="ApplyAsync"/> without the fence:
+    /// adapters that cannot observe the current digest (digest-only adapters) keep the
+    /// write-ahead journal record as their only rollback material and cannot enforce it.
+    /// </summary>
+    ValueTask<DeliveryMutationResult> ApplyFencedAsync(
+        DeliveryRequest request,
+        DeliveryArtifact artifact,
+        string region,
+        string? expectedPreviousArtifactDigest,
+        CancellationToken cancellationToken) =>
+        ApplyAsync(request, artifact, region, cancellationToken);
 
     ValueTask<DeliveryHealthResult> CheckHealthAsync(
         DeliveryRequest request,
