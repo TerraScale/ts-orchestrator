@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using NATS.Client.Core;
+using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Net;
 using TerraScale.Orchestrator.Development;
@@ -185,6 +186,7 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
             foreach (var serverName in serverNames)
                 fixture.StartServer(serverName);
             await fixture.WaitForServersAsync(cancellationToken);
+            await fixture.WaitForJetStreamReadinessAsync(cancellationToken);
             return fixture;
         }
         catch (Exception startupFailure)
@@ -307,6 +309,64 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
     {
         foreach (var serverName in processes.Keys.Order(StringComparer.Ordinal))
             await WaitForServerAsync(serverName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Waits until every cluster's JetStream meta layer is serving API
+    /// requests, mirroring the R3 lane's JetStream quorum wait. A cluster is
+    /// ready when its JetStream API answers a read-only stream lookup: an
+    /// existing stream or a 404 proves a serving meta layer, while timeouts,
+    /// no-responder, and not-yet-available answers mean the cluster is still
+    /// forming. Without this gate, stream and bucket creation can race
+    /// cluster formation under parallel module load.
+    /// </summary>
+    private async Task WaitForJetStreamReadinessAsync(CancellationToken cancellationToken)
+    {
+        foreach (var cluster in Plan.Clusters)
+        {
+            foreach (var server in cluster.Servers)
+            {
+                await WaitForServerJetStreamAsync(cluster.Cell, server.ServerName, cancellationToken);
+            }
+        }
+    }
+
+    private async Task WaitForServerJetStreamAsync(
+        string cell,
+        string serverName,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 150; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (processes.TryGetValue(serverName, out var process) && process.HasExited)
+                throw new InvalidOperationException(GetServerExitDiagnostic(serverName, process));
+            try
+            {
+                await using var infrastructure = await ConnectToServerAsync(
+                    Users[$"{cell}-infrastructure"], serverName, cancellationToken);
+                try
+                {
+                    _ = await infrastructure.CreateJetStreamContext()
+                        .GetStreamAsync(GlobalNatsTopology.CellSpecStream, cancellationToken: cancellationToken);
+                    return;
+                }
+                catch (NatsJSApiException exception) when (exception.Error.Code == 404)
+                {
+                    // The JetStream API answered: the cluster's meta layer is
+                    // serving even though the conformance stream does not
+                    // exist yet.
+                    return;
+                }
+            }
+            catch (NatsException) when (attempt < 149)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+            }
+        }
+        throw new TimeoutException(
+            $"The JetStream domain of gateway conformance cluster '{cell}' did not become ready " +
+            $"through server '{serverName}' within 30 seconds.");
     }
 
     private async Task WaitForServerAsync(string serverName, CancellationToken cancellationToken)
@@ -597,6 +657,14 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
                         $"$JS.API.STREAM.INFO.KV_{GlobalNatsTopology.CellsBucket}",
                     ],
                     ["_INBOX.>"])),
+            ["fra-infrastructure"] = CreateUser(
+                root, pki, trust, regionalFra, "fra-infrastructure",
+                new(
+                    [
+                        $"$JS.API.STREAM.INFO.{GlobalNatsTopology.CellSpecStream}",
+                        $"$JS.API.STREAM.INFO.KV_{GlobalNatsTopology.CellsBucket}",
+                    ],
+                    ["_INBOX.>"])),
         };
     }
 
@@ -769,7 +837,7 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
         foreach (var name in new[]
                  {
                      "directory-service-gru", "directory-reader-sfo", "directory-reader-fra",
-                     "gru-operator-read", "gru-infrastructure", "sfo-infrastructure",
+                     "gru-operator-read", "gru-infrastructure", "sfo-infrastructure", "fra-infrastructure",
                  })
         {
             clientCertificates[name] = CreateLeaf(

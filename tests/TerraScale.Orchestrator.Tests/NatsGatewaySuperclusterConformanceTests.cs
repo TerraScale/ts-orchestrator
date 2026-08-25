@@ -135,14 +135,7 @@ public sealed class NatsGatewaySuperclusterConformanceTests
                 "Creating the global stream in the GRU domain failed. " +
                 $"Server diagnostics: {string.Join(" ;; ", diagnostics)}");
         }
-        var gruStore = await gruInfrastructure.CreateJetStreamContext()
-            .CreateKeyValueStoreContext()
-            .CreateStoreAsync(globalTopology.Cells with
-            {
-                // The conformance lane runs two servers per region; the landed
-                // three-replica bucket stays a production-plan property.
-                NumberOfReplicas = NatsGatewaySuperclusterFixture.ServersPerRegion,
-            });
+        var gruStore = await CreateGlobalCellsStoreAsync(gruInfrastructure, globalTopology);
         await gruStore.PutAsync(GlobalNatsTopology.CellAdvertisementKey("sfo"), "sfo-advertisement");
 
         var gruStream = await gruJetStream.GetStreamAsync(GlobalNatsTopology.CellSpecStream);
@@ -349,6 +342,38 @@ public sealed class NatsGatewaySuperclusterConformanceTests
             string.Empty);
         fraResponse.EnsureSuccess();
         await Assert.That(fraResponse.Data).IsEqualTo("conformance-directory-snapshot");
+    }
+
+    private static async Task<INatsKVStore> CreateGlobalCellsStoreAsync(
+        NatsClient infrastructure,
+        GlobalNatsTopology globalTopology)
+    {
+        // A freshly formed cluster can briefly lack placement-qualified peers
+        // for the two-replica bucket even after the fixture's JetStream
+        // readiness gate passes; retry only that transient placement failure
+        // (mirroring how the R3 lane tolerates raft-ack latency) so real
+        // errors surface immediately.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await infrastructure.CreateJetStreamContext()
+                    .CreateKeyValueStoreContext()
+                    .CreateStoreAsync(globalTopology.Cells with
+                    {
+                        // The conformance lane runs two servers per region; the
+                        // landed three-replica bucket stays a production-plan
+                        // property.
+                        NumberOfReplicas = NatsGatewaySuperclusterFixture.ServersPerRegion,
+                    });
+            }
+            catch (NatsJSApiException exception) when (
+                attempt < 2 &&
+                exception.Message.Contains("no suitable peers", StringComparison.Ordinal))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+            }
+        }
     }
 
     private static string RenderServerConfiguration(
