@@ -407,6 +407,193 @@ public sealed class NatsCreateNodeOperationJournalTests
     }
 
     [Test]
+    public async Task EncryptionKeyRingFailsClosedWithoutAHealthyExactActiveKey()
+    {
+        var material = RandomNumberGenerator.GetBytes(32);
+        var healthy = true;
+        var ring = new CreateNodeJournalEncryptionKeyRing(
+            "active",
+            new Dictionary<string, byte[]> { ["active"] = material, ["short"] = new byte[31] },
+            () => healthy);
+
+        await Assert.That(ring.TryGetActiveKey(out var active)).IsTrue();
+        await Assert.That(active.KeyId).IsEqualTo("active");
+        await Assert.That(active.Key.Length).IsEqualTo(32);
+        active.Key[0] ^= 0xFF;
+        await Assert.That(ring.TryResolve("active", NatsCreateNodeOperationJournal.EncryptionAlgorithm, out var resolved))
+            .IsTrue();
+        await Assert.That(resolved.SequenceEqual(material)).IsTrue();
+
+        healthy = false;
+        await Assert.That(ring.TryGetActiveKey(out var unavailable)).IsFalse();
+        await Assert.That(unavailable).IsNull();
+
+        var retired = new CreateNodeJournalEncryptionKeyRing("retired", new Dictionary<string, byte[]> { ["active"] = material });
+        await Assert.That(retired.TryGetActiveKey(out var missing)).IsFalse();
+        await Assert.That(missing).IsNull();
+
+        var malformed = new CreateNodeJournalEncryptionKeyRing("short", new Dictionary<string, byte[]> { ["short"] = new byte[31] });
+        await Assert.That(malformed.TryGetActiveKey(out var wrongLength)).IsFalse();
+        await Assert.That(wrongLength).IsNull();
+
+        await Assert.That(ring.TryResolve("active", "AES-128-GCM", out var wrongAlgorithm)).IsFalse();
+        await Assert.That(wrongAlgorithm).IsEmpty();
+        await Assert.That(ring.TryResolve("absent", NatsCreateNodeOperationJournal.EncryptionAlgorithm, out var absent)).IsFalse();
+        await Assert.That(absent).IsEmpty();
+    }
+
+    [Test]
+    [NotInParallel("NatsR3")]
+    public async Task InvocationCapabilityBindsToTheExactJournalCheckpointAndConsumesExactlyOnce()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        var securityDirectory = Path.Combine(Path.GetTempPath(), $"ts-orch-r3-capability-{Guid.NewGuid():N}");
+        try
+        {
+            var cell = DevelopmentTopology.CreateRegional().Cells.Single(candidate => candidate.Cell == "gru");
+            var security = DevelopmentNatsSecurity.Create(DevelopmentTopology.CreateRegional(), securityDirectory).Cell(cell.Cell);
+            await using var server = await ThreeNodeJetStream.StartAsync(
+                NatsDevelopmentCluster.ControlAuthorization(cell, security), security.Controllers[1].SeedFile);
+            await using var infrastructure = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(1),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Infrastructure.SeedFile },
+            });
+            var topology = new NatsTopology(cell.Cell, 3, "controller-1");
+            await EventuallyAsync(() => NatsOperationJournalProvisioner.ProvisionTopologyAsync(
+                infrastructure, topology, default));
+            await using var writer = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(3),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.JournalWriter.SeedFile },
+            });
+            var writerKeyValue = writer.CreateJetStreamContext().CreateKeyValueStoreContext();
+            var operations = await writerKeyValue.GetStoreAsync("ORCH_OPERATIONS");
+            var proofs = await writerKeyValue.GetStoreAsync("ORCH_OPERATION_PROOFS");
+            using var authorityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var replyKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            using var invocationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var controllerIdentity = security.Controllers[1].PublicKey;
+            await using var mutations = await NatsOperationJournalMutationService.StartAsync(
+                writer,
+                operations,
+                proofs,
+                topology,
+                new NatsOperationJournalMutationAuthorityVerifier(authorityKey.ExportSubjectPublicKeyInfo()),
+                new HashSet<string>(StringComparer.Ordinal) { controllerIdentity },
+                CreateReplySigner(replyKey.ExportPkcs8PrivateKey()),
+                default);
+            await using var controller = await server.ConnectAsAsync(port => new NatsOpts
+            {
+                Url = $"nats://127.0.0.1:{port}",
+                RequestTimeout = TimeSpan.FromSeconds(3),
+                AuthOpts = new NatsAuthOpts { NKeyFile = security.Controllers[1].SeedFile },
+            });
+            var journal = new NatsCreateNodeOperationJournal(
+                operations,
+                topology,
+                new CreateNodeJournalEncryptionKeyRing("key", new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) }),
+                new CreateNodeAuthoritativeInvocationCapabilitySigner("invocation", invocationKey),
+                new NatsOperationJournalMutationClient(
+                    controller,
+                    topology,
+                    new NatsOperationJournalMutationAuthoritySigner(controllerIdentity, authorityKey),
+                    new NatsOperationJournalMutationReplyVerifier(replyKey.ExportSubjectPublicKeyInfo())));
+
+            var now = DateTimeOffset.UtcNow;
+            var entry = Entry();
+            await Assert.That(await journal.CompareExchangeAsync(null, entry, default)).IsTrue();
+            var persisted = await journal.ReadAsync(entry.Binding.OperationId, default)
+                ?? throw new InvalidOperationException("The prepared CreateNode journal entry was not persisted.");
+            await Assert.That(persisted.Stage).IsEqualTo(CreateNodeJournalStage.Prepared);
+
+            // Minting refuses anything but the exact persisted, unconsumed provider-call checkpoint.
+            Func<Task> mintPrepared = async () => await journal.MintInvocationCapabilityAsync(persisted, now, default);
+            Func<Task> mintStale = async () => await journal.MintInvocationCapabilityAsync(persisted with { Version = 999 }, now, default);
+            await Assert.That(mintPrepared).Throws<InvalidOperationException>();
+            await Assert.That(mintStale).Throws<InvalidOperationException>();
+
+            var started = persisted with
+            {
+                Stage = CreateNodeJournalStage.ProviderCallStarted,
+                ProviderCallStartedAt = now,
+                ProviderAttempts = 1,
+                InvocationLeaseOwner = "controller-1",
+                InvocationLeaseToken = "lease-token",
+                InvocationCapabilityNonce = "nonce",
+                InvocationLeaseExpiresAt = now.AddMinutes(2),
+            };
+            await Assert.That(await journal.CompareExchangeAsync(persisted, started, default)).IsTrue();
+            var checkpoint = await journal.ReadAsync(entry.Binding.OperationId, default)
+                ?? throw new InvalidOperationException("The provider-call CreateNode journal entry was not persisted.");
+            await Assert.That(checkpoint.Version).IsEqualTo(started.Version + 1);
+
+            var capability = await journal.MintInvocationCapabilityAsync(checkpoint, now, default);
+            await Assert.That(capability.Algorithm).IsEqualTo(CreateNodeHandoffReceiptSigner.Algorithm);
+            await Assert.That(capability.Audience).IsEqualTo("create-node-authoritative-invocation");
+            await Assert.That(capability.OperationId).IsEqualTo(checkpoint.Binding.OperationId);
+            await Assert.That(capability.BindingDigest).IsEqualTo(checkpoint.Binding.Digest);
+            await Assert.That(capability.JournalVersion).IsEqualTo(checkpoint.Version);
+            await Assert.That(capability.LeaseOwner).IsEqualTo("controller-1");
+            await Assert.That(capability.LeaseToken).IsEqualTo("lease-token");
+            await Assert.That(capability.Nonce).IsEqualTo("nonce");
+            await Assert.That(capability.LeaseExpiresAt).IsEqualTo(checkpoint.InvocationLeaseExpiresAt);
+            await Assert.That(capability.IssuedAt).IsEqualTo(now);
+            await Assert.That(capability.ExpiresAt).IsEqualTo(checkpoint.InvocationLeaseExpiresAt);
+
+            var binding = checkpoint.Binding;
+            foreach (var forged in new[]
+                     {
+                         capability with { Algorithm = "HS256" },
+                         capability with { Audience = "create-node-forger" },
+                         capability with { OperationId = binding.OperationId + "-forged" },
+                         capability with { BindingDigest = "forged-digest" },
+                         capability with { JournalVersion = capability.JournalVersion + 1 },
+                         capability with { LeaseOwner = "other-owner" },
+                         capability with { LeaseToken = "other-token" },
+                         capability with { Nonce = "other-nonce" },
+                         capability with { LeaseExpiresAt = capability.LeaseExpiresAt.AddMinutes(1) },
+                         capability with { LeaseExpiresAt = capability.IssuedAt.AddSeconds(-1) },
+                         capability with { IssuedAt = now.AddMinutes(1) },
+                         capability with { ExpiresAt = now.AddMinutes(1) },
+                         capability with { ExpiresAt = capability.IssuedAt.AddMinutes(11) },
+                     })
+            {
+                await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(forged, binding, now, default)).IsFalse();
+            }
+
+            // A binding that is not the exact journal binding, or an operation absent from the journal, fails closed.
+            await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(
+                capability, binding with { CompartmentId = "forged-compartment" }, now, default)).IsFalse();
+            var absent = binding with { OperationId = "operation-absent" };
+            await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(
+                capability with { OperationId = absent.OperationId }, absent, now, default)).IsFalse();
+
+            // Consuming past the provider invocation lease fails closed even for an otherwise exact capability.
+            await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(
+                capability, binding, now.AddMinutes(3), default)).IsFalse();
+
+            // No rejected consumption mutated the journal: the exact capability still consumes exactly once.
+            await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(capability, binding, now, default)).IsTrue();
+            var consumed = await journal.ReadAsync(binding.OperationId, default)
+                ?? throw new InvalidOperationException("The consumed CreateNode journal entry was not persisted.");
+            await Assert.That(consumed.InvocationConsumedAt).IsEqualTo(now);
+            await Assert.That(await journal.TryConsumeInvocationCapabilityAsync(capability, binding, now, default)).IsFalse();
+
+            // A consumed checkpoint can never mint a fresh capability.
+            Func<Task> mintConsumed = async () => await journal.MintInvocationCapabilityAsync(consumed, now, default);
+            await Assert.That(mintConsumed).Throws<InvalidOperationException>();
+        }
+        finally
+        {
+            if (Directory.Exists(securityDirectory)) Directory.Delete(securityDirectory, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task DedicatedOperationKvNeverExpiresTombstonesAndIsR3Configured()
     {
         var operations = new NatsTopology("gru", 3).Operations;
