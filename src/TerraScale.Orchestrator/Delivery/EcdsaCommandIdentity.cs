@@ -111,6 +111,23 @@ internal sealed class EcdsaCommandSigner :
 
     public string Identity { get; }
 
+    /// <summary>The stable public-key material identity (SPKI hash) used for role separation checks.</summary>
+    internal string PublicKeyId => Convert.ToHexStringLower(keyId);
+
+    /// <summary>
+    /// The stable public-key material identity of one PEM key file (private or public form),
+    /// so role configurations can be compared for shared material without exposing key bytes.
+    /// </summary>
+    internal static string PublicKeyIdOf(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("The key file path is required.", nameof(path));
+        using var key = ECDsa.Create();
+        key.ImportFromPem(File.ReadAllText(path));
+        ValidateKey(key, requirePrivate: false);
+        return Convert.ToHexStringLower(SHA256.HashData(key.ExportSubjectPublicKeyInfo()));
+    }
+
     internal static EcdsaCommandSigner LoadPrivatePem(string path)
     {
         var pem = ReadPrivateCredential(path);
@@ -124,7 +141,11 @@ internal sealed class EcdsaCommandSigner :
         catch (Exception exception) when (exception is ArgumentException or CryptographicException)
         {
             key.Dispose();
-            throw new ArgumentException("The command signing credential is not a P-256 private key.", nameof(path), exception);
+            // Names the credential's PATH (never its contents) so an operator can find the
+            // exact file the composition rejected.
+            throw new ArgumentException(
+                $"The command signing credential is not a P-256 private key: {path}.",
+                nameof(path), exception);
         }
     }
 
@@ -159,11 +180,13 @@ internal sealed class EcdsaCommandSigner :
         var path = Path.GetFullPath(value);
         var file = new FileInfo(path);
         if (!file.Exists || file.Length is < 1 or > 32 * 1024)
-            throw new ArgumentException("The command signing credential must be a bounded existing PEM file.", nameof(value));
+            throw new ArgumentException(
+                $"The command signing credential must be a bounded existing PEM file: {path}.", nameof(value));
         var mode = File.GetUnixFileMode(path);
         if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
                      UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
-            throw new ArgumentException("The command signing credential must be private to the current user.", nameof(value));
+            throw new ArgumentException(
+                $"The command signing credential must be private to the current user: {path}.", nameof(value));
         return File.ReadAllText(path);
     }
 
@@ -204,16 +227,22 @@ internal sealed class EcdsaCommandSignatureVerifier :
         if (captured.Length is < 1 or > MaximumTrustedKeys)
             throw new ArgumentException("The command trust set must contain one to four public keys.", nameof(paths));
         var keys = new Dictionary<string, TrustedKey>(StringComparer.Ordinal);
+        // The load failure paths name the offending file PATH (never contents); the current
+        // file is tracked so the cryptographic catch below can name it too.
+        string currentPath = string.Empty;
         try
         {
             foreach (var path in captured)
             {
-                var file = new FileInfo(Path.GetFullPath(path));
+                currentPath = Path.GetFullPath(path);
+                var file = new FileInfo(currentPath);
                 if (!file.Exists || file.Length is < 1 or > 32 * 1024)
-                    throw new ArgumentException("A command trust key must be a bounded existing PEM file.", nameof(paths));
+                    throw new ArgumentException(
+                        $"A command trust key must be a bounded existing PEM file: {currentPath}.", nameof(paths));
                 var pem = File.ReadAllText(file.FullName);
                 if (pem.Contains("PRIVATE KEY", StringComparison.Ordinal))
-                    throw new ArgumentException("A command trust key must not contain private key material.", nameof(paths));
+                    throw new ArgumentException(
+                        $"A command trust key must not contain private key material: {currentPath}.", nameof(paths));
                 var key = ECDsa.Create();
                 var ownsKey = true;
                 try
@@ -222,7 +251,8 @@ internal sealed class EcdsaCommandSignatureVerifier :
                     EcdsaCommandSigner.ValidateKey(key, requirePrivate: false);
                     var keyId = Convert.ToHexStringLower(SHA256.HashData(key.ExportSubjectPublicKeyInfo()));
                     if (keys.ContainsKey(keyId))
-                        throw new ArgumentException("The command trust set contains a duplicate key.", nameof(paths));
+                        throw new ArgumentException(
+                            $"The command trust set contains a duplicate key: {currentPath}.", nameof(paths));
                     keys.Add(keyId, new TrustedKey(key));
                     ownsKey = false;
                 }
@@ -241,7 +271,8 @@ internal sealed class EcdsaCommandSignatureVerifier :
         catch (CryptographicException exception)
         {
             foreach (var key in keys.Values) key.Dispose();
-            throw new ArgumentException("A command trust key is not a P-256 public key.", nameof(paths), exception);
+            throw new ArgumentException(
+                $"A command trust key is not a P-256 public key: {currentPath}.", nameof(paths), exception);
         }
     }
 

@@ -448,6 +448,75 @@ public sealed class DirectDeliveryTests
     }
 
     [Test]
+    public async Task ExpiredCredentialsAndProviderTimeoutsReportDistinctOperatorActions()
+    {
+        // Expired credential drill: an authentication-class boundary failure is a denial with a
+        // bounded remediation, never a transient retry code an operator would wait out.
+        var expiredAuthorization = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            authorizer: new ThrowingAuthorizer(new UnauthorizedAccessException("provider token expired")))
+            .DeliverAsync(Request());
+        var expiredProvenance = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            provenance: new ThrowingProvenance(new UnauthorizedAccessException("evidence token expired")))
+            .DeliverAsync(Request());
+
+        // Provider timeout drill: a timed-out boundary is transient infrastructure, reported as
+        // retryable and distinct from both the denial above and a target failure.
+        var timedOutAuthorization = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            authorizer: new ThrowingAuthorizer(new TimeoutException("authorization boundary timed out")))
+            .DeliverAsync(Request());
+        var timedOutProvenance = await Coordinator(
+            new RecordingTarget(),
+            new InMemoryDeliveryJournal(),
+            provenance: new ThrowingProvenance(new TimeoutException("evidence source timed out")))
+            .DeliverAsync(Request());
+
+        await Assert.That(expiredAuthorization.Error.Code)
+            .IsEqualTo(DirectDeliveryErrorCode.UnauthorizedActor);
+        await Assert.That(expiredProvenance.Error.Code)
+            .IsEqualTo(DirectDeliveryErrorCode.ProvenanceFailed);
+        await Assert.That(timedOutAuthorization.Error.Code)
+            .IsEqualTo(DirectDeliveryErrorCode.AuthorizationUnavailable);
+        await Assert.That(timedOutProvenance.Error.Code)
+            .IsEqualTo(DirectDeliveryErrorCode.ProvenanceUnavailable);
+    }
+
+    [Test]
+    public async Task AProviderPartitionOnALaterRegionRollsBackTheEarlierRegionsAndJournalsIt()
+    {
+        // Partition drill at the provider boundary: the journal stays reachable while one
+        // region's target adapter is unreachable mid-apply. The write-ahead was durably
+        // recorded, so the region carries rollback debt, the earlier mutated region is rolled
+        // back to its recorded previous digests, and the failure is the typed mutation failure.
+        var target = new RecordingTarget { PartitionApplyInRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        await Assert.That(receipt.Rollback.Attempted).IsTrue();
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Succeeded);
+        await Assert.That(receipt.Rollback.TargetArtifactDigest).IsEqualTo(PreviousDigest);
+        // The healthy region was restored; the partitioned region was never mutated — the
+        // adapter recorded no write for it (its durable write-ahead target was never spent).
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsNull();
+        await Assert.That(target.Calls.Any(static call => call.StartsWith("rollback:", StringComparison.Ordinal)))
+            .IsTrue();
+        var record = await journal.ReadAsync("operation-1", CancellationToken.None);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+        await Assert.That(record.Receipt!.Error.Code).IsEqualTo(DirectDeliveryErrorCode.MutationFailed);
+        await Assert.That(record.Regions!.Select(static region => (region.Region, region.State)))
+            .IsEquivalentTo(new[] { ("gru", "rollback_succeeded"), ("sfo", "rollback_succeeded") });
+    }
+
+    [Test]
     public async Task JournalFailureAfterAHealthyDeploymentNeverRollsItBack()
     {
         var target = new RecordingTarget();
@@ -1606,6 +1675,12 @@ public sealed class DirectDeliveryTests
         public string? FailRollbackHealthInRegion { get; init; }
         /// <summary>When set, a concurrent writer mutates this region inside the observe→apply window (mutation-race simulation).</summary>
         public string? ConcurrentMutationInRegion { get; init; }
+        /// <summary>
+        /// When set, the fenced apply for this region throws an infrastructure failure BEFORE
+        /// mutating (provider partition/timeout drill): the journal stays reachable while one
+        /// region's provider boundary cannot be reached.
+        /// </summary>
+        public string? PartitionApplyInRegion { get; init; }
         /// <summary>When set, the fenced/unfenced apply for this region is cancelled before mutating.</summary>
         public string? CancelApplyInRegion { get; init; }
         /// <summary>When set, the fenced/unfenced apply reports a raced previous digest that disagrees with the durable write-ahead.</summary>
@@ -1716,6 +1791,9 @@ public sealed class DirectDeliveryTests
                 cancelled.Cancel();
                 return ValueTask.FromCanceled<DeliveryMutationResult>(cancelled.Token);
             }
+            if (region == PartitionApplyInRegion)
+                return ValueTask.FromException<DeliveryMutationResult>(
+                    new NATS.Client.Core.NatsException("provider boundary unreachable"));
             var previous = CurrentOf(region);
             if (region == ConcurrentMutationInRegion)
             {

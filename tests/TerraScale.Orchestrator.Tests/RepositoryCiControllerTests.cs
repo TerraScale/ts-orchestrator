@@ -295,6 +295,87 @@ public sealed class RepositoryCiControllerTests
         await Assert.That(calls).IsEqualTo(3);
     }
 
+    [Test]
+    public async Task NotificationFailureDoesNotFailCustomerWorkAndStaysRetryable()
+    {
+        // A Forgejo commit-status failure after durable work must not change the work outcome:
+        // the gate disposition survives a successful report, and a failed or timed-out report
+        // maps to Retry so redelivery replays the durable run and re-reports — never a Terminal
+        // drop of the event the work was journaled under.
+        var reported = new List<ForgejoCommitStatusState>();
+        var recorded = await RepositoryCiController.ReportStatusAsync(
+            (revision, state, _) =>
+            {
+                reported.Add(state);
+                return Task.CompletedTask;
+            },
+            Commit,
+            ForgejoCommitStatusState.Success,
+            ForgejoCiEventProcessDisposition.Handled,
+            CancellationToken.None);
+
+        var networkFailure = await RepositoryCiController.ReportStatusAsync(
+            (_, _, _) => Task.FromException(new HttpRequestException("forgejo unreachable")),
+            Commit,
+            ForgejoCommitStatusState.Success,
+            ForgejoCiEventProcessDisposition.Handled,
+            CancellationToken.None);
+
+        var deniedFailure = await RepositoryCiController.ReportStatusAsync(
+            (_, _, _) => Task.FromException(new UnauthorizedAccessException("token expired")),
+            Commit,
+            ForgejoCommitStatusState.Failure,
+            ForgejoCiEventProcessDisposition.Terminal,
+            CancellationToken.None);
+
+        using var timeout = new CancellationTokenSource();
+        var timedOut = await RepositoryCiController.ReportStatusAsync(
+            (_, _, token) => Task.FromException(
+                new OperationCanceledException(timeout.Token)),
+            Commit,
+            ForgejoCommitStatusState.Success,
+            ForgejoCiEventProcessDisposition.Handled,
+            timeout.Token);
+
+        await Assert.That(recorded).IsEqualTo(ForgejoCiEventProcessDisposition.Handled);
+        await Assert.That(networkFailure).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(deniedFailure).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(timedOut).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(reported).IsEquivalentTo([ForgejoCommitStatusState.Success]);
+
+        // A shutdown cancellation still propagates: the retry contract is for notification
+        // failures, not for process teardown.
+        using var shutdown = new CancellationTokenSource();
+        await shutdown.CancelAsync();
+        await Assert.That(() => RepositoryCiController.ReportStatusAsync(
+                (_, _, _) => Task.FromException(
+                    new OperationCanceledException(shutdown.Token)),
+                Commit,
+                ForgejoCommitStatusState.Success,
+                ForgejoCiEventProcessDisposition.Handled,
+                shutdown.Token))
+            .Throws<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task AFailedStatusReportNeverTurnsATerminalOutcomeIntoATerminalDrop()
+    {
+        // The consumer's failure classifier maps an unclassified HttpRequestException to
+        // Terminal; the controller's notification containment must convert it to Retry BEFORE
+        // it can reach that classifier, or one unreachable status report would permanently
+        // discard the CI event its durable work was recorded under.
+        var classification = ForgejoCiEventConsumer.ClassifyFailure(new HttpRequestException("unreachable"));
+        await Assert.That(classification).IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+
+        var contained = await RepositoryCiController.ReportStatusAsync(
+            (_, _, _) => Task.FromException(new HttpRequestException("unreachable")),
+            Commit,
+            ForgejoCommitStatusState.Failure,
+            ForgejoCiEventProcessDisposition.Terminal,
+            CancellationToken.None);
+        await Assert.That(contained).IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+    }
+
     private static async Task<OciCiRunnerPoolConfiguration> PoolAsync(string root)
     {
         await File.WriteAllTextAsync(

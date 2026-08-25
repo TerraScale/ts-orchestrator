@@ -70,16 +70,22 @@ public sealed class EcdsaCommandIdentityTests
 
             await Assert.That(verifier.Verify(Material("job/one"), corruptSignature!))
                 .IsEqualTo(VerificationOutcome.Invalid);
-            await Assert.That(() => EcdsaCommandSigner.LoadPrivatePem(key.Private))
+            // Load failures must name the offending file PATH (never its contents) so an
+            // operator can find the exact rejected credential without reading key material.
+            var permissive = await Assert.That(() => EcdsaCommandSigner.LoadPrivatePem(key.Private))
                 .Throws<ArgumentException>();
-            await Assert.That(() => EcdsaCommandSignatureVerifier.LoadPublicPem([key.Private]))
+            await Assert.That(permissive!.Message).Contains(key.Private);
+            var privateAsTrust = await Assert.That(() => EcdsaCommandSignatureVerifier.LoadPublicPem([key.Private]))
                 .Throws<ArgumentException>();
+            await Assert.That(privateAsTrust!.Message).Contains(key.Private);
 
             using var wrongCurve = ECDsa.Create(ECCurve.NamedCurves.nistP384);
             var wrongPublic = Path.Combine(directory, "wrong-public.pem");
             await File.WriteAllTextAsync(wrongPublic, wrongCurve.ExportSubjectPublicKeyInfoPem());
-            await Assert.That(() => EcdsaCommandSignatureVerifier.LoadPublicPem([wrongPublic]))
+            var wrongCurveFailure = await Assert.That(() =>
+                    EcdsaCommandSignatureVerifier.LoadPublicPem([wrongPublic]))
                 .Throws<ArgumentException>();
+            await Assert.That(wrongCurveFailure!.Message).Contains(wrongPublic);
         }
         finally
         {

@@ -112,6 +112,17 @@ try
     }
 
     using var commandIdentity = options.CommandIdentity?.Open();
+    // Distinct signing-key material per CI/delivery role (issue #7): the command identity stays
+    // the base command/Native-GitOps identity, while repository-CI job dispatch, artifact
+    // attestation/delivery evidence, and native runtime observation each get independently
+    // configured — and therefore independently revocable — key material. A role without its own
+    // configuration falls back to the shared command identity, which production composition
+    // refuses for every role it actually composes (fail closed at startup, never at first use).
+    using var ciRoleIdentities = TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityRuntime.Open(
+        TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityConfiguration.Resolve(ResolvedEnvironment),
+        commandIdentity,
+        deliveryDeploymentMode,
+        ProductionCiRoles(options, startupPlan));
     using var ciRunnerNatsIdentity = options.CiRunnerNatsIdentity?.Open();
     using var telemetry = OrchestratorTelemetry.Start(options, ResolvedEnvironment);
     using var startupActivity = telemetry.StartRuntime();
@@ -128,7 +139,8 @@ try
             commandIdentity?.Verifier,
             deliveryDeploymentMode,
             startupPlan.RegistersDirectDeliveryEndpoint,
-            admittedDeliveryTargets);
+            admittedDeliveryTargets,
+            ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
@@ -177,10 +189,10 @@ try
                     options.ForgejoSource,
                     options.ForgejoCiSourceGraph,
                     options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
-                    commandIdentity?.Signer,
-                    commandIdentity?.Signer,
-                    commandIdentity?.Verifier,
-                    commandIdentity?.Verifier,
+                    ciRoleIdentities?.CiJob ?? commandIdentity?.Signer,
+                    ciRoleIdentities?.CiArtifact ?? commandIdentity?.Signer,
+                    ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
+                    ciRoleIdentities?.CiRuntimeSignatures ?? commandIdentity?.Verifier,
                     commandIdentity?.Signer,
                     verifier is not null,
                     ciConsumptionEnabled: startupPlan.StartsCiConsumption,
@@ -277,4 +289,30 @@ catch (Exception exception)
 {
     Console.Error.WriteLine(exception.Message);
     return 1;
+}
+
+/// <summary>
+/// The CI/delivery roles this composition actually composes, whose production startup therefore
+/// requires independently configured key material. Direct delivery always verifies durable
+/// artifact evidence (the CiArtifact trust root); global control additionally verifies native
+/// runtime observations (CiRuntime), and an OCI runner pool additionally signs job dispatch
+/// (CiJob) and artifact attestations (CiArtifact signing).
+/// </summary>
+static IReadOnlyCollection<TerraScale.Orchestrator.Delivery.DeliverySigningRole> ProductionCiRoles(
+    OrchestratorOptions options,
+    TerraScale.Orchestrator.OrchestratorStartupPlan startupPlan)
+{
+    if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
+        return [];
+    var roles = new SortedSet<TerraScale.Orchestrator.Delivery.DeliverySigningRole>
+    {
+        // Production direct delivery fails closed without the artifact-evidence verifier in
+        // both the regional and global adapter sets; that verifier is the CiArtifact trust root.
+        TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiArtifact,
+    };
+    if (options.GlobalNats is not null || startupPlan.StartsCiConsumption)
+        roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiRuntime);
+    if (options.Command == OrchestratorCommand.Run && options.OciCiRunnerPool is not null)
+        roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiJob);
+    return roles.ToArray();
 }

@@ -96,8 +96,12 @@ internal sealed class RepositoryCiController : IAsyncDisposable
                         RepositoryCiControllerDisposition.Failed => ForgejoCommitStatusState.Failure,
                         _ => ForgejoCommitStatusState.Error,
                     };
-                await reportStatus(trigger.Envelope.Revision, status, cancellationToken);
-                return gate;
+                return await ReportStatusAsync(
+                    reportStatus,
+                    trigger.Envelope.Revision,
+                    status,
+                    gate,
+                    cancellationToken);
             }
             if (receipt.Disposition == RepositoryCiControllerDisposition.AuthorityLost)
                 return ForgejoCiEventProcessDisposition.Retry;
@@ -121,6 +125,43 @@ internal sealed class RepositoryCiController : IAsyncDisposable
             ? attestArtifacts?.Invoke(pipeline, cancellationToken)
                 ?? Task.FromResult(ForgejoCiEventProcessDisposition.Retry)
             : Task.FromResult(ForgejoCiEventProcessDisposition.Handled);
+    }
+
+    /// <summary>
+    /// Reports the terminal commit status without ever letting a notification failure fail the
+    /// customer work it reports on: the pipeline result is already durable, so a failed report is
+    /// retried by redelivery (the controller replays idempotently from the durable run and
+    /// re-reports), never turned into a Terminal drop of the event. The failure stays visible to
+    /// operators through the loud, bounded error line below.
+    /// </summary>
+    internal static async Task<ForgejoCiEventProcessDisposition> ReportStatusAsync(
+        Func<string, ForgejoCommitStatusState, CancellationToken, Task> reportStatus,
+        string revision,
+        ForgejoCommitStatusState status,
+        ForgejoCiEventProcessDisposition gate,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reportStatus);
+        try
+        {
+            await reportStatus(revision, status, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException or
+            AccessViolationException))
+        {
+            // Never fail customer work because its notification failed: the durable outcome is
+            // unchanged and stays reportable; retrying the delivery re-reports idempotently.
+            Console.Error.WriteLine(
+                $"Forgejo commit status notification failed for revision {revision} " +
+                $"({exception.GetType().Name}); the durable outcome is unchanged and the notification " +
+                "will be retried on redelivery.");
+            return ForgejoCiEventProcessDisposition.Retry;
+        }
+        return gate;
     }
 
     internal async Task<RepositoryCiControllerReceipt> ProcessOnceAsync(

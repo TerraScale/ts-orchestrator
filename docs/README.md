@@ -15,6 +15,7 @@ Owner choices **1A–10A** are accepted (reliability first). Measurable cost, st
 | [`guides/public-alpha-release.md`](guides/public-alpha-release.md) | Local Public Alpha decision coverage, qualification blockers, and draft incident runbooks |
 | [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | 52-child cross-repository coverage and Orchestrator responsibility boundary |
 | [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Index of every historical work package / handoff |
+| [`runbooks/direct-delivery.md`](runbooks/direct-delivery.md) | Operator procedures for direct-delivery failures: mutation, rollback, stale evidence, journal outage, stuck reconciliation |
 | [`decisions/`](decisions/) | Machine-validated owner decision packet |
 | [`adr/`](adr/) | ADR readiness index + draft ADRs 0004, 0013, 0018, 0020 |
 | [`archive/`](archive/) | Compressed full-fidelity historical docs |

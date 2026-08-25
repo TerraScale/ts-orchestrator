@@ -223,6 +223,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             var runnerObjects = new NatsDeliveryObjectStore(state.RunnerBundles);
             // Production mode fails closed here without the evidence verifier or the configured
             // admitted-target allow-list, mirroring the signed-command rule at the endpoint.
+            // The evidence verifier is exactly the CI artifact role's trust root — the role
+            // that signs delivery evidence. There is deliberately NO cross-role fallback: the
+            // runtime-observation verifier must never serve as a public-seam evidence
+            // verifier, and a production composition without the artifact role fails closed
+            // in DirectDeliveryRuntimeAdapterSet.Create instead of degrading.
             var (authorizer, provenance, targetResolver, deliveryJournal, artifactBuilder) =
                 DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
@@ -236,7 +241,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                             current.Epoch == request.WriterEpoch;
                     },
                     admittedDeliveryTargets,
-                    ciRuntimeSignatures);
+                    ciArtifactSignatures);
             var directDelivery = new DirectDeliveryService(
                 authorizer,
                 provenance,
@@ -425,6 +430,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 ciController is null
                     ? null
                     : (trigger, token) => ciController.RunToCompletionAsync(trigger, token),
+                topology.CiConsumer,
                 enabled: ciConsumptionEnabled);
             var runtimeProofs = ciRuntimeSignatures is null
                 ? null

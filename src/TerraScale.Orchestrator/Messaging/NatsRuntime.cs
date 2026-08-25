@@ -79,7 +79,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         Protocol.ICommandSignatureVerifier? commandSignatureVerifier = null,
         Delivery.DirectDeliveryDeploymentMode deploymentMode = Delivery.DirectDeliveryDeploymentMode.Development,
         bool registersDirectDeliveryEndpoint = true,
-        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null)
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
+        Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -178,9 +179,11 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 var ledger = new NatsForgejoDeliveryLedger(state.Delivery);
                 // Production mode fails closed here without the evidence verifier or the
-                // configured admitted-target allow-list, mirroring the signed-command rule. The
-                // admitted signing trust root for durable artifact evidence is the same command
-                // identity verifier the mutation endpoint already requires.
+                // configured admitted-target allow-list, mirroring the signed-command rule.
+                // The evidence verifier is the CI artifact role's trust root, supplied
+                // explicitly by composition; this runtime performs no fallback of its own —
+                // a composition that wants the shared command identity for development
+                // passes it explicitly, and production never does.
                 var adapters = DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
                     deploymentMode,
@@ -193,7 +196,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                             current.Epoch == request.WriterEpoch;
                     },
                     admittedDeliveryTargets,
-                    commandSignatureVerifier as IRepositoryCiArtifactSignatureVerifier);
+                    ciArtifactSignatures as IRepositoryCiArtifactSignatureVerifier);
                 directDelivery = new DirectDeliveryService(
                     adapters.Authorizer,
                     adapters.Provenance,

@@ -1,4 +1,5 @@
 using NATS.Client.JetStream;
+using NATS.Client.JetStream.Models;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Delivery;
@@ -23,6 +24,7 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
     private readonly ForgejoCiInboxHandler handler;
     private readonly Func<RegionalAuthoritySnapshot> authority;
     private readonly Func<ForgejoCiTriggerPlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? process;
+    private readonly ConsumerConfig configuration;
     private readonly bool enabled;
     private readonly CancellationTokenSource stopping = new();
     private readonly Task loop;
@@ -32,12 +34,14 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
         ForgejoCiInboxHandler handler,
         Func<RegionalAuthoritySnapshot> authority,
         Func<ForgejoCiTriggerPlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? process,
+        ConsumerConfig? configuration,
         bool enabled)
     {
         this.consumer = consumer;
         this.handler = handler;
         this.authority = authority;
         this.process = process;
+        this.configuration = configuration ?? new ConsumerConfig();
         this.enabled = enabled;
         loop = RunAsync(stopping.Token);
     }
@@ -49,8 +53,9 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
         ForgejoCiInboxHandler handler,
         Func<RegionalAuthoritySnapshot> authority,
         Func<ForgejoCiTriggerPlan, CancellationToken, Task<ForgejoCiEventProcessDisposition>>? process = null,
+        ConsumerConfig? configuration = null,
         bool enabled = true) =>
-        new(consumer, handler, authority, process, enabled);
+        new(consumer, handler, authority, process, configuration, enabled);
 
     public async ValueTask DisposeAsync()
     {
@@ -155,6 +160,16 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
                 }
                 if (disposition == ForgejoCiEventProcessDisposition.Retry)
                 {
+                    // Retry exhaustion is otherwise silent: after the final allowed delivery
+                    // the stream stops redelivering, so the Forgejo commit status for this
+                    // revision never lands and no terminal record exists. The last delivery
+                    // says so loudly before its nak — a dropped notification must stay an
+                    // operator-visible decision, never a silent one.
+                    if (FinalDeliveryWarning(
+                            message.Metadata?.NumDelivered,
+                            configuration.MaxDeliver,
+                            message.Subject) is { } warning)
+                        Console.Error.WriteLine(warning);
                     await message.NakAsync(delay: RetryDelay, cancellationToken: cancellationToken);
                     return;
                 }
@@ -256,6 +271,31 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
     internal static bool RequiresProcessing(ForgejoCiTriggerPlan plan) =>
         (plan ?? throw new ArgumentNullException(nameof(plan))).Disposition ==
         ForgejoCiTriggerDisposition.Dispatch;
+
+    /// <summary>
+    /// True when this delivery is the consumer's last allowed attempt: a nak from here stops
+    /// redelivery, so any work or notification the event still owes becomes operator work.
+    /// </summary>
+    internal static bool IsFinalDelivery(ulong? delivered, long maxDeliver) =>
+        delivered is > 0 && maxDeliver > 0 && delivered >= checked((ulong)maxDeliver);
+
+    /// <summary>
+    /// The loud, bounded warning for a retry disposition on the final allowed delivery: after
+    /// this nak the Forgejo commit status for the revision will never be reported by this
+    /// consumer. Null when the delivery budget is not exhausted.
+    /// </summary>
+    internal static string? FinalDeliveryWarning(ulong? delivered, long maxDeliver, string subject)
+    {
+        if (!IsFinalDelivery(delivered, maxDeliver)) return null;
+        var boundedSubject = string.IsNullOrWhiteSpace(subject)
+            ? "(unknown subject)"
+            : subject.Trim().Length <= 256 ? subject.Trim() : subject.Trim()[..256];
+        return
+            $"CI event delivery budget exhausted (subject {boundedSubject}, delivery {delivered} of " +
+            $"{maxDeliver}): the Forgejo commit status for this revision was never reported and the " +
+            "event will not be redelivered. Operator action required: inspect the durable CI run for " +
+            "this revision and report the commit status manually.";
+    }
 
     private static bool IsTransientDeliveryFailure(Exception exception) =>
         exception is IOException or TimeoutException or NATS.Client.Core.NatsException or
