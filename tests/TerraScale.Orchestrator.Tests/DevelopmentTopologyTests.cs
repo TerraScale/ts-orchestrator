@@ -106,6 +106,15 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["InternalRpc__RegionalEndpoints__gru"]).IsEqualTo("http://127.0.0.1:18674");
         await Assert.That(environment["InternalRpc__RegionalEndpoints__sfo"]).IsEqualTo("http://127.0.0.1:18874");
         await Assert.That(environment["InternalRpc__RegionalEndpoints__fra"]).IsEqualTo("http://127.0.0.1:19074");
+        // Authentication receives only its own cell's Platform InternalRpc
+        // endpoint; the full regional map belongs to Platform alone.
+        await Assert.That(authenticationEnvironment["InternalRpc__RegionalEndpoints__gru"])
+            .IsEqualTo("http://127.0.0.1:18674");
+        await Assert.That(authenticationEnvironment.ContainsKey("InternalRpc__RegionalEndpoints__sfo")).IsFalse();
+        await Assert.That(authenticationEnvironment.ContainsKey("InternalRpc__RegionalEndpoints__fra")).IsFalse();
+        await Assert.That(authenticationEnvironment.Keys
+            .Count(key => key.StartsWith("InternalRpc__RegionalEndpoints__", StringComparison.Ordinal)))
+            .IsEqualTo(1);
 
         var stripeEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
@@ -150,6 +159,11 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_PROJECT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_TENANT_ID")).IsFalse();
         await Assert.That(environment.ContainsKey("TERRASCALE_DASHBOARD_DATABASE_IDS")).IsFalse();
+        // The Dashboard is an ordinary external product user: it never
+        // receives private RPC configuration of any shape (#15).
+        await Assert.That(environment.Keys
+            .Count(key => key.StartsWith("InternalRpc__", StringComparison.Ordinal)))
+            .IsEqualTo(0);
     }
 
     [Test]

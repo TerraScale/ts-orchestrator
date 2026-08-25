@@ -275,20 +275,19 @@ internal static class DevelopmentWorkloadRuntime
             environment[$"Routing__RegionApiBaseUrls__{topology.Cells[index].Cell}"] =
                 Http(topology.Cells[index].OfKind(DevelopmentResourceKind.Platform).Single().Port);
         }
-        // Authentication validates its own region's InternalRpc endpoint at startup
-        // (AuthenticationPlatformInternalRpcOptionsValidator), so both product
-        // services need the regional Platform map, not just Platform itself.
-        foreach (var regionalCell in topology.Cells)
+        // Authentication requires its own region's InternalRpc endpoint at
+        // startup (live error: "InternalRpc:RegionalEndpoints:{region} is
+        // required by Authentication."), so it needs the current cell's
+        // Platform endpoint before the early return — exactly that one
+        // endpoint, never every regional endpoint. Platform adds the full
+        // regional map itself in its own branch below.
+        var currentPlatform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
+        if (currentPlatform.SecondaryPort is not int currentPlatformPort || currentPlatformPort <= 0)
         {
-            var regionalPlatform = regionalCell.OfKind(DevelopmentResourceKind.Platform).Single();
-            if (regionalPlatform.SecondaryPort is not > 0)
-            {
-                throw new InvalidOperationException(
-                    $"Platform resource '{regionalPlatform.Name}' is missing SecondaryPort for InternalRpc.");
-            }
-            environment[$"InternalRpc__RegionalEndpoints__{regionalCell.Cell}"] =
-                Http(regionalPlatform.SecondaryPort.Value);
+            throw new InvalidOperationException(
+                $"Platform resource '{currentPlatform.Name}' is missing SecondaryPort for InternalRpc.");
         }
+        environment[$"InternalRpc__RegionalEndpoints__{cell.Cell}"] = Http(currentPlatformPort);
 
         if (!isPlatform)
         {
