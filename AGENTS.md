@@ -47,6 +47,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - `TerraScale.Infrastructure` is a **retired stub**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
 - Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.
 - The development runtime always uses the bounded GRU/SFO/FRA RF=1 topology. Do not add a reduced runtime profile or a topology-selection option. It reserves GRU Authentication and product Dashboard loopback ports `18670` and `18672`; keep these stable so DevHost can publish fixed tailnet HTTPS ports `18445` and `18446` before attestation completes while runtime health remains truthful.
+- Canonical product Dashboard rule: `https://terrascale-dev.tail057f.ts.net:18446/` must work correctly whenever the lab is converged — it serves the TerraScale Dashboard through DevHost's Tailscale Serve port `18446` proxying the reserved GRU loopback target `127.0.0.1:18672` (unauthenticated requests redirect to `/login`, which returns HTTP 200). A 502 is acceptable only inside the convergence window after a service (re)start or re-attestation. Orchestrator changes must never leave that URL broken outside the window; verify it after every lab restart and before handing off Orchestrator or Dashboard contract changes.
 
 ## Agent skills
 
