@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using TerraScale.Orchestrator.Runtime.Mcp;
 
 namespace TerraScale.Orchestrator.Runtime;
 
@@ -139,6 +140,15 @@ public sealed record HostRuntimePlan(
         {
             AdmittedRole.ControlNatsServer or AdmittedRole.ProductNatsServer or AdmittedRole.RoutePolicyController =>
                 new[] { "--config", $"{stateDirectory}/config.json" },
+            // The MCP workload reads its approved configuration and its OAuth client secret
+            // reference from the admitted state directory; the secret itself arrives through
+            // the encrypted credential mechanism, never through the command line (ADR 0032).
+            AdmittedRole.McpServer =>
+                new[]
+                {
+                    "--config", $"{stateDirectory}/config.json",
+                    "--oauth-client-secret-reference", McpSecretReferenceContract.Default.Value
+                },
             _ => []
         };
         var configurationProperty = descriptor.Role == AdmittedRole.Orchestrator
@@ -215,6 +225,9 @@ internal static class RuntimeResourceLimitPolicy
             AdmittedRole.RegionalTelemetryAgent =>
                 new(1L * 1024 * 1024 * 1024, 512, 200, 200, 200, 5),
             AdmittedRole.CiRunner => new(8L * 1024 * 1024 * 1024, 4096, 800, 100, 100, 10),
+            // ADR 0032: stateless HTTP gateway envelope. Unmeasured budgets are admission
+            // ceilings only; measured A1 budgets remain deployment-qualification inputs.
+            AdmittedRole.McpServer => new(512L * 1024 * 1024, 256, 200, 400, 300, 0),
             _ => new(1L * 1024 * 1024 * 1024, 512, 200, 500, 300, 0)
         };
         if (requested is null)

@@ -85,6 +85,35 @@ public sealed class NativeGitOpsManifestTests
     }
 
     [Test]
+    public async Task TheMcpRoleIsRejectedUntilTheGitOpsLaneCarriesTheQualifiedArtifactBinding()
+    {
+        // ADR 0032: the GitOps lane admits roles by catalog membership plus a well-formed
+        // digest, which is NOT sufficient for the MCP workload — it additionally requires the
+        // qualified HTTP artifact binding this lane does not carry. Fail closed with the
+        // actionable route (direct delivery) instead of admitting any well-formed digest.
+        var cases = new[]
+        {
+            Workload($"\"id\":\"mcp\",\"role\":\"McpServer\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"]"),
+            Workload($"\"id\":\"mcp\",\"role\":\"McpServer\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"replicas\":2"),
+        };
+
+        foreach (var value in cases)
+        {
+            var reason = string.Empty;
+            try
+            {
+                Parse(value);
+            }
+            catch (InvalidDataException exception)
+            {
+                reason = exception.Message;
+            }
+            await Assert.That(reason).Contains("qualified HTTP artifact binding");
+            await Assert.That(reason).Contains("direct delivery");
+        }
+    }
+
+    [Test]
     public async Task ReplicationFloorsAndSchemaAreStrict()
     {
         var cases = new[]

@@ -124,6 +124,14 @@ public static class NativeGitOpsManifest
             if (!ids.Add(id)) throw new InvalidDataException("Workload identities must be unique.");
             var role = RequireEnum<AdmittedRole>(item, "role");
             var descriptor = AdmittedRoleCatalog.Get(role);
+            // The GitOps lane admits roles by catalog membership and a well-formed digest only.
+            // The MCP workload additionally requires the qualified HTTP artifact binding, which
+            // this lane does not carry yet: fail closed here and route MCP through direct
+            // delivery, which verifies the qualified artifact set (ADR 0032, issue #9).
+            if (role == AdmittedRole.McpServer)
+                throw new InvalidDataException(
+                    "The native GitOps lane cannot admit the MCP workload: it has no qualified HTTP artifact binding. " +
+                    "Deploy the MCP workload through direct delivery, which verifies the qualified artifact set.");
             var runtime = OptionalEnum(item, "runtime", descriptor.DefaultDriver);
             AdmittedRoleCatalog.Admit(role, runtime);
             var replicas = OptionalInt32(item, "replicas", descriptor.MinimumReplicas);

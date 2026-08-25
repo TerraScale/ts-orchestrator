@@ -747,7 +747,7 @@ internal sealed class DirectDeliveryDevelopmentTargetResolver(IDeliveryTarget ta
     private readonly IDeliveryTarget target = target ?? throw new ArgumentNullException(nameof(target));
     private static readonly HashSet<string> KnownServices = new(StringComparer.Ordinal)
     {
-        "authentication", "dashboard", "platform", "terrabase",
+        "authentication", "dashboard", "mcp", "platform", "terrabase",
     };
     private static readonly HashSet<string> KnownEnvironments = new(StringComparer.Ordinal)
     {

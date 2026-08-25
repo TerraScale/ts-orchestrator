@@ -70,6 +70,7 @@ internal static class HostRuntimeCli
         "vpn-coordination-relay" => AdmittedRole.VpnCoordinationRelay,
         "route-policy-controller" => AdmittedRole.RoutePolicyController,
         "ci-runner" => AdmittedRole.CiRunner,
+        "mcp-server" => AdmittedRole.McpServer,
         _ => throw new ArgumentException($"Unknown or unadmitted role '{value}'.")
     };
 
