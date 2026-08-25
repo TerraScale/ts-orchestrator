@@ -15,6 +15,12 @@ internal enum RepositoryCiArtifactAttestationGateDisposition
     ProofNotYetConsumed,
     /// <summary>Permanent: the durable evidence exists but does not match the exact subject.</summary>
     EvidenceMismatch,
+    /// <summary>
+    /// Retryable: the durable delivery-evidence journal could not be reached while recording the
+    /// published artifact's source binding. The Forgejo event must not be acknowledged until the
+    /// record exists, because a production delivery of that digest would otherwise be denied.
+    /// </summary>
+    DeliveryEvidenceJournalUnavailable,
 }
 
 internal sealed record RepositoryCiArtifactAttestationGateReceipt(
@@ -37,7 +43,8 @@ internal sealed class RepositoryCiArtifactAttestationGate(
     RepositoryCiArtifactAttestationJournal journal,
     IRepositoryCiArtifactAttestationSigner signer,
     IRepositoryCiArtifactSignatureVerifier artifactVerifier,
-    IRepositoryCiArtifactSignatureVerifier runtimeVerifier)
+    IRepositoryCiArtifactSignatureVerifier runtimeVerifier,
+    DirectDeliveryArtifactEvidenceJournal? deliveryEvidence = null)
 {
     private readonly Func<RepositoryCiPipelinePlan, CancellationToken, Task<RepositoryCiPipelineRunSnapshot>> readRun =
         readRun ?? throw new ArgumentNullException(nameof(readRun));
@@ -151,11 +158,66 @@ internal sealed class RepositoryCiArtifactAttestationGate(
                     architecture == RepositoryCiArchitecture.Any && verified.ObservedRuntimeDigest is not null ||
                     architecture != RepositoryCiArchitecture.Any && verified.ObservedRuntimeDigest != subject.Digest)
                     return new(RepositoryCiArtifactAttestationGateDisposition.EvidenceMismatch);
+                // The artifact is now attested against verified durable runner evidence: record
+                // its source binding for the direct-delivery provenance boundary so a production
+                // delivery of this exact digest can verify instead of being denied. Without this
+                // record the published artifact is unusable in production, so a journal that
+                // cannot be reached fails the acknowledge as retryable rather than acknowledging
+                // an unattestable publication.
+                if (deliveryEvidence is not null)
+                {
+                    var disposition = await RecordDeliveryEvidenceAsync(
+                        deliveryEvidence, planned, subject, declared, cancellationToken).ConfigureAwait(false);
+                    if (disposition is not null)
+                        return new(disposition.Value);
+                }
             }
         }
         if (!authorityStillValid())
             return new(RepositoryCiArtifactAttestationGateDisposition.AuthorityLost);
         return new(RepositoryCiArtifactAttestationGateDisposition.Attested);
+    }
+
+    /// <summary>
+    /// Records one attested artifact's delivery evidence. CI-declared artifacts bind: the exact
+    /// content digest (runner-verified, re-prefixed into the delivery digest vocabulary), the
+    /// attested subject digest as the manifest identity (the canonical attested declaration of
+    /// pipeline, job, artifact, architecture, digest, and entrypoints), kind <c>package</c>
+    /// (a repository CI artifact is a build output, not a deployed service image), and the
+    /// source's Git tree object identity re-encoded as a sha256 digest. A conflicting durable
+    /// claim for the same digest is a permanent mismatch; an unreachable journal is retryable.
+    /// </summary>
+    private async Task<RepositoryCiArtifactAttestationGateDisposition?> RecordDeliveryEvidenceAsync(
+        DirectDeliveryArtifactEvidenceJournal deliveryEvidence,
+        RepositoryCiPipelineJob planned,
+        RepositoryCiArtifactSubject subject,
+        CiRunnerStoredArtifactEvidence declared,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var disposition = await deliveryEvidence.RecordAsync(
+                new DirectDeliveryArtifactEvidence(
+                    planned.Source.Repository,
+                    planned.Source.Commit,
+                    "sha256:" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(planned.Source.Tree))),
+                    "sha256:" + declared.Digest,
+                    "sha256:" + RepositoryCiArtifactAttestation.SubjectDigest(subject),
+                    "package"),
+                // The evidence signer is the CI artifact signing identity: the same trust root
+                // production delivery verifies against.
+                signer,
+                cancellationToken).ConfigureAwait(false);
+            return disposition == DirectDeliveryArtifactEvidenceDisposition.IdentityConflict
+                ? RepositoryCiArtifactAttestationGateDisposition.EvidenceMismatch
+                : null;
+        }
+        catch (Exception exception) when (exception is not (OutOfMemoryException or StackOverflowException or
+            AccessViolationException or OperationCanceledException or InvalidDataException or ArgumentException))
+        {
+            return RepositoryCiArtifactAttestationGateDisposition.DeliveryEvidenceJournalUnavailable;
+        }
     }
 
     private static bool ExactJob(

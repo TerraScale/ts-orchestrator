@@ -128,6 +128,112 @@ public sealed class RepositoryCiArtifactAttestationGateTests
     }
 
     [Test]
+    public async Task AttestedArtifactsRecordDeliveryEvidenceAProductionDeliveryVerifies()
+    {
+        var fixture = Fixture.Create();
+        var deliveryLedger = new ForgejoWebhookJournalTests.TestLedger();
+        var evidenceJournal = new DirectDeliveryArtifactEvidenceJournal(
+            new DirectDeliveryProductionAdapterTests.LedgerAdapter(deliveryLedger));
+
+        var receipt = await fixture.Gate(deliveryEvidence: evidenceJournal)
+            .RecordAsync(fixture.Pipeline, 7, 20, static () => true);
+
+        await Assert.That(receipt.Disposition).IsEqualTo(RepositoryCiArtifactAttestationGateDisposition.Attested);
+        var planned = fixture.Pipeline.Jobs.Single(static value =>
+            value.Plan.Node.Kind == RepositoryCiNodeKind.Artifact);
+        var declared = fixture.Declarations.Single(static value =>
+            value.Architecture == RepositoryCiArchitecture.LinuxX64);
+        var subject = fixture.Subject(RepositoryCiArchitecture.LinuxX64);
+        var expectedDigest = "sha256:" + declared.Digest;
+        var recorded = await evidenceJournal.ReadAsync(expectedDigest, default);
+        await Assert.That(recorded).IsNotNull();
+        await Assert.That(recorded!.Evidence.Repository).IsEqualTo(planned.Source.Repository);
+        await Assert.That(recorded.Evidence.Commit).IsEqualTo(planned.Source.Commit);
+        await Assert.That(recorded.Evidence.TreeDigest).IsEqualTo(CiTreeDigest(planned.Source.Tree));
+        await Assert.That(recorded.Evidence.ManifestDigest)
+            .IsEqualTo("sha256:" + RepositoryCiArtifactAttestation.SubjectDigest(subject));
+        await Assert.That(recorded.Evidence.Kind).IsEqualTo("package");
+
+        // The closed loop the ticket asks for: a published artifact becomes deliverable in
+        // production because its evidence exists and verifies against the signing trust root.
+        var provenance = new DirectDeliveryProductionProvenance(evidenceJournal, fixture.ArtifactTrust);
+        var verified = await provenance.VerifyAsync(
+            new(
+                1,
+                "operation-ci-evidence",
+                new(planned.Source.Repository, planned.Source.Commit, CiTreeDigest(planned.Source.Tree)),
+                new(expectedDigest, recorded.Evidence.ManifestDigest, "package"),
+                new("authentication", "development", ["gru"]),
+                "sha256:" + new string('a', 64),
+                null,
+                "actor-1",
+                "direct customer change"),
+            new(expectedDigest, recorded.Evidence.ManifestDigest, "package"),
+            default);
+        var unrecorded = await provenance.VerifyAsync(
+            new(
+                1,
+                "operation-ci-evidence-2",
+                new(planned.Source.Repository, planned.Source.Commit, CiTreeDigest(planned.Source.Tree)),
+                new("sha256:" + new string('f', 64), recorded.Evidence.ManifestDigest, "package"),
+                new("authentication", "development", ["gru"]),
+                "sha256:" + new string('a', 64),
+                null,
+                "actor-1",
+                "direct customer change"),
+            new("sha256:" + new string('f', 64), recorded.Evidence.ManifestDigest, "package"),
+            default);
+        await Assert.That(verified.Verified).IsTrue();
+        await Assert.That(unrecorded.Verified).IsFalse();
+    }
+
+    [Test]
+    public async Task AConflictingDurableDeliveryClaimIsTerminalEvidenceMismatch()
+    {
+        var fixture = Fixture.Create();
+        var deliveryLedger = new ForgejoWebhookJournalTests.TestLedger();
+        var evidenceJournal = new DirectDeliveryArtifactEvidenceJournal(
+            new DirectDeliveryProductionAdapterTests.LedgerAdapter(deliveryLedger));
+        var declared = fixture.Declarations.Single(static value =>
+            value.Architecture == RepositoryCiArchitecture.LinuxX64);
+        // A different, already-durable claim for the same artifact digest: the publication can
+        // never be attested as that digest, so the acknowledge goes terminal, not retry.
+        await evidenceJournal.RecordAsync(
+            new DirectDeliveryArtifactEvidence(
+                "TerraScale/TerraScale.Orchestrator",
+                new string('e', 40),
+                "sha256:" + new string('1', 64),
+                "sha256:" + declared.Digest,
+                "sha256:" + new string('2', 64),
+                "package"),
+            fixture.ArtifactTrust,
+            default);
+
+        var receipt = await fixture.Gate(deliveryEvidence: evidenceJournal)
+            .RecordAsync(fixture.Pipeline, 7, 20, static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiArtifactAttestationGateDisposition.EvidenceMismatch);
+    }
+
+    [Test]
+    public async Task AnUnreachableDeliveryEvidenceJournalIsRetryableNotAcknowledged()
+    {
+        var fixture = Fixture.Create();
+        var gate = fixture.Gate(deliveryEvidence: new DirectDeliveryArtifactEvidenceJournal(
+            new DirectDeliveryProductionAdapterTests.UnavailableLedger()));
+
+        var receipt = await gate.RecordAsync(fixture.Pipeline, 7, 20, static () => true);
+
+        await Assert.That(receipt.Disposition)
+            .IsEqualTo(RepositoryCiArtifactAttestationGateDisposition.DeliveryEvidenceJournalUnavailable);
+    }
+
+    /// <summary>The CI source's Git tree object identity, re-encoded into the delivery digest vocabulary.</summary>
+    private static string CiTreeDigest(string tree) =>
+        "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(tree)));
+
+    [Test]
     public async Task StaleAuthorityFencesTheGateAndALaterAttemptConverges()
     {
         var fixture = Fixture.Create();
@@ -198,7 +304,8 @@ public sealed class RepositoryCiArtifactAttestationGateTests
         internal required CiRunnerStoredArtifactEvidence[] Declarations { get; init; }
 
         internal RepositoryCiArtifactAttestationGate Gate(
-            IRepositoryCiArtifactSignatureVerifier? runtimeVerifier = null) =>
+            IRepositoryCiArtifactSignatureVerifier? runtimeVerifier = null,
+            DirectDeliveryArtifactEvidenceJournal? deliveryEvidence = null) =>
             new(
                 (_, token) =>
                 {
@@ -215,7 +322,8 @@ public sealed class RepositoryCiArtifactAttestationGateTests
                 Journal,
                 ArtifactTrust,
                 ArtifactTrust,
-                runtimeVerifier ?? RuntimeTrust);
+                runtimeVerifier ?? RuntimeTrust,
+                deliveryEvidence);
 
         internal RepositoryCiArtifactAttestationGate GateForRun(RepositoryCiPipelineRunSnapshot run) =>
             new(

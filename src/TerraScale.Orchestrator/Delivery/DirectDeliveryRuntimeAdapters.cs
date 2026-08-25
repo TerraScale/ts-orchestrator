@@ -391,8 +391,10 @@ public enum DirectDeliveryDeploymentMode
     /// <summary>Local and development targets only; production targets are refused.</summary>
     Development,
     /// <summary>
-    /// Production composition: this shape-check provenance cannot bind production artifacts, so
-    /// every request is refused until the real provenance binder exists (#3/#6).
+    /// Production composition: provenance verifies requests against durable signed artifact
+    /// evidence, targets are admitted only from the configured allow-list, and source-only
+    /// requests are refused (no artifact builder). Composition fails closed without the
+    /// evidence verifier and the allow-list.
     /// </summary>
     Production,
 }

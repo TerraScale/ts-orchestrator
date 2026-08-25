@@ -571,15 +571,83 @@ public sealed class DirectDeliveryTests
             throw exception;
     }
 
+    [Test]
+    public async Task A_delivery_touches_only_its_selected_regions()
+    {
+        var target = new RecordingTarget();
+        var journal = new InMemoryDeliveryJournal();
+        var coordinator = Coordinator(target, journal);
+
+        // The resolver serves both regions, but this request selects gru only: no observe,
+        // mutation, health, or convergence interaction may reach an unselected region, and the
+        // durable progress must not index it.
+        var receipt = await coordinator.DeliverAsync(Request() with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru"]),
+        });
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Succeeded);
+        await Assert.That(string.Join('|', target.Calls)).IsEqualTo("observe:gru|apply:gru|health:gru|converge");
+        await Assert.That(journal.Records[^1].Regions!.Select(static region => region.Region))
+            .IsEquivalentTo(["gru"]);
+        await Assert.That(receipt.Target!.Regions).IsEquivalentTo(["gru"]);
+    }
+
+    [Test]
+    public async Task A_stale_authority_is_fenced_before_any_mutation_or_journal_admission()
+    {
+        var target = new RecordingTarget();
+        var journal = new InMemoryDeliveryJournal();
+        var coordinator = Coordinator(target, journal,
+            authorityIsCurrent: static _ => false);
+
+        var receipt = await coordinator.DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.AuthorityFenced);
+        await Assert.That(target.Calls).IsEmpty();
+        await Assert.That(journal.Records).IsEmpty();
+    }
+
+    [Test]
+    public async Task Authority_lost_mid_apply_fences_the_remaining_regions_and_the_rollback()
+    {
+        var target = new RecordingTarget();
+        var journal = new InMemoryDeliveryJournal();
+        var coordinator = Coordinator(target, journal,
+            // Current until the first region's mutation begins, then lost for the rest of the
+            // operation: the fence must stop further mutation and, with authority gone, block
+            // the rollback of the already-mutated region instead of mutating without authority.
+            authorityIsCurrent: _ => !target.Calls.Contains("apply:gru"));
+
+        var receipt = await coordinator.DeliverAsync(Request());
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Rollback.Attempted).IsTrue();
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Failed);
+        await Assert.That(string.Join('|', target.Calls)).DoesNotContain("apply:sfo");
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Single(static region => region.Region == "gru").ErrorCode)
+            .IsEqualTo(DirectDeliveryErrorCode.AuthorityFenced);
+        // The unmutated region keeps exactly its write-ahead 'applying' record: the durable
+        // rollback material was persisted before the fence, and no mutation ever followed it.
+        await Assert.That(regions.Single(static region => region.Region == "sfo").State)
+            .IsEqualTo(DeliveryJournalState.Applying);
+        await Assert.That(regions.Single(static region => region.Region == "sfo").PreviousArtifactDigest)
+            .IsEqualTo(PreviousDigest);
+    }
+
     private static DirectDeliveryCoordinator Coordinator(IDeliveryTarget target, IDeliveryJournal journal,
         bool authorized = true, IDeliveryArtifactBuilder? artifactBuilder = null,
-        IDeliveryProvenanceVerifier? provenance = null, IDeliveryAuthorizer? authorizer = null) => new(
+        IDeliveryProvenanceVerifier? provenance = null, IDeliveryAuthorizer? authorizer = null,
+        Func<DeliveryRequest, bool>? authorityIsCurrent = null) => new(
         authorizer ?? new Authorizer(authorized),
         provenance ?? new ProvenanceVerifier(),
         new TargetResolver(target),
         journal,
         artifactBuilder,
-        auditIdFactory: static () => "audit-test");
+        auditIdFactory: static () => "audit-test",
+        authorityIsCurrent: authorityIsCurrent);
 
     private static DeliveryRequest Request() => new(
         1,

@@ -78,7 +78,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         CancellationToken cancellationToken,
         Protocol.ICommandSignatureVerifier? commandSignatureVerifier = null,
         Delivery.DirectDeliveryDeploymentMode deploymentMode = Delivery.DirectDeliveryDeploymentMode.Development,
-        bool registersDirectDeliveryEndpoint = true)
+        bool registersDirectDeliveryEndpoint = true,
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -176,13 +177,29 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (state.Delivery is not null)
             {
                 var ledger = new NatsForgejoDeliveryLedger(state.Delivery);
+                // Production mode fails closed here without the evidence verifier or the
+                // configured admitted-target allow-list, mirroring the signed-command rule. The
+                // admitted signing trust root for durable artifact evidence is the same command
+                // identity verifier the mutation endpoint already requires.
+                var adapters = DirectDeliveryRuntimeAdapterSet.Create(
+                    ledger,
+                    deploymentMode,
+                    () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
+                    request =>
+                    {
+                        var current = authority.Snapshot;
+                        return current.Ready && current.IsLeader &&
+                            current.KvRevision == request.AuthorityGeneration &&
+                            current.Epoch == request.WriterEpoch;
+                    },
+                    admittedDeliveryTargets,
+                    commandSignatureVerifier as IRepositoryCiArtifactSignatureVerifier);
                 directDelivery = new DirectDeliveryService(
-                    new DirectDeliveryDevelopmentAuthorizer(() =>
-                        authority.Snapshot.Ready && authority.Snapshot.IsLeader),
-                    new DirectDeliveryDevelopmentProvenance(deploymentMode),
-                    new DirectDeliveryDevelopmentTargetResolver(new NatsDirectDeliveryTarget(ledger)),
-                    new NatsDirectDeliveryJournal(ledger),
-                    new DirectDeliverySourceArtifactBuilder(),
+                    adapters.Authorizer,
+                    adapters.Provenance,
+                    adapters.TargetResolver,
+                    adapters.Journal,
+                    adapters.ArtifactBuilder,
                     auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
                     authorityIsCurrent: request =>
                     {
@@ -227,22 +244,36 @@ public sealed class NatsRuntime : IAsyncDisposable
                         "The direct delivery mutation endpoint requires a configured command identity verifier.");
                 if (registersDirectDeliveryEndpoint && commandSignatureVerifier is not null)
                 {
+                    var handoffDelivery = new TerraScale.Orchestrator.Delivery.DeployHandoff.DeployHandoffDeliveryRuntime(directDelivery);
                     await service.AddEndpointAsync<string>(
                         async message =>
                         {
-                            var wire = DirectDeliveryCommandWire.Decode(
+                            // Exactly two payload kinds are admitted behind the one signed seam:
+                            // the canonical DeliveryRequest and the Deploy handoff manifest. The
+                            // runtime binds a handoff execution to the live authority lease it
+                            // owns; a direct request carries and is fenced by its own claims.
+                            var lease = authority.Snapshot;
+                            var admission = DirectDeliveryCommandIngress.Decode(
                                 Encoding.UTF8.GetBytes(message.Data ?? string.Empty),
                                 Flatten(message.Headers),
                                 options.Cell,
                                 DateTimeOffset.UtcNow,
                                 TimeSpan.FromMinutes(5),
                                 commandSignatureVerifier,
-                                authority.Snapshot.KvRevision,
-                                authority.Snapshot.Epoch);
-                            var receipt = wire.Error == DirectDeliveryCommandWireError.None && wire.Request is not null
-                                ? await directDelivery.DeliverAsync(wire.Request, cancellationToken)
-                                    .ConfigureAwait(false)
-                                : Refused(wire);
+                                lease.KvRevision,
+                                lease.Epoch);
+                            var receipt = admission.Kind switch
+                            {
+                                DirectDeliveryCommandPayloadKind.DeliveryRequest when admission.Request is { } request =>
+                                    await directDelivery.DeliverAsync(request, cancellationToken)
+                                        .ConfigureAwait(false),
+                                DirectDeliveryCommandPayloadKind.DeployHandoffManifest when admission.Handoff is
+                                    { IsAdmittedForTargetMutation: true } mapping =>
+                                    await handoffDelivery.DeliverMappedAsync(
+                                        mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
+                                        .ConfigureAwait(false),
+                                _ => DirectDeliveryCommandIngress.RefusalReceipt(admission),
+                            };
                             await message.ReplyAsync(
                                 DeliveryWireCodec.SerializeReceipt(receipt),
                                 cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -690,29 +721,6 @@ public sealed class NatsRuntime : IAsyncDisposable
             flattened.Add(new KeyValuePair<string, string>(key, value ?? string.Empty));
         return flattened;
     }
-
-    /// <summary>
-    /// The redacted receipt for a mutation refused before dispatch: malformed wire input is an
-    /// input error; any envelope rejection (signature, cell, validity window) is a denial.
-    /// </summary>
-    private static DeliveryReceipt Refused(DirectDeliveryCommandWireReceipt wire) =>
-        new(
-            DeliveryRequest.CurrentSchemaVersion,
-            "invalid",
-            DeliveryReceiptStatus.Failed,
-            null,
-            null,
-            null,
-            new DeliveryProvenance(false, null, null),
-            new DeliveryHealth([], false),
-            new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired),
-            "refused",
-            new DeliveryErrorInfo(
-                wire.Error == DirectDeliveryCommandWireError.MalformedEnvelope
-                    ? DirectDeliveryErrorCode.InvalidInput
-                    : DirectDeliveryErrorCode.UnauthorizedActor,
-                "The signed direct-delivery command envelope was rejected before dispatch.",
-                "Check the command signature, cell, validity window, and canonical request bytes."));
 
     private sealed record RuntimeState(
         INatsJSConsumer StartupConsumer,

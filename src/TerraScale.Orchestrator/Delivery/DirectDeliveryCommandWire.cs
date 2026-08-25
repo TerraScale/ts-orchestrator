@@ -25,6 +25,25 @@ internal sealed record DirectDeliveryCommandWireReceipt(
 }
 
 /// <summary>
+/// The validated signed envelope of one direct-delivery mutation, independent of its payload
+/// kind. <see cref="OperationId"/>, <see cref="Generation"/>, <see cref="Epoch"/>, and
+/// <see cref="Attempt"/> are the signed identity claims a payload must match.
+/// </summary>
+internal sealed record DirectDeliverySignedEnvelope(
+    DirectDeliveryCommandWireError Error,
+    CommandValidationError ValidationError,
+    CommandEnvelope? Envelope,
+    string OperationId,
+    long Generation,
+    long Epoch,
+    int Attempt)
+{
+    internal static DirectDeliverySignedEnvelope Refused(
+        DirectDeliveryCommandWireError error, CommandValidationError validation) =>
+        new(error, validation, null, string.Empty, 0, 0, 0);
+}
+
+/// <summary>
 /// The signed command-envelope seam for direct delivery mutations. The wire payload is the
 /// canonical version-1 <see cref="DeliveryRequest"/> JSON; the identity fields and the detached
 /// signature travel as NATS headers, exactly like the repository CI job seam. No delivery may
@@ -85,54 +104,84 @@ internal static class DirectDeliveryCommandWire
         Func<CommandSignedMaterial, OpaqueSignature> sign)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(sign);
-        if (!ProtocolRevision.TryCreate(1, out var protocol) ||
-            !CellId.TryCreate(cell, out var cellId) ||
-            !AggregateId.TryCreate(Aggregate, out var aggregate) ||
-            !DesiredGeneration.TryCreate(request.AuthorityGeneration, out var generation) ||
-            !WriterEpoch.TryCreate(request.WriterEpoch, out var epoch) ||
-            !OperationId.TryCreate(request.OperationId ?? string.Empty, out var operation) ||
-            !IdempotencyKey.TryCreate(request.OperationId ?? string.Empty, out var idempotency) ||
-            !DeliveryAttempt.TryCreate(request.Attempt, out var attempt))
-            throw new ArgumentException("The direct delivery wire identity is invalid.", nameof(request));
         var payload = Encoding.UTF8.GetBytes(DeliveryWireCodec.SerializeRequest(request));
         if (payload.Length is < 1 or > MaximumPayloadBytes)
             throw new ArgumentException("The direct delivery payload exceeds its bound.", nameof(request));
-        var digest = Convert.FromHexString(Convert.ToHexStringLower(SHA256.HashData(payload)));
+        var headers = EncodeSignedHeaders(
+            payload,
+            request.OperationId ?? string.Empty,
+            request.AuthorityGeneration,
+            request.WriterEpoch,
+            request.Attempt,
+            cell,
+            issuedAt,
+            expiresAt,
+            sign);
+        return (payload, headers);
+    }
+
+    /// <summary>
+    /// Produces the exact signed headers for one already-canonical direct-delivery payload of any
+    /// admitted kind (canonical DeliveryRequest or Deploy handoff manifest). Every payload kind
+    /// signs through this one path, so a manifest envelope can never drift from a request envelope.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string> EncodeSignedHeaders(
+        ReadOnlyMemory<byte> payload,
+        string operationId,
+        long generation,
+        long epoch,
+        int attempt,
+        string cell,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt,
+        Func<CommandSignedMaterial, OpaqueSignature> sign)
+    {
+        ArgumentNullException.ThrowIfNull(sign);
+        if (payload.Length is < 1 or > MaximumPayloadBytes)
+            throw new ArgumentException("The direct delivery payload exceeds its bound.", nameof(payload));
+        if (!ProtocolRevision.TryCreate(1, out var protocol) ||
+            !CellId.TryCreate(cell, out var cellId) ||
+            !AggregateId.TryCreate(Aggregate, out var aggregate) ||
+            !DesiredGeneration.TryCreate(generation, out var desired) ||
+            !WriterEpoch.TryCreate(epoch, out var writerEpoch) ||
+            !OperationId.TryCreate(operationId, out var operation) ||
+            !IdempotencyKey.TryCreate(operationId, out var idempotency) ||
+            !DeliveryAttempt.TryCreate(attempt, out var deliveryAttempt))
+            throw new ArgumentException("The direct delivery wire identity is invalid.", nameof(operationId));
+        var digest = Convert.FromHexString(Convert.ToHexStringLower(SHA256.HashData(payload.Span)));
         if (!PayloadDigest.TryCopyFrom(digest, out var payloadDigest) || payloadDigest is null)
-            throw new ArgumentException("The direct delivery payload digest is invalid.", nameof(request));
+            throw new ArgumentException("The direct delivery payload digest is invalid.", nameof(payload));
         var material = new CommandSignedMaterial(
             protocol,
             cellId,
             aggregate,
-            generation,
-            epoch,
+            desired,
+            writerEpoch,
             operation,
             idempotency,
             issuedAt,
             expiresAt,
-            attempt,
-            OpaquePayload.CopyFrom(payload),
+            deliveryAttempt,
+            OpaquePayload.CopyFrom(payload.Span),
             payloadDigest);
         var signature = sign(material);
         if (signature is not { IsValid: true } || signature.Length > MaximumSignatureBytes)
             throw new ArgumentException("The direct delivery signature is invalid.", nameof(sign));
-        var headers = new Dictionary<string, string>(ExpectedHeaderCount, StringComparer.Ordinal)
+        return new Dictionary<string, string>(ExpectedHeaderCount, StringComparer.Ordinal)
         {
             [SchemaHeader] = "1",
             [ProtocolHeader] = "1",
             [TypeHeader] = Type,
             [CellHeader] = cell,
-            [OperationHeader] = request.OperationId ?? string.Empty,
-            [GenerationHeader] = request.AuthorityGeneration.ToString(CultureInfo.InvariantCulture),
-            [EpochHeader] = request.WriterEpoch.ToString(CultureInfo.InvariantCulture),
-            [AttemptHeader] = request.Attempt.ToString(CultureInfo.InvariantCulture),
+            [OperationHeader] = operationId,
+            [GenerationHeader] = generation.ToString(CultureInfo.InvariantCulture),
+            [EpochHeader] = epoch.ToString(CultureInfo.InvariantCulture),
+            [AttemptHeader] = attempt.ToString(CultureInfo.InvariantCulture),
             [IssuedHeader] = issuedAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
             [ExpiresHeader] = expiresAt.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
-            [PayloadSha256Header] = Convert.ToHexStringLower(SHA256.HashData(payload)),
+            [PayloadSha256Header] = Convert.ToHexStringLower(SHA256.HashData(payload.Span)),
             [SignatureHeader] = Convert.ToBase64String(signature.Bytes),
         };
-        return (payload, headers);
     }
 
     /// <summary>Validates one signed direct-delivery mutation before any dispatch.</summary>
@@ -159,18 +208,54 @@ internal static class DirectDeliveryCommandWire
         long? expectedGeneration,
         long? expectedEpoch)
     {
+        // Canonicalize first and bind the payload's operation identity into the envelope check
+        // BEFORE signature validation, so a mismatched Operation header is an input error
+        // (malformed) rather than a signature denial — the historical single-kind semantics.
+        if (Canonicalize(payload) is not { } request)
+            return DirectDeliveryCommandWireReceipt.Malformed();
+        var envelope = ValidateSignedEnvelope(
+            payload, headers, expectedCell, now, allowedClockSkew, signatureVerifier, expectedGeneration,
+            expectedEpoch, request.OperationId);
+        if (envelope.Error != DirectDeliveryCommandWireError.None)
+            return new(envelope.Error, envelope.ValidationError, null);
+        if (request.AuthorityGeneration != envelope.Generation ||
+            request.WriterEpoch != envelope.Epoch ||
+            request.Attempt != envelope.Attempt)
+            return new(DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope, null);
+        return new(DirectDeliveryCommandWireError.None, CommandValidationError.None, request);
+    }
+
+    /// <summary>
+    /// Envelope-only validation, shared by every admitted payload kind: header shape, payload
+    /// digest, cell, identity bounds, optional lease expectations, signature, and validity
+    /// window. It binds no payload shape; the caller canonicalizes the payload and cross-checks
+    /// its identity fields against <see cref="DirectDeliverySignedEnvelope.OperationId"/>,
+    /// generation, epoch, and attempt.
+    /// </summary>
+    internal static DirectDeliverySignedEnvelope ValidateSignedEnvelope(
+        ReadOnlyMemory<byte> payload,
+        IEnumerable<KeyValuePair<string, string>>? headers,
+        string expectedCell,
+        DateTimeOffset now,
+        TimeSpan allowedClockSkew,
+        ICommandSignatureVerifier signatureVerifier,
+        long? expectedGeneration,
+        long? expectedEpoch,
+        string? expectedOperationId = null)
+    {
         ArgumentNullException.ThrowIfNull(signatureVerifier);
         if (allowedClockSkew < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(allowedClockSkew));
         var values = ValidateHeaders(headers, payload);
-        if (values is null) return DirectDeliveryCommandWireReceipt.Malformed();
+        if (values is null) return DirectDeliverySignedEnvelope.Refused(
+            DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
 
-        if (Canonicalize(payload) is not { } request)
-            return DirectDeliveryCommandWireReceipt.Malformed();
         var digest = Convert.ToHexStringLower(SHA256.HashData(payload.Span));
         if (digest != values[PayloadSha256Header] ||
-            !string.Equals(request.OperationId, values[OperationHeader], StringComparison.Ordinal) ||
-            !string.Equals(expectedCell, values[CellHeader], StringComparison.Ordinal))
-            return DirectDeliveryCommandWireReceipt.Malformed();
+            !string.Equals(expectedCell, values[CellHeader], StringComparison.Ordinal) ||
+            expectedOperationId is not null &&
+                !string.Equals(expectedOperationId, values[OperationHeader], StringComparison.Ordinal))
+            return DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
 
         if (!TryPositive(values[GenerationHeader], out var requestedGeneration) ||
             !TryPositive(values[EpochHeader], out var requestedEpoch) ||
@@ -187,13 +272,17 @@ internal static class DirectDeliveryCommandWire
             payloadDigest is null ||
             !OpaqueSignature.TryCopyFrom(Convert.FromBase64String(values[SignatureHeader]), out var signature) ||
             signature is null)
-            return DirectDeliveryCommandWireReceipt.Malformed();
+            return DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
         if (expectedGeneration is <= 0 || expectedEpoch is <= 0)
-            return DirectDeliveryCommandWireReceipt.Malformed();
+            return DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope);
         if (expectedGeneration is { } generationValue && requestedGeneration != generationValue)
-            return new(DirectDeliveryCommandWireError.ValidationRejected, CommandValidationError.StaleGeneration, null);
+            return DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.ValidationRejected, CommandValidationError.StaleGeneration);
         if (expectedEpoch is { } epochValue && requestedEpoch != epochValue)
-            return new(DirectDeliveryCommandWireError.ValidationRejected, CommandValidationError.StaleWriterEpoch, null);
+            return DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.ValidationRejected, CommandValidationError.StaleWriterEpoch);
         var issuedAt = DateTimeOffset.FromUnixTimeMilliseconds(
             long.Parse(values[IssuedHeader], CultureInfo.InvariantCulture));
         var expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(
@@ -222,14 +311,16 @@ internal static class DirectDeliveryCommandWire
             Sha256PayloadDigestVerifier.Instance,
             signatureVerifier);
         var result = CommandEnvelopeValidator.Validate(envelope, context, now);
-        if (result.IsValid &&
-            (request.AuthorityGeneration != generation.Value || request.WriterEpoch != epoch.Value ||
-             request.Attempt != attempt.Value))
-            return new(DirectDeliveryCommandWireError.MalformedEnvelope, CommandValidationError.MalformedEnvelope, null);
         return result.IsValid
-            ? new(DirectDeliveryCommandWireError.None, CommandValidationError.None, request)
-            : new(DirectDeliveryCommandWireError.ValidationRejected, result.Error, null);
+            ? new(DirectDeliveryCommandWireError.None, CommandValidationError.None, envelope,
+                values[OperationHeader], requestedGeneration, requestedEpoch, (int)requestedAttempt)
+            : DirectDeliverySignedEnvelope.Refused(
+                DirectDeliveryCommandWireError.ValidationRejected, result.Error);
     }
+
+    /// <summary>Canonicalizes a payload as a DeliveryRequest; null when it is not one.</summary>
+    internal static DeliveryRequest? TryCanonicalizeDeliveryRequest(ReadOnlyMemory<byte> payload) =>
+        Canonicalize(payload);
 
     private static Dictionary<string, string>? ValidateHeaders(
         IEnumerable<KeyValuePair<string, string>>? headers,

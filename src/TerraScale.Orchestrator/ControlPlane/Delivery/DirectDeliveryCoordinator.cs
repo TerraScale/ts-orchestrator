@@ -311,7 +311,10 @@ public class DirectDeliveryCoordinator
         try
         {
             await _journal.AppendAsync(new DeliveryJournalRecord(operationId, fingerprint, DeliveryJournalState.Succeeded, receipt,
-                    artifact.Digest, progress.ToArray()), cancellationToken).ConfigureAwait(false);
+                    artifact.Digest, progress.ToArray(),
+                    wire.AuthorityGeneration,
+                    wire.WriterEpoch,
+                    wire.Attempt), cancellationToken).ConfigureAwait(false);
             return receipt;
         }
         catch (OperationCanceledException exception)

@@ -100,7 +100,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development) =>
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
         StartAsync(
             GlobalAuthorityNatsConfiguration.From(configuration, cell),
             instance,
@@ -117,7 +118,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            deliveryDeploymentMode);
+            deliveryDeploymentMode,
+            admittedDeliveryTargets);
 
     internal static Task<GlobalNatsRuntime> StartAsync(
         GlobalAuthorityNatsConfiguration configuration,
@@ -135,7 +137,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development) =>
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
         StartCoreAsync(
             configuration,
             instance,
@@ -152,7 +155,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            deliveryDeploymentMode);
+            deliveryDeploymentMode,
+            admittedDeliveryTargets);
 
     private static async Task<GlobalNatsRuntime> StartCoreAsync(
         GlobalAuthorityNatsConfiguration configuration,
@@ -170,7 +174,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development)
+        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null)
     {
         if (!GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(cell))
             throw new ArgumentException(
@@ -216,13 +221,28 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             var objects = new NatsDeliveryObjectStore(state.Bundles);
             var runnerLedger = new NatsForgejoDeliveryLedger(state.RunnerJobs);
             var runnerObjects = new NatsDeliveryObjectStore(state.RunnerBundles);
+            // Production mode fails closed here without the evidence verifier or the configured
+            // admitted-target allow-list, mirroring the signed-command rule at the endpoint.
+            var (authorizer, provenance, targetResolver, deliveryJournal, artifactBuilder) =
+                DirectDeliveryRuntimeAdapterSet.Create(
+                    ledger,
+                    deliveryDeploymentMode,
+                    () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
+                    request =>
+                    {
+                        var current = authority.Snapshot;
+                        return current.Ready && current.IsLeader &&
+                            current.KvRevision == request.AuthorityGeneration &&
+                            current.Epoch == request.WriterEpoch;
+                    },
+                    admittedDeliveryTargets,
+                    ciRuntimeSignatures);
             var directDelivery = new DirectDeliveryService(
-                new DirectDeliveryDevelopmentAuthorizer(() =>
-                    authority.Snapshot.Ready && authority.Snapshot.IsLeader),
-                new DirectDeliveryDevelopmentProvenance(deliveryDeploymentMode),
-                new DirectDeliveryDevelopmentTargetResolver(new NatsDirectDeliveryTarget(ledger)),
-                new NatsDirectDeliveryJournal(ledger),
-                new DirectDeliverySourceArtifactBuilder(),
+                authorizer,
+                provenance,
+                targetResolver,
+                deliveryJournal,
+                artifactBuilder,
                 auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
                 authorityIsCurrent: request =>
                 {
@@ -308,7 +328,11 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                             attestations,
                             ciArtifactSigner,
                             ciArtifactSignatures,
-                            ciRuntimeSignatures);
+                            ciRuntimeSignatures,
+                            // Published artifacts record their source binding on the delivery
+                            // ledger — the same ledger production provenance verifies against —
+                            // so an attested publication is deliverable, not inert.
+                            new DirectDeliveryArtifactEvidenceJournal(ledger));
                         attestArtifacts = async (pipeline, token) =>
                         {
                             var lease = authority.Snapshot;
@@ -340,11 +364,13 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                             {
                                 RepositoryCiArtifactAttestationGateDisposition.Attested =>
                                     ForgejoCiEventProcessDisposition.Handled,
-                                // Retryable: the runtime-proof consumer or a later authority
-                                // epoch makes progress; redeliver with a delay.
+                                // Retryable: the runtime-proof consumer, a later authority
+                                // epoch, or an unreachable delivery-evidence journal makes
+                                // progress; redeliver with a delay.
                                 RepositoryCiArtifactAttestationGateDisposition.AuthorityLost or
                                 RepositoryCiArtifactAttestationGateDisposition.PipelineActive or
-                                RepositoryCiArtifactAttestationGateDisposition.ProofNotYetConsumed =>
+                                RepositoryCiArtifactAttestationGateDisposition.ProofNotYetConsumed or
+                                RepositoryCiArtifactAttestationGateDisposition.DeliveryEvidenceJournalUnavailable =>
                                     ForgejoCiEventProcessDisposition.Retry,
                                 // Permanent: the durable evidence cannot match this subject.
                                 RepositoryCiArtifactAttestationGateDisposition.EvidenceMismatch or
