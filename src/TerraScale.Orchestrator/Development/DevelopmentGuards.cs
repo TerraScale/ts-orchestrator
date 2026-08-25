@@ -5,8 +5,10 @@ internal static class DevelopmentGuards
     internal static string RequireDirectory(string path, string description)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Path.GetDirectoryName(path)
-            ?? throw new InvalidOperationException($"{description} '{path}' has no parent directory.");
+        var directory = Path.GetDirectoryName(path);
+        return !string.IsNullOrWhiteSpace(directory)
+            ? directory
+            : throw new InvalidOperationException($"{description} '{path}' has no parent directory.");
     }
 
     internal static string RequireLabOption(string? value, string optionName) =>
