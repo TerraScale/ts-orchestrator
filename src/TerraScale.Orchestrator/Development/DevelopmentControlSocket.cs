@@ -187,13 +187,15 @@ internal static partial class DevelopmentReconcilePlanner
     {
         if (repository == "TerraBase")
         {
-            return
-            [
-                DevelopmentResourceKind.TerraBase,
-                DevelopmentResourceKind.Authentication,
-                DevelopmentResourceKind.Platform,
-                DevelopmentResourceKind.Dashboard
-            ];
+            return paths.All(path => IsNonRuntimeTerraBasePath(path))
+                ? []
+                :
+                [
+                    DevelopmentResourceKind.TerraBase,
+                    DevelopmentResourceKind.Authentication,
+                    DevelopmentResourceKind.Platform,
+                    DevelopmentResourceKind.Dashboard
+                ];
         }
         if (repository != "TerraScale.Internals")
         {

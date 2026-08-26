@@ -68,6 +68,32 @@ public sealed class DevelopmentControlSocketTests
     }
 
     [Test]
+    public async Task NonRuntimeTerraBaseUpdatesAreNoOp()
+    {
+        var topology = DevelopmentTopology.CreateRegional();
+        var plan = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request(
+                "TerraBase",
+                ["docs/storage/map.md", "readme.md", "test/TerraBase.Tests/Server.cs", "scripts/build.sh", "bench/Program.cs"]));
+
+        await Assert.That(plan.Resources).IsEmpty();
+        await Assert.That(plan.ReconciliationId).IsNotNull().And.IsNotEmpty();
+
+        // A single runtime path still plans the full dependency graph.
+        var mixed = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraBase", ["docs/storage/map.md", "src/TerraBase.Core/Document.cs"]));
+        await Assert.That(mixed.Resources.Count).IsEqualTo(12);
+
+        // Unknown root paths stay runtime (fail toward replacement, not silence).
+        var unknownRoot = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraBase", ["build.sh"]));
+        await Assert.That(unknownRoot.Resources.Count).IsEqualTo(12);
+    }
+
+    [Test]
     public async Task TerraBaseLargeSafePathListsPlanBeyondLegacyCap()
     {
         // Regression for 732315f: TerraBase ZString/n-gram refactors routinely
