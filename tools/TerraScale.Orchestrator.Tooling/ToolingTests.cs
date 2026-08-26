@@ -483,6 +483,15 @@ internal static class ToolingTests
         AssertEqual(2, DevelopmentEvidenceCommand.EvidenceSchemaVersion);
         AssertEqual(4, DevelopmentEvidenceCommand.MaximumParallelTests);
         AssertEqual(5, DevelopmentEvidenceCommand.TestModules.Count);
+        AssertEqual(5, DevelopmentEvidenceCommand.DefaultTestModuleTimeoutMinutes);
+        AssertEqual(15, DevelopmentEvidenceCommand.IntegrationTestModuleTimeoutMinutes);
+        AssertEqual(
+            true,
+            DevelopmentEvidenceCommand.TestModules.Take(4)
+                .All(static module => module.TimeoutMinutes == DevelopmentEvidenceCommand.DefaultTestModuleTimeoutMinutes));
+        AssertEqual(
+            DevelopmentEvidenceCommand.IntegrationTestModuleTimeoutMinutes,
+            DevelopmentEvidenceCommand.TestModules[^1].TimeoutMinutes);
         AssertEqual(24L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.AggregateMemoryLimitBytes);
         AssertEqual(20L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ExecutionMemoryLimitBytes);
         AssertEqual(4L * 1024 * 1024 * 1024, DevelopmentEvidenceCommand.ReservedHeadroomBytes);

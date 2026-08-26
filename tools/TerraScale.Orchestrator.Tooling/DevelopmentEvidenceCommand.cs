@@ -10,6 +10,8 @@ internal static class DevelopmentEvidenceCommand
     internal const int EvidenceSchemaVersion = 2;
     internal const int MaximumParallelTestModules = 1;
     internal const int MaximumParallelTests = 4;
+    internal const int DefaultTestModuleTimeoutMinutes = 5;
+    internal const int IntegrationTestModuleTimeoutMinutes = 15;
     internal const int MaximumValidationProcesses = 512;
     internal const string TargetFramework = "net11.0";
     internal const long AggregateMemoryLimitBytes = 24L * 1024 * 1024 * 1024;
@@ -17,11 +19,11 @@ internal static class DevelopmentEvidenceCommand
     internal const long ReservedHeadroomBytes = AggregateMemoryLimitBytes - ExecutionMemoryLimitBytes;
     internal static readonly IReadOnlyList<TestModule> TestModules =
     [
-        new("TerraScale.Orchestrator.ControlPlane.Tests", "tests/TerraScale.Orchestrator.ControlPlane.Tests"),
-        new("TerraScale.Orchestrator.ModelTests", "tests/TerraScale.Orchestrator.ModelTests"),
-        new("TerraScale.Orchestrator.Protocol.Tests", "tests/TerraScale.Orchestrator.Protocol.Tests"),
-        new("TerraScale.Orchestrator.Scheduler.Tests", "tests/TerraScale.Orchestrator.Scheduler.Tests"),
-        new("TerraScale.Orchestrator.Tests", "tests/TerraScale.Orchestrator.Tests")
+        new("TerraScale.Orchestrator.ControlPlane.Tests", "tests/TerraScale.Orchestrator.ControlPlane.Tests", DefaultTestModuleTimeoutMinutes),
+        new("TerraScale.Orchestrator.ModelTests", "tests/TerraScale.Orchestrator.ModelTests", DefaultTestModuleTimeoutMinutes),
+        new("TerraScale.Orchestrator.Protocol.Tests", "tests/TerraScale.Orchestrator.Protocol.Tests", DefaultTestModuleTimeoutMinutes),
+        new("TerraScale.Orchestrator.Scheduler.Tests", "tests/TerraScale.Orchestrator.Scheduler.Tests", DefaultTestModuleTimeoutMinutes),
+        new("TerraScale.Orchestrator.Tests", "tests/TerraScale.Orchestrator.Tests", IntegrationTestModuleTimeoutMinutes)
     ];
     public static int Run(string[] arguments)
     {
@@ -69,7 +71,7 @@ internal static class DevelopmentEvidenceCommand
                 ["--maximum-parallel-tests", MaximumParallelTests.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     "--no-ansi", "--disable-logo", "--no-progress"],
                 root,
-                TimeSpan.FromMinutes(5));
+                TimeSpan.FromMinutes(module.TimeoutMinutes));
             var total = ParseTestTotal(module.Name, result.StandardOutput);
             observations.Add((module.Name, result.Observation));
             inventory.Add(new JsonObject
@@ -237,5 +239,5 @@ internal static class DevelopmentEvidenceCommand
     ]);
 
     internal sealed record Options(string Output, string? Binary, int ValidHours);
-    internal sealed record TestModule(string Name, string RelativeDirectory);
+    internal sealed record TestModule(string Name, string RelativeDirectory, int TimeoutMinutes);
 }
