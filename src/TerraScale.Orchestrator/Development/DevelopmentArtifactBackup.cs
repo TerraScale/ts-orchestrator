@@ -4,17 +4,20 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
 {
     private readonly string root;
     private readonly IReadOnlyList<(string Source, string Backup)> directories;
+    private readonly IReadOnlyList<(string Path, string? Content)> stamps;
     private readonly string? dashboardPointer;
     private readonly string dashboardPointerPath;
 
     private DevelopmentArtifactBackup(
         string root,
         IReadOnlyList<(string Source, string Backup)> directories,
+        IReadOnlyList<(string Path, string? Content)> stamps,
         string dashboardPointerPath,
         string? dashboardPointer)
     {
         this.root = root;
         this.directories = directories;
+        this.stamps = stamps;
         this.dashboardPointerPath = dashboardPointerPath;
         this.dashboardPointer = dashboardPointer;
     }
@@ -59,7 +62,14 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
         var pointerValue = kinds.Contains(DevelopmentResourceKind.Dashboard) && File.Exists(pointer)
             ? File.ReadAllText(pointer)
             : null;
-        return new(root, directories, pointer, pointerValue);
+        // Build stamps must roll back with the artifacts they describe; otherwise a
+        // restored last-healthy artifact would be stamped as the new source state.
+        var stamps = kinds
+            .Select(kind => DevelopmentArtifactBuilder.StampPath(dataDirectory, kind))
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => (Path: path, Content: File.Exists(path) ? File.ReadAllText(path) : null))
+            .ToArray();
+        return new(root, directories, stamps, pointer, pointerValue);
     }
 
     public void Restore()
@@ -71,6 +81,20 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
                 Directory.Delete(source, recursive: true);
             }
             CopyDirectory(backup, source);
+        }
+        foreach (var (path, content) in stamps)
+        {
+            if (content is null)
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+                continue;
+            }
+            Directory.CreateDirectory(
+                DevelopmentGuards.RequireDirectory(path, "Artifact stamp restore"));
+            File.WriteAllText(path, content);
         }
         if (dashboardPointer is not null)
         {

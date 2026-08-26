@@ -81,9 +81,9 @@ internal static partial class DevelopmentReconcilePlanner
             .ToArray();
         if (resources.Length == 0)
         {
-            // Docs/tooling-only Internals content has no runtime mapping and must not fail closed.
-            if (request.Repository != "TerraScale.Internals" ||
-                !request.ChangedPaths.All(IsNonRuntimeInternalsPath))
+            // Docs/test/CI-only content has no runtime mapping and must not fail closed.
+            if (!SupportsNoRuntimeUpdates(request.Repository) ||
+                !request.ChangedPaths.All(path => IsNonRuntimePath(request.Repository, path)))
             {
                 throw new InvalidDataException(
                     "The repository update has no safe workload mapping in this topology.");
@@ -98,6 +98,54 @@ internal static partial class DevelopmentReconcilePlanner
             request.CurrentCommit,
             string.Join('\u001e', request.ChangedPaths))));
         return new(request, $"dev-{Convert.ToHexStringLower(digest)[..24]}", resources);
+    }
+
+    /// <summary>
+    /// Repositories whose updates may resolve to a zero-resource no-op plan when
+    /// every changed path is non-runtime content (docs, tests, CI, agent rules).
+    /// </summary>
+    internal static bool SupportsNoRuntimeUpdates(string repository) =>
+        repository is "TerraScale.Internals" or "TerraBase";
+
+    internal static bool IsNonRuntimePath(string repository, string path) => repository switch
+    {
+        "TerraScale.Internals" => IsNonRuntimeInternalsPath(path),
+        "TerraBase" => IsNonRuntimeTerraBasePath(path),
+        _ => false
+    };
+
+    /// <summary>
+    /// Paths that never map to a development workload for TerraBase. Docs, tests,
+    /// benchmarks, helper scripts, and agent/CI rules may pull without replacing
+    /// the TerraBase/Authentication/Platform/Dashboard graph.
+    /// </summary>
+    internal static bool IsNonRuntimeTerraBasePath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        if (path.StartsWith("docs/", StringComparison.Ordinal) ||
+            path.StartsWith("test/", StringComparison.Ordinal) ||
+            path.StartsWith("bench/", StringComparison.Ordinal) ||
+            path.StartsWith("scripts/", StringComparison.Ordinal) ||
+            path.StartsWith(".forgejo/", StringComparison.Ordinal) ||
+            path.StartsWith(".github/", StringComparison.Ordinal) ||
+            path.StartsWith(".agents/", StringComparison.Ordinal) ||
+            path.StartsWith(".codex/", StringComparison.Ordinal) ||
+            path.StartsWith(".terrascale/", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (path is "BannedSymbols.txt" or "NuGet.Config" or "PLAN.md" or "AGENTS.md" or "CLAUDE.md")
+        {
+            return true;
+        }
+
+        // Root-level markdown only (readme.md, CONTEXT.md, etc.).
+        return !path.Contains('/') && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

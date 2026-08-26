@@ -1,10 +1,14 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace TerraScale.Orchestrator.Development;
 
 internal static class DevelopmentArtifactBuilder
 {
     internal const string TerraBaseStudioArchiveName = "TerraBase.Studio.zip";
+    internal const string StampSchema = "terrascale.orchestrator.development.artifact-stamp/v1";
 
     public static async Task BuildAsync(
         string workspaceRoot,
@@ -12,17 +16,34 @@ internal static class DevelopmentArtifactBuilder
         CancellationToken cancellationToken,
         IReadOnlySet<DevelopmentResourceKind>? affectedKinds = null)
     {
+        var terraBaseRepository = Path.Combine(workspaceRoot, "TerraBase");
+        var internalsRepository = Path.Combine(workspaceRoot, "TerraScale.Internals");
+        var terraBaseProject = Path.Combine(
+            workspaceRoot,
+            "TerraBase",
+            "src",
+            "TerraBase.Server",
+            "TerraBase.Server.csproj");
+
         var buildTerraBase = affectedKinds is null ||
             affectedKinds.Contains(DevelopmentResourceKind.TerraBase);
-        if (buildTerraBase)
+        var skipTerraBase = buildTerraBase && TrySkip(
+            dataDirectory,
+            DevelopmentResourceKind.TerraBase,
+            terraBaseRepository,
+            terraBaseProject,
+            TerraBaseOutputs(dataDirectory),
+            DotNetBuilderDigest("TerraBase.Server"));
+        RepositoryState? terraBaseState = null;
+        if (buildTerraBase && !skipTerraBase)
         {
+            terraBaseState = ReadRepositoryState(terraBaseRepository);
             await BuildTerraBaseStudioAsync(workspaceRoot, cancellationToken);
         }
 
         var projects = new[]
         {
-            (DevelopmentResourceKind.TerraBase,
-                Path.Combine(workspaceRoot, "TerraBase", "src", "TerraBase.Server", "TerraBase.Server.csproj")),
+            (DevelopmentResourceKind.TerraBase, terraBaseProject),
             (DevelopmentResourceKind.Authentication,
                 Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj")),
             (DevelopmentResourceKind.Platform,
@@ -39,6 +60,27 @@ internal static class DevelopmentArtifactBuilder
             {
                 throw new FileNotFoundException("A required development project is unavailable.", project);
             }
+            var projectName = Path.GetFileNameWithoutExtension(project);
+            var repository = kind == DevelopmentResourceKind.TerraBase
+                ? terraBaseRepository
+                : internalsRepository;
+            // TerraBase is one unit with the studio pipeline: the top-level
+            // decision already covers its full output set.
+            var skip = kind == DevelopmentResourceKind.TerraBase
+                ? skipTerraBase
+                : TrySkip(
+                    dataDirectory,
+                    kind,
+                    repository,
+                    project,
+                    [Path.Combine(DotNetOutputDirectory(dataDirectory, projectName),
+                        projectName + ".dll")],
+                    DotNetBuilderDigest(projectName));
+            if (skip)
+            {
+                continue;
+            }
+            var state = kind == DevelopmentResourceKind.TerraBase ? terraBaseState : ReadRepositoryState(repository);
             await RunAsync(
                 "dotnet",
                 DotNetBuildArguments(project, dataDirectory),
@@ -49,6 +91,7 @@ internal static class DevelopmentArtifactBuilder
             {
                 BundleTerraBaseStudio(workspaceRoot, dataDirectory);
             }
+            WriteStamp(dataDirectory, kind, repository, project, DotNetBuilderDigest(projectName), state);
         }
 
         if (affectedKinds is null || affectedKinds.Contains(DevelopmentResourceKind.Dashboard))
@@ -59,8 +102,209 @@ internal static class DevelopmentArtifactBuilder
                 "src",
                 "Dashboard",
                 "TerraScale.Dashboard.Next");
-            await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
-            DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
+            if (!TrySkip(
+                    dataDirectory,
+                    DevelopmentResourceKind.Dashboard,
+                    internalsRepository,
+                    dashboard,
+                    [],
+                    DashboardBuilderDigest()))
+            {
+                var state = ReadRepositoryState(internalsRepository);
+                await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
+                DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
+                WriteStamp(
+                    dataDirectory,
+                    DevelopmentResourceKind.Dashboard,
+                    internalsRepository,
+                    dashboard,
+                    DashboardBuilderDigest(),
+                    state);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Skips one build unit when the exact source state was already built into the
+    /// current outputs: the owning repository must be clean at the stamped commit,
+    /// the builder recipe must be unchanged, and every required output must exist.
+    /// A dirty worktree never skips, so local iteration always rebuilds.
+    /// </summary>
+    internal static bool TrySkip(
+        string dataDirectory,
+        DevelopmentResourceKind kind,
+        string repository,
+        string project,
+        IReadOnlyList<string> requiredOutputs,
+        string builderDigest)
+    {
+        if (!Directory.Exists(repository))
+        {
+            return false;
+        }
+        var stamp = ReadStamp(dataDirectory, kind);
+        if (stamp is null ||
+            !string.Equals(stamp.Repository, Path.GetFullPath(repository), StringComparison.Ordinal) ||
+            !string.Equals(stamp.Project, Path.GetFullPath(project), StringComparison.Ordinal) ||
+            !string.Equals(stamp.BuilderDigest, builderDigest, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        if (requiredOutputs.Count == 0 && !DashboardArtifactExists(dataDirectory))
+        {
+            return false;
+        }
+        foreach (var output in requiredOutputs)
+        {
+            if (!File.Exists(output))
+            {
+                return false;
+            }
+        }
+        var state = ReadRepositoryState(repository);
+        return state is { IsClean: true } &&
+            string.Equals(stamp.Commit, state.Commit, StringComparison.Ordinal);
+    }
+
+    internal static void WriteStamp(
+        string dataDirectory,
+        DevelopmentResourceKind kind,
+        string repository,
+        string project,
+        string builderDigest,
+        RepositoryState? state)
+    {
+        // Only the state captured BEFORE the build may be stamped: DevHost can
+        // fast-forward the checkout mid-build, and stamping the newer commit
+        // would mark a mixed build as exact for that commit.
+        if (state is not { IsClean: true })
+        {
+            // Dirty builds are never stamped: a later clean checkout of the same
+            // commit must not be treated as already built.
+            return;
+        }
+        var stamp = new DevelopmentArtifactStamp(
+            StampSchema,
+            Path.GetFullPath(repository),
+            state.Commit,
+            Path.GetFullPath(project),
+            builderDigest);
+        Directory.CreateDirectory(StampDirectory(dataDirectory));
+        var path = StampPath(dataDirectory, kind);
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        File.WriteAllText(temporary, JsonSerializer.Serialize(stamp));
+        File.Move(temporary, path, overwrite: true);
+    }
+
+    internal static DevelopmentArtifactStamp? ReadStamp(string dataDirectory, DevelopmentResourceKind kind)
+    {
+        var path = StampPath(dataDirectory, kind);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+        try
+        {
+            var stamp = JsonSerializer.Deserialize<DevelopmentArtifactStamp>(File.ReadAllText(path));
+            return stamp is { Schema: StampSchema } ? stamp : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    internal static IReadOnlyList<string> TerraBaseOutputs(string dataDirectory) =>
+    [
+        Path.Combine(DotNetOutputDirectory(dataDirectory, "TerraBase.Server"), "TerraBase.Server.dll"),
+        Path.Combine(DotNetOutputDirectory(dataDirectory, "TerraBase.Server"), TerraBaseStudioArchiveName)
+    ];
+
+    internal static string StampPath(string dataDirectory, DevelopmentResourceKind kind) =>
+        Path.Combine(StampDirectory(dataDirectory), kind.ToString() + ".json");
+
+    private static string StampDirectory(string dataDirectory) =>
+        Path.Combine(dataDirectory, "artifacts", "stamps");
+
+    private static bool DashboardArtifactExists(string dataDirectory)
+    {
+        try
+        {
+            DevelopmentDashboardArtifact.Resolve(dataDirectory);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is FileNotFoundException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    internal sealed record RepositoryState(string Commit, bool IsClean);
+
+    private static RepositoryState? ReadRepositoryState(string repository)
+    {
+        var commit = TryRunGit(repository, ["rev-parse", "HEAD"]);
+        if (commit is null)
+        {
+            return null;
+        }
+        var status = TryRunGit(repository, ["status", "--porcelain"]);
+        return status is null
+            ? null
+            : new RepositoryState(commit.Trim(), string.IsNullOrWhiteSpace(status));
+    }
+
+    /// <summary>
+    /// Digest of the exact build recipe for one unit. Any change to the arguments,
+    /// extra build steps, or the stamp schema produces a new digest and forces a
+    /// rebuild even when the source commit is unchanged.
+    /// </summary>
+    internal static string DotNetBuilderDigest(string projectName) => Digest(
+        StampSchema,
+        "dotnet",
+        projectName,
+        string.Join('\u001f', ["build", "<project>", "--configuration", "Release", "--nologo",
+            "--no-incremental", "--maxcpucount:1", "--nodeReuse:false", "--artifacts-path", "<data>"]));
+
+    internal static string DashboardBuilderDigest() => Digest(
+        StampSchema,
+        "dashboard",
+        "npm-run-build",
+        "snapshot-standalone");
+
+    private static string Digest(params string[] parts) => Convert.ToHexStringLower(SHA256.HashData(
+        Encoding.UTF8.GetBytes(string.Join('\u001f', parts))));
+
+    private static string? TryRunGit(string workingDirectory, IReadOnlyList<string> arguments)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo("git")
+                {
+                    WorkingDirectory = workingDirectory,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+            process.StartInfo.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            foreach (var argument in arguments)
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            return process.ExitCode == 0 ? output : null;
+        }
+        catch (Exception exception) when (
+            exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return null;
         }
     }
 
@@ -251,3 +495,10 @@ internal static class DevelopmentArtifactBuilder
 internal sealed record DevelopmentNpmCommand(
     string Executable,
     IReadOnlyList<string> PrefixArguments);
+
+internal sealed record DevelopmentArtifactStamp(
+    string Schema,
+    string Repository,
+    string Commit,
+    string Project,
+    string BuilderDigest);
