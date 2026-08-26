@@ -41,7 +41,9 @@ internal sealed class NatsForgejoEventPublisher(NatsClient client) : IForgejoEve
             },
             headers: headers,
             cancellationToken: cancellationToken);
-        acknowledgement.EnsureSuccess();
+            // A duplicate message id is the converged receipt of the identical message,
+            // never an error: the id is derived from the exact content being stored.
+            _ = acknowledgement.EnsureStored();
     }
 }
 

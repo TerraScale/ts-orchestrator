@@ -257,6 +257,33 @@ public sealed class MessageIdDuplicateWindow
         return DuplicateWindowDecision.Admit;
     }
 
+    /// <summary>
+    /// Read-only decision for one message id: exactly the decision <see cref="Observe"/> would
+    /// return, without recording anything. Consumers use it before dispatch (the recording
+    /// happens only after the durable effect is proven) so suppression can never skip work.
+    /// </summary>
+    public DuplicateWindowDecision Inspect(string messageId, string digest, DateTimeOffset now)
+    {
+        if (string.IsNullOrEmpty(messageId) || string.IsNullOrEmpty(digest))
+        {
+            return DuplicateWindowDecision.Admit;
+        }
+
+        if (!observed.TryGetValue(messageId, out var prior))
+        {
+            return DuplicateWindowDecision.Admit;
+        }
+
+        if (now - prior.ObservedAt > window)
+        {
+            return DuplicateWindowDecision.AdmitBeyondWindow;
+        }
+
+        return string.Equals(prior.Digest, digest, StringComparison.Ordinal)
+            ? DuplicateWindowDecision.Suppress
+            : DuplicateWindowDecision.Conflict;
+    }
+
     private void Remember(string messageId, string digest, DateTimeOffset now)
     {
         if (observed.Count >= capacity)
@@ -272,6 +299,39 @@ public sealed class MessageIdDuplicateWindow
 
         observed[messageId] = (digest, now);
     }
+}
+
+/// <summary>The delivery action a consumer derives from one transport duplicate-window decision.</summary>
+public enum DuplicateWindowDeliveryAction
+{
+    Unspecified = 0,
+    /// <summary>First observation or beyond-window observation: run the normal journal/idempotency path.</summary>
+    Process,
+    /// <summary>
+    /// This exact message id and digest were already completed locally: acknowledge the delivery
+    /// without reprocessing. Recording only ever happens after the durable effect (or a terminal
+    /// disposition) exists, so this is a verified idempotent replay, not a skipped effect.
+    /// </summary>
+    AcknowledgeSuppressedReplay,
+    /// <summary>
+    /// The same message id arrived with a different digest: a deterministic identity conflict.
+    /// Terminate the delivery with terminal evidence; the transport window must never silently
+    /// swallow a payload change under a reused identity.
+    /// </summary>
+    TerminateConflictingIdentity,
+}
+
+/// <summary>Pure mapping from a duplicate-window decision to the consumer delivery action.</summary>
+public static class DuplicateWindowDelivery
+{
+    public static DuplicateWindowDeliveryAction Decide(DuplicateWindowDecision decision) => decision switch
+    {
+        DuplicateWindowDecision.Admit or DuplicateWindowDecision.AdmitBeyondWindow =>
+            DuplicateWindowDeliveryAction.Process,
+        DuplicateWindowDecision.Suppress => DuplicateWindowDeliveryAction.AcknowledgeSuppressedReplay,
+        DuplicateWindowDecision.Conflict => DuplicateWindowDeliveryAction.TerminateConflictingIdentity,
+        _ => DuplicateWindowDeliveryAction.Unspecified,
+    };
 }
 
 /// <summary>

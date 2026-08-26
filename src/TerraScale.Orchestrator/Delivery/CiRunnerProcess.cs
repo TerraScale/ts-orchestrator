@@ -7,6 +7,7 @@ using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -362,7 +363,10 @@ internal static class CiRunnerProcess
             inbox,
             runtime.Topology,
             Zone(configuration.Zone),
-            configuration.Runner);
+            configuration.Runner,
+            // Transport-level suppression beneath the journal's idempotency keys: the runner
+            // window uses the global CI stream's duplicate-window policy.
+            new NatsMessageIdDeduplication(DuplicateWindowPolicy.GlobalCiStream));
         var coordinator = new CiRunnerExecutionCoordinator(
             executions,
             new CiRunnerSourceMaterializer(objects),

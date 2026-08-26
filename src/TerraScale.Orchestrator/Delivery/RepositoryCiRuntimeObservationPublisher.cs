@@ -35,7 +35,9 @@ internal sealed class NatsRepositoryCiRuntimeObservationTransport(NatsClient cli
                 RetryWaitBetweenAttempts = TimeSpan.FromMilliseconds(250),
             },
             cancellationToken: cancellationToken);
-        acknowledgement.EnsureSuccess();
+            // A duplicate message id is the converged receipt of the identical message,
+            // never an error: the id is derived from the exact content being stored.
+            _ = acknowledgement.EnsureStored();
         return new(
             acknowledgement.Stream ?? string.Empty,
             acknowledgement.Seq);

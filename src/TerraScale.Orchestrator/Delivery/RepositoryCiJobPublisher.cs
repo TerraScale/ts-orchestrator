@@ -87,7 +87,9 @@ internal sealed class NatsRepositoryCiJobTransport(NatsClient client) : IReposit
             },
             headers: headers,
             cancellationToken: cancellationToken);
-        acknowledgement.EnsureSuccess();
+            // A duplicate message id is the converged receipt of the identical message,
+            // never an error: the id is derived from the exact content being stored.
+            _ = acknowledgement.EnsureStored();
         return new(acknowledgement.Stream ?? string.Empty, acknowledgement.Seq, acknowledgement.Duplicate);
     }
 }
@@ -238,6 +240,12 @@ internal static class RepositoryCiJobWireCodec
     private const string Expires = "TS-Expires-At";
     private const string PayloadSha256 = "TS-Payload-Sha256";
     private const string Signature = "TS-Signature";
+
+    /// <summary>The in-band message identity of a runner command; the transport window keys on it.</summary>
+    internal const string JobIdHeader = Job;
+
+    /// <summary>The canonical payload digest of a runner command; the transport window keys on it.</summary>
+    internal const string PayloadSha256Header = PayloadSha256;
 
     internal static RepositoryCiJobWireMessage Encode(
         RepositoryCiPipelinePlan pipeline,

@@ -3,6 +3,7 @@ using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Delivery;
 
@@ -32,19 +33,22 @@ internal sealed class RepositoryCiJobNatsConsumer
     private readonly RepositoryCiJobInbox inbox;
     private readonly ConsumerConfig configuration;
     private readonly string runner;
+    private readonly NatsMessageIdDeduplication? deduplication;
 
     internal RepositoryCiJobNatsConsumer(
         INatsJSConsumer consumer,
         RepositoryCiJobInbox inbox,
         GlobalNatsTopology topology,
         string zone,
-        string runner)
+        string runner,
+        NatsMessageIdDeduplication? deduplication = null)
     {
         this.consumer = consumer ?? throw new ArgumentNullException(nameof(consumer));
         this.inbox = inbox ?? throw new ArgumentNullException(nameof(inbox));
         ArgumentNullException.ThrowIfNull(topology);
         configuration = topology.CiJobConsumer(zone, runner);
         this.runner = runner;
+        this.deduplication = deduplication;
     }
 
     internal async Task<RepositoryCiJobDeliveryReceipt?> NextAsync(
@@ -57,6 +61,12 @@ internal sealed class RepositoryCiJobNatsConsumer
         var prepared = await NextPreparedAsync(
             now, allowedClockSkew, wait, signatureVerifier, cancellationToken);
         if (prepared is null) return null;
+        if (prepared.TerminatedConflictingIdentity) return prepared.Receipt;
+        if (prepared.SuppressReplay)
+        {
+            await AcknowledgeAsync(prepared.Message, cancellationToken);
+            return prepared.Receipt with { Disposition = RepositoryCiJobDeliveryDisposition.Acknowledged };
+        }
         if (!prepared.Receipt.CanAcknowledge) return prepared.Receipt;
         await AcknowledgeAsync(prepared.Message, cancellationToken);
         return prepared.Receipt with { Disposition = RepositoryCiJobDeliveryDisposition.Acknowledged };
@@ -78,6 +88,15 @@ internal sealed class RepositoryCiJobNatsConsumer
         var prepared = await NextPreparedAsync(
             now, allowedClockSkew, wait, signatureVerifier, cancellationToken);
         if (prepared is null) return null;
+        if (prepared.TerminatedConflictingIdentity) return new(prepared.Receipt, null);
+        if (prepared.SuppressReplay)
+        {
+            await AcknowledgeAsync(prepared.Message, cancellationToken);
+            return new(prepared.Receipt with
+            {
+                Disposition = RepositoryCiJobDeliveryDisposition.Acknowledged,
+            }, null);
+        }
         if (!prepared.Receipt.CanAcknowledge) return new(prepared.Receipt, null);
         if (IsTerminal(prepared.Receipt.Execution))
         {
@@ -135,15 +154,40 @@ internal sealed class RepositoryCiJobNatsConsumer
                 message.Size), configuration))
             return new(message, Malformed());
 
+        var headers = Flatten(message.Headers);
+        if (deduplication is { } guard &&
+            TryMessageIdentity(headers, out var messageId, out var digest))
+        {
+            // Transport suppression beneath the operation-level idempotency key. The window
+            // records an identity only after its durable effect was proven, so a suppressed
+            // replay is a verified idempotent replay; a conflicting digest under the same
+            // identity is a deterministic conflict and terminates with terminal evidence.
+            var action = DuplicateWindowDelivery.Decide(guard.Inspect(messageId, digest, now));
+            if (action == DuplicateWindowDeliveryAction.AcknowledgeSuppressedReplay)
+                return new(message, SuppressedReplay(), SuppressReplay: true);
+            if (action == DuplicateWindowDeliveryAction.TerminateConflictingIdentity)
+            {
+                Console.Error.WriteLine(ConflictingIdentityWarning(messageId, observed.Sequence.Stream));
+                await message.AckTerminateAsync(cancellationToken: cancellationToken);
+                return new(message, ConflictingIdentity(), TerminatedConflictingIdentity: true);
+            }
+        }
+
         var receipt = await inbox.PrepareAsync(
             message.Data,
-            Flatten(message.Headers),
+            headers,
             observed.Sequence.Stream,
             runner,
             now,
             allowedClockSkew,
             signatureVerifier,
             cancellationToken);
+        if (receipt.CanAcknowledge && deduplication is { } completed &&
+            TryMessageIdentity(headers, out var completedId, out var completedDigest))
+        {
+            completed.Record(completedId, completedDigest, now);
+        }
+
         return new(message, receipt);
     }
 
@@ -289,7 +333,69 @@ internal sealed class RepositoryCiJobNatsConsumer
         CommandValidationError.MalformedEnvelope,
         null);
 
+    /// <summary>
+    /// The transport window suppressed this exact identity after its durable effect was proven:
+    /// an idempotent replay, not a reprocessed command.
+    /// </summary>
+    private static RepositoryCiJobDeliveryReceipt SuppressedReplay() => new(
+        RepositoryCiJobDeliveryDisposition.Prepared,
+        RepositoryCiJobAcceptanceDisposition.Duplicate,
+        CommandValidationError.None,
+        null);
+
+    /// <summary>
+    /// The same message identity arrived with a different payload digest: a deterministic
+    /// conflict, terminated with terminal evidence rather than redelivered.
+    /// </summary>
+    private static RepositoryCiJobDeliveryReceipt ConflictingIdentity() => new(
+        RepositoryCiJobDeliveryDisposition.Rejected,
+        RepositoryCiJobAcceptanceDisposition.IdentityConflict,
+        CommandValidationError.None,
+        null);
+
+    /// <summary>
+    /// Extracts the in-band message identity (job id plus canonical payload digest) of one
+    /// runner command. Missing or empty values fail open to the journal path: the operation
+    /// idempotency key remains the authority.
+    /// </summary>
+    internal static bool TryMessageIdentity(
+        IReadOnlyList<KeyValuePair<string, string>> headers,
+        out string messageId,
+        out string digest)
+    {
+        messageId = string.Empty;
+        digest = string.Empty;
+        ArgumentNullException.ThrowIfNull(headers);
+        foreach (var header in headers)
+        {
+            if (string.Equals(header.Key, RepositoryCiJobWireCodec.JobIdHeader, StringComparison.Ordinal))
+                messageId = header.Value;
+            else if (string.Equals(header.Key, RepositoryCiJobWireCodec.PayloadSha256Header, StringComparison.Ordinal))
+                digest = header.Value;
+        }
+
+        return messageId is { Length: >= 1 and <= 128 } && digest is { Length: >= 1 and <= 128 };
+    }
+
+    /// <summary>
+    /// The loud, bounded operator line for a terminated identity conflict: the same message id
+    /// carried two different payloads, so the second delivery was terminated with evidence.
+    /// </summary>
+    internal static string ConflictingIdentityWarning(string messageId, ulong streamSequence)
+    {
+        var boundedIdentity = messageId.Trim().Length <= 128
+            ? messageId.Trim()
+            : messageId.Trim()[..128];
+        return
+            $"CI runner command identity conflict (job {boundedIdentity}, stream sequence {streamSequence}): " +
+            "the same message id arrived with a different payload digest; the conflicting delivery was " +
+            "terminated with terminal evidence instead of being redelivered. Operator action required: " +
+            "inspect the CI job journal for this identity.";
+    }
+
     private sealed record PreparedDelivery(
         INatsJSMsg<byte[]> Message,
-        RepositoryCiJobDeliveryReceipt Receipt);
+        RepositoryCiJobDeliveryReceipt Receipt,
+        bool SuppressReplay = false,
+        bool TerminatedConflictingIdentity = false);
 }
