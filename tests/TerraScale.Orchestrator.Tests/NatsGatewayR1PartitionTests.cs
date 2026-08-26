@@ -376,8 +376,11 @@ public sealed class NatsGatewayR1PartitionTests
         await Assert.That(healElapsed <= NatsGatewayR1Fixture.HealDeadline).IsTrue();
         await Assert.That(healElapsed.TotalSeconds <= 30).IsTrue();
 
-        var afterMesh = await fixture.GatewayLinkStateAsync();
-        await Assert.That(fixture.IsFullMeshConnected(afterMesh)).IsTrue();
+        // Gateway links re-establish asynchronously after the heal; a client
+        // path can recover before every directed link reports CONNECTED, so
+        // wait for the mesh within the fixture's bounded window instead of
+        // racing it with a one-shot snapshot.
+        await fixture.WaitForFullMeshAsync(CancellationToken.None);
 
         // The isolated region's durable messaging resumed with the healed
         // mesh: the same regional stream and durable consumer continue exact
@@ -494,7 +497,7 @@ public sealed class NatsGatewayR1PartitionTests
             await Task.Delay(TimeSpan.FromMilliseconds(250));
         }
         await Assert.That(healed).IsTrue();
-        await Assert.That(fixture.IsFullMeshConnected(await fixture.GatewayLinkStateAsync())).IsTrue();
+        await fixture.WaitForFullMeshAsync(CancellationToken.None);
 
         await localStatus.DisposeAsync();
         await localStatusLoop;

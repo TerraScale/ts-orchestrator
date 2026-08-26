@@ -583,7 +583,7 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
     /// cluster reports an outbound gateway connection in state CONNECTED to
     /// every other cluster.
     /// </summary>
-    private async Task WaitForFullMeshAsync(CancellationToken cancellationToken)
+    internal async Task WaitForFullMeshAsync(CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 200; attempt++)
         {
