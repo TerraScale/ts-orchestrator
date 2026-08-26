@@ -6,6 +6,19 @@ namespace TerraScale.Orchestrator.Development;
 
 internal static class NatsDevelopmentCluster
 {
+    /// <summary>
+    /// Connect bound for every in-process probe and readiness client that presents
+    /// an mTLS leaf to a development NATS server. NATS.Net's 2s default cancels
+    /// <c>SslStream.AuthenticateAsClientAsync</c> mid-handshake under host load, and
+    /// the disposal that follows closes the socket cleanly — each server then logs
+    /// <c>TLS handshake error: EOF</c> (fingerprint 3da6d51bca3e: one line per server
+    /// per health cycle, cid 83 control / cid 53 product, at 2026-08-26T22:58:34Z).
+    /// The bound stays well above routine load stalls (and above the server's 3s
+    /// <c>tls.timeout</c>, which owns genuinely wedged servers) so stalled-but-alive
+    /// handshakes complete instead of being aborted into server-side EOF noise.
+    /// </summary>
+    internal static readonly TimeSpan ClientConnectTimeout = TimeSpan.FromSeconds(10);
+
     public static IReadOnlyList<DevelopmentResourcePlan> Start(
         DevelopmentProcessSupervisor supervisor,
         DevelopmentCellPlan cell,
@@ -312,6 +325,7 @@ internal static class NatsDevelopmentCluster
         {
             Url = $"nats://127.0.0.1:{resource.Port}",
             RetryOnInitialConnect = false,
+            ConnectTimeout = ClientConnectTimeout,
             RequestTimeout = TimeSpan.FromSeconds(3)
         };
         return resource.Kind switch

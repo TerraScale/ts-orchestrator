@@ -206,6 +206,17 @@ public sealed class DevelopmentNatsSecurityTests
             await Assert.That(productProbe.AuthOpts.Username).IsEqualTo(gru.Product.Username);
             await Assert.That(productProbe.TlsOpts.CertFile)
                 .IsEqualTo(gru.Tls.Product.Clients["gru-platform"].CertificateFile);
+            // Probe connects must not fall back to NATS.Net's 2s default: under host
+            // load that bound cancels the mTLS handshake mid-flight and every server
+            // logs "TLS handshake error: EOF" (fingerprint 3da6d51bca3e). The explicit
+            // bound must also stay above the server-side tls handshake timeout (3s),
+            // which owns genuinely wedged servers.
+            await Assert.That(controlProbe.ConnectTimeout)
+                .IsEqualTo(NatsDevelopmentCluster.ClientConnectTimeout);
+            await Assert.That(productProbe.ConnectTimeout)
+                .IsEqualTo(NatsDevelopmentCluster.ClientConnectTimeout);
+            await Assert.That(NatsDevelopmentCluster.ClientConnectTimeout)
+                .IsGreaterThan(TimeSpan.FromSeconds(3));
         }
         finally
         {

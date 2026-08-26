@@ -199,7 +199,11 @@ internal static class DevelopmentHealthProbe
                 or TaskCanceledException
                 or NatsException
                 or AuthenticationException
-                or IOException)
+                or IOException
+                // NATS.Net throws raw TimeoutException from its INFO and initial-pong
+                // waits; without this arm a load spike past the connect bound escapes
+                // the probe boundary and kills the un-guarded 5-second health loop.
+                or TimeoutException)
         {
             // Outer NATS messages are often "can not start to connect"; x509 text lives on inners.
             return (resource.Name, new(false, FormatProbeFailure(exception, probeTls)));
@@ -239,6 +243,7 @@ internal static class DevelopmentHealthProbe
         {
             Url = $"nats://127.0.0.1:{controlNats.Port}",
             RetryOnInitialConnect = false,
+            ConnectTimeout = NatsDevelopmentCluster.ClientConnectTimeout,
             RequestTimeout = TimeSpan.FromSeconds(3)
         };
         options = options with
