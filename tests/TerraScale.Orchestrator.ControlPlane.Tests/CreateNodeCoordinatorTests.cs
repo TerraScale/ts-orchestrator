@@ -202,18 +202,27 @@ public sealed class CreateNodeCoordinatorTests
         try
         {
             var project = Path.Combine(RepositoryRoot(), "tests", "TerraScale.Orchestrator.ControlPlane.JournalChild", "TerraScale.Orchestrator.ControlPlane.JournalChild.csproj");
-            await Run("dotnet", ["build", project], TimeSpan.FromSeconds(30));
+            await Run("dotnet", ["build", project], TimeSpan.FromSeconds(120));
             var child = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net11.0", "linux-x64", "TerraScale.Orchestrator.ControlPlane.JournalChild.dll");
             var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)); var barrier = Path.Combine(root, "go"); var one = Path.Combine(root, "one"); var two = Path.Combine(root, "two");
-            using var first = StartChild(child, root, key, barrier, one, "one"); using var second = StartChild(child, root, key, barrier, two, "two");
-            await WaitForFiles([one + ".ready", two + ".ready"], TimeSpan.FromSeconds(15)); await File.WriteAllTextAsync(barrier, "go");
-            await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15)); await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            using var first = StartChild(child, root, key, barrier, one, "one"); var firstOutput = CaptureOutputAsync(first);
+            using var second = StartChild(child, root, key, barrier, two, "two"); var secondOutput = CaptureOutputAsync(second);
+            await WaitForFiles([one + ".ready", two + ".ready"], TimeSpan.FromSeconds(60)); await File.WriteAllTextAsync(barrier, "go");
+            await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60)); await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            // The CAS winner exits 0 and the loser exits 1; any other pair means a
+            // child failed before writing its verdict, so surface why instead of a
+            // bare missing-file error.
+            if ((first.ExitCode, second.ExitCode) is not ((0, 1) or (1, 0)))
+                throw new InvalidOperationException($"Journal children exited with {first.ExitCode} and {second.ExitCode}; one: {await firstOutput}; two: {await secondOutput}");
             var results = new[] { await File.ReadAllTextAsync(one), await File.ReadAllTextAsync(two) };
             await Assert.That(results.Count(static value => value.Contains("|True|1|op-contention", StringComparison.Ordinal))).IsEqualTo(1);
             await Assert.That(results.Count(static value => value.Contains("|False|1|op-contention", StringComparison.Ordinal))).IsEqualTo(1);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
+
+    private static async Task<string> CaptureOutputAsync(Process process) =>
+        $"{await process.StandardOutput.ReadToEndAsync()} {await process.StandardError.ReadToEndAsync()}".Trim();
 
     private static Process StartChild(string child, params string[] arguments)
     { var info = new ProcessStartInfo("dotnet") { RedirectStandardError = true, RedirectStandardOutput = true, UseShellExecute = false }; info.ArgumentList.Add(child); foreach (var argument in arguments) info.ArgumentList.Add(argument); return Process.Start(info) ?? throw new InvalidOperationException("Child process did not start."); }

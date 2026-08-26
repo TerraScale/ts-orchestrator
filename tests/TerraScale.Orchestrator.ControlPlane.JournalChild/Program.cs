@@ -11,7 +11,9 @@ var receipt = new CreateNodeHandoffReceipt("test", "test", binding, DateTimeOffs
 var recovery = new CreateNodeRecoveryLookupAuthority("test", "test", "create-node-provider-lookup", "test", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddDays(1), "test");
 var entry = new CreateNodeOperationJournalEntry(0, "fingerprint", binding, receipt, recovery, CreateNodeJournalStage.Prepared, null, 0, null);
 await File.WriteAllTextAsync(result + ".ready", actor);
-var deadline = DateTime.UtcNow.AddSeconds(10);
+// The parent writes the barrier only after BOTH children are ready, so this
+// wait must tolerate a heavily loaded sibling startup, not a fixed ten seconds.
+var deadline = DateTime.UtcNow.AddSeconds(120);
 while (!File.Exists(barrier) && DateTime.UtcNow < deadline) Thread.Sleep(5);
 if (!File.Exists(barrier)) return 65;
 var wrote = await journal.CompareExchangeAsync(null, entry, default);

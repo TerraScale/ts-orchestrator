@@ -52,6 +52,9 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
 {
     internal const string OwnershipLabel = "io.terrascale.owner=orchestrator-tests";
 
+    /// <summary>Deterministic prefix of every container and network this plane family creates.</summary>
+    internal const string NetworkNamePrefix = "ts-r1-";
+
     /// <summary>The per-container memory limit; three servers admit exactly 768 MiB.</summary>
     internal const int ServerMemoryLimitMiB = 256;
 
@@ -112,27 +115,17 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             // The gateway network is internal and serves container-name DNS:
             // it is the only resolver the servers see, so gateway dial URLs
             // (container names) always resolve onto this network.
-            await RequireSuccessAsync(
-                [
-                    "network", "create",
-                    "--label", OwnershipLabel,
-                    "--internal",
-                    "--subnet", GatewayNetworkSubnet,
-                    plane.gatewayNetwork,
-                ],
+            await CreateNetworkAsync(
+                plane.gatewayNetwork,
+                ["--internal", "--subnet", GatewayNetworkSubnet],
                 cancellationToken);
             // The client network carries only the host-published client ports.
             // DNS stays off it so no server name can ever resolve onto the
             // client path, and its dynamic address keeps the rootless port
             // forwarder on a network that is never severed.
-            await RequireSuccessAsync(
-                [
-                    "network", "create",
-                    "--label", OwnershipLabel,
-                    "--disable-dns",
-                    "--subnet", ClientNetworkSubnet,
-                    plane.clientNetwork,
-                ],
+            await CreateNetworkAsync(
+                plane.clientNetwork,
+                ["--disable-dns", "--subnet", ClientNetworkSubnet],
                 cancellationToken);
             return plane;
         }
@@ -140,6 +133,58 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         {
             await plane.DisposeAsync();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Creates one fixture network, self-healing exactly once when a killed
+    /// predecessor's leaked plane still holds the fixed subnet. Concurrent
+    /// validation in this checkout is excluded by the repository lease, so an
+    /// owned <c>ts-r1-</c> resource at create time is an orphan from a dead
+    /// run, not a live peer; a genuinely live foreign holder fails loudly with
+    /// the Podman diagnostic on the retried create.
+    /// </summary>
+    private static async Task CreateNetworkAsync(
+        string network,
+        IReadOnlyList<string> options,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await RequireSuccessAsync(
+                ["network", "create", "--label", OwnershipLabel, .. options, network],
+                cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            await RemoveOrphanedPlaneResourcesAsync(cancellationToken);
+            await RequireSuccessAsync(
+                ["network", "create", "--label", OwnershipLabel, .. options, network],
+                cancellationToken);
+        }
+    }
+
+    private static async Task RemoveOrphanedPlaneResourcesAsync(CancellationToken cancellationToken)
+    {
+        // Containers first: a leaked server keeps its network attached, and
+        // Podman refuses to remove a network an existing container still uses.
+        var containers = (await ListOwnedAsync(
+            ["ps", "-a", "--filter", $"label={OwnershipLabel}", "--format", "{{.Names}}"],
+            cancellationToken))
+            .Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var container in containers)
+        {
+            await RunAsync(["rm", "--force", "--time", "2", container], cancellationToken);
+        }
+        var networks = (await ListOwnedAsync(
+            ["network", "ls", "--filter", $"label={OwnershipLabel}", "--format", "{{.Name}}"],
+            cancellationToken))
+            .Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var network in networks)
+        {
+            await RunAsync(["network", "rm", "--force", network], cancellationToken);
         }
     }
 
@@ -275,7 +320,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         var names = await ListOwnedAsync(
             ["ps", "-a", "--filter", $"label={OwnershipLabel}", "--format", "{{.Names}}"],
             cancellationToken);
-        return names.Where(static name => name.StartsWith("ts-r1-", StringComparison.Ordinal)).ToArray();
+        return names.Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal)).ToArray();
     }
 
     /// <summary>Names of every Podman network this plane's fixture family owns right now; empty after clean cleanup.</summary>
@@ -284,7 +329,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         var names = await ListOwnedAsync(
             ["network", "ls", "--filter", $"label={OwnershipLabel}", "--format", "{{.Name}}"],
             cancellationToken);
-        return names.Where(static name => name.StartsWith("ts-r1-", StringComparison.Ordinal)).ToArray();
+        return names.Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal)).ToArray();
     }
 
     public async ValueTask DisposeAsync()
@@ -324,12 +369,13 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
-        var exitCode = await RunAsync(arguments, cancellationToken);
+        var (exitCode, error) = await RunAsync(arguments, cancellationToken);
         if (exitCode != 0)
-            throw new InvalidOperationException($"Podman exited with code {exitCode} while preparing the RF1 gateway fixture network plane.");
+            throw new InvalidOperationException(
+                $"Podman exited with code {exitCode} while preparing the RF1 gateway fixture network plane: {error.Trim()}");
     }
 
-    private static async Task<int> RunAsync(
+    private static async Task<(int ExitCode, string Error)> RunAsync(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
@@ -348,6 +394,6 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
         await Task.WhenAll(output, error);
-        return process.ExitCode;
+        return (process.ExitCode, error.Result);
     }
 }
