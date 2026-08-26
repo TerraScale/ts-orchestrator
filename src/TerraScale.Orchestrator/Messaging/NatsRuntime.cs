@@ -4,6 +4,7 @@ using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using NATS.Client.Services;
 using NATS.Net;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using TerraScale.Orchestrator.Operations;
@@ -24,6 +25,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly INatsObjStore? bundles;
     private readonly NatsTopology topology;
     private readonly DirectDeliveryService? directDelivery;
+    private readonly ServiceEndpointInstrumentation serviceInstrumentation;
 
     private NatsRuntime(
         NatsClient client,
@@ -34,7 +36,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore? delivery,
         INatsObjStore? bundles,
         NatsTopology topology,
-        DirectDeliveryService? directDelivery)
+        DirectDeliveryService? directDelivery,
+        ServiceEndpointInstrumentation serviceInstrumentation)
     {
         this.client = client;
         this.service = service;
@@ -45,6 +48,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.bundles = bundles;
         this.topology = topology;
         this.directDelivery = directDelivery;
+        this.serviceInstrumentation = serviceInstrumentation;
     }
 
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
@@ -53,6 +57,56 @@ public sealed class NatsRuntime : IAsyncDisposable
     internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
     internal string Cell => topology.Cell;
     internal DirectDeliveryService? DirectDelivery => directDelivery;
+
+    private volatile Observability.OrchestratorTelemetry? serviceTelemetry;
+
+    /// <summary>
+    /// Attaches the process telemetry so service endpoint statistics also flow into
+    /// the bounded NATS instruments. Optional: without it the read-only stats
+    /// endpoint still serves the same statistics; only OTLP export is absent.
+    /// </summary>
+    internal void AttachServiceTelemetry(Observability.OrchestratorTelemetry telemetry)
+    {
+        ArgumentNullException.ThrowIfNull(telemetry);
+        serviceTelemetry = telemetry;
+        serviceInstrumentation.Telemetry = telemetry;
+    }
+
+    /// <summary>
+    /// Wraps one service endpoint handler: requests, errors, and latency are
+    /// recorded per bounded endpoint name — never per subject, requester, or
+    /// payload — and served through the read-only stats endpoint.
+    /// </summary>
+    private sealed class ServiceEndpointInstrumentation
+    {
+        internal NatsServiceEndpointStats Stats { get; } = new();
+
+        internal async ValueTask HandleAsync(
+            NatsServiceEndpointName endpoint,
+            NatsSvcMsg<string> message,
+            Func<Task> body)
+        {
+            var timestamp = Stopwatch.GetTimestamp();
+            var result = NatsServiceRequestResult.Ok;
+            try
+            {
+                await body();
+            }
+            catch
+            {
+                result = NatsServiceRequestResult.Error;
+                throw;
+            }
+            finally
+            {
+                var elapsed = Stopwatch.GetElapsedTime(timestamp);
+                Stats.Record(endpoint, result, elapsed);
+                Telemetry?.RecordNatsServiceRequest(endpoint, result, elapsed.TotalMilliseconds);
+            }
+        }
+
+        internal Observability.OrchestratorTelemetry? Telemetry { get; set; }
+    }
 
     internal NativeGitOpsCellNatsConsumer CreateNativeGitOpsConsumer()
     {
@@ -228,10 +282,24 @@ public sealed class NatsRuntime : IAsyncDisposable
                 },
                 cancellationToken);
 
+            // Service endpoint statistics (issue #23): every endpoint handler is
+            // wrapped so requests, errors, and latency are recorded per bounded
+            // endpoint name — never per subject, requester, or payload — and served
+            // back through the read-only stats endpoint.
+            var endpointInstrumentation = new ServiceEndpointInstrumentation();
+            ValueTask HandleAsync(
+                NatsServiceEndpointName endpoint,
+                NatsSvcMsg<string> message,
+                Func<Task> body) =>
+                endpointInstrumentation.HandleAsync(endpoint, message, body);
+
             await service.AddEndpointAsync<string>(
-                message => message.ReplyAsync(
-                    authority.Snapshot.Ready ? "ready" : "not-ready",
-                    cancellationToken: cancellationToken),
+                message => HandleAsync(
+                    NatsServiceEndpointName.Health,
+                    message,
+                    async () => await message.ReplyAsync(
+                        authority.Snapshot.Ready ? "ready" : "not-ready",
+                        cancellationToken: cancellationToken)),
                 name: "health",
                 subject: topology.HealthSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1" },
@@ -250,38 +318,40 @@ public sealed class NatsRuntime : IAsyncDisposable
                 {
                     var handoffDelivery = new TerraScale.Orchestrator.Delivery.DeployHandoff.DeployHandoffDeliveryRuntime(directDelivery);
                     await service.AddEndpointAsync<string>(
-                        async message =>
-                        {
-                            // Exactly two payload kinds are admitted behind the one signed seam:
-                            // the canonical DeliveryRequest and the Deploy handoff manifest. The
-                            // runtime binds a handoff execution to the live authority lease it
-                            // owns; a direct request carries and is fenced by its own claims.
-                            var lease = authority.Snapshot;
-                            var admission = DirectDeliveryCommandIngress.Decode(
-                                Encoding.UTF8.GetBytes(message.Data ?? string.Empty),
-                                Flatten(message.Headers),
-                                options.Cell,
-                                DateTimeOffset.UtcNow,
-                                TimeSpan.FromMinutes(5),
-                                commandSignatureVerifier,
-                                lease.KvRevision,
-                                lease.Epoch);
-                            var receipt = admission.Kind switch
-                            {
-                                DirectDeliveryCommandPayloadKind.DeliveryRequest when admission.Request is { } request =>
-                                    await directDelivery.DeliverAsync(request, cancellationToken)
-                                        .ConfigureAwait(false),
-                                DirectDeliveryCommandPayloadKind.DeployHandoffManifest when admission.Handoff is
-                                    { IsAdmittedForTargetMutation: true } mapping =>
-                                    await handoffDelivery.DeliverMappedAsync(
-                                        mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
-                                        .ConfigureAwait(false),
-                                _ => DirectDeliveryCommandIngress.RefusalReceipt(admission),
-                            };
-                            await message.ReplyAsync(
-                                DeliveryWireCodec.SerializeReceipt(receipt),
-                                cancellationToken: cancellationToken).ConfigureAwait(false);
-                        },
+                        message => HandleAsync(
+                            NatsServiceEndpointName.DirectDelivery,
+                            message,
+                            async () =>
+                            {                                // Exactly two payload kinds are admitted behind the one signed seam:
+                                // the canonical DeliveryRequest and the Deploy handoff manifest. The
+                                // runtime binds a handoff execution to the live authority lease it
+                                // owns; a direct request carries and is fenced by its own claims.
+                                var lease = authority.Snapshot;
+                                var admission = DirectDeliveryCommandIngress.Decode(
+                                    Encoding.UTF8.GetBytes(message.Data ?? string.Empty),
+                                    Flatten(message.Headers),
+                                    options.Cell,
+                                    DateTimeOffset.UtcNow,
+                                    TimeSpan.FromMinutes(5),
+                                    commandSignatureVerifier,
+                                    lease.KvRevision,
+                                    lease.Epoch);
+                                var receipt = admission.Kind switch
+                                {
+                                    DirectDeliveryCommandPayloadKind.DeliveryRequest when admission.Request is { } request =>
+                                        await directDelivery.DeliverAsync(request, cancellationToken)
+                                            .ConfigureAwait(false),
+                                    DirectDeliveryCommandPayloadKind.DeployHandoffManifest when admission.Handoff is
+                                        { IsAdmittedForTargetMutation: true } mapping =>
+                                        await handoffDelivery.DeliverMappedAsync(
+                                            mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
+                                            .ConfigureAwait(false),
+                                    _ => DirectDeliveryCommandIngress.RefusalReceipt(admission),
+                                };
+                                await message.ReplyAsync(
+                                    DeliveryWireCodec.SerializeReceipt(receipt),
+                                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                            }),
                         name: "direct_delivery",
                         subject: topology.DirectDeliverySubject,
                         metadata: new Dictionary<string, string>
@@ -295,9 +365,12 @@ public sealed class NatsRuntime : IAsyncDisposable
             }
 
             await service.AddEndpointAsync<string>(
-                message => message.ReplyAsync(
-                    authority.Snapshot.Ready ? "ready" : "not-ready",
-                    cancellationToken: cancellationToken),
+                message => HandleAsync(
+                    NatsServiceEndpointName.InstanceHealth,
+                    message,
+                    async () => await message.ReplyAsync(
+                        authority.Snapshot.Ready ? "ready" : "not-ready",
+                        cancellationToken: cancellationToken)),
                 name: "instance_health",
                 subject: topology.InstanceHealthSubject,
                 metadata: new Dictionary<string, string>
@@ -308,40 +381,46 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken: cancellationToken);
 
             await service.AddEndpointAsync<string>(
-                message =>
-                {
-                    var authoritySnapshot = authority.Snapshot;
-                    return message.ReplyAsync(
-                        JsonSerializer.Serialize(
-                            new RegionalControllerStatus(
-                                2,
-                                options.Cell,
-                                options.Instance,
-                                options.Replicas,
-                                authoritySnapshot.Ready,
-                                startedAt,
-                                DateTimeOffset.UtcNow,
-                                BuildVersion.Current.DisplayName,
-                                capabilities,
-                                authoritySnapshot.State,
-                                authoritySnapshot.IsLeader,
-                                authoritySnapshot.Epoch,
-                                authoritySnapshot.KvRevision,
-                                authoritySnapshot.LeaseExpiresAt),
-                            RegionalControllerStatusJsonContext.Default.RegionalControllerStatus),
-                        cancellationToken: cancellationToken);
-                },
+                message => HandleAsync(
+                    NatsServiceEndpointName.Status,
+                    message,
+                    async () =>
+                    {
+                        var authoritySnapshot = authority.Snapshot;
+                        await message.ReplyAsync(
+                            JsonSerializer.Serialize(
+                                new RegionalControllerStatus(
+                                    2,
+                                    options.Cell,
+                                    options.Instance,
+                                    options.Replicas,
+                                    authoritySnapshot.Ready,
+                                    startedAt,
+                                    DateTimeOffset.UtcNow,
+                                    BuildVersion.Current.DisplayName,
+                                    capabilities,
+                                    authoritySnapshot.State,
+                                    authoritySnapshot.IsLeader,
+                                    authoritySnapshot.Epoch,
+                                    authoritySnapshot.KvRevision,
+                                    authoritySnapshot.LeaseExpiresAt),
+                                RegionalControllerStatusJsonContext.Default.RegionalControllerStatus),
+                            cancellationToken: cancellationToken);
+                    }),
                 name: "status",
                 subject: topology.StatusSubject,
                 metadata: new Dictionary<string, string> { ["protocol"] = "1", ["readOnly"] = "true" },
                 cancellationToken: cancellationToken);
 
             await service.AddEndpointAsync<string>(
-                message => message.ReplyAsync(
-                    JsonSerializer.Serialize(
-                        membership.Snapshot,
-                        RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMembershipSnapshot),
-                    cancellationToken: cancellationToken),
+                message => HandleAsync(
+                    NatsServiceEndpointName.Members,
+                    message,
+                    async () => await message.ReplyAsync(
+                        JsonSerializer.Serialize(
+                            membership.Snapshot,
+                            RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMembershipSnapshot),
+                        cancellationToken: cancellationToken)),
                 name: "members",
                 subject: topology.MembersSubject,
                 metadata: new Dictionary<string, string>
@@ -349,6 +428,36 @@ public sealed class NatsRuntime : IAsyncDisposable
                     ["protocol"] = "1",
                     ["readOnly"] = "true",
                     ["source"] = topology.Runtime.Bucket
+                },
+                cancellationToken: cancellationToken);
+
+            // The read-only service statistics endpoint (issue #23): version, schema
+            // metadata, health, and per-endpoint request/error/latency statistics.
+            // Its subject stays a query subject with the readOnly marker; it is not a
+            // mutation surface and carries no identity, payload, or address material.
+            await service.AddEndpointAsync<string>(
+                message => HandleAsync(
+                    NatsServiceEndpointName.Stats,
+                    message,
+                    async () => await message.ReplyAsync(
+                        JsonSerializer.Serialize(
+                            NatsServiceStatsDocument.Create(
+                                options.Cell,
+                                BuildVersion.Current.DisplayName,
+                                // Schema metadata: the served status contract generation.
+                                2,
+                                authority.Snapshot.Ready,
+                                DateTimeOffset.UtcNow,
+                                endpointInstrumentation.Stats.Snapshot()),
+                            NatsServiceEndpointStatsJsonContext.Default.NatsServiceStatsDocument),
+                        cancellationToken: cancellationToken)),
+                name: "stats",
+                subject: topology.StatsSubject,
+                metadata: new Dictionary<string, string>
+                {
+                    ["protocol"] = "1",
+                    ["readOnly"] = "true",
+                    ["schema"] = "aggregated"
                 },
                 cancellationToken: cancellationToken);
 
@@ -363,7 +472,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 state.Delivery,
                 state.Bundles,
                 topology,
-                directDelivery);
+                directDelivery,
+                endpointInstrumentation);
         }
         catch
         {

@@ -58,6 +58,9 @@ public static class NatsSubjectTaxonomy
 
     public static string ControllerMembersSubject(string cell) => RegionalRoot(cell) + ".query.members";
 
+    /// <summary>Read-only service statistics endpoint subject (no mutation surface).</summary>
+    public static string ControllerStatsSubject(string cell) => RegionalRoot(cell) + ".query.stats";
+
     /// <summary>Signed direct-delivery mutation admission subject (request/reply, lossy transport).</summary>
     public static string DirectDeliverySubject(string cell) => RegionalRoot(cell) + ".command.delivery";
 

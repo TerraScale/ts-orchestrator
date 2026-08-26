@@ -960,6 +960,13 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
             ["system-observer"] = CreateUser(
                 root, pki, trust, "system", "system-observer",
                 new([GatewayStateSubject, "_INBOX.>"], ["_INBOX.>"])),
+            // The read-only monitoring identity (issue #23): exactly the allowlisted
+            // $SYS request subjects plus the advisory subscriptions and an inbox.
+            ["system-monitor"] = CreateUser(
+                root, pki, trust, "system", "system-monitor",
+                new(
+                    NatsMonitoringPermissions.Create().Publish,
+                    NatsMonitoringPermissions.Create().Subscribe)),
         };
     }
 
@@ -1137,6 +1144,7 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
                      "directory-reader-sfo", "directory-reader-fra",
                      "gru-operator-read", "gru-infrastructure", "sfo-infrastructure",
                      "fra-infrastructure", "sfo-local-service", "system-observer",
+                     "system-monitor",
                  })
         {
             clientCertificates[name] = CreateLeaf(

@@ -17,6 +17,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public string MembersSubject => $"{Root}.query.members";
 
+    /// <summary>Read-only service statistics endpoint: version, schema, health, request/error/latency aggregates.</summary>
+    public string StatsSubject => $"{Root}.query.stats";
+
     public string DirectDeliverySubject => $"{Root}.command.delivery";
 
     public string OperationJournalCreateSubject => $"{Root}.internal.operation-journal.create";

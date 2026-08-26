@@ -144,6 +144,7 @@ try
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
+        observedRuntime.AttachServiceTelemetry(telemetry);
         telemetry.ObserveMembership(() => observedRuntime.MembershipHealth);
         if (options.GlobalDirectoryNats is not null)
         {
