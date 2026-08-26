@@ -1084,6 +1084,20 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY",
                     "$JS.API.DIRECT.GET.KV_ORCH_DELIVERY",
                     "$KV.ORCH_DELIVERY.>",
+                    // Membership heartbeat/watch surface — the same regional
+                    // grants the production development cluster renders for a
+                    // controller over the bounded ORCH_RUNTIME KV bucket — and
+                    // the fenced authority lease key the coordinator CASes.
+                    "$JS.API.STREAM.INFO.KV_ORCH_LEADERS",
+                    "$JS.API.DIRECT.GET.KV_ORCH_LEADERS",
+                    "$JS.API.DIRECT.GET.KV_ORCH_LEADERS.>",
+                    "$KV.ORCH_LEADERS.>",
+                    "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME",
+                    "$JS.API.DIRECT.GET.KV_ORCH_RUNTIME",
+                    "$JS.API.DIRECT.GET.KV_ORCH_RUNTIME.>",
+                    "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>",
+                    "$JS.FC.KV_ORCH_RUNTIME.>",
+                    "$KV.ORCH_RUNTIME.>",
                     "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
                     "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
                     "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>",
@@ -1100,6 +1114,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.query.>",
                     $"{root}.internal.operation-journal.reply.{publicKey}.>",
                     $"{root}.internal.runtime-lifecycle-journal.reply.{publicKey}.>",
+                    "$KV.ORCH_RUNTIME.>",
                 ]),
             Role.Infrastructure => new(
                 [

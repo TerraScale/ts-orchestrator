@@ -49,11 +49,14 @@ public sealed class NatsCreateNodeOperationJournalTests
                 .Throws<NatsKVKeyNotFoundException>();
         }
         await using var gru = GlobalCellDirectoryRuntime.Start(
-            store, "gru", () => Membership("gru"), () => gruAuthority);
+            store, "gru", () => Membership("gru"), () => gruAuthority,
+            endpoints: ["tls://control-gru.internal:4222"]);
         await using var sfo = GlobalCellDirectoryRuntime.Start(
-            store, "sfo", () => Membership("sfo"), () => sfoAuthority);
+            store, "sfo", () => Membership("sfo"), () => sfoAuthority,
+            endpoints: ["tls://control-sfo.internal:4222"]);
         var fra = GlobalCellDirectoryRuntime.Start(
-            store, "fra", () => Membership("fra"), () => fraAuthority);
+            store, "fra", () => Membership("fra"), () => fraAuthority,
+            endpoints: ["tls://control-fra.internal:4222"]);
         try
         {
             var converged = await WaitForDirectoryAsync(gru, 3, TimeSpan.FromSeconds(5));
@@ -71,7 +74,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             var restartedAuthority = Authority(9, 18);
             var recovery = Stopwatch.StartNew();
             await using var restartedFra = GlobalCellDirectoryRuntime.Start(
-                store, "fra", () => Membership("fra"), () => restartedAuthority);
+                store, "fra", () => Membership("fra"), () => restartedAuthority,
+                endpoints: ["tls://control-fra.internal:4222"]);
             var recovered = await WaitForDirectoryAsync(
                 gru,
                 3,
@@ -1141,7 +1145,8 @@ public sealed class NatsCreateNodeOperationJournalTests
             var runtimeStore = await controllerJetStream.CreateKeyValueStoreContext()
                 .GetStoreAsync(journalTopology.Runtime.Bucket);
             var injectedAt = DateTimeOffset.UtcNow;
-            var injected = new RegionalRuntimeMember(
+            using var injectedIdentity = RegionalRuntimeMembershipIdentity.Create();
+            var injected = Sign(new RegionalRuntimeMember(
                 1,
                 cell.Cell,
                 $"orchestrator-control-{cell.Cell}",
@@ -1155,7 +1160,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                 "follower",
                 false,
                 runtime.AuthoritySnapshot.Epoch,
-                runtime.AuthoritySnapshot.KvRevision);
+                runtime.AuthoritySnapshot.KvRevision), injectedIdentity);
             var injectedValue = JsonSerializer.Serialize(
                 injected,
                 RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMember);
@@ -1184,12 +1189,12 @@ public sealed class NatsCreateNodeOperationJournalTests
                 await Assert.That(failureDetection.Elapsed).IsLessThan(TimeSpan.FromSeconds(4));
 
                 var recoveredAt = DateTimeOffset.UtcNow;
-                var recovered = injected with
+                var recovered = Sign(injected with
                 {
                     SessionId = Guid.NewGuid().ToString("N"),
                     ObservedAt = recoveredAt,
                     LeaseExpiresAt = recoveredAt.Add(RegionalRuntimeMembership.LeaseDuration)
-                };
+                }, injectedIdentity);
                 var recovery = Stopwatch.StartNew();
                 injectedRevision = await runtimeStore.UpdateAsync(
                     "controller.controller-3",
@@ -1207,6 +1212,68 @@ public sealed class NatsCreateNodeOperationJournalTests
                 recovery.Stop();
                 await Assert.That(restored.QuorumAvailable).IsTrue();
                 await Assert.That(recovery.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
+
+                // Conflict storm: more session changes under live leases than the
+                // cell has controller slots. Conflicting sessions are a CURRENT
+                // gauge — each slot's live record classified against its
+                // immediately preceding observation — so the projection keeps
+                // validating; a lifetime counter would pass the slot count and
+                // make every later snapshot (and the leader's advertisement)
+                // invalid.
+                var stormRevision = injectedRevision;
+                var storm = recovered;
+                for (var rotation = 0; rotation < 4; rotation++)
+                {
+                    var rotatedAt = DateTimeOffset.UtcNow;
+                    storm = Sign(storm with
+                    {
+                        SessionId = Guid.NewGuid().ToString("N"),
+                        ObservedAt = rotatedAt,
+                        LeaseExpiresAt = rotatedAt.Add(RegionalRuntimeMembership.LeaseDuration)
+                    }, injectedIdentity);
+                    var observedSession = storm.SessionId;
+                    stormRevision = await runtimeStore.UpdateAsync(
+                        "controller.controller-3",
+                        JsonSerializer.Serialize(
+                            storm,
+                            RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMember),
+                        stormRevision);
+                    await WaitForMembershipAsync(
+                        runtime,
+                        health => runtime.MembershipSnapshot.Members
+                            .Single(static member => member.Instance == "controller-3")
+                            .SessionId == observedSession,
+                        TimeSpan.FromSeconds(3),
+                        startup.Token);
+                }
+                var stormed = runtime.MembershipSnapshot;
+                stormed.Validate(cell.Cell);
+                await Assert.That(stormed.Health.ActiveControllers).IsEqualTo(3);
+                await Assert.That(stormed.Health.ConflictingControllers).IsEqualTo(1);
+                await Assert.That(stormed.Health.Condition)
+                    .IsEqualTo(RegionalRuntimeMembershipCondition.Healthy);
+
+                // The conflict clears exactly when the surviving session renews.
+                var settledAt = DateTimeOffset.UtcNow;
+                storm = Sign(storm with
+                {
+                    ObservedAt = settledAt,
+                    LeaseExpiresAt = settledAt.Add(RegionalRuntimeMembership.LeaseDuration)
+                }, injectedIdentity);
+                stormRevision = await runtimeStore.UpdateAsync(
+                    "controller.controller-3",
+                    JsonSerializer.Serialize(
+                        storm,
+                        RegionalRuntimeMembershipJsonContext.Default.RegionalRuntimeMember),
+                    stormRevision);
+                var settled = await WaitForMembershipAsync(
+                    runtime,
+                    static health => health.ConflictingControllers == 0 &&
+                                     health.Condition == RegionalRuntimeMembershipCondition.Healthy,
+                    TimeSpan.FromSeconds(3),
+                    startup.Token);
+                settled.Validate();
+                injectedRevision = stormRevision;
             }
             finally
             {
@@ -1590,7 +1657,8 @@ public sealed class NatsCreateNodeOperationJournalTests
     private static RegionalRuntimeMembershipSnapshot Membership(string cell)
     {
         var now = DateTimeOffset.UtcNow;
-        var member = new RegionalRuntimeMember(
+        using var identity = RegionalRuntimeMembershipIdentity.Create();
+        var member = Sign(new RegionalRuntimeMember(
             1,
             cell,
             $"orchestrator-control-{cell}",
@@ -1604,10 +1672,20 @@ public sealed class NatsCreateNodeOperationJournalTests
             "leader",
             true,
             7,
-            11);
+            11), identity);
         var health = RegionalRuntimeMembershipHealth.Evaluate(cell, 3, [member], 0, now);
         return new(2, cell, now, health, [member]);
     }
+
+    private static RegionalRuntimeMember Sign(
+        RegionalRuntimeMember member,
+        RegionalRuntimeMembershipIdentity identity) =>
+        member with
+        {
+            IdentityKeyId = identity.KeyId,
+            IdentityPublicKey = identity.PublicKey,
+            IdentitySignature = identity.Sign(member),
+        };
 
     private static async Task<GlobalCellDirectorySnapshot> WaitForDirectoryAsync(
         GlobalCellDirectoryRuntime runtime,

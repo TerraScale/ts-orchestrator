@@ -20,6 +20,7 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
     private readonly string cell;
     private readonly Func<RegionalRuntimeMembershipSnapshot> membership;
     private readonly Func<RegionalAuthoritySnapshot> authority;
+    private readonly IReadOnlyList<string> endpoints;
     private readonly NatsClient? ownedClient;
     private readonly CancellationTokenSource stopping = new();
     private readonly GlobalCellDirectory directory = new();
@@ -32,6 +33,7 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
         string cell,
         Func<RegionalRuntimeMembershipSnapshot> membership,
         Func<RegionalAuthoritySnapshot> authority,
+        IReadOnlyList<string> endpoints,
         bool publishEnabled,
         NatsClient? ownedClient = null)
     {
@@ -39,6 +41,7 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
         this.cell = cell;
         this.membership = membership;
         this.authority = authority;
+        this.endpoints = endpoints;
         this.ownedClient = ownedClient;
         watchLoop = WatchAsync(stopping.Token);
         publishLoop = publishEnabled
@@ -58,14 +61,24 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
         string cell,
         Func<RegionalRuntimeMembershipSnapshot> membership,
         Func<RegionalAuthoritySnapshot> authority,
-        bool publishEnabled = true)
+        bool publishEnabled = true,
+        IReadOnlyList<string>? endpoints = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         if (!GlobalNatsTopology.IsCellToken(cell))
             throw new ArgumentException("The global directory cell is invalid.", nameof(cell));
         ArgumentNullException.ThrowIfNull(membership);
         ArgumentNullException.ThrowIfNull(authority);
-        return new(store, cell, membership, authority, publishEnabled);
+        if (publishEnabled && (endpoints is null || endpoints.Count == 0))
+            throw new ArgumentException(
+                "Publishing a cell advertisement requires the cell's advertised control endpoints.", nameof(endpoints));
+        return new(
+            store,
+            cell,
+            membership,
+            authority,
+            endpoints ?? Array.Empty<string>(),
+            publishEnabled);
     }
 
     /// <summary>
@@ -83,6 +96,10 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(membership);
         ArgumentNullException.ThrowIfNull(authority);
+        if (publishEnabled && configuration.Endpoints.Count == 0)
+            throw new ArgumentException(
+                "Publishing a cell advertisement requires the cell's advertised control endpoints.",
+                nameof(configuration));
         var client = new NatsClient(new NatsOpts
         {
             Url = configuration.Url,
@@ -102,7 +119,14 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
             await client.ConnectAsync();
             var store = await OpenExistingStoreAsync(
                 client.CreateJetStreamContext().CreateKeyValueStoreContext(), cancellationToken);
-            return new(store, configuration.Cell, membership, authority, publishEnabled, client);
+            return new(
+                store,
+                configuration.Cell,
+                membership,
+                authority,
+                configuration.Endpoints,
+                publishEnabled,
+                client);
         }
         catch
         {
@@ -127,14 +151,19 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
     internal static GlobalCellAdvertisement CreateAdvertisement(
         RegionalRuntimeMembershipSnapshot membership,
         RegionalAuthoritySnapshot authority,
-        long sequence)
+        long sequence,
+        IReadOnlyList<string> endpoints)
     {
         ArgumentNullException.ThrowIfNull(membership);
         ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(endpoints);
         membership.Validate(membership.Cell);
         if (!authority.Ready || !authority.IsLeader || authority.Epoch <= 0 || authority.KvRevision <= 0)
             throw new InvalidOperationException("Only the current regional authority leader may advertise its cell.");
         if (sequence <= 0) throw new ArgumentOutOfRangeException(nameof(sequence));
+        if (endpoints.Count == 0 || endpoints.Any(endpoint => !IsControlEndpoint(endpoint)))
+            throw new ArgumentException(
+                "A cell advertisement requires at least one valid control endpoint.", nameof(endpoints));
         var capabilities = membership.Members
             .SelectMany(static member => member.Capabilities)
             .Distinct(StringComparer.Ordinal)
@@ -151,8 +180,12 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
             capabilities,
             membership.Health,
             membership.ObservedAt,
-            membership.ObservedAt + AdvertisementLease);
+            membership.ObservedAt + AdvertisementLease,
+            endpoints.Order(StringComparer.Ordinal).ToArray());
     }
+
+    private static bool IsControlEndpoint(string endpoint) =>
+        GlobalCellAdvertisement.IsControlEndpoint(endpoint);
 
     public async ValueTask DisposeAsync()
     {
@@ -265,7 +298,7 @@ internal sealed class GlobalCellDirectoryRuntime : IGlobalCellDirectoryRuntimeIn
                 sequence = authorityOrder == 0 ? checked(existing.Sequence + 1) : 1;
             }
 
-            var advertisement = CreateAdvertisement(membership(), regionalAuthority, sequence);
+            var advertisement = CreateAdvertisement(membership(), regionalAuthority, sequence, endpoints);
             if (advertisement.Cell != cell || !advertisement.IsValid(DateTimeOffset.UtcNow))
                 throw new InvalidOperationException("The local global-cell advertisement is invalid.");
             var value = JsonSerializer.Serialize(

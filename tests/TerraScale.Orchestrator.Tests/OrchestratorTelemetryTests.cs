@@ -92,7 +92,7 @@ public sealed class OrchestratorTelemetryTests
             Instance: "controller-1");
         using var telemetry = OrchestratorTelemetry.Start(options, _ => null);
         var health = new RegionalRuntimeMembershipHealth(
-            3, 2, 1, 1, 0, 4, 1, true, 250,
+            3, 2, 1, 1, 0, 1, 4, 1, true, 250,
             RegionalRuntimeMembershipCondition.Degraded, DateTimeOffset.UtcNow);
         telemetry.ObserveMembership(() => health);
 
@@ -113,7 +113,8 @@ public sealed class OrchestratorTelemetryTests
                 ["active"] = 2,
                 ["stale"] = 1,
                 ["missing"] = 1,
-                ["unexpected"] = 0
+                ["unexpected"] = 0,
+                ["conflicting"] = 1
             });
         await Assert.That(measurements.SelectMany(static measurement => measurement.Tags.Keys)
             .Any(tag => tag.Contains("instance", StringComparison.OrdinalIgnoreCase) ||

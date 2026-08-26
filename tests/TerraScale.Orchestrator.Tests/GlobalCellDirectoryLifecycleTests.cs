@@ -131,6 +131,7 @@ public sealed class GlobalCellDirectoryLifecycleTests
             0,
             0,
             0,
+            0,
             1,
             true,
             0,
@@ -147,7 +148,8 @@ public sealed class GlobalCellDirectoryLifecycleTests
             health,
             now,
             now.Add(GlobalCellAdvertisement.SemanticLease),
-            false);
+            false,
+            ["tls://control-sfo.internal:4222"]);
         return new(
             1,
             now,

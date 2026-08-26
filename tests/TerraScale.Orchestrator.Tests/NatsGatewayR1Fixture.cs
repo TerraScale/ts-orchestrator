@@ -858,6 +858,32 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
         var directoryService = Permissions(GlobalNatsPermissions.Create("gru", GlobalNatsRole.CellDirectoryService));
         var readerFra = Permissions(GlobalNatsPermissions.Create("fra", GlobalNatsRole.CellDirectoryReader));
         var readerPlan = Permissions(GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryReader));
+        // The SFO directory publisher holds only its own cell's advertisement key
+        // in the GRU-owned GLOBAL_CELLS bucket: the exact production publisher
+        // permission plan, exercised from a remote cell.
+        var publisherSfo = Permissions(GlobalNatsPermissions.Create("sfo", GlobalNatsRole.CellDirectoryPublisher));
+        // A watch-only directory identity for the GRU-side projection runtime.
+        var watcherGru = (
+            Publish: new List<string>
+            {
+                "$JS.API.CONSUMER.CREATE.KV_GLOBAL_CELLS",
+                "$JS.API.CONSUMER.CREATE.KV_GLOBAL_CELLS.>",
+                "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
+                "$JS.FC.KV_GLOBAL_CELLS.>",
+            },
+            Subscribe: new List<string> { "$KV.GLOBAL_CELLS.>", "_INBOX.>" });
+        // The global-directory account's infrastructure identity: the only R1
+        // identity that may create the GRU-owned GLOBAL_CELLS bucket, mirroring
+        // the L0C lane's global-directory infrastructure role. JetStream state is
+        // account-scoped, so the bucket must live in the directory account.
+        var directoryInfrastructure = (
+            Publish: new List<string>
+            {
+                "$JS.API.STREAM.CREATE.KV_GLOBAL_CELLS",
+                "$JS.API.STREAM.UPDATE.KV_GLOBAL_CELLS",
+                "$JS.API.STREAM.INFO.KV_GLOBAL_CELLS",
+            },
+            Subscribe: new List<string> { "_INBOX.>" });
         // The SFO probe is the one client held across the fault. Besides the
         // approved cross-mesh directory request it may use its own region's
         // versioned status and members queries, which stay local to SFO and
@@ -871,6 +897,12 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
         {
             ["directory-service-gru"] = CreateUser(
                 root, pki, trust, directory, "directory-service-gru", directoryService),
+            ["directory-publisher-sfo"] = CreateUser(
+                root, pki, trust, directory, "directory-publisher-sfo", publisherSfo),
+            ["directory-watcher-gru"] = CreateUser(
+                root, pki, trust, directory, "directory-watcher-gru", watcherGru),
+            ["directory-infrastructure-gru"] = CreateUser(
+                root, pki, trust, directory, "directory-infrastructure-gru", directoryInfrastructure),
             ["directory-reader-sfo"] = CreateUser(
                 root, pki, trust, regionalSfo, "directory-reader-sfo", sfoProbe),
             ["directory-reader-fra"] = CreateUser(
@@ -1100,7 +1132,9 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
         var clientCertificates = new Dictionary<string, NatsGatewayR1Certificate>(StringComparer.Ordinal);
         foreach (var name in new[]
                  {
-                     "directory-service-gru", "directory-reader-sfo", "directory-reader-fra",
+                     "directory-service-gru", "directory-publisher-sfo", "directory-watcher-gru",
+                     "directory-infrastructure-gru",
+                     "directory-reader-sfo", "directory-reader-fra",
                      "gru-operator-read", "gru-infrastructure", "sfo-infrastructure",
                      "fra-infrastructure", "sfo-local-service", "system-observer",
                  })

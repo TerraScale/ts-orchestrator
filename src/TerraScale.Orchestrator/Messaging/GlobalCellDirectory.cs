@@ -14,7 +14,8 @@ internal sealed record GlobalCellAdvertisement(
     IReadOnlyList<string> Capabilities,
     RegionalRuntimeMembershipHealth Membership,
     DateTimeOffset ObservedAt,
-    DateTimeOffset LeaseExpiresAt)
+    DateTimeOffset LeaseExpiresAt,
+    IReadOnlyList<string>? Endpoints = null)
 {
     internal static readonly TimeSpan SemanticLease = TimeSpan.FromSeconds(20);
 
@@ -42,13 +43,38 @@ internal sealed record GlobalCellAdvertisement(
                Membership.ObservedAt == ObservedAt &&
                Membership.ActiveControllers > 0 && Membership.AuthorityLeaders == 1 &&
                ObservedAt <= now.AddMinutes(1) &&
-               LeaseExpiresAt == ObservedAt + SemanticLease;
+               LeaseExpiresAt == ObservedAt + SemanticLease &&
+               Endpoints is { Count: >= 1 and <= 8 } &&
+               Endpoints.All(IsControlEndpoint) &&
+               Endpoints.SequenceEqual(Endpoints.Order(StringComparer.Ordinal), StringComparer.Ordinal) &&
+               Endpoints.Distinct(StringComparer.Ordinal).Count() == Endpoints.Count;
     }
 
     private static bool IsCapabilityToken(string capability) =>
         capability is { Length: >= 1 and <= 63 } &&
         capability[0] != '-' && capability[^1] != '-' &&
         capability.All(static character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
+
+    /// <summary>
+    /// A cell advertisement endpoint: an absolute lowercase URI with an explicit port,
+    /// no path, query, fragment, or user information. These are the cell's control-plane
+    /// endpoints as composition supplies them — never invented by the runtime.
+    /// </summary>
+    internal static bool IsControlEndpoint(string? endpoint)
+    {
+        if (endpoint is not { Length: >= 8 and <= 253 }) return false;
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) return false;
+        return uri.Scheme is { Length: >= 3 and <= 16 } &&
+               uri.Scheme.All(static character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '+') &&
+               uri.Scheme == uri.Scheme.ToLowerInvariant() &&
+               !string.IsNullOrEmpty(uri.Host) &&
+               uri.Host == uri.Host.ToLowerInvariant() &&
+               uri.Port is > 0 and < 65536 &&
+               uri.PathAndQuery is "" or "/" &&
+               string.IsNullOrEmpty(uri.Query) &&
+               string.IsNullOrEmpty(uri.Fragment) &&
+               string.IsNullOrEmpty(uri.UserInfo);
+    }
 }
 
 internal enum GlobalCellAdvertisementDisposition
@@ -78,7 +104,8 @@ internal sealed record GlobalCellDirectoryEntry(
     RegionalRuntimeMembershipHealth Membership,
     DateTimeOffset ObservedAt,
     DateTimeOffset LeaseExpiresAt,
-    bool IsStale);
+    bool IsStale,
+    IReadOnlyList<string> Endpoints);
 
 internal sealed record GlobalCellDirectorySnapshot(
     int SchemaVersion,
@@ -116,7 +143,8 @@ internal sealed record GlobalCellDirectorySnapshot(
                     cell.Capabilities,
                     cell.Membership,
                     cell.ObservedAt,
-                    cell.LeaseExpiresAt).IsValid(ObservedAt)) ||
+                    cell.LeaseExpiresAt,
+                    cell.Endpoints).IsValid(ObservedAt)) ||
             Cells.Select(static cell => cell.Cell).Distinct(StringComparer.Ordinal).Count() != Cells.Count ||
             !Cells.SequenceEqual(Cells.OrderBy(static cell => cell.Cell, StringComparer.Ordinal)))
         {
@@ -210,7 +238,8 @@ internal sealed class GlobalCellDirectory
                 advertisement.Membership,
                 advertisement.ObservedAt,
                 advertisement.LeaseExpiresAt,
-                advertisement.LeaseExpiresAt <= now))
+                advertisement.LeaseExpiresAt <= now,
+                advertisement.Endpoints ?? Array.Empty<string>()))
             .ToArray();
         var active = cells.Count(static cell => !cell.IsStale);
         var stale = cells.Length - active;
@@ -247,7 +276,9 @@ internal sealed class GlobalCellDirectory
         left.Capabilities.SequenceEqual(right.Capabilities, StringComparer.Ordinal) &&
         left.Membership == right.Membership &&
         left.ObservedAt == right.ObservedAt &&
-        left.LeaseExpiresAt == right.LeaseExpiresAt;
+        left.LeaseExpiresAt == right.LeaseExpiresAt &&
+        (left.Endpoints ?? Array.Empty<string>()).SequenceEqual(
+            right.Endpoints ?? Array.Empty<string>(), StringComparer.Ordinal);
 }
 
 [JsonSerializable(typeof(GlobalCellAdvertisement))]

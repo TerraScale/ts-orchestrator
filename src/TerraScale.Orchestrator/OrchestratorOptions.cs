@@ -191,7 +191,8 @@ public sealed record OrchestratorOptions(
                 environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"), globalDirectoryNkey, globalDirectoryCredentials,
                 globalDirectoryTlsValues[0], globalDirectoryTlsValues[1], globalDirectoryTlsValues[2],
                 replicas,
-                cell)
+                cell,
+                environment("TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS"))
             : null;
         var globalDirectoryServiceNats = command is OrchestratorCommand.Run or OrchestratorCommand.Check
             ? Messaging.GlobalDirectoryServiceNatsConfiguration.Resolve(

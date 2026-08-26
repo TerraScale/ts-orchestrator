@@ -27,6 +27,7 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? GlobalDirectoryServiceNatsTlsCaFile = null,
     string? GlobalDirectoryServiceNatsTlsCertificateFile = null,
     string? GlobalDirectoryServiceNatsTlsKeyFile = null,
+    string? GlobalDirectoryEndpoints = null,
     string? CommandSigningKeyFile = null,
     string[]? CommandTrustKeyFiles = null,
     string? CiRunnerNatsAccountSigningKeyFile = null,
@@ -105,6 +106,7 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE" => GlobalDirectoryServiceNatsTlsCaFile,
         "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE" => GlobalDirectoryServiceNatsTlsCertificateFile,
         "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE" => GlobalDirectoryServiceNatsTlsKeyFile,
+        "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS" => GlobalDirectoryEndpoints,
         "TS_ORCH_COMMAND_SIGNING_KEY_FILE" => CommandSigningKeyFile,
         "TS_ORCH_COMMAND_TRUST_KEY_FILES" => CommandTrustKeyFiles is { Length: > 0 }
             ? string.Join(Path.PathSeparator, CommandTrustKeyFiles)

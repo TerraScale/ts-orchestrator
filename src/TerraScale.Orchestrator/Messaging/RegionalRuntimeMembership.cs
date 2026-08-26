@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NATS.Client.KeyValueStore;
@@ -19,7 +20,10 @@ internal sealed record RegionalRuntimeMember(
     string AuthorityState,
     bool IsAuthorityLeader,
     long AuthorityEpoch,
-    long AuthorityRevision)
+    long AuthorityRevision,
+    string IdentityKeyId = "",
+    string IdentityPublicKey = "",
+    string IdentitySignature = "")
 {
     internal bool IsValidFor(string expectedCell, DateTimeOffset now) =>
         SchemaVersion == 1 &&
@@ -38,7 +42,49 @@ internal sealed record RegionalRuntimeMember(
         LeaseExpiresAt <= ObservedAt.AddMinutes(1) &&
         AuthorityState is "leader" or "follower" &&
         IsAuthorityLeader == (AuthorityState == "leader") &&
-        AuthorityEpoch > 0 && AuthorityRevision > 0;
+        AuthorityEpoch > 0 && AuthorityRevision > 0 &&
+        HasWellFormedIdentityMaterial();
+
+    /// <summary>Shape check only: the cryptographic verification is <see cref="VerifySignedIdentity"/>.</summary>
+    internal bool HasWellFormedIdentityMaterial() =>
+        IdentityKeyId is { Length: 32 } &&
+        IdentityKeyId.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f') &&
+        IdentityPublicKey is { Length: > 0 and <= 256 } &&
+        IsBase64(IdentityPublicKey) &&
+        IdentitySignature is { Length: > 0 and <= 256 } &&
+        IsBase64(IdentitySignature);
+
+    /// <summary>Full signed-identity verification against the record's embedded public key.</summary>
+    internal bool VerifySignedIdentity() => RegionalRuntimeMembershipIdentity.Verify(this);
+
+    /// <summary>
+    /// The exact signed material: every record field in a fixed order with fixed
+    /// separators, timestamps as invariant Unix milliseconds. Changing any bound value
+    /// changes the material; the signature fields themselves are not signed.
+    /// </summary>
+    internal string CanonicalMaterial() => string.Join('\n',
+        Invariant(SchemaVersion),
+        Cell,
+        Cluster,
+        Instance,
+        SessionId,
+        Build,
+        string.Join('\u001f', Capabilities),
+        Invariant(StartedAt.ToUnixTimeMilliseconds()),
+        Invariant(ObservedAt.ToUnixTimeMilliseconds()),
+        Invariant(LeaseExpiresAt.ToUnixTimeMilliseconds()),
+        AuthorityState,
+        IsAuthorityLeader ? "1" : "0",
+        Invariant(AuthorityEpoch),
+        Invariant(AuthorityRevision));
+
+    private static string Invariant<T>(T value) =>
+        Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private static bool IsBase64(string value) =>
+        value.Length % 4 == 0 &&
+        value.All(static character =>
+            character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '+' or '/' or '=');
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RegionalRuntimeMembershipCondition>))]
@@ -55,6 +101,7 @@ internal sealed record RegionalRuntimeMembershipHealth(
     int StaleControllers,
     int MissingControllers,
     int UnexpectedControllers,
+    int ConflictingControllers,
     long RejectedRecords,
     int AuthorityLeaders,
     bool QuorumAvailable,
@@ -62,12 +109,21 @@ internal sealed record RegionalRuntimeMembershipHealth(
     RegionalRuntimeMembershipCondition Condition,
     DateTimeOffset ObservedAt)
 {
+    /// <param name="conflictingControllers">
+    /// The CURRENT number of conflicting sessions: slots whose live record is
+    /// classified conflicting against its immediately preceding observation. A
+    /// conflict stays current exactly until the surviving session's next renewal.
+    /// This is a gauge bounded by the observed slots, never a lifetime counter —
+    /// a cumulative value would eventually exceed the slot count and invalidate
+    /// every projection built from it.
+    /// </param>
     internal static RegionalRuntimeMembershipHealth Evaluate(
         string cell,
         int expectedControllers,
         IEnumerable<RegionalRuntimeMember> records,
         long rejectedRecords,
-        DateTimeOffset observedAt)
+        DateTimeOffset observedAt,
+        int conflictingControllers = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cell);
         ArgumentNullException.ThrowIfNull(records);
@@ -75,6 +131,8 @@ internal sealed record RegionalRuntimeMembershipHealth(
             throw new ArgumentOutOfRangeException(nameof(expectedControllers));
         if (rejectedRecords < 0)
             throw new ArgumentOutOfRangeException(nameof(rejectedRecords));
+        if (conflictingControllers < 0)
+            throw new ArgumentOutOfRangeException(nameof(conflictingControllers));
 
         var valid = records
             .Where(member => member.IsValidFor(cell, observedAt))
@@ -103,6 +161,7 @@ internal sealed record RegionalRuntimeMembershipHealth(
             stale,
             missing,
             unexpected,
+            conflictingControllers,
             rejectedRecords,
             leaders,
             quorum,
@@ -124,6 +183,7 @@ internal sealed record RegionalRuntimeMembershipHealth(
                 : RegionalRuntimeMembershipCondition.Degraded;
         if (ExpectedControllers is not (1 or 3 or 5) || ActiveControllers < 0 || StaleControllers < 0 ||
             MissingControllers != expectedMissing || UnexpectedControllers != expectedUnexpected ||
+            ConflictingControllers < 0 || ConflictingControllers > ActiveControllers + StaleControllers ||
             RejectedRecords < 0 || AuthorityLeaders < 0 || AuthorityLeaders > ActiveControllers ||
             QuorumAvailable != expectedQuorum || MaximumHeartbeatAgeMilliseconds < 0 ||
             Condition != expectedCondition || ObservedAt == default ||
@@ -174,7 +234,16 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
     private readonly IReadOnlyList<string> capabilities;
     private readonly DateTimeOffset startedAt;
     private readonly Func<RegionalAuthoritySnapshot> authority;
+    private readonly RegionalRuntimeMembershipIdentity identity;
+    private readonly bool ownsIdentity;
     private readonly ConcurrentDictionary<string, RegionalRuntimeMember> members = new(StringComparer.Ordinal);
+    // The immediately preceding record per slot: what the current record is
+    // classified against to derive CURRENT conflicting sessions. A conflict is
+    // current until the new session's next renewal proves it.
+    private readonly ConcurrentDictionary<string, RegionalRuntimeMember> previousMembers = new(StringComparer.Ordinal);
+    // Trust-on-first-use pins: the first correctly signed record for an instance slot
+    // fixes that instance's public key; later records must keep key continuity.
+    private readonly ConcurrentDictionary<string, string> identityPins = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource stopping = new();
     private readonly TaskCompletionSource selfObserved = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Task watchLoop;
@@ -190,7 +259,9 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         string build,
         IReadOnlyList<string> capabilities,
         DateTimeOffset startedAt,
-        Func<RegionalAuthoritySnapshot> authority)
+        Func<RegionalAuthoritySnapshot> authority,
+        RegionalRuntimeMembershipIdentity identity,
+        bool ownsIdentity)
     {
         this.store = store;
         this.topology = topology;
@@ -199,6 +270,8 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         this.capabilities = capabilities;
         this.startedAt = startedAt;
         this.authority = authority;
+        this.identity = identity;
+        this.ownsIdentity = ownsIdentity;
         key = $"controller.{topology.Instance}";
         watchLoop = WatchAsync(stopping.Token);
     }
@@ -217,12 +290,30 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
                 .Where(member => member.IsValidFor(topology.Cell, now) && member.LeaseExpiresAt > now)
                 .OrderBy(static member => member.Instance, StringComparer.Ordinal)
                 .ToArray();
+            // Conflicting sessions are a CURRENT gauge derived from the live
+            // records: each slot's current record classified against its
+            // immediately preceding observation. A lifetime counter here would
+            // eventually exceed the slot count and invalidate the projection.
+            var conflicting = 0;
+            foreach (var member in records)
+            {
+                if (!previousMembers.TryGetValue($"controller.{member.Instance}", out var previous)) continue;
+                if (RegionalRuntimeMembershipReader.Classify(
+                        topology.Cell,
+                        member.Instance,
+                        expectedInstances: null,
+                        previous: previous,
+                        record: member,
+                        now: now) == RegionalRuntimeMembershipRecordClass.ConflictingSession)
+                    conflicting++;
+            }
             var health = RegionalRuntimeMembershipHealth.Evaluate(
                 topology.Cell,
                 topology.Replicas,
                 records,
                 Interlocked.Read(ref rejectedRecords),
-                now);
+                now,
+                conflicting);
             return new(2, topology.Cell, now, health, active);
         }
     }
@@ -236,7 +327,8 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         IReadOnlyList<string> capabilities,
         DateTimeOffset startedAt,
         Func<RegionalAuthoritySnapshot> authority,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RegionalRuntimeMembershipIdentity? identity = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(topology);
@@ -258,7 +350,9 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             build,
             capabilities.ToArray(),
             startedAt,
-            authority);
+            authority,
+            identity ?? RegionalRuntimeMembershipIdentity.Create(),
+            ownsIdentity: identity is null);
         try
         {
             await membership.ClaimAsync(cancellationToken);
@@ -281,8 +375,17 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         if (heartbeatLoop is not null) await IgnoreCancellationAsync(heartbeatLoop);
         try
         {
-            if (revision != 0)
+            // The pure rule: only this session's own record, only under the
+            // compare-and-swap revision this process still holds. A newer owner
+            // must never lose its registration to a departing peer.
+            if (revision != 0 &&
+                RegionalRuntimeMembershipMutation.MayDeleteCurrentRecord(
+                    sessionId,
+                    members.GetValueOrDefault(key),
+                    revision))
+            {
                 await store.DeleteAsync(key, new NatsKVDeleteOpts { Revision = revision });
+            }
         }
         catch (NatsKVWrongLastRevisionException)
         {
@@ -291,6 +394,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         finally
         {
             stopping.Dispose();
+            if (ownsIdentity) identity.Dispose();
         }
     }
 
@@ -305,15 +409,52 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         }
         catch (Exception exception) when (exception is NatsKVCreateException or NatsKVWrongLastRevisionException)
         {
+        }
+
+        // The slot already exists. Re-read, decide, and execute under the observed
+        // revision; a lost compare-and-swap race (a concurrent healer won the same
+        // observed revision) re-reads the winner and re-decides rather than
+        // surfacing the raw KV revision exception.
+        for (var attempt = 0; ; attempt++)
+        {
             var current = await store.GetEntryAsync<string>(key, cancellationToken: cancellationToken);
             current.EnsureSuccess();
             var existing = Deserialize(current.Value);
             var now = DateTimeOffset.UtcNow;
             if (!existing.IsValidFor(topology.Cell, now) || existing.Instance != topology.Instance)
-                throw new InvalidOperationException("The regional runtime membership key contains an invalid record.");
-            if (existing.LeaseExpiresAt > now)
-                throw new InvalidOperationException($"Controller instance '{topology.Instance}' already has an active membership lease.");
-            revision = await store.UpdateAsync(key, value, current.Revision, cancellationToken: cancellationToken);
+                throw new InvalidOperationException(
+                    $"The regional runtime membership key '{key}' contains a record that is invalid or bound to " +
+                    "another instance. The record's own lease is the first recovery path; if the key stays wedged " +
+                    $"past it, an operator must purge '{key}' from the {topology.Runtime.Bucket} bucket after the " +
+                    "record's lease has lapsed, and this instance will then claim the empty slot.");
+            var decision = RegionalRuntimeMembershipMutation.Decide(
+                topology.Cell,
+                topology.Instance,
+                document,
+                existing,
+                now);
+            switch (decision)
+            {
+                case RegionalRuntimeMembershipMutationClass.TakeOverExpiredLease:
+                    // Healing: the previous semantic lease has fully lapsed, so the slot
+                    // is safely reclaimable under the observed revision.
+                    try
+                    {
+                        revision = await store.UpdateAsync(
+                            key, value, current.Revision, cancellationToken: cancellationToken);
+                        return;
+                    }
+                    catch (NatsKVWrongLastRevisionException) when (attempt < 2)
+                    {
+                        continue;
+                    }
+                case RegionalRuntimeMembershipMutationClass.HoldForLiveForeignLease:
+                    throw new InvalidOperationException(
+                        $"Controller instance '{topology.Instance}' already has an active membership lease.");
+                default:
+                    throw new InvalidOperationException(
+                        $"The regional runtime membership claim was refused ({decision}).");
+            }
         }
     }
 
@@ -336,6 +477,8 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             if (entry.Value is null)
             {
                 members.TryRemove(entry.Key, out _);
+                previousMembers.TryRemove(entry.Key, out _);
+                identityPins.TryRemove(entry.Key, out _);
                 continue;
             }
 
@@ -348,6 +491,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             {
                 Interlocked.Increment(ref rejectedRecords);
                 members.TryRemove(entry.Key, out _);
+                previousMembers.TryRemove(entry.Key, out _);
                 continue;
             }
             if (!member.IsValidFor(topology.Cell, DateTimeOffset.UtcNow) ||
@@ -355,8 +499,40 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             {
                 Interlocked.Increment(ref rejectedRecords);
                 members.TryRemove(entry.Key, out _);
+                previousMembers.TryRemove(entry.Key, out _);
                 continue;
             }
+            if (!member.VerifySignedIdentity())
+            {
+                Interlocked.Increment(ref rejectedRecords);
+                members.TryRemove(entry.Key, out _);
+                previousMembers.TryRemove(entry.Key, out _);
+                continue;
+            }
+            var pinnedKey = identityPins.GetOrAdd(entry.Key, member.IdentityPublicKey);
+            if (pinnedKey != member.IdentityPublicKey)
+            {
+                // Key continuity: a different key is only accepted as a healing
+                // takeover once the previously observed record's lease has fully
+                // lapsed. Under a live lease the slot's key may not change.
+                var pinnedPrevious = members.GetValueOrDefault(entry.Key);
+                if (pinnedPrevious is null || pinnedPrevious.LeaseExpiresAt > DateTimeOffset.UtcNow)
+                {
+                    Interlocked.Increment(ref rejectedRecords);
+                    members.TryRemove(entry.Key, out _);
+                    previousMembers.TryRemove(entry.Key, out _);
+                    continue;
+                }
+                identityPins[entry.Key] = member.IdentityPublicKey;
+            }
+
+            // Stash the outgoing record unconditionally: the snapshot's CURRENT
+            // conflicting-session gauge classifies the live record against the
+            // immediately preceding one. A session change under a still-live
+            // lease stays counted as a current conflict exactly until the new
+            // session's next renewal replaces the stashed predecessor.
+            if (members.TryGetValue(entry.Key, out var previous))
+                previousMembers[entry.Key] = previous;
 
             members[entry.Key] = member;
             if (entry.Key == key && member.SessionId == sessionId)
@@ -370,7 +546,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         var authoritySnapshot = authority();
         if (!authoritySnapshot.Ready)
             throw new InvalidOperationException("A controller cannot advertise membership without current regional authority state.");
-        return new(
+        var unsigned = new RegionalRuntimeMember(
             1,
             topology.Cell,
             $"orchestrator-control-{topology.Cell}",
@@ -384,7 +560,11 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
             authoritySnapshot.State,
             authoritySnapshot.IsLeader,
             authoritySnapshot.Epoch,
-            authoritySnapshot.KvRevision);
+            authoritySnapshot.KvRevision,
+            identity.KeyId,
+            identity.PublicKey,
+            string.Empty);
+        return unsigned with { IdentitySignature = identity.Sign(unsigned) };
     }
 
     private static string Serialize(RegionalRuntimeMember member) => JsonSerializer.Serialize(

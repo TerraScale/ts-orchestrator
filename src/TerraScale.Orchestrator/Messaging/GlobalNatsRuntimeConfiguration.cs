@@ -41,7 +41,8 @@ public sealed class GlobalDirectoryNatsConfiguration
         NatsAuthenticationFiles authentication,
         NatsTlsFiles tls,
         int replicas,
-        string cell)
+        string cell,
+        IReadOnlyList<string>? endpoints = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "tls")
             throw new ArgumentException("The global directory NATS URL must be an absolute tls:// URL.", nameof(url));
@@ -51,12 +52,17 @@ public sealed class GlobalDirectoryNatsConfiguration
             throw new ArgumentException("The global directory requires exactly three replicas.", nameof(replicas));
         if (!CellTokenRule.IsValid(cell))
             throw new ArgumentException("The global directory cell is invalid.", nameof(cell));
+        if (endpoints is { Count: > 8 } ||
+            endpoints is not null && endpoints.Any(endpoint => !GlobalCellAdvertisement.IsControlEndpoint(endpoint)))
+            throw new ArgumentException(
+                "The advertised cell endpoints must be valid control endpoints (at most eight).", nameof(endpoints));
 
         Url = uri.ToString();
         Authentication = authentication;
         Tls = tls;
         Replicas = replicas;
         Cell = cell;
+        Endpoints = (endpoints ?? Array.Empty<string>()).Order(StringComparer.Ordinal).ToArray();
     }
 
     internal string Url { get; }
@@ -64,6 +70,12 @@ public sealed class GlobalDirectoryNatsConfiguration
     internal NatsTlsFiles Tls { get; }
     internal int Replicas { get; }
     internal string Cell { get; }
+
+    /// <summary>
+    /// The cell's advertised control-plane endpoints. Publishing an advertisement
+    /// requires at least one; a watch-only composition may leave them empty.
+    /// </summary>
+    internal IReadOnlyList<string> Endpoints { get; }
 
     internal GlobalNatsAccessPlan AccessPlan =>
         GlobalNatsAccessContract.Create(Cell, GlobalNatsCapability.CellDirectoryPublisher);
@@ -86,10 +98,14 @@ public sealed class GlobalDirectoryNatsConfiguration
         string? certificateFile,
         string? keyFile,
         int replicas,
-        string cell)
+        string cell,
+        string? endpoints = null)
     {
         var values = new[] { url, nkeyFile, credentialsFile, caFile, certificateFile, keyFile };
         var supplied = values.Count(static value => !string.IsNullOrWhiteSpace(value));
+        // Validate the endpoints value even when no other setting is supplied, so a
+        // stray TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS cannot survive unnoticed.
+        var advertisedEndpoints = ParseEndpoints(endpoints);
         if (supplied == 0) return null;
         ValidateCell(cell);
         var authentication = NatsAuthenticationFiles.Resolve(
@@ -111,7 +127,33 @@ public sealed class GlobalDirectoryNatsConfiguration
                 keyFile,
                 "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS")!,
             replicas,
-            cell);
+            cell,
+            advertisedEndpoints);
+    }
+
+    /// <summary>
+    /// Parses and validates the advertised cell endpoints from the composition
+    /// value <c>TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS</c>: a comma- or
+    /// semicolon-separated list of one to eight absolute control endpoints. An
+    /// absent or blank value yields null (a legal watch-only composition); a
+    /// supplied value must be entirely valid.
+    /// </summary>
+    internal static IReadOnlyList<string>? ParseEndpoints(string? endpoints)
+    {
+        if (string.IsNullOrWhiteSpace(endpoints)) return null;
+        var parsed = endpoints
+            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+        if (parsed.Length == 0 || parsed.Length > 8 ||
+            parsed.Any(endpoint => !GlobalCellAdvertisement.IsControlEndpoint(endpoint)))
+        {
+            throw new ArgumentException(
+                "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS must be a comma- or semicolon-separated list of one to eight " +
+                "absolute control endpoints (scheme, lowercase host, explicit port, no path, query, fragment, or " +
+                "user information).",
+                nameof(endpoints));
+        }
+        return parsed.Order(StringComparer.Ordinal).ToArray();
     }
 
     private static void ValidateCell(string cell)

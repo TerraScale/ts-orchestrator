@@ -232,6 +232,7 @@ internal sealed class OrchestratorTelemetry : IDisposable
         yield return new(health.StaleControllers, MembershipTags("stale", health.Condition));
         yield return new(health.MissingControllers, MembershipTags("missing", health.Condition));
         yield return new(health.UnexpectedControllers, MembershipTags("unexpected", health.Condition));
+        yield return new(health.ConflictingControllers, MembershipTags("conflicting", health.Condition));
     }
 
     private IEnumerable<Measurement<long>> ObserveMembershipQuorum()

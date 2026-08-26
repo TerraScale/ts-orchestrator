@@ -117,7 +117,8 @@ public sealed class NatsControlR3L0cTests
                 fixture.CellDirectoryPublisher.CertificateFile,
                 fixture.CellDirectoryPublisher.KeyFile),
             3,
-            "sfo");
+            "sfo",
+            ["tls://control-sfo.internal:4222"]);
         var serviceConfiguration = new GlobalDirectoryServiceNatsConfiguration(
             endpoint,
             NatsAuthenticationFiles.FromCredentialsFile(
@@ -391,6 +392,26 @@ public sealed class NatsControlR3L0cTests
             message => message.ReplyAsync("directory-snapshot"),
             name: "cells",
             subject: GlobalNatsTopology.CellDirectorySubject);
+
+        // The endpoint registration gossips across the three R3 members; the
+        // first request can arrive before interest has converged, which surfaces
+        // as no-responders. Retry the warm-up request, not the assertions below.
+        for (var attempt = 0; attempt < 50; attempt++)
+        {
+            try
+            {
+                var warmup = await reader.RequestAsync<string, string>(
+                    GlobalNatsTopology.CellDirectorySubject,
+                    "warmup");
+                warmup.EnsureSuccess();
+                await Assert.That(warmup.Data).IsEqualTo("directory-snapshot");
+                break;
+            }
+            catch (NatsException) when (attempt < 49)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+        }
 
         var response = await reader.RequestAsync<string, string>(
             GlobalNatsTopology.CellDirectorySubject,
@@ -838,11 +859,13 @@ public sealed class NatsControlR3L0cTests
             0,
             0,
             0,
+            0,
             1,
             true,
             0,
             RegionalRuntimeMembershipCondition.Healthy,
             observedAt);
+        using var identity = RegionalRuntimeMembershipIdentity.Create();
         var member = new RegionalRuntimeMember(
             1,
             "sfo",
@@ -857,7 +880,11 @@ public sealed class NatsControlR3L0cTests
             "leader",
             true,
             1,
-            1);
+            1,
+            identity.KeyId,
+            identity.PublicKey,
+            string.Empty);
+        member = member with { IdentitySignature = identity.Sign(member) };
         return new(2, "sfo", observedAt, health, [member]);
     }
 

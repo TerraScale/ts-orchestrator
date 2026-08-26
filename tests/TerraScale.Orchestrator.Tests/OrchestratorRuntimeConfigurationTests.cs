@@ -157,7 +157,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 globalDirectoryServiceNatsNKeyFile = "/run/credentials/global-directory-service.nk",
                 globalDirectoryServiceNatsTlsCaFile = "/run/credentials/global-ca.pem",
                 globalDirectoryServiceNatsTlsCertificateFile = "/run/credentials/global-directory-service.pem",
-                globalDirectoryServiceNatsTlsKeyFile = "/run/credentials/global-directory-service-key.pem"
+                globalDirectoryServiceNatsTlsKeyFile = "/run/credentials/global-directory-service-key.pem",
+                globalDirectoryEndpoints = "tls://control-gru-a.internal:4222,tls://control-gru-b.internal:4222"
             }));
 
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
@@ -170,6 +171,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 .IsEqualTo("tls://control-nats-gru.internal:4222");
             await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE"))
                 .IsEqualTo("/run/credentials/global-directory-service.nk");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS"))
+                .IsEqualTo("tls://control-gru-a.internal:4222,tls://control-gru-b.internal:4222");
         }
         finally
         {
