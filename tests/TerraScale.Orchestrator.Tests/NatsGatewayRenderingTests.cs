@@ -98,6 +98,60 @@ public sealed class NatsGatewayRenderingTests
     }
 
     [Test]
+    public async Task SingleServerClusterRendersItsOwnRouteAsTheSelfRoute()
+    {
+        // The RF1 shape: one server per regional cluster. The rendered cluster
+        // block must solicit exactly that server's own route endpoint — the
+        // upstream single-node shape the pinned server requires before
+        // clustered JetStream (which a gateway listener always implies) may
+        // start — and no sibling route.
+        var plan = NatsGatewayPlaneTopology.CreateControlSupercluster();
+        var singleServer = new NatsGatewayPlan(
+            plan.Plane,
+            plan.OperatorName,
+            plan.TrustGeneration,
+            plan.ConfigurationGeneration,
+            [.. plan.Clusters.Select(cluster => cluster.Cell == "sfo"
+                ? new NatsGatewayCluster(
+                    cluster.Plane, cluster.Cell, cluster.ClusterName, cluster.JetStreamDomain,
+                    cluster.OperatorName,
+                    [cluster.Server("sfo-control-nats-1")],
+                    cluster.Accounts, cluster.JetStreamAssets,
+                    cluster.CgroupSlice, cluster.TrustGeneration,
+                    cluster.ConfigurationGeneration)
+                : cluster)],
+            plan.GatewayRelationships,
+            plan.Accounts,
+            plan.Exports,
+            plan.Imports);
+        var rendered = NatsGatewayConfigurationRenderer.Render(singleServer, "sfo", "sfo-control-nats-1", Context());
+
+        await Assert.That(rendered).Contains("cluster {");
+        await Assert.That(rendered).Contains("name: \"orchestrator-control-sfo\"");
+        await Assert.That(rendered).Contains("host: \"seed-1.sfo.internal.terrascale.tech\"");
+        await Assert.That(rendered).Contains("port: 6222");
+        await Assert.That(rendered)
+            .Contains("routes: [\"nats-route://seed-1.sfo.internal.terrascale.tech:6222\"]");
+        await Assert.That(rendered.Contains(
+                "nats-route://seed-2.sfo.internal.terrascale.tech",
+                StringComparison.Ordinal))
+            .IsFalse();
+        await Assert.That(rendered.Contains(
+                "nats-route://seed-3.sfo.internal.terrascale.tech",
+                StringComparison.Ordinal))
+            .IsFalse();
+        // The multi-server shape is unchanged: a peer's rendering still
+        // solicits siblings and never itself.
+        var multiServer = NatsGatewayConfigurationRenderer.Render(plan, "sfo", "sfo-control-nats-2", Context());
+        await Assert.That(multiServer).Contains(
+            "\"nats-route://seed-1.sfo.internal.terrascale.tech:6222\", \"nats-route://seed-3.sfo.internal.terrascale.tech:6222\"");
+        await Assert.That(multiServer.Contains(
+                "nats-route://seed-2.sfo.internal.terrascale.tech",
+                StringComparison.Ordinal))
+            .IsFalse();
+    }
+
+    [Test]
     public async Task RenderContextRejectsHostileStringsBeforeAnyRendering()
     {
         // The public key is emitted unquoted as a resolver_preload map key, so

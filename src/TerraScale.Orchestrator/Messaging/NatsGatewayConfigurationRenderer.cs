@@ -144,11 +144,17 @@ internal static partial class NatsGatewayConfigurationRenderer
         builder.Append("  domain: \"").Append(cluster.JetStreamDomain).Append('"').AppendLine();
         builder.Append("  store_dir: \"").Append(server.StoreDirectory).Append('"').AppendLine();
         builder.Append('}').AppendLine();
-        // A cluster block makes JetStream clustered, and clustered JetStream
-        // requires routes: a single-server regional cluster renders no cluster
-        // block and runs standalone inside the gateway supercluster.
-        if (cluster.Servers.Count > 1)
-            AppendCluster(builder, cluster, server);
+        // Every cluster renders a cluster block, including single-server
+        // clusters, which solicit their own route endpoint — the upstream
+        // single-node shape. The load-bearing case is a server with a
+        // gateway listener: the pinned server treats it as never
+        // JetStream-standalone, starts clustered JetStream, and refuses to
+        // start without a configured route. For a single-server cluster
+        // without a gateway listener the self-route is a harmless change of
+        // label — standalone JetStream becomes a one-node JetStream cluster
+        // with itself as meta leader — and no landed plan declares that
+        // shape today.
+        AppendCluster(builder, cluster, server);
         if (server.Gateway is not null)
             AppendGateway(builder, plan, cluster, server);
         return builder.ToString();
@@ -240,6 +246,13 @@ internal static partial class NatsGatewayConfigurationRenderer
             .Where(peer => peer.ServerName != server.ServerName)
             .Select(peer => $"nats-route://{peer.Route.Qualified}")
             .Order(StringComparer.Ordinal)
+            // A single-server cluster solicits its own route endpoint. The
+            // server ignores the self-connection at runtime, but the pinned
+            // server requires a configured route before clustered JetStream
+            // may start — and a gateway listener always implies clustered
+            // JetStream. Gateway-less single-server clusters render the same
+            // self-route; for them it is harmless (see Render).
+            .DefaultIfEmpty($"nats-route://{server.Route.Qualified}")
             .ToArray();
         if (routes.Length > 0)
         {
