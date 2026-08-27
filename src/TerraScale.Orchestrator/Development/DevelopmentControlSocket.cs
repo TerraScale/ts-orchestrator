@@ -105,12 +105,13 @@ internal static partial class DevelopmentReconcilePlanner
     /// every changed path is non-runtime content (docs, tests, CI, agent rules).
     /// </summary>
     internal static bool SupportsNoRuntimeUpdates(string repository) =>
-        repository is "TerraScale.Internals" or "TerraBase";
+        repository is "TerraScale.Internals" or "TerraBase" or "TerraScale.Dashboard";
 
     internal static bool IsNonRuntimePath(string repository, string path) => repository switch
     {
         "TerraScale.Internals" => IsNonRuntimeInternalsPath(path),
         "TerraBase" => IsNonRuntimeTerraBasePath(path),
+        "TerraScale.Dashboard" => IsNonRuntimeDashboardPath(path),
         _ => false
     };
 
@@ -181,6 +182,42 @@ internal static partial class DevelopmentReconcilePlanner
         return !path.Contains('/') && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Paths that never map to a development workload for the standalone
+    /// TerraScale.Dashboard repository. Docs, browser/e2e tests, and agent/CI
+    /// rules may pull without replacing the dashboard workload. Unknown root
+    /// paths stay runtime (fail toward replacement, not silence), matching the
+    /// TerraBase policy: app/, src/, public/, types/, scripts/, and every build
+    /// config file rebuild the dashboard.
+    /// </summary>
+    internal static bool IsNonRuntimeDashboardPath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        if (path.StartsWith("docs/", StringComparison.Ordinal) ||
+            path.StartsWith("e2e/", StringComparison.Ordinal) ||
+            path.StartsWith("tests/", StringComparison.Ordinal) ||
+            path.StartsWith(".forgejo/", StringComparison.Ordinal) ||
+            path.StartsWith(".github/", StringComparison.Ordinal) ||
+            path.StartsWith(".agents/", StringComparison.Ordinal) ||
+            path.StartsWith(".codex/", StringComparison.Ordinal) ||
+            path.StartsWith(".terrascale/", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (path is "playwright.config.ts" or "AGENTS.md" or "CLAUDE.md" or "PLAN.md")
+        {
+            return true;
+        }
+
+        // Root-level markdown only (README.md, DESIGN_SYSTEM.md, etc.).
+        return !path.Contains('/') && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static HashSet<DevelopmentResourceKind> Impact(
         string repository,
         IReadOnlyList<string> paths)
@@ -197,6 +234,12 @@ internal static partial class DevelopmentReconcilePlanner
                     DevelopmentResourceKind.Dashboard
                 ];
         }
+        if (repository == "TerraScale.Dashboard")
+        {
+            return paths.All(path => IsNonRuntimeDashboardPath(path))
+                ? []
+                : [DevelopmentResourceKind.Dashboard];
+        }
         if (repository != "TerraScale.Internals")
         {
             throw new InvalidDataException("The repository has no safe development workload mapping.");
@@ -205,11 +248,7 @@ internal static partial class DevelopmentReconcilePlanner
         var kinds = new HashSet<DevelopmentResourceKind>();
         foreach (var path in paths)
         {
-            if (path.StartsWith("src/Dashboard/", StringComparison.Ordinal))
-            {
-                kinds.Add(DevelopmentResourceKind.Dashboard);
-            }
-            else if (path.StartsWith("src/Platform/", StringComparison.Ordinal))
+            if (path.StartsWith("src/Platform/", StringComparison.Ordinal))
             {
                 kinds.Add(DevelopmentResourceKind.Platform);
                 kinds.Add(DevelopmentResourceKind.Dashboard);

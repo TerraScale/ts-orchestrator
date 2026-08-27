@@ -96,28 +96,27 @@ internal static class DevelopmentArtifactBuilder
 
         if (affectedKinds is null || affectedKinds.Contains(DevelopmentResourceKind.Dashboard))
         {
-            var dashboard = Path.Combine(
-                workspaceRoot,
-                "TerraScale.Internals",
-                "src",
-                "Dashboard",
-                "TerraScale.Dashboard.Next");
+            // The dashboard lives in its own repository; a fresh clone ships
+            // without node_modules, so every rebuild installs from the lock
+            // file before building (mirroring the TerraBase Studio recipe).
+            var dashboardRepository = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
             if (!TrySkip(
                     dataDirectory,
                     DevelopmentResourceKind.Dashboard,
-                    internalsRepository,
-                    dashboard,
+                    dashboardRepository,
+                    dashboardRepository,
                     [],
                     DashboardBuilderDigest()))
             {
-                var state = ReadRepositoryState(internalsRepository);
-                await RunAsync("npm", ["run", "build"], dashboard, cancellationToken);
-                DevelopmentDashboardArtifact.Snapshot(dashboard, dataDirectory);
+                var state = ReadRepositoryState(dashboardRepository);
+                await RunNpmAsync(["ci", "--no-audit", "--no-fund"], dashboardRepository, cancellationToken);
+                await RunNpmAsync(["run", "build"], dashboardRepository, cancellationToken);
+                DevelopmentDashboardArtifact.Snapshot(dashboardRepository, dataDirectory);
                 WriteStamp(
                     dataDirectory,
                     DevelopmentResourceKind.Dashboard,
-                    internalsRepository,
-                    dashboard,
+                    dashboardRepository,
+                    dashboardRepository,
                     DashboardBuilderDigest(),
                     state);
             }
@@ -270,6 +269,7 @@ internal static class DevelopmentArtifactBuilder
     internal static string DashboardBuilderDigest() => Digest(
         StampSchema,
         "dashboard",
+        "npm-ci",
         "npm-run-build",
         "snapshot-standalone");
 

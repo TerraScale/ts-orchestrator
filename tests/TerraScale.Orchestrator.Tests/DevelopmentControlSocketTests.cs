@@ -11,7 +11,10 @@ public sealed class DevelopmentControlSocketTests
     {
         var dashboard = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
-            Request("TerraScale.Internals", ["src/Dashboard/TerraScale.Dashboard.Next/app/page.tsx"]));
+            Request("TerraScale.Dashboard", ["app/page.tsx"]));
+        var internalsPlatform = DevelopmentReconcilePlanner.Plan(
+            DevelopmentTopology.CreateRegional(),
+            Request("TerraScale.Internals", ["src/Platform/TerraScale.Platform/Program.cs"]));
         var terraBase = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request("TerraBase", ["src/TerraBase.Server/Program.cs"]));
@@ -19,6 +22,11 @@ public sealed class DevelopmentControlSocketTests
         await Assert.That(dashboard.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
         await Assert.That(dashboard.Resources.Count).IsEqualTo(3);
+        await Assert.That(internalsPlatform.Resources.Select(resource => resource.Kind).Distinct())
+            .IsEquivalentTo([
+                DevelopmentResourceKind.Platform,
+                DevelopmentResourceKind.Dashboard
+            ]);
         await Assert.That(terraBase.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([
                 DevelopmentResourceKind.TerraBase,
@@ -27,6 +35,30 @@ public sealed class DevelopmentControlSocketTests
                 DevelopmentResourceKind.Dashboard
             ]);
         await Assert.That(terraBase.Resources.Count).IsEqualTo(12);
+    }
+
+    [Test]
+    public async Task NonRuntimeDashboardUpdatesAreNoOp()
+    {
+        var topology = DevelopmentTopology.CreateRegional();
+
+        var docsOnly = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Dashboard", ["docs/architecture.md", "README.md", "e2e/login.spec.ts"]));
+        await Assert.That(docsOnly.Resources).IsEmpty();
+        await Assert.That(docsOnly.ReconciliationId).IsNotNull().And.IsNotEmpty();
+
+        // Mixed content still replaces every regional dashboard replica.
+        var mixed = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Dashboard", ["docs/architecture.md", "app/page.tsx"]));
+        await Assert.That(mixed.Resources.Count).IsEqualTo(3);
+
+        // Unknown root paths stay runtime (fail toward replacement, not silence).
+        var unknownRoot = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Dashboard", ["package.json"]));
+        await Assert.That(unknownRoot.Resources.Count).IsEqualTo(3);
     }
 
     [Test]
@@ -172,8 +204,8 @@ public sealed class DevelopmentControlSocketTests
                     null);
             });
             var request = Request(
-                "TerraScale.Internals",
-                ["src/Dashboard/TerraScale.Dashboard.Next/app/page.tsx"]);
+                "TerraScale.Dashboard",
+                ["app/page.tsx"]);
             var first = await SendAsync(path, request);
             var duplicate = await SendAsync(path, request);
             var conflict = await SendAsync(path, request with
