@@ -14,6 +14,14 @@ public static class DevelopmentLab
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
+    /// <summary>
+    /// How long the steady-state health loop tolerates a readiness endpoint answering
+    /// 5xx before the 3-strike restart path may escalate. Matches the TerraBase lab
+    /// rehab window (<c>TimeBeforeMovingToRehabInSec=300</c>) so a maintenance
+    /// pass on the sole RF=1 member does not recycle the consumers waiting on it.
+    /// </summary>
+    private static readonly TimeSpan ReadinessPendingBudget = TimeSpan.FromMinutes(5);
+
     public static async Task<int> ExecuteAsync(
         OrchestratorOptions options,
         CancellationToken cancellationToken)
@@ -187,6 +195,7 @@ public static class DevelopmentLab
                     DevelopmentGuards.RequireLabOption(options.SocketFile, nameof(options.SocketFile)),
                     request => AcceptReconciliation(topology, reconciliationQueue, reconciliations, request));
                 var consecutiveUnhealthyObservations = new Dictionary<string, int>(StringComparer.Ordinal);
+                var readinessPendingSince = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
@@ -215,6 +224,7 @@ public static class DevelopmentLab
                             cancellationToken))
                     {
                         consecutiveUnhealthyObservations.Clear();
+                        readinessPendingSince.Clear();
                         continue;
                     }
                     // Probe identities (operator-read, platform, controllers) are the leaves
@@ -285,6 +295,7 @@ public static class DevelopmentLab
                             cancellationToken))
                     {
                         consecutiveUnhealthyObservations.Clear();
+                        readinessPendingSince.Clear();
                         continue;
                     }
                     // Unexpected exits cannot be healed by restarting onto expired PEMs.
@@ -306,6 +317,7 @@ public static class DevelopmentLab
                             cancellationToken))
                     {
                         consecutiveUnhealthyObservations.Clear();
+                        readinessPendingSince.Clear();
                         continue;
                     }
                     foreach (var resourceName in exitedResources)
@@ -319,6 +331,7 @@ public static class DevelopmentLab
                             continue;
                         }
                         consecutiveUnhealthyObservations[resourceName] = 0;
+                        readinessPendingSince.Remove(resourceName);
                         Console.WriteLine($"Restarted development resource {resourceName} after an unexpected exit.");
                     }
                     var health = await DevelopmentHealthProbe.ProbeAsync(
@@ -352,6 +365,7 @@ public static class DevelopmentLab
                         // operator-read / controller / platform handshakes that fail x509
                         // verification cannot be healed by RestartAsync on the same PEMs.
                         consecutiveUnhealthyObservations.Clear();
+                        readinessPendingSince.Clear();
                         continue;
                     }
                     foreach (var observation in health)
@@ -359,6 +373,7 @@ public static class DevelopmentLab
                         if (observation.Value.Healthy)
                         {
                             consecutiveUnhealthyObservations[observation.Key] = 0;
+                            readinessPendingSince.Remove(observation.Key);
                             continue;
                         }
 
@@ -454,7 +469,36 @@ public static class DevelopmentLab
                             supervisor.IsWithinStartupGrace(observation.Key, TimeSpan.FromSeconds(90)))
                         {
                             consecutiveUnhealthyObservations[observation.Key] = 0;
+                            readinessPendingSince.Remove(observation.Key);
                             continue;
+                        }
+
+                        // A readiness endpoint answering 5xx means the process is alive and
+                        // serving HTTP while a dependency converges (Authentication
+                        // InternalRpc peer, regional queue evidence, TerraBase placement) —
+                        // the pending contract the startup waits already tolerate.
+                        // Restarting destroys the recovering process's warm state and
+                        // cascades to dependents for what is a transient dependency blip
+                        // (fingerprint 621e51bec857… / sfo-platform restarted on a 15s
+                        // /health/ready 503 flap 88 minutes into steady state). Wait out
+                        // the blip within ReadinessPendingBudget; a process that stays
+                        // not-ready past it still reaches the 3-strike restart below.
+                        if (observation.Value.ReadinessPending)
+                        {
+                            if (!readinessPendingSince.TryGetValue(observation.Key, out var pendingSince))
+                            {
+                                pendingSince = DateTimeOffset.UtcNow;
+                                readinessPendingSince[observation.Key] = pendingSince;
+                            }
+                            if (DateTimeOffset.UtcNow - pendingSince < ReadinessPendingBudget)
+                            {
+                                consecutiveUnhealthyObservations[observation.Key] = 0;
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            readinessPendingSince.Remove(observation.Key);
                         }
 
                         var failures = consecutiveUnhealthyObservations.GetValueOrDefault(observation.Key) + 1;
@@ -2512,6 +2556,7 @@ public static class DevelopmentLab
                                 cancellationToken))
                         {
                             consecutiveUnhealthyObservations.Clear();
+                            readinessPendingSince.Clear();
                             break;
                         }
                         if (!await TryRestartRuntimeAsync(
@@ -2523,6 +2568,7 @@ public static class DevelopmentLab
                             continue;
                         }
                         consecutiveUnhealthyObservations[observation.Key] = 0;
+                        readinessPendingSince.Remove(observation.Key);
                         Console.WriteLine(
                             $"Restarted unhealthy development resource {observation.Key}: {observation.Value.Detail}");
                     }

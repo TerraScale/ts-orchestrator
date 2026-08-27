@@ -1,5 +1,6 @@
 using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
+using System.Net;
 using System.Security.Cryptography.X509Certificates;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -7385,6 +7386,57 @@ public sealed class DevelopmentNatsSecurityTests
             .IsFalse();
         await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
                 "Health probe failed: Connection refused"))
+            .IsFalse();
+    }
+
+    [Test]
+    public async Task ReadinessServerErrorsArePendingInsteadOfRestartableProbeFailures()
+    {
+        // Fingerprint 621e51bec857…: the steady-state loop logged "Restarted
+        // unhealthy development resource sfo-platform: Health probe failed:
+        // Response status code does not indicate success: 503 (Service
+        // Unavailable)." 88 minutes into generation 24, after /health/ready
+        // answered 503 on three consecutive 5-second probes. A 5xx from a
+        // readiness endpoint is a live process whose aggregated checks
+        // (Authentication InternalRpc peer, regional queue leadership evidence,
+        // TerraBase placement) report a dependency as momentarily unavailable —
+        // the same pending contract the startup waits already tolerate. Such an
+        // answer must classify as readiness-pending so the health loop waits out
+        // the blip within its budget instead of feeding the 3-strike restart
+        // that killed the recovering process and cascaded to its dependents.
+        foreach (var readinessKind in new[]
+                 {
+                     DevelopmentResourceKind.Authentication,
+                     DevelopmentResourceKind.Platform,
+                     DevelopmentResourceKind.Dashboard
+                 })
+        {
+            var path = DevelopmentHealthProbe.HealthPath(readinessKind);
+            await Assert.That(path).IsEqualTo("/health/ready");
+            await Assert.That(DevelopmentHealthProbe.IsReadinessPendingResponse(
+                    path, HttpStatusCode.ServiceUnavailable))
+                .IsTrue();
+            await Assert.That(DevelopmentHealthProbe.IsReadinessPendingResponse(
+                    path, HttpStatusCode.InternalServerError))
+                .IsTrue();
+        }
+        // A 4xx from a readiness endpoint is a wiring bug, not convergence.
+        await Assert.That(DevelopmentHealthProbe.IsReadinessPendingResponse(
+                "/health/ready", HttpStatusCode.NotFound))
+            .IsFalse();
+        // TerraBase probe paths are not readiness contracts: a 5xx there keeps
+        // RestartAsync as the remedy.
+        await Assert.That(DevelopmentHealthProbe.IsReadinessPendingResponse(
+                DevelopmentHealthProbe.HealthPath(DevelopmentResourceKind.TerraBase),
+                HttpStatusCode.ServiceUnavailable))
+            .IsFalse();
+        await Assert.That(DevelopmentHealthProbe.IsReadinessPendingResponse(
+                "/studio/index.html", HttpStatusCode.ServiceUnavailable))
+            .IsFalse();
+        // Pending detail must stay clear of the certificate-failure classifier
+        // so it can never be misrouted into force-remint recovery.
+        await Assert.That(DevelopmentLab.LooksLikeCertificateFailure(
+                "Health probe failed: HTTP 503 (Service Unavailable) from /health/ready"))
             .IsFalse();
     }
 

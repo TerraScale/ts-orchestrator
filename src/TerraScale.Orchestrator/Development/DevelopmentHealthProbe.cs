@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
@@ -10,7 +11,16 @@ using Cysharp.Text;
 
 namespace TerraScale.Orchestrator.Development;
 
-internal sealed record DevelopmentResourceHealth(bool Healthy, string Detail);
+internal sealed record DevelopmentResourceHealth(bool Healthy, string Detail, bool ReadinessPending = false);
+
+/// <summary>
+/// Thrown when a readiness endpoint answered over HTTP with a server error: the
+/// process is alive and serving requests, but its aggregated checks (Authentication
+/// InternalRpc peer, regional queue evidence, TerraBase placement) report not-ready
+/// right now. Distinct from transport failures so the health loop can wait out
+/// transient dependency blips instead of restarting a process that is recovering.
+/// </summary>
+internal sealed class DevelopmentReadinessPendingException(string message) : Exception(message);
 
 internal static class DevelopmentHealthProbe
 {
@@ -193,6 +203,13 @@ internal static class DevelopmentHealthProbe
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
             }
         }
+        catch (DevelopmentReadinessPendingException exception)
+        {
+            return (resource.Name, new(
+                false,
+                FormatProbeFailure(exception),
+                ReadinessPending: true));
+        }
         catch (Exception exception) when (
             exception is HttpRequestException
                 or SocketException
@@ -220,8 +237,29 @@ internal static class DevelopmentHealthProbe
         CancellationToken cancellationToken)
     {
         using var response = await HttpProbeClient.GetAsync($"http://127.0.0.1:{port}{path}", cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+        if (IsReadinessPendingResponse(path, response.StatusCode))
+        {
+            var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+                ? response.StatusCode.ToString()
+                : response.ReasonPhrase;
+            throw new DevelopmentReadinessPendingException(
+                $"HTTP {(int)response.StatusCode} ({reason}) from {path}");
+        }
         response.EnsureSuccessStatusCode();
     }
+
+    /// <summary>
+    /// A 5xx answer from a readiness endpoint means the process is alive and serving
+    /// HTTP while a dependency converges — the same pending contract the startup
+    /// wait loops already tolerate. TerraBase probe paths and 4xx answers stay hard
+    /// failures: RestartAsync remains the remedy for those.
+    /// </summary>
+    internal static bool IsReadinessPendingResponse(string path, HttpStatusCode statusCode) =>
+        path == HealthPath(DevelopmentResourceKind.Platform) && (int)statusCode >= 500;
 
     private static async Task ProbeTcpAsync(int port, CancellationToken cancellationToken)
     {
