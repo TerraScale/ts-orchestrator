@@ -37,6 +37,46 @@ public sealed class DirectDeliveryCommandWireTests
     }
 
     [Test]
+    public async Task VersionOneReceiptsMatchTheDeployWireFixtures()
+    {
+        var source = new DeliverySource("TerraScale/TerraScale.Orchestrator", new string('a', 40), ValidDigest);
+        var target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]);
+        var rollback = new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired, null);
+        var success = new DeliveryReceipt(
+            1,
+            "operation-1",
+            DeliveryReceiptStatus.Succeeded,
+            source,
+            ArtifactDigest,
+            target,
+            new DeliveryProvenance(true, ValidDigest, null),
+            new DeliveryHealth([new DeliveryHealthCheck("http", DeliveryHealthStatus.Passed)], true),
+            rollback,
+            "audit-1",
+            new DeliveryErrorInfo(null, null, null),
+            ValidDigest);
+        var preArtifactFailure = new DeliveryReceipt(
+            1,
+            "operation-1",
+            DeliveryReceiptStatus.Failed,
+            source,
+            null,
+            target,
+            new DeliveryProvenance(false, ValidDigest, null),
+            new DeliveryHealth([], false),
+            rollback,
+            "audit-1",
+            new DeliveryErrorInfo(
+                DirectDeliveryErrorCode.UnauthorizedActor,
+                "The actor is not authorized for this target.",
+                "Use an authenticated actor with deployment permission."),
+            null);
+
+        await Assert.That(DeliveryWireCodec.SerializeReceipt(success)).IsEqualTo(SuccessReceiptJson);
+        await Assert.That(DeliveryWireCodec.SerializeReceipt(preArtifactFailure)).IsEqualTo(PreArtifactFailureReceiptJson);
+    }
+
+    [Test]
     public async Task Authority_generation_writer_epoch_and_attempt_are_carried_and_signed()
     {
         using var identity = KeyIdentity.Create();
@@ -257,6 +297,8 @@ public sealed class DirectDeliveryCommandWireTests
 
     private const string ValidDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string ArtifactDigest = "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    private const string SuccessReceiptJson = """{"schemaVersion":1,"operationId":"operation-1","status":"succeeded","source":{"repository":"TerraScale/TerraScale.Orchestrator","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","treeDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"artifactDigest":"sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","target":{"service":"authentication","environment":"development","regions":["gru","sfo"]},"provenance":{"verified":true,"configurationRevision":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","migrationRevision":null},"health":{"checks":[{"name":"http","status":"passed"}],"converged":true},"rollback":{"attempted":false,"targetArtifactDigest":null,"status":"not_required","targetManifestDigest":null},"auditId":"audit-1","error":{"code":null,"message":null,"remediation":null},"artifactManifestDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}""";
+    private const string PreArtifactFailureReceiptJson = """{"schemaVersion":1,"operationId":"operation-1","status":"failed","source":{"repository":"TerraScale/TerraScale.Orchestrator","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","treeDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"artifactDigest":null,"target":{"service":"authentication","environment":"development","regions":["gru","sfo"]},"provenance":{"verified":false,"configurationRevision":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","migrationRevision":null},"health":{"checks":[],"converged":false},"rollback":{"attempted":false,"targetArtifactDigest":null,"status":"not_required","targetManifestDigest":null},"auditId":"audit-1","error":{"code":"unauthorized_actor","message":"The actor is not authorized for this target.","remediation":"Use an authenticated actor with deployment permission."},"artifactManifestDigest":null}""";
 
     private sealed class KeyIdentity : IDisposable
     {
