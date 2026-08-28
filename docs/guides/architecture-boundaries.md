@@ -2,7 +2,7 @@
 
 > Living summary of proposed ADRs and non-negotiable boundaries. Full ADR text remains under [`docs/adr/`](../adr/).
 
-Specification authority: [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner decisions: [`docs/decisions/`](../decisions/).
+Specification authority: [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md). Owner decisions: [`docs/decisions/`](../decisions/).
 
 ## Executive boundary
 

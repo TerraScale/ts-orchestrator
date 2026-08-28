@@ -54,7 +54,7 @@ which the development cluster renderer can express today.
 Recorded follow-ups owned outside this contract: wiring the eligibility
 classification into the runtime mutation gates (composition scope; today the
 gates consult the authority snapshot only), documenting
-`TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS` in the steward-owned `ORCHESTRATOR.md`
+`TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS` in the steward-owned `docs/architecture/orchestrator.md`
 environment-variable reference, persisting a per-instance identity key file in
 composition, and the live OTel export path for the conflicting gauge
 (observability scope).

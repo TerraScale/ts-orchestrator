@@ -3,7 +3,7 @@
 > Consolidated 2026-07-17 from 113 work packages / 88 handoffs and the live `src/TerraScale.Orchestrator/ControlPlane` tree.
 
 Historical per-package scopes and handoffs are preserved in [`docs/archive/`](../archive/README.md).
-Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner choices 1A–10A are accepted; measurable cost/storage/RPO/RTO targets remain deployment gates.
+Normative architecture remains [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md). Owner choices 1A–10A are accepted; measurable cost/storage/RPO/RTO targets remain deployment gates.
 
 ## How to read this map
 
@@ -43,7 +43,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-adversarial-model-core` — Phase 1 deterministic adversarial model core
 
-**Scope:** Implement the deterministic L0 model simulator, reusable failure schedules, and replay corpus required by `ORCHESTRATOR.md:1114-1180` and the Phase 1 exit gate. The lane exercises existing pure cores and never executes an adapter or performs deployment.
+**Scope:** Implement the deterministic L0 model simulator, reusable failure schedules, and replay corpus required by `docs/architecture/orchestrator.md:1114-1180` and the Phase 1 exit gate. The lane exercises existing pure cores and never executes an adapter or performs deployment.
 
 **Outcome:** The model-test project now has a deterministic, bounded three-node simulator with an explicit virtual clock and identity source, immutable event evidence plus separate delivery scheduling metadata, stable failure-kind ordering, visited-state deduplication, deterministic replay, and replay-validated delta shrinking. The closed schedule catalog covers loss, duplicate, reorder, delay, crash, restart, leader change, partition, and heal. Exploration includes baseline progression and applicable node f
 
@@ -63,7 +63,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-authority-core` — Phase 1 regional authority core
 
-**Scope:** Implement the pure regional-authority lease/epoch decision state machine described at `ORCHESTRATOR.md:454` and `545-550`. It models KV CAS intents/observations but performs no NATS or clock I/O.
+**Scope:** Implement the pure regional-authority lease/epoch decision state machine described at `docs/architecture/orchestrator.md:454` and `545-550`. It models KV CAS intents/observations but performs no NATS or clock I/O.
 
 **Outcome:** Implemented a pure authority reducer for `INV-004`, with `INV-005` referenced only for append/replay/idempotency behavior proven here. It emits typed compare-and-set, compare-and-delete, and read intents; it never reads a clock, NATS, environment, filesystem, network, or policy default. Each reducer journal is explicitly scoped to one `(AuthorityId, CandidateId)` attempt history. The regional KV CAS record is the shared authority truth across candidates. Tests model three candidate journals read
 
@@ -85,7 +85,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-budget-core` — Phase 1 budget and cost decision core
 
-**Scope:** Implement the pure budget authorization and anomaly decision core from `ORCHESTRATOR.md:746-756`. It classifies typed resource/spend changes without estimating prices or performing provider actions.
+**Scope:** Implement the pure budget authorization and anomaly decision core from `docs/architecture/orchestrator.md:746-756`. It classifies typed resource/spend changes without estimating prices or performing provider actions.
 
 **Outcome:** The pure anomaly detector accepts an explicit complete-inventory assertion and bounded, scoped, fresh observations. It reports typed findings for: - owned but undesired/orphaned resources; - owned unattached resources; - desired but missing owned resources; - billing without an owned resource; and - owned resources missing from billing.
 
@@ -108,7 +108,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-compute-autoscaling-core` — Phase 1 compute autoscaling and regional survival core
 
-**Scope:** Implement the pure regional compute scale-out/scale-in/replacement and survival-readiness state machines from `ORCHESTRATOR.md:623-756`. It composes typed scheduler/budget/provider evidence but performs no provider action.
+**Scope:** Implement the pure regional compute scale-out/scale-in/replacement and survival-readiness state machines from `docs/architecture/orchestrator.md:623-756`. It composes typed scheduler/budget/provider evidence but performs no provider action.
 
 **Outcome:** Implemented pure scale-out, scale-in, and regional-survival decision engines for `REQ-O011` and the `INV-005` proof/replay boundary. Inputs are immutable typed evidence; outputs are closed observe, persist-plan, authorize, request-create, enroll, ready, cordon, drain, deregister, detach/retain, revoke, terminate, audit, or hold intents. Every intent, decision, error, and trace has no public instance constructor and exposes public read-only inspection, so callers cannot forge an authorized mutati
 
@@ -132,7 +132,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-delivery-core` — Phase 1 native GitOps, CI, and release decision core
 
-**Scope:** Implement pure GitOps source reconciliation, CI trust-zone scheduling, artifact promotion, and release/CD correctness state machines from `ORCHESTRATOR.md:924-1010`. It emits typed source/runner/release intents only.
+**Scope:** Implement pure GitOps source reconciliation, CI trust-zone scheduling, artifact promotion, and release/CD correctness state machines from `docs/architecture/orchestrator.md:924-1010`. It emits typed source/runner/release intents only.
 
 **Outcome:** Implemented pure GitOps source, CI runner, artifact promotion, and release rollout decision engines for `INV-005`. The engines consume caller-supplied typed evidence and emit closed fetch, verify, plan, dispatch, promote, stage, advance, rollback, or hold intents. They contain no Git, Forgejo, process, filesystem, network, clock, signing, approval, or provider implementation. Every emitted intent, decision, error, and trace has assembly-internal construction and public read-only inspection, so e
 
@@ -140,7 +140,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-reproducible-publish` — Phase 1 reproducible dual-architecture publish
 
-**Scope:** Implement and verify locked, deterministic, self-contained single-file publishes for linux-x64 and linux-arm64 as required by `ORCHESTRATOR.md:1114-1180,1496-1510`. This is build reproducibility evidence only; it never executes or qualifies the ARM64 artifact.
+**Scope:** Implement and verify locked, deterministic, self-contained single-file publishes for linux-x64 and linux-arm64 as required by `docs/architecture/orchestrator.md:1114-1180,1496-1510`. This is build reproducibility evidence only; it never executes or qualifies the ARM64 artifact.
 
 **Outcome:** The reviewed .NET publish verifier completed a real double publish for `linux-x64` and `linux-arm64` from two byte-identical isolated input copies. Both per-RID repeat artifacts were byte-identical, and the architecture artifact digests were distinct. This is cross-publish evidence only. The ARM64 artifact was not executed. This handoff does not provide ARM64 runtime or L4 qualification, signing, release approval, or pre-deployment attestation.
 
@@ -181,7 +181,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-predeployment-evidence-core` — Phase 1 pre-deployment evidence core
 
-**Scope:** Implement the canonical evidence manifest, exact-subject invalidation, policy decision, opaque-signature verification boundary, and deployment-gate verifier required by `ORCHESTRATOR.md:1114-1180`. This lane cannot mint production acceptance evidence or credentials.
+**Scope:** Implement the canonical evidence manifest, exact-subject invalidation, policy decision, opaque-signature verification boundary, and deployment-gate verifier required by `docs/architecture/orchestrator.md:1114-1180`. This lane cannot mint production acceptance evidence or credentials.
 
 **Outcome:** This is only the pure manifest, caller-policy, content-addressed-reuse, opaque-verification, and deployment-gate decision core. It performs no process, filesystem, network, environment, clock, CI, provider, signer, KMS, credential, or deployment mutation operation. It does **not** claim that an L0 or L0C lane has actually executed, that a production signer or KMS/CI identity has been qualified, that either architecture artifact is reproducible, or that any manifest/envelope is a deployable produ
 
@@ -220,9 +220,9 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-nats-policy-core` — Phase 1 dual-NATS policy and membership core
 
-**Scope:** Implement the pure dual-NATS topology, stream/bucket policy, membership replacement, and partition decision core from `ORCHESTRATOR.md:448-590`. It emits configuration/operation intents only and never starts or contacts NATS.
+**Scope:** Implement the pure dual-NATS topology, stream/bucket policy, membership replacement, and partition decision core from `docs/architecture/orchestrator.md:448-590`. It emits configuration/operation intents only and never starts or contacts NATS.
 
-**Outcome:** The package output list initially omitted the `ReattachSurvivingStore` branch required by `ORCHESTRATOR.md`. The steward explicitly approved a closed `ReattachSurvivingStoreIntent`. It binds: - exact operation, plane, cell, cluster, recorded server/peer, and replacement placement evidence; - surviving store identity and positive observed store generation; - exact observed membership sequence and ownership epoch; - recorded owner, compatibility proof, and absence of a conflicting active attachmen
+**Outcome:** The package output list initially omitted the `ReattachSurvivingStore` branch required by `docs/architecture/orchestrator.md`. The steward explicitly approved a closed `ReattachSurvivingStoreIntent`. It binds: - exact operation, plane, cell, cluster, recorded server/peer, and replacement placement evidence; - surviving store identity and positive observed store generation; - exact observed membership sequence and ownership epoch; - recorded owner, compatibility proof, and absence of a conflicting active attachmen
 
 - Handoff recorded: yes
 
@@ -244,7 +244,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-networking-policy-core` — Phase 1 networking, VPN, DNS, and ingress policy core
 
-**Scope:** Implement pure network intent, peering/VPN route ownership, DNS/LB backend, and exposure authorization decisions from `ORCHESTRATOR.md:873-879,1096-1110`. It emits typed network intents only.
+**Scope:** Implement pure network intent, peering/VPN route ownership, DNS/LB backend, and exposure authorization decisions from `docs/architecture/orchestrator.md:873-879,1096-1110`. It emits typed network intents only.
 
 **Outcome:** This is a pure policy core. It contains no VPN/provider/DNS/LB client, config text, key material, credential, command, callback, SDK, socket, process, filesystem/network I/O, clock, address pool, health threshold, or default exposure implementation.
 
@@ -266,7 +266,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-observability-projection-core` — Phase 1 observability and Grafana projection core
 
-**Scope:** Implement pure telemetry admission/cardinality, regional aggregation health, alert routing, and exact immutable Grafana projection decisions from `ORCHESTRATOR.md:1041-1095`. It emits typed projection intents only.
+**Scope:** Implement pure telemetry admission/cardinality, regional aggregation health, alert routing, and exact immutable Grafana projection decisions from `docs/architecture/orchestrator.md:1041-1095`. It emits typed projection intents only.
 
 **Outcome:** The control plane now has four pure observability decisions: bounded telemetry admission, regional metric/log/trace health aggregation, immutable Grafana desired-state projection, and alert routing. Every authorization binds exact operation, tenant, cell, signal, schema/rule digest, generation, and independently scoped completeness evidence applicable to that decision. Authorized decisions contain only passed trace reasons. Telemetry admission accepts only cataloged label keys and values classif
 
@@ -346,13 +346,13 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 **Scope:** Status: completed as an unanswered packet, then superseded on 2026-07-16 when the owner explicitly selected 1A–10A with reliability first. The measurable targets remain evidence-derived deployment-qualification inputs. - Predecessor commit: `f393dc4` - Contract version: proposed architecture dated 2026-07-13; all answers remain unset unless explici
 
-**Outcome:** The packet preserves all ten owner questions and both options exactly as written in `ORCHESTRATOR.md:89-98`. Every record carries its source line and a SHA-256 over the four exact source cells. `recommended: A` represents the table heading only; all ten `answer` fields are null and validation rejects any checked-in default. There are 38 explicitly unset records: - 10 owner decisions and 19 measurable targets required before the affected contract/ADR tranche can freeze; - 2 Phase 0 planning input
+**Outcome:** The packet preserves all ten owner questions and both options exactly as written in `docs/architecture/orchestrator.md:89-98`. Every record carries its source line and a SHA-256 over the four exact source cells. `recommended: A` represents the table heading only; all ten `answer` fields are null and validation rejects any checked-in default. There are 38 explicitly unset records: - 10 owner decisions and 19 measurable targets required before the affected contract/ADR tranche can freeze; - 2 Phase 0 planning input
 
 - Handoff recorded: yes
 
 #### `phase0-provider-qualification-schema` — Phase 0 work package: provider/TCO and OCI region qualification schema
 
-**Outcome:** Created a fail-closed custom field-contract for the normalized OCI/AWS/GCP/Azure TCO and storage benchmark plus the OCI `>=20` eligible-region matrix. It is deliberately not labeled as JSON Schema. The contract enumerates all cost and region fields named by `ORCHESTRATOR.md`. The blank dataset keeps every empirical value unknown, all provider results incomplete/unqualified, the OCI eligible count at zero, the threshold claim false, and provider winner/selection `null`. The 26-entry source catalo
+**Outcome:** Created a fail-closed custom field-contract for the normalized OCI/AWS/GCP/Azure TCO and storage benchmark plus the OCI `>=20` eligible-region matrix. It is deliberately not labeled as JSON Schema. The contract enumerates all cost and region fields named by `docs/architecture/orchestrator.md`. The blank dataset keeps every empirical value unknown, all provider results incomplete/unqualified, the OCI eligible count at zero, the threshold claim false, and provider winner/selection `null`. The 26-entry source catalo
 
 - Handoff recorded: yes
 
@@ -414,7 +414,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 | `phase1-protocol-contract-completeness` | Phase 1 protocol contract-completeness property shard | no | The accepted `phase1-protocol-fuzz-shard` and subject-grammar handoffs intentionally leave these transport decisions open. This shard does n… |
 | `phase1-protocol-fuzz-shard` | Phase 1 deterministic protocol fuzz shard | yes | The protocol test project now runs deterministic generated valid and malformed inputs from explicit SplitMix-style seeds across every curren… |
 | `phase1-protocol-negotiation-completeness` | Phase 1 protocol-negotiation completeness audit | yes | The pure N/N-1 compatibility decision now returns an immutable, construction-closed acceptance that binds the exact adjacent current/previou… |
-| `phase1-protocol-primitives` | Phase 1 protocol primitives | yes | The tranche implements the draft `INV-005` command-admission model from `ORCHESTRATOR.md:580` without freezing a wire contract: - Strong non… |
+| `phase1-protocol-primitives` | Phase 1 protocol primitives | yes | The tranche implements the draft `INV-005` command-admission model from `docs/architecture/orchestrator.md:580` without freezing a wire contract: - Strong non… |
 
 ## Provider ownership and actuators
 
@@ -424,7 +424,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-provider-ownership-core` — Phase 1 provider ownership and handoff decision core
 
-**Scope:** Implement pure provider operation authorization and Pulumi-to-regional ownership handoff decisions from `ORCHESTRATOR.md:627-727`. The core emits typed intents only and never calls a provider.
+**Scope:** Implement pure provider operation authorization and Pulumi-to-regional ownership handoff decisions from `docs/architecture/orchestrator.md:627-727`. The core emits typed intents only and never calls a provider.
 
 **Outcome:** The control plane now has a pure fail-closed authorization boundary for provider operations. An immutable operation context binds the exact operation, regional scope, controller epoch, existing provider identity or idempotent create key, expected observation and generation, desired terminal state, approvals, caller-supplied deadline evidence, idempotency key, and permitted compensations. Bounded identities support both TerraScale canonical tokens and case-sensitive provider-native resource/work-
 
@@ -453,7 +453,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-resource-contracts` — Phase 1 resource contracts
 
-**Scope:** Implement the draft, provider-neutral common resource metadata and closed admitted-role model described at `ORCHESTRATOR.md:393-449`. This tranche does not freeze serialization or select unresolved runtime/observability/VPN implementations.
+**Scope:** Implement the draft, provider-neutral common resource metadata and closed admitted-role model described at `docs/architecture/orchestrator.md:393-449`. This tranche does not freeze serialization or select unresolved runtime/observability/VPN implementations.
 
 **Outcome:** Branch: `phase1/resource-contracts`
 
@@ -475,7 +475,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-runtime-selfupdate-core` — Phase 1 runtime lifecycle and self-update core
 
-**Scope:** Implement pure admitted workload lifecycle decisions for native systemd/container runtimes plus orchestrator A/B self-update from `ORCHESTRATOR.md:359-390,843-879` and Phase 2/3 lifecycle requirements. It emits typed executor/bootstrap intents only.
+**Scope:** Implement pure admitted workload lifecycle decisions for native systemd/container runtimes plus orchestrator A/B self-update from `docs/architecture/orchestrator.md:359-390,843-879` and Phase 2/3 lifecycle requirements. It emits typed executor/bootstrap intents only.
 
 **Outcome:** The control plane now has a pure, closed runtime decision boundary for reviewed native-systemd and digest-pinned OCI workloads. Inputs bind workload, allocation, node, operation, epoch, generation, architecture, host image, runtime version, artifact/signature/signing profile, configuration, secret versions, volumes, ports, admission policy, health policy, and complete node-inventory evidence. OCI activation binds the selected platform image digest independently from its manifest-list digest. Lif
 
@@ -500,7 +500,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-scheduler-availability` — Phase 1 scheduler availability policy
 
-**Scope:** Implement pure scheduler hard-policy evaluators for quorum floors, disruption budgets, critical replica anti-affinity/topology spread, and caller-supplied N+1 reserve from `ORCHESTRATOR.md:307-323,619`.
+**Scope:** Implement pure scheduler hard-policy evaluators for quorum floors, disruption budgets, critical replica anti-affinity/topology spread, and caller-supplied N+1 reserve from `docs/architecture/orchestrator.md:307-323,619`.
 
 **Outcome:** Branch: `phase1/scheduler-availability`
 
@@ -508,7 +508,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-scheduler-core` — Phase 1 deterministic scheduler core
 
-**Scope:** Implement a pure, deterministic constrained least-waste scheduler kernel from `ORCHESTRATOR.md:593-607`. It schedules only supplied candidates and constraints; it does not own product placement or stateful move safety.
+**Scope:** Implement a pure, deterministic constrained least-waste scheduler kernel from `docs/architecture/orchestrator.md:593-607`. It schedules only supplied candidates and constraints; it does not own product placement or stateful move safety.
 
 **Outcome:** Branch: `phase1/scheduler-core`
 
@@ -531,7 +531,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-identity-vault-core` — Phase 1 identity, PKI, and vault decision core
 
-**Scope:** Implement pure enrollment, certificate/identity lifecycle, authorization, revocation, and encrypted-secret lease decisions from `ORCHESTRATOR.md:881-923`. No cryptographic provider or secret store is used.
+**Scope:** Implement pure enrollment, certificate/identity lifecycle, authorization, revocation, and encrypted-secret lease decisions from `docs/architecture/orchestrator.md:881-923`. No cryptographic provider or secret store is used.
 
 **Outcome:** The control plane now has a pure default-deny decision boundary for enrollment, certificate lifecycle, closed capability authorization, encrypted-secret leases, and regional survival secret references. Enrollment binds the exact operation, principal, public subject-key identity, cell, role, principal generation, one-time bootstrap audience/status, attestation measurement and policy generation, regional issuer generation, and revocation generation. Consumed bootstrap evidence, stale/missing/confl
 
@@ -553,7 +553,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-snapshot-core` — Phase 1 snapshot and restore core
 
-**Scope:** Implement the pure snapshot acceptance/restore decision core from `ORCHESTRATOR.md:545-550`: snapshots bind schema version, signed stream position, state digest, and fencing epoch; restore refuses rollback.
+**Scope:** Implement the pure snapshot acceptance/restore decision core from `docs/architecture/orchestrator.md:545-550`: snapshots bind schema version, signed stream position, state digest, and fencing epoch; restore refuses rollback.
 
 **Outcome:** The core treats every candidate stream sequence less than or equal to the current accepted sequence as rollback, including when the candidate epoch is newer. Epoch is checked first, so an older epoch reports `StaleEpoch`; otherwise non-advancing stream position reports `StreamRollback`. This assumes one monotonic sequence space per typed stream identity and should be retained unless a future explicitly versioned stream-reset contract says otherwise.
 
@@ -574,7 +574,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-storage-lifecycle-core` — Phase 1 storage lifecycle and expansion core
 
-**Scope:** Implement the pure storage identity, single-writer, create/attach, expansion, and deletion authorization state machines from `ORCHESTRATOR.md:758-841`. It emits typed provider/guest/application intents only.
+**Scope:** Implement the pure storage identity, single-writer, create/attach, expansion, and deletion authorization state machines from `docs/architecture/orchestrator.md:758-841`. It emits typed provider/guest/application intents only.
 
 **Outcome:** `PostDeleteAuditReady` is a pre-delete capability/readiness proof and gates the exact `Delete` intent. It is deliberately distinct from `PostDeleteAuditPassed`. Terminal completion requires both observed provider absence and the actual post-delete audit proof. A readiness proof can therefore never masquerade as deletion completion.
 
@@ -597,7 +597,7 @@ Normative architecture remains [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md). Owner
 
 #### `phase1-terrabase-core` — Phase 1 TerraBase topology and recovery core
 
-**Scope:** Implement pure TerraBase topology, member lifecycle, upgrade, autoscaling, backup, and restore decisions from `ORCHESTRATOR.md:1012-1042` and the TerraBase/storage acceptance gates. It emits typed administration intents only.
+**Scope:** Implement pure TerraBase topology, member lifecycle, upgrade, autoscaling, backup, and restore decisions from `docs/architecture/orchestrator.md:1012-1042` and the TerraBase/storage acceptance gates. It emits typed administration intents only.
 
 **Outcome:** This is a pure decision core. It contains no TerraBase client, SQL/admin text, endpoint, credential value, arbitrary payload, callback, process, network/filesystem access, clock, thresholds, default releases, or mutation.
 

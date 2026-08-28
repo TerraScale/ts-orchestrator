@@ -9,7 +9,7 @@
 
 ## Context
 
-The owner decision is a clean break: GitOps is native to the orchestrator and Flux is removed rather than embedded, emulated, or retained as a runtime dependency (`ORCHESTRATOR.md:52-61`). The greenfield deployment adopts no Kubernetes or Flux resource, state, identity, secret, or API (`ORCHESTRATOR.md:54-60`, `ORCHESTRATOR.md:162-180`). Historical repositories remain read-only evidence of behavior and workarounds, not an input contract (`ORCHESTRATOR.md:182-220`).
+The owner decision is a clean break: GitOps is native to the orchestrator and Flux is removed rather than embedded, emulated, or retained as a runtime dependency (`docs/architecture/orchestrator.md:52-61`). The greenfield deployment adopts no Kubernetes or Flux resource, state, identity, secret, or API (`docs/architecture/orchestrator.md:54-60`, `docs/architecture/orchestrator.md:162-180`). Historical repositories remain read-only evidence of behavior and workarounds, not an input contract (`docs/architecture/orchestrator.md:182-220`).
 
 ADR readiness classifies this record as draft-ready but identifies three missing bodies of proof: the fresh schema and compatibility fixtures, complete historical behavior reconciliation, and cleanup-PR sequencing tied to native replacement gates (`docs/adr/readiness-index.yaml` entry for native-gitops). This proposal states the boundary and the evidence required to accept it; it does not claim those proofs exist.
 
@@ -36,7 +36,7 @@ The source adapter accepts only:
 - fresh native manifests conforming to a supported TerraScale schema version; and
 - credential references, never credential values.
 
-It does not parse, import, translate, emulate, or silently ignore Kubernetes objects, Helm values/templates, Kustomizations, Flux resources, or historical `flux-*` strategy names. No compatibility reader, converter, dual-read period, shadow Flux controller, or fallback to `kubectl` is introduced. Unsupported formats fail with a typed, non-mutating validation error before a plan can be accepted (`ORCHESTRATOR.md:924-959`).
+It does not parse, import, translate, emulate, or silently ignore Kubernetes objects, Helm values/templates, Kustomizations, Flux resources, or historical `flux-*` strategy names. No compatibility reader, converter, dual-read period, shadow Flux controller, or fallback to `kubectl` is introduced. Unsupported formats fail with a typed, non-mutating validation error before a plan can be accepted (`docs/architecture/orchestrator.md:924-959`).
 
 Historical sources are reviewed into a behavior matrix. Each behavior is either represented by a native typed contract plus tests, explicitly rejected as obsolete with rationale, or held as an open gap. Copying a historical resource shape or field name is not proof that its behavior was preserved.
 
@@ -44,9 +44,9 @@ Historical sources are reviewed into a behavior matrix. Each behavior is either 
 
 Git is authoritative only for declared parent intent: allowlisted roles, releases, policies, templates, bounds, budgets, retention classes, and desired minimum/maximum capacity.
 
-The accepted global journal is authoritative for signed accepted revisions, global plans, releases, policy generations, signatures, and rollout result. Each regional journal is authoritative for its accepted `CellSpec`, operations, concrete instances, host allocations, attachments, replacement peers, generated/expanded volumes, and deployment progress (`ORCHESTRATOR.md:538-549`).
+The accepted global journal is authoritative for signed accepted revisions, global plans, releases, policy generations, signatures, and rollout result. Each regional journal is authoritative for its accepted `CellSpec`, operations, concrete instances, host allocations, attachments, replacement peers, generated/expanded volumes, and deployment progress (`docs/architecture/orchestrator.md:538-549`).
 
-Ordinary controller-created children are linked to their parent policy/template generation but are not written back into Git, Git drift, or Git prune targets. This prevents Git and a regional controller from becoming concurrent owners of the same concrete resource. Removing a Git parent records a guarded regional retirement intent; the appropriate domain controller then proves ownership, safety, retention, dependency, and fencing preconditions before any child cleanup (`ORCHESTRATOR.md:941-959`).
+Ordinary controller-created children are linked to their parent policy/template generation but are not written back into Git, Git drift, or Git prune targets. This prevents Git and a regional controller from becoming concurrent owners of the same concrete resource. Removing a Git parent records a guarded regional retirement intent; the appropriate domain controller then proves ownership, safety, retention, dependency, and fencing preconditions before any child cleanup (`docs/architecture/orchestrator.md:941-959`).
 
 ADR 18 supplies the separate customer project-placement boundary. A GitOps plan may carry deployment and capacity policy but cannot author or infer `Project.Regions` from workload or host state.
 
@@ -138,10 +138,10 @@ This ADR may become Accepted only when all of the following are reviewed against
 
 - fresh C# resource contracts, generated JSON Schema/docs, unknown-field/version/default behavior, and golden native fixtures; no compatibility reader exists;
 - a complete historical-behavior disposition for every Flux/Kubernetes delivery finding, including `AUD-SRC-006` and `WRK-002` through `WRK-005`;
-- L0 positive and adversarial tests for dependency/cycle planning, signatures, immutable digest resolution, ownership-aware diff/drift/prune, durable acknowledgement, fencing, idempotency, staged promotion, rollback, and restart at every state-machine checkpoint (`ORCHESTRATOR.md:1114-1163`);
-- L3S Git/OCI/webhook/NATS/controller/WAN failure and recovery at every reconciliation checkpoint, exact-digest SFO/FRA/GRU convergence, stale-writer rejection, and safe rollback (`ORCHESTRATOR.md:1561-1571`);
+- L0 positive and adversarial tests for dependency/cycle planning, signatures, immutable digest resolution, ownership-aware diff/drift/prune, durable acknowledgement, fencing, idempotency, staged promotion, rollback, and restart at every state-machine checkpoint (`docs/architecture/orchestrator.md:1114-1163`);
+- L3S Git/OCI/webhook/NATS/controller/WAN failure and recovery at every reconciliation checkpoint, exact-digest SFO/FRA/GRU convergence, stale-writer rejection, and safe rollback (`docs/architecture/orchestrator.md:1561-1571`);
 - evidence that a Git parent removal cannot directly delete a journal-owned child, data resource, project placement, or unproven cloud resource;
 - per-item replacement packets and separately reviewed cleanup PRs satisfying each ledger cleanup proof; and
-- repository/provider scans proving no Flux runtime/API/credential/endpoint, Kubernetes credential, or compatibility path remains in the new platform (`ORCHESTRATOR.md:1734-1755`).
+- repository/provider scans proving no Flux runtime/API/credential/endpoint, Kubernetes credential, or compatibility path remains in the new platform (`docs/architecture/orchestrator.md:1734-1755`).
 
 Until then, status remains Proposed and no sibling cleanup is authorized.

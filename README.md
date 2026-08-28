@@ -1,6 +1,6 @@
 # TerraScale.Orchestrator
 
-TerraScale.Orchestrator is the greenfield, TerraScale-specific control plane described in [ORCHESTRATOR.md](ORCHESTRATOR.md). The repository is executing Phase 0 evidence work and pure Phase 1 contract tranches in parallel, without deployment authority.
+TerraScale.Orchestrator is the greenfield, TerraScale-specific control plane described in [docs/architecture/orchestrator.md](docs/architecture/orchestrator.md). The repository is executing Phase 0 evidence work and pure Phase 1 contract tranches in parallel, without deployment authority.
 
 Navigable documentation lives under [`docs/`](docs/README.md): architecture boundaries, Phase 0 evidence, Phase 1 pure-contract maps, ADRs, owner decisions, and compressed historical work packages/audits.
 

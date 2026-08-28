@@ -1,6 +1,6 @@
 # TerraScale.Orchestrator documentation
 
-Living documentation for the production control plane. Normative architecture is still **[`ORCHESTRATOR.md`](../ORCHESTRATOR.md)** at the repository root. This tree is the navigable, consolidated view of Phase 0 evidence, Phase 1 pure contracts, ADRs, and owner decisions.
+Living documentation for the production control plane. Normative architecture is still **[`docs/architecture/orchestrator.md`](../docs/architecture/orchestrator.md)** at the repository root. This tree is the navigable, consolidated view of Phase 0 evidence, Phase 1 pure contracts, ADRs, and owner decisions.
 
 Owner choices **1A–10A** are accepted (reliability first). Measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs.
 
@@ -56,7 +56,7 @@ tar -xJf docs/archive/docs-historical-full.tar.xz -C /tmp/orch-docs-historical
 
 | Path | Role |
 |---|---|
-| [`../ORCHESTRATOR.md`](../ORCHESTRATOR.md) | Full architecture and implementation plan |
+| [`../docs/architecture/orchestrator.md`](../docs/architecture/orchestrator.md) | Full architecture and implementation plan |
 | [`../README.md`](../README.md) | Operator runbook, local validation, Infisical/OTel |
 | [`../AGENTS.md`](../AGENTS.md) | Agent safety and ownership rules |
 

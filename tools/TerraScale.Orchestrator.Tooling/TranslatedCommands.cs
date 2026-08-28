@@ -569,9 +569,9 @@ internal static class AdrReadinessCommand
                     var evidence = item["availableEvidence"] as JsonArray;
                     if (evidence is null
                         || !evidence.Any(value =>
-                            value?.GetValue<string>().StartsWith("ORCHESTRATOR.md:", StringComparison.Ordinal) == true))
+                            value?.GetValue<string>().StartsWith("docs/architecture/orchestrator.md:", StringComparison.Ordinal) == true))
                     {
-                        errors.Add($"ADR {id}: draft-ready requires a precise ORCHESTRATOR.md anchor");
+                        errors.Add($"ADR {id}: draft-ready requires a precise docs/architecture/orchestrator.md anchor");
                     }
                 }
             }
@@ -637,7 +637,7 @@ internal static class OwnerDecisionCommand
         {
             var ids = questions.Select(q => q?["id"]?.GetValue<int>() ?? 0).ToArray();
             if (!ids.SequenceEqual(Enumerable.Range(1, 10))) errors.Add("questions: IDs 1 through 10 must be ordered and complete");
-            var specification = File.ReadAllLines(Path.Combine(ToolingSupport.Root, "ORCHESTRATOR.md"));
+            var specification = File.ReadAllLines(Path.Combine(ToolingSupport.Root, "docs/architecture/orchestrator.md"));
             foreach (var question in questions.OfType<JsonObject>())
             {
                 var id = question["id"]?.GetValue<int>() ?? 0;
@@ -655,16 +655,16 @@ internal static class OwnerDecisionCommand
                 var cells = specification[sourceLine - 1].Trim().Trim('|').Split('|').Select(cell => cell.Trim()).ToArray();
                 if (cells.Length < 4 || cells[0] != id.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 {
-                    errors.Add($"question {id}: question differs from ORCHESTRATOR.md:{sourceLine}");
+                    errors.Add($"question {id}: question differs from docs/architecture/orchestrator.md:{sourceLine}");
                     continue;
                 }
 
                 if (question["question"]?.GetValue<string>() != cells[1])
-                    errors.Add($"question {id}: question differs from ORCHESTRATOR.md:{sourceLine}");
+                    errors.Add($"question {id}: question differs from docs/architecture/orchestrator.md:{sourceLine}");
                 if (question["optionA"]?.GetValue<string>() != cells[2])
-                    errors.Add($"question {id}: optionA differs from ORCHESTRATOR.md:{sourceLine}");
+                    errors.Add($"question {id}: optionA differs from docs/architecture/orchestrator.md:{sourceLine}");
                 if (question["optionB"]?.GetValue<string>() != cells[3])
-                    errors.Add($"question {id}: optionB differs from ORCHESTRATOR.md:{sourceLine}");
+                    errors.Add($"question {id}: optionB differs from docs/architecture/orchestrator.md:{sourceLine}");
                 if (question["semanticSha256"]?.GetValue<string>() != ToolingSupport.Sha256Text(string.Join('\u001f', cells)))
                     errors.Add($"question {id}: source line/checksum mismatch");
             }
@@ -708,10 +708,10 @@ internal static class OwnerDecisionCommand
 internal static class DecisionReadinessValidator
 {
     private static readonly FrozenSet<string> AcceptedPolicyProvenance = new[]
-        { "ORCHESTRATOR.md:83-98", "docs/decisions/owner-decision-packet.json:13-49" }
+        { "docs/architecture/orchestrator.md:83-98", "docs/decisions/owner-decision-packet.json:13-49" }
         .ToFrozenSet(StringComparer.Ordinal);
     private static readonly FrozenSet<string> OpenInputProvenance = new[]
-        { "ORCHESTRATOR.md:100-105", "docs/decisions/owner-decision-packet.json:51-122" }
+        { "docs/architecture/orchestrator.md:100-105", "docs/decisions/owner-decision-packet.json:51-122" }
         .ToFrozenSet(StringComparer.Ordinal);
     private static readonly FrozenSet<string> LaterSelectionIds = new[]
         { "artifact-and-evidence-signing", "dns-implementation", "vpn-implementation", "operator-identity-provider", "regional-artifact-mirror", "arm64-host-image", "nats-n-minus-one-policy" }
@@ -959,7 +959,7 @@ internal static class DecisionReadinessValidator
         }
         var lanes = Strings(readiness["canonicalOwnerLanes"], "readiness canonicalOwnerLanes", errors);
         if (!new HashSet<string>(lanes, StringComparer.Ordinal).SetEquals(AdrReadinessCommand.Lanes)) errors.Add("readiness canonicalOwnerLanes: exact canonical set required");
-        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "ORCHESTRATOR.md:83-105") errors.Add("readiness normalizationEvidence: canonical decision context required");
+        if (Text(readiness["normalizationEvidence"], "readiness normalizationEvidence", errors) != "docs/architecture/orchestrator.md:83-105") errors.Add("readiness normalizationEvidence: canonical decision context required");
         var left = readiness["openInputs"] as JsonObject; var right = packet["openInputRegister"] as JsonObject;
         if (left is null || right is null || Text(left["status"], "readiness openInputs status", errors) != Text(right["status"], "packet openInputRegister status", errors)
             || !new HashSet<string>(Strings(left?["planning"], "readiness openInputs planning", errors)).SetEquals(Strings(right?["planning"], "packet openInputRegister planning", errors))

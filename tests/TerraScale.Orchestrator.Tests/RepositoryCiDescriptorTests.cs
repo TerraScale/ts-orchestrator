@@ -224,7 +224,7 @@ public sealed class RepositoryCiDescriptorTests
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "ORCHESTRATOR.md")))
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "docs/architecture/orchestrator.md")))
             directory = directory.Parent;
         return directory?.FullName ?? throw new InvalidOperationException("Could not locate the repository root.");
     }

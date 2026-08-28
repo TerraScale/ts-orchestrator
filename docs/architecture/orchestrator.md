@@ -1398,7 +1398,7 @@ Mocks cannot sign off a destructive state transition. Compute termination, volum
 
 ```text
 TerraScale.Orchestrator/
-  ORCHESTRATOR.md
+  docs/architecture/orchestrator.md
   README.md
   AGENTS.md
   TerraScale.Orchestrator.slnx
@@ -1531,7 +1531,7 @@ Before spawning an implementation sub-agent, the integrator writes a small work-
 - commands/shards that must pass and whether the work changes the L3S server inventory;
 - threat assumptions, destructive actions prohibited, and unresolved owner decision that must remain configurable.
 
-Every lane uses its own Git feature branch and dedicated worktree. Agents never share a writable checkout. Only the integrator edits/merges `*.slnx`, central package/build files, the canonical registry, generated global schemas, composition root, `ORCHESTRATOR.md`, or `develop`. If a lane discovers a contract gap, it returns an RFC/compatibility fixture to the steward instead of editing shared contracts opportunistically.
+Every lane uses its own Git feature branch and dedicated worktree. Agents never share a writable checkout. Only the integrator edits/merges `*.slnx`, central package/build files, the canonical registry, generated global schemas, composition root, `docs/architecture/orchestrator.md`, or `develop`. If a lane discovers a contract gap, it returns an RFC/compatibility fixture to the steward instead of editing shared contracts opportunistically.
 
 ### Merge train and evidence reuse
 

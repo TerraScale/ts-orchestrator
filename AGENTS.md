@@ -4,7 +4,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 ## Current implementation boundary
 
-- Read `ORCHESTRATOR.md` before changing architecture or production behavior.
+- Read `docs/architecture/orchestrator.md` before changing architecture or production behavior.
 - Owner decisions 1A–10A are accepted. Pure Phase 1 contract tranches may freeze when safety policy remains explicit and configurable; unmeasured cost, storage, RPO, and RTO targets block deployment qualification, not implementation.
 - Never start a system-under-test cloud instance, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
 - Keep the aggregate local container and test workload at or below 24 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
@@ -19,7 +19,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 
 ## Ownership and dependency rules
 
-- The integration steward exclusively owns the solution/build/package files, composition root, `ORCHESTRATOR.md`, and shared test primitives.
+- The integration steward exclusively owns the solution/build/package files, composition root, `docs/architecture/orchestrator.md`, and shared test primitives.
 - Production dependencies flow from contracts to pure decisions to coordinators to adapters. Contracts and pure decisions must not reference NATS, OCI, D-Bus, containerd, filesystems, sockets, environment variables, or wall-clock APIs.
 - Adapters translate persisted intents and typed observations. Do not hide business rules in infrastructure adapters.
 - The accepted 1A–10A owner choices are normative. Any future unresolved choice must stay explicit/configurable; never replace a recorded decision silently.

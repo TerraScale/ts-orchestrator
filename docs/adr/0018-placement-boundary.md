@@ -14,7 +14,7 @@ TerraScale has two distinct kinds of placement:
 1. **Product placement** decides the customer data-residency and service geography of a project: which regional cells belong to `Project.Regions`, at which `PlacementGeneration`, with which drain, replication, routing, storage-epoch, and filtered-absence semantics.
 2. **Host scheduling** decides which eligible machine in one already-selected regional cell runs a concrete allowlisted workload/member/allocation, subject to resources, topology, stateful vetoes, safety reserves, and health.
 
-Conflating these decisions would let infrastructure load move customer data, or make the product reconciler compete with the host scheduler. Contract invariant `INV-013` therefore states that product project/database placement remains in the product placement domain and the host scheduler does not create a second source of truth for `Project.Regions` (`ORCHESTRATOR.md:139-160`).
+Conflating these decisions would let infrastructure load move customer data, or make the product reconciler compete with the host scheduler. Contract invariant `INV-013` therefore states that product project/database placement remains in the product placement domain and the host scheduler does not create a second source of truth for `Project.Regions` (`docs/architecture/orchestrator.md:139-160`).
 
 The audited product snapshot at TerraScale.Internals commit `3643df207f9f1129c9f677148e6890d436339141` is concrete evidence of the existing product contract:
 
@@ -24,7 +24,7 @@ The audited product snapshot at TerraScale.Internals commit `3643df207f9f1129c9f
 - `docs/databases/regions-and-replication.md:125-159`: catalog changes cannot implicitly move stored placement, and routing remains within healthy selected origins; and
 - `docs/databases/regions-and-replication.md:195-233`: removal drains accepted queue work before project data deletion, re-selection cancels drain, and project-auth storage epochs/region sets fence writers.
 
-The target specification preserves this explicitly: the orchestrator provides regional TerraBase capacity and typed fenced machine operations but does not infer customer region selection from host load; monotonic generations, filtered-absence non-deletion, storage epochs, six directed replication paths, conflicts, and restore remain acceptance gates (`ORCHESTRATOR.md:1012-1039`, `ORCHESTRATOR.md:1659-1666`).
+The target specification preserves this explicitly: the orchestrator provides regional TerraBase capacity and typed fenced machine operations but does not infer customer region selection from host load; monotonic generations, filtered-absence non-deletion, storage epochs, six directed replication paths, conflicts, and restore remain acceptance gates (`docs/architecture/orchestrator.md:1012-1039`, `docs/architecture/orchestrator.md:1659-1666`).
 
 ADR readiness identifies the still-missing evidence: golden placement compatibility fixtures, an explicit storage-epoch/filtered-absence ownership map, and cross-repository approval before any source-of-truth move (`docs/adr/readiness-index.yaml` entry for placement-boundary). This record preserves the current owner; it does not move that authority.
 
@@ -49,7 +49,7 @@ The orchestrator may consume a versioned, typed projection of product placement 
 
 ### Host scheduling has one authoritative owner
 
-Within a cell that product placement has already selected, the regional scheduler is the sole authority for concrete host allocations. It consumes the locally accepted `CellSpec`, node observations, declared reservations, health, security zones, and domain-controller constraints. It chooses an eligible host using deterministic constrained least-waste scoring with explicit tie-breakers and a reason trace (`ORCHESTRATOR.md:591-619`).
+Within a cell that product placement has already selected, the regional scheduler is the sole authority for concrete host allocations. It consumes the locally accepted `CellSpec`, node observations, declared reservations, health, security zones, and domain-controller constraints. It chooses an eligible host using deterministic constrained least-waste scoring with explicit tie-breakers and a reason trace (`docs/architecture/orchestrator.md:591-619`).
 
 The scheduler owns:
 
@@ -64,7 +64,7 @@ Scheduler output is a persisted, fenced machine intent. It cannot change `Projec
 
 ### Domain controllers own their safety decisions
 
-The generic scheduler does not decide whether a TerraBase or NATS member is safe to create, move, replace, attach, drain, or remove. The relevant domain controller owns stable member/volume identity, quorum/topology, leader handoff, replication/catch-up, backup, and decommission authorization. It may reserve or veto a host placement; the scheduler selects only among allowed candidates (`ORCHESTRATOR.md:593-605`).
+The generic scheduler does not decide whether a TerraBase or NATS member is safe to create, move, replace, attach, drain, or remove. The relevant domain controller owns stable member/volume identity, quorum/topology, leader handoff, replication/catch-up, backup, and decommission authorization. It may reserve or veto a host placement; the scheduler selects only among allowed candidates (`docs/architecture/orchestrator.md:593-605`).
 
 For TerraBase specifically:
 
@@ -72,7 +72,7 @@ For TerraBase specifically:
 - the **TerraBase domain controller** owns machine-level member, shard-capacity, volume, topology, upgrade, backup, and repair operations; and
 - the **regional scheduler** owns the concrete eligible host allocation after those constraints are supplied.
 
-Adding a machine/member does not increase logical database capacity by assumption and never changes project geography (`INV-009`; `ORCHESTRATOR.md:1026-1037`).
+Adding a machine/member does not increase logical database capacity by assumption and never changes project geography (`INV-009`; `docs/architecture/orchestrator.md:1026-1037`).
 
 ### GitOps and catalogs carry policy, not a second placement truth
 
@@ -166,7 +166,7 @@ This ADR may become Accepted only after all of the following are reviewed agains
 - golden compatibility fixtures for `Project.Regions`, monotonic `PlacementGeneration`, transition/final CAS, disabled/unknown stored regions, empty positive-generation drain, filtered absence, re-selection, queue drain, project-auth storage epoch, and routing within selected cells;
 - L0 positive/adversarial proof that host load, cost, host loss, drain, Git change/prune, catalog fallback, telemetry, tags, stale observations, or a forged allocation cannot mutate or infer customer placement;
 - L0 proof that a product region change cannot bypass generation/storage-epoch fences or directly choose a host, and that a scheduler cannot bypass domain-controller veto/quorum/volume constraints;
-- L3S all six directed GRU/SFO/FRA replication paths, WAN loss/reorder/duplication, conflict convergence, empty-cell recovery, region addition/removal/re-selection, filtered-absence non-deletion, same-cell host loss/reallocation, and unchanged project placement under host pressure (`ORCHESTRATOR.md:1655-1666`);
+- L3S all six directed GRU/SFO/FRA replication paths, WAN loss/reorder/duplication, conflict convergence, empty-cell recovery, region addition/removal/re-selection, filtered-absence non-deletion, same-cell host loss/reallocation, and unchanged project placement under host pressure (`docs/architecture/orchestrator.md:1655-1666`);
 - a typed, versioned product capacity signal proving that the host autoscaler never treats raw member count as logical project/database capacity;
 - `WRK-022` compatibility and cleanup evidence showing absent preference, invalid alias, unavailable region, stale catalog, explicit GRU choice, and approved default are distinct and no invalid input silently becomes GRU; and
 - explicit cross-repository owner approval and a separate ADR/PR sequence before any future movement of the product source of truth. There is no compatibility reader or dual-writer transition in this proposal.

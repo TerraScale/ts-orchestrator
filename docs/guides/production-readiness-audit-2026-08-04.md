@@ -13,7 +13,7 @@ No secret material or Polar credential was read, printed, or changed during this
 
 ## Evidence reviewed
 
-- Normative architecture and invariants: [`ORCHESTRATOR.md`](../../ORCHESTRATOR.md), especially the regional-autonomy, dual-NATS, mTLS, native GitOps, Phase 0–10, and production-gate sections.
+- Normative architecture and invariants: [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md), especially the regional-autonomy, dual-NATS, mTLS, native GitOps, Phase 0–10, and production-gate sections.
 - Current entry points and runtime configuration: `Program.cs`, `OrchestratorOptions.cs`, `Messaging/NatsRuntime.cs`, `Messaging/GlobalNatsRuntime.cs`, and `Operations/OperatorCli.cs`.
 - Pure decision domains and their test suites: authority, operations, scheduling, provider ownership, storage, TerraBase, identity, delivery, observability, networking, runtime, evidence, protocol, and deterministic models.
 - Development integration implementation: `Development/*`, including the rootless DevHost/lab, generated development PKI, NATS topology, and workload wiring.

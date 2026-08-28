@@ -1,6 +1,6 @@
 # ADR readiness index
 
-This directory records architecture decision readiness for the 24-item backlog in `ORCHESTRATOR.md`.
+This directory records architecture decision readiness for the 24-item backlog in `docs/architecture/orchestrator.md`.
 
 Owner choices **1A–10A were accepted on 2026-07-16** with reliability first. Measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs rather than silent architecture defaults.
 
@@ -24,7 +24,7 @@ Condensed boundaries for these decisions: [`../guides/architecture-boundaries.md
 - `evidence-required`: the decision is not controlled by an open numbered owner choice, but a measurement, inventory, threat-model result, product-contract reconciliation, or primary implementation source is still missing.
 - `accepted`: requires an explicit owner/architecture approval record plus every exit-evidence item. No ADR is accepted solely because questions 1–10 closed.
 
-Only the exact canonical owner lane names from `ORCHESTRATOR.md`'s exclusive-workstream table are valid: `Integration/contract steward`, `Core`, `Messaging/security`, `Runtime`, `Cloud`, `Storage`, `TerraBase`, `Delivery`, `Operations`, `Cross-repository cleanup`, and `Verification`.
+Only the exact canonical owner lane names from `docs/architecture/orchestrator.md`'s exclusive-workstream table are valid: `Integration/contract steward`, `Core`, `Messaging/security`, `Runtime`, `Cloud`, `Storage`, `TerraBase`, `Delivery`, `Operations`, `Cross-repository cleanup`, and `Verification`.
 
 ## Validation
 

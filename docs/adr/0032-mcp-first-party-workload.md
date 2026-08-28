@@ -125,7 +125,7 @@ this ADR's native-systemd admission for `McpServer`, so the conflict is
 recorded here instead of being left implicit or silently resolved by
 editing ADR 0031 (which stays untouched).
 
-The operative scoping is `ORCHESTRATOR.md`'s authoritative decision
+The operative scoping is `docs/architecture/orchestrator.md`'s authoritative decision
 register, which ADR 0031 itself cites: decision 4A (as superseded) runs
 "trusted OCI containers for TerraBase and TerraScale APIs, unprivileged
 OCI containers for customer compute, and **systemd only for admitted

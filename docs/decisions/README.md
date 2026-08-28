@@ -4,7 +4,7 @@ See also the consolidated documentation index in [`../README.md`](../README.md) 
 
 Status: owner choices 1A–10A accepted on 2026-07-16 with reliability first; measurable targets and later implementation selections remain pending.
 
-The machine-readable packet is `owner-decision-packet.json`. Its validator binds each decision to the exact table row in `ORCHESTRATOR.md`, including Markdown semantics, source line, and SHA-256 over the four cells joined by ASCII unit separator. The recorded `answer` must match the explicit owner response; the `recommended` field is historical decision context only.
+The machine-readable packet is `owner-decision-packet.json`. Its validator binds each decision to the exact table row in `docs/architecture/orchestrator.md`, including Markdown semantics, source line, and SHA-256 over the four cells joined by ASCII unit separator. The recorded `answer` must match the explicit owner response; the `recommended` field is historical decision context only.
 
 ## Owner questions (exact source text)
 
@@ -27,7 +27,7 @@ Questions 1–10 are resolved as A. Cost, per-member storage performance/latency
 
 Team size and desired first-production date are Phase 0 planning inputs requested “when available”; they are not falsely promoted to architecture choices. Artifact/evidence signing, DNS, VPN, operator identity provider, regional artifact mirror, ARM64 host image, and NATS N/N-1 policy are explicitly segregated as later Phase 0 implementation selections. They remain null and do not masquerade as answers to the owner questions.
 
-The ADR mappings use the canonical 1–24 IDs from `ORCHESTRATOR.md:1681-1704` and match the Phase 0 readiness map. Gate labels name the specification’s contract freeze, Phase 0 exit, and acceptance layers; they indicate downstream impact, not evidence that a gate passed.
+The ADR mappings use the canonical 1–24 IDs from `docs/architecture/orchestrator.md:1681-1704` and match the Phase 0 readiness map. Gate labels name the specification’s contract freeze, Phase 0 exit, and acceptance layers; they indicate downstream impact, not evidence that a gate passed.
 
 ## Recorded owner response
 
