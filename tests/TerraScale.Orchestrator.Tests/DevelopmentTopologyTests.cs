@@ -247,12 +247,21 @@ public sealed class DevelopmentTopologyTests
     {
         await Assert.That(DevelopmentContainerImages.AspNet).IsEqualTo(
             "mcr.microsoft.com/dotnet/aspnet@sha256:385243b43a2e8b30ffde1eab09a3457b7226bc3cbefedbc3a8b06fa35842c7f6");
+        await Assert.That(DevelopmentContainerImages.AspNet10).IsEqualTo(
+            "mcr.microsoft.com/dotnet/aspnet@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b");
         await Assert.That(DevelopmentContainerImages.All).IsEquivalentTo([
             DevelopmentContainerImages.AspNet,
+            DevelopmentContainerImages.AspNet10,
             DevelopmentContainerImages.RuntimeDependencies,
             DevelopmentContainerImages.Node,
             DevelopmentContainerImages.Nats
         ]);
+        await Assert.That(DevelopmentContainerImages.For(DevelopmentResourceKind.TerraBase))
+            .IsEqualTo(DevelopmentContainerImages.AspNet10);
+        await Assert.That(DevelopmentContainerImages.For(DevelopmentResourceKind.Authentication))
+            .IsEqualTo(DevelopmentContainerImages.AspNet);
+        await Assert.That(DevelopmentContainerImages.For(DevelopmentResourceKind.Platform))
+            .IsEqualTo(DevelopmentContainerImages.AspNet);
         // 3× TerraBase at 3072 MiB (+1024 MiB each vs previous 2048) = +3072 MiB.
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))

@@ -85,7 +85,7 @@ internal static class DevelopmentWorkloadRuntime
         var arguments = new[] { "dotnet", assembly }.Concat(serverArguments).ToArray();
         supervisor.Start(
             resource.Name,
-            DevelopmentContainerImages.AspNet,
+            DevelopmentContainerImages.For(resource.Kind),
             arguments,
             projectDirectory,
             new Dictionary<string, string?> { ["TERRABASE_NODE_TAG"] = tag });
