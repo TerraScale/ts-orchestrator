@@ -214,7 +214,7 @@ internal static partial class DevelopmentReconcilePlanner
             return true;
         }
 
-        // Root-level markdown only (README.md, DESIGN_SYSTEM.md, etc.).
+        // Root-level control markdown only (README.md, AGENTS.md, etc.).
         return !path.Contains('/') && path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
     }
 
