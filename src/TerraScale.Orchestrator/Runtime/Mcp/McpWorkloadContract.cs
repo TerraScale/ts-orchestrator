@@ -140,15 +140,15 @@ public static class McpConfigurationKeys
 {
     public const string PublicBaseUrl = "public-base-url";
     public const string AuthenticationIssuerUrl = "authentication-issuer-url";
-    public const string PlatformPublicApiBaseUrl = "platform-public-api-base-url";
+    public const string DashboardApiBaseUrl = "dashboard-api-base-url";
     public const string MinimumLogLevel = "minimum-log-level";
 
     public static IReadOnlyList<string> All { get; } =
-        [PublicBaseUrl, AuthenticationIssuerUrl, PlatformPublicApiBaseUrl, MinimumLogLevel];
+        [PublicBaseUrl, AuthenticationIssuerUrl, DashboardApiBaseUrl, MinimumLogLevel];
 
     /// <summary>Keys whose values must be absolute HTTPS URLs.</summary>
     public static IReadOnlyList<string> HttpsUrlKeys { get; } =
-        [PublicBaseUrl, AuthenticationIssuerUrl, PlatformPublicApiBaseUrl];
+        [PublicBaseUrl, AuthenticationIssuerUrl, DashboardApiBaseUrl];
 }
 
 /// <summary>

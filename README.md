@@ -704,8 +704,8 @@ This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
 the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
 descriptor can select only the closed `static`, `build`, `test`, and `artifact`
 targets; it cannot inject an executable or argument. The recipe uses the
-multi-architecture .NET 11.0.100-preview.7 SDK manifest pinned at
-`sha256:b8cc28b501af233e51be59583a41bf3ebde7fc8656418a7dd305b90b21a7f3f9`,
+multi-architecture .NET 10.0.400 SDK manifest pinned at
+`sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c`,
 runs all five TUnit modules sequentially with four tests at most, and publishes
 separate self-contained Orchestrator and CLI artifacts for Linux x64 and
 ARM64.
@@ -994,7 +994,7 @@ clock, partition, mTLS, and NATS-JWT gates.
 
 `lab plan` always represents the bounded RF=1 product graph in GRU, SFO, and
 FRA. The topology is not selectable or reducible. No email server runs in the
-lab: Platform and Authentication run with `Email:Provider=Disabled`, rendered
+lab: Dashboard API and Authentication run with `Email:Provider=Disabled`, rendered
 email is logged instead of sent, and `Auth:AutoVerifyEmail` keeps signup and
 login free of the email-verification challenge flow. NATS, TerraBase, PKI,
 artifacts, and backups persist under the regional data
@@ -1013,9 +1013,9 @@ dotnet run --project src/TerraScale.Orchestrator -- lab status \
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
   development-attest \
   --output /tmp/terrascale-orchestrator-regional-evidence.json \
-  --binary src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator
+  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator
 
-src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator \
+src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
   lab up \
   --workspace /workspaces/TerraScale \
   --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
@@ -1071,11 +1071,11 @@ being mistaken for a deployable candidate.
 The executable exposes the exhaustive v1 production role catalog as JSON:
 
 ```bash
-src/TerraScale.Orchestrator/bin/Debug/net11.0/linux-x64/terrascale-orchestrator catalog
+src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator catalog
 ```
 
 All production-shaped DevHost resources project to one of these built-in
-descriptors. Platform, Authentication, and Dashboard retain the production OCI
+descriptors. Dashboard API, Authentication, and Dashboard retain the production OCI
 default; TerraBase, both NATS planes, and Orchestrator retain their native
 systemd defaults. Payment providers remain external.
 

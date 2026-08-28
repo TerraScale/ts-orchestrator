@@ -18,6 +18,7 @@ internal static class DevelopmentArtifactBuilder
     {
         var terraBaseRepository = Path.Combine(workspaceRoot, "TerraBase");
         var internalsRepository = Path.Combine(workspaceRoot, "TerraScale.Internals");
+        var dashboardRepository = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
         var terraBaseProject = Path.Combine(
             workspaceRoot,
             "TerraBase",
@@ -47,7 +48,12 @@ internal static class DevelopmentArtifactBuilder
             (DevelopmentResourceKind.Authentication,
                 Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj")),
             (DevelopmentResourceKind.Platform,
-                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"))
+                Path.Combine(
+                    dashboardRepository,
+                    "backend",
+                    "src",
+                    "TerraScale.Dashboard.Api",
+                    "TerraScale.Dashboard.Api.csproj"))
         };
         foreach (var (kind, project) in projects)
         {
@@ -61,9 +67,12 @@ internal static class DevelopmentArtifactBuilder
                 throw new FileNotFoundException("A required development project is unavailable.", project);
             }
             var projectName = Path.GetFileNameWithoutExtension(project);
-            var repository = kind == DevelopmentResourceKind.TerraBase
-                ? terraBaseRepository
-                : internalsRepository;
+            var repository = kind switch
+            {
+                DevelopmentResourceKind.TerraBase => terraBaseRepository,
+                DevelopmentResourceKind.Platform => dashboardRepository,
+                _ => internalsRepository
+            };
             // TerraBase is one unit with the studio pipeline: the top-level
             // decision already covers its full output set.
             var skip = kind == DevelopmentResourceKind.TerraBase
@@ -99,24 +108,24 @@ internal static class DevelopmentArtifactBuilder
             // The dashboard lives in its own repository; a fresh clone ships
             // without node_modules, so every rebuild installs from the lock
             // file before building (mirroring the TerraBase Studio recipe).
-            var dashboardRepository = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
+            var dashboardSourceRepository = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
             if (!TrySkip(
                     dataDirectory,
                     DevelopmentResourceKind.Dashboard,
-                    dashboardRepository,
-                    dashboardRepository,
+                    dashboardSourceRepository,
+                    dashboardSourceRepository,
                     [],
                     DashboardBuilderDigest()))
             {
-                var state = ReadRepositoryState(dashboardRepository);
-                await RunNpmAsync(["ci", "--no-audit", "--no-fund"], dashboardRepository, cancellationToken);
-                await RunNpmAsync(["run", "build"], dashboardRepository, cancellationToken);
-                DevelopmentDashboardArtifact.Snapshot(dashboardRepository, dataDirectory);
+                var state = ReadRepositoryState(dashboardSourceRepository);
+                await RunNpmAsync(["ci", "--no-audit", "--no-fund"], dashboardSourceRepository, cancellationToken);
+                await RunNpmAsync(["run", "build"], dashboardSourceRepository, cancellationToken);
+                DevelopmentDashboardArtifact.Snapshot(dashboardSourceRepository, dataDirectory);
                 WriteStamp(
                     dataDirectory,
                     DevelopmentResourceKind.Dashboard,
-                    dashboardRepository,
-                    dashboardRepository,
+                    dashboardSourceRepository,
+                    dashboardSourceRepository,
                     DashboardBuilderDigest(),
                     state);
             }

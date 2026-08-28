@@ -12,9 +12,9 @@ public sealed class DevelopmentControlSocketTests
         var dashboard = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request("TerraScale.Dashboard", ["app/page.tsx"]));
-        var internalsPlatform = DevelopmentReconcilePlanner.Plan(
+        var dashboardBackend = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
-            Request("TerraScale.Internals", ["src/Platform/TerraScale.Platform/Program.cs"]));
+            Request("TerraScale.Dashboard", ["backend/src/TerraScale.Dashboard.Api/Program.cs"]));
         var terraBase = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request("TerraBase", ["src/TerraBase.Server/Program.cs"]));
@@ -22,11 +22,29 @@ public sealed class DevelopmentControlSocketTests
         await Assert.That(dashboard.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
         await Assert.That(dashboard.Resources.Count).IsEqualTo(3);
-        await Assert.That(internalsPlatform.Resources.Select(resource => resource.Kind).Distinct())
+        await Assert.That(dashboardBackend.Resources.Select(resource => resource.Kind).Distinct())
+            .IsEquivalentTo([DevelopmentResourceKind.Platform]);
+        await Assert.That(dashboardBackend.Resources.Count).IsEqualTo(3);
+
+        var dashboardDatabase = DevelopmentReconcilePlanner.Plan(
+            DevelopmentTopology.CreateRegional(),
+            Request(
+                "TerraScale.Dashboard",
+                ["backend/src/TerraScale.Database/Endpoints/Documents/QueryDocumentsEndpoint.cs"]));
+        await Assert.That(dashboardDatabase.Resources.Select(resource => resource.Kind).Distinct())
+            .IsEquivalentTo([DevelopmentResourceKind.Platform]);
+
+        var dashboardFullStack = DevelopmentReconcilePlanner.Plan(
+            DevelopmentTopology.CreateRegional(),
+            Request(
+                "TerraScale.Dashboard",
+                ["backend/src/TerraScale.Database/TerraScale.Database.csproj", "app/page.tsx"]));
+        await Assert.That(dashboardFullStack.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([
                 DevelopmentResourceKind.Platform,
                 DevelopmentResourceKind.Dashboard
             ]);
+        await Assert.That(dashboardFullStack.Resources.Count).IsEqualTo(6);
         await Assert.That(terraBase.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([
                 DevelopmentResourceKind.TerraBase,
@@ -46,6 +64,11 @@ public sealed class DevelopmentControlSocketTests
             topology,
             Request("TerraScale.Dashboard", ["docs/architecture.md", "README.md", "e2e/login.spec.ts"]));
         await Assert.That(docsOnly.Resources).IsEmpty();
+
+        var backendTestsOnly = DevelopmentReconcilePlanner.Plan(
+            topology,
+            Request("TerraScale.Dashboard", ["backend/tests/TerraScale.Database.Tests/DatabaseTests.cs"]));
+        await Assert.That(backendTestsOnly.Resources).IsEmpty();
         await Assert.That(docsOnly.ReconciliationId).IsNotNull().And.IsNotEmpty();
 
         // Mixed content still replaces every regional dashboard replica.

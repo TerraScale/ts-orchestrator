@@ -291,7 +291,7 @@ public sealed class DevelopmentTopologyTests
     public async Task ContainerImagesAndPodBudgetAreClosed()
     {
         await Assert.That(DevelopmentContainerImages.AspNet).IsEqualTo(
-            "mcr.microsoft.com/dotnet/aspnet@sha256:385243b43a2e8b30ffde1eab09a3457b7226bc3cbefedbc3a8b06fa35842c7f6");
+            "mcr.microsoft.com/dotnet/aspnet@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b");
         await Assert.That(DevelopmentContainerImages.AspNet10).IsEqualTo(
             "mcr.microsoft.com/dotnet/aspnet@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b");
         await Assert.That(DevelopmentContainerImages.All).IsEquivalentTo([

@@ -18,8 +18,10 @@ internal static class DevelopmentWorkloadRuntime
         CancellationToken cancellationToken)
     {
         var internalsRoot = Path.Combine(workspaceRoot, "TerraScale.Internals");
+        var dashboardRoot = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
         var terraBaseRoot = Path.Combine(workspaceRoot, "TerraBase");
         RequireDirectory(internalsRoot, "TerraScale.Internals repository");
+        RequireDirectory(dashboardRoot, "TerraScale.Dashboard repository");
         RequireDirectory(terraBaseRoot, "TerraBase repository");
 
         var paymentEnvironment = ReadPaymentEnvironment();
@@ -52,14 +54,19 @@ internal static class DevelopmentWorkloadRuntime
             StartDotNetService(
                 supervisor,
                 platform,
-                Path.Combine(internalsRoot, "src", "Platform", "TerraScale.Platform", "TerraScale.Platform.csproj"),
+                Path.Combine(
+                    dashboardRoot,
+                    "backend",
+                    "src",
+                    "TerraScale.Dashboard.Api",
+                    "TerraScale.Dashboard.Api.csproj"),
                 CreateServiceEnvironment(
                     topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity, paymentEnvironment),
                 dataDirectory);
             await WaitHttpAsync(platform.Port, "/health/ready", supervisor, cancellationToken);
 
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
-            StartDashboard(supervisor, topology, cell, dashboard, internalsRoot, dataDirectory, natsSecurity);
+            StartDashboard(supervisor, topology, cell, dashboard, dataDirectory, natsSecurity);
             await WaitHttpAsync(dashboard.Port, "/health/ready", supervisor, cancellationToken);
         }
     }
@@ -127,13 +134,10 @@ internal static class DevelopmentWorkloadRuntime
     {
         RequireFile(project, $"{resource.Kind} project");
         var directory = DevelopmentGuards.RequireDirectory(project, $"{resource.Kind} project");
-        var assemblyName = resource.Kind == DevelopmentResourceKind.Platform
-            ? "TerraScale.Platform.dll"
-            : "TerraScale.Authentication.dll";
         var projectName = Path.GetFileNameWithoutExtension(project);
         var assembly = Path.Combine(
             DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, projectName),
-            assemblyName);
+            projectName + ".dll");
         RequireFile(assembly, $"published {resource.Kind} assembly");
         supervisor.Start(
             resource.Name,
@@ -148,7 +152,6 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentTopology topology,
         DevelopmentCellPlan cell,
         DevelopmentResourcePlan dashboard,
-        string internalsRoot,
         string dataDirectory,
         DevelopmentNatsSecurity natsSecurity)
     {
@@ -243,6 +246,8 @@ internal static class DevelopmentWorkloadRuntime
             ["Email__Provider"] = "Disabled",
             ["Routing__CurrentRegion"] = cell.Cell,
             ["TerraScale__Kestrel__Urls"] = $"http://0.0.0.0:{resource.Port}",
+            // Keep the persisted logical database name stable while the owning
+            // implementation is now built from Dashboard.Api.
             ["TerraScale__ServiceDatabases__Platform"] = "TerraScale.Platform",
             ["TerraScale__ServiceDatabases__Authentication"] = "TerraScale.Authentication",
             ["TerraScale__ServiceDatabases__Payments"] = "TerraScale.Payments",

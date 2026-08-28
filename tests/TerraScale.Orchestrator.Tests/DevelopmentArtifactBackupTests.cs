@@ -9,13 +9,17 @@ public sealed class DevelopmentArtifactBackupTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"ts-orch-artifacts-{Guid.NewGuid():N}");
         var data = Path.Combine(root, "data");
-        var platform = DevelopmentArtifactBuilder.DotNetOutputDirectory(data, "TerraScale.Platform");
+        var dashboardApi = DevelopmentArtifactBuilder.DotNetOutputDirectory(
+            data,
+            "TerraScale.Dashboard.Api");
         var pointer = Path.Combine(data, "artifacts", "dashboard", "current");
         try
         {
-            Directory.CreateDirectory(platform);
+            Directory.CreateDirectory(dashboardApi);
             Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(pointer, "Dashboard pointer"));
-            await File.WriteAllTextAsync(Path.Combine(platform, "TerraScale.Platform.dll"), "healthy");
+            await File.WriteAllTextAsync(
+                Path.Combine(dashboardApi, "TerraScale.Dashboard.Api.dll"),
+                "healthy");
             await File.WriteAllTextAsync(pointer, "healthy-dashboard");
 
             using var backup = DevelopmentArtifactBackup.Capture(
@@ -26,12 +30,15 @@ public sealed class DevelopmentArtifactBackupTests
                     DevelopmentResourceKind.Platform,
                     DevelopmentResourceKind.Dashboard
                 });
-            await File.WriteAllTextAsync(Path.Combine(platform, "TerraScale.Platform.dll"), "candidate");
+            await File.WriteAllTextAsync(
+                Path.Combine(dashboardApi, "TerraScale.Dashboard.Api.dll"),
+                "candidate");
             await File.WriteAllTextAsync(pointer, "candidate-dashboard");
-            Directory.Delete(platform, recursive: true);
+            Directory.Delete(dashboardApi, recursive: true);
             backup.Restore();
 
-            await Assert.That(await File.ReadAllTextAsync(Path.Combine(platform, "TerraScale.Platform.dll")))
+            await Assert.That(await File.ReadAllTextAsync(
+                    Path.Combine(dashboardApi, "TerraScale.Dashboard.Api.dll")))
                 .IsEqualTo("healthy");
             await Assert.That(await File.ReadAllTextAsync(pointer)).IsEqualTo("healthy-dashboard");
         }

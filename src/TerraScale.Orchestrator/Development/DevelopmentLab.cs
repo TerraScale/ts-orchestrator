@@ -5081,7 +5081,8 @@ public static class DevelopmentLab
             return;
         }
         endpoints["nats"] = endpoints[productNats[0].Name];
-        endpoints["platform"] = endpoints[gru.OfKind(DevelopmentResourceKind.Platform).Single().Name];
+        var dashboardApiEndpoint = endpoints[gru.OfKind(DevelopmentResourceKind.Platform).Single().Name];
+        endpoints["dashboard-api"] = dashboardApiEndpoint;
         endpoints["authentication"] = endpoints[gru.OfKind(DevelopmentResourceKind.Authentication).Single().Name];
         endpoints["dashboard"] = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];
         var terraBase = gru.OfKind(DevelopmentResourceKind.TerraBase);

@@ -168,7 +168,7 @@ internal static partial class DevelopmentReconcilePlanner
             path.StartsWith(".agents/", StringComparison.Ordinal) ||
             path.StartsWith(".codex/", StringComparison.Ordinal) ||
             path.StartsWith(".terrascale/", StringComparison.Ordinal) ||
-            path.StartsWith("src/Hosting/TerraScale.LocalEmulators/", StringComparison.Ordinal))
+            path.StartsWith("src/Core/TerraScale.Testing.LocalEmulators/", StringComparison.Ordinal))
         {
             return true;
         }
@@ -184,11 +184,11 @@ internal static partial class DevelopmentReconcilePlanner
 
     /// <summary>
     /// Paths that never map to a development workload for the standalone
-    /// TerraScale.Dashboard repository. Docs, browser/e2e tests, and agent/CI
-    /// rules may pull without replacing the dashboard workload. Unknown root
-    /// paths stay runtime (fail toward replacement, not silence), matching the
-    /// TerraBase policy: app/, src/, public/, types/, scripts/, and every build
-    /// config file rebuild the dashboard.
+    /// TerraScale.Dashboard repository. Docs, browser/e2e tests, backend tests,
+    /// and agent/CI rules may pull without replacing either runtime workload.
+    /// Unknown root paths stay runtime (fail toward replacement, not silence),
+    /// matching the TerraBase policy: app/, src/, public/, types/, scripts/,
+    /// backend/src/, and every build config file rebuild the relevant workload.
     /// </summary>
     internal static bool IsNonRuntimeDashboardPath(string path)
     {
@@ -200,6 +200,8 @@ internal static partial class DevelopmentReconcilePlanner
         if (path.StartsWith("docs/", StringComparison.Ordinal) ||
             path.StartsWith("e2e/", StringComparison.Ordinal) ||
             path.StartsWith("tests/", StringComparison.Ordinal) ||
+            path.StartsWith("backend/tests/", StringComparison.Ordinal) ||
+            path.StartsWith("backend/docs/", StringComparison.Ordinal) ||
             path.StartsWith(".forgejo/", StringComparison.Ordinal) ||
             path.StartsWith(".github/", StringComparison.Ordinal) ||
             path.StartsWith(".agents/", StringComparison.Ordinal) ||
@@ -236,9 +238,28 @@ internal static partial class DevelopmentReconcilePlanner
         }
         if (repository == "TerraScale.Dashboard")
         {
-            return paths.All(path => IsNonRuntimeDashboardPath(path))
-                ? []
-                : [DevelopmentResourceKind.Dashboard];
+            if (paths.All(path => IsNonRuntimeDashboardPath(path)))
+            {
+                return [];
+            }
+
+            var dashboardKinds = new HashSet<DevelopmentResourceKind>();
+            foreach (var path in paths)
+            {
+                // The Dashboard repository owns both the Vinext process and its
+                // C# API. Backend changes replace the API workload (which retains
+                // the public Platform workload identity); frontend/build changes
+                // replace the Node dashboard workload.
+                if (path.StartsWith("backend/", StringComparison.Ordinal))
+                {
+                    dashboardKinds.Add(DevelopmentResourceKind.Platform);
+                }
+                else
+                {
+                    dashboardKinds.Add(DevelopmentResourceKind.Dashboard);
+                }
+            }
+            return dashboardKinds;
         }
         if (repository != "TerraScale.Internals")
         {
@@ -248,12 +269,7 @@ internal static partial class DevelopmentReconcilePlanner
         var kinds = new HashSet<DevelopmentResourceKind>();
         foreach (var path in paths)
         {
-            if (path.StartsWith("src/Platform/", StringComparison.Ordinal))
-            {
-                kinds.Add(DevelopmentResourceKind.Platform);
-                kinds.Add(DevelopmentResourceKind.Dashboard);
-            }
-            else if (path.StartsWith("src/Auth/", StringComparison.Ordinal))
+            if (path.StartsWith("src/Auth/", StringComparison.Ordinal))
             {
                 kinds.Add(DevelopmentResourceKind.Authentication);
                 kinds.Add(DevelopmentResourceKind.Platform);

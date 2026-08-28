@@ -9,14 +9,14 @@ namespace TerraScale.Orchestrator.Development;
 internal static class DevelopmentPublicSurfaces
 {
     public const string PublicDashboardUrlEnvironmentVariable = "TERRASCALE_DEVHOST_PUBLIC_DASHBOARD_URL";
-    public const string PublicPlatformUrlEnvironmentVariable = "TERRASCALE_DEVHOST_PUBLIC_PLATFORM_URL";
+    public const string PublicDashboardApiUrlEnvironmentVariable = "TERRASCALE_DEVHOST_PUBLIC_DASHBOARD_API_URL";
     public const string PublicAuthenticationUrlEnvironmentVariable = "TERRASCALE_DEVHOST_PUBLIC_AUTH_URL";
 
     public static string? PublicDashboardUrl(Func<string, string?>? getEnvironmentVariable = null) =>
         ReadAbsoluteHttpUrl(PublicDashboardUrlEnvironmentVariable, getEnvironmentVariable);
 
-    public static string? PublicPlatformUrl(Func<string, string?>? getEnvironmentVariable = null) =>
-        ReadAbsoluteHttpUrl(PublicPlatformUrlEnvironmentVariable, getEnvironmentVariable);
+    public static string? PublicDashboardApiUrl(Func<string, string?>? getEnvironmentVariable = null) =>
+        ReadAbsoluteHttpUrl(PublicDashboardApiUrlEnvironmentVariable, getEnvironmentVariable);
 
     public static string? PublicAuthenticationUrl(Func<string, string?>? getEnvironmentVariable = null) =>
         ReadAbsoluteHttpUrl(PublicAuthenticationUrlEnvironmentVariable, getEnvironmentVariable);

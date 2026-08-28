@@ -42,7 +42,7 @@ public sealed class McpWorkloadAdmissionTests
         .Replace("<probes>", probes ?? DefaultProbes, StringComparison.Ordinal);
 
     private const string DefaultConfiguration =
-        """{"public-base-url":"https://mcp.terrascale.tech","authentication-issuer-url":"https://auth.terrascale.tech","platform-public-api-base-url":"https://api.terrascale.tech","minimum-log-level":"information"}""";
+        """{"public-base-url":"https://mcp.terrascale.tech","authentication-issuer-url":"https://auth.terrascale.tech","dashboard-api-base-url":"https://api.terrascale.tech","minimum-log-level":"information"}""";
 
     private const string DefaultSecretReferences =
         """["vault:terrascale/mcp/oauth-client-secret"]""";
@@ -289,7 +289,7 @@ public sealed class McpWorkloadAdmissionTests
         {
             ["public-base-url"] = "https://mcp.terrascale.tech",
             ["authentication-issuer-url"] = "https://auth.terrascale.tech",
-            ["platform-public-api-base-url"] = "https://api.terrascale.tech",
+            ["dashboard-api-base-url"] = "https://api.terrascale.tech",
             ["minimum-log-level"] = "information",
         },
         [new McpSecretReference("vault:terrascale/mcp/oauth-client-secret")],

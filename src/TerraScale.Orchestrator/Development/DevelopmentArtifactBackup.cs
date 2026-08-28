@@ -42,7 +42,9 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
         }
         if (kinds.Contains(DevelopmentResourceKind.Platform))
         {
-            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(dataDirectory, "TerraScale.Platform"));
+            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(
+                dataDirectory,
+                "TerraScale.Dashboard.Api"));
         }
 
         var directories = sources.Distinct(StringComparer.Ordinal)

@@ -211,7 +211,8 @@ The plan is based on the ten pre-existing TerraScale repositories beside this ne
 | Repository | Preserve | Port or retire |
 |---|---|---|
 | `TerraBase` | Native Linux packaging, systemd unit behavior, storage signals, health, TLS/client-certificate behavior, backup/restore, admin APIs | Add an orchestrator-facing typed admin client/contract; do not fork its storage engine into the orchestrator |
-| `TerraScale.Internals` | Platform/Auth/Dashboard runtime graph, health endpoints, project placement, release manifests, region headers, OTel contract | Add native workload descriptors; fix the missing Auth build target; keep project placement separate from machine scheduling |
+| `TerraScale.Internals` | Authentication runtime graph, health endpoints, project placement, release manifests, region headers, OTel contract | Add native workload descriptors; keep project placement separate from machine scheduling |
+| `TerraScale.Dashboard` | Dashboard API/UI runtime graph, health endpoints, public SDK integration, project-facing endpoints, and OTel contract | Build the Dashboard API and Database projects in this repository; keep project placement separate from machine scheduling |
 | `TerraScale.DotNet` | Public API and queue SDK compatibility, idempotency, preferred-region behavior, errors and receipts | No operator/host APIs in the customer SDK; create a separate operator client if needed |
 | `TerraScale.TypeScript` | Public API contract, OpenAPI/route drift tests, Dashboard runtime | Replace hard-coded OCI-specific three-region constants with discovered provider-neutral data without breaking clients |
 | `TerraScale.Infrastructure` | Region catalog, VCN/DRG, IAM, KMS/Vault, object storage, Cloudflare, base images, durable-routing patterns | Reuse reviewed source patterns only; create a new Pulumi stack/state and entirely new network, IAM, KMS/Vault, storage, DNS/LB, seed, and orchestrator resources; delete obsolete OKE/CNI/CSI/admission/cert-manager/external-secrets/Kubernetes definitions after behavior gates |
@@ -387,7 +388,7 @@ Publishing requirements:
 - Pulumi's initial and replacement node templates use approved A1 Ampere images and expose `architecture=arm64` to the regional inventory.
 - Every native artifact declares RID, ELF architecture, minimum kernel/glibc requirements, and digest. The agent rejects an architecture mismatch before activation.
 - Every OCI workload image is published as an OCI multi-platform manifest with an explicitly tested `linux/arm64` image. GitOps resolves and records the selected platform-specific manifest/image digest.
-- The orchestrator, TerraBase, Platform, Authentication, Dashboard/Node runtime, both NATS clusters, OTel collectors, Grafana stack, VPN components, BuildKit, containerd/runc, and host utilities must all have an approved ARM64 build or image before their descriptor can enter production.
+- The orchestrator, TerraBase, Dashboard API, Authentication, Dashboard/Node runtime, both NATS clusters, OTel collectors, Grafana stack, VPN components, BuildKit, containerd/runc, and host utilities must all have an approved ARM64 build or image before their descriptor can enter production.
 - CI has native ARM64 runners. Cross-compilation may provide early feedback, but real A1 execution is required for systemd, containerd, mTLS, NATS, storage, TerraBase, observability, and performance qualification.
 - Release sets contain the logical release plus per-architecture digests. Promotion never substitutes an x64 digest on ARM or rebuilds the ARM artifact after qualification.
 - Scheduler constraints and autoscaling templates are architecture-aware. A workload with no ARM artifact remains unschedulable with a clear reason; it cannot silently force an expensive x64 pool into an A1 cell.
@@ -421,7 +422,7 @@ The internal control schema is versioned, validated, and provider-neutral. It is
 Admission accepts only these first-party role families:
 
 ```text
-TerraScale.Platform
+TerraScale.Dashboard.Api
 TerraScale.Authentication
 TerraScale.Dashboard
 TerraScale.TerraBase
@@ -1750,7 +1751,7 @@ Order:
 - Project placement and storage epoch semantics have one source of truth.
 - Immutable candidate promotion traverses SFO, FRA, GRU with required soaks and exact digest; gate failure stops and records evidence.
 - Git/NATS/controller outage never rolls a healthy workload to an unrequested version.
-- Customer Dashboard remains a separate full-stack product and an ordinary external user of TerraScale.Platform. It owns Dashboard-specific endpoints and orchestration, reaches TerraScale only through typed public TypeScript SDK methods under normal customer authentication/authorization and tenant boundaries, and receives no operator allocation, exec, secret, host, private, or Dashboard-special API surface.
+- Customer Dashboard remains a separate full-stack product. Its Dashboard API owns Dashboard-specific endpoints and orchestration, while the customer-facing application reaches TerraScale only through typed public TypeScript SDK methods under normal customer authentication/authorization and tenant boundaries. It receives no operator allocation, exec, secret, host, private, or Dashboard-special API surface.
 
 ## Risks and controls
 
@@ -1859,7 +1860,7 @@ These files are the starting executable specifications. Paths are relative to th
 - Local runtime graph: `../TerraScale.DevHost/src/TerraScale.DevHost/DevStack.cs`, `../TerraScale.DevHost/src/TerraScale.DevHost/DevStackEnvironment.cs`, and `../TerraScale.Internals/docs/DevHost.md`.
 - Product regions/replication: `../TerraScale.Internals/docs/databases/regions-and-replication.md` and the project placement implementation.
 - Queue contract: `../TerraScale.Internals/docs/queue/architecture.md` and `src/Core/TerraScale.Queue/`.
-- Health/OTel/runtime contracts: Internals ServiceDefaults, Platform/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.
+- Health/OTel/runtime contracts: Internals ServiceDefaults, Dashboard API/Auth programs, Dashboard health/OTel files, and deploy Dockerfiles.
 - Native TerraBase unit: `../TerraBase/scripts/linux/pkg/deb/assets/terrabase/debian/terrabase.service` and `../TerraBase/docs/linux.md`.
 - Public compatibility: `../TerraScale.DotNet/src/`, `../TerraScale.TypeScript/src/`, their E2E tests, and `../Terrascale.Documentation/src/content/docs/`.
 

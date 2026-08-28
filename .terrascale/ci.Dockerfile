@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk@sha256:b8cc28b501af233e51be59583a41bf3ebde7fc8656418a7dd305b90b21a7f3f9 AS source
+FROM mcr.microsoft.com/dotnet/sdk@sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c AS source
 WORKDIR /source
 COPY . .
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
@@ -17,7 +17,7 @@ RUN dotnet run --project tools/TerraScale.Orchestrator.Tooling/TerraScale.Orches
     --output /evidence/terrascale-ci-result-v2.json
 
 FROM scratch AS ci-static
-COPY --from=static-check /source/tools/TerraScale.Orchestrator.Tooling/bin/Debug/net11.0/ /evidence/tooling/
+COPY --from=static-check /source/tools/TerraScale.Orchestrator.Tooling/bin/Debug/net10.0/ /evidence/tooling/
 COPY --from=static-check /evidence/terrascale-ci-result-v2.json /
 
 FROM restore AS build
@@ -29,8 +29,8 @@ RUN dotnet run --project tools/TerraScale.Orchestrator.Tooling/TerraScale.Orches
     --output /evidence/terrascale-ci-result-v2.json
 
 FROM scratch AS ci-build
-COPY --from=build /source/src/TerraScale.Orchestrator/bin/Release/net11.0/ /evidence/orchestrator/
-COPY --from=build /source/src/TerraScale.Orchestrator.CLI/bin/Release/net11.0/ /evidence/cli/
+COPY --from=build /source/src/TerraScale.Orchestrator/bin/Release/net10.0/ /evidence/orchestrator/
+COPY --from=build /source/src/TerraScale.Orchestrator.CLI/bin/Release/net10.0/ /evidence/cli/
 COPY --from=build /evidence/terrascale-ci-result-v2.json /
 
 FROM build AS test

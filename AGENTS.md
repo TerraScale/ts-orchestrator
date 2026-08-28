@@ -24,7 +24,7 @@ The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `deve
 - Adapters translate persisted intents and typed observations. Do not hide business rules in infrastructure adapters.
 - The accepted 1A–10A owner choices are normative. Any future unresolved choice must stay explicit/configurable; never replace a recorded decision silently.
 - Platform and Authentication public listeners remain REST. Allocate separate non-ingress MagicOnion listener ports, discover Authentication and regional Platform RPC endpoints privately, require workload mTLS with the expected peer identity in production, and make Platform readiness depend on Authentication RPC readiness.
-- Treat the customer Dashboard as a separate full-stack application and an ordinary external TerraScale.Platform user. Runtime wiring may supply public Platform/Auth base URLs only; it must not create Dashboard-specific API knowledge, SDK surface, credentials, headers, tenant bypasses, direct TerraBase access, or private operator access.
+- Treat the customer Dashboard as a separate full-stack application and an ordinary external TerraScale API user. Runtime wiring may supply public Dashboard API/Auth base URLs only; it must not create Dashboard-specific API knowledge, SDK surface, credentials, headers, tenant bypasses, direct TerraBase access, or private operator access.
 
 ## Quality and safety
 
