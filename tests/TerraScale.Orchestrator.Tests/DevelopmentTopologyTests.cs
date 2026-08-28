@@ -87,9 +87,13 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["TerraScale__Billing__OperationMetering__PublishTimeout"])
             .IsEqualTo("00:00:02");
         await Assert.That(environment["Payments__Provider"]).IsEqualTo("polar");
-        await Assert.That(environment["Payments__polar__Enabled"]).IsEqualTo("true");
-        await Assert.That(environment["Payments__Polar__AccessToken"]).IsEqualTo("devhost-local-access-token");
-        await Assert.That(environment["Payments__Polar__WebhookSecret"]).IsEqualTo("devhost-local-webhook-secret");
+        await Assert.That(environment["Payments__Polar__Enabled"]).IsEqualTo("false");
+        await Assert.That(environment["Payments__Development__Enabled"]).IsEqualTo("true");
+        await Assert.That(environment["Payments__Polar__ApiBaseUrl"])
+            .IsEqualTo("https://sandbox-api.polar.sh");
+        await Assert.That(environment["Payments__Polar__PaymentMethodVerificationReturnUrl"])
+            .IsEqualTo("http://127.0.0.1:18672/onboarding?payment=success");
+        await Assert.That(environment.ContainsKey("Payments__Polar__AccessToken")).IsFalse();
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
         await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
@@ -130,6 +134,41 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(stripeEnvironment["Payments__Provider"]).IsEqualTo("stripe");
         await Assert.That(stripeEnvironment["Payments__stripe__Enabled"]).IsEqualTo("true");
         await Assert.That(stripeEnvironment["Payments__Stripe__SecretKey"]).IsEqualTo("test-secret");
+
+        var polarEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
+            topology,
+            cell,
+            platform,
+            isPlatform: true,
+            "/tmp/terrascale-orchestrator-tests",
+            paymentEnvironment: new Dictionary<string, string?>
+            {
+                ["Payments__Provider"] = "polar",
+                ["Payments__Polar__AccessToken"] = "sandbox-access-token"
+            });
+        await Assert.That(polarEnvironment["Payments__Polar__Enabled"]).IsEqualTo("true");
+        await Assert.That(polarEnvironment["Payments__Polar__AccessToken"])
+            .IsEqualTo("sandbox-access-token");
+        await Assert.That(polarEnvironment["Payments__Polar__ApiBaseUrl"])
+            .IsEqualTo("https://sandbox-api.polar.sh");
+
+        var fileBackedPolarEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
+            topology,
+            cell,
+            platform,
+            isPlatform: true,
+            "/tmp/terrascale-orchestrator-tests",
+            paymentEnvironment: new Dictionary<string, string?>
+            {
+                ["Payments__Provider"] = "polar",
+                ["Payments__Polar__AccessTokenFile"] = "/run/secrets/polar-access-token"
+            });
+        await Assert.That(fileBackedPolarEnvironment["Payments__Polar__Enabled"])
+            .IsEqualTo("true");
+        await Assert.That(fileBackedPolarEnvironment["Payments__Polar__AccessTokenFile"])
+            .IsEqualTo("/run/secrets/polar-access-token");
+        await Assert.That(fileBackedPolarEnvironment.ContainsKey("Payments__Polar__AccessToken"))
+            .IsFalse();
     }
 
     [Test]

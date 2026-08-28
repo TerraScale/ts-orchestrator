@@ -312,7 +312,9 @@ internal static class DevelopmentWorkloadRuntime
         // When DevHost publishes the product dashboard on MagicDNS HTTPS, browsers
         // present that origin to Platform. Accept it alongside loopback so cookie
         // and CORS checks succeed for tailnet clients.
-        if (DevelopmentPublicSurfaces.PublicDashboardUrl() is { } publicDashboardOrigin)
+        var publicDashboardOrigin = DevelopmentPublicSurfaces.PublicDashboardUrl();
+        var dashboardOrigin = publicDashboardOrigin ?? Http(dashboard.Port);
+        if (publicDashboardOrigin is not null)
         {
             environment["Fido2__Origins__3"] = publicDashboardOrigin;
             environment["Cors__AllowedOrigins__2"] = publicDashboardOrigin;
@@ -329,6 +331,10 @@ internal static class DevelopmentWorkloadRuntime
         environment["QueueReplication__SharedSecret"] = "test_project_queue_replication_key";
         environment["QueueReplication__RequestTimeoutMilliseconds"] = "900";
         environment["Payments__Provider"] = "polar";
+        environment["Payments__Polar__ApiBaseUrl"] = "https://sandbox-api.polar.sh";
+        environment["Payments__Polar__PaymentMethodVerificationReturnUrl"] =
+            $"{dashboardOrigin}/onboarding?payment=success";
+        environment["Payments__Development__Enabled"] = "true";
         if (paymentEnvironment is not null)
         {
             foreach (var (key, value) in paymentEnvironment)
@@ -338,11 +344,28 @@ internal static class DevelopmentWorkloadRuntime
         }
         if (environment["Payments__Provider"] is { } selectedPaymentProvider)
         {
-            environment[$"Payments__{selectedPaymentProvider}__Enabled"] = "true";
             if (selectedPaymentProvider.Equals("polar", StringComparison.OrdinalIgnoreCase))
             {
-                environment.TryAdd("Payments__Polar__AccessToken", "devhost-local-access-token");
-                environment.TryAdd("Payments__Polar__WebhookSecret", "devhost-local-webhook-secret");
+                var hasPolarCredential = HasNonEmptySetting(
+                    paymentEnvironment,
+                    "Payments__Polar__AccessToken") ||
+                    HasNonEmptySetting(paymentEnvironment, "Payments__Polar__AccessTokenFile");
+                var polarExplicitlyDisabled = TryGetSetting(
+                    paymentEnvironment,
+                    "Payments__Polar__Enabled",
+                    out var polarEnabledSetting) &&
+                    bool.TryParse(polarEnabledSetting, out var polarEnabled) &&
+                    !polarEnabled;
+                environment["Payments__Polar__Enabled"] =
+                    hasPolarCredential && !polarExplicitlyDisabled ? "true" : "false";
+                if (hasPolarCredential)
+                {
+                    environment.TryAdd("Payments__Polar__WebhookSecret", "devhost-local-webhook-secret");
+                }
+            }
+            else
+            {
+                environment[$"Payments__{selectedPaymentProvider}__Enabled"] = "true";
             }
         }
         environment["Idempotency__RequireForInternalCalls"] = "true";
@@ -406,6 +429,32 @@ internal static class DevelopmentWorkloadRuntime
         }
 
         return values;
+    }
+
+    private static bool HasNonEmptySetting(
+        IReadOnlyDictionary<string, string?>? settings,
+        string name) =>
+        TryGetSetting(settings, name, out var value) && !string.IsNullOrWhiteSpace(value);
+
+    private static bool TryGetSetting(
+        IReadOnlyDictionary<string, string?>? settings,
+        string name,
+        out string? value)
+    {
+        if (settings is not null)
+        {
+            foreach (var setting in settings)
+            {
+                if (setting.Key.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = setting.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = null;
+        return false;
     }
 
     private static async Task BootstrapTerraBaseAsync(
