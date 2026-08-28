@@ -332,7 +332,10 @@ internal static class DevelopmentWorkloadRuntime
         environment["QueueReplication__RequestTimeoutMilliseconds"] = "900";
         environment["Payments__Provider"] = "polar";
         environment["Payments__Polar__ApiBaseUrl"] = "https://sandbox-api.polar.sh";
-        environment["Payments__Polar__PaymentMethodVerificationReturnUrl"] =
+        environment["Payments__Polar__CheckoutSuccessUrl"] =
+            $"{dashboardOrigin}/onboarding?payment=success";
+        environment["Payments__Polar__CheckoutReturnUrl"] = $"{dashboardOrigin}/onboarding";
+        environment["Payments__Polar__PortalReturnUrl"] =
             $"{dashboardOrigin}/onboarding?payment=success";
         environment["Payments__Development__Enabled"] = "true";
         if (paymentEnvironment is not null)

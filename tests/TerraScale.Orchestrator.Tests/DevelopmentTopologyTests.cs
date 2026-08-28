@@ -91,8 +91,14 @@ public sealed class DevelopmentTopologyTests
         await Assert.That(environment["Payments__Development__Enabled"]).IsEqualTo("true");
         await Assert.That(environment["Payments__Polar__ApiBaseUrl"])
             .IsEqualTo("https://sandbox-api.polar.sh");
-        await Assert.That(environment["Payments__Polar__PaymentMethodVerificationReturnUrl"])
+        await Assert.That(environment["Payments__Polar__CheckoutSuccessUrl"])
             .IsEqualTo("http://127.0.0.1:18672/onboarding?payment=success");
+        await Assert.That(environment["Payments__Polar__CheckoutReturnUrl"])
+            .IsEqualTo("http://127.0.0.1:18672/onboarding");
+        await Assert.That(environment["Payments__Polar__PortalReturnUrl"])
+            .IsEqualTo("http://127.0.0.1:18672/onboarding?payment=success");
+        await Assert.That(environment.ContainsKey("Payments__Polar__PaymentMethodVerificationReturnUrl"))
+            .IsFalse();
         await Assert.That(environment.ContainsKey("Payments__Polar__AccessToken")).IsFalse();
         await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
         await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
