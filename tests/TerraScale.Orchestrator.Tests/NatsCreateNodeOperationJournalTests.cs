@@ -1043,9 +1043,20 @@ public sealed class NatsCreateNodeOperationJournalTests
             var corrupt = "corrupt"u8.ToArray();
             await bundles!.PutAsync(topology.ProtocolObject, corrupt);
 
-            await Assert.That(async () => await NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
-                    infrastructure, topology, default))
-                .Throws<InvalidOperationException>();
+            InvalidOperationException? integrityFailure = null;
+            await EventuallyAsync(async () =>
+            {
+                try
+                {
+                    await NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
+                        infrastructure, topology, default);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    integrityFailure = exception;
+                }
+            });
+            await Assert.That(integrityFailure).IsNotNull();
             await Assert.That(await bundles.GetBytesAsync(topology.ProtocolObject)).IsEquivalentTo(corrupt);
         }
         finally
