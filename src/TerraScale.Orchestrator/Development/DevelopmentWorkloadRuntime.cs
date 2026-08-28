@@ -50,21 +50,6 @@ internal static class DevelopmentWorkloadRuntime
                 dataDirectory);
             await WaitHttpAsync(authentication.Port, "/health/ready", supervisor, cancellationToken);
 
-            var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
-            StartDotNetService(
-                supervisor,
-                platform,
-                Path.Combine(
-                    dashboardRoot,
-                    "backend",
-                    "src",
-                    "TerraScale.Dashboard.Api",
-                    "TerraScale.Dashboard.Api.csproj"),
-                CreateServiceEnvironment(
-                    topology, cell, platform, isPlatform: true, dataDirectory, natsSecurity, paymentEnvironment),
-                dataDirectory);
-            await WaitHttpAsync(platform.Port, "/health/ready", supervisor, cancellationToken);
-
             var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
             StartDashboard(supervisor, topology, cell, dashboard, dataDirectory, natsSecurity);
             await WaitHttpAsync(dashboard.Port, "/health/ready", supervisor, cancellationToken);
@@ -156,9 +141,9 @@ internal static class DevelopmentWorkloadRuntime
         DevelopmentNatsSecurity natsSecurity)
     {
         var directory = DevelopmentDashboardArtifact.Resolve(dataDirectory);
-        var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
-        var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[platform.Name].CaFile;
+        var certificateBundle = natsSecurity.Cell(cell.Cell).Tls.Product.Clients[
+            ProductWorkloadClientName(cell)].CaFile;
         var cache = Path.Combine(dataDirectory, "workloads", dashboard.Name, "vite-task-cache");
         Directory.CreateDirectory(cache);
         supervisor.Start(
@@ -166,12 +151,18 @@ internal static class DevelopmentWorkloadRuntime
             DevelopmentContainerImages.Node,
             ["node", .. CreateDashboardArguments(dashboard)],
             directory,
-            CreateDashboardEnvironment(topology, platform, authentication, dashboard, certificateBundle, cache));
+            CreateDashboardEnvironment(topology, dashboard, authentication, dashboard, certificateBundle, cache));
+    }
+
+    internal static string ProductWorkloadClientName(DevelopmentCellPlan cell)
+    {
+        var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).SingleOrDefault();
+        return dashboard?.Name ?? cell.OfKind(DevelopmentResourceKind.Platform).Single().Name;
     }
 
     internal static IReadOnlyDictionary<string, string?> CreateDashboardEnvironment(
         DevelopmentTopology topology,
-        DevelopmentResourcePlan platform,
+        DevelopmentResourcePlan dashboardApi,
         DevelopmentResourcePlan authentication,
         DevelopmentResourcePlan dashboard,
         string certificateBundle,
@@ -186,10 +177,14 @@ internal static class DevelopmentWorkloadRuntime
             ["VITE_CACHE_PATH"] = cache,
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = string.Empty,
             ["OpenTelemetry__OtlpEndpoint"] = string.Empty,
-            // Server-side Platform/Auth stay on pod loopback; only the browser-facing
+            // Server-side Dashboard/Auth stay on pod loopback; only the browser-facing
             // public origin uses DevHost Tailscale MagicDNS when injected.
-            ["TERRASCALE_API_BASE_URL"] = Http(platform.Port),
-            ["TERRASCALE_AUTH_API_BASE_URL"] = Http(authentication.Port),
+            // A tailnet URL is injected when DevHost publishes one; otherwise
+            // retain the in-pod loopback contract used by focused tests.
+            ["TERRASCALE_API_BASE_URL"] = DevelopmentPublicSurfaces.PublicDashboardApiUrl(
+                getEnvironmentVariable) ?? Http(dashboardApi.Port),
+            ["TERRASCALE_AUTH_API_BASE_URL"] = DevelopmentPublicSurfaces.PublicAuthenticationUrl(
+                getEnvironmentVariable) ?? Http(authentication.Port),
             ["TERRASCALE_DASHBOARD_PUBLIC_URL"] = DevelopmentPublicSurfaces.ResolveDashboardPublicUrl(
                 dashboard.Port,
                 getEnvironmentVariable),
@@ -247,7 +242,7 @@ internal static class DevelopmentWorkloadRuntime
             ["Routing__CurrentRegion"] = cell.Cell,
             ["TerraScale__Kestrel__Urls"] = $"http://0.0.0.0:{resource.Port}",
             // Keep the persisted logical database name stable while the owning
-            // implementation is now built from Dashboard.Api.
+            // implementation is now hosted by the full-stack Dashboard.
             ["TerraScale__ServiceDatabases__Platform"] = "TerraScale.Platform",
             ["TerraScale__ServiceDatabases__Authentication"] = "TerraScale.Authentication",
             ["TerraScale__ServiceDatabases__Payments"] = "TerraScale.Payments",
@@ -261,8 +256,9 @@ internal static class DevelopmentWorkloadRuntime
             ["TerraScale__ServiceDatabases__ReplicationFactor"] = "1",
             ["TerraScale__ServiceDatabases__DynamicNodesDistribution"] = "true"
         };
-        // Private MagicOnion HTTP/2 listener (SecondaryPort). Required by Internals
-        // InternalRpc for Authentication and Platform; clear-text is fine same-cell.
+        // Private MagicOnion HTTP/2 listener (SecondaryPort) remains available for
+        // Authentication's existing internal service contract. The Vinext Dashboard
+        // has no private listener and is addressed through its public loopback URL.
         if (resource.SecondaryPort is int secondaryPort && secondaryPort > 0)
         {
             environment["TerraScale__Kestrel__InternalRpcPort"] =
@@ -277,21 +273,20 @@ internal static class DevelopmentWorkloadRuntime
         {
             environment[$"Routing__AllowedRegions__{index}"] = topology.Cells[index].Cell;
             environment[$"TerraScale__ServiceDatabases__Regions__{index}"] = topology.Cells[index].Cell;
+            var regionalApi = topology.Cells[index].OfKind(DevelopmentResourceKind.Platform).SingleOrDefault()
+                ?? topology.Cells[index].OfKind(DevelopmentResourceKind.Dashboard).Single();
             environment[$"Routing__RegionApiBaseUrls__{topology.Cells[index].Cell}"] =
-                Http(topology.Cells[index].OfKind(DevelopmentResourceKind.Platform).Single().Port);
+                Http(regionalApi.Port);
         }
         // Authentication requires its own region's InternalRpc endpoint at
         // startup (live error: "InternalRpc:RegionalEndpoints:{region} is
         // required by Authentication."), so it needs the current cell's
-        // Platform endpoint before the early return — exactly that one
+        // Dashboard endpoint before the early return — exactly that one
         // endpoint, never every regional endpoint. Platform adds the full
         // regional map itself in its own branch below.
-        var currentPlatform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
-        if (currentPlatform.SecondaryPort is not int currentPlatformPort || currentPlatformPort <= 0)
-        {
-            throw new InvalidOperationException(
-                $"Platform resource '{currentPlatform.Name}' is missing SecondaryPort for InternalRpc.");
-        }
+        var currentPlatform = cell.OfKind(DevelopmentResourceKind.Platform).SingleOrDefault();
+        var currentDashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
+        var currentPlatformPort = currentPlatform?.SecondaryPort ?? currentDashboard.Port;
         environment[$"InternalRpc__RegionalEndpoints__{cell.Cell}"] = Http(currentPlatformPort);
 
         if (!isPlatform)
@@ -377,7 +372,9 @@ internal static class DevelopmentWorkloadRuntime
             }
         }
         environment["Idempotency__RequireForInternalCalls"] = "true";
-        // Platform peers Authentication and every regional Platform over private MagicOnion.
+        // The legacy Platform branch is retained for callers constructing a
+        // compatibility topology; the regional production Dashboard is Vinext and
+        // has no MagicOnion endpoint.
         // AuthenticationEndpoint is required at startup (ValidateOnStart); RegionalEndpoints
         // cover queue replication and regional request streaming.
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
@@ -390,12 +387,9 @@ internal static class DevelopmentWorkloadRuntime
         environment["InternalRpc__LocalPublicEndpoint"] = Http(resource.Port);
         foreach (var regionalCell in topology.Cells)
         {
-            var regionalPlatform = regionalCell.OfKind(DevelopmentResourceKind.Platform).Single();
-            if (regionalPlatform.SecondaryPort is not int regionalPlatformPort || regionalPlatformPort <= 0)
-            {
-                throw new InvalidOperationException(
-                    $"Platform resource '{regionalPlatform.Name}' is missing SecondaryPort for InternalRpc.");
-            }
+            var regionalPlatform = regionalCell.OfKind(DevelopmentResourceKind.Platform).SingleOrDefault();
+            var regionalDashboard = regionalCell.OfKind(DevelopmentResourceKind.Dashboard).Single();
+            var regionalPlatformPort = regionalPlatform?.SecondaryPort ?? regionalDashboard.Port;
             environment[$"InternalRpc__RegionalEndpoints__{regionalCell.Cell}"] =
                 Http(regionalPlatformPort);
         }

@@ -96,11 +96,7 @@ internal static class DevelopmentPki
                     "product",
                     productRoot,
                     productIntermediate,
-                    cell.OfKind(DevelopmentResourceKind.Platform)
-                        .ToDictionary(
-                            resource => resource.Name,
-                            resource => (Role: "workload", Identity: resource.Name),
-                            StringComparer.Ordinal),
+                    ProductClientIdentities(cell),
                     cellRoot,
                     issuedAt);
                 // Rewrite identity paths from staging to the stable published root so
@@ -130,6 +126,35 @@ internal static class DevelopmentPki
                 Directory.Delete(retired, recursive: true);
             }
         }
+    }
+
+    private static IReadOnlyDictionary<string, (string Role, string Identity)> ProductClientIdentities(
+        DevelopmentCellPlan cell)
+    {
+        var resources = cell.OfKind(DevelopmentResourceKind.Dashboard);
+        if (resources.Count == 0)
+        {
+            // Compatibility for focused tests that still build the pre-extraction
+            // topology by hand. Regional production topology always takes the
+            // Dashboard branch above.
+            resources = cell.OfKind(DevelopmentResourceKind.Platform);
+        }
+        var workloads = resources
+            .Select(resource => new KeyValuePair<string, (string Role, string Identity)>(
+                resource.Name,
+                (Role: "workload", Identity: resource.Name)))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
+        // Keep the old probe identity readable for an already-running lab while
+        // moving the actual client to the full-stack Dashboard workload. This is
+        // credential compatibility only; no Platform process or endpoint exists.
+        if (workloads.Count != 0)
+        {
+            var dashboard = workloads.Values.Single();
+            workloads.TryAdd($"{cell.Cell}-platform", dashboard);
+        }
+
+        return workloads;
     }
 
     /// <summary>

@@ -163,8 +163,9 @@ internal static class DevelopmentHealthProbe
                 case DevelopmentResourceKind.ProductNats:
                     probeTls = resource.Kind is DevelopmentResourceKind.ControlNats
                         ? natsSecurity.Cell(resource.Cell).Tls.Control.Clients["operator-read"]
-                        : natsSecurity.Cell(resource.Cell).Tls.Product.Clients[$"{resource.Cell}-platform"];
-                    // operator-read (control) and platform (product) probes are the only
+                        : natsSecurity.Cell(resource.Cell).Tls.Product.Clients[
+                            ProductClientName(topology, resource.Cell)];
+                    // operator-read (control) and Dashboard (product) probes are the only
                     // in-process mTLS clients that present leaves every health cycle. When a
                     // leaf is already past NotAfter, ConnectAsync produces the exact NATS
                     // server log "TLS handshake error … CN=operator-read" that DevHost scrapes.
@@ -186,6 +187,18 @@ internal static class DevelopmentHealthProbe
                     if (TryInvalidLeafProbeFailure(probeTls) is { } platformLeafFailure)
                     {
                         return (resource.Name, platformLeafFailure);
+                    }
+                    await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind), cancellationToken);
+                    return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
+                case DevelopmentResourceKind.Dashboard:
+                    // The full-stack Vinext Dashboard owns the public API and UI
+                    // in one process. It is also the sole product-NATS client in
+                    // the regional development graph.
+                    probeTls = natsSecurity.Cell(resource.Cell).Tls.Product.Clients[
+                        ProductClientName(topology, resource.Cell)];
+                    if (TryInvalidLeafProbeFailure(probeTls) is { } dashboardLeafFailure)
+                    {
+                        return (resource.Name, dashboardLeafFailure);
                     }
                     await ProbeHttpAsync(resource.Port, HealthPath(resource.Kind), cancellationToken);
                     return (resource.Name, new(true, $"HTTP {resource.Port} ready."));
@@ -259,7 +272,14 @@ internal static class DevelopmentHealthProbe
     /// failures: RestartAsync remains the remedy for those.
     /// </summary>
     internal static bool IsReadinessPendingResponse(string path, HttpStatusCode statusCode) =>
-        path == HealthPath(DevelopmentResourceKind.Platform) && (int)statusCode >= 500;
+        (path == HealthPath(DevelopmentResourceKind.Platform) ||
+         path == HealthPath(DevelopmentResourceKind.Dashboard)) && (int)statusCode >= 500;
+
+    private static string ProductClientName(DevelopmentTopology topology, string cell)
+    {
+        var plan = topology.Cells.Single(candidate => candidate.Cell == cell);
+        return DevelopmentWorkloadRuntime.ProductWorkloadClientName(plan);
+    }
 
     private static async Task ProbeTcpAsync(int port, CancellationToken cancellationToken)
     {

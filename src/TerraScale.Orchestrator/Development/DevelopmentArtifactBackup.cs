@@ -40,13 +40,6 @@ internal sealed class DevelopmentArtifactBackup : IDisposable
                 dataDirectory,
                 "TerraScale.Authentication"));
         }
-        if (kinds.Contains(DevelopmentResourceKind.Platform))
-        {
-            sources.Add(DevelopmentArtifactBuilder.DotNetOutputDirectory(
-                dataDirectory,
-                "TerraScale.Dashboard.Api"));
-        }
-
         var directories = sources.Distinct(StringComparer.Ordinal)
             .Select((source, index) => (Source: source, Backup: Path.Combine(root, index.ToString(
                 System.Globalization.CultureInfo.InvariantCulture))))

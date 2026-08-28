@@ -229,6 +229,41 @@ public sealed class DevelopmentArtifactBuilderTests
     }
 
     [Test]
+    public async Task VitePlusResolutionUsesDashboardLocalBinaryBeforeManagedFallback()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vite-plus-resolution-" + Guid.NewGuid().ToString("N"));
+        var local = Path.Combine(root, "node_modules", ".bin", "vp");
+        var managed = Path.Combine(root, ".vite-plus", "bin", "vp");
+        try
+        {
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(local, "local VitePlus CLI"));
+            await File.WriteAllTextAsync(local, "#!/bin/sh\n");
+            Directory.CreateDirectory(DevelopmentGuards.RequireDirectory(managed, "managed VitePlus CLI"));
+            await File.WriteAllTextAsync(managed, "#!/bin/sh\n");
+
+            var localCommand = DevelopmentArtifactBuilder.ResolveVitePlusCommand(
+                path: "/missing",
+                userProfile: root,
+                workingDirectory: root);
+            await Assert.That(localCommand.Executable).IsEqualTo(local);
+
+            File.Delete(local);
+            var managedCommand = DevelopmentArtifactBuilder.ResolveVitePlusCommand(
+                path: "/missing",
+                userProfile: root,
+                workingDirectory: root);
+            await Assert.That(managedCommand.Executable).IsEqualTo(managed);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Test]
     public async Task TerraBaseArtifactAlwaysContainsItsStudioArchive()
     {
         var root = Path.Combine(Path.GetTempPath(), "terrabase-studio-artifact-" + Guid.NewGuid().ToString("N"));

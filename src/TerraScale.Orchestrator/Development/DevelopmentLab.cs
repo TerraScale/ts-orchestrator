@@ -4616,11 +4616,16 @@ public static class DevelopmentLab
             DevelopmentResourceKind.ControlNats =>
                 cellSecurity.Tls.Control.Clients["operator-read"],
             DevelopmentResourceKind.ProductNats =>
-                cellSecurity.Tls.Product.Clients[$"{resource.Cell}-platform"],
+                cellSecurity.Tls.Product.Clients[
+                    ProductClientName(topology, resource.Cell)],
             DevelopmentResourceKind.ControllerAgent =>
                 cellSecurity.Tls.Control.Clients[resource.Name],
             DevelopmentResourceKind.Platform =>
                 cellSecurity.Tls.Product.Clients[resource.Name],
+            DevelopmentResourceKind.Dashboard =>
+                cellSecurity.Tls.Product.Clients[
+                    DevelopmentWorkloadRuntime.ProductWorkloadClientName(
+                        topology.Cells.Single(candidate => candidate.Cell == resource.Cell))],
             _ => null
         };
     }
@@ -4759,6 +4764,11 @@ public static class DevelopmentLab
             case DevelopmentResourceKind.Platform:
                 yield return cellSecurity.Tls.Product.Clients[resource.Name];
                 yield break;
+            case DevelopmentResourceKind.Dashboard:
+                yield return cellSecurity.Tls.Product.Clients[
+                    DevelopmentWorkloadRuntime.ProductWorkloadClientName(
+                        topology.Cells.Single(candidate => candidate.Cell == resource.Cell))];
+                yield break;
         }
     }
 
@@ -4769,6 +4779,10 @@ public static class DevelopmentLab
             .SelectMany(cell => cell.Resources)
             .FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, resourceName, StringComparison.Ordinal));
+
+    private static string ProductClientName(DevelopmentTopology topology, string cell) =>
+        DevelopmentWorkloadRuntime.ProductWorkloadClientName(
+            topology.Cells.Single(candidate => candidate.Cell == cell));
 
     /// <summary>
     /// After NATS and clients are already stopped and PEMs reminted: bring control/product
@@ -5064,7 +5078,6 @@ public static class DevelopmentLab
             $"nats://127.0.0.1:{resource.Port}",
         DevelopmentResourceKind.TerraBase or
         DevelopmentResourceKind.Authentication or
-        DevelopmentResourceKind.Platform or
         DevelopmentResourceKind.Dashboard =>
             $"http://127.0.0.1:{resource.Port}",
         _ => null
@@ -5081,8 +5094,11 @@ public static class DevelopmentLab
             return;
         }
         endpoints["nats"] = endpoints[productNats[0].Name];
-        var dashboardApiEndpoint = endpoints[gru.OfKind(DevelopmentResourceKind.Platform).Single().Name];
-        endpoints["dashboard-api"] = dashboardApiEndpoint;
+        // The Vinext Dashboard owns the public API and UI in one workload. Keep
+        // the dashboard-api alias for existing DevHost consumers, but resolve it
+        // to the canonical Dashboard listener (GRU 18672).
+        var dashboardEndpoint = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];
+        endpoints["dashboard-api"] = dashboardEndpoint;
         endpoints["authentication"] = endpoints[gru.OfKind(DevelopmentResourceKind.Authentication).Single().Name];
         endpoints["dashboard"] = endpoints[gru.OfKind(DevelopmentResourceKind.Dashboard).Single().Name];
         var terraBase = gru.OfKind(DevelopmentResourceKind.TerraBase);

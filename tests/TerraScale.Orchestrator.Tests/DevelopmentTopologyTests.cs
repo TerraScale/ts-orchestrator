@@ -26,7 +26,6 @@ public sealed class DevelopmentTopologyTests
                 DevelopmentResourceKind.ControlNats,
                 DevelopmentResourceKind.ProductNats,
                 DevelopmentResourceKind.TerraBase,
-                DevelopmentResourceKind.Platform,
                 DevelopmentResourceKind.Authentication,
                 DevelopmentResourceKind.Dashboard
             })
@@ -37,7 +36,7 @@ public sealed class DevelopmentTopologyTests
 
         var resources = topology.Cells.SelectMany(cell => cell.Resources)
             .ToArray();
-        await Assert.That(resources.Length).IsEqualTo(21);
+        await Assert.That(resources.Length).IsEqualTo(18);
         var ports = resources.Select(resource => resource.Port)
             .Concat(resources.Where(resource => resource.ClusterPort is not null)
                 .Select(resource => resource.ClusterPort ?? throw new InvalidOperationException(
@@ -51,19 +50,12 @@ public sealed class DevelopmentTopologyTests
     }
 
     [Test]
-    public async Task RegionalServicesUseReducedDatabaseAndQueueReplication()
+    public async Task AuthenticationUsesTheFullStackDashboardEndpoint()
     {
         var topology = DevelopmentTopology.CreateRegional();
         var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
-        var platform = cell.OfKind(DevelopmentResourceKind.Platform).Single();
         var authentication = cell.OfKind(DevelopmentResourceKind.Authentication).Single();
 
-        var environment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
-            topology,
-            cell,
-            platform,
-            isPlatform: true,
-            "/tmp/terrascale-orchestrator-tests");
         var authenticationEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
             topology,
             cell,
@@ -71,110 +63,18 @@ public sealed class DevelopmentTopologyTests
             isPlatform: false,
             "/tmp/terrascale-orchestrator-tests");
 
-        await Assert.That(environment["HOME"])
-            .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-platform/home");
-        await Assert.That(environment["DOTNET_CLI_HOME"]).IsEqualTo(environment["HOME"]);
-        await Assert.That(environment["Logging__LogLevel__Microsoft.Extensions.Diagnostics.HealthChecks.DefaultHealthCheckService"])
-            .IsEqualTo("Critical");
         await Assert.That(authenticationEnvironment["HOME"])
             .IsEqualTo("/tmp/terrascale-orchestrator-tests/workloads/gru-authentication/home");
-        await Assert.That(environment["TerraScale__ServiceDatabases__AllowReducedDevelopmentTopology"])
-            .IsEqualTo("true");
-        await Assert.That(environment["TerraScale__ServiceDatabases__ShardCount"]).IsEqualTo("1");
-        await Assert.That(environment["TerraScale__ServiceDatabases__ReplicationFactor"]).IsEqualTo("1");
-        await Assert.That(environment["TerraScale__Queue__StreamReplicas"]).IsEqualTo("1");
-        await Assert.That(environment["TerraScale__Queue__ConsumerReplicas"]).IsEqualTo("1");
-        await Assert.That(environment["TerraScale__Billing__OperationMetering__PublishTimeout"])
-            .IsEqualTo("00:00:02");
-        await Assert.That(environment["Payments__Provider"]).IsEqualTo("polar");
-        await Assert.That(environment["Payments__Polar__Enabled"]).IsEqualTo("false");
-        await Assert.That(environment["Payments__Development__Enabled"]).IsEqualTo("true");
-        await Assert.That(environment["Payments__Polar__ApiBaseUrl"])
-            .IsEqualTo("https://sandbox-api.polar.sh");
-        await Assert.That(environment["Payments__Polar__CheckoutSuccessUrl"])
-            .IsEqualTo("http://127.0.0.1:18672/onboarding?payment=success");
-        await Assert.That(environment["Payments__Polar__CheckoutReturnUrl"])
-            .IsEqualTo("http://127.0.0.1:18672/onboarding");
-        await Assert.That(environment["Payments__Polar__PortalReturnUrl"])
-            .IsEqualTo("http://127.0.0.1:18672/onboarding?payment=success");
-        await Assert.That(environment.ContainsKey("Payments__Polar__PaymentMethodVerificationReturnUrl"))
-            .IsFalse();
-        await Assert.That(environment.ContainsKey("Payments__Polar__AccessToken")).IsFalse();
-        await Assert.That(environment.ContainsKey("Services__Dashboard__BaseUrl")).IsFalse();
-        await Assert.That(environment.ContainsKey("DashboardAdmin__OwnerEmails__0")).IsFalse();
-        await Assert.That(environment.ContainsKey("AuthenticationService__BaseUrl")).IsFalse();
-        await Assert.That(environment.Keys.Count(key => key.StartsWith("TerraBase__Urls__", StringComparison.Ordinal)))
-            .IsEqualTo(1);
-        // Private MagicOnion listeners: auth SecondaryPort is AuthenticationEndpoint;
-        // each platform SecondaryPort is RegionalEndpoints:{cell}.
         await Assert.That(authentication.SecondaryPort).IsEqualTo(18673);
-        await Assert.That(platform.SecondaryPort).IsEqualTo(18674);
         await Assert.That(authenticationEnvironment["TerraScale__Kestrel__InternalRpcPort"]).IsEqualTo("18673");
-        await Assert.That(environment["TerraScale__Kestrel__InternalRpcPort"]).IsEqualTo("18674");
-        await Assert.That(environment["InternalRpc__AuthenticationEndpoint"]).IsEqualTo("http://127.0.0.1:18673");
-        await Assert.That(environment["InternalRpc__LocalPublicEndpoint"]).IsEqualTo("http://127.0.0.1:18671");
-        await Assert.That(environment["InternalRpc__RegionalEndpoints__gru"]).IsEqualTo("http://127.0.0.1:18674");
-        await Assert.That(environment["InternalRpc__RegionalEndpoints__sfo"]).IsEqualTo("http://127.0.0.1:18874");
-        await Assert.That(environment["InternalRpc__RegionalEndpoints__fra"]).IsEqualTo("http://127.0.0.1:19074");
-        // Authentication receives only its own cell's Platform InternalRpc
-        // endpoint; the full regional map belongs to Platform alone.
         await Assert.That(authenticationEnvironment["InternalRpc__RegionalEndpoints__gru"])
-            .IsEqualTo("http://127.0.0.1:18674");
+            .IsEqualTo("http://127.0.0.1:18672");
         await Assert.That(authenticationEnvironment.ContainsKey("InternalRpc__RegionalEndpoints__sfo")).IsFalse();
         await Assert.That(authenticationEnvironment.ContainsKey("InternalRpc__RegionalEndpoints__fra")).IsFalse();
         await Assert.That(authenticationEnvironment.Keys
             .Count(key => key.StartsWith("InternalRpc__RegionalEndpoints__", StringComparison.Ordinal)))
             .IsEqualTo(1);
 
-        var stripeEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
-            topology,
-            cell,
-            platform,
-            isPlatform: true,
-            "/tmp/terrascale-orchestrator-tests",
-            paymentEnvironment: new Dictionary<string, string?>
-            {
-                ["Payments__Provider"] = "stripe",
-                ["Payments__Stripe__SecretKey"] = "test-secret"
-            });
-        await Assert.That(stripeEnvironment["Payments__Provider"]).IsEqualTo("stripe");
-        await Assert.That(stripeEnvironment["Payments__stripe__Enabled"]).IsEqualTo("true");
-        await Assert.That(stripeEnvironment["Payments__Stripe__SecretKey"]).IsEqualTo("test-secret");
-
-        var polarEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
-            topology,
-            cell,
-            platform,
-            isPlatform: true,
-            "/tmp/terrascale-orchestrator-tests",
-            paymentEnvironment: new Dictionary<string, string?>
-            {
-                ["Payments__Provider"] = "polar",
-                ["Payments__Polar__AccessToken"] = "sandbox-access-token"
-            });
-        await Assert.That(polarEnvironment["Payments__Polar__Enabled"]).IsEqualTo("true");
-        await Assert.That(polarEnvironment["Payments__Polar__AccessToken"])
-            .IsEqualTo("sandbox-access-token");
-        await Assert.That(polarEnvironment["Payments__Polar__ApiBaseUrl"])
-            .IsEqualTo("https://sandbox-api.polar.sh");
-
-        var fileBackedPolarEnvironment = DevelopmentWorkloadRuntime.CreateServiceEnvironment(
-            topology,
-            cell,
-            platform,
-            isPlatform: true,
-            "/tmp/terrascale-orchestrator-tests",
-            paymentEnvironment: new Dictionary<string, string?>
-            {
-                ["Payments__Provider"] = "polar",
-                ["Payments__Polar__AccessTokenFile"] = "/run/secrets/polar-access-token"
-            });
-        await Assert.That(fileBackedPolarEnvironment["Payments__Polar__Enabled"])
-            .IsEqualTo("true");
-        await Assert.That(fileBackedPolarEnvironment["Payments__Polar__AccessTokenFile"])
-            .IsEqualTo("/run/secrets/polar-access-token");
-        await Assert.That(fileBackedPolarEnvironment.ContainsKey("Payments__Polar__AccessToken"))
-            .IsFalse();
     }
 
     [Test]
@@ -185,7 +85,7 @@ public sealed class DevelopmentTopologyTests
         var dashboard = cell.OfKind(DevelopmentResourceKind.Dashboard).Single();
         var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
             topology,
-            cell.OfKind(DevelopmentResourceKind.Platform).Single(),
+            dashboard,
             cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
             dashboard,
             "/runtime/product-ca.pem",
@@ -220,7 +120,7 @@ public sealed class DevelopmentTopologyTests
         const string publicUrl = "https://terrascale-dev.tail057f.ts.net:18446";
         var environment = DevelopmentWorkloadRuntime.CreateDashboardEnvironment(
             topology,
-            cell.OfKind(DevelopmentResourceKind.Platform).Single(),
+            dashboard,
             cell.OfKind(DevelopmentResourceKind.Authentication).Single(),
             dashboard,
             "/runtime/product-ca.pem",
@@ -231,7 +131,7 @@ public sealed class DevelopmentTopologyTests
                     : null);
 
         await Assert.That(environment["TERRASCALE_DASHBOARD_PUBLIC_URL"]).IsEqualTo(publicUrl);
-        // Server-side API targets stay on loopback inside the lab pod.
+        // Without explicit public API/Auth aliases, targets stay on loopback.
         await Assert.That(environment["TERRASCALE_API_BASE_URL"]).StartsWith("http://127.0.0.1:");
         await Assert.That(environment["TERRASCALE_AUTH_API_BASE_URL"]).StartsWith("http://127.0.0.1:");
     }
@@ -305,12 +205,10 @@ public sealed class DevelopmentTopologyTests
             .IsEqualTo(DevelopmentContainerImages.AspNet10);
         await Assert.That(DevelopmentContainerImages.For(DevelopmentResourceKind.Authentication))
             .IsEqualTo(DevelopmentContainerImages.AspNet);
-        await Assert.That(DevelopmentContainerImages.For(DevelopmentResourceKind.Platform))
-            .IsEqualTo(DevelopmentContainerImages.AspNet);
         // 3× TerraBase at 3072 MiB (+1024 MiB each vs previous 2048) = +3072 MiB.
         await Assert.That(DevelopmentProcessSupervisor.PlannedMemoryLimitBytes(
             DevelopmentTopology.CreateRegional()))
-            .IsEqualTo(15_936L * 1024 * 1024);
+            .IsEqualTo(14_016L * 1024 * 1024);
         await Assert.That(DevelopmentProcessSupervisor.OwnershipLabel)
             .IsEqualTo("io.terrascale.owner=devhost-orchestrator");
     }
@@ -371,9 +269,9 @@ public sealed class DevelopmentTopologyTests
         // then NATS. This prevents services from writing to TerraBase/NATS that
         // are already gone during lab disposal (DevHost fingerprint 6c66e5034ade).
         await Assert.That(order)
-            .IsEquivalentTo(["-dashboard", "-platform", "-authentication", "-controller-", "-terrabase-", "-control-nats-", "-product-nats-"]);
+            .IsEquivalentTo(["-dashboard", "-authentication", "-controller-", "-terrabase-", "-control-nats-", "-product-nats-"]);
         await Assert.That(string.Join('|', order)).IsEqualTo(
-            "-dashboard|-platform|-authentication|-controller-|-terrabase-|-control-nats-|-product-nats-");
+            "-dashboard|-authentication|-controller-|-terrabase-|-control-nats-|-product-nats-");
 
         // Every topology resource matches exactly one tier so graceful teardown
         // never skips a running container (the pod force-removal then only acts
@@ -479,7 +377,7 @@ public sealed class DevelopmentTopologyTests
 
             await Assert.That(DevelopmentProcessSupervisor.WritableRuntimeVolume(
                 topology,
-                "gru-platform",
+                "gru-dashboard",
                 root))
                 .IsNull();
         }

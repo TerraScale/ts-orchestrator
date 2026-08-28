@@ -7407,7 +7407,6 @@ public sealed class DevelopmentNatsSecurityTests
         foreach (var readinessKind in new[]
                  {
                      DevelopmentResourceKind.Authentication,
-                     DevelopmentResourceKind.Platform,
                      DevelopmentResourceKind.Dashboard
                  })
         {

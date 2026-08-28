@@ -14,7 +14,7 @@ public sealed class DevelopmentControlSocketTests
             Request("TerraScale.Dashboard", ["app/page.tsx"]));
         var dashboardBackend = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
-            Request("TerraScale.Dashboard", ["backend/src/TerraScale.Dashboard.Api/Program.cs"]));
+            Request("TerraScale.Dashboard", ["src/backend/routes/api.ts"]));
         var terraBase = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request("TerraBase", ["src/TerraBase.Server/Program.cs"]));
@@ -23,36 +23,32 @@ public sealed class DevelopmentControlSocketTests
             .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
         await Assert.That(dashboard.Resources.Count).IsEqualTo(3);
         await Assert.That(dashboardBackend.Resources.Select(resource => resource.Kind).Distinct())
-            .IsEquivalentTo([DevelopmentResourceKind.Platform]);
+            .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
         await Assert.That(dashboardBackend.Resources.Count).IsEqualTo(3);
 
         var dashboardDatabase = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request(
                 "TerraScale.Dashboard",
-                ["backend/src/TerraScale.Database/Endpoints/Documents/QueryDocumentsEndpoint.cs"]));
+                ["src/backend/documents/query.ts"]));
         await Assert.That(dashboardDatabase.Resources.Select(resource => resource.Kind).Distinct())
-            .IsEquivalentTo([DevelopmentResourceKind.Platform]);
+            .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
 
         var dashboardFullStack = DevelopmentReconcilePlanner.Plan(
             DevelopmentTopology.CreateRegional(),
             Request(
                 "TerraScale.Dashboard",
-                ["backend/src/TerraScale.Database/TerraScale.Database.csproj", "app/page.tsx"]));
+                ["src/backend/database.ts", "app/page.tsx"]));
         await Assert.That(dashboardFullStack.Resources.Select(resource => resource.Kind).Distinct())
-            .IsEquivalentTo([
-                DevelopmentResourceKind.Platform,
-                DevelopmentResourceKind.Dashboard
-            ]);
-        await Assert.That(dashboardFullStack.Resources.Count).IsEqualTo(6);
+            .IsEquivalentTo([DevelopmentResourceKind.Dashboard]);
+        await Assert.That(dashboardFullStack.Resources.Count).IsEqualTo(3);
         await Assert.That(terraBase.Resources.Select(resource => resource.Kind).Distinct())
             .IsEquivalentTo([
                 DevelopmentResourceKind.TerraBase,
                 DevelopmentResourceKind.Authentication,
-                DevelopmentResourceKind.Platform,
                 DevelopmentResourceKind.Dashboard
             ]);
-        await Assert.That(terraBase.Resources.Count).IsEqualTo(12);
+        await Assert.That(terraBase.Resources.Count).IsEqualTo(9);
     }
 
     [Test]
@@ -67,7 +63,7 @@ public sealed class DevelopmentControlSocketTests
 
         var backendTestsOnly = DevelopmentReconcilePlanner.Plan(
             topology,
-            Request("TerraScale.Dashboard", ["backend/tests/TerraScale.Database.Tests/DatabaseTests.cs"]));
+            Request("TerraScale.Dashboard", ["tests/database.test.ts"]));
         await Assert.That(backendTestsOnly.Resources).IsEmpty();
         await Assert.That(docsOnly.ReconciliationId).IsNotNull().And.IsNotEmpty();
 
@@ -139,13 +135,13 @@ public sealed class DevelopmentControlSocketTests
         var mixed = DevelopmentReconcilePlanner.Plan(
             topology,
             Request("TerraBase", ["docs/storage/map.md", "src/TerraBase.Core/Document.cs"]));
-        await Assert.That(mixed.Resources.Count).IsEqualTo(12);
+        await Assert.That(mixed.Resources.Count).IsEqualTo(9);
 
         // Unknown root paths stay runtime (fail toward replacement, not silence).
         var unknownRoot = DevelopmentReconcilePlanner.Plan(
             topology,
             Request("TerraBase", ["build.sh"]));
-        await Assert.That(unknownRoot.Resources.Count).IsEqualTo(12);
+        await Assert.That(unknownRoot.Resources.Count).IsEqualTo(9);
     }
 
     [Test]
@@ -167,10 +163,9 @@ public sealed class DevelopmentControlSocketTests
             .IsEquivalentTo([
                 DevelopmentResourceKind.TerraBase,
                 DevelopmentResourceKind.Authentication,
-                DevelopmentResourceKind.Platform,
                 DevelopmentResourceKind.Dashboard
             ]);
-        await Assert.That(plan.Resources.Count).IsEqualTo(12);
+        await Assert.That(plan.Resources.Count).IsEqualTo(9);
 
         var empty = await Assert.That(() => DevelopmentReconcilePlanner.Plan(
                 topology,

@@ -32,9 +32,9 @@ public sealed class DevelopmentGuardsTests
             .Throws<InvalidOperationException>();
 
         var observation = new DevelopmentResourceObservation(
-            "gru-platform",
+            "gru-dashboard",
             "gru",
-            DevelopmentResourceKind.Platform,
+            DevelopmentResourceKind.Dashboard,
             1,
             DevelopmentResourceState.Ready,
             true,

@@ -278,13 +278,13 @@ internal static class NatsDevelopmentCluster
         timeout.CancelAfter(TimeSpan.FromMinutes(2));
         foreach (var resource in resources)
         {
-            // Readiness probes use operator-read (control) or platform (product). An
-            // invalid on-disk leaf cannot become ready by retrying ConnectAsync; each
-            // attempt would only spam NATS with CN=operator-read / CN=*-platform
+            // Readiness probes use operator-read (control) or the Dashboard workload
+            // (product). An invalid on-disk leaf cannot become ready by retrying
+            // ConnectAsync; each attempt would only spam NATS with handshake errors
             // certificate-expired handshake errors (the continuous-lab incident shape).
             var probeTls = resource.Kind is DevelopmentResourceKind.ControlNats
                 ? security.Tls.Control.Clients["operator-read"]
-                : security.Tls.Product.Clients[$"{security.Cell}-platform"];
+                : security.Tls.Product.Clients[ProductClientName(security)];
             var leafStatus = DevelopmentHealthProbe.DescribeLeafValidity(probeTls.CertificateFile);
             if (leafStatus is not null)
             {
@@ -344,7 +344,7 @@ internal static class NatsDevelopmentCluster
                     Password = security.Product.Password
                 },
                 TlsOpts = DevelopmentHealthProbe.TlsOptions(
-                    security.Tls.Product.Clients[$"{security.Cell}-platform"])
+                    security.Tls.Product.Clients[ProductClientName(security)])
             },
             _ => throw new ArgumentOutOfRangeException(
                 nameof(resource),
@@ -352,5 +352,10 @@ internal static class NatsDevelopmentCluster
                 "Only NATS resources have NATS probe options.")
         };
     }
+
+    private static string ProductClientName(DevelopmentNatsCellSecurity security) =>
+        security.Tls.Product.Clients.ContainsKey($"{security.Cell}-dashboard")
+            ? $"{security.Cell}-dashboard"
+            : $"{security.Cell}-platform";
 
 }

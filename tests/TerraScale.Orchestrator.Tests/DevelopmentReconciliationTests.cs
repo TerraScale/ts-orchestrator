@@ -11,9 +11,9 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 1, []);
 
-        await Assert.That(result.DesiredResources).IsEqualTo(21);
+        await Assert.That(result.DesiredResources).IsEqualTo(18);
         await Assert.That(result.ObservedResources).IsEqualTo(0);
-        await Assert.That(result.ObserveIntents).IsEqualTo(21);
+        await Assert.That(result.ObserveIntents).IsEqualTo(18);
         await Assert.That(result.Errors).IsEmpty();
     }
 
@@ -38,8 +38,8 @@ public sealed class DevelopmentReconciliationTests
 
         var result = DevelopmentReconciliation.Evaluate(topology, 7, observations);
 
-        await Assert.That(result.ObservedResources).IsEqualTo(21);
-        await Assert.That(result.ConvergedResources).IsEqualTo(21);
+        await Assert.That(result.ObservedResources).IsEqualTo(18);
+        await Assert.That(result.ConvergedResources).IsEqualTo(18);
         await Assert.That(result.ReconcileIntents).IsEqualTo(0);
         await Assert.That(result.ObserveIntents).IsEqualTo(0);
         await Assert.That(result.HeldResources).IsEqualTo(0);
@@ -48,8 +48,6 @@ public sealed class DevelopmentReconciliationTests
         await Assert.That(order.IndexOf("gru-control-nats-1"))
             .IsLessThan(order.IndexOf("gru-controller-1"));
         await Assert.That(order.IndexOf("gru-authentication"))
-            .IsLessThan(order.IndexOf("gru-platform"));
-        await Assert.That(order.IndexOf("gru-platform"))
             .IsLessThan(order.IndexOf("gru-dashboard"));
     }
 
@@ -60,7 +58,7 @@ public sealed class DevelopmentReconciliationTests
         var foreign = new DevelopmentResourceObservation(
             "foreign",
             "gru",
-            DevelopmentResourceKind.Platform,
+            DevelopmentResourceKind.Dashboard,
             1,
             DevelopmentResourceState.Ready,
             true,
@@ -75,7 +73,7 @@ public sealed class DevelopmentReconciliationTests
     }
 
     [Test]
-    public async Task FailedRegionalApiAndItsDashboardAreHeldWithoutCrossRegionImpact()
+    public async Task FailedRegionalDashboardIsHeldWithoutCrossRegionImpact()
     {
         var topology = DevelopmentTopology.CreateRegional();
         var observations = topology.Cells.SelectMany(cell => cell.Resources)
@@ -84,20 +82,20 @@ public sealed class DevelopmentReconciliationTests
                 resource.Cell,
                 resource.Kind,
                 resource.Replica,
-                resource.Name == "sfo-platform" ? DevelopmentResourceState.Failed : DevelopmentResourceState.Ready,
-                resource.Name != "sfo-platform",
+                resource.Name == "sfo-dashboard" ? DevelopmentResourceState.Failed : DevelopmentResourceState.Ready,
+                resource.Name != "sfo-dashboard",
                 20_000 + index,
                 $"container-{index}",
                 null,
-                resource.Name == "sfo-platform" ? "failed" : "ready",
+                resource.Name == "sfo-dashboard" ? "failed" : "ready",
                 DateTimeOffset.UtcNow))
             .ToArray();
 
         var result = DevelopmentReconciliation.Evaluate(topology, 11, observations);
 
-        await Assert.That(result.ConvergedResources).IsEqualTo(19);
+        await Assert.That(result.ConvergedResources).IsEqualTo(17);
         await Assert.That(result.ReconcileIntents).IsEqualTo(0);
-        await Assert.That(result.HeldResources).IsEqualTo(2);
+        await Assert.That(result.HeldResources).IsEqualTo(1);
         await Assert.That(result.Errors).IsEmpty();
     }
 }

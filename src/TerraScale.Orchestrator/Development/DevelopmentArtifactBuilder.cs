@@ -46,14 +46,7 @@ internal static class DevelopmentArtifactBuilder
         {
             (DevelopmentResourceKind.TerraBase, terraBaseProject),
             (DevelopmentResourceKind.Authentication,
-                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj")),
-            (DevelopmentResourceKind.Platform,
-                Path.Combine(
-                    dashboardRepository,
-                    "backend",
-                    "src",
-                    "TerraScale.Dashboard.Api",
-                    "TerraScale.Dashboard.Api.csproj"))
+                Path.Combine(workspaceRoot, "TerraScale.Internals", "src", "Auth", "TerraScale.Authentication", "TerraScale.Authentication.csproj"))
         };
         foreach (var (kind, project) in projects)
         {
@@ -70,7 +63,6 @@ internal static class DevelopmentArtifactBuilder
             var repository = kind switch
             {
                 DevelopmentResourceKind.TerraBase => terraBaseRepository,
-                DevelopmentResourceKind.Platform => dashboardRepository,
                 _ => internalsRepository
             };
             // TerraBase is one unit with the studio pipeline: the top-level
@@ -103,12 +95,17 @@ internal static class DevelopmentArtifactBuilder
             WriteStamp(dataDirectory, kind, repository, project, DotNetBuilderDigest(projectName), state);
         }
 
-        if (affectedKinds is null || affectedKinds.Contains(DevelopmentResourceKind.Dashboard))
+        // Dashboard frontend, route handlers, and backend modules are one
+        // Vinext artifact. A legacy Platform impact is treated as Dashboard so
+        // an in-flight DevHost request can never rebuild the removed C# API.
+        if (affectedKinds is null ||
+            affectedKinds.Contains(DevelopmentResourceKind.Dashboard) ||
+            affectedKinds.Contains(DevelopmentResourceKind.Platform))
         {
             // The dashboard lives in its own repository; a fresh clone ships
             // without node_modules, so every rebuild installs from the lock
-            // file before building (mirroring the TerraBase Studio recipe).
-            var dashboardSourceRepository = Path.Combine(workspaceRoot, "TerraScale.Dashboard");
+            // file before building through the repository's VitePlus tasks.
+            var dashboardSourceRepository = dashboardRepository;
             if (!TrySkip(
                     dataDirectory,
                     DevelopmentResourceKind.Dashboard,
@@ -118,8 +115,8 @@ internal static class DevelopmentArtifactBuilder
                     DashboardBuilderDigest()))
             {
                 var state = ReadRepositoryState(dashboardSourceRepository);
-                await RunNpmAsync(["ci", "--no-audit", "--no-fund"], dashboardSourceRepository, cancellationToken);
-                await RunNpmAsync(["run", "build"], dashboardSourceRepository, cancellationToken);
+                await RunVitePlusAsync(["install", "--frozen-lockfile"], dashboardSourceRepository, cancellationToken);
+                await RunVitePlusAsync(["run", "vinext:build"], dashboardSourceRepository, cancellationToken);
                 DevelopmentDashboardArtifact.Snapshot(dashboardSourceRepository, dataDirectory);
                 WriteStamp(
                     dataDirectory,
@@ -278,8 +275,8 @@ internal static class DevelopmentArtifactBuilder
     internal static string DashboardBuilderDigest() => Digest(
         StampSchema,
         "dashboard",
-        "npm-ci",
-        "npm-run-build",
+        "vp-install-frozen-lockfile",
+        "vp-run-vinext-build",
         "snapshot-standalone");
 
     private static string Digest(params string[] parts) => Convert.ToHexStringLower(SHA256.HashData(
@@ -406,6 +403,56 @@ internal static class DevelopmentArtifactBuilder
             command.PrefixArguments.Concat(arguments).ToArray(),
             workingDirectory,
             cancellationToken);
+    }
+
+    private static async Task RunVitePlusAsync(
+        IReadOnlyList<string> arguments,
+        string workingDirectory,
+        CancellationToken cancellationToken)
+    {
+        var command = ResolveVitePlusCommand(workingDirectory: workingDirectory);
+        await RunAsync(
+            command.Executable,
+            command.PrefixArguments.Concat(arguments).ToArray(),
+            workingDirectory,
+            cancellationToken);
+    }
+
+    internal static DevelopmentNpmCommand ResolveVitePlusCommand(
+        string? path = null,
+        string? userProfile = null,
+        string? workingDirectory = null)
+    {
+        path ??= Environment.GetEnvironmentVariable("PATH");
+        foreach (var directory in (path ?? string.Empty).Split(
+                     Path.PathSeparator,
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var executable = Path.Combine(directory, "vp");
+            if (File.Exists(executable))
+            {
+                return new(executable, []);
+            }
+        }
+
+        if (workingDirectory is not null)
+        {
+            var local = Path.Combine(workingDirectory, "node_modules", ".bin", "vp");
+            if (File.Exists(local))
+            {
+                return new(local, []);
+            }
+        }
+
+        userProfile ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var managed = Path.Combine(userProfile, ".vite-plus", "bin", "vp");
+        if (File.Exists(managed))
+        {
+            return new(managed, []);
+        }
+
+        throw new FileNotFoundException(
+            "VitePlus (vp) is required to build the Dashboard and was not found on PATH, in node_modules, or in the VitePlus cache.");
     }
 
     internal static DevelopmentNpmCommand ResolveNpmCommand(

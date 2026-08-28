@@ -118,7 +118,7 @@ internal static partial class DevelopmentReconcilePlanner
     /// <summary>
     /// Paths that never map to a development workload for TerraBase. Docs, tests,
     /// benchmarks, helper scripts, and agent/CI rules may pull without replacing
-    /// the TerraBase/Authentication/Platform/Dashboard graph.
+    /// the TerraBase/Authentication/Dashboard graph.
     /// </summary>
     internal static bool IsNonRuntimeTerraBasePath(string path)
     {
@@ -185,7 +185,7 @@ internal static partial class DevelopmentReconcilePlanner
     /// <summary>
     /// Paths that never map to a development workload for the standalone
     /// TerraScale.Dashboard repository. Docs, browser/e2e tests, backend tests,
-    /// and agent/CI rules may pull without replacing either runtime workload.
+    /// and agent/CI rules may pull without replacing the full-stack runtime workload.
     /// Unknown root paths stay runtime (fail toward replacement, not silence),
     /// matching the TerraBase policy: app/, src/, public/, types/, scripts/,
     /// backend/src/, and every build config file rebuild the relevant workload.
@@ -200,8 +200,6 @@ internal static partial class DevelopmentReconcilePlanner
         if (path.StartsWith("docs/", StringComparison.Ordinal) ||
             path.StartsWith("e2e/", StringComparison.Ordinal) ||
             path.StartsWith("tests/", StringComparison.Ordinal) ||
-            path.StartsWith("backend/tests/", StringComparison.Ordinal) ||
-            path.StartsWith("backend/docs/", StringComparison.Ordinal) ||
             path.StartsWith(".forgejo/", StringComparison.Ordinal) ||
             path.StartsWith(".github/", StringComparison.Ordinal) ||
             path.StartsWith(".agents/", StringComparison.Ordinal) ||
@@ -232,7 +230,6 @@ internal static partial class DevelopmentReconcilePlanner
                 [
                     DevelopmentResourceKind.TerraBase,
                     DevelopmentResourceKind.Authentication,
-                    DevelopmentResourceKind.Platform,
                     DevelopmentResourceKind.Dashboard
                 ];
         }
@@ -246,18 +243,9 @@ internal static partial class DevelopmentReconcilePlanner
             var dashboardKinds = new HashSet<DevelopmentResourceKind>();
             foreach (var path in paths)
             {
-                // The Dashboard repository owns both the Vinext process and its
-                // C# API. Backend changes replace the API workload (which retains
-                // the public Platform workload identity); frontend/build changes
-                // replace the Node dashboard workload.
-                if (path.StartsWith("backend/", StringComparison.Ordinal))
-                {
-                    dashboardKinds.Add(DevelopmentResourceKind.Platform);
-                }
-                else
-                {
-                    dashboardKinds.Add(DevelopmentResourceKind.Dashboard);
-                }
+                // Frontend, route-handler, and backend-module changes all replace
+                // the same Vinext full-stack artifact and process.
+                dashboardKinds.Add(DevelopmentResourceKind.Dashboard);
             }
             return dashboardKinds;
         }
@@ -272,7 +260,6 @@ internal static partial class DevelopmentReconcilePlanner
             if (path.StartsWith("src/Auth/", StringComparison.Ordinal))
             {
                 kinds.Add(DevelopmentResourceKind.Authentication);
-                kinds.Add(DevelopmentResourceKind.Platform);
                 kinds.Add(DevelopmentResourceKind.Dashboard);
             }
             else if (path is "Directory.Build.props" or "Directory.Packages.props" or
@@ -280,7 +267,6 @@ internal static partial class DevelopmentReconcilePlanner
             {
                 kinds.UnionWith([
                     DevelopmentResourceKind.Authentication,
-                    DevelopmentResourceKind.Platform,
                     DevelopmentResourceKind.Dashboard
                 ]);
             }
@@ -302,8 +288,7 @@ internal static partial class DevelopmentReconcilePlanner
     {
         DevelopmentResourceKind.TerraBase => 0,
         DevelopmentResourceKind.Authentication => 1,
-        DevelopmentResourceKind.Platform => 2,
-        DevelopmentResourceKind.Dashboard => 3,
+        DevelopmentResourceKind.Dashboard => 2,
         _ => 5
     };
 

@@ -123,7 +123,13 @@ internal static class DevelopmentReconciliation
                 DevelopmentResourceKind.ProductNats,
                 DevelopmentResourceKind.TerraBase),
             DevelopmentResourceKind.Platform => Names(cell, DevelopmentResourceKind.Authentication),
-            DevelopmentResourceKind.Dashboard => Names(cell, DevelopmentResourceKind.Platform),
+            // The Vinext Dashboard owns its API and UI in one process. It still
+            // waits for Authentication and TerraBase, but never for a separate
+            // Dashboard API development process.
+            DevelopmentResourceKind.Dashboard => Names(
+                cell,
+                DevelopmentResourceKind.Authentication,
+                DevelopmentResourceKind.TerraBase),
             _ => []
         };
     }
