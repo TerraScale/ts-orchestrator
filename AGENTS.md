@@ -1,3 +1,4 @@
+AI IS NOT ALLOWED TO EDIT THIS FILE ONLY HUMANS CAN!
 # TerraScale.Orchestrator agent rules
 
 Read the workspace `../GOAL.md`, root `../AGENTS.md`, and

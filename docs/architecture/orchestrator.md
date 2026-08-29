@@ -174,7 +174,7 @@ It may be used for:
 - controller request and response where its failure semantics fit;
 - regional control journals or KV only after durability and recovery receipts;
   and
-- customer queue products under their own public contract.
+- non-authoritative operational notifications under typed control contracts.
 
 NATS never carries:
 
