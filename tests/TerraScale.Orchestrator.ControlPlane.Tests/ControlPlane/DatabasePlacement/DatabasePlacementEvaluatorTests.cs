@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using TerraScale.Orchestrator.ControlPlane.DatabasePlacement;
 
@@ -8,6 +9,8 @@ public sealed class DatabasePlacementEvaluatorTests
     [Test]
     public async Task Initial_catalog_accepts_one_two_three_and_twenty_region_shapes()
     {
+        await Assert.That(DatabasePlacementPolicy.InitialCatalog.Regions.Select(entry => entry!.Region.Value))
+            .IsEquivalentTo(new[] { "gru", "sfo", "fra" });
         foreach (var count in new[] { 1, 2, 3, 20 })
         {
             var regions = Regions(count);
@@ -36,13 +39,28 @@ public sealed class DatabasePlacementEvaluatorTests
         var unavailable = new RegionCatalogEntry(new("sfo"), Available: false, Permitted: true, ResidencyAllowed: true);
         var denied = new RegionCatalogEntry(new("fra"), Available: true, Permitted: false, ResidencyAllowed: false);
         var decision = Evaluate(Valid([new("sfo"), new("fra"), new("unknown")]),
-            new RegionCatalog([unavailable, denied, new("unknown", true, true, false)]));
+            new RegionCatalog([unavailable, denied]));
         var codes = Codes(decision);
 
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.RegionUnavailable);
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.RegionNotPermitted);
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.ResidencyDenied);
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.UnknownRegion);
+    }
+
+    [Test]
+    public async Task Conflicting_duplicate_catalog_entries_are_permutation_independent()
+    {
+        var first = new RegionCatalogEntry(new("GRU"), Available: true, Permitted: false, ResidencyAllowed: true);
+        var second = new RegionCatalogEntry(new("gru"), Available: false, Permitted: true, ResidencyAllowed: false);
+        var request = Valid([new("gru")]);
+
+        var forward = Evaluate(request, new RegionCatalog([first, second]));
+        var reverse = Evaluate(request, new RegionCatalog([second, first]));
+
+        await Assert.That(forward.Fingerprint).IsEqualTo(reverse.Fingerprint);
+        await Assert.That(forward.Errors).IsEquivalentTo(reverse.Errors);
+        await Assert.That(Codes(forward)).Contains(DatabasePlacementErrorCode.CatalogDuplicateRegion);
     }
 
     [Test]
@@ -60,6 +78,29 @@ public sealed class DatabasePlacementEvaluatorTests
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.PartitionRegionMissing);
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.DuplicatePartitionRegion);
         await Assert.That(codes).Contains(DatabasePlacementErrorCode.PartitionRegionExtra);
+    }
+
+    [Test]
+    public async Task Conflicting_duplicate_partition_regions_are_permutation_independent()
+    {
+        var region = new RegionId("gru");
+        var partition = new PartitionId("p0");
+        var first = new PartitionRegionPlacement(new("GRU"), [Seat("a", region, partition)]);
+        var second = new PartitionRegionPlacement(region, [
+            Seat("b", region, partition, "domain-b"),
+            Seat("c", region, partition, "domain-c"),
+        ]);
+
+        var forward = Evaluate(new DatabasePlacementRequest([region], [
+            new LogicalPartitionPlacement(partition, [first, second]),
+        ]));
+        var reverse = Evaluate(new DatabasePlacementRequest([region], [
+            new LogicalPartitionPlacement(partition, [second, first]),
+        ]));
+
+        await Assert.That(forward.Fingerprint).IsEqualTo(reverse.Fingerprint);
+        await Assert.That(forward.Errors).IsEquivalentTo(reverse.Errors);
+        await Assert.That(Codes(forward)).Contains(DatabasePlacementErrorCode.DuplicatePartitionRegion);
     }
 
     [Test]
@@ -134,25 +175,42 @@ public sealed class DatabasePlacementEvaluatorTests
     }
 
     [Test]
-    public async Task Decisions_are_permutation_and_culture independent_with_stable_typed_reasons()
+    public async Task Decisions_are_permutation_and_culture_independent_with_stable_typed_reasons()
     {
         var regions = new[] { new RegionId("gru"), new RegionId("sfo"), new RegionId("fra") };
-        var first = Evaluate(new DatabasePlacementRequest(regions, [
-            Partition(new("p0"), regions), Partition(new("p1"), regions),
-        ], new BackupPlacement(new("b"), new("iad"))));
-        var permuted = new DatabasePlacementRequest(regions.Reverse(), [
-            Partition(new("p1"), regions.Reverse()), Partition(new("p0"), regions.Reverse()),
-        ], new BackupPlacement(new("b"), new("iad")));
-        var replay = Evaluate(permuted);
+        var request = new DatabasePlacementRequest(
+            regions,
+            [Partition(new("p0"), regions), Partition(new("p1"), regions)],
+            new BackupPlacement(new("b"), new("iad")));
+        var permuted = new DatabasePlacementRequest(
+            regions.Reverse(),
+            [Partition(new("p1"), regions.Reverse()), Partition(new("p0"), regions.Reverse())],
+            new BackupPlacement(new("b"), new("iad")));
+        var originalCulture = CultureInfo.CurrentCulture;
+        DatabasePlacementDecision first;
+        DatabasePlacementDecision replay;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
+            first = Evaluate(request);
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ar-SA");
+            replay = Evaluate(permuted);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
 
         await Assert.That(first.Fingerprint).IsEqualTo(replay.Fingerprint);
-        await Assert.That(first.Errors.Select(error => error.Code)).IsEquivalentTo(replay.Errors.Select(error => error.Code));
+        await Assert.That(first.Errors.Select(error => error.Code))
+            .IsEquivalentTo(replay.Errors.Select(error => error.Code));
     }
 
     [Test]
     public async Task Placement_model_has_no_leadership_or_coordination_concepts()
     {
-        var placementTypes = new[] {
+        var placementTypes = new[]
+        {
             typeof(DatabasePlacementRequest), typeof(LogicalPartitionPlacement),
             typeof(PartitionRegionPlacement), typeof(ActiveMemberSeat), typeof(BackupPlacement),
         };
@@ -182,8 +240,12 @@ public sealed class DatabasePlacementEvaluatorTests
         new(new(member), region, partition, new(domain));
 
     private static RegionId[] Regions(int count) =>
-        Enumerable.Range(0, count).Select(index => new RegionId(index switch {
-            0 => "gru", 1 => "sfo", 2 => "fra", _ => "region-" + index,
+        Enumerable.Range(0, count).Select(index => new RegionId(index switch
+        {
+            0 => "gru",
+            1 => "sfo",
+            2 => "fra",
+            _ => "region-" + index,
         })).ToArray();
 
     private static RegionCatalog Catalog(IEnumerable<RegionId> regions) =>

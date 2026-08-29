@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 
 namespace TerraScale.Orchestrator.ControlPlane.DatabasePlacement;
@@ -25,12 +26,19 @@ public static class DatabasePlacementEvaluator
 
         var catalogEntries = effectiveCatalog.Regions;
         var catalogByKey = new Dictionary<string, RegionCatalogEntry>(StringComparer.Ordinal);
-        foreach (var entry in catalogEntries.Where(static entry => entry is not null).Cast<RegionCatalogEntry>()
-                     .OrderBy(static entry => Key(entry.Region), StringComparer.Ordinal))
+        if (catalogEntries.Any(static entry => entry is null))
+            errors.Add(new(DatabasePlacementErrorCode.CatalogEntryMissing));
+        foreach (var group in catalogEntries.Where(static entry => entry is not null).Cast<RegionCatalogEntry>()
+                     .GroupBy(static entry => Key(entry.Region), StringComparer.Ordinal)
+                     .OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
-            var key = Key(entry.Region);
-            if (!catalogByKey.TryAdd(key, entry))
-                errors.Add(new(DatabasePlacementErrorCode.CatalogDuplicateRegion, entry.Region));
+            if (group.Count() != 1)
+            {
+                errors.Add(new(DatabasePlacementErrorCode.CatalogDuplicateRegion, new RegionId(group.Key)));
+                continue;
+            }
+
+            catalogByKey.Add(group.Key, group.Single());
         }
 
         var activeRegions = request.ActiveRegions;
@@ -38,7 +46,8 @@ public static class DatabasePlacementEvaluator
         var activeRegionCountValid = activeRegions.Count is >= DatabasePlacementPolicy.MinimumActiveRegionCount
             and <= DatabasePlacementPolicy.MaximumActiveRegionCount;
         if (!activeRegionCountValid)
-            errors.Add(new(DatabasePlacementErrorCode.ActiveRegionCountOutOfRange, Detail: activeRegions.Count.ToString()));
+            errors.Add(new(DatabasePlacementErrorCode.ActiveRegionCountOutOfRange,
+                Detail: activeRegions.Count.ToString(CultureInfo.InvariantCulture)));
 
         foreach (var region in activeRegions.OrderBy(Key, StringComparer.Ordinal))
         {
@@ -49,7 +58,8 @@ public static class DatabasePlacementEvaluator
         foreach (var group in activeRegions.GroupBy(Key, StringComparer.Ordinal).OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
             if (group.Count() > 1)
-                errors.Add(new(DatabasePlacementErrorCode.DuplicateActiveRegion, group.First()));
+                errors.Add(new(DatabasePlacementErrorCode.DuplicateActiveRegion,
+                    group.OrderBy(static region => region.Value ?? string.Empty, StringComparer.Ordinal).First()));
         }
 
         var uniqueRegions = activeKeys.Distinct(StringComparer.Ordinal).Count() == activeRegions.Count &&
@@ -81,7 +91,8 @@ public static class DatabasePlacementEvaluator
                 catalogQualified = false;
             }
         }
-        catalogQualified &= !errors.Any(static error => error.Code == DatabasePlacementErrorCode.CatalogDuplicateRegion);
+        catalogQualified &= !errors.Any(static error => error.Code is
+            DatabasePlacementErrorCode.CatalogDuplicateRegion or DatabasePlacementErrorCode.CatalogEntryMissing);
 
         var partitions = request.Partitions;
         var partitionsPresent = partitions.Count > 0 && partitions.All(static partition => partition is not null);
@@ -93,12 +104,14 @@ public static class DatabasePlacementEvaluator
                      .OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
             if (group.Count() > 1)
-                errors.Add(new(DatabasePlacementErrorCode.DuplicateLogicalPartition, Partition: group.First().Partition));
+                errors.Add(new(DatabasePlacementErrorCode.DuplicateLogicalPartition,
+                    Partition: group.OrderBy(static partition => partition.Partition.Value ?? string.Empty, StringComparer.Ordinal)
+                        .First().Partition));
         }
 
-        var regionsComplete = true;
-        var replicasExact = true;
-        var domainsIndependent = true;
+        var regionsComplete = partitionsPresent;
+        var replicasExact = partitionsPresent;
+        var domainsIndependent = partitionsPresent;
         foreach (var partition in partitions.Where(static partition => partition is not null).Cast<LogicalPartitionPlacement>()
                      .OrderBy(static partition => Key(partition.Partition), StringComparer.Ordinal))
         {
@@ -122,7 +135,9 @@ public static class DatabasePlacementEvaluator
             {
                 if (group.Count() > 1)
                 {
-                    errors.Add(new(DatabasePlacementErrorCode.DuplicatePartitionRegion, group.First().Region, partition.Partition));
+                    errors.Add(new(DatabasePlacementErrorCode.DuplicatePartitionRegion,
+                        new RegionId(group.Key),
+                        partition.Partition));
                     regionsComplete = false;
                 }
             }
@@ -139,7 +154,16 @@ public static class DatabasePlacementEvaluator
                     continue;
                 }
 
-                EvaluateSeats(matches[0], partition.Partition, region, errors, ref replicasExact, ref domainsIndependent);
+                if (matches.Length == 1)
+                {
+                    EvaluateSeats(matches[0], partition.Partition, region, errors, ref replicasExact,
+                        ref domainsIndependent);
+                }
+                else
+                {
+                    replicasExact = false;
+                    domainsIndependent = false;
+                }
             }
 
             foreach (var placement in validPlacements.OrderBy(static placement => Key(placement.Region), StringComparer.Ordinal))
@@ -170,13 +194,13 @@ public static class DatabasePlacementEvaluator
         if (seats.Count < DatabasePlacementPolicy.ActiveReplicationFactor)
         {
             errors.Add(new(DatabasePlacementErrorCode.SeatMissing, region, partition,
-                Detail: seats.Count.ToString()));
+                Detail: seats.Count.ToString(CultureInfo.InvariantCulture)));
             replicasExact = false;
         }
         else if (seats.Count > DatabasePlacementPolicy.ActiveReplicationFactor)
         {
             errors.Add(new(DatabasePlacementErrorCode.SeatExtra, region, partition,
-                Detail: seats.Count.ToString()));
+                Detail: seats.Count.ToString(CultureInfo.InvariantCulture)));
             replicasExact = false;
         }
 
@@ -187,26 +211,48 @@ public static class DatabasePlacementEvaluator
             {
                 errors.Add(new(DatabasePlacementErrorCode.SeatNull, region, partition));
                 replicasExact = false;
+                domainsIndependent = false;
                 continue;
             }
             concrete.Add(seat);
             if (string.IsNullOrWhiteSpace(seat.Member.Value))
+            {
                 errors.Add(new(DatabasePlacementErrorCode.SeatIdMissing, region, partition, seat.Member));
+                replicasExact = false;
+            }
             if (!StringComparer.Ordinal.Equals(Key(seat.Region), Key(region)))
+            {
                 errors.Add(new(DatabasePlacementErrorCode.SeatRegionMismatch, region, partition, seat.Member));
+                replicasExact = false;
+            }
             if (!StringComparer.Ordinal.Equals(Key(seat.Partition), Key(partition)))
+            {
                 errors.Add(new(DatabasePlacementErrorCode.SeatPartitionMismatch, region, partition, seat.Member));
+                replicasExact = false;
+            }
             if (!seat.IsActive)
+            {
                 errors.Add(new(DatabasePlacementErrorCode.SeatInactive, region, partition, seat.Member));
+                replicasExact = false;
+                domainsIndependent = false;
+            }
             if (string.IsNullOrWhiteSpace(seat.FailureDomain.Value))
+            {
                 errors.Add(new(DatabasePlacementErrorCode.FailureDomainMissing, region, partition, seat.Member));
+                replicasExact = false;
+                domainsIndependent = false;
+            }
         }
 
         foreach (var group in concrete.GroupBy(static seat => Key(seat.Member), StringComparer.Ordinal)
                      .OrderBy(static group => group.Key, StringComparer.Ordinal))
         {
             if (group.Count() > 1)
-                errors.Add(new(DatabasePlacementErrorCode.DuplicateSeat, region, partition, group.First().Member));
+            {
+                errors.Add(new(DatabasePlacementErrorCode.DuplicateSeat, region, partition,
+                    group.OrderBy(static seat => seat.Member.Value ?? string.Empty, StringComparer.Ordinal).First().Member));
+                replicasExact = false;
+            }
         }
 
         var activeDomains = concrete.Where(static seat => seat.IsActive && !string.IsNullOrWhiteSpace(seat.FailureDomain.Value))

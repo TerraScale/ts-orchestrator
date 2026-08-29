@@ -145,6 +145,7 @@ public enum DatabasePlacementErrorCode
     BackupMustBeImmutable,
     BackupMustBeNonVoting,
     BackupPromotionForbidden,
+    CatalogEntryMissing,
 }
 
 public sealed record DatabasePlacementError(
