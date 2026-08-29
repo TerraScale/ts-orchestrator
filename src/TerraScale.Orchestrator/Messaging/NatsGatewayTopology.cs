@@ -245,7 +245,7 @@ internal sealed record NatsGatewayProcessIdentity
     {
         if (!unitName.EndsWith(".service", StringComparison.Ordinal) || unitName.Length is < 1 or > 256)
             throw new ArgumentException("The NATS process unit must be a bounded systemd unit name.", nameof(unitName));
-        if (!cgroup.StartsWith('/', StringComparison.Ordinal) || cgroup.Length is < 1 or > 256 ||
+        if (!cgroup.StartsWith("/", StringComparison.Ordinal) || cgroup.Length is < 1 or > 256 ||
             cgroup.Contains("..", StringComparison.Ordinal))
             throw new ArgumentException("The NATS cgroup must be a bounded absolute cgroup path.", nameof(cgroup));
         UnitName = unitName;
@@ -433,7 +433,7 @@ internal sealed record NatsGatewayCluster
             throw new ArgumentException("The cluster must declare a non-empty set of valid account names.", nameof(accounts));
         if (jetStreamAssets.Any(static asset => string.IsNullOrWhiteSpace(asset) || asset.Length > 256))
             throw new ArgumentException("The JetStream asset names must be bounded.", nameof(jetStreamAssets));
-        if (!cgroupSlice.StartsWith('/', StringComparison.Ordinal) || cgroupSlice.Length > 256 ||
+        if (!cgroupSlice.StartsWith("/", StringComparison.Ordinal) || cgroupSlice.Length > 256 ||
             cgroupSlice.Contains("..", StringComparison.Ordinal))
             throw new ArgumentException("The cgroup slice must be a bounded absolute cgroup path.", nameof(cgroupSlice));
         if (trustGeneration < 1 || configurationGeneration < 1)
