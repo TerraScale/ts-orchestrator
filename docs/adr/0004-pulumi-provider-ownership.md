@@ -1,5 +1,10 @@
 # ADR 0004: Pulumi and regional provider ownership
 
+> Partially superseded on 2026-08-29. The foundation and fenced ownership
+> transfer remain useful. Permanent dual-NATS, permanent TerraBase R3, and old
+> workload-role assumptions do not. Any implementation must reconcile this
+> record with the current architecture first.
+
 - Status: Proposed
 - Date: 2026-07-13
 - Decision owner: Cloud

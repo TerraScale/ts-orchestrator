@@ -1,5 +1,9 @@
 # Production CreateNode journal prerequisites
 
+> Current-adapter qualification only. This document does not select NATS as a
+> permanent architecture dependency and does not apply to TerraBase WAL,
+> replication, sync, or usage accounting.
+
 The Orchestrator can host a private NATS journal-writer substrate, but it does
 not compose an enabled `NatsCreateNodeOperationJournal`, `CreateNodeCoordinator`,
 or OCI provider. It must not report an authoritative CreateNode capability.

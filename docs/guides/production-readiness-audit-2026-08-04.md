@@ -1,5 +1,10 @@
 # Production-readiness exploration and implementation report
 
+> Historical audit of the architecture implemented on 2026-08-04. It is useful
+> for code and evidence gaps, but its R3 TerraBase, dual-NATS, Platform,
+> Authentication, MagicOnion, and old placement assumptions are superseded by
+> the current architecture.
+
 Date: 2026-08-04
 Scope: `TerraScale.Orchestrator` on `develop`, including only its owned production-control-plane concerns. Retired Kubernetes/Flux repositories were not used or modified.
 

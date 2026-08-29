@@ -1,5 +1,9 @@
 # ADR 0013: Native GitOps schema and complete Flux removal
 
+> Partially superseded on 2026-08-29. Native GitOps and immutable delivery
+> remain accepted. References to the old role catalog, mandatory NATS topology,
+> Project placement, or previous TerraBase topology are historical.
+
 - Status: Proposed
 - Date: 2026-07-13
 - Owner lane: Delivery

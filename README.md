@@ -1,10 +1,165 @@
 # TerraScale.Orchestrator
 
-TerraScale.Orchestrator is the greenfield, TerraScale-specific control plane described in [docs/architecture/orchestrator.md](docs/architecture/orchestrator.md). The repository is executing Phase 0 evidence work and pure Phase 1 contract tranches in parallel, without deployment authority.
+TerraScale.Orchestrator is TerraScale's production control plane and
+infrastructure owner. It schedules trusted product workloads and tenant
+compute, manages Regions and hosts, admits immutable releases, and orchestrates
+TerraBase placement and repair.
 
-Navigable documentation lives under [`docs/`](docs/README.md): architecture boundaries, Phase 0 evidence, Phase 1 pure-contract maps, ADRs, owner decisions, and compressed historical work packages/audits.
+The current architecture is defined in
+[`docs/architecture/orchestrator.md`](docs/architecture/orchestrator.md) and the
+workspace [`GOAL.md`](../GOAL.md). Older phase records document implemented
+contracts and evidence. They do not override the current architecture.
 
-Owner choices 1A–10A are accepted with reliability first. Numeric cost, database-storage, RPO, and RTO targets remain evidence-derived deployment gates; they do not justify weakening R3 state, single-node-failure tolerance, backups, storage integrity, or security. The repository must not start a system-under-test cloud instance or mutate cloud infrastructure before exact-tree L0/L0C evidence authorizes it.
+## Product boundary
+
+Orchestrator owns:
+
+- Region and host lifecycle;
+- workload placement, isolation, and capacity admission;
+- TerraBase Member and replica identity allocation;
+- certificates, workload identities, trust bundles, and rotation;
+- customer database placement intent;
+- repair and rebalance orchestration;
+- Dashboard and Database API global deployment;
+- immutable delivery, admission, promotion, and rollback; and
+- cloud, storage-provider, and internal observability infrastructure.
+
+Orchestrator does not own:
+
+- database mutations, merge semantics, replication, anti-entropy, reactive
+  sync, or authoritative usage accounting;
+- Better Auth, Organizations, Projects, Users, Payments, entitlements, or MCP
+  product policy;
+- public SDK behavior; or
+- a data-plane proxy for customer queries and writes.
+
+The active product roles are:
+
+| Role | Owner and runtime |
+| --- | --- |
+| Dashboard | One full-stack Vinext TypeScript application. It owns Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows. |
+| Database API | `TerraScale.Database`, an independent C#/.NET 10 ASP.NET Core service and the sole TBEP gateway. |
+| Database engine | TerraBaseV2, the private Rust engine. |
+| Orchestrator | Infrastructure, scheduling, workload identity, placement intent, repair orchestration, and delivery. |
+
+Dashboard uses `@terrascale/sdk` and public TerraScale APIs like any customer
+Project. It never connects directly to TerraBase or TBEP. Database API alone
+uses generated MessagePack TBEP over QUIC with mutual TLS to TerraBase,
+including on the same host.
+
+The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
+services are migration sources. Direct cutover removes them after the Dashboard
+replacement, import, and verification gates pass.
+
+## TerraBase placement
+
+A customer database selects one through twenty active Regions. GRU, SFO, and
+FRA are the initial catalog. Every selected active Region stores every logical
+Partition and accepts writes. Production seats two active Members per Region
+and Partition across independent failure domains.
+
+`RegionalDurable` acknowledges after both local Members durably append the
+commit. It never waits for WAN replication. `GlobalDurable` acknowledges only
+after every selected Region has durably accepted the commit. Backup is an
+independent optional, read-only, non-voting copy.
+
+TerraBase owns membership acceptance, native delta CRDT replication,
+partition-scoped causality, anti-entropy, Merkle verification, snapshots,
+compaction, reactive sync, and authoritative usage accounting. Orchestrator
+supplies typed intent and capacity. It cannot appoint a data leader, primary,
+owner, or permanent coordinator.
+
+## NATS boundary
+
+NATS is a replaceable control adapter. It may simplify accepted configuration,
+discovery, durable control work, and operational event distribution. It never
+carries TerraBase documents, WAL records, CRDT deltas, replication frames,
+query results, client sync traffic, or usage truth. NATS availability never
+decides whether a database write committed or whether replicas converged.
+
+Existing serving Regions must continue reads, eligible writes, replication,
+repair, and client reconnect recovery when Orchestrator or NATS is unavailable.
+If NATS no longer meets the control plane's safety, isolation, performance, or
+operational needs, replace it behind typed contracts.
+
+## Noisy-neighbor protection
+
+Autoscaling reacts too slowly to be the isolation boundary. Database API and
+TerraBase enforce native scope, admission, and resource budgets before new
+capacity arrives.
+
+Every durable database path carries and validates:
+
+```text
+TenantId
+ProjectId
+DatabaseId
+EnvironmentId
+```
+
+Collection-name prefixes are not tenant isolation. Query, index, replication,
+backup, restore, sync, administration, snapshots, and metrics all enforce the
+same native scope.
+
+Scheduling and admission cover CPU, memory, disk, I/O, network bandwidth,
+mutation rate, query cost, subscriptions, fan-out, WAL and compaction backlog,
+snapshot traffic, and replication catch-up. Bounded queues, fair scheduling,
+load shedding, disk spill where safe, and checkpoint or snapshot fallback stop
+one tenant from consuming unbounded shared resources. Orchestrator adds or
+moves capacity after sustained pressure, but admission remains safe while that
+work is pending.
+
+## Region catalog admission
+
+A Region cannot enter the customer catalog until it has qualified:
+
+- admitted hosts and independent failure domains;
+- Dashboard and Database API instances;
+- the Dashboard system Project caught up and Merkle verified;
+- workload identities and rotated trust;
+- public and strict routing;
+- Better Auth and Database API authorization;
+- TerraBase replication, anti-entropy, recovery, and RF=2 Member-loss behavior;
+- observability and noisy-neighbor protection; and
+- exact failure, restore, and rollback receipts.
+
+Catalog discovery is not catalog admission. Publication requires policy and
+explicit owner approval until the owner accepts an automated publication
+rule. Region removal fences routing, drains sessions, fulfills retention and
+deletion obligations, retires replica actors, and records receipts.
+
+## Current implementation boundary
+
+The checked-in executable still implements earlier NATS-native control-plane
+contracts and a closed legacy workload catalog. That is implementation state,
+not permission to retain the old product architecture.
+
+Current facts:
+
+- `run` and `check` require JetStream-enabled NATS because their adapters have
+  not yet been replaced or made optional;
+- regional and global control journals, discovery, delivery, and native GitOps
+  currently use typed NATS resources;
+- some typed policies and tests still model an R3 control journal and the old
+  first-party roles;
+- local development wiring still reflects the previous service set; and
+- the repository has no production deployment authority until its exact
+  qualification gates pass.
+
+Migration work must preserve durable control history and fail closed while it:
+
+1. changes product roles to Dashboard, Database API, and TerraBaseV2;
+2. moves database placement from Project inheritance to database-owned Region
+   selection;
+3. changes TerraBase production placement to RF=2 per selected Region;
+4. removes UDS and HTTP engine paths in favor of QUIC TBEP with mutual TLS;
+5. removes the standalone Authentication, Payments, Platform, and MCP roles;
+6. makes NATS optional and replaceable where it provides no net benefit; and
+7. updates DevHost, delivery manifests, routes, credentials, SDK contracts,
+   tests, and receipts as one cutover.
+
+Until a migration item lands, current commands describe current code only. New
+features and documentation must target the accepted architecture.
 
 ## Baseline validation
 
@@ -14,18 +169,11 @@ dotnet build TerraScale.Orchestrator.slnx --no-restore --maxcpucount:1
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
-The exact-tree `development-attest` command is the canonical complete local
-run. It builds once, runs all five TUnit executables sequentially with at most
-four tests active in a module, then runs policy tooling. A repository-wide
-lease prevents it from overlapping a Podman lab. Its evidence records the
-test count for every module and observed peak memory/process counts under a
-20 GiB execution ceiling, leaving 4 GiB of the 24 GiB local budget for the
-host. `lab up` rejects legacy or incomplete evidence that omits this bounded
-inventory.
-
-Living policy tooling is implemented in C#. The dependency-free tooling
-executable validates owner decisions and ADR readiness, issues development
-evidence, and runs the repository policy test suite:
+The exact-tree `development-attest` command builds once, runs the five TUnit
+executables sequentially with at most four active tests per module, and then
+runs policy tooling. A repository-wide lease prevents overlap with the Podman
+lab. The run must stay under the 20 GiB owned-process ceiling so the 24 GiB
+development host retains 4 GiB for the operating system and tools.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
@@ -33,19 +181,12 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
-Run the executable without arguments to list every command. The tooling test
-suite also fails if a Python source file is reintroduced.
+Run the tooling executable without arguments for the full command inventory.
 
-The repository produces the operational Orchestrator/runner binary, a separate
-operator CLI, and the dependency-free policy/evidence tool. The `check` command
-exercises the production controller startup path against a real
-JetStream-enabled NATS server, then exits cleanly. The `lab` command runs the
-pinned, rootless-container development adapter used by DevHost. Real systemd
-and OCI A1 qualification remain separate production-boundary gates.
+## Running the current adapter
 
-## Run
-
-The orchestrator requires NATS with JetStream enabled. `check` reconciles the regional control resources, verifies the NATS service endpoint through request/reply, and exits. `run` performs the same checks and keeps the discoverable service online until shutdown.
+These commands exercise the current NATS adapter. They do not define the final
+product boundary.
 
 ```bash
 TS_ORCH_CELL=gru \
@@ -59,1049 +200,60 @@ TS_ORCH_REPLICAS=3 \
 TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.nk \
 TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
 TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
-TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller.key.pem \
+TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
 dotnet run --project src/TerraScale.Orchestrator -- run
-
-dotnet run --project src/TerraScale.Orchestrator.CLI -- \
-  status --cell gru --nats-url tls://control-nats-gru.internal:4222 \
-  --nkey-file /run/credentials/terrascale/operator-read.nk \
-  --tls-ca-file /run/credentials/terrascale/ca.pem \
-  --tls-cert-file /run/credentials/terrascale/operator.pem \
-  --tls-key-file /run/credentials/terrascale/operator.key.pem
 ```
 
-### Infisical secrets
-
-`run` and `check` can load missing configuration directly from an Infisical
-project through a Universal Auth machine identity and the current v4 Secrets
-API. Explicit typed configuration or process environment variables always win.
-Infisical keys named like existing `TS_ORCH_*_FILE` settings are treated as the
-file contents, materialized into owner-private temporary files, and removed on
-shutdown; other keys are used as ordinary configuration values.
-
-```bash
-TS_ORCH_INFISICAL_URL=https://app.infisical.com \
-TS_ORCH_INFISICAL_PROJECT_ID=00000000-0000-0000-0000-000000000000 \
-TS_ORCH_INFISICAL_ENVIRONMENT=prod \
-TS_ORCH_INFISICAL_SECRET_PATH=/orchestrator/gru \
-TS_ORCH_INFISICAL_CLIENT_ID_FILE=/run/credentials/infisical-client-id \
-TS_ORCH_INFISICAL_CLIENT_SECRET_FILE=/run/credentials/infisical-client-secret \
-terrascale-orchestrator check
-```
-
-The URL defaults to `https://app.infisical.com` and the secret path defaults to
-`/`. `TS_ORCH_INFISICAL_ORGANIZATION_SLUG` selects a sub-organization when
-needed. Both Universal Auth files must contain exact UTF-8 credentials without
-a trailing newline and must be owner-private. Plain HTTP is accepted only for a
-loopback self-hosted development endpoint.
-
-The same configuration enables value-safe CRUD commands. `list` prints only
-path, name, and version; `get` writes an owner-private file; create/update values
-must come from an owner-private file; deletion requires the name twice.
-
-```bash
-terrascale-orchestrator infisical list
-terrascale-orchestrator infisical get API_TOKEN --output /run/user/1000/api-token
-terrascale-orchestrator infisical create API_TOKEN --value-file /run/user/1000/new-api-token
-terrascale-orchestrator infisical update API_TOKEN --value-file /run/user/1000/rotated-api-token
-terrascale-orchestrator infisical delete API_TOKEN --confirm API_TOKEN
-```
-
-Grant the machine identity only the project/environment/path permissions needed
-by its command. See Infisical's
-[Universal Auth](https://infisical.com/docs/documentation/platform/identities/universal-auth)
-and [v4 Secrets API](https://infisical.com/docs/api-reference/endpoints/secrets/list)
-documentation.
-
-`operator status` and `operator members` are read-only NATS request/reply
-operations. Status returns the cell, responding controller instance, R3
-configuration, exact build, start/observation times, and implemented capability
-inventory. Members returns the active controller set discovered through the
-regional `ORCH_RUNTIME` KV watcher. Each record includes the stable instance,
-session, control cluster, build, capabilities, last observation, lease expiry,
-and authority epoch. Controllers renew their entry every five seconds; readers
-drop it after its 20-second lease expires. Status also reports the current
-regional authority state, fencing epoch, KV
-revision, and lease expiry. The CLI rejects a response from another cell, an
-expired lease, contradictory leader state, or an invalid/unready projection.
-The optional `--nkey-file` (or `TS_ORCH_NATS_NKEY_FILE`) must be an existing,
-bounded owner-private seed file; raw key material is never accepted on the
-command line.
-
-```bash
-terrascale-orchestrator operator status --cell gru
-terrascale-orchestrator operator members --cell gru
-```
-
-Membership uses a five-second heartbeat and a 20-second semantic lease. The
-provisional failure-detection target is 22 seconds from the last accepted
-heartbeat, which includes two seconds for watcher delivery and evaluation. The
-real-NATS conformance lane requires a refreshed record to appear within three
-seconds and an expired record to leave the active set within three seconds of
-lease expiry. The process exports aggregate controller counts by `active`,
-`stale`, `missing`, and `unexpected` state, quorum availability, authority
-leader count, maximum heartbeat age, and rejected-record count. These metrics
-carry cell and condition labels only; peer and session IDs never become metric
-labels.
-The TLS CA, certificate, and key options (or matching
-`TS_ORCH_NATS_TLS_*_FILE` variables) are atomic: all three must be present,
-the PEM identity must match its owner-private key, and TLS is required rather
-than opportunistically negotiated.
-
-The `run` and `check` paths emit correlated OpenTelemetry traces, metrics, and
-structured logs through the pinned OTLP exporter. Export is disabled when
-`OTEL_EXPORTER_OTLP_ENDPOINT` is unset or empty and never affects product or
-control readiness. Plaintext export is accepted only to a loopback collector;
-a remote collector requires HTTPS. The standard OpenTelemetry mTLS variables
-provide the CA, client certificate, and client key:
-
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=https://alloy-gru.internal:4318 \
-OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
-OTEL_EXPORTER_OTLP_CERTIFICATE=/run/credentials/otel/ca.pem \
-OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE=/run/credentials/otel/client.pem \
-OTEL_EXPORTER_OTLP_CLIENT_KEY=/run/credentials/otel/client-key.pem \
-terrascale-orchestrator check
-```
-
-The built-in signal attributes are deliberately bounded to cell, controller
-instance, and startup outcome. Export queues and batches use the bounded
-OpenTelemetry SDK processors; regional disk spooling and drop-oldest policy
-remain the responsibility of the managed Alloy/Collector role.
-
-Use `TS_ORCH_REPLICAS=3` with a production regional NATS cluster. Startup reconciles the `CELL_SPEC`, `CELL_OPERATIONS`, and `CELL_EVENTS` file-backed JetStream streams, the `ORCH_LEADERS`, `ORCH_RUNTIME`, and `ORCH_DELIVERY` KV buckets, the `CELL_BUNDLES` Object Store, and the cell-scoped NATS health service. It writes and reads the versioned protocol package through Object Store, whose retrieval verifies the stored digest, before accepting the bytes. Runtime registration is revision-fenced: startup creates and watches a unique `starting` entry, compares-and-swaps it to `ready`, observes that revision, and conditionally deletes it during shutdown. The health endpoint is distributed through a cell queue group; readiness verifies its standard NATS service discovery metadata and request statistics. The orchestrator also publishes a deduplicated startup event with protocol/cell/correlation headers, receives it through a bounded durable pull consumer, validates the metadata, and explicitly acknowledges delivery.
-
-The legacy `TS_ORCH_GLOBAL_NATS_*` configuration is a GRU-only global-authority
-alias. It requires R3, a `tls://` endpoint, either a valid private user NKey seed
-or an owner-private NATS user credentials file, and
-a complete mTLS identity distinct from the regional account. The authority
-runtime owns `GLOBAL_SPEC`, `ORCH_LEADERS`, releases, CI, GitOps, and its
-Object Store buckets. It does not create, reconcile, or read `GLOBAL_CELLS`.
-The endpoint may be the same GRU control-NATS cluster because account
-authorization is separate:
-
-```bash
-TS_ORCH_GLOBAL_NATS_URL=tls://control-nats-gru.internal:4222 \
-TS_ORCH_GLOBAL_NATS_NKEY_FILE=/run/credentials/global-controller.nk \
-TS_ORCH_GLOBAL_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
-TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE=/run/credentials/global-controller.pem \
-TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE=/run/credentials/global-controller-key.pem \
-terrascale-orchestrator check
-```
-
-Operator-JWT clusters use `TS_ORCH_GLOBAL_NATS_CREDENTIALS_FILE` instead of
-`TS_ORCH_GLOBAL_NATS_NKEY_FILE`. The global authority permission JWT requires
-the control servers to set `max_control_line` to at least `65536`.
-
-Supplying any subset, reusing either regional identity, using plaintext, or
-configuring fewer than three replicas fails before the global connection.
-
-Directory publisher/watch is configured separately and is available to GRU,
-SFO, and FRA. It attaches to the infrastructure-provisioned `GLOBAL_CELLS`
-bucket and never creates or updates the bucket configuration. Its identity is
-distinct from regional control and global authority credentials:
-
-```bash
-TS_ORCH_GLOBAL_DIRECTORY_NATS_URL=tls://control-nats-gru.internal:4222 \
-TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE=/run/credentials/global-directory.nk \
-TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
-TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE=/run/credentials/global-directory.pem \
-TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE=/run/credentials/global-directory-key.pem \
-terrascale-orchestrator run
-```
-
-Operator-JWT clusters use `TS_ORCH_GLOBAL_DIRECTORY_NATS_CREDENTIALS_FILE`
-instead of `TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE`.
-
-On GRU, the optional read-only query service uses another complete identity.
-It exports only `ts.orch.v1.global.query.cells` and publishes service replies
-through the `_R_.>` response permission. The service cannot read or mutate
-`GLOBAL_CELLS` directly:
-
-```bash
-TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL=tls://control-nats-gru.internal:4222 \
-TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE=/run/credentials/global-directory-service.nk \
-TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE=/run/credentials/global-ca.pem \
-TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE=/run/credentials/global-directory-service.pem \
-TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE=/run/credentials/global-directory-service-key.pem \
-terrascale-orchestrator run
-```
-
-Operator-JWT clusters use
-`TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE` instead of the
-corresponding NKey file setting.
-
-The equivalent typed runtime JSON uses `globalDirectoryNats*` and
-`globalDirectoryServiceNats*` fields. The legacy `globalNats*` fields remain
-the GRU-only authority alias:
-
-```json
-{
-  "schemaVersion": 1,
-  "cell": "gru",
-  "natsUrl": "tls://regional-control.internal:4222",
-  "replicas": 3,
-  "instance": "controller-1",
-  "globalNatsUrl": "tls://control-nats-gru.internal:4222",
-  "globalNatsNKeyFile": "/run/credentials/global-controller.nk",
-  "globalNatsTlsCaFile": "/run/credentials/global-ca.pem",
-  "globalNatsTlsCertificateFile": "/run/credentials/global-controller.pem",
-  "globalNatsTlsKeyFile": "/run/credentials/global-controller-key.pem",
-  "globalDirectoryNatsUrl": "tls://control-nats-gru.internal:4222",
-  "globalDirectoryNatsNKeyFile": "/run/credentials/global-directory.nk",
-  "globalDirectoryNatsTlsCaFile": "/run/credentials/global-ca.pem",
-  "globalDirectoryNatsTlsCertificateFile": "/run/credentials/global-directory.pem",
-  "globalDirectoryNatsTlsKeyFile": "/run/credentials/global-directory-key.pem",
-  "globalDirectoryServiceNatsUrl": "tls://control-nats-gru.internal:4222",
-  "globalDirectoryServiceNatsNKeyFile": "/run/credentials/global-directory-service.nk",
-  "globalDirectoryServiceNatsTlsCaFile": "/run/credentials/global-ca.pem",
-  "globalDirectoryServiceNatsTlsCertificateFile": "/run/credentials/global-directory-service.pem",
-  "globalDirectoryServiceNatsTlsKeyFile": "/run/credentials/global-directory-service-key.pem"
-}
-```
-
-The directory publisher/watch identity can publish only its own
-`GLOBAL_CELLS.cell.<cell>` advertisement and watch the projection. A regional
-controller with only this configuration has no global authority, release, CI,
-Object Store, stream-management, consumer-management, or native GitOps
-capability. A WAN outage does not delete regional truth or revoke regional
-authority: the remote entry becomes stale after its lease while local
-reconciliation continues, and the publisher resumes from the durable record
-after reconnect. Metrics expose only aggregate active/stale cell counts and
-rejected-advertisement totals, without remote cell, controller, peer, or
-session labels.
-
-`check` watches and validates the directory but never publishes a cell record.
-In `run`, a failed initial global connection leaves the regional controller
-active with global GitOps/CI disabled; the external supervisor may retry the
-process after global service returns. After a successful start, transient
-global authority and directory failures retry in place, and completion of a
-global subsystem never completes the regional run loop. Global authority is
-marked unavailable and relinquishes its in-memory election state before retry,
-so a disconnected global candidate cannot retain mutation authority.
-
-`GlobalNatsPermissions` now defines separate directory-publisher,
-directory-reader, directory-service, and global-authority roles. A publisher can mutate only
-`$KV.GLOBAL_CELLS.cell.<its-cell>` and has the bounded JetStream subjects needed
-to read and watch the directory. A reader can only request
-`ts.orch.v1.global.query.cells` and receive its inbox reply. The service role
-can receive that query and service-discovery requests, then publish inbox
-replies; it cannot mutate the directory. Pure subject-grammar tests reject
-invalid cells and cross-cell wildcard grants. The mTLS, operator-JWT, NKey, R3
-conformance fixture proves authenticated read-only service request/reply. It
-also proves that an SFO publisher can write and watch `cell.sfo` while the
-servers reject `cell.gru` and `ORCH_LEADERS` mutations.
-
-Production account provisioning consumes these role contracts separately. No
-gateway topology, WAN JetStream quorum, or performance claim is implied by
-this composition split.
-
-Native Forgejo ingestion verifies the raw payload HMAC before JSON parsing and
-binds the signed repository to the configured endpoint. Its normalized event
-contains no secret, signature, or raw payload. Global `GLOBAL_RELEASES` then reserves
-both the Forgejo delivery ID and signed-payload digest with compare-and-set;
-the normalized event is durably published to `GLOBAL_CI` with that payload
-identity before both reservations become accepted. Only a matching, fully
-committed identity pair produces an acknowledgeable receipt. Exact accepted
-retries do not republish. A crash after publish reuses the same JetStream
-message identity, while delivery collisions, altered-ID payload replays,
-publisher failure, corrupt records, and interrupted writes fail closed or
-resume before acknowledgement.
-
-The shared explicit-ack `GLOBAL_CI` consumer fetches only on the current global
-leader. It reconstructs the normalized event, reapplies the closed trigger
-policy, and compare-and-sets the exact disposition, reason, trust zone,
-capabilities, artifact-publication flag, qualified-candidate requirement, and
-authority observation into `GLOBAL_RELEASES` before acknowledging the message.
-Ignored and held events are durable decisions too. Followers, authority loss,
-decision conflicts, corrupt events, and journal failure do not acknowledge.
-Without an OCI CI pool this stage remains classification-only. With the pool
-configured, the same leader-held delivery stays alive through pipeline
-completion and idle-runner deletion.
-
-Every accepted push or pull-request event also retains the exact base and head
-Git object IDs. The authenticated Forgejo source adapter reads the bounded
-`base...head` comparison, rejects empty, duplicate, unsafe, or oversized path
-sets, and conservatively selects the whole repository policy for rename/copy
-results whose old path is not present in the comparison response. The affected
-pipeline coordinator starts only from the durable trigger decision, recovers an
-already persisted pipeline before making source calls, reads this bounded exact
-change set, and CAS-records the resulting immutable pipeline under the same
-event identity. Authority loss before or during source resolution produces no
-pipeline. A bounded repository catalog drives exact cross-repository descriptor
-and source selection: the triggering repository stays pinned to the webhook
-commit, affected dependents use protected `develop`, and the coordinator never
-infers inputs outside that explicit catalog.
-
-Once supplied, the exact descriptor blobs, changed paths, source commits/trees,
-trigger policy, controller generation, and runner evidence window are rebuilt
-through the existing planners and stored as one immutable pipeline object in
-`GLOBAL_BUNDLES`. A small CAS pointer in `GLOBAL_RELEASES` binds that object to
-the Forgejo event. Restart recovery re-parses every descriptor and recomputes
-the impact, pipeline, and job identities; interrupted writes resume, while a
-second plan for the same event, corrupt content, or lost authority fails closed.
-
-Each persisted pipeline can also initialize one compact CAS record per job.
-Only dependency-ready work can prepare a dispatch, and preparation reuses the
-closed runner selector plus the exact cgroup-v2, namespace, seccomp, network,
-credential, cache, resource, and output-isolation policy. Prepared, dispatched,
-running, success, and failure edges are strictly ordered and idempotent. A
-higher global authority epoch increments the job fence; an old controller can
-no longer advance it. Pipeline failure stops new dispatch, while successful
-dependency evidence unlocks the next deterministic DAG nodes. Prepared attempts
-also persist an exact two-hour deadline, encode a canonical bounded command for
-the selected runner, require the configured command signer, and advance to
-dispatched only after `GLOBAL_CI` returns a durable expected-stream
-acknowledgement. Replay reuses the exact bytes and message ID plus the
-acknowledged stream sequence. The runner-side inbox rejects malformed,
-wrong-runner, expired, invalid-signature, stale-attempt, stale-authority, and
-stale-fence commands. It stores the canonical command and signature by digest
-in the isolated, 30-day `CI_RUNNER_BUNDLES` R3 bucket, advances a compact
-monotonic pointer in `CI_RUNNER_JOBS`,
-and acknowledges only after both objects survive readback and the pointer CAS
-succeeds. Exact redelivery after an acknowledgement failure resumes from that
-durable acceptance; higher fenced takeover and contiguous retry attempts can
-replace it. A bounded runner pull adapter derives one durable exact-subject
-consumer per runner, permits one in-flight command, rejects wrong
-stream/consumer/sequence/redelivery metadata, renews the delivery while the
-fenced workload runs, and double-ACKs only after terminal durable execution.
-Command signatures now use a protocol-owned, versioned
-canonical encoding that covers every identity, fence, validity, payload, and
-digest field without timestamp precision loss. The production identity adapter
-uses the supported .NET P-256/SHA-256 implementation: an intermediate private
-key is read only from a user-private systemd credential file, while runners load
-one to four public-only trust keys and select overlap-rotation keys by their
-SHA-256 SPKI fingerprint carried in the bounded signature envelope. OCI KMS
-can therefore remain at the offline/root issuance boundary rather than exposing
-a root key to the runtime. `TS_ORCH_COMMAND_SIGNING_KEY_FILE` and the
-path-separator-delimited `TS_ORCH_COMMAND_TRUST_KEY_FILES` (or their typed JSON
-configuration fields) are structurally validated with the rest of startup and
-opened before any NATS connection. The process retains the loaded identity for
-its lifetime and disposes it on shutdown. A generated runner NATS permission
-plan is limited to its pre-created exact consumer, ACKs, own hashed KV journal
-prefix, the dedicated runner bundle bucket, and reply inboxes; it cannot publish
-jobs, use another runner's consumer or journal, mutate `GLOBAL_BUNDLES`, or call
-stream purge. The controller can now reconcile each runner's exact durable pull
-consumer and fail closed on altered server readback. A bounded issuer can mint a
-STANDARD-only, 1–75 minute NATS user JWT/NKey lease from a private account or
-scoped account-signing credential after that readback; it embeds only the exact
-runner subject plan and zeroes retained seed buffers on disposal. Live credential
-issuance is enabled only with global authority plus
-`TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE`; an optional
-`TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY` identifies the parent account when
-the credential is a scoped signing key. Typed JSON carries the same fields and
-startup opens and retains the signer before any NATS connection. Live credential
-delivery remains a separate unimplemented gate; no unsigned runtime fallback is
-installed. Exact cross-repository source resolution uses the bounded catalog
-described below.
-Only explicitly authorized transient feature-validation failures can retry:
-attempts wait for the fixed 5-second then 30-second backoff, receive a new
-idempotency key and higher fence, and stop after attempt three. Workload/policy
-failures and trusted release builds remain terminal so candidate builds stay
-clean, immutable first-attempt evidence.
-
-After a durable pipeline reaches success, failure, or a terminal planning hold,
-the controller posts the matching terminal status to its exact Forgejo commit
-under the fixed `terrascale/orchestrator-ci` context and verifies the created
-status response before the JetStream event can be acknowledged. Forgejo status
-creation is append-only and has no fencing or idempotency key, so the controller
-intentionally does not publish a mutable pending status that an old leader could
-finish after a newer leader's terminal result. Exact terminal retries converge
-to the same state and description.
-
-Enable the listener only on the `run` command by supplying the complete
-configuration below. The secret file contains the exact Forgejo secret bytes
-(no automatic newline trimming), must be 32–4096 bytes, and must be private to
-the service user. Plain HTTP is accepted only on loopback for a local ingress
-proxy; a non-loopback listener must use HTTPS.
-
-```bash
-TS_ORCH_FORGEJO_LISTEN_PREFIX=http://127.0.0.1:8080/hooks/forgejo/ \
-TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
-TS_ORCH_FORGEJO_SECRET_FILE=/run/credentials/forgejo-webhook-secret \
-terrascale-orchestrator run
-```
-
-Configure Forgejo to send JSON `push` and `pull_request` events to that exact
-path. Successful durable acceptance and exact retries return HTTP 202;
-authentication, collision, timeout, and journal failures never return a 2xx.
-
-After exact commit/tree resolution, the closed CI trigger policy maps feature
-PRs targeting `develop` and direct `develop` pushes to compile/test-only
-untrusted validation. Only a same-repository `develop` → `main` PR may request
-a trusted compile/test/sign build, and that job receives no production-deploy
-capability. A `main` push cannot build anything or directly create runner work;
-it can only request resolution of the exact already qualified artifact before
-publication. Forks and lookalike branches targeting
-`main`, protected-branch deletions, metadata-only actions, tags, and unsupported
-refs cannot widen those trust or capability sets.
-
-The command-free `terrascale.ci/v3` descriptor contract admits only closed
-static/build/test/artifact nodes, feature/build profiles, bounded resource
-weights, safe repository-relative path prefixes, explicit repository edges
-with reasons, and architecture sets. Its compiler rejects unknown or duplicate fields,
-free-form commands, retired Flux strategies, missing/profile-narrowing edges,
-cycles, unsafe paths, and native candidates that do not cover Linux x64 and
-ARM64. The affected planner then requires every changed path to select an
-explainable node, closes prerequisites and dependents transitively, propagates
-cross-repository reasons, and emits a deterministic DAG digest. At the runner
-boundary every accepted node maps to the fixed `.terrascale/ci.Dockerfile`
-recipe and `ci-<node-id>` target through the `dockerfile.v0` frontend. The
-repository cannot place an executable, argument, host path, or BuildKit
-endpoint in the descriptor. The signed command directly retains the exact
-`Any` or `linux-x64`/`linux-arm64` architecture set before this plan is built.
-The controller-side Forgejo adapter can also fetch a bounded archive for one
-already resolved exact commit, bind its repository, commit, tree, byte length,
-and SHA-256 identity, and publish it under that content address in
-`CI_RUNNER_BUNDLES` with full readback verification. This keeps the Forgejo
-token out of runner jobs. The prepared-job CAS lease durably fixes that exact
-object name, digest, and byte length across replay, takeover, and retry. Signed
-CI job schema v3 carries the same identity into the runner execution plan;
-legacy active records remain readable but cannot invent it. The runner-side
-materializer verifies those signed bytes, admits one tar root containing only
-bounded regular files/directories, applies private owner-only modes in a fresh
-workspace, and rejects links, special files, traversal, duplicate paths,
-corruption, decompression excess, and missing fixed descriptor/recipe files.
-The next compiler emits one exact `/usr/bin/buildctl` argument vector against a
-rootless `/run/user/<uid>/buildkit/buildkitd.sock`: fixed frontend, source
-context, recipe and target; two derived job/plan identity build arguments;
-closed platform mapping; deterministic runtime-only output/metadata paths; no
-shell; and a six-variable environment without a Docker endpoint. Untrusted work
-disables cache reuse. The process adapter and
-output validator then clear inherited environment, enforce timeout and a
-combined log-byte ceiling, kill the whole process tree on cancellation, and
-classify exit/timeout/log overflow. Raw output never crosses the process
-adapter: only bounded UTF-8 lines that pass conservative password, token, key,
-JWT, credential, URI-userinfo, and high-entropy redaction are returned with a
-verified content digest. Successful local exports are accepted only with
-bounded duplicate-free JSON metadata and a bounded, link/special-file-free
-regular file tree; private modes and a culture-invariant content digest are
-applied before returning evidence. A
-runner-side coordinator now acquires and renews the exact execution fence,
-materializes that source, invokes the closed executor, requires an idempotent
-durable-result sink, and only then commits the terminal lease. Persistence
-failure leaves the lease recoverable; crash takeover fences a stale terminal
-write. The concrete sink stores the verified redacted log, a deterministic
-owner-private tar/gzip archive re-hashed against the accepted output tree, and
-canonical evidence under content addresses with full readback verification and
-30-day object retention. The repository recipe emits the strict result manifest
-for every fixed target; test targets derive its required-test skip count from
-five successful, bounded TRX reports through the dependency-free C# tooling
-command. Artifact targets additionally declare one non-overlapping output root
-for every architecture in the signed execution plan. The runner rejects missing,
-substituted, overlapping, or undeclared roots, computes a canonical content
-digest for each architecture, and retains that bounded root evidence in the
-read-verified workload record. This is content evidence, not an artifact
-signature. The authoritative terminal path derives the exact subject from that
-read-verified record and signs it under its fenced global lease; runner output
-cannot choose the signed digest or identity.
-Source bytes are removed before artifact capture and archive
-overhead is reserved inside the signed ephemeral-disk budget. The isolated
-`runner` process mode owns that BuildKit daemon and exits when its bounded idle
-window expires; normal controller startup never invokes BuildKit.
-
-The live delivery model has no candidate, qualification, or promotion stage.
-CI produces immutable content and signed artifact-attestation evidence for the
-exact pipeline subject; the runtime-proof journal independently records the
-observed digest and architecture. The attestation gate requires both proofs,
-the exact durable result sink, and current authority before a delivery is
-accepted. Native GitOps carries the admitted desired state to each regional
-cell, while direct delivery accepts only a signed command with exact artifact
-and manifest identities. Every direct mutation journals authority generation,
-writer epoch, per-region progress, and exact rollback provenance. Authority is
-rechecked immediately before dispatch, each mutation, and rollback; takeover
-or newer state prevents an old writer from changing the target. A failed health
-or convergence check rolls back only when the current target still matches the
-artifact this operation installed, and never overwrites a newer deployment.
-
-The durable delivery records retain only exact immutable pipeline content,
-artifact-attestation proofs, and native runtime observations. Each pointer is
-content-addressed, read back before acknowledgement, and fenced by the current
-authority epoch. Corrupt or missing objects, altered subjects, interrupted
-writes, and authority loss fail closed; retries reuse the same identity.
-`GLOBAL_BUNDLES` stores their bounded canonical records under a content digest,
-while `GLOBAL_RELEASES` commits only a small immutable pointer after reading the
-object back. Recovery revalidates and re-hashes the pipeline, impact, exact
-source set, every first-attempt job result, every signed architecture-specific
-artifact, runtime digest, and qualified main tree. A qualification cannot be
-recorded before its exact candidate. Concurrent exact writes converge; pointer
-collisions, corrupt or missing objects, interrupted writes, and a lost global
-authority fail closed. Recording also commits a canonical repository/tree-set
-index. Signed protected-main observations find the same candidate in any input
-order; an interrupted index write is repaired by exact retry, while a second
-candidate claiming the same tree set is an identity conflict. The candidate
-coordinator consumes only a fully succeeded durable release run, loads exact
-signed artifact evidence through an injected reader, reuses the closed
-candidate assembler, and commits the immutable candidate and tree-set index
-under current authority. Feature-profile, active, failed, incomplete, unsigned,
-substituted, and authority-lost inputs produce no candidate. The longest
-candidate-retention policy among affected repositories is now bound into the
-impact plan, pipeline, candidate identity, and restart-safe candidate record;
-each candidate also has one CAS lifecycle that fences qualification, retains
-its exact expiry, and resumes interrupted qualification without exposing a
-partially committed qualified pointer. A leader-only bounded retention sweep
-streams those lifecycles hourly, retains qualified candidates, and CAS-prepares
-expired unqualified candidates with their exact pointer, tree index, and object
-identity before revision-fenced deletion. Authority loss and interruption stop
-safely between steps; exact retries finish a durable deletion tombstone. The
-OCI CI terminal path now invokes that coordinator
-after runner cleanup and reports Forgejo success only after the exact candidate
-is durable. Under the same fenced lease, the controller mints and readback-
-verifies a content-addressed P-256 artifact proof exactly once, then reads the
-independent native-runtime proof journal and verifies both exact signed subjects
-with the configured trust set. Without the signer and both verifiers, or without
-a matching-architecture native observation, a successful release delivery
-remains pending. Producing that runtime observation on real architecture remains
-a separate production gate. The qualification coordinator starts only from a durable
-admitted protected-`main` trigger, snapshots injected signed protected-main
-observations once, locates the immutable candidate by exact tree-set index, and
-records the resolved qualification under current authority. Missing triggers,
-non-qualification events, missing candidates, changed trees or webhook commits,
-and authority loss cannot create a qualification. With the OCI CI controller
-enabled, protected-`main` deliveries enter that coordinator instead of being
-acknowledged after classification. The catalog-backed source graph re-reads
-protected `main` for every affected repository and requires the triggering
-repository to remain at the webhook commit. A missing candidate, changed tree,
-or lost authority leaves the JetStream delivery pending, while exact
-qualification and its verified Forgejo success status must both complete before
-acknowledgement.
-
-Runner admission remains a pure policy contract. Untrusted, trusted-build,
-production-release, and control-recovery runners have distinct node classes,
-network scopes, cache domains, and phase-scoped credential profiles. Admission
-requires disposable cgroup-v2/user-namespace/seccomp isolation, read-only root,
-no host Docker socket, rootless BuildKit for compilation, bounded resources and
-logs, redaction plus secret scanning, and exact runner/job/sequence identity.
-Untrusted and trusted-build runners cannot reach metadata, production,
-control-NATS, or database networks. A signed command is now acknowledgeable
-only after both its canonical payload/signature pointer and a runner execution
-record are durable. The execution record binds that exact acceptance, uses a
-bounded renewable lease, fences crash takeover, and records one terminal
-evidence digest or typed failure. The runner now compiles and owns one exact
-rootless BuildKit daemon, verifies its Unix-socket peer UID, executable, and
-closed arguments before use, and stops the process tree on cancellation. The
-`runner` process mode connects with its scoped short-lived NATS user JWT and
-distinct mTLS machine identity, verifies the pre-created consumer, reconstructs
-the exact signed isolation profile, executes
-the durable coordinator, and exits after 60 idle seconds by default. Runtime
-roots and runner identity/resource values are supplied through `HOME`,
-`XDG_RUNTIME_DIR`, `DOCKER_CONFIG`, and `TS_ORCH_CI_RUNNER_*`; the idle bound is
-configurable from 30 to 900 seconds. Controller-side runner-result projection
-and candidate recording are part of the production loop when an artifact-
-attestation signer and trust sets are supplied. Package publication and signed
-artifact-attestation verification are implemented behind the qualified-candidate
-boundary; promotion runtime wiring, Pages publishing, live regional
-actuation, and real-architecture runtime observations remain separate release
-gates.
-No result is acknowledged unless its exact durable sink completed first.
-
-Before any NATS connection, the runner now reads its own Linux process status,
-root mount, unified cgroup, resource ceilings, workspace filesystem, and Docker
-socket boundary. Its owned BuildKit peer must map the runner UID to root in a
-separate user namespace. Missing or unbounded controls stop the process before
-it can claim the signed isolation profile.
-
-The runner receives that identity through
-`TS_ORCH_CI_RUNNER_NATS_URL`, an owner-private standard NATS credentials file at
-`TS_ORCH_CI_RUNNER_NATS_CREDENTIALS_FILE`, and the complete
-`TS_ORCH_CI_RUNNER_NATS_TLS_{CA,CERT,KEY}_FILE` set. It never accepts the
-controller's global NKey as a runner credential.
-
-OCI CI capacity is compiled as standalone preemptible
-`VM.Standard.A1.Flex` instances with 4 OCPUs and 24 GiB, a private VNIC, closed
-NSG membership, encrypted paravirtualized transport, and disposable boot and
-launch data volumes. The real Compute adapter uses an OCI instance principal;
-launch idempotency is content-bound, while idle deletion requires exact
-Orchestrator ownership tags and an ETag fence. Nodes with active work, ambiguous
-identity, foreign ownership, or an incomplete fence fail closed. OCI `user_data`
-contains bootstrap code or an encrypted reference only—never a plaintext runner
-credential—and the admitted runner obtains its scoped NATS/mTLS identity after
-bootstrap. Preemption and idle termination both delete the boot volume.
-
-Production OCI CI is enabled by `TS_ORCH_CI_OCI_CONFIG`. The bounded JSON file
-declares placement plus one to 32 fixed runner slots. A slot is launched only
-while durable work needs its trust zone, and the controller reconciles its exact
-JetStream consumer before launch. It observes owned instances through OCI,
-dispatches only to a running exact runner/sequence/bootstrap generation, keeps
-the Forgejo delivery alive with progress acknowledgements, releases dependent
-jobs from durable runner results, and ETag-terminates every pool node after its
-30–900 second idle bound. Forgejo Actions is not in this path.
-
-```json
-{
-  "schemaVersion": 1,
-  "endpoint": "https://iaas.sa-saopaulo-1.oraclecloud.com/",
-  "compartmentId": "ocid1.compartment.oc1..example",
-  "availabilityDomain": "example:SA-SAOPAULO-1-AD-1",
-  "faultDomain": "FAULT-DOMAIN-1",
-  "subnetId": "ocid1.subnet.oc1.sa-saopaulo-1.example",
-  "networkSecurityGroupIds": [
-    "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.example"
-  ],
-  "imageId": "ocid1.image.oc1.sa-saopaulo-1.example",
-  "generation": 1,
-  "idleSeconds": 60,
-  "pollSeconds": 5,
-  "runners": [
-    {
-      "runner": "ci-untrusted-1",
-      "zone": "untrusted-product",
-      "sequence": 1,
-      "bootstrapFile": "bootstrap/ci-untrusted-1.cloud-init"
-    },
-    {
-      "runner": "ci-trusted-1",
-      "zone": "trusted-build",
-      "sequence": 1,
-      "bootstrapFile": "bootstrap/ci-trusted-1.cloud-init"
-    }
-  ]
-}
-```
-
-Cross-repository impact and qualification use the optional bounded catalog at
-`TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE`. It accepts schema version 1 and one to
-64 unique `owner/name` repositories, including the webhook repository. When it
-is omitted, CI keeps the compatible root-only graph.
-
-```json
-{
-  "schemaVersion": 1,
-  "repositories": [
-    "TerraScale/TerraBase",
-    "TerraScale/TerraScale.Orchestrator"
-  ]
-}
-```
-
-Bootstrap paths are relative to the pool file. Their bounded cloud-init/script
-content is the only value placed in OCI `user_data`; the loader rejects embedded
-NATS JWTs, NKey seeds, and private keys. Each image/bootstrap obtains its
-runner-scoped NATS credentials and distinct mTLS identity from OCI Vault using
-instance principal, then starts `terrascale-orchestrator runner` with the exact
-declared runner, zone, sequence, command trust key, private runtime roots, and
-the default 4 OCPU / 8 GiB / 50 GiB / 4096 PID isolation profile. Configure the
-pool together with global NATS, Forgejo source access, and the controller command
-signer:
-
-```bash
-TS_ORCH_CI_OCI_CONFIG=/etc/terrascale/oci-ci-pool.json \
-TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE=/etc/terrascale/forgejo-ci-source-graph.json \
-TS_ORCH_COMMAND_SIGNING_KEY_FILE=/run/credentials/command-signing.pem \
-TS_ORCH_COMMAND_TRUST_KEY_FILES=/run/credentials/command-signing.pub.pem \
-TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
-TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
-TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-ci-token \
-terrascale-orchestrator run
-```
-
-The OCI CI controller token must read every repository in the configured source
-graph and have Forgejo `write:repository` access to the webhook repository
-because it posts terminal commit statuses there. A root-only polling controller
-can keep the narrower `read:repository` token described below.
-
-This repository now carries its native CI policy in `.terrascale/ci-v2.json` and
-the only executable repository recipe in `.terrascale/ci.Dockerfile`. The
-descriptor can select only the closed `static`, `build`, `test`, and `artifact`
-targets; it cannot inject an executable or argument. The recipe uses the
-multi-architecture .NET 10.0.400 SDK manifest pinned at
-`sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c`,
-runs all five TUnit modules sequentially with four tests at most, and publishes
-separate self-contained Orchestrator and CLI artifacts for Linux x64 and
-ARM64.
-
-Native GitOps desired state is a fresh TerraScale document rather than a
-Kubernetes, Helm, Kustomize, or Flux compatibility surface. The bounded v1
-compiler accepts only closed catalog roles, catalog-approved runtimes,
-lowercase SHA-256 artifact digests, replica counts, cells, dependencies, and a
-suspension flag. Defaults are visible in its canonical plan. Dependencies are
-validated and topologically ordered, every consuming cell must contain its
-dependencies, and the compiler produces deterministic per-cell plans plus a
-SHA-256 plan digest:
-
-```json
-{
-  "apiVersion": "terrascale.io/v1",
-  "kind": "TerraScaleDesiredState",
-  "generation": 7,
-  "workloads": [
-    {
-      "id": "authentication",
-      "role": "Authentication",
-      "artifactDigest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "cells": ["gru", "sfo", "fra"]
-    },
-    {
-      "id": "platform",
-      "role": "Platform",
-      "artifactDigest": "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "cells": ["gru", "sfo", "fra"],
-      "dependsOn": ["authentication"]
-    }
-  ]
-}
-```
-
-Concrete instances, allocations, attachments, and expanded volumes remain
-regional-journal children. A Git parent removal can only request guarded
-retirement; it never grants direct prune or deletion authority. Unknown and
-duplicate fields, arbitrary roles/runtimes, paths, image names, unit text,
-capabilities, invalid digests, missing/cross-cell dependencies, cycles, and
-replica counts below a role's production floor all fail before a plan exists.
-
-Accepted/proposed diffs require monotonically increasing generations and one
-digest per generation. Create, update, and resume changes are dependency-first;
-suspension and guarded retirement are dependent-first. A stable workload ID
-cannot change its admitted role, and an active workload cannot depend on a
-suspended role. An explicit empty workload array is a valid bounded generation;
-against accepted state it requests dependent-first guarded retirement of every
-declared parent without granting direct deletion of any journal-owned child.
-
-The global plan can be compiled into deterministic, at-most-1-MiB per-cell
-handoff payloads. Every payload binds the verified repository, commit, tree,
-manifest blob and content digest, global generation/digest, complete desired
-workloads for that cell, and its ordered local changes. Added cells receive
-create actions; cells removed from an otherwise retained workload receive
-guarded retirement. Retirement-only cells remain in the required-cell barrier
-even when the proposed workload set is empty. Each payload has its own SHA-256,
-and an aggregate handoff digest binds the sorted cell/digest set. These payloads
-are signable material only: the compiler does not grant unsigned apply authority.
-The cell-envelope adapter reuses the shared command protocol and requires the
-configured P-256 signer/verifier. Its signed material binds the
-aggregate handoff digest, exact cell, generation, global writer epoch, payload
-SHA-256, deterministic operation/idempotency identities, delivery attempt, and
-validity window. Cell, generation, epoch, payload, aggregate-barrier, expired,
-and signature substitution fail before acceptance. A regional acceptance is
-acknowledgeable only after the exact payload is written and read back through
-`CELL_BUNDLES` and a fenced CAS receipt is committed in `ORCH_DELIVERY`. That
-bounded receipt binds the cell, global plan and handoff digests, generation,
-writer epoch, signed operation/idempotency identities, signature digest,
-acceptance time, and original stream sequence. Replays converge on the same
-receipt; stale writers/generations, same-generation equivocation, authority
-loss, corrupt payloads, and crash-before-pointer fail closed. Exact global and
-regional publishers, bounded pull consumers, and the fenced relay boundary are
-implemented; runtime credential composition and OCI KMS-backed
-root/intermediate issuance remain.
-One compiled handoff targets at most 64 distinct cells, regardless of how cells
-are distributed across workloads, and the regional bundle store is capped at
-256 MiB so one maximally bounded handoff does not consume its entire capacity.
-Each region can validate from a compact descriptor containing the generation,
-global-plan digest, aggregate handoff digest, and sorted cell/payload-digest
-set; it recomputes the aggregate and checks its own closed payload identity, so
-transport does not need to copy every other region's full CellSpec.
-Each CellSpec also binds the accepted base generation/global-plan digest and
-the exact before/after digest of every changed workload. Regional drift,
-retirement, and rollback decisions therefore never infer prior ownership from
-the proposed plan or from mutable runtime labels.
-The wire contract keeps the CellSpec as raw bytes and carries exactly 16
-canonical metadata headers rather than Base64-expanding the payload. CellSpecs
-are capped at 896 KiB, headers at 64 KiB, and the complete command plus protocol
-allowance at 1 MiB. Duplicate, unknown, non-canonical, oversized, reordered,
-digest-mismatched, and payload-substituted inputs fail before durable delivery.
-Before publication, the global writer stores each exact signed wire command in
-`GLOBAL_BUNDLES` under its content digest and read-verifies it, then advances one
-compact branch pointer in `GLOBAL_RELEASES` by CAS. The pointer binds the source
-journal revision, global authority/writer epoch, generation, plan and handoff
-digests, common validity window, and every cell's payload and wire digest. A
-restart or concurrent writer therefore recovers the winning signature bytes;
-it never re-signs different bytes behind an already assigned message ID. Crash
-orphans are harmless, while authority, source-revision, and generation rollback
-or same-generation equivocation fail closed. The worst-case 64-cell pointer
-remains within the global 16 KiB KV value limit.
-When the command signer is configured, the protected-`main` source poll now
-invokes this coordinator immediately after its source CAS. It captures one exact
-global lease, signs a 30-day validity window matching `GLOBAL_SPEC` retention,
-and resumes durable publication on every exact polling replay. `develop` remains
-a validation/source-journal input and cannot publish desired state. Missing
-signing authority leaves the source journal available but installs no unsigned
-handoff path.
-The global publisher then appends those recovered commands to
-`ts.orch.v1.global.desired.gitops.<cell>` sequentially and requires a nonzero
-`GLOBAL_SPEC` storage acknowledgement for every cell. Exact retries retain the
-same message identity and bytes. Authority loss before a later cell or after a
-storage acknowledgement returns explicit partial durable evidence and can
-never report a complete handoff; regional `CELL_SPEC` publication and acceptance
-remain separate fenced boundaries.
-Each current per-cell `GLOBAL_SPEC` acknowledgement is then CAS-journaled with
-the signed-handoff pointer revision, source revision, authority, generation,
-plan/handoff identity, exact wire digest, and stream sequence. Restart readback
-distinguishes an incomplete set from all required cells and can skip already
-journaled cells. A different sequence cannot relabel an existing cell; a newer
-generation or fenced writer starts a new proof set instead of inheriting stale
-acknowledgements. Authority-lost publications never advance this journal, whose
-worst-case 64-cell record also remains within the 16 KiB global KV limit.
-The dispatch coordinator preflights that journal before any publish, skips only
-exact wire digests already acknowledged for the current signed-handoff pointer,
-and commits each new acknowledgement before attempting the next cell. A crash
-after stream storage but before CAS replays the same persisted bytes and message
-ID, then converges on the journal. Stale or conflicting durable state blocks the
-side effect, and a completed replay performs no publish.
-The handoff coordinator starts only from the restart-reconstructed durable
-source/base diff, persists its signed wires, and then invokes that resumable
-dispatch. Missing sources, legacy pointers without a recoverable diff, a source
-written by a newer authority, signing rejection, dispatch conflict, and every
-authority-loss edge are explicit non-success results. A crash anywhere after
-wire persistence resumes the same signature bytes, message identity, and
-per-cell acknowledgement progress rather than rebuilding from process memory.
-The global-to-regional relay decodes and validates one exact globally stored
-CellSpec against its destination cell, current global writer epoch, validity
-window, and injected signature trust policy before any regional side effect. It
-then publishes the unchanged payload and canonical headers to regional
-`CELL_SPEC` and acknowledges the global delivery only after regional storage and
-a final regional-authority check. Authority loss at any boundary leaves the
-global delivery unacknowledged; acknowledgement failure redelivers the same
-regional message identity and bytes so JetStream deduplication remains safe.
-Its per-cell durable pull consumer accepts only the exact `GLOBAL_SPEC` stream,
-cell-filtered subject, consumer identity, nonzero stream/consumer sequences,
-five-attempt delivery bound, and 1 MiB wire ceiling. Repeated header values are
-preserved for strict decoding, and the successful relay uses a double
-acknowledgement so an uncertain global acknowledgement remains safely replayable.
-The JetStream publisher sends one signed command to
-`ts.orch.v1.<cell>.desired.gitops`, requires a `CELL_SPEC` storage sequence, and
-uses handoff/cell/writer-epoch message identity so exact retries deduplicate but
-a fenced takeover is not suppressed. Authority loss before publish causes no
-mutation; loss after the storage acknowledgement is reported distinctly so the
-stale durable message cannot be mistaken for authority to advance the global
-plan. The regional epoch/signature gate still rejects that stale message.
-The regional inbox acknowledges only after decoding the bounded command,
-verifying the configured signature policy, reading back the content-addressed
-payload, committing the fenced acceptance receipt, and rechecking regional
-authority. Malformed, invalid-signature, stale, conflicting, and non-durable
-deliveries remain unacknowledged. Authority or acknowledgement loss after the
-receipt is safe: redelivery observes the durable duplicate and a replacement
-leader can acknowledge it without repeating acceptance.
-The concrete pull adapter requires the exact `CELL_SPEC` stream, cell subject,
-durable consumer identity, nonzero stream/consumer sequences, and delivery
-count within the configured five-attempt bound. Its per-instance consumer has a
-15-second acknowledgement window, at most eight outstanding messages/pulls,
-bounded backoff, and double acknowledgements. Repeated NATS header values are
-preserved so the strict wire decoder can reject duplicates instead of silently
-choosing one.
-An acceptance barrier evaluates at most one durable receipt per required cell
-against the exact generation, global-plan/handoff/payload digests, signed
-operation identity, writer epoch, regional stream sequence, journal revision,
-and signature digest. Missing cells remain explicit and produce no barrier
-digest; duplicate, foreign, stale, or mismatched receipts fail closed. A
-complete barrier digest is deterministic across receipt arrival order and
-changes across a fenced takeover. This proves only regional CellSpec
-acceptance—it is not apply, health, live-convergence, or deployment-success
-evidence.
-Regional convergence rehydrates that immutable payload, requires its accepted
-base plan to match local accepted history, and emits at most one action per
-evaluation. Active workload drift uses the shared dependency-safe
-reconciliation engine; missing or in-progress state is observed before another
-mutation. Suspension and retirement remain dependent-first. Retirement can
-advance only with exact ownership, safety, retention, dependency, and domain
-authorization proof digests bound to the current writer epoch. Failed health
-requests a new generation referencing a previously qualified global plan; it
-never rewinds a local artifact in place. Only exact live workload/absence
-observations produce a regional convergence digest, and cross-cell success is
-still a separate global barrier.
-Every convergence decision is CAS-journaled before it can authorize dispatch
-or global advancement. The checkpoint chain binds the accepted CELL_SPEC
-stream sequence, signature digest, acceptance revision, writer epoch,
-observation watermark, exact intent or hold, and prior checkpoint digest.
-Exact retries recover the same dispatch identity; changed observations require
-a strictly newer watermark. A new generation or fenced takeover must also
-advance both the acceptance revision and regional stream sequence, preventing
-an old accepted receipt from being relabeled as fresh authority.
-Each converged cell emits a signed, validity-bounded receipt over its exact
-handoff/payload, convergence checkpoint, acceptance sequence/revision, and
-regional writer epoch. The global live barrier verifies those receipts through
-the injected KMS trust policy and the current epoch for every required cell.
-Missing cells remain explicitly pending with no barrier digest; duplicate,
-foreign, expired, signature-substituted, wrong-digest, and stale-writer
-receipts fail closed. Only the complete same-generation, same-global-plan,
-same-handoff live set produces the deterministic cross-cell barrier digest.
-Before a regional live receipt can be acknowledged, the global receiver stores
-its exact signed envelope in a bounded per-cell CAS journal. Restart readback
-therefore preserves the signature bytes needed to re-run the configured KMS
-trust policy rather than trusting a derived success flag. Checkpoint sequence,
-journal revision, acceptance sequence/revision, regional writer epoch,
-generation, handoff identity, and global authority epoch advance monotonically;
-crashes, authority loss, corrupt records, stale writers, and conflicting
-generations never become acknowledgeable.
-Global live completion is a separate bounded CAS record. It re-verifies the
-exact durable per-cell envelopes at the current global and regional epochs,
-requires every handoff cell, and persists no success for a partial set. Its
-completion digest binds global authority, generation, global plan, handoff,
-signed barrier, sorted per-cell payload/convergence/signature/checkpoint
-proofs, compact regional/acceptance/checkpoint fences, live-receipt journal
-revisions, and completion time. Exact retries recover the same record. Later
-generations, checkpoint progress, and fenced regional or global takeovers can
-replace it only with monotonic durable proof; stale or relabeled evidence fails
-closed. The worst-case 64-cell record remains within the 16 KiB global delivery
-journal value limit; raw signed receipts stay in their per-cell journals.
-
-The native source boundary reads `.terrascale/orchestrator.json` only from the
-exact immutable commit returned by Forgejo resolution; it never substitutes a
-branch or tag for that object ID. Loading requires a signature-verified commit
-before any file request is made. The response must identify the exact regular
-file path, a nonzero Git blob, Base64 encoding, and a matching declared size
-within the 1 MiB manifest ceiling. The loader records an independent SHA-256
-of the decoded bytes, compiles the closed manifest, and produces the typed
-accepted/proposed diff as one source plan. Symlinks, path substitution,
-malformed encoding, size mismatch, unsigned commits, and stale or conflicting
-generations fail closed before regional work is planned.
-
-The fenced global leader stores accepted manifest bytes under their content digest in
-`GLOBAL_BUNDLES` and advances a compact branch pointer in `GLOBAL_RELEASES` with
-exact compare-and-set. It reads the object back before moving that pointer and
-records the prior accepted manifest identity with the new pointer. Restart
-therefore read-verifies and recompiles both exact plans before reconstructing
-the typed update, suspension, or guarded-retirement diff; it never guesses a
-fresh-create diff from only the latest manifest. A crash between object and
-pointer writes leaves only harmless unreferenced content. A concurrent pointer
-winner forces the diff to be recomputed from its accepted base. Authority or
-poll-sequence rollback, one immutable commit/tree presenting different bytes,
-a corrupt current or base object, and a stale-generation replay cannot advance
-accepted state. A repository without the native manifest is treated as not
-configured and does not disturb its last accepted plan.
-
-The optional polling fallback runs only on the current fenced global leader.
-It reads protected `develop` and `main` refs every 30 seconds, resolves each
-observed commit to its exact Git tree, then records the observation in
-`GLOBAL_RELEASES` under the authority epoch and poll sequence. A lease change
-during the API read discards the result; an old leader cannot overwrite a newer
-epoch. Use a private token file containing a repository-scoped Forgejo token
-with only `read:repository` permission:
-
-Forgejo listener or polling configuration is rejected unless the complete
-global-control NATS configuration above is also present; regional controllers
-cannot accept global Git or CI state.
-
-```bash
-TS_ORCH_FORGEJO_API_URL=https://git.terrascale.tech/ \
-TS_ORCH_FORGEJO_REPOSITORY=TerraScale/TerraScale.Orchestrator \
-TS_ORCH_FORGEJO_API_TOKEN_FILE=/run/credentials/forgejo-read-token \
-terrascale-orchestrator run
-```
-
-The three regional controller candidates share one NATS service queue group
-and contend for one `ORCH_LEADERS` lease using exact KV compare-and-set
-revisions. The production authority state machine advances the fencing epoch,
-binds the lease identity, and grants a mutation permit only to the exact CAS
-winner. Followers remain available for read-only operator traffic. The winner
-renews every three seconds with a fifteen-second lease; a renewal conflict or
-uncertain authority result fences the candidate and terminates it for an
-external supervisor restart. The three-region DevHost topology runs one
-controller and RF=1 NATS per cell, so it exercises regional wiring but does
-not claim election or quorum. Those semantics use a separate targeted
-one-region R3 component lane and still do not replace the real multi-host
-clock, partition, mTLS, and NATS-JWT gates.
-
-## DevHost three-region development topology
-
-`lab plan` always represents the bounded RF=1 product graph in GRU, SFO, and
-FRA. The topology is not selectable or reducible. No email server runs in the
-lab: Dashboard API and Authentication run with `Email:Provider=Disabled`, rendered
-email is logged instead of sent, and `Auth:AutoVerifyEmail` keeps signup and
-login free of the email-verification challenge flow. NATS, TerraBase, PKI,
-artifacts, and backups persist under the regional data
-directory. This topology validates regional behavior but does not claim
-production quorum.
-
-```bash
-dotnet run --project src/TerraScale.Orchestrator -- lab plan
-dotnet run --project src/TerraScale.Orchestrator -- lab status \
-  --state-file "$HOME/.local/share/terrascale-devhost/orchestrator/state.json"
-```
-
-`lab up` is fail-closed without short-lived evidence for the exact clean commit, executable, and three-region topology. The attestation command runs the bounded complete solution and policy suites before writing evidence outside the repository. Startup first rejects a topology whose declared per-role limits exceed 20 GiB, then verifies rootless Podman availability, creates an owner-labelled pod capped at 20 GiB, and starts only digest-pinned images. The full 21-container plan totals 15,936 MiB, leaving burst capacity within the pod while 4 GiB remains reserved for the host. Containers drop all capabilities, enable `no-new-privileges`, have per-role memory and PID limits, mount the workspace read-only, and mount only the Orchestrator data directory read-write. The same exclusive lease prevents tests and labs from overlapping.
-
-```bash
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- \
-  development-attest \
-  --output /tmp/terrascale-orchestrator-regional-evidence.json \
-  --binary src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator
-
-src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator \
-  lab up \
-  --workspace /workspaces/TerraScale \
-  --data-directory "$HOME/.local/share/terrascale-orchestrator/devhost" \
-  --evidence /tmp/terrascale-orchestrator-regional-evidence.json
-```
-
-The adapter publishes atomic endpoint and runtime projections plus an
-owner-private Unix command socket. Versioned reconciliation requests carry a
-request ID, repository, commit range, and bounded changed paths. Orchestrator
-maps them to affected workloads, builds before stopping the current runtime,
-health-gates replacements, restores the last healthy artifacts on failure, and
-projects bounded structured incidents for DevHost.
-
-Run regional fault scenarios sequentially against one healthy lab and reuse it
-when clean bootstrap is not the behavior under test. Pure decision logic stays
-in-process; real quorum uses a separate one-region R3 component lane; and
-systemd, containerd, storage, ARM, and OCI/provider qualification run as
-targeted real-boundary fixtures one at a time. The RF=1 lab proves regional
-composition, not production HA or destructive-operation safety.
-
-DevHost creates stable, owner-private credentials beneath its Orchestrator data
-directory. Every controller has a distinct NKey identity, and each cell has a
-separate read-only operator NKey that can request only regional status and
-receive its inbox reply. Control NATS denies anonymous clients; every
-controller proves that denial during startup before advertising the
-`nats-nkey-authenticated` capability. Product NATS uses an independent random
-per-cell username/password consumed by the existing product queue client.
-Control and product planes have separate development PKI roots, one regional
-intermediate per cell, SPIFFE-like leaf identities, mandatory client mTLS, and
-separate server/route certificates. NATS configuration files are mode `0600`,
-contain public controller/operator NKeys but never their seeds, and are
-isolated from product credentials. This closes anonymous DevHost messaging and
-intra-cell plaintext transport; NATS operator/account JWTs, cross-cell gateway
-mTLS, and rotation/revocation remain separate production qualification gates.
-
-After startup, Orchestrator continuously probes every planned process and its
-role-specific health surface: NATS client ports, TerraBase HTTP and native TCP,
-Authentication/API readiness, and regional Dashboard stack views. A failed probe is projected as degraded immediately; three
-consecutive unhealthy observations fail the foreground generation so DevHost
-can re-attest and recover the graph.
-
-Every DevHost state projection is also evaluated by the production typed
-reconciliation engine. The graph is not accepted as ready unless all 21
-allowlisted resources have exact generation/digest observations and converge
-in dependency order. Startup progress is written to the resource-state file,
-but the endpoint map used for DevHost cutover is withheld until one complete
-health pass—including each controller's instance-specific authority endpoint—
-and 21/21 typed convergence succeed. This prevents a starting generation from
-being mistaken for a deployable candidate.
-
-## Closed production role catalog
-
-The executable exposes the exhaustive v1 production role catalog as JSON:
-
-```bash
-src/TerraScale.Orchestrator/bin/Debug/net10.0/linux-x64/terrascale-orchestrator catalog
-```
-
-All production-shaped DevHost resources project to one of these built-in
-descriptors. Dashboard API, Authentication, and Dashboard retain the production OCI
-default; TerraBase, both NATS planes, and Orchestrator retain their native
-systemd defaults. Payment providers remain external.
-
-`runtime plan` resolves a role and artifact digest through that catalog into a
-typed host execution plan. It never accepts an executable path, image
-repository, unit directive, host path, capability, privileged flag, or secret:
-
-```bash
-terrascale-orchestrator runtime plan \
-  --role platform \
-  --allocation gru-platform-1 \
-  --digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  --memory-max-bytes 536870912 \
-  --tasks-max 128 \
-  --cpu-quota-percent 100 \
-  --cpu-weight 100 \
-  --io-weight 100 \
-  --nice 5
-```
-
-Native plans derive an immutable artifact path and hardened systemd
-properties. OCI plans derive a digest-pinned internal-registry reference,
-non-root identity, read-only root filesystem, no-new-privileges policy,
-drop-all capabilities, seccomp profile, cgroup, and resource ceiling. Plan
-limits may only reduce the role catalog's memory, PID, CPU, CPU-weight, and
-I/O-weight ceilings or increase its nice value. Both drivers disable swap and
-set a memory-high threshold at 90% of the hard limit. Plan generation is pure;
-applying it remains fail-closed until the selected systemd/containerd host
-adapter and its pinned runtime are qualified.
+Remote NATS connections require TLS, scoped NKey or credentials files, and
+complete mutual TLS identity. Credential files must be owner-private. Never
+pass raw secret material on the command line or record it in logs, traces,
+metrics, NATS, fixtures, or receipts.
+
+The current adapter supports Infisical Universal Auth for secret references.
+Explicit typed configuration wins over fetched configuration. The runtime
+materializes file-valued secrets into owner-private temporary files and removes
+them on shutdown. Plain HTTP is allowed only for a loopback development
+Infisical endpoint.
+
+## DevHost topology
+
+The development lab remains one always-on GRU/SFO/FRA topology at RF=1.
+Profile switches and reduced topologies are forbidden. RF=1 proves routing,
+causal catch-up, and convergence. It cannot prove production RF=2 durability or
+Member-loss behavior.
+
+Dashboard keeps fixed tailnet HTTPS port `18446`. The legacy Authentication
+route remains on `18445` only until Better Auth cutover. Database API needs a
+fixed tailnet and loopback route chosen after collision checks and owner
+approval, then recorded atomically in DevHost, Orchestrator, SDKs, and public
+documentation. Do not use an unapproved floating port.
+
+## Validation limits
+
+Pure tests and the local lab do not prove:
+
+- production systemd, containerd, cloud, or provider storage;
+- remote mutual TLS and certificate rotation;
+- RF=2 local durability and host-loss recovery;
+- native TerraBase replication or reactive sync under production load;
+- twenty-Region full-mesh behavior;
+- noisy-neighbor isolation at measured density;
+- direct Auth, Payments, and MCP cutover; or
+- public launch readiness.
+
+Production claims require exact candidate-bound evidence from the owning
+runtime and the benchmark authority.
+
+## Documentation map
+
+- [Current architecture](docs/architecture/orchestrator.md)
+- [Documentation index](docs/README.md)
+- [Architecture boundaries](docs/guides/architecture-boundaries.md)
+- [Direct delivery runbook](docs/runbooks/direct-delivery.md)
+- [Historical phase contract record](docs/guides/phase1-contracts.md)
+- [Historical owner decisions](docs/decisions/README.md)
+
+Historical ADRs, phase records, and evidence remain immutable context unless a
+correction notice says otherwise. A current design must not cite them as
+authority when they conflict with the workspace `GOAL.md` or the current
+architecture document.

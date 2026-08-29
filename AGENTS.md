@@ -1,64 +1,170 @@
 # TerraScale.Orchestrator agent rules
 
-The workspace-level `../AGENTS.md` Git policy applies in full: pull latest `develop` before work, implement on `develop`, **commit often** on substantial coherent changes, and **push directly to `origin/develop`**. Do not open pull requests for day-to-day work. Do not create feature branches or worktrees unless the user explicitly asks; when used, branch and worktree are always paired. This repository is independent from every sibling repository.
+Read the workspace `../GOAL.md`, root `../AGENTS.md`, and
+`docs/architecture/orchestrator.md` before changing architecture or
+production behavior.
 
-## Current implementation boundary
+## Ownership
 
-- Read `docs/architecture/orchestrator.md` before changing architecture or production behavior.
-- Owner decisions 1A–10A are accepted. Pure Phase 1 contract tranches may freeze when safety policy remains explicit and configurable; unmeasured cost, storage, RPO, and RTO targets block deployment qualification, not implementation.
-- Never start a system-under-test cloud instance, systemd/containerd lab, disposable cloud resource, or deployment test without valid exact-tree pre-deployment evidence. Non-mutating host/tool inspection is allowed.
-- Keep the aggregate local container and test workload at or below 24 GiB RAM. Reduce parallelism or run smaller batches instead of exceeding this limit.
-- Do not reproduce the full production topology locally. Use three regions with replication factor 1; validating regional behavior is more important than simulating quorum locally.
-- Reserve 4 GiB for the host and tooling. An owned Podman lab or bounded validation process may use at most 20 GiB, and topology admission must fail before startup when the sum of declared limits exceeds that budget.
-- Run the five test executables sequentially and pass `--maximum-parallel-tests 4` to TUnit. Never run multiple test modules, a test run and a lab, or two labs concurrently in this checkout; use the repository validation lease.
-- Do not edit, stage, commit, rebase, or otherwise mutate this checkout while the validation lease is held. Check the lease immediately before a write and defer the write until it is free; exact-tree attestation and an admitted lab must see a stable checkout for their full run.
-- Test at the lowest sufficient fidelity: pure business behavior in process; routing, identity, messaging, persistence, health, restart, and reconciliation in the three-region RF=1 lab; quorum only in a targeted one-region R3 component lane; systemd, containerd, storage, and provider boundaries one fixture at a time.
-- Reuse one healthy regional lab for sequential fault scenarios when isolation is not itself under test. Do not start a fresh full topology per test, and do not add a second local production-shaped topology system.
-- A three-region RF=1 result is regional-development evidence only. It must never be reported as production quorum, host-failure tolerance, systemd, cloud, destructive-storage, or ARM qualification.
-- Never edit sibling repositories from this checkout. Cross-repository cleanup must be done inside each owning product repo on `develop` (or on a user-requested branch/worktree pair), then committed and pushed to that repo's `develop` after the native replacement gate exists.
+Orchestrator owns:
 
-## Ownership and dependency rules
+- Region and host lifecycle;
+- workload scheduling and failure-domain spread;
+- TerraBase Member and replica identity allocation;
+- customer placement intent and capacity admission;
+- certificates, workload identity, trust bundles, and rotation;
+- repair and rebalance orchestration;
+- Dashboard and Database API global deployment;
+- immutable delivery, candidate admission, and promotion;
+- cloud and storage-provider integration;
+- internal observability infrastructure; and
+- optional NATS infrastructure.
 
-- The integration steward exclusively owns the solution/build/package files, composition root, `docs/architecture/orchestrator.md`, and shared test primitives.
-- Production dependencies flow from contracts to pure decisions to coordinators to adapters. Contracts and pure decisions must not reference NATS, OCI, D-Bus, containerd, filesystems, sockets, environment variables, or wall-clock APIs.
-- Adapters translate persisted intents and typed observations. Do not hide business rules in infrastructure adapters.
-- The accepted 1A–10A owner choices are normative. Any future unresolved choice must stay explicit/configurable; never replace a recorded decision silently.
-- Platform and Authentication public listeners remain REST. Allocate separate non-ingress MagicOnion listener ports, discover Authentication and regional Platform RPC endpoints privately, require workload mTLS with the expected peer identity in production, and make Platform readiness depend on Authentication RPC readiness.
-- Treat the customer Dashboard as a separate full-stack application and an ordinary external TerraScale API user. Runtime wiring may supply public Dashboard API/Auth base URLs only; it must not create Dashboard-specific API knowledge, SDK surface, credentials, headers, tenant bypasses, direct TerraBase access, or private operator access.
+It does not own:
 
-## Quality and safety
+- database mutations, CRDT merge, causal progress, membership acceptance,
+  replication, anti-entropy, reactive sync, or usage accounting;
+- Better Auth, Organizations, Projects, Users, Payments, entitlements, or MCP
+  product policy;
+- public SDK behavior; or
+- a customer data proxy.
+
+## Product workloads
+
+- Dashboard is one full-stack Vinext TypeScript project. It owns Better Auth,
+  Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer
+  workflows.
+- `TerraScale.Database` is an independent C#/.NET 10 ASP.NET Core service and
+  sole QUIC TBEP gateway.
+- TerraBaseV2 is the private Rust engine.
+- Dashboard and Database API deploy in every available production Region with
+  at least two instances of each across independent failure domains.
+- The Dashboard system Project uses `all-available-regions`, immutable backup,
+  PITR, reserved capacity, and `GlobalDurable` for critical state.
+- The standalone Authentication, Payments, Platform, and
+  `TerraScale.MCP` workloads are removed after direct cutover qualification.
+
+Dashboard uses `@terrascale/sdk` and public TerraScale APIs exactly like a
+customer Project. Orchestrator cannot grant it a direct TerraBase path,
+Dashboard-only database route, special header, tenant bypass, or private SDK.
+
+## TerraBase placement
+
+- A customer database selects one through twenty active Regions, initially GRU,
+  SFO, and FRA.
+- Every selected active Region stores every logical Partition and is writable.
+- Production seats two active Members per Region and Partition.
+  `RegionalDurable` requires both.
+- Backup is an independent optional read-only, non-voting copy.
+- A database starts with one logical Partition. TerraBase splits and merges by
+  measured engine need.
+- Orchestrator schedules accepted placement but cannot appoint a data leader,
+  owner, primary, or permanent coordinator.
+- Membership changes use TerraBase's durable overlapping epoch protocol.
+  Control-plane intent or lease expiry alone cannot grant a vote or retire a
+  causal actor.
+
+NATS may advertise accepted configuration or discovery. It never carries
+database data and never decides commit, membership, replication, repair,
+reactive sync, usage, or billing correctness.
+
+## Region catalog admission
+
+A Region cannot enter the customer catalog until it has:
+
+- admitted hosts and failure domains;
+- Dashboard and Database API instances;
+- system Project TerraBase replicas caught up and Merkle verified;
+- workload identity and rotated trust;
+- public and strict routing;
+- Better Auth and Database API authorization;
+- TerraBase replication and recovery;
+- observability and capacity protection; and
+- exact failure and restore receipts.
+
+Catalog admission requires explicit policy and owner authorization until the
+workspace owner accepts a fully automatic publication rule. Discovery alone
+cannot publish a Region.
+
+Removing a Region fences routing, drains sessions, completes data-retention and
+deletion obligations, retires replica actors, and records receipts.
+
+## Bootstrap trust
+
+Orchestrator provisions fixed Dashboard system Organization, Project, and
+database identities, a short-lived X.509 workload identity, a local rotated
+trust bundle, and a signed `BootstrapGrant`.
+
+The grant is:
+
+- certificate-bound and audience-bound;
+- short-lived and replay-protected;
+- limited to idempotent operations on fixed system Project identities;
+- unusable for customer Projects; and
+- audited.
+
+Steady-state Dashboard uses a rotated ordinary workload credential through the
+public SDK. Bootstrap is not a permanent root path.
+
+## DevHost and validation limits
+
+- Local development always uses GRU/SFO/FRA RF=1. Do not add profile switches
+  or reduced topologies.
+- RF=1 results prove regional routing and convergence only. They do not prove
+  production quorum, host loss, systemd, cloud, or destructive storage.
+- Preserve fixed public tailnet ports `18445` for Dashboard-owned Better Auth
+  and `18446` for Dashboard.
+- The new Database API needs one fixed tailnet and loopback route recorded
+  atomically across DevHost, Orchestrator, root instructions, SDKs, and docs.
+  Do not invent a floating port.
+- Keep local container and test work at or below 24 GiB RAM, reserving 4 GiB
+  for host and tools. Owned lab processes may use at most 20 GiB.
+- Run test executables sequentially with bounded TUnit parallelism. Do not run
+  two labs or a lab and test module concurrently.
+- Hold the repository validation lease for environment-affecting evidence. Do
+  not edit the checkout while the lease is held.
+
+## Architecture rules
+
+- Pure decisions and contracts do not depend on NATS, OCI, D-Bus, containerd,
+  filesystems, sockets, environment variables, or wall-clock APIs.
+- Adapters translate typed persisted intent and observation. Business policy
+  does not hide in infrastructure adapters.
+- No arbitrary workload kind, executable path, unit text, privileged
+  container, host path, secret, or cloud ownership may be inferred from tags.
+- Existing serving Regions continue database reads, writes, and replication if
+  Orchestrator or NATS is unavailable.
+- Autoscaling is not a noisy-neighbor safety mechanism. TerraBase and Database
+  API enforce admission and backpressure before capacity arrives.
+- Dashboard Payments uses the official Better Auth Stripe plugin. Orchestrator
+  binds secret references and workload configuration only. It does not own a
+  payment provider or state machine.
+- Dashboard Streamable HTTP MCP replaces the first-party MCP workload. Remove
+  old workload and deployment references only after replacement receipts pass.
+
+## Quality and security
 
 - Build with warnings as errors and nullable enabled.
-- Reference stable requirement/invariant/error/state-machine/security IDs in production behavior and tests as the registry matures.
-- No arbitrary workload kinds, executable paths, unit text, privileged containers, host paths, secrets, or cloud ownership inferred from tags.
-- Never emit plaintext secrets or private keys to Git, NATS, logs, traces, metrics, test output, or Grafana fixtures.
-- Use `apply_patch` for edits and preserve unrelated user changes.
+- Keep requirement, invariant, error, state-machine, and security IDs stable.
+- Never emit secrets, private keys, cookies, tokens, payment data, customer
+  content, or raw provider responses to Git, NATS, logs, traces, metrics, tests,
+  fixtures, or reports.
+- A live provider, cloud, deployment, or destructive-storage action requires
+  explicit user authority and an exact target-scoped lease.
+- Release evidence binds source revision, owned paths, immutable artifact and
+  configuration identity, test result, lease outcome, and known gaps.
 
-## Payment and Polar operator safety gate
+## Git
 
-- Payment providers remain external, non-admitted workloads; their integration belongs to Platform production adapters. The Orchestrator may bind only the production secret-reference/config admission boundary for Platform workloads, and must never introduce or admit a provider or payment role.
-- Do not create or rotate payment providers, catalogs, or webhooks, or create production mounts; do not mutate provider or cloud state without explicit authorization and a live, target-scoped lease.
-- Sandbox payment work requires explicit non-production opt-in. Never place raw secrets, card data, or payment payloads in source, reports, logs, or commands.
-- Every validation or release handoff is redacted and binds the source revision, owned paths, lease outcome, immutable evidence/artifact/config identity when applicable, and known gaps; exact commands and results must exclude sensitive output.
-- A live billing claim requires complete redacted evidence; a partial or skipped flow is not billing evidence.
-
-## Sibling repository ownership
-
-- `TerraScale.Infrastructure` is a **retired stub**. Do not revive Kubernetes, Flux, OKE, Helm, or CRDs there.
-- Production infrastructure, control plane, native GitOps, host agents, and TerraBase lifecycle for production are implemented **only** in this repository.
-- The development runtime always uses the bounded GRU/SFO/FRA RF=1 topology. Do not add a reduced runtime profile or a topology-selection option. It reserves GRU Authentication and product Dashboard loopback ports `18670` and `18672`; keep these stable so DevHost can publish fixed tailnet HTTPS ports `18445` and `18446` before attestation completes while runtime health remains truthful.
-- Canonical product Dashboard rule: `https://terrascale-dev.tail057f.ts.net:18446/` must work correctly whenever the lab is converged — it serves the TerraScale Dashboard through DevHost's Tailscale Serve port `18446` proxying the reserved GRU loopback target `127.0.0.1:18672` (unauthenticated requests redirect to `/login`, which returns HTTP 200). A 502 is acceptable only inside the convergence window after a service (re)start or re-attestation. Orchestrator changes must never leave that URL broken outside the window; verify it after every lab restart and before handing off Orchestrator or Dashboard contract changes.
+- Work directly on `develop`. Fetch and fast-forward before the first write.
+- Claim exact paths, inspect status before every write and stage, and preserve
+  unrelated changes.
+- Stage named paths only.
+- Commit coherent work often and push to `origin/develop` after a final fetch.
+- Do not create feature branches, worktrees, pull requests, releases,
+  deployments, or sibling-repository edits unless explicitly requested.
 
 ## Agent skills
 
-### Issue tracker
-
-Issues are tracked in this repository's Forgejo project. Prefer the configured Forgejo MCP server and fall back to `fj`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The tracker uses the five default triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This repository uses the single-context domain-doc layout. See `docs/agents/domain.md`.
+See `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and
+`docs/agents/domain.md`.

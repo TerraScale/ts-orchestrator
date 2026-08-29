@@ -1,88 +1,124 @@
-# Architecture decision boundaries
+# Architecture boundaries
 
-> Living summary of proposed ADRs and non-negotiable boundaries. Full ADR text remains under [`docs/adr/`](../adr/).
+The full authority is
+[`docs/architecture/orchestrator.md`](../architecture/orchestrator.md). The
+workspace [`GOAL.md`](../../../GOAL.md) controls cross-repository decisions.
 
-Specification authority: [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md). Owner decisions: [`docs/decisions/`](../decisions/).
+## Product roles
 
-## Executive boundary
+TerraScale is product-specific. Orchestrator schedules a closed set of trusted
+TerraScale roles and separately admitted tenant compute. It does not implement
+Kubernetes compatibility or provide a generic cluster API.
 
-TerraScale builds a **product-specific orchestrator**, not a general cluster platform. It schedules an allowlist of TerraScale services, understands TerraBase safety, manages elastic compute/storage, provides native GitOps/CI/CD, issues workload identity, and projects state to Grafana. It does **not** implement Kubernetes compatibility, Helm, CRDs, arbitrary workloads, or a second customer dashboard.
+| Role | Boundary |
+| --- | --- |
+| Dashboard | One full-stack Vinext TypeScript app. Owns Better Auth, Organizations, Projects, Users, Payments, entitlements, Streamable HTTP MCP, and customer workflows. |
+| Database API | Independent C#/.NET 10 ASP.NET Core service. Sole QUIC/TBEP gateway to TerraBase. |
+| TerraBaseV2 | Private Rust database engine. Owns mutations, replication, repair, reactive sync, metrics, and authoritative usage. |
+| Orchestrator | Owns infrastructure, scheduling, workload identity, database placement intent, capacity, repair orchestration, and delivery. |
 
-## Three-level control plane
+Dashboard uses `@terrascale/sdk` and the same public APIs as customer
+Projects. It has no direct TerraBase, TBEP, private route, or tenant bypass.
 
-1. **GRU global coordinator** — signed desired state, releases, policy, operator actions.
-2. **Regional cell controllers** — autonomous R3 control-NATS / JetStream state per region.
-3. **Host agents** — fenced operations via containerd or systemd.
+The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
+services are removed after direct cutover. Historical deployment records for
+those roles do not authorize new implementations.
 
-SFO/FRA continue serving during GRU/WAN loss; global releases freeze (decision 2A). Any one GRU node may fail without sustained service outage or accepted-state loss.
+## Regional control
 
-## Contract invariants (condensed)
+Each Region can continue serving its last accepted state while the global
+control path, Orchestrator, or NATS is unavailable. Global release and policy
+changes may pause. Existing database reads, eligible writes, replication,
+repair, and client catch-up do not pause.
 
-1. Active cells GRU/SFO/FRA; GRU is global + product cell.
-2. Region serves last accepted `CellSpec` when GRU/WAN/Git/central observability is down.
-3. No WAN-spanning control Raft quorum.
-4. Exactly one fenced writer per desired-state/release/deployment/node/volume/TerraBase operation stream.
-5. Commands are idempotent, generation-bound, deadline-bound, replay-safe.
-6. Stale leaders/agents cannot attach, format, grow, delete, start, stop, publish, or complete.
-7. TerraBase: ≥3 permanent members/cell, one per host, one single-writer volume/member, stable identity, consistent backups.
-8. Never remove permanent members a/b/c; elastic scale-in disabled until destructive suite passes.
-9. Storage expand-only; replicas ≠ capacity.
-10. No secrets/keys in ordinary NATS subjects, desired state, logs, traces, CI, metrics, Grafana.
-11. Build once; deploy exact tested digests.
-12. Observability failure never blocks product traffic.
-13. Product placement (`Project.Regions`) is not host scheduling.
-14. Pulumi owns durable foundation; after signed handoff, regional orchestrator owns concrete nodes/volumes/attachments.
-15. Docs/schemas/dashboards/fixtures derive from versioned C# contracts.
-16. GRU single-node-failure tolerant for every critical path.
-17. Closed admitted-role catalog only.
-18. Dual dedicated NATS planes per region (decision 8A host co-location allowed).
+The Orchestrator uses typed desired and observed state, fenced writers,
+idempotent operations, immutable release identities, and durable receipts.
+Host tags, load, a missing heartbeat, NATS lease expiry, or filtered inventory
+cannot grant database membership or authorize destructive storage work.
 
-## ADR 0004 — Pulumi vs regional provider ownership (proposed)
+## Database placement and host scheduling
 
-- Pulumi: durable networking, IAM, KMS/Vault roots, object storage, DNS/LB foundation, images/launch templates, caps, bootstrap generations, seeds, initial dual-NATS stores, signed bootstrap bundle.
-- Handoff: journaled signed `HandoffReceipt` + explicit retain/unmanage; only then regional self-management.
-- Regional actuator: replacement/elastic compute, post-handoff volumes, attachments, LB membership, drain/scale/terminate, expansion, orphan reconciliation.
-- Tags are inventory evidence, never mutation authority.
-- Historical OCI estate is not adopted (`REQ-O023`).
+Database placement belongs to each database, not to its Project. A database
+selects one through twenty active Regions. Every selected active Region stores
+every logical Partition and accepts writes. GRU, SFO, and FRA are the initial
+catalog.
 
-## ADR 0013 — Native GitOps / Flux removal (proposed)
+Production uses two active TerraBase Members per selected Region and
+Partition, placed in independent failure domains. A backup is optional,
+read-only, non-voting, and independent of active placement.
 
-- Fresh TerraScale schema only; no Kubernetes/Helm/Kustomize/Flux readers or dual-run period.
-- Git owns parent intent (roles, releases, policies, bounds); journals own accepted revisions and concrete regional state.
-- Controller-created children are not Git prune targets.
-- Sequence: observe revision → verify signature/schema → resolve dependencies → plan → journal → apply with durable ack at configured checkpoint → health gates.
-- Preserves WRK-002..005 behaviors (ordered deps, fenced reconcile, build-once promotion, resumable multi-region progress) without Flux/kubectl.
+Orchestrator owns accepted placement intent and concrete host allocation.
+TerraBase owns membership acceptance, replica epochs, causal actor lifecycle,
+split and merge decisions, repair, and safe decommission. Scheduling pressure
+may request capacity in the selected Region. It cannot add a Region, remove a
+Region, spill data into an unselected Region, or appoint a leader.
 
-## ADR 0018 — Placement vs scheduling (proposed)
+## Database transport
 
-- **Product placement** owns `Project.Regions`, `PlacementGeneration`, drain/replication/routing/storage-epoch semantics.
-- **Host scheduling** owns machine allocation inside an already-selected cell (resources, topology, stateful vetoes).
-- Orchestrator may consume a typed placement projection; missing/stale/filtered observation is hold, never region removal.
-- No second source of truth for residency from load, tags, or host inventory.
+Database API is the only TBEP client. TBEP uses generated MessagePack over QUIC
+with mutual TLS on remote and loopback paths. UDS, raw HTTP, NATS, or a broker
+cannot become alternate correctness paths.
 
-## ADR 0020 — Provider actuator fencing (proposed)
+Region-to-Region TerraBase replication also uses direct QUIC with mutual TLS.
+TerraBase owns flow control, batching, acknowledgements, causal reconciliation,
+anti-entropy, and Merkle repair.
 
-Crash-stop model for trusted code + ordinary provider faults (not Byzantine hosts):
+## NATS
 
-1. Persist `Prepared` intent (not yet authorized).
-2. Evaluate fresh observation, ownership, generations, approvals, budget, deadline → `Held` or proceed.
-3. Atomic `AuthorizedForProviderCall` is the irreversible commit of exact action/payload/target/idempotency key.
-4. Adapter dispatches only from that record; timeout = outcome unknown, not failure.
-5. Recovery resumes the **same** authorized operation; leadership change changes executor, not terminal intent.
-6. Late completions that do not match the authorized operation are quarantined.
+NATS is an optional, replaceable control adapter. It may carry accepted
+configuration, discovery, durable control work, and operational notifications.
+It never carries database documents, WAL, CRDT deltas, replication frames,
+query results, reactive sync, or authoritative usage.
 
-## Selective mTLS
+The checked-in executable currently requires NATS. That is an implementation
+gap. Current NATS contracts and runbooks remain valid for the adapter that
+exists, but they do not make NATS part of database correctness or a permanent
+product dependency.
 
-Required at controller/agent, NATS client/route/gateway, secret retrieval, CI enrollment, admin APIs, cross-region telemetry. Not required on permissioned same-host Unix sockets. Public customer HTTP remains server TLS + product auth. NATS mTLS is transport identity; NKeys/JWTs/subject permissions are authorization — neither replaces the other.
+## Tenant isolation and capacity
 
-## What is built vs reused
+Every database path enforces native scope:
 
-| Build in Orchestrator | Reuse |
-|---|---|
-| Desired/observed-state engine | NATS/JetStream |
-| Scheduler + placement policy | systemd, cgroups v2 |
-| Node autoscaler + provider controllers | containerd/runc |
-| Volume/TerraBase lifecycle | OCI APIs, TerraBase admin |
-| Native GitOps + release machines | Forgejo, BuildKit, OCIR |
-| Identity/PKI automation | X.509, cloud KMS |
-| Operator API/CLI + Grafana projection | Grafana/OTel stack |
+```text
+TenantId
+ProjectId
+DatabaseId
+EnvironmentId
+```
+
+Collection prefixes are not isolation. Query, index, WAL, replication, backup,
+restore, sync, administration, snapshots, and metrics all validate the same
+scope.
+
+Database API and TerraBase enforce admission before autoscaling. Bounded queues,
+fair scheduling, resource budgets, backpressure, spill where safe, load
+shedding, and checkpoint or snapshot fallback protect shared hosts. Capacity
+signals then allow Orchestrator to add or move eligible workloads.
+
+## Trust
+
+Workload identity uses short-lived X.509 certificates, mutual TLS, scoped
+authorization, rotated trust bundles, and auditable bootstrap grants. Same-host
+communication does not weaken identity or encryption.
+
+Secrets and customer content never enter Git, NATS, desired state, logs,
+traces, metrics, fixtures, or receipts. Configuration carries secret
+references, not secret bytes.
+
+## Delivery
+
+Build once and deploy the exact qualified digest. Release, configuration,
+schema, migration, trust, rollback, and evidence identities bind to one
+candidate. A failed or stale gate holds activation. Rollback restores retained
+qualified bytes. It never rebuilds a replacement artifact.
+
+## Evidence boundary
+
+Pure tests and the RF=1 DevHost lab cannot prove production RF=2 durability,
+host loss, remote mutual TLS, cloud storage, systemd, twenty-Region behavior,
+or measured noisy-neighbor isolation. Only exact candidate-bound evidence from
+the owning runtime and benchmark authority can support those claims.
+
+Historical ADRs that require permanent TerraBase R3, Project-owned Regions,
+UDS TBEP, mandatory NATS, standalone Authentication, Payments, Platform, or MCP
+are superseded for future work.

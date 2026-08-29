@@ -1,6 +1,13 @@
 # ADR 0018: Project placement versus host scheduling boundary
 
-- Status: Proposed
+> Superseded on 2026-08-29. Region selection now belongs to each database, not
+> to `Project.Regions`. The Orchestrator owns accepted database placement
+> intent and host scheduling. TerraBase owns membership acceptance, causal
+> actor lifecycle, and repair. A Project is an authorization and billing scope,
+> not an inherited data-placement boundary. The body below preserves the old
+> proposal and its evidence.
+
+- Status: Superseded
 - Date: 2026-07-13
 - Owner lane: Integration/contract steward
 - Readiness entry: `docs/adr/readiness-index.yaml` entry for placement-boundary, ADR 18 (`placement-boundary`)

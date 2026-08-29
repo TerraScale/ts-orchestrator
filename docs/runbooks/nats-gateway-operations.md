@@ -1,5 +1,9 @@
 # NATS gateway operations runbook
 
+> Applies only while the current optional Orchestrator NATS adapter is deployed.
+> It is not a TerraBase replication runbook and cannot be used to diagnose or
+> repair database convergence.
+
 Operator procedures for the regional control-NATS gateway supercluster generated
 from the typed gateway plan (`NatsGatewayPlaneTopology` →
 `NatsGatewayPlanValidation` → `NatsGatewayConfigurationRenderer`). The typed

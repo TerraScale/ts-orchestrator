@@ -1,5 +1,9 @@
 # Phase 0 evidence summary
 
+> Historical phase evidence. Preserve its receipts and measured gaps, but do
+> not use its old R3, dual-NATS, service-role, or placement assumptions as
+> current architecture.
+
 > Consolidated 2026-07-17 from Phase 0 audits, readiness packets, and owner decisions.
 
 Machine-validated living artifacts: [`docs/adr/readiness-index.yaml`](../adr/readiness-index.yaml), [`docs/decisions/owner-decision-packet.json`](../decisions/owner-decision-packet.json).

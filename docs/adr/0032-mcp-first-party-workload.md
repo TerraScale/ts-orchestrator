@@ -1,6 +1,12 @@
 # Admit MCP as a first-party product workload
 
-Status: accepted on 2026-08-25
+> Superseded on 2026-08-29. The Dashboard now owns Streamable HTTP MCP as
+> named Better Auth and TerraScale SDK operations. The separate
+> `TerraScale.MCP` workload, HTTP host, stdio host, ports, credentials, and
+> delivery role are migration sources scheduled for deletion. This ADR remains
+> as a record of the earlier implementation decision.
+
+Status: superseded on 2026-08-29
 
 Tracking: [TerraScale.Orchestrator#9](https://git.terrascale.tech/TerraScale/TerraScale.Orchestrator/issues/9)
 

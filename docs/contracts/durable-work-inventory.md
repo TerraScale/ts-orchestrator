@@ -1,5 +1,10 @@
 # Durable work inventory and delivery policy
 
+> Current implementation inventory for NATS-backed Orchestrator control work.
+> It does not define TerraBase durability and does not make NATS a permanent
+> control-plane dependency. Replacement must migrate acknowledged control work
+> without losing identity, fencing, or receipts.
+
 | | |
 | --- | --- |
 | Contract version | 1 |

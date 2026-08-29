@@ -1,5 +1,8 @@
 # Historical work-stream catalog
 
+> Names and outcomes below describe completed or attempted work in the old
+> architecture. They do not assign current product ownership.
+
 > Index of all 113 work packages and handoffs consolidated on 2026-07-17.
 
 Original files: `docs/archive/docs-historical-full.tar.xz` and searchable `docs/archive/historical-docs-bundle.md.xz`.

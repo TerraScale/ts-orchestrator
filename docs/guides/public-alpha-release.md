@@ -1,5 +1,11 @@
 # Public Alpha release boundary
 
+> Historical implementation record. The current release boundary must qualify
+> Dashboard, the C# Database API, TerraBaseV2 RF=2 placement, QUIC TBEP, native
+> CRDT replication, reactive sync, and direct legacy-service cutover. References
+> below to the old MCP client, R3 database topology, or previous service set are
+> not current requirements.
+
 The repository now has a local decision seam for the three-region Public Alpha
 release. It is deliberately narrower than a production launch system.
 

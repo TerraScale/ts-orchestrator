@@ -1,5 +1,11 @@
 # Phase 0 owner decision and SLO packet
 
+> Historical decision packet. The 2026-08-29 workspace `GOAL.md` supersedes
+> choices that require permanent TerraBase R3, Project-level Region placement,
+> standalone Platform or Authentication workloads, mandatory product NATS, or
+> the old service catalog. The machine-readable packet remains intact as
+> evidence of what was accepted in July.
+
 See also the consolidated documentation index in [`../README.md`](../README.md) and Phase 0 summary in [`../guides/phase0-evidence.md`](../guides/phase0-evidence.md).
 
 Status: owner choices 1A–10A accepted on 2026-07-16 with reliability first; measurable targets and later implementation selections remain pending.

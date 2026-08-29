@@ -1,5 +1,10 @@
 # Public Alpha program map
 
+> Historical snapshot. This issue map predates TerraBaseV2 native replication,
+> the C# Database API, Dashboard-owned Better Auth and MCP, database-level
+> Region selection, and removal of the standalone Auth, Payments, Platform,
+> and MCP services. It does not define current ownership or launch readiness.
+
 Forgejo issue `TerraScale.Orchestrator#2` is the cross-repository launch index.
 Its child index covers 52 deliverables in 11 repositories. This snapshot makes
 the ownership boundary reviewable without treating local code as proof that an

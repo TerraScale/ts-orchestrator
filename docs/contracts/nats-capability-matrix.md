@@ -1,5 +1,10 @@
 # NATS capability-adoption matrix and messaging contract
 
+> Current implementation contract for the Orchestrator's NATS control adapter.
+> NATS is optional and replaceable in the accepted architecture. This matrix
+> cannot authorize database data, replication, reactive sync, usage truth, or
+> product correctness to depend on NATS.
+
 | | |
 | --- | --- |
 | Contract version | 1 (frozen) |

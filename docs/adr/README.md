@@ -1,5 +1,11 @@
 # ADR readiness index
 
+> The readiness index is a machine-validated historical map of the earlier
+> architecture. The workspace `GOAL.md` and current Orchestrator architecture
+> control new work. ADR 0018 and ADR 0032 are explicitly superseded; other ADRs
+> require reconciliation before they can authorize implementation that touches
+> the changed database, product-role, transport, or NATS boundaries.
+
 This directory records architecture decision readiness for the 24-item backlog in `docs/architecture/orchestrator.md`.
 
 Owner choices **1A–10A were accepted on 2026-07-16** with reliability first. Measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs rather than silent architecture defaults.

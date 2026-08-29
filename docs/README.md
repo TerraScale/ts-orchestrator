@@ -1,35 +1,53 @@
 # TerraScale.Orchestrator documentation
 
-Living documentation for the production control plane. Normative architecture is still **[`docs/architecture/orchestrator.md`](../docs/architecture/orchestrator.md)** at the repository root. This tree is the navigable, consolidated view of Phase 0 evidence, Phase 1 pure contracts, ADRs, and owner decisions.
-
-Owner choices **1A–10A** are accepted (reliability first). Measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs.
+[`architecture/orchestrator.md`](architecture/orchestrator.md) is the current
+Orchestrator architecture. The workspace [`GOAL.md`](../../GOAL.md) controls
+cross-repository product decisions. If a historical phase record, ADR, or
+evidence receipt conflicts with either document, the historical record does
+not control new work.
 
 ## Start here
 
 | Document | Purpose |
-|---|---|
-| [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Condensed invariants, control-plane shape, ADR boundaries, mTLS |
-| [`guides/phase0-evidence.md`](guides/phase0-evidence.md) | Consolidated Phase 0 readiness, pins posture, honest gaps |
-| [`guides/phase1-contracts.md`](guides/phase1-contracts.md) | Domain-by-domain pure-contract map + live source inventory |
-| [`guides/production-readiness-audit-2026-08-04.md`](guides/production-readiness-audit-2026-08-04.md) | Evidence-backed current implementation audit and production-adapter gap map |
-| [`guides/public-alpha-release.md`](guides/public-alpha-release.md) | Local Public Alpha decision coverage, qualification blockers, and draft incident runbooks |
-| [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | 52-child cross-repository coverage and Orchestrator responsibility boundary |
-| [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Index of every historical work package / handoff |
-| [`runbooks/direct-delivery.md`](runbooks/direct-delivery.md) | Operator procedures for direct-delivery failures: mutation, rollback, stale evidence, journal outage, stuck reconciliation |
-| [`decisions/`](decisions/) | Machine-validated owner decision packet |
-| [`adr/`](adr/) | ADR readiness index + draft ADRs 0004, 0013, 0018, 0020 |
-| [`archive/`](archive/) | Compressed full-fidelity historical docs |
+| --- | --- |
+| [`architecture/orchestrator.md`](architecture/orchestrator.md) | Current product boundary, placement, NATS role, isolation, lifecycle, and qualification rules |
+| [`../README.md`](../README.md) | Repository purpose, current implementation gap, validation, and current adapter commands |
+| [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Short current architecture summary |
+| [`runbooks/direct-delivery.md`](runbooks/direct-delivery.md) | Current direct-delivery failure procedures |
+| [`adr/`](adr/) | Architecture records with explicit current or superseded status |
+| [`archive/`](archive/) | Compressed full-fidelity historical material |
+
+## Current implementation records
+
+The following documents remain useful for understanding checked-in code. They
+are not the target product architecture:
+
+| Document | Scope |
+| --- | --- |
+| [`guides/phase0-evidence.md`](guides/phase0-evidence.md) | Historical Phase 0 evidence and gaps |
+| [`guides/phase1-contracts.md`](guides/phase1-contracts.md) | Historical pure-contract inventory |
+| [`guides/production-readiness-audit-2026-08-04.md`](guides/production-readiness-audit-2026-08-04.md) | Dated audit of the old architecture |
+| [`guides/public-alpha-release.md`](guides/public-alpha-release.md) | Historical public-alpha decision coverage |
+| [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | Historical cross-repository issue map |
+| [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Historical work-package index |
+| [`decisions/`](decisions/) | Machine-validated 2026-07 owner decision packet, superseded where it conflicts with the current goal |
+| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Contract for the currently implemented optional control adapter, not a database dependency |
+
+Do not rewrite evidence to make it appear current. Add a correction or
+supersession notice and preserve what the old run actually proved.
 
 ## Machine-validated artifacts
 
-These paths are required by repository tooling and must stay valid:
+Repository tooling consumes these files:
 
 ```text
 docs/adr/readiness-index.yaml
 docs/decisions/owner-decision-packet.json
 ```
 
-Validate:
+They record the earlier architecture and must not be used as current product
+authority. Their validators still protect the integrity of that historical
+record.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
@@ -37,36 +55,14 @@ dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
 
-## What moved into archives
+## Archives
 
-Phase 0 sprawl (per-lane work packages, handoffs, audit markdown/JSON, retirement ledger, phase0 tools/pins) was **consolidated** on 2026-07-17:
-
-- Substance is rewritten into the guides above with current owner-decision and live-source context.
-- Exact original trees are preserved as compressed archives under [`archive/`](archive/) (tar.xz + a searchable markdown bundle).
-- Empty `docs/work-packages/**`, `docs/audits/**`, and `docs/retirement/**` are no longer the live navigation surface.
-
-Unpack an archive when you need a verbatim historical path (for example an old handoff SHA or audit JSON fixture):
+The compressed archive preserves older audits, handoffs, fixtures, pins, and
+work packages.
 
 ```bash
 tar -tJf docs/archive/docs-historical-full.tar.xz | head
 tar -xJf docs/archive/docs-historical-full.tar.xz -C /tmp/orch-docs-historical
 ```
 
-## Related repository docs
-
-| Path | Role |
-|---|---|
-| [`../docs/architecture/orchestrator.md`](../docs/architecture/orchestrator.md) | Full architecture and implementation plan |
-| [`../README.md`](../README.md) | Operator runbook, local validation, Infisical/OTel |
-| [`../AGENTS.md`](../AGENTS.md) | Agent safety and ownership rules |
-
-## Documentation layout
-
-```text
-docs/
-  README.md                 # this index
-  guides/                   # consolidated human docs
-  adr/                      # readiness index + draft ADRs
-  decisions/                # owner decision packet + fixtures
-  archive/                  # compressed historical material
-```
+Archive content is evidence, not active instruction.
