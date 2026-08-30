@@ -20,9 +20,9 @@ import (
 
 // ProcessObservation mirrors the C# ProcessObservation record.
 type ProcessObservation struct {
-	ProcessId           int
-	PeakMemoryBytes     int64
-	PeakProcessCount    int
+	ProcessId            int
+	PeakMemoryBytes      int64
+	PeakProcessCount     int
 	DurationMilliseconds int64
 }
 

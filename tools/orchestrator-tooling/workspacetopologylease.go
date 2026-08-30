@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	workspaceTopologyNamespaceVariable = "TERRASCALE_VALIDATION_LEASE_NAMESPACE"
+	workspaceTopologyNamespaceVariable   = "TERRASCALE_VALIDATION_LEASE_NAMESPACE"
 	workspaceTopologyDevelopmentLabOwner = "development-lab"
 	workspaceTopologyRetryDelay          = 250 * time.Millisecond
 )
@@ -25,8 +25,8 @@ const (
 type WorkspaceTopologyLease struct {
 	MutexName string
 
-	release  chan struct{}
-	released chan error
+	release   chan struct{}
+	released  chan error
 	closeOnce sync.Once
 }
 

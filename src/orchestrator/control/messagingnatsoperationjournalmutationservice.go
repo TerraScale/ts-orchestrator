@@ -508,7 +508,7 @@ func natsOperationJournalReplyRuntime(
 }
 
 type natsRuntimeLifecycleJournalStores struct {
-	Operations       jetstream.KeyValue
+	Operations        jetstream.KeyValue
 	ProofConsumptions jetstream.KeyValue
 }
 
@@ -549,9 +549,9 @@ func natsMarshalServicePayload(value any) []byte {
 type NatsOperationJournalMutationProofConsumptionResult int
 
 const (
-	NatsOperationJournalMutationProofConsumptionResultConsumed NatsOperationJournalMutationProofConsumptionResult = 1
+	NatsOperationJournalMutationProofConsumptionResultConsumed        NatsOperationJournalMutationProofConsumptionResult = 1
 	NatsOperationJournalMutationProofConsumptionResultAlreadyConsumed NatsOperationJournalMutationProofConsumptionResult = 2
-	NatsOperationJournalMutationProofConsumptionResultUnavailable NatsOperationJournalMutationProofConsumptionResult = 3
+	NatsOperationJournalMutationProofConsumptionResultUnavailable     NatsOperationJournalMutationProofConsumptionResult = 3
 )
 
 // NatsOperationJournalMutationProofConsumption mirrors the C# static class:
@@ -910,10 +910,10 @@ type NatsOperationJournalUpdateRequest struct {
 
 // NatsOperationJournalMutationReply mirrors the C# record.
 type NatsOperationJournalMutationReply struct {
-	Succeeded    bool   `json:"Succeeded"`
-	Revision     uint64 `json:"Revision"`
+	Succeeded     bool   `json:"Succeeded"`
+	Revision      uint64 `json:"Revision"`
 	RequestDigest string `json:"RequestDigest"`
-	Signature    string `json:"Signature"`
+	Signature     string `json:"Signature"`
 }
 
 // Payload mirrors the C# Payload.
@@ -1243,12 +1243,12 @@ type natsSvcEndpointConfig struct {
 }
 
 type natsSvcServer struct {
-	client      *nats.Conn
-	config      natsSvcConfig
-	endpoints   []natsSvcEndpointConfig
+	client        *nats.Conn
+	config        natsSvcConfig
+	endpoints     []natsSvcEndpointConfig
 	subscriptions []*nats.Subscription
-	started     bool
-	mu          sync.Mutex
+	started       bool
+	mu            sync.Mutex
 }
 
 func newNatsSvcServer(client *nats.Conn, config natsSvcConfig) *natsSvcServer {

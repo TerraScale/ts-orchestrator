@@ -1031,27 +1031,27 @@ type ownerDecisionCommand struct{}
 var OwnerDecisionCommand = ownerDecisionCommand{}
 
 var ownerDecisionUnits = map[string]string{
-	"team-size":                                         "people",
-	"first-production-date":                             "ISO-8601-date-or-quarter",
-	"maximum-three-region-pre-user-cost":                "BRL/day",
-	"storage-minimum-iops-per-member":                   "IOPS",
-	"storage-minimum-throughput-per-member":             "MiB/s",
-	"storage-p95-read-latency":                          "ms",
-	"storage-p99-read-latency":                          "ms",
-	"storage-p95-write-latency":                         "ms",
-	"storage-p99-write-latency":                         "ms",
-	"regional-rpo":                                      "seconds",
-	"regional-rto":                                      "minutes",
-	"security-credential-revocation":                    "seconds",
-	"security-workload-certificate-ttl":                 "hours",
-	"security-certificate-renewal-lead":                 "hours",
-	"security-break-glass-session-ttl":                  "minutes",
-	"security-critical-remediation":                     "hours",
-	"memory-orchestrator-rss-per-host":                  "MiB",
-	"density-compact-post-failure-utilization-ceiling":  "percent",
-	"audit-hot-retention":                               "days",
-	"audit-immutable-retention":                         "days",
-	"maximum-regional-survival-window":                  "hours",
+	"team-size":                                        "people",
+	"first-production-date":                            "ISO-8601-date-or-quarter",
+	"maximum-three-region-pre-user-cost":               "BRL/day",
+	"storage-minimum-iops-per-member":                  "IOPS",
+	"storage-minimum-throughput-per-member":            "MiB/s",
+	"storage-p95-read-latency":                         "ms",
+	"storage-p99-read-latency":                         "ms",
+	"storage-p95-write-latency":                        "ms",
+	"storage-p99-write-latency":                        "ms",
+	"regional-rpo":                                     "seconds",
+	"regional-rto":                                     "minutes",
+	"security-credential-revocation":                   "seconds",
+	"security-workload-certificate-ttl":                "hours",
+	"security-certificate-renewal-lead":                "hours",
+	"security-break-glass-session-ttl":                 "minutes",
+	"security-critical-remediation":                    "hours",
+	"memory-orchestrator-rss-per-host":                 "MiB",
+	"density-compact-post-failure-utilization-ceiling": "percent",
+	"audit-hot-retention":                              "days",
+	"audit-immutable-retention":                        "days",
+	"maximum-regional-survival-window":                 "hours",
 }
 
 func (ownerDecisionCommand) Run(arguments []string) (int, error) {
@@ -1274,27 +1274,27 @@ var questionMappings = map[int]decisionImpactMapping{
 }
 
 var inputMappings = map[string]decisionInputMapping{
-	"team-size":                                         {`{"type":"integer","minimum":1}`, []int{19}, []string{"phase-0-planning"}},
-	"first-production-date":                             {`{"type":"string","pattern":"^(\\d{4}-\\d{2}-\\d{2}|\\d{4}-Q[1-4])$"}`, []int{19}, []string{"phase-0-planning"}},
-	"maximum-three-region-pre-user-cost":                {`{"type":"number","exclusiveMinimum":0}`, []int{5, 8, 19, 24}, []string{"contract-freeze", "phase-0-exit", "L5"}},
-	"storage-minimum-iops-per-member":                   {`{"type":"integer","minimum":1}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"storage-minimum-throughput-per-member":             {`{"type":"number","exclusiveMinimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"storage-p95-read-latency":                          {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"storage-p99-read-latency":                          {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"storage-p95-write-latency":                         {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"storage-p99-write-latency":                         {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
-	"regional-rpo":                                      {`{"type":"integer","minimum":0}`, []int{1, 3, 9, 10, 12, 19, 21, 24}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4", "L5"}},
-	"regional-rto":                                      {`{"type":"integer","minimum":0}`, []int{1, 3, 9, 10, 12, 19, 21, 24}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"}},
-	"security-credential-revocation":                    {`{"type":"integer","minimum":0}`, []int{11, 17}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
-	"security-workload-certificate-ttl":                 {`{"type":"integer","minimum":1}`, []int{11}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
-	"security-certificate-renewal-lead":                 {`{"type":"integer","minimum":1}`, []int{11}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
-	"security-break-glass-session-ttl":                  {`{"type":"integer","minimum":1}`, []int{17}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L5"}},
-	"security-critical-remediation":                     {`{"type":"integer","minimum":0}`, []int{11, 17}, []string{"contract-freeze", "phase-0-exit"}},
-	"memory-orchestrator-rss-per-host":                  {`{"type":"integer","minimum":1}`, []int{7, 8}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4"}},
-	"density-compact-post-failure-utilization-ceiling":  {`{"type":"number","exclusiveMinimum":0,"maximum":100}`, []int{7, 8}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4", "L5"}},
-	"audit-hot-retention":                               {`{"type":"integer","minimum":1}`, []int{3}, []string{"contract-freeze", "phase-0-exit", "L0C", "L3S"}},
-	"audit-immutable-retention":                         {`{"type":"integer","minimum":1}`, []int{3}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4", "L5"}},
-	"maximum-regional-survival-window":                  {`{"type":"integer","minimum":1}`, []int{11, 12, 21}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"}},
+	"team-size":                                        {`{"type":"integer","minimum":1}`, []int{19}, []string{"phase-0-planning"}},
+	"first-production-date":                            {`{"type":"string","pattern":"^(\\d{4}-\\d{2}-\\d{2}|\\d{4}-Q[1-4])$"}`, []int{19}, []string{"phase-0-planning"}},
+	"maximum-three-region-pre-user-cost":               {`{"type":"number","exclusiveMinimum":0}`, []int{5, 8, 19, 24}, []string{"contract-freeze", "phase-0-exit", "L5"}},
+	"storage-minimum-iops-per-member":                  {`{"type":"integer","minimum":1}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"storage-minimum-throughput-per-member":            {`{"type":"number","exclusiveMinimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"storage-p95-read-latency":                         {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"storage-p99-read-latency":                         {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"storage-p95-write-latency":                        {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"storage-p99-write-latency":                        {`{"type":"number","minimum":0}`, []int{2, 3, 5, 8, 9, 10, 19}, []string{"contract-freeze", "phase-0-exit", "L1R", "L3S", "L4", "L5"}},
+	"regional-rpo":                                     {`{"type":"integer","minimum":0}`, []int{1, 3, 9, 10, 12, 19, 21, 24}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4", "L5"}},
+	"regional-rto":                                     {`{"type":"integer","minimum":0}`, []int{1, 3, 9, 10, 12, 19, 21, 24}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"}},
+	"security-credential-revocation":                   {`{"type":"integer","minimum":0}`, []int{11, 17}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
+	"security-workload-certificate-ttl":                {`{"type":"integer","minimum":1}`, []int{11}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
+	"security-certificate-renewal-lead":                {`{"type":"integer","minimum":1}`, []int{11}, []string{"contract-freeze", "phase-0-exit", "L0", "L0C", "L3S", "L4"}},
+	"security-break-glass-session-ttl":                 {`{"type":"integer","minimum":1}`, []int{17}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L5"}},
+	"security-critical-remediation":                    {`{"type":"integer","minimum":0}`, []int{11, 17}, []string{"contract-freeze", "phase-0-exit"}},
+	"memory-orchestrator-rss-per-host":                 {`{"type":"integer","minimum":1}`, []int{7, 8}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4"}},
+	"density-compact-post-failure-utilization-ceiling": {`{"type":"number","exclusiveMinimum":0,"maximum":100}`, []int{7, 8}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4", "L5"}},
+	"audit-hot-retention":                              {`{"type":"integer","minimum":1}`, []int{3}, []string{"contract-freeze", "phase-0-exit", "L0C", "L3S"}},
+	"audit-immutable-retention":                        {`{"type":"integer","minimum":1}`, []int{3}, []string{"contract-freeze", "phase-0-exit", "L3S", "L4", "L5"}},
+	"maximum-regional-survival-window":                 {`{"type":"integer","minimum":1}`, []int{11, 12, 21}, []string{"contract-freeze", "phase-0-exit", "L0", "L3S", "L4", "L5"}},
 }
 
 var laterSelectionMappings = map[string]decisionImpactMapping{
@@ -1308,11 +1308,11 @@ var laterSelectionMappings = map[string]decisionImpactMapping{
 }
 
 const (
-	invariantGapId             = "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT"
-	invariantGapStatus         = "open-independent-review-required"
-	invariantGapInvariant      = "P0-01V enforces accepted-policy provenance, alias expansion, ownership-reference coverage, required ADR record fields, and acyclic executable dependencies."
-	invariantGapEvidenceLimit  = "Validator success proves only checked-in schema consistency; it does not establish external owner assignment or approval, measured evidence, ADR acceptance, or independent P0-01/P0-01V review."
-	invariantGapPrerequisite   = "Independent P0-01/P0-01V review remains required before any acceptance claim."
+	invariantGapId            = "P1-DECISION-REGISTER-TOOLING-ENFORCEMENT"
+	invariantGapStatus        = "open-independent-review-required"
+	invariantGapInvariant     = "P0-01V enforces accepted-policy provenance, alias expansion, ownership-reference coverage, required ADR record fields, and acyclic executable dependencies."
+	invariantGapEvidenceLimit = "Validator success proves only checked-in schema consistency; it does not establish external owner assignment or approval, measured evidence, ADR acceptance, or independent P0-01/P0-01V review."
+	invariantGapPrerequisite  = "Independent P0-01/P0-01V review remains required before any acceptance claim."
 )
 
 var atomicPolicyFields = []string{"id", "status", "kind", "sourceAnchors"}
@@ -1759,7 +1759,7 @@ func decisionValidateRegisters(packet *JsonObject, inputs map[string]bool, selec
 	if decisionText(register.Get("status"), "openInputRegister status", errors) != "open-no-defaults" {
 		*errors = append(*errors, "openInputRegister: invalid status")
 	}
-	if !stringSetEqualsList(decisionStrings(register.Get("sourceAnchors"), "openInputRegister sourceAnchors", errors), openInputProvenance) {
+	if !stringListSetEqualsList(decisionStrings(register.Get("sourceAnchors"), "openInputRegister sourceAnchors", errors), openInputProvenance) {
 		*errors = append(*errors, "openInputRegister: canonical source anchors required")
 	}
 	*errors = Validation.ValidateLocalAnchors(objectArray(register.Get("sourceAnchors")), "openInputRegister", *errors)
@@ -1874,7 +1874,7 @@ func decisionValidateAcceptedRegister(packet *JsonObject, readiness *JsonObject,
 
 func decisionValidateAcceptedPolicyProvenance(node any, where string, errors *[]string) {
 	anchors := decisionStrings(node, where+" sourceAnchors", errors)
-	if !stringSetEqualsList(anchors, acceptedPolicyProvenance) {
+	if !stringListSetEqualsList(anchors, acceptedPolicyProvenance) {
 		*errors = append(*errors, fmt.Sprintf("%s: canonical accepted-policy provenance required", where))
 	}
 	*errors = Validation.ValidateLocalAnchors(objectArray(node), where, *errors)

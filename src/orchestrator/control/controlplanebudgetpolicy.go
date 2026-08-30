@@ -41,10 +41,10 @@ func (p NodeClassCapacityPolicy) IsValid() bool {
 }
 
 type BudgetBandPolicy struct {
-	AutomaticCellMaximum  BudgetVector
+	AutomaticCellMaximum   BudgetVector
 	AutomaticGlobalMaximum BudgetVector
-	ApprovalCellMaximum   BudgetVector
-	ApprovalGlobalMaximum BudgetVector
+	ApprovalCellMaximum    BudgetVector
+	ApprovalGlobalMaximum  BudgetVector
 }
 
 func (p BudgetBandPolicy) IsValid() bool {
@@ -57,32 +57,32 @@ func (p BudgetBandPolicy) IsValid() bool {
 type BudgetPolicyError int
 
 const (
-	BudgetPolicyErrorUninitialized             BudgetPolicyError = 0
-	BudgetPolicyErrorNone                      BudgetPolicyError = 1
-	BudgetPolicyErrorInvalidScope              BudgetPolicyError = 2
-	BudgetPolicyErrorInvalidPosture            BudgetPolicyError = 3
-	BudgetPolicyErrorInvalidEvidenceLimit      BudgetPolicyError = 4
-	BudgetPolicyErrorMissingNodeClassPolicy    BudgetPolicyError = 5
-	BudgetPolicyErrorInvalidNodeClassPolicy    BudgetPolicyError = 6
-	BudgetPolicyErrorDuplicateNodeClassPolicy  BudgetPolicyError = 7
-	BudgetPolicyErrorInvalidCeiling            BudgetPolicyError = 8
-	BudgetPolicyErrorInvalidBandOrdering       BudgetPolicyError = 9
+	BudgetPolicyErrorUninitialized              BudgetPolicyError = 0
+	BudgetPolicyErrorNone                       BudgetPolicyError = 1
+	BudgetPolicyErrorInvalidScope               BudgetPolicyError = 2
+	BudgetPolicyErrorInvalidPosture             BudgetPolicyError = 3
+	BudgetPolicyErrorInvalidEvidenceLimit       BudgetPolicyError = 4
+	BudgetPolicyErrorMissingNodeClassPolicy     BudgetPolicyError = 5
+	BudgetPolicyErrorInvalidNodeClassPolicy     BudgetPolicyError = 6
+	BudgetPolicyErrorDuplicateNodeClassPolicy   BudgetPolicyError = 7
+	BudgetPolicyErrorInvalidCeiling             BudgetPolicyError = 8
+	BudgetPolicyErrorInvalidBandOrdering        BudgetPolicyError = 9
 	BudgetPolicyErrorBudgetExceedsProviderLimit BudgetPolicyError = 10
 )
 
 type BudgetPolicy struct {
-	Cell                      BudgetCellId
-	CostCenter                BudgetCostCenterId
-	ApprovalScope             BudgetApprovalId
-	EmergencyPosture          BudgetEmergencyPosture
-	MaximumEvidenceAge        BudgetQuantity
-	MaximumEvidenceCount      int
-	NodeClasses               []NodeClassCapacityPolicy
-	CellCeiling               BudgetVector
-	GlobalCeiling             BudgetVector
-	ProviderAccountCellLimit  BudgetVector
+	Cell                       BudgetCellId
+	CostCenter                 BudgetCostCenterId
+	ApprovalScope              BudgetApprovalId
+	EmergencyPosture           BudgetEmergencyPosture
+	MaximumEvidenceAge         BudgetQuantity
+	MaximumEvidenceCount       int
+	NodeClasses                []NodeClassCapacityPolicy
+	CellCeiling                BudgetVector
+	GlobalCeiling              BudgetVector
+	ProviderAccountCellLimit   BudgetVector
 	ProviderAccountGlobalLimit BudgetVector
-	Bands                     BudgetBandPolicy
+	Bands                      BudgetBandPolicy
 }
 
 // BudgetPolicyTryCreate mirrors BudgetPolicy.TryCreate.

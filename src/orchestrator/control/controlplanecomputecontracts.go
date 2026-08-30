@@ -5,7 +5,7 @@ package control
 // limits; these are not scaling, replica, or capacity policy caps.
 const (
 	ComputeTechnicalInputLimitsMaximumSurvivalSecretVersionCount = 4096
-	ComputeTechnicalInputLimitsMaximumSurvivalNodeTemplateCount   = 4096
+	ComputeTechnicalInputLimitsMaximumSurvivalNodeTemplateCount  = 4096
 )
 
 // computeInputSnapshotCopy ports the internal ComputeInputSnapshot.Copy.
@@ -243,24 +243,24 @@ const (
 )
 
 type ComputeBinding struct {
-	Cell               ComputeCellId
-	NodeClass          NodeClassId
-	Template           NodeTemplateId
-	Shape              ComputeShapeId
-	Domain             PlacementDomainId
-	Artifact           ComputeArtifactId
-	ArtifactDigest     ComputeDigestId
-	Demand             DemandObservationId
-	Operation          ComputeOperationId
+	Cell                ComputeCellId
+	NodeClass           NodeClassId
+	Template            NodeTemplateId
+	Shape               ComputeShapeId
+	Domain              PlacementDomainId
+	Artifact            ComputeArtifactId
+	ArtifactDigest      ComputeDigestId
+	Demand              DemandObservationId
+	Operation           ComputeOperationId
 	ProviderFingerprint ProviderFingerprintId
-	Generation         int64
-	ControllerEpoch    int64
+	Generation          int64
+	ControllerEpoch     int64
 }
 
 type ResourceEnvelope struct {
-	Ocpus                    uint64
-	MemoryMib                uint64
-	StorageGib               uint64
+	Ocpus                     uint64
+	MemoryMib                 uint64
+	StorageGib                uint64
 	EstimatedHourlyCostMicros uint64
 }
 
@@ -313,126 +313,126 @@ type ProviderCreateEvidence struct {
 }
 
 type ScaleOutProgress struct {
-	Binding            ComputeBinding
-	Resource           *ProviderResourceId
-	Node               *ComputeNodeId
-	IdentityProof      *ComputeProofId
-	EnrollmentProof    *ComputeProofId
-	BootstrapProof     *ComputeProofId
-	DiskProof          *ComputeProofId
-	PlacementProof     *ComputeProofId
-	HealthProof        *ComputeProofId
-	IdentityAttested   bool
-	Enrolled           bool
-	BootstrapPassed    bool
-	DiskPassed         bool
-	PlacementComplete  bool
-	ServiceHealthy     bool
+	Binding           ComputeBinding
+	Resource          *ProviderResourceId
+	Node              *ComputeNodeId
+	IdentityProof     *ComputeProofId
+	EnrollmentProof   *ComputeProofId
+	BootstrapProof    *ComputeProofId
+	DiskProof         *ComputeProofId
+	PlacementProof    *ComputeProofId
+	HealthProof       *ComputeProofId
+	IdentityAttested  bool
+	Enrolled          bool
+	BootstrapPassed   bool
+	DiskPassed        bool
+	PlacementComplete bool
+	ServiceHealthy    bool
 }
 
 type ScaleOutRequest struct {
-	Binding            ComputeBinding
-	State              ScaleOutState
-	Demand             DemandEvidence
-	Plan               ScaleOutPlan
-	PersistedPlan      *PersistedScaleOutPlan
-	Authorization      *CapacityAuthorization
-	CreateEvidence     *ProviderCreateEvidence
-	Progress           *ScaleOutProgress
-	EvaluationSequence int64
+	Binding               ComputeBinding
+	State                 ScaleOutState
+	Demand                DemandEvidence
+	Plan                  ScaleOutPlan
+	PersistedPlan         *PersistedScaleOutPlan
+	Authorization         *CapacityAuthorization
+	CreateEvidence        *ProviderCreateEvidence
+	Progress              *ScaleOutProgress
+	EvaluationSequence    int64
 	MaximumIdentityLength int
 }
 
 type ScaleInBinding struct {
-	Compute                 ComputeBinding
-	Node                    ComputeNodeId
-	Resource                ProviderResourceId
+	Compute                  ComputeBinding
+	Node                     ComputeNodeId
+	Resource                 ProviderResourceId
 	LoadBalancerRegistration LoadBalancerRegistrationId
-	Volume                  ComputeVolumeId
-	Role                    ComputeNodeRole
+	Volume                   ComputeVolumeId
+	Role                     ComputeNodeRole
 }
 
 type ScaleInAuthorization struct {
-	Binding              ScaleInBinding
-	LowUseObservation    DemandObservationId
-	ObservationSequence  int64
-	FreshThroughSequence int64
-	CurrentCount         int
-	MinimumCount         int
-	ReplacementCapacity  int
-	AvailabilityHeadroom int
-	LowUseProof          ComputeProofId
-	CooldownProof        ComputeProofId
-	LifetimeProof        ComputeProofId
-	CostBenefitProof     ComputeProofId
-	ControlHealthProof   ComputeProofId
-	NatsHealthProof      ComputeProofId
-	AvailabilityProof    ComputeProofId
-	StatefulDisposition  StatefulDisposition
-	StatefulProof        ComputeProofId
-	SustainedLowUse      bool
-	CooldownPassed       bool
-	LifetimePassed       bool
-	CostBenefitPassed    bool
+	Binding                ScaleInBinding
+	LowUseObservation      DemandObservationId
+	ObservationSequence    int64
+	FreshThroughSequence   int64
+	CurrentCount           int
+	MinimumCount           int
+	ReplacementCapacity    int
+	AvailabilityHeadroom   int
+	LowUseProof            ComputeProofId
+	CooldownProof          ComputeProofId
+	LifetimeProof          ComputeProofId
+	CostBenefitProof       ComputeProofId
+	ControlHealthProof     ComputeProofId
+	NatsHealthProof        ComputeProofId
+	AvailabilityProof      ComputeProofId
+	StatefulDisposition    StatefulDisposition
+	StatefulProof          ComputeProofId
+	SustainedLowUse        bool
+	CooldownPassed         bool
+	LifetimePassed         bool
+	CostBenefitPassed      bool
 	RegionalControlHealthy bool
-	NatsHealthy          bool
-	ConflictingOperation bool
-	StatefulApproved     bool
+	NatsHealthy            bool
+	ConflictingOperation   bool
+	StatefulApproved       bool
 }
 
 type ScaleInProgress struct {
-	Binding                ScaleInBinding
-	CordonProof            *ComputeProofId
-	DrainProof             *ComputeProofId
-	DeregistrationProof    *ComputeProofId
-	VolumeProof            *ComputeProofId
-	RevocationProof        *ComputeProofId
-	TerminationProof       *ComputeProofId
-	BootAbsenceProof       *ComputeProofId
-	OrphanAuditProof       *ComputeProofId
-	VolumeDisposition      VolumeDisposition
-	StatefulOwner          *StatefulOwnerId
-	Cordoned               bool
-	Drained                bool
-	Deregistered           bool
-	VolumeHandled          bool
-	Revoked                bool
+	Binding                 ScaleInBinding
+	CordonProof             *ComputeProofId
+	DrainProof              *ComputeProofId
+	DeregistrationProof     *ComputeProofId
+	VolumeProof             *ComputeProofId
+	RevocationProof         *ComputeProofId
+	TerminationProof        *ComputeProofId
+	BootAbsenceProof        *ComputeProofId
+	OrphanAuditProof        *ComputeProofId
+	VolumeDisposition       VolumeDisposition
+	StatefulOwner           *StatefulOwnerId
+	Cordoned                bool
+	Drained                 bool
+	Deregistered            bool
+	VolumeHandled           bool
+	Revoked                 bool
 	ExactInstanceTerminated bool
-	BootVolumeAbsent       bool
-	OrphanAuditPassed      bool
+	BootVolumeAbsent        bool
+	OrphanAuditPassed       bool
 }
 
 type ScaleInRequest struct {
-	Binding            ScaleInBinding
-	State              ScaleInState
-	Authorization      ScaleInAuthorization
-	Progress           ScaleInProgress
-	EvaluationSequence int64
+	Binding               ScaleInBinding
+	State                 ScaleInState
+	Authorization         ScaleInAuthorization
+	Progress              ScaleInProgress
+	EvaluationSequence    int64
 	MaximumIdentityLength int
 }
 
 type RegionalSurvivalBundle struct {
-	Bundle                SurvivalBundleId
-	Cell                  ComputeCellId
-	Generation            int64
-	ProviderFingerprint   ProviderFingerprintId
-	AcceptedArtifact      ComputeArtifactId
-	AcceptedDigest        ComputeDigestId
-	AcceptedSignature     ComputeProofId
-	RollbackArtifact      ComputeArtifactId
-	RollbackDigest        ComputeDigestId
-	RollbackSignature     ComputeProofId
+	Bundle                  SurvivalBundleId
+	Cell                    ComputeCellId
+	Generation              int64
+	ProviderFingerprint     ProviderFingerprintId
+	AcceptedArtifact        ComputeArtifactId
+	AcceptedDigest          ComputeDigestId
+	AcceptedSignature       ComputeProofId
+	RollbackArtifact        ComputeArtifactId
+	RollbackDigest          ComputeDigestId
+	RollbackSignature       ComputeProofId
 	EncryptedSecretVersions []SecretVersionId
-	Templates             []SurvivalNodeTemplate
-	Trust                 TrustReferenceId
-	Nats                  NatsReferenceId
-	Dns                   DnsReferenceId
-	Backup                BackupReferenceId
-	AuthorityEpoch        int64
-	JournalPosition       int64
-	SnapshotPosition      int64
-	FreshThroughPosition  int64
-	ExpiresAfterPosition  int64
+	Templates               []SurvivalNodeTemplate
+	Trust                   TrustReferenceId
+	Nats                    NatsReferenceId
+	Dns                     DnsReferenceId
+	Backup                  BackupReferenceId
+	AuthorityEpoch          int64
+	JournalPosition         int64
+	SnapshotPosition        int64
+	FreshThroughPosition    int64
+	ExpiresAfterPosition    int64
 }
 
 func NewRegionalSurvivalBundle(bundle SurvivalBundleId, cell ComputeCellId, generation int64,
@@ -467,18 +467,18 @@ type SurvivalNodeTemplate struct {
 }
 
 type SurvivalBundleEvidence struct {
-	Observed         *RegionalSurvivalBundle
-	BundleSignature  ComputeProofId
-	EncryptionProof  ComputeProofId
-	SignatureValid   bool
+	Observed          *RegionalSurvivalBundle
+	BundleSignature   ComputeProofId
+	EncryptionProof   ComputeProofId
+	SignatureValid    bool
 	MetadataEncrypted bool
-	ArtifactsLocal   bool
-	SecretsLocal     bool
-	ProviderReady    bool
-	TrustReady       bool
-	NatsReady        bool
-	DnsReady         bool
-	BackupReady      bool
+	ArtifactsLocal    bool
+	SecretsLocal      bool
+	ProviderReady     bool
+	TrustReady        bool
+	NatsReady         bool
+	DnsReady          bool
+	BackupReady       bool
 }
 
 type RegionalAuthorityProof struct {
@@ -501,24 +501,24 @@ type SurvivalRequest struct {
 }
 
 type SurvivalReplacementTarget struct {
-	Cell               ComputeCellId
-	NodeClass          NodeClassId
-	Template           NodeTemplateId
-	Shape              ComputeShapeId
-	Domain             PlacementDomainId
-	Artifact           ComputeArtifactId
-	ArtifactDigest     ComputeDigestId
-	Operation          ComputeOperationId
+	Cell                ComputeCellId
+	NodeClass           NodeClassId
+	Template            NodeTemplateId
+	Shape               ComputeShapeId
+	Domain              PlacementDomainId
+	Artifact            ComputeArtifactId
+	ArtifactDigest      ComputeDigestId
+	Operation           ComputeOperationId
 	ProviderFingerprint ProviderFingerprintId
-	CreateKey          ProviderCreateKey
-	BundleGeneration   int64
-	ControllerEpoch    int64
+	CreateKey           ProviderCreateKey
+	BundleGeneration    int64
+	ControllerEpoch     int64
 }
 
 type ComputeError struct {
-	Code       ComputeErrorCode
+	Code        ComputeErrorCode
 	Requirement ComputeRequirementCode
-	Operation  *ComputeOperationId
+	Operation   *ComputeOperationId
 }
 
 type ComputeTrace struct {
@@ -571,10 +571,10 @@ func NewAuthorizeCapacityIntent(binding ComputeBinding, persistedPlan PersistedS
 
 type RequestCreateIntent struct {
 	computeIntentBase
-	Binding       ComputeBinding
-	CreateKey     ProviderCreateKey
-	PersistedPlan PersistedScaleOutPlan
-	Authorization CapacityAuthorization
+	Binding        ComputeBinding
+	CreateKey      ProviderCreateKey
+	PersistedPlan  PersistedScaleOutPlan
+	Authorization  CapacityAuthorization
 	CreateEvidence ProviderCreateEvidence
 }
 
@@ -586,9 +586,9 @@ func NewRequestCreateIntent(binding ComputeBinding, key ProviderCreateKey, persi
 
 type EnrollNodeIntent struct {
 	computeIntentBase
-	Binding      ComputeBinding
-	Resource     ProviderResourceId
-	Node         ComputeNodeId
+	Binding       ComputeBinding
+	Resource      ProviderResourceId
+	Node          ComputeNodeId
 	IdentityProof ComputeProofId
 }
 
@@ -679,9 +679,9 @@ func NewTerminateNodeIntent(binding ScaleInBinding, revocationProof ComputeProof
 
 type AuditOrphansIntent struct {
 	computeIntentBase
-	Binding           ScaleInBinding
-	TerminationProof  ComputeProofId
-	BootAbsenceProof  ComputeProofId
+	Binding          ScaleInBinding
+	TerminationProof ComputeProofId
+	BootAbsenceProof ComputeProofId
 }
 
 func NewAuditOrphansIntent(binding ScaleInBinding, terminationProof, bootAbsenceProof ComputeProofId) *AuditOrphansIntent {
@@ -711,7 +711,7 @@ func NewReadySurvivalIntent(bundle *RegionalSurvivalBundle) *ReadySurvivalIntent
 
 type HoldComputeIntent struct {
 	computeIntentBase
-	Reason   ComputeErrorCode
+	Reason    ComputeErrorCode
 	Operation *ComputeOperationId
 }
 
@@ -720,8 +720,8 @@ func NewHoldComputeIntent(reason ComputeErrorCode, operation *ComputeOperationId
 }
 
 type ComputeDecision struct {
-	Intents                []ComputeIntent
-	Errors                 []ComputeError
-	Trace                  []ComputeTrace
+	Intents                 []ComputeIntent
+	Errors                  []ComputeError
+	Trace                   []ComputeTrace
 	AcceptedScaleOutRequest *ScaleOutRequest
 }

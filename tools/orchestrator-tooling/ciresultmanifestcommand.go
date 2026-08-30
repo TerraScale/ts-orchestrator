@@ -56,11 +56,11 @@ var ciCounterNames = []string{
 
 // ciResultManifestDocument mirrors the writer output of the C# command.
 type ciResultManifestDocument struct {
-	SchemaVersion     int                  `json:"schemaVersion"`
-	Job               string               `json:"job"`
-	PlanDigest        string               `json:"planDigest"`
-	Succeeded         bool                 `json:"succeeded"`
-	RequiredTestSkips int                  `json:"requiredTestSkips"`
+	SchemaVersion     int                     `json:"schemaVersion"`
+	Job               string                  `json:"job"`
+	PlanDigest        string                  `json:"planDigest"`
+	Succeeded         bool                    `json:"succeeded"`
+	RequiredTestSkips int                     `json:"requiredTestSkips"`
 	Artifacts         []ciResultArtifactEntry `json:"artifacts"`
 }
 

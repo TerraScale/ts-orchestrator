@@ -4,7 +4,7 @@ package control
 // BudgetTechnicalInputLimits ports the technical caller-input snapshot
 // limits; these are not monetary, capacity, or approval policy.
 const (
-	BudgetTechnicalInputLimitsMaximumEvidenceCount      = 4096
+	BudgetTechnicalInputLimitsMaximumEvidenceCount        = 4096
 	BudgetTechnicalInputLimitsMaximumNodeClassPolicyCount = 4096
 )
 
@@ -152,31 +152,31 @@ func BudgetQuantityTryCreate(value int64) (BudgetQuantity, bool) {
 type BudgetDimension int
 
 const (
-	BudgetDimensionNone              BudgetDimension = 0
-	BudgetDimensionCpu               BudgetDimension = 1 << 0
-	BudgetDimensionMemory            BudgetDimension = 1 << 1
-	BudgetDimensionStorage           BudgetDimension = 1 << 2
-	BudgetDimensionIops              BudgetDimension = 1 << 3
-	BudgetDimensionThroughput        BudgetDimension = 1 << 4
-	BudgetDimensionPublicIp          BudgetDimension = 1 << 5
+	BudgetDimensionNone                BudgetDimension = 0
+	BudgetDimensionCpu                 BudgetDimension = 1 << 0
+	BudgetDimensionMemory              BudgetDimension = 1 << 1
+	BudgetDimensionStorage             BudgetDimension = 1 << 2
+	BudgetDimensionIops                BudgetDimension = 1 << 3
+	BudgetDimensionThroughput          BudgetDimension = 1 << 4
+	BudgetDimensionPublicIp            BudgetDimension = 1 << 5
 	BudgetDimensionLoadBalancerBackend BudgetDimension = 1 << 6
-	BudgetDimensionHourlySpend       BudgetDimension = 1 << 7
-	BudgetDimensionDailySpend        BudgetDimension = 1 << 8
-	BudgetDimensionAll               BudgetDimension = BudgetDimensionCpu | BudgetDimensionMemory |
+	BudgetDimensionHourlySpend         BudgetDimension = 1 << 7
+	BudgetDimensionDailySpend          BudgetDimension = 1 << 8
+	BudgetDimensionAll                 BudgetDimension = BudgetDimensionCpu | BudgetDimensionMemory |
 		BudgetDimensionStorage | BudgetDimensionIops | BudgetDimensionThroughput | BudgetDimensionPublicIp |
 		BudgetDimensionLoadBalancerBackend | BudgetDimensionHourlySpend | BudgetDimensionDailySpend
 )
 
 type BudgetVector struct {
-	Cpu                BudgetQuantity
-	Memory             BudgetQuantity
-	Storage            BudgetQuantity
-	Iops               BudgetQuantity
-	Throughput         BudgetQuantity
-	PublicIp           BudgetQuantity
+	Cpu                 BudgetQuantity
+	Memory              BudgetQuantity
+	Storage             BudgetQuantity
+	Iops                BudgetQuantity
+	Throughput          BudgetQuantity
+	PublicIp            BudgetQuantity
 	LoadBalancerBackend BudgetQuantity
-	HourlySpend        BudgetQuantity
-	DailySpend         BudgetQuantity
+	HourlySpend         BudgetQuantity
+	DailySpend          BudgetQuantity
 }
 
 func NewBudgetVector(cpu, memory, storage, iops, throughput, publicIp, loadBalancerBackend,

@@ -13,8 +13,8 @@ const (
 // uppercase ASCII airport letters; aliases and lowercase input are never
 // normalized.
 type RegionCode struct {
-	value  string
-	valid  bool
+	value string
+	valid bool
 }
 
 const RegionCodeLength = 3
@@ -70,9 +70,9 @@ type FailureDomainId struct{ Value string }
 type BackupId struct{ Value string }
 
 type RegionCatalogEntry struct {
-	Region          RegionCode
-	Available       bool
-	Permitted       bool
+	Region           RegionCode
+	Available        bool
+	Permitted        bool
 	ResidencyAllowed bool
 }
 
@@ -122,7 +122,7 @@ func NewPartitionRegionPlacement(region RegionCode, seats []*ActiveMemberSeat) P
 
 type LogicalPartitionPlacement struct {
 	Partition PartitionId
-	Regions  []*PartitionRegionPlacement
+	Regions   []*PartitionRegionPlacement
 }
 
 func NewLogicalPartitionPlacement(partition PartitionId, regions []*PartitionRegionPlacement) LogicalPartitionPlacement {
@@ -140,11 +140,11 @@ const (
 )
 
 type BackupPlacement struct {
-	Backup         BackupId
-	Region         RegionCode
-	IsReadOnly     bool
-	IsImmutable    bool
-	IsVoting       bool
+	Backup          BackupId
+	Region          RegionCode
+	IsReadOnly      bool
+	IsImmutable     bool
+	IsVoting        bool
 	PromotionPolicy BackupPromotionPolicy
 }
 
@@ -233,10 +233,10 @@ type DatabasePlacementQualificationFact struct {
 }
 
 type DatabasePlacementDecision struct {
-	Errors  []DatabasePlacementError
-	Facts   []DatabasePlacementQualificationFact
+	Errors      []DatabasePlacementError
+	Facts       []DatabasePlacementQualificationFact
 	Fingerprint string
 }
 
-func (d *DatabasePlacementDecision) Accepted() bool { return len(d.Errors) == 0 }
+func (d *DatabasePlacementDecision) Accepted() bool   { return len(d.Errors) == 0 }
 func (d *DatabasePlacementDecision) IsAccepted() bool { return len(d.Errors) == 0 }

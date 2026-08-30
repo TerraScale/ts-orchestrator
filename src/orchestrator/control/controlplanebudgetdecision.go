@@ -1,46 +1,44 @@
 // Port of src/TerraScale.Orchestrator/ControlPlane/Budgets/BudgetDecision.cs
 package control
 
-
-
 type BudgetDecisionKind int
 
 const (
-	BudgetDecisionKindUninitialized   BudgetDecisionKind = 0
-	BudgetDecisionKindAutomatic       BudgetDecisionKind = 1
+	BudgetDecisionKindUninitialized    BudgetDecisionKind = 0
+	BudgetDecisionKindAutomatic        BudgetDecisionKind = 1
 	BudgetDecisionKindApprovalRequired BudgetDecisionKind = 2
-	BudgetDecisionKindForbidden       BudgetDecisionKind = 3
-	BudgetDecisionKindHeld            BudgetDecisionKind = 4
+	BudgetDecisionKindForbidden        BudgetDecisionKind = 3
+	BudgetDecisionKindHeld             BudgetDecisionKind = 4
 )
 
 type BudgetDecisionReason int
 
 const (
-	BudgetDecisionReasonUninitialized               BudgetDecisionReason = 0
-	BudgetDecisionReasonWithinAutomaticBand         BudgetDecisionReason = 1
-	BudgetDecisionReasonWarmCapacityProtection      BudgetDecisionReason = 2
-	BudgetDecisionReasonApprovalBand                BudgetDecisionReason = 3
-	BudgetDecisionReasonForbiddenBand               BudgetDecisionReason = 4
-	BudgetDecisionReasonBudgetCeilingExceeded       BudgetDecisionReason = 5
+	BudgetDecisionReasonUninitialized                BudgetDecisionReason = 0
+	BudgetDecisionReasonWithinAutomaticBand          BudgetDecisionReason = 1
+	BudgetDecisionReasonWarmCapacityProtection       BudgetDecisionReason = 2
+	BudgetDecisionReasonApprovalBand                 BudgetDecisionReason = 3
+	BudgetDecisionReasonForbiddenBand                BudgetDecisionReason = 4
+	BudgetDecisionReasonBudgetCeilingExceeded        BudgetDecisionReason = 5
 	BudgetDecisionReasonProviderAccountLimitExceeded BudgetDecisionReason = 6
-	BudgetDecisionReasonNodeClassMinimumViolated    BudgetDecisionReason = 7
-	BudgetDecisionReasonNodeClassMaximumExceeded    BudgetDecisionReason = 8
-	BudgetDecisionReasonEmergencyNonSafetyGrowth    BudgetDecisionReason = 9
-	BudgetDecisionReasonEmergencyDecreaseHeld       BudgetDecisionReason = 10
-	BudgetDecisionReasonEmergencyDataLossPrevention BudgetDecisionReason = 11
-	BudgetDecisionReasonInvalidPolicy               BudgetDecisionReason = 12
-	BudgetDecisionReasonMalformedProposal           BudgetDecisionReason = 13
-	BudgetDecisionReasonWrongScope                  BudgetDecisionReason = 14
-	BudgetDecisionReasonUnknownNodeClass            BudgetDecisionReason = 15
-	BudgetDecisionReasonMissingEvidence             BudgetDecisionReason = 16
-	BudgetDecisionReasonUnknownEvidence             BudgetDecisionReason = 17
-	BudgetDecisionReasonStaleEvidence               BudgetDecisionReason = 18
-	BudgetDecisionReasonDuplicateEvidence           BudgetDecisionReason = 19
-	BudgetDecisionReasonConflictingEvidence         BudgetDecisionReason = 20
-	BudgetDecisionReasonEvidenceLimitExceeded       BudgetDecisionReason = 21
-	BudgetDecisionReasonArithmeticOverflow          BudgetDecisionReason = 22
-	BudgetDecisionReasonArithmeticUnderflow         BudgetDecisionReason = 23
-	BudgetDecisionReasonInvalidEmergencySafetyClaim BudgetDecisionReason = 24
+	BudgetDecisionReasonNodeClassMinimumViolated     BudgetDecisionReason = 7
+	BudgetDecisionReasonNodeClassMaximumExceeded     BudgetDecisionReason = 8
+	BudgetDecisionReasonEmergencyNonSafetyGrowth     BudgetDecisionReason = 9
+	BudgetDecisionReasonEmergencyDecreaseHeld        BudgetDecisionReason = 10
+	BudgetDecisionReasonEmergencyDataLossPrevention  BudgetDecisionReason = 11
+	BudgetDecisionReasonInvalidPolicy                BudgetDecisionReason = 12
+	BudgetDecisionReasonMalformedProposal            BudgetDecisionReason = 13
+	BudgetDecisionReasonWrongScope                   BudgetDecisionReason = 14
+	BudgetDecisionReasonUnknownNodeClass             BudgetDecisionReason = 15
+	BudgetDecisionReasonMissingEvidence              BudgetDecisionReason = 16
+	BudgetDecisionReasonUnknownEvidence              BudgetDecisionReason = 17
+	BudgetDecisionReasonStaleEvidence                BudgetDecisionReason = 18
+	BudgetDecisionReasonDuplicateEvidence            BudgetDecisionReason = 19
+	BudgetDecisionReasonConflictingEvidence          BudgetDecisionReason = 20
+	BudgetDecisionReasonEvidenceLimitExceeded        BudgetDecisionReason = 21
+	BudgetDecisionReasonArithmeticOverflow           BudgetDecisionReason = 22
+	BudgetDecisionReasonArithmeticUnderflow          BudgetDecisionReason = 23
+	BudgetDecisionReasonInvalidEmergencySafetyClaim  BudgetDecisionReason = 24
 )
 
 type BudgetApprovalScope struct {
@@ -73,39 +71,39 @@ type BudgetDecisionBasis struct {
 }
 
 type BudgetDecisionTrace struct {
-	CurrentCell             BudgetVector
-	ProjectedCell           BudgetVector
-	CurrentGlobal           BudgetVector
-	ProjectedGlobal         BudgetVector
-	Delta                   BudgetVector
-	AutomaticCellMaximum    BudgetVector
-	AutomaticGlobalMaximum  BudgetVector
-	ApprovalCellMaximum     BudgetVector
-	ApprovalGlobalMaximum   BudgetVector
-	CellCeiling             BudgetVector
-	GlobalCeiling           BudgetVector
-	ProviderAccountCellLimit  BudgetVector
+	CurrentCell                BudgetVector
+	ProjectedCell              BudgetVector
+	CurrentGlobal              BudgetVector
+	ProjectedGlobal            BudgetVector
+	Delta                      BudgetVector
+	AutomaticCellMaximum       BudgetVector
+	AutomaticGlobalMaximum     BudgetVector
+	ApprovalCellMaximum        BudgetVector
+	ApprovalGlobalMaximum      BudgetVector
+	CellCeiling                BudgetVector
+	GlobalCeiling              BudgetVector
+	ProviderAccountCellLimit   BudgetVector
 	ProviderAccountGlobalLimit BudgetVector
-	CurrentNodeCount        int
-	ProjectedNodeCount      int
-	MinimumNodeCount        int
-	WarmNodeCount           int
-	MaximumNodeCount        int
-	MaximumEvidenceAge      BudgetQuantity
-	CellEvidenceAge         BudgetQuantity
-	GlobalEvidenceAge       BudgetQuantity
-	NodeEvidenceAge         BudgetQuantity
-	PriceEvidenceAge        BudgetQuantity
-	BindingDimensions       BudgetDimension
+	CurrentNodeCount           int
+	ProjectedNodeCount         int
+	MinimumNodeCount           int
+	WarmNodeCount              int
+	MaximumNodeCount           int
+	MaximumEvidenceAge         BudgetQuantity
+	CellEvidenceAge            BudgetQuantity
+	GlobalEvidenceAge          BudgetQuantity
+	NodeEvidenceAge            BudgetQuantity
+	PriceEvidenceAge           BudgetQuantity
+	BindingDimensions          BudgetDimension
 }
 
 type BudgetDecision struct {
-	Kind           BudgetDecisionKind
-	Reason         BudgetDecisionReason
-	Trace          *BudgetDecisionTrace
-	Subject        *BudgetDecisionSubject
-	Basis          *BudgetDecisionBasis
-	ApprovalScope  *BudgetApprovalScope
+	Kind          BudgetDecisionKind
+	Reason        BudgetDecisionReason
+	Trace         *BudgetDecisionTrace
+	Subject       *BudgetDecisionSubject
+	Basis         *BudgetDecisionBasis
+	ApprovalScope *BudgetApprovalScope
 }
 
 func (d BudgetDecision) IsAuthorized() bool { return d.Kind == BudgetDecisionKindAutomatic }
@@ -193,14 +191,14 @@ func (budgetAuthorizationEngine) Evaluate(
 	trace := BudgetDecisionTrace{
 		CurrentCell: cellUsage.Usage, ProjectedCell: projectedCell, CurrentGlobal: globalUsage.Usage,
 		ProjectedGlobal: projectedGlobal, Delta: proposal.Delta,
-		AutomaticCellMaximum: policy.Bands.AutomaticCellMaximum,
+		AutomaticCellMaximum:   policy.Bands.AutomaticCellMaximum,
 		AutomaticGlobalMaximum: policy.Bands.AutomaticGlobalMaximum,
-		ApprovalCellMaximum:  policy.Bands.ApprovalCellMaximum,
-		ApprovalGlobalMaximum: policy.Bands.ApprovalGlobalMaximum,
-		CellCeiling: policy.CellCeiling, GlobalCeiling: policy.GlobalCeiling,
-		ProviderAccountCellLimit: policy.ProviderAccountCellLimit,
+		ApprovalCellMaximum:    policy.Bands.ApprovalCellMaximum,
+		ApprovalGlobalMaximum:  policy.Bands.ApprovalGlobalMaximum,
+		CellCeiling:            policy.CellCeiling, GlobalCeiling: policy.GlobalCeiling,
+		ProviderAccountCellLimit:   policy.ProviderAccountCellLimit,
 		ProviderAccountGlobalLimit: policy.ProviderAccountGlobalLimit,
-		CurrentNodeCount: nodeUsage.CurrentCount, ProjectedNodeCount: int(projectedNodes),
+		CurrentNodeCount:           nodeUsage.CurrentCount, ProjectedNodeCount: int(projectedNodes),
 		MinimumNodeCount: nodePolicy.Minimum, WarmNodeCount: nodePolicy.Warm,
 		MaximumNodeCount: nodePolicy.Maximum, MaximumEvidenceAge: policy.MaximumEvidenceAge,
 		CellEvidenceAge: cellUsage.Age, GlobalEvidenceAge: globalUsage.Age,
@@ -613,4 +611,3 @@ func budgetFindUsageGroupError(items []BudgetUsageObservation) BudgetDecisionRea
 	}
 	return BudgetDecisionReasonUninitialized
 }
-

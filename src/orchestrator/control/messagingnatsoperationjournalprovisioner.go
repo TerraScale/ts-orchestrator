@@ -46,18 +46,16 @@ func (natsOperationJournalProvisioner) provision(
 		return errors.New("Infrastructure mTLS is required to provision ORCH_OPERATIONS.")
 	}
 
-	client, err := nats.Connect(options.NatsUrl,
-		nats.Timeout(15*time.Second),
+	connectionOptions := append([]nats.Option{
+		nats.Timeout(15 * time.Second),
 		nats.MaxReconnects(0),
-		natsNkeyOption(*options.InfrastructureNatsNKeyFile))
+		natsNkeyOption(*options.InfrastructureNatsNKeyFile),
+	}, options.InfrastructureNatsTls.Options()...)
+	client, err := nats.Connect(options.NatsUrl, connectionOptions...)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
-
-	if err := options.InfrastructureNatsTls.Options(); err != nil {
-		_ = err
-	}
 
 	js, err := jetstream.New(client)
 	if err != nil {
@@ -134,6 +132,8 @@ func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 		return err
 	}
 
+	_ = bundles
+
 	stored, err := protocolPackage.GetBytes(ctx, topology.ProtocolObject())
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrObjectNotFound) {
@@ -209,7 +209,7 @@ func natsOperationJournalOpenOrCreateObjectStore(
 ) (jetstream.ObjectStore, error) {
 	store, err := js.ObjectStore(ctx, configuration.Bucket)
 	if err == nil {
-		if err := natsOperationJournalValidateObjectStore(ctx, store, configuration); err != nil {
+		if err := natsOperationJournalValidateObjectStore(ctx, js, store, configuration); err != nil {
 			return nil, err
 		}
 
@@ -225,7 +225,7 @@ func natsOperationJournalOpenOrCreateObjectStore(
 		return nil, err
 	}
 
-	if err := natsOperationJournalValidateObjectStore(ctx, store, configuration); err != nil {
+	if err := natsOperationJournalValidateObjectStore(ctx, js, store, configuration); err != nil {
 		return nil, err
 	}
 
@@ -234,15 +234,11 @@ func natsOperationJournalOpenOrCreateObjectStore(
 
 func natsOperationJournalValidateObjectStore(
 	ctx context.Context,
+	js jetstream.JetStream,
 	store jetstream.ObjectStore,
 	configuration jetstream.ObjectStoreConfig,
 ) error {
-	status, err := store.Status(ctx)
-	if err != nil {
-		return err
-	}
-
-	streamHandle, err := jetstreamStreamForBucket(ctx, store, configuration.Bucket)
+	streamHandle, err := js.Stream(ctx, "OBJ_"+configuration.Bucket)
 	if err != nil {
 		return err
 	}
@@ -251,8 +247,6 @@ func natsOperationJournalValidateObjectStore(
 	if err != nil {
 		return err
 	}
-
-	_ = status
 
 	return NatsOperationJournalStore.ValidateExactObjectConfiguration(info.Config, configuration)
 }

@@ -6,10 +6,10 @@ import "sort"
 type BudgetResourceAttachment int
 
 const (
-	BudgetResourceAttachmentUnspecified  BudgetResourceAttachment = 0
+	BudgetResourceAttachmentUnspecified   BudgetResourceAttachment = 0
 	BudgetResourceAttachmentNotApplicable BudgetResourceAttachment = 1
-	BudgetResourceAttachmentAttached     BudgetResourceAttachment = 2
-	BudgetResourceAttachmentUnattached   BudgetResourceAttachment = 3
+	BudgetResourceAttachmentAttached      BudgetResourceAttachment = 2
+	BudgetResourceAttachmentUnattached    BudgetResourceAttachment = 3
 )
 
 func budgetResourceAttachmentIsDefined(value BudgetResourceAttachment) bool {
@@ -17,25 +17,25 @@ func budgetResourceAttachmentIsDefined(value BudgetResourceAttachment) bool {
 }
 
 type BudgetResourceObservation struct {
-	Resource    BudgetResourceId
-	Cell        BudgetCellId
-	CostCenter  BudgetCostCenterId
-	EvidenceId  PriceEvidenceId
-	Status      BudgetEvidenceStatus
-	Age         BudgetQuantity
-	Desired     bool
-	Owned       bool
-	Billed      bool
-	Attachment  BudgetResourceAttachment
+	Resource   BudgetResourceId
+	Cell       BudgetCellId
+	CostCenter BudgetCostCenterId
+	EvidenceId PriceEvidenceId
+	Status     BudgetEvidenceStatus
+	Age        BudgetQuantity
+	Desired    bool
+	Owned      bool
+	Billed     bool
+	Attachment BudgetResourceAttachment
 }
 
 type BudgetAnomalyKind int
 
 const (
-	BudgetAnomalyKindOrphanedOwnedResource         BudgetAnomalyKind = 1
-	BudgetAnomalyKindUnattachedResource            BudgetAnomalyKind = 2
-	BudgetAnomalyKindDesiredResourceMissing        BudgetAnomalyKind = 3
-	BudgetAnomalyKindBillingWithoutOwnedResource   BudgetAnomalyKind = 4
+	BudgetAnomalyKindOrphanedOwnedResource           BudgetAnomalyKind = 1
+	BudgetAnomalyKindUnattachedResource              BudgetAnomalyKind = 2
+	BudgetAnomalyKindDesiredResourceMissing          BudgetAnomalyKind = 3
+	BudgetAnomalyKindBillingWithoutOwnedResource     BudgetAnomalyKind = 4
 	BudgetAnomalyKindOwnedResourceMissingFromBilling BudgetAnomalyKind = 5
 )
 
@@ -47,15 +47,15 @@ type BudgetAnomalyFinding struct {
 type BudgetAnomalyError int
 
 const (
-	BudgetAnomalyErrorUninitialized      BudgetAnomalyError = 0
-	BudgetAnomalyErrorNone               BudgetAnomalyError = 1
-	BudgetAnomalyErrorInvalidScope       BudgetAnomalyError = 2
+	BudgetAnomalyErrorUninitialized        BudgetAnomalyError = 0
+	BudgetAnomalyErrorNone                 BudgetAnomalyError = 1
+	BudgetAnomalyErrorInvalidScope         BudgetAnomalyError = 2
 	BudgetAnomalyErrorInvalidEvidenceLimit BudgetAnomalyError = 3
-	BudgetAnomalyErrorMissingEvidence    BudgetAnomalyError = 4
-	BudgetAnomalyErrorUnknownEvidence    BudgetAnomalyError = 5
-	BudgetAnomalyErrorStaleEvidence      BudgetAnomalyError = 6
-	BudgetAnomalyErrorDuplicateEvidence  BudgetAnomalyError = 7
-	BudgetAnomalyErrorConflictingEvidence BudgetAnomalyError = 8
+	BudgetAnomalyErrorMissingEvidence      BudgetAnomalyError = 4
+	BudgetAnomalyErrorUnknownEvidence      BudgetAnomalyError = 5
+	BudgetAnomalyErrorStaleEvidence        BudgetAnomalyError = 6
+	BudgetAnomalyErrorDuplicateEvidence    BudgetAnomalyError = 7
+	BudgetAnomalyErrorConflictingEvidence  BudgetAnomalyError = 8
 )
 
 type BudgetAnomalyResult struct {
