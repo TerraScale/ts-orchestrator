@@ -439,11 +439,12 @@ internal static class DeliveryJournalRetention
 }
 
 /// <summary>
-/// Development-grade authorization boundary: the current regional/global leader authorizes
-/// directly requested product mutations. Named Development because production trust must come
-/// from the signed command-envelope seam, not a leadership probe alone.
+/// The leader-probe half of the direct-delivery authorization seam: the current
+/// regional/global leader authorizes directly requested product mutations in addition to the
+/// signed command-envelope admission at the mutation endpoint, which registers only with a
+/// configured verifier. A leadership probe alone is never production trust.
 /// </summary>
-internal sealed class DirectDeliveryDevelopmentAuthorizer(Func<bool> isLeader) : IDeliveryAuthorizer
+internal sealed class DirectDeliveryLeaderProbeAuthorizer(Func<bool> isLeader) : IDeliveryAuthorizer
 {
     private readonly Func<bool> isLeader = isLeader ?? throw new ArgumentNullException(nameof(isLeader));
 
@@ -454,81 +455,6 @@ internal sealed class DirectDeliveryDevelopmentAuthorizer(Func<bool> isLeader) :
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(new DeliveryAuthorizationResult(
             isLeader() && request.RequestedBy is { Length: > 0 }));
-    }
-}
-
-/// <summary>
-/// The deployment mode a composition admits for direct delivery. Composition supplies the mode
-/// from configuration — callers must never be able to select it per request.
-/// </summary>
-public enum DirectDeliveryDeploymentMode
-{
-    /// <summary>Local and development targets only; production targets are refused.</summary>
-    Development,
-    /// <summary>
-    /// Production composition: provenance verifies requests against durable signed artifact
-    /// evidence, targets are admitted only from the configured allow-list, and source-only
-    /// requests are refused (no artifact builder). Composition fails closed without the
-    /// evidence verifier and the allow-list.
-    /// </summary>
-    Production,
-}
-
-/// <summary>
-/// Development-grade provenance boundary: it binds the exact digest shapes carried by the
-/// request but does not yet verify the artifact against an independent evidence source. The
-/// deployment mode comes from composition configuration: production mode refuses everything;
-/// development mode blesses only non-production targets.
-/// </summary>
-internal sealed class DirectDeliveryDevelopmentProvenance(
-    DirectDeliveryDeploymentMode mode = DirectDeliveryDeploymentMode.Development) : IDeliveryProvenanceVerifier
-{
-    private readonly DirectDeliveryDeploymentMode mode = mode;
-
-    public ValueTask<DeliveryProvenanceResult> VerifyAsync(
-        DeliveryRequest request,
-        DeliveryArtifact artifact,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        // Composition-level refusal, never keyed off the request-controlled environment string:
-        // under production mode even a request relabeled "development" is refused.
-        if (mode == DirectDeliveryDeploymentMode.Production ||
-            string.Equals(request.Target?.Environment, "production", StringComparison.Ordinal))
-            return ValueTask.FromResult(new DeliveryProvenanceResult(
-                false,
-                false,
-                request.ConfigurationRevision,
-                request.MigrationRevision));
-        var valid = request.ConfigurationRevision is { Length: 71 } configuration &&
-                    configuration.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
-                    artifact.Digest is { Length: 71 } digest &&
-                    digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
-                    artifact.ManifestDigest is { Length: 71 } manifest &&
-                    manifest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase);
-        return ValueTask.FromResult(new DeliveryProvenanceResult(
-            valid,
-            false,
-            request.ConfigurationRevision,
-            request.MigrationRevision));
-    }
-}
-
-/// <summary>Builds a deterministic exact artifact for source-only direct requests.</summary>
-internal sealed class DirectDeliverySourceArtifactBuilder : IDeliveryArtifactBuilder
-{
-    public ValueTask<DeliveryArtifact?> BuildAsync(
-        DeliveryRequest request,
-        DeliverySource source,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var material = string.Join('\n', source.Repository, source.Commit, source.TreeDigest,
-            request.ConfigurationRevision, request.MigrationRevision);
-        var digest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
-        var manifest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"manifest\n{source.Repository}\n{source.TreeDigest}")));
-        return ValueTask.FromResult<DeliveryArtifact?>(new(digest, manifest, "service"));
     }
 }
 
@@ -740,67 +666,4 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
             >= 'A' and <= 'F');
 
     private sealed record DirectDeliveryState(string ArtifactDigest, string ManifestDigest, string Kind);
-}
-
-internal sealed class DirectDeliveryDevelopmentTargetResolver(IDeliveryTarget target) : IDeliveryTargetResolver
-{
-    private readonly IDeliveryTarget target = target ?? throw new ArgumentNullException(nameof(target));
-    private static readonly HashSet<string> KnownServices = new(StringComparer.Ordinal)
-    {
-        "authentication", "dashboard", "mcp", "platform", "terrabase",
-    };
-    private static readonly HashSet<string> KnownEnvironments = new(StringComparer.Ordinal)
-    {
-        "local", "development",
-    };
-    private static readonly HashSet<string> KnownRegions = new(StringComparer.Ordinal)
-    {
-        "gru", "sfo", "fra",
-    };
-
-    public ValueTask<IDeliveryTarget?> ResolveAsync(DeliveryTarget target, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (target.Service is not { } service || !KnownServices.Contains(service) ||
-            target.Environment is not { } environment || !KnownEnvironments.Contains(environment) ||
-            target.Regions is not { Count: > 0 } regions ||
-            regions.Any(region => !KnownRegions.Contains(region)))
-            return ValueTask.FromResult<IDeliveryTarget?>(null);
-        // The runtime adapter receives the admitted request on every operation. Returning a
-        // target for an unrecognized identity would let a caller alias arbitrary ledger keys;
-        // the allowlist above is the development admission boundary.
-        return ValueTask.FromResult<IDeliveryTarget?>(new BoundTarget(this.target, target));
-    }
-
-    private sealed class BoundTarget(IDeliveryTarget inner, DeliveryTarget admitted) : IDeliveryTarget
-    {
-        private bool Matches(DeliveryRequest request) => request.Target is { } target &&
-            string.Equals(target.Service, admitted.Service, StringComparison.Ordinal) &&
-            string.Equals(target.Environment, admitted.Environment, StringComparison.Ordinal) &&
-            target.Regions is { } regions && regions.SequenceEqual(admitted.Regions ?? []);
-
-        public ValueTask<string?> ObserveCurrentDigestAsync(DeliveryRequest request, string region, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.ObserveCurrentDigestAsync(request, region, cancellationToken) : ValueTask.FromResult<string?>(null);
-
-        public ValueTask<DeliveryArtifact?> ObserveCurrentArtifactAsync(DeliveryRequest request, string region, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.ObserveCurrentArtifactAsync(request, region, cancellationToken) : ValueTask.FromResult<DeliveryArtifact?>(null);
-
-        public ValueTask<DeliveryMutationResult> ApplyAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.ApplyAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
-
-        public ValueTask<DeliveryMutationResult> ApplyFencedAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, string? expectedPreviousArtifactDigest, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.ApplyFencedAsync(request, artifact, region, expectedPreviousArtifactDigest, cancellationToken)
-                : ValueTask.FromResult(new DeliveryMutationResult(false, false, null, DirectDeliveryErrorCode.UnknownTarget));
-
-        public ValueTask<DeliveryHealthResult> CheckHealthAsync(DeliveryRequest request, DeliveryArtifact artifact, string region, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.CheckHealthAsync(request, artifact, region, cancellationToken) : ValueTask.FromResult(new DeliveryHealthResult(false));
-
-        public ValueTask<DeliveryConvergenceResult> CheckConvergenceAsync(DeliveryRequest request, DeliveryArtifact artifact, IReadOnlyList<string> regions, CancellationToken cancellationToken) =>
-            Matches(request) ? inner.CheckConvergenceAsync(request, artifact, regions, cancellationToken) : ValueTask.FromResult(new DeliveryConvergenceResult(false));
-
-        public ValueTask<DeliveryRollbackResult> RollbackAsync(DeliveryRequest request, string region, string targetArtifactDigest, string? targetManifestDigest, CancellationToken cancellationToken) =>
-            Matches(request) && targetManifestDigest is not null
-                ? inner.RollbackAsync(request, region, targetArtifactDigest, targetManifestDigest, cancellationToken)
-                : ValueTask.FromResult(new DeliveryRollbackResult(false, targetArtifactDigest));
-    }
 }

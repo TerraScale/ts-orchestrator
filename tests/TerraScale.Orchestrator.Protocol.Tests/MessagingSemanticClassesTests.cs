@@ -9,7 +9,6 @@ public sealed class MessagingSemanticClassesTests
     public async Task Every_landed_subject_maps_to_exactly_one_declared_semantic_class()
     {
         var topology = new NatsTopology("gru", 3, "controller-1");
-        var global = new GlobalNatsTopology(3);
         var cases = new (string Subject, MessagingSemanticClass Expected)[]
         {
             (topology.CellSpecSubject, MessagingSemanticClass.AuthoritativeJournal),
@@ -18,19 +17,16 @@ public sealed class MessagingSemanticClassesTests
             (topology.StatusSubject, MessagingSemanticClass.Lossy),
             (topology.MembersSubject, MessagingSemanticClass.Lossy),
             (topology.DirectDeliverySubject, MessagingSemanticClass.Lossy),
-            (topology.StartupSubject, MessagingSemanticClass.Replayable),
-            (topology.OperationJournalCreateSubject, MessagingSemanticClass.AuthoritativeJournal),
-            (topology.OperationJournalUpdateSubject, MessagingSemanticClass.AuthoritativeJournal),
-            (topology.OperationJournalReplySubject("UABC", new string('a', 32)), MessagingSemanticClass.Lossy),
+            (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), MessagingSemanticClass.AuthoritativeJournal),
+            (NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru"), MessagingSemanticClass.AuthoritativeJournal),
             (GlobalNatsTopology.CellDirectorySubject, MessagingSemanticClass.Lossy),
-            (GlobalNatsTopology.CiSubject, MessagingSemanticClass.WorkQueue),
-            (GlobalNatsTopology.CiRuntimeProofSubject, MessagingSemanticClass.Replayable),
-            (GlobalNatsTopology.CiJobSubject("trusted-build", "runner-7"), MessagingSemanticClass.WorkQueue),
+            (NatsSubjectTaxonomy.CiForgejoTriggerSubject, MessagingSemanticClass.WorkQueue),
+            (NatsSubjectTaxonomy.CiRuntimeProofSubject, MessagingSemanticClass.Replayable),
+            (NatsSubjectTaxonomy.CiJobSubjectPrefix + ".trusted-build."
+                + GlobalNatsTopology.CiRunnerIdentityHash("runner-7")[..24], MessagingSemanticClass.WorkQueue),
             (GlobalNatsTopology.CellSpecSubject("sfo"), MessagingSemanticClass.AuthoritativeJournal),
             (TerraScale.Orchestrator.ControlPlane.Runtime.RuntimeLifecycleNatsProtocol.Subject("gru", "read"),
                 MessagingSemanticClass.AuthoritativeJournal),
-            (TerraScale.Orchestrator.ControlPlane.Runtime.RuntimeLifecycleNatsProtocol.ReplySubject(
-                "gru", "UABC", new string('1', 32)), MessagingSemanticClass.Lossy),
         };
 
         foreach (var (subject, expected) in cases)
@@ -46,6 +42,10 @@ public sealed class MessagingSemanticClassesTests
     {
         await Assert.That(MessagingSemanticClasses.TryClassifySubject(
             "ts.orch.v1.gru.unknown.channel.x", out _, out _)).IsFalse();
+        await Assert.That(MessagingSemanticClasses.TryClassifySubject(
+            "ts.orch.v1.gru.desired.gitops", out _, out _)).IsFalse();
+        await Assert.That(MessagingSemanticClasses.TryClassifySubject(
+            "ts.orch.v2.gru.unknown.channel", out _, out _)).IsFalse();
         await Assert.That(MessagingSemanticClasses.TryClassifySubject("ts.product.v1.queue", out _, out _)).IsFalse();
         await Assert.That(MessagingSemanticClasses.TryClassifySubject("$JS.API.STREAM.INFO", out _, out _)).IsFalse();
         await Assert.That(MessagingSemanticClasses.TryClassifySubject(null, out _, out _)).IsFalse();
@@ -55,7 +55,8 @@ public sealed class MessagingSemanticClassesTests
     public async Task Reserved_namespaces_carry_their_intended_semantic_class()
     {
         await Assert.That(MessagingSemanticClasses.TryClassifySubject(
-            NatsSubjectTaxonomy.RegionalRoot("gru") + ".agent.command", out var agent, out _)).IsTrue();
+            NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start"), out var agent, out _))
+            .IsTrue();
         await Assert.That(agent).IsEqualTo(MessagingSemanticClass.WorkQueue);
 
         await Assert.That(MessagingSemanticClasses.TryClassifySubject(

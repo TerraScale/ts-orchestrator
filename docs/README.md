@@ -1,16 +1,19 @@
 # TerraScale.Orchestrator documentation
 
-[`architecture/orchestrator.md`](architecture/orchestrator.md) is the current
-Orchestrator architecture. The workspace [`GOAL.md`](../../GOAL.md) controls
-cross-repository product decisions. If a historical phase record, ADR, or
-evidence receipt conflicts with either document, the historical record does
-not control new work.
+The repository [`GOAL.md`](../GOAL.md) is the current Orchestrator architecture
+and release contract. The workspace [`GOAL.md`](../../GOAL.md) controls
+cross-repository product decisions. The repository goal cannot weaken it.
+`architecture/orchestrator.md` is a superseded record retained for historical
+machine-validated evidence; its development-topology sections were removed on
+2026-08-29 by the GOAL P0 repository-purity sweep.
 
 ## Start here
 
 | Document | Purpose |
 | --- | --- |
-| [`architecture/orchestrator.md`](architecture/orchestrator.md) | Current product boundary, placement, NATS role, isolation, lifecycle, and qualification rules |
+| [`../GOAL.md`](../GOAL.md) | Current authority, topology, NATS, OCI, scheduling, delivery, failure, and GA contract |
+| [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | Accepted authority, regional autonomy, blue-green cutover, and production artifact boundary |
+| [`architecture/orchestrator.md`](architecture/orchestrator.md) | Superseded architecture record |
 | [`../README.md`](../README.md) | Repository purpose, current implementation gap, validation, and current adapter commands |
 | [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Short current architecture summary |
 | [`runbooks/direct-delivery.md`](runbooks/direct-delivery.md) | Current direct-delivery failure procedures |
@@ -31,7 +34,7 @@ are not the target product architecture:
 | [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | Historical cross-repository issue map |
 | [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Historical work-package index |
 | [`decisions/`](decisions/) | Machine-validated 2026-07 owner decision packet, superseded where it conflicts with the current goal |
-| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Contract for the currently implemented optional control adapter, not a database dependency |
+| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Frozen v1 adapter contract, superseded for the v2 target and never a database dependency |
 
 Do not rewrite evidence to make it appear current. Add a correction or
 supersession notice and preserve what the old run actually proved.

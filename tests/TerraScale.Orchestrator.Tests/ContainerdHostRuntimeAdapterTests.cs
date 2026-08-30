@@ -94,9 +94,9 @@ public sealed class ContainerdHostRuntimeAdapterTests
     }
 
     private static HostRuntimePlan OciPlan() => HostRuntimePlan.Create(
-        AdmittedRole.Platform,
+        AdmittedRole.CustomerDashboard,
         RuntimeDriver.OciContainer,
-        new RuntimeAllocationId("gru-platform-1"),
+        new RuntimeAllocationId("gru-dashboard-1"),
         new ArtifactDigest(Digest),
         HostArchitecture.Arm64);
 

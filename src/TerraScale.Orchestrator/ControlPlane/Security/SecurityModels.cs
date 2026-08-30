@@ -73,7 +73,7 @@ public enum ValidityStatus { Valid = 1, RenewalDue = 2, Expired = 3, Unknown = 4
 public enum CertificateAction { Issue = 1, Renew = 2, Rotate = 3, Revoke = 4 }
 public enum AuthorizationCapability { EnrollNode = 1, EnrollWorkload = 2, IssueCellIdentity = 3, RenewIdentity = 4, RevokeIdentity = 5, ReadEncryptedSecret = 6, GrantSecretLease = 7, RenewOwnLease = 8, RevokeLease = 9, AdministerGlobalTrust = 10 }
 public enum SecurityResourceKind { Enrollment = 1, Certificate = 2, TrustBundle = 3, EncryptedSecret = 4, SecretLease = 5 }
-public enum SecurityEnvironment { Development = 1, Staging = 2, Production = 3, Recovery = 4 }
+public enum SecurityEnvironment { Staging = 2, Production = 3, Recovery = 4 }
 public enum SecretPurpose { Database = 1, Messaging = 2, Telemetry = 3, Deployment = 4, OperatorAccess = 5, Recovery = 6 }
 public enum SecretAvailability { Available = 1, Missing = 2, Conflicting = 3, Unknown = 4 }
 public enum LeaseAction { Grant = 1, Renew = 2, Revoke = 3 }

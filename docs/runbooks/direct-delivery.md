@@ -170,5 +170,5 @@ and virtual boundaries, no live providers):
 | Partition | a provider-unreachable later region rolls back earlier regions and journals the typed failure |
 | Journal failure | unavailable journal, retention overflow, mid-apply journal loss, journal failure after a healthy deployment |
 
-Regional three-lab and production-provider drills are out of scope for this document; they are
+Regional production-shape and production-provider drills are out of scope for this document; they are
 gated by the repository's exact-tree pre-deployment evidence rules.

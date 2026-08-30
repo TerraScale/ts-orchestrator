@@ -12,9 +12,9 @@ public sealed class RuntimePlannerEndToEndTests
     {
         var accepted = await RunAsync(
             "runtime", "plan",
-            "--role", "platform",
+            "--role", "customer-dashboard",
             "--driver", "oci",
-            "--allocation", "gru-platform-1",
+            "--allocation", "gru-dashboard-1",
             "--digest", Digest,
             "--architecture", "arm64");
 
@@ -22,45 +22,32 @@ public sealed class RuntimePlannerEndToEndTests
         await Assert.That(accepted.StandardError).IsEmpty();
         using var document = JsonDocument.Parse(accepted.StandardOutput);
         var root = document.RootElement;
-        await Assert.That(root.GetProperty("role").GetString()).IsEqualTo("platform");
+        await Assert.That(root.GetProperty("role").GetString()).IsEqualTo("customerDashboard");
         await Assert.That(root.GetProperty("driver").GetString()).IsEqualTo("ociContainer");
         await Assert.That(root.GetProperty("oci").GetProperty("imageReference").GetString())
-            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-platform@sha256:{Digest}");
+            .IsEqualTo($"registry.terrascale.internal/terrascale/terrascale-dashboard@sha256:{Digest}");
         await Assert.That(root.GetProperty("oci").GetProperty("security")
             .GetProperty("noNewPrivileges").GetBoolean()).IsTrue();
 
         var rejected = await RunAsync(
             "runtime", "plan",
             "--role", "arbitrary-container",
-            "--allocation", "gru-platform-1",
+            "--allocation", "gru-dashboard-1",
             "--digest", Digest);
 
         await Assert.That(rejected.ExitCode).IsEqualTo(1);
         await Assert.That(rejected.StandardOutput).IsEmpty();
         await Assert.That(rejected.StandardError).Contains("Unknown or unadmitted role");
-    }
 
-    [Test]
-    public async Task ExecutableAlwaysPlansTheFullThreeRegionDevelopmentLab()
-    {
-        var planned = await RunAsync("lab", "plan");
+        var removedRole = await RunAsync(
+            "runtime", "plan",
+            "--role", "mcp-server",
+            "--allocation", "gru-mcp-1",
+            "--digest", Digest);
 
-        await Assert.That(planned.ExitCode).IsEqualTo(0);
-        await Assert.That(planned.StandardError).IsEmpty();
-        using var document = JsonDocument.Parse(planned.StandardOutput);
-        var root = document.RootElement;
-        await Assert.That(root.GetProperty("profile").GetString())
-            .IsEqualTo("regional");
-        await Assert.That(root.GetProperty("cells").GetArrayLength()).IsEqualTo(3);
-        var resources = root.GetProperty("cells")
-            .EnumerateArray()
-            .SelectMany(cell => cell.GetProperty("resources").EnumerateArray())
-            .ToArray();
-        await Assert.That(resources.Length).IsEqualTo(21);
-        foreach (var cell in root.GetProperty("cells").EnumerateArray())
-        {
-            await Assert.That(cell.GetProperty("resources").GetArrayLength()).IsEqualTo(7);
-        }
+        await Assert.That(removedRole.ExitCode).IsEqualTo(1);
+        await Assert.That(removedRole.StandardOutput).IsEmpty();
+        await Assert.That(removedRole.StandardError).Contains("Unknown or unadmitted role");
     }
 
     private static async Task<(int ExitCode, string StandardOutput, string StandardError)> RunAsync(

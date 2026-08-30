@@ -100,7 +100,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
         StartAsync(
             GlobalAuthorityNatsConfiguration.From(configuration, cell),
@@ -118,7 +117,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            deliveryDeploymentMode,
             admittedDeliveryTargets);
 
     internal static Task<GlobalNatsRuntime> StartAsync(
@@ -137,7 +135,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
         StartCoreAsync(
             configuration,
@@ -155,7 +152,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            deliveryDeploymentMode,
             admittedDeliveryTargets);
 
     private static async Task<GlobalNatsRuntime> StartCoreAsync(
@@ -174,7 +170,6 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryDeploymentMode deliveryDeploymentMode = DirectDeliveryDeploymentMode.Development,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null)
     {
         if (!GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(cell))
@@ -221,17 +216,16 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             var objects = new NatsDeliveryObjectStore(state.Bundles);
             var runnerLedger = new NatsForgejoDeliveryLedger(state.RunnerJobs);
             var runnerObjects = new NatsDeliveryObjectStore(state.RunnerBundles);
-            // Production mode fails closed here without the evidence verifier or the configured
+            // Composition fails closed here without the evidence verifier or the configured
             // admitted-target allow-list, mirroring the signed-command rule at the endpoint.
             // The evidence verifier is exactly the CI artifact role's trust root — the role
             // that signs delivery evidence. There is deliberately NO cross-role fallback: the
             // runtime-observation verifier must never serve as a public-seam evidence
-            // verifier, and a production composition without the artifact role fails closed
+            // verifier, and a composition without the artifact role fails closed
             // in DirectDeliveryRuntimeAdapterSet.Create instead of degrading.
             var (authorizer, provenance, targetResolver, deliveryJournal, artifactBuilder) =
                 DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
-                    deliveryDeploymentMode,
                     () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
                     request =>
                     {

@@ -131,7 +131,6 @@ public sealed class NatsRuntime : IAsyncDisposable
         OrchestratorOptions options,
         CancellationToken cancellationToken,
         Protocol.ICommandSignatureVerifier? commandSignatureVerifier = null,
-        Delivery.DirectDeliveryDeploymentMode deploymentMode = Delivery.DirectDeliveryDeploymentMode.Development,
         bool registersDirectDeliveryEndpoint = true,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
         Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null)
@@ -233,15 +232,12 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (state.Delivery is not null)
             {
                 var ledger = new NatsForgejoDeliveryLedger(state.Delivery);
-                // Production mode fails closed here without the evidence verifier or the
+                // Composition fails closed here without the evidence verifier or the
                 // configured admitted-target allow-list, mirroring the signed-command rule.
                 // The evidence verifier is the CI artifact role's trust root, supplied
-                // explicitly by composition; this runtime performs no fallback of its own —
-                // a composition that wants the shared command identity for development
-                // passes it explicitly, and production never does.
+                // explicitly by composition; this runtime performs no fallback of its own.
                 var adapters = DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
-                    deploymentMode,
                     () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
                     request =>
                     {

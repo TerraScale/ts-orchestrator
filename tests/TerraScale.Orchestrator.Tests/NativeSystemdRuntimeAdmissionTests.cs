@@ -78,14 +78,14 @@ public sealed class NativeSystemdRuntimeAdmissionTests
     {
         var runner = new RecordingRunner();
         var ociPlan = HostRuntimePlan.Create(
-            AdmittedRole.Platform,
+            AdmittedRole.CustomerDashboard,
             RuntimeDriver.OciContainer,
-            new RuntimeAllocationId("gru-platform-1"),
+            new RuntimeAllocationId("gru-dashboard-1"),
             new ArtifactDigest(Digest),
             HostArchitecture.Arm64);
         var nativePlanWithOciOnlyRole = NativePlan(AdmittedRole.Orchestrator, "gru-orchestrator-1") with
         {
-            Role = AdmittedRole.Platform
+            Role = AdmittedRole.CustomerDashboard
         };
 
         await Assert.That(() => NativeSystemdRuntimeAdmission.Create(

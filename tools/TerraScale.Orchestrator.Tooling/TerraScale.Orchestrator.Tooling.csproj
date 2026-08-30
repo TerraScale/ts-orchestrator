@@ -4,10 +4,4 @@
     <AssemblyName>terrascale-orchestrator-tooling</AssemblyName>
     <RootNamespace>TerraScale.Orchestrator.Tooling</RootNamespace>
   </PropertyGroup>
-  <ItemGroup>
-    <Compile Include="../../src/TerraScale.Orchestrator/Development/LocalValidationLease.cs"
-             Link="Development/LocalValidationLease.cs" />
-    <Compile Include="../../src/TerraScale.Orchestrator/Development/WorkspaceTopologyLease.cs"
-             Link="Development/WorkspaceTopologyLease.cs" />
-  </ItemGroup>
 </Project>

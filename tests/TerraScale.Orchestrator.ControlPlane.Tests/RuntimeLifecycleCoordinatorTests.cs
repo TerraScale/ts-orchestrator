@@ -193,7 +193,7 @@ public sealed class RuntimeLifecycleCoordinatorTests
 
     private static RuntimeLifecycleOperationRequest Request(string? digest = null, RuntimeLifecycleCompensationPolicy compensation = RuntimeLifecycleCompensationPolicy.None)
     {
-        var plan = HostRuntimePlan.Create(HostRole.Platform, HostRuntimeDriver.OciContainer,
+        var plan = HostRuntimePlan.Create(HostRole.CustomerDashboard, HostRuntimeDriver.OciContainer,
             new TerraScale.Orchestrator.Runtime.RuntimeAllocationId("platform-a"), new TerraScale.Orchestrator.Runtime.ArtifactDigest(digest ?? Digest("artifact")), HostArchitecture.Arm64);
         return new(new("gru"), new("node-a"), new(7), new(Digest("convergence")), plan, LifecycleAction.Converge, new(7), new(Digest("authorization")), new(new(Digest("deadline")), 9), compensation);
     }

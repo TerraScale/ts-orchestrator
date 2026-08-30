@@ -83,13 +83,13 @@ public sealed class CreateNodeCoordinatorTests
     }
 
     [Test]
-    public async Task DevelopmentJournalRejectsTamperedFullRecord()
+    public async Task FileJournalRejectsTamperedFullRecord()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"create-node-{Guid.NewGuid():N}"); var key = RandomNumberGenerator.GetBytes(32);
         try
         {
             var keys = new CreateNodeJournalTagKeyRing(new Dictionary<string, byte[]> { ["journal"] = key });
-            var journal = new DevelopmentFileCreateNodeOperationJournal("Development", directory, "journal", key, keys);
+            var journal = new TestFileCreateNodeOperationJournal(directory, "journal", key, keys);
             var signerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256); var signer = new CreateNodeHandoffReceiptSigner("receipt", signerKey);
             var binding = Binding(); var entry = new CreateNodeOperationJournalEntry(0, "fingerprint", binding, signer.Sign(binding, Start, Start.AddMinutes(5)), new CreateNodeRecoveryLookupSigner("receipt", signerKey).Sign(binding, Start, Start.AddDays(1)), CreateNodeJournalStage.Prepared, null, 0, null);
             await journal.CompareExchangeAsync(null, entry, default);
@@ -98,13 +98,6 @@ public sealed class CreateNodeCoordinatorTests
             signerKey.Dispose();
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
-    }
-
-    [Test]
-    public async Task DevelopmentJournalRejectsNonDevelopmentConstruction()
-    {
-        var keys = new CreateNodeJournalTagKeyRing(new Dictionary<string, byte[]> { ["key"] = RandomNumberGenerator.GetBytes(32) });
-        await Assert.That(() => new DevelopmentFileCreateNodeOperationJournal("Production", Path.GetTempPath(), "key", RandomNumberGenerator.GetBytes(32), keys)).Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -196,7 +189,7 @@ public sealed class CreateNodeCoordinatorTests
 
     [Test]
     [NotInParallel]
-    public async Task DevelopmentJournalUsesFilesystemCasAcrossTwoProcesses()
+    public async Task FileJournalUsesFilesystemCasAcrossTwoProcesses()
     {
         var root = Path.Combine(Path.GetTempPath(), $"create-node-process-{Guid.NewGuid():N}"); Directory.CreateDirectory(root);
         try

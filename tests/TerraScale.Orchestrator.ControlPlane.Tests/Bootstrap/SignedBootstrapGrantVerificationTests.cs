@@ -60,7 +60,7 @@ public sealed class SignedBootstrapGrantVerificationTests
     public async Task Wrong_workload_certificate_fails_typed()
     {
         using var lab = new GrantLab();
-        using var otherWorkload = BootstrapWorkloadIdentity.IssueDevelopmentWorkloadCertificate(Now.AddMinutes(-5), Now.AddMinutes(30));
+        using var otherWorkload = TestWorkloadCertificateFactory.Issue(Now.AddMinutes(-5), Now.AddMinutes(30));
         var result = Verify(lab, lab.SignCurrent(), lab.Request(presentedFingerprint: otherWorkload.Fingerprint().Value));
 
         await Assert.That(result.Decision).IsEqualTo(SignedBootstrapGrantDecision.CertificateMismatch);
@@ -387,7 +387,7 @@ public sealed class SignedBootstrapGrantVerificationTests
         private readonly ECDsa previousKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         private readonly ECDsa attestationKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         private readonly BootstrapWorkloadCertificate workloadCertificate =
-            BootstrapWorkloadIdentity.IssueDevelopmentWorkloadCertificate(Now.AddMinutes(-5), Now.AddMinutes(30));
+            TestWorkloadCertificateFactory.Issue(Now.AddMinutes(-5), Now.AddMinutes(30));
         private readonly BootstrapGrantIssuer currentIssuer;
         private readonly BootstrapGrantIssuer previousIssuer;
 

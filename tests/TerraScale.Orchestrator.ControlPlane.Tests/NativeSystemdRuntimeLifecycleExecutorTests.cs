@@ -89,7 +89,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         var factory = new Factory(admission);
         var executor = new NativeSystemdRuntimeLifecycleExecutor(factory);
         var valid = ObservationRequest(LifecycleAction.Converge);
-        var ociPlan = HostRuntimePlan.Create(HostRole.Platform, HostRuntimeDriver.OciContainer,
+        var ociPlan = HostRuntimePlan.Create(HostRole.CustomerDashboard, HostRuntimeDriver.OciContainer,
             new("platform-a"), new(Digest("oci")), HostArchitecture.Arm64);
 
         await Assert.That(async () => await executor.ObserveAsync(valid with { Plan = ociPlan }, CancellationToken.None))

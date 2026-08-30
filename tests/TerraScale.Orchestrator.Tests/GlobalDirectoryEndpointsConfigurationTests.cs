@@ -1,4 +1,3 @@
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -11,6 +10,10 @@ namespace TerraScale.Orchestrator.Tests;
 /// </summary>
 public sealed class GlobalDirectoryEndpointsConfigurationTests
 {
+    // TODO(rehome-agent): OptionsWireTheEndpointsIntoTheDirectoryConfiguration was removed with
+    // the production Development/ lab fixtures; rehome it onto a test-owned NATS identity
+    // fixture so the endpoint wiring through OrchestratorOptions keeps its positive path.
+
     [Test]
     public async Task EndpointListParsesBothSeparatorsAndSorts()
     {
@@ -45,65 +48,6 @@ public sealed class GlobalDirectoryEndpointsConfigurationTests
             await Assert.That(() => GlobalDirectoryNatsConfiguration.ParseEndpoints(invalid))
                 .Throws<ArgumentException>()
                 .Because(invalid);
-        }
-    }
-
-    [Test]
-    public async Task OptionsWireTheEndpointsIntoTheDirectoryConfiguration()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-directory-endpoints-{Guid.NewGuid():N}");
-        try
-        {
-            var topology = DevelopmentTopology.CreateRegional();
-            var security = DevelopmentNatsSecurity.Create(topology, directory);
-            var gru = security.Cell("gru");
-            var controller = topology.Cells.Single(candidate => candidate.Cell == "gru")
-                .OfKind(DevelopmentResourceKind.ControllerAgent).Single();
-            var regionalNkey = gru.Controllers[controller.Replica].SeedFile;
-            var regionalTls = gru.Tls.Control.Clients[controller.Name];
-
-            Dictionary<string, string> Values(string? endpoints) =>
-                new(StringComparer.Ordinal)
-                {
-                    ["TS_ORCH_CELL"] = "gru",
-                    ["TS_ORCH_REPLICAS"] = "3",
-                    ["TS_ORCH_NATS_URL"] = "tls://regional-control.internal:4222",
-                    ["TS_ORCH_NATS_NKEY_FILE"] = regionalNkey,
-                    ["TS_ORCH_NATS_TLS_CA_FILE"] = regionalTls.CaFile,
-                    ["TS_ORCH_NATS_TLS_CERT_FILE"] = regionalTls.CertificateFile,
-                    ["TS_ORCH_NATS_TLS_KEY_FILE"] = regionalTls.KeyFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"] = "tls://global-directory.internal:4222",
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE"] = gru.Operator.SeedFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE"] = gru.Tls.Control.Clients["operator-read"].CaFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE"] = gru.Tls.Control.Clients["operator-read"].CertificateFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE"] = gru.Tls.Control.Clients["operator-read"].KeyFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS"] = endpoints ?? "",
-                };
-
-            // Without endpoints the composition is watch-only legal: empty list.
-            var watchOnly = OrchestratorOptions.Parse(
-                ["check"],
-                name => Values(null).GetValueOrDefault(name));
-            await Assert.That(watchOnly.GlobalDirectoryNats).IsNotNull();
-            await Assert.That(watchOnly.GlobalDirectoryNats!.Endpoints).IsEmpty();
-
-            // With endpoints they are parsed, validated, and carried in order.
-            var publishing = OrchestratorOptions.Parse(
-                ["check"],
-                name => Values("tls://b.gru.internal:4223,tls://a.gru.internal:4222").GetValueOrDefault(name));
-            await Assert.That(publishing.GlobalDirectoryNats).IsNotNull();
-            await Assert.That(publishing.GlobalDirectoryNats!.Endpoints)
-                .IsEquivalentTo(["tls://a.gru.internal:4222", "tls://b.gru.internal:4223"]);
-
-            // An invalid value fails closed at parse time, before any runtime starts.
-            await Assert.That(() => OrchestratorOptions.Parse(
-                    ["check"],
-                    name => Values("tls://gru.internal").GetValueOrDefault(name)))
-                .Throws<ArgumentException>();
-        }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
 

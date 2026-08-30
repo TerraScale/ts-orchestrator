@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Net;
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;

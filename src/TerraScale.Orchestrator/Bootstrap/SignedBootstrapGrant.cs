@@ -103,32 +103,6 @@ public static class BootstrapWorkloadIdentity
         ArgumentNullException.ThrowIfNull(subjectPublicKeyInfo);
         return new BootstrapCertificateFingerprint(Convert.ToHexStringLower(SHA256.HashData(subjectPublicKeyInfo)));
     }
-
-    /// <summary>
-    /// Mints a short-lived self-signed ECDSA P-256 development workload
-    /// certificate. Production workload identity issuance stays with the
-    /// Orchestrator provider adapter; this is the local, testable shape.
-    /// </summary>
-    public static BootstrapWorkloadCertificate IssueDevelopmentWorkloadCertificate(
-        DateTimeOffset notBefore,
-        DateTimeOffset notAfter,
-        string commonName = "terrascale-bootstrap-workload")
-    {
-        if (notAfter <= notBefore) throw new ArgumentOutOfRangeException(nameof(notAfter), "A workload certificate must have a positive lifetime.");
-        ArgumentException.ThrowIfNullOrEmpty(commonName);
-        var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        try
-        {
-            var request = new CertificateRequest($"CN={commonName}", key, HashAlgorithmName.SHA256);
-            var certificate = request.CreateSelfSigned(notBefore.UtcDateTime, notAfter.UtcDateTime);
-            return new BootstrapWorkloadCertificate(certificate, key);
-        }
-        catch
-        {
-            key.Dispose();
-            throw;
-        }
-    }
 }
 
 public sealed class BootstrapWorkloadCertificate : IDisposable

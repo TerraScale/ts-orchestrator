@@ -1,9 +1,19 @@
 # TerraScale Orchestrator architecture
 
-Status: current target architecture and qualification contract.
+> Superseded on 2026-08-29 by the repository [`GOAL.md`](../../GOAL.md) and
+> [ADR 0033](../adr/0033-gru-global-authority-and-regional-autonomy.md). The
+> repository goal's authority model — permanent GRU global authority, JetStream
+> R3 as the only Raft system, NATS as the mandatory Orchestrator v2 control
+> network, and the `ts.orch.v2` subject root — controls wherever this body
+> disagrees. The development-topology and lab sections were removed on
+> 2026-08-29 by the GOAL P0 repository-purity sweep, so historical line
+> citations below that point shift accordingly. This body is not authority for
+> new implementation.
 
-Authority: workspace `GOAL.md` and accepted Orchestrator ADRs that do not
-conflict with it.
+Status: superseded architecture record.
+
+Authority: repository [`GOAL.md`](../../GOAL.md), then workspace
+[`GOAL.md`](../../../GOAL.md).
 
 Target: C#/.NET 10 on systemd/containerd hosts, initially OCI ARM64 and x64.
 
@@ -26,7 +36,7 @@ customer data proxy.
 | Dashboard | One full-stack Vinext TypeScript project owning Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows |
 | Database API | Independent C#/.NET 10 ASP.NET Core service owning public database and reactive APIs and the sole QUIC TBEP gateway |
 | TerraBaseV2 | Private Rust engine owning native replication, database authorization, reactive sync, usage accounting, and recovery |
-| Orchestrator | Infrastructure, scheduling, identity, certificates, capacity, placement intent, repair orchestration, delivery, and optional NATS |
+| Orchestrator | Infrastructure, scheduling, identity, certificates, capacity, placement intent, repair orchestration, delivery, and the NATS control network |
 | Public SDKs | Typed customer and reactive contracts |
 
 The legacy Platform, standalone Authentication, Internals Payments, and
@@ -337,36 +347,11 @@ Regional telemetry spools under a fixed encrypted budget during WAN loss.
 Exhaustion drops or samples according to explicit policy and alerts. Product
 traffic never blocks on telemetry.
 
-## Development topology
-
-The local topology is always GRU/SFO/FRA RF=1:
-
-~~~text
-each Region:
-  regional controller
-  optional control and product NATS
-  one TerraBaseV2 Member
-  Dashboard-owned Better Auth and Dashboard
-  TerraScale.Database
-  regional telemetry
-~~~
-
-Dashboard-owned Better Auth keeps fixed tailnet HTTPS port `18445`.
-Dashboard keeps `18446`. Database API needs a fixed route recorded atomically
-across DevHost, Orchestrator, root instructions, SDKs, and docs before use.
-
-The lab proves regional configuration, routing, identity, replication shape,
-and convergence. It does not prove RF=2 durability, host loss, systemd,
-containerd, cloud, ARM64, provider storage, or production NATS quorum.
-
-Local work stays below 24 GiB RAM with 4 GiB reserved for host and tools.
-Test executables and lab scenarios run sequentially under the validation lease.
-
 ## Test layers
 
 1. Pure deterministic state-machine and policy tests.
 2. Process-level protocol and adapter tests.
-3. GRU/SFO/FRA RF=1 regional development lab.
+3. Process-level NATS and controller tests from test-owned fixtures.
 4. Targeted one-Region production-component lanes.
 5. Disposable real systemd/containerd/provider fixtures.
 6. Full production qualification and bounded rollout.
@@ -405,7 +390,7 @@ Production admission requires evidence for:
 - workload identity and secret rotation;
 - immutable artifact provenance and rollback;
 - authoritative usage export;
-- NATS optionality or accepted adapter recovery;
+- NATS R3 durability and control-network recovery;
 - compliance, retention, deletion, and audit; and
 - current public SDK and contract compatibility.
 

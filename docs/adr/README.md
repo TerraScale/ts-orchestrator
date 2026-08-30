@@ -1,10 +1,19 @@
 # ADR readiness index
 
+The current repository goal is [`../../GOAL.md`](../../GOAL.md). The accepted
+foundational control decision is
+[ADR 0033](0033-gru-global-authority-and-regional-autonomy.md). It selects GRU
+global authority, autonomous regional JetStream R3 domains, NATS as the
+Orchestrator control store, Orchestrator-owned bootstrap without Pulumi or
+OpenTofu, regional blue-green cutover, and removal of development-host
+composition from the production project.
+
 > The readiness index is a machine-validated historical map of the earlier
-> architecture. The workspace `GOAL.md` and current Orchestrator architecture
-> control new work. ADR 0018 and ADR 0032 are explicitly superseded; other ADRs
-> require reconciliation before they can authorize implementation that touches
-> the changed database, product-role, transport, or NATS boundaries.
+> architecture. The workspace and repository `GOAL.md` files control new work.
+> ADR 0033 supersedes the conflicting parts of ADRs 0004, 0013, and 0026, while
+> ADRs 0018 and 0032 remain superseded. Other historical ADRs require
+> reconciliation before they can authorize work on changed database,
+> product-role, transport, or NATS boundaries.
 
 This directory records architecture decision readiness for the 24-item backlog in `docs/architecture/orchestrator.md`.
 
@@ -20,6 +29,19 @@ Owner choices **1A–10A were accepted on 2026-07-16** with reliability first. M
 | [0013](0013-native-gitops.md) | Native GitOps and complete Flux removal | Proposed / draft-ready |
 | [0018](0018-placement-boundary.md) | Project placement versus host scheduling | Proposed / draft-ready |
 | [0020](0020-provider-actuator-threat-model.md) | Provider actuator crash-stop fencing | Proposed / draft-ready |
+
+## Current accepted ADRs
+
+| ADR | Title | Status |
+| --- | --- | --- |
+| [0025](0025-rollback-on-customer-gate-failure.md) | Roll back on customer and security gate failure | Accepted |
+| [0029](0029-offer-stateless-tenant-compute.md) | Offer stateless tenant compute with managed TerraBase | Accepted |
+| [0031](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) | Run tenant workloads as unprivileged OCI containers | Accepted |
+| [0033](0033-gru-global-authority-and-regional-autonomy.md) | GRU global authority and autonomous regional control | Accepted |
+
+ADR 0033 supersedes ADR 0004's Pulumi ownership, ADR 0013's Git authority
+after admission, ADR 0026's global activation barrier, and the previous
+optional-NATS target. ADR 0020 and ADR 0024 remain required safety inputs.
 
 Condensed boundaries for these decisions: [`../guides/architecture-boundaries.md`](../guides/architecture-boundaries.md).
 

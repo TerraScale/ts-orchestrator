@@ -57,14 +57,39 @@ _Avoid_: Tenant volume, general stateful workload
 An immutable artifact identity that has passed the required release checks and may be activated or restored without rebuilding.
 _Avoid_: Latest image, rebuilt release
 
+**Regional blue-green deployment**:
+A production release that builds a complete candidate generation beside the
+unchanged active generation in one Region, qualifies it through real
+dependencies and required tests, then switches traffic with one durable routing
+generation. Candidate failure removes only the candidate.
+_Avoid_: In-place upgrade, shallow health-check rollout, all-Region activation
+
 **Global activation barrier**:
-The release checkpoint that switches every region from the active qualified digest to a prepared qualified candidate only after all regions pass.
-_Avoid_: Rolling deployment, simultaneous in-place replacement
+Historical release term superseded by independent regional blue-green
+deployment. SFO, FRA, GRU, and later Regions qualify and cut over in bounded
+waves while each Region retains its own rollback generation.
+_Avoid_: Current release contract
+
+**Global Master**:
+The active replica in the three-replica GRU global Orchestrator group. It owns
+global control policy and never names a TerraBase role.
+_Avoid_: Database leader, global database primary
+
+**Regional Orchestrator**:
+One logical three-replica control group and local JetStream R3 domain for one
+canonical Region.
+_Avoid_: Single controller process, global authority
+
+**RegionSpec**:
+An immutable signed generation of global policy admitted for one Regional
+Orchestrator.
+_Avoid_: Raw NATS message, Git manifest, provider observation
 
 ## Regions
 
 **Launch region**:
-A region available to initial users at launch. The launch regions are Sao Paulo, San Francisco, and Falkenstein.
+A Region available to initial users at launch. The launch Regions are `GRU`
+in Sao Paulo, `SFO` in San Jose, and `FRA` in Frankfurt.
 _Avoid_: Planned region, supported region
 
 **Planned region**:

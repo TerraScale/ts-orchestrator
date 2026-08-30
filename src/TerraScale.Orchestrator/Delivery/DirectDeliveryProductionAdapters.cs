@@ -407,25 +407,23 @@ internal sealed class BoundDeliveryTarget(IDeliveryTarget inner, DeliveryTarget 
 }
 
 /// <summary>
-/// The composition boundary for direct-delivery adapters. The deployment mode and the admitted
-/// target allow-list come from configuration at startup; production mode fails closed at
-/// composition when the durable evidence verifier or the admitted-target allow-list is absent,
-/// exactly like the signed-command-identity rule at the mutation endpoint.
+/// The composition boundary for direct-delivery adapters. The admitted target allow-list comes
+/// from configuration at startup; composition fails closed when the durable evidence verifier or
+/// the admitted-target allow-list is absent, exactly like the signed-command-identity rule at
+/// the mutation endpoint.
 /// </summary>
 internal static class DirectDeliveryRuntimeAdapterSet
 {
     /// <summary>
-    /// Builds the adapter set for one runtime. Development mode keeps the development adapters
-    /// (leader-probe authorization, shape-check provenance, fixed development allow-list, and the
-    /// deterministic source artifact builder). Production mode resolves the production adapters:
-    /// provenance over durable signed evidence, target admission from the configured allow-list,
-    /// and no artifact builder — a production delivery must carry the exact published artifact.
+    /// Builds the adapter set for one runtime: leader-probe authorization beside the signed
+    /// command-envelope seam, provenance over durable signed evidence, target admission from the
+    /// configured allow-list, and no artifact builder — a delivery must carry the exact
+    /// published artifact.
     /// </summary>
     public static (IDeliveryAuthorizer Authorizer, IDeliveryProvenanceVerifier Provenance,
         IDeliveryTargetResolver TargetResolver, IDeliveryJournal Journal,
         IDeliveryArtifactBuilder? ArtifactBuilder) Create(
         IForgejoDeliveryLedger ledger,
-        DirectDeliveryDeploymentMode mode,
         Func<bool> isLeader,
         Func<DeliveryRequest, bool> authorityIsCurrent,
         DirectDeliveryAdmittedTargets? admittedTargets = null,
@@ -437,22 +435,16 @@ internal static class DirectDeliveryRuntimeAdapterSet
         // Authorization is the signed command-envelope admission at the mutation endpoint plus
         // this leader/authority-lease probe: production never trusts a bare leadership claim
         // without the signed seam, and the endpoint refuses to register without a verifier.
-        var authorizer = new DirectDeliveryDevelopmentAuthorizer(isLeader);
+        var authorizer = new DirectDeliveryLeaderProbeAuthorizer(isLeader);
         var journal = new NatsDirectDeliveryJournal(ledger);
-        if (mode == DirectDeliveryDeploymentMode.Development)
-            return (authorizer,
-                new DirectDeliveryDevelopmentProvenance(mode),
-                new DirectDeliveryDevelopmentTargetResolver(new NatsDirectDeliveryTarget(ledger)),
-                journal,
-                new DirectDeliverySourceArtifactBuilder());
         // An empty configured allow-list would start and deny every request: fail closed at
         // composition, exactly like an absent one, instead of running inert.
         if (admittedTargets is null || admittedTargets.IsEmpty)
             throw new InvalidOperationException(
-                "Production direct delivery requires a non-empty admitted target allow-list from configuration.");
+                "Direct delivery requires a non-empty admitted target allow-list from configuration.");
         if (evidenceVerifier is null)
             throw new InvalidOperationException(
-                "Production direct delivery requires the durable artifact-evidence signature verifier.");
+                "Direct delivery requires the durable artifact-evidence signature verifier.");
         return (authorizer,
             new DirectDeliveryProductionProvenance(
                 new DirectDeliveryArtifactEvidenceJournal(ledger), evidenceVerifier),

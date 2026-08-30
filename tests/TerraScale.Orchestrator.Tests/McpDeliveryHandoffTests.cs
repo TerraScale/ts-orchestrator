@@ -300,9 +300,11 @@ public sealed class McpDeliveryHandoffTests
     }
 
     [Test]
-    public async Task The_development_target_allow_list_admits_mcp_and_rejects_foreign_services()
+    public async Task The_configured_target_allow_list_admits_mcp_and_rejects_foreign_services()
     {
-        var resolver = new DirectDeliveryDevelopmentTargetResolver(new RecordingMcpTarget());
+        var resolver = new DirectDeliveryProductionTargetResolver(
+            DirectDeliveryAdmittedTargets.Parse(["mcp:development:gru"]),
+            new RecordingMcpTarget());
 
         var admitted = await resolver.ResolveAsync(new("mcp", "development", ["gru"]), CancellationToken.None);
         var rejected = await resolver.ResolveAsync(new("mcp-evil", "development", ["gru"]), CancellationToken.None);

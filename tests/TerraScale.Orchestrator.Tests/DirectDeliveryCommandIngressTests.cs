@@ -248,7 +248,6 @@ public sealed class DirectDeliveryCommandIngressTests
         var (authorizer, provenance, targetResolver, journal, artifactBuilder) =
             DirectDeliveryRuntimeAdapterSet.Create(
                 new DirectDeliveryProductionAdapterTests.LedgerAdapter(ledger),
-                DirectDeliveryDeploymentMode.Production,
                 static () => true,
                 static _ => true,
                 DirectDeliveryAdmittedTargets.Parse(["authentication:development:gru"]),

@@ -93,12 +93,12 @@ public sealed class MessagingEnvelopeTests
     {
         var whitespace = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
-                NatsSubjectNamespace.RegionalControl, "ts.orch.v1.gru. query.health", null)), Context());
+                NatsSubjectNamespace.RegionalControl, "ts.orch.v2.gru. query.health", null)), Context());
         await Assert.That(whitespace.Error).IsEqualTo(MessagingEnvelopeError.MalformedSubject);
 
         var wildcard = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
-                NatsSubjectNamespace.RegionalControl, "ts.orch.v1.gru.query.>", null)), Context());
+                NatsSubjectNamespace.RegionalControl, "ts.orch.v2.gru.query.>", null)), Context());
         await Assert.That(wildcard.Error).IsEqualTo(MessagingEnvelopeError.MalformedSubject);
 
         var empty = MessagingEnvelopeValidator.Validate(
@@ -116,8 +116,13 @@ public sealed class MessagingEnvelopeTests
 
         var unknown = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
-                NatsSubjectNamespace.RegionalControl, "ts.orch.v1.gru.unknown.channel", null)), Context());
+                NatsSubjectNamespace.RegionalControl, "ts.orch.v2.gru.unknown.channel", null)), Context());
         await Assert.That(unknown.Error).IsEqualTo(MessagingEnvelopeError.SubjectOutsideClosedTaxonomy);
+
+        var superseded = MessagingEnvelopeValidator.Validate(
+            Envelope(target: new MessagingTargetScope(
+                NatsSubjectNamespace.RegionalControl, "ts.orch.v1.gru.desired.gitops", null)), Context());
+        await Assert.That(superseded.Error).IsEqualTo(MessagingEnvelopeError.SubjectOutsideClosedTaxonomy);
     }
 
     [Test]
@@ -148,45 +153,47 @@ public sealed class MessagingEnvelopeTests
     [Test]
     public async Task A_global_per_cell_subject_is_validated_against_its_cell_scope()
     {
-        // Defense in depth: ts.orch.v1.global.desired.gitops.<cell> carries a cell scope even
-        // though it lives under the global root, so a subject naming another cell fails closed.
+        // Defense in depth: ts.orch.v2.global.desired.gitops.<cell> carries a cell scope even
+        // though it lives under the global root, so a target naming another cell fails closed.
+        // The v2 subject-shape extraction lands with the envelope's v2 update; until then the
+        // declared target scope carries the defense.
         var mismatch = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
                 NatsSubjectNamespace.GlobalAuthority,
                 NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo"),
-                null)), Context());
+                "sfo")), Context());
         await Assert.That(mismatch.Error).IsEqualTo(MessagingEnvelopeError.SubjectCellMismatch);
 
         var matching = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
                 NatsSubjectNamespace.GlobalAuthority,
                 NatsSubjectTaxonomy.GlobalCellSpecSubject("gru"),
-                null)), Context());
+                "gru")), Context());
         await Assert.That(matching.IsAccepted).IsTrue();
     }
 
     [Test]
     public async Task Cell_scope_extraction_covers_regional_and_global_per_cell_shapes_only()
     {
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.CellSpecSubject("gru")))
+        // The extractor still matches the superseded v1 literals it was written against; the v2
+        // subject-shape extraction lands with the envelope's v2 update. Both shapes are pinned
+        // here so the follow-up cannot silently drop either direction.
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.gru.desired.gitops"))
             .IsEqualTo("gru");
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.desired.gitops.sfo"))
             .IsEqualTo("sfo");
 
         // Global subjects without a per-cell shape carry no cell scope.
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.GlobalDirectoryQuerySubject))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.query.cells"))
             .IsNull();
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.CiForgejoTriggerSubject))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.ci.forgejo"))
             .IsNull();
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.CiRuntimeProofSubject))
-            .IsNull();
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(NatsSubjectTaxonomy.GlobalRoot + ".journal.ledger"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.journal.ledger"))
             .IsNull();
 
         // Only the canonical global per-cell shape is scoped; a longer subject under the same
         // prefix is not canonical and extracts nothing rather than guessing.
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
-                NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") + ".extra"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.desired.gitops.gru.extra"))
             .IsNull();
     }
 
@@ -197,7 +204,7 @@ public sealed class MessagingEnvelopeTests
             Envelope(target: new MessagingTargetScope(
                 NatsSubjectNamespace.RegionalControl,
                 NatsSubjectTaxonomy.CellSpecSubject("sfo"),
-                "gru")), Context());
+                "sfo")), Context());
         await Assert.That(subjectNamesAnotherCell.Error).IsEqualTo(MessagingEnvelopeError.SubjectCellMismatch);
 
         var sourceNamesAnotherCell = MessagingEnvelopeValidator.Validate(

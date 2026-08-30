@@ -467,40 +467,6 @@ public sealed class NatsDirectDeliveryJournalTests
         await Assert.That(record.Receipt.ArtifactManifestDigest).IsNull();
     }
 
-    [Test]
-    public async Task ProvenanceRefusalIsBoundToCompositionModeNotTheRequestLabel()
-    {
-        var developmentProvenance = new DirectDeliveryDevelopmentProvenance(
-            DirectDeliveryDeploymentMode.Development);
-        var productionProvenance = new DirectDeliveryDevelopmentProvenance(
-            DirectDeliveryDeploymentMode.Production);
-        var productionTarget = Request("operation-mode-p", ArtifactDigest) with
-        {
-            Target = new("authentication", "production", ["gru"]),
-        };
-        var mislabeled = Request("operation-mode-m", ArtifactDigest) with
-        {
-            // A request relabeled development must NOT unlock a production composition.
-            Target = new("authentication", "development", ["gru"]),
-        };
-
-        var developmentTarget = await developmentProvenance.VerifyAsync(
-            Request("operation-mode-d", ArtifactDigest),
-            new(ArtifactDigest, ValidDigest, "service"), default);
-        var developmentRefusesProduction = await developmentProvenance.VerifyAsync(
-            productionTarget, new(ArtifactDigest, ValidDigest, "service"), default);
-        var productionRefusesMislabeled = await productionProvenance.VerifyAsync(
-            mislabeled, new(ArtifactDigest, ValidDigest, "service"), default);
-        var productionRefusesAll = await productionProvenance.VerifyAsync(
-            Request("operation-mode-a", ArtifactDigest),
-            new(ArtifactDigest, ValidDigest, "service"), default);
-
-        await Assert.That(developmentTarget.Verified).IsTrue();
-        await Assert.That(developmentRefusesProduction.Verified).IsFalse();
-        await Assert.That(productionRefusesMislabeled.Verified).IsFalse();
-        await Assert.That(productionRefusesAll.Verified).IsFalse();
-    }
-
     private static DeliveryRequest Request(string operationId, string artifactDigest) => new(
         1,
         operationId,

@@ -292,9 +292,9 @@ public sealed class NativeGitOpsCellRuntimeProjectorTests
     {
         var resources = new HostRuntimeResources(512L * 1024 * 1024, 128, 100, 100, 100, 0);
         var plan = HostRuntimePlan.Create(
-            HostRole.Platform,
+            HostRole.CustomerDashboard,
             HostRuntimeDriver.OciContainer,
-            new HostRuntimeAllocationId("platform-a"),
+            new HostRuntimeAllocationId("dashboard-a"),
             new HostArtifactDigest(Artifact),
             HostArchitecture.Arm64,
             resources);
@@ -316,7 +316,7 @@ public sealed class NativeGitOpsCellRuntimeProjectorTests
             accepted.JournalRevision,
             checkpoint.JournalRevision,
             new(checkpoint.CheckpointDigest),
-            HostRole.Platform,
+            HostRole.CustomerDashboard,
             HostRuntimeDriver.OciContainer,
             HostArchitecture.Arm64,
             new(Artifact),
@@ -332,7 +332,7 @@ public sealed class NativeGitOpsCellRuntimeProjectorTests
     private static (NativeGitOpsAcceptedCellSpec Accepted, byte[] MutablePayload) Accepted()
     {
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":1,"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{Artifact}}","cells":["gru"],"dependsOn":[],"suspended":false}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":1,"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{Artifact}}","cells":["gru"],"dependsOn":[],"suspended":false}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         var handoff = NativeGitOpsCellSpecCompiler.Compile(new(

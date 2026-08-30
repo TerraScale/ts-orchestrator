@@ -47,10 +47,7 @@ the live two-instance run is deferred to the deployment evidence lane.
 
 ## Ports
 
-The workload binds one fixed host-local HTTP listener port. The development
-lane is the reserved GRU loopback listener `http://127.0.0.1:18675`
-(resource key `mcp`), which DevHost republishes as fixed tailnet HTTPS port
-`18452`; port `18451` stays legacy cleanup-only and is never reassigned. A
+The workload binds one fixed host-local HTTP listener port. A
 distinct production port may be assigned only through a catalog change
 after deployment qualification records it. The manifest rejects every
 other port.
@@ -118,9 +115,6 @@ the Internals MCP access and token-exchange contract.
 - `CONTEXT.md` still summarizes "all workloads run as OCI containers";
   the native first-party lane this ADR uses predates it and is recorded
   here so the glossary can be reconciled by the integration steward.
-- The development lab does not yet start an MCP process: the resource key,
-  listener port, and DevHost port reservations are typed and tested, and
-  the lab wiring follows the qualified artifact.
 
 ## Amendment (2026-08-25) — scope relative to ADR 0031
 

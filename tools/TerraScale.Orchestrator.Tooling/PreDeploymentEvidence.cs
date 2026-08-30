@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 
-namespace TerraScale.Orchestrator.Development;
+namespace TerraScale.Orchestrator.Tooling;
 
 internal sealed record PreDeploymentEvidence(
     int SchemaVersion,
@@ -129,12 +129,39 @@ internal sealed record PreDeploymentEvidence(
         process.Start();
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
+        await WaitForExitAsync(process, cancellationToken);
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"Git evidence check failed: {await error}");
         }
         return await output;
+    }
+
+    /// <summary>
+    /// Cancellation-aware exit wait that terminates the whole child tree before rethrowing, so a
+    /// cancelled evidence check never leaves a git child process behind. Mirrors the production
+    /// ProcessLifecycle helper; the tooling project does not reference the production assembly.
+    /// </summary>
+    private static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process exited between cancellation and the kill request.
+            }
+
+            process.WaitForExit();
+            throw;
+        }
     }
 }
 

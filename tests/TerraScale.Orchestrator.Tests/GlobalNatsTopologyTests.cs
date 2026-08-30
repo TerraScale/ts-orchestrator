@@ -1,12 +1,15 @@
 using NATS.Client.JetStream.Models;
-using System.Text.Json;
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
 public sealed class GlobalNatsTopologyTests
 {
+    // TODO(rehome-agent): GlobalAndRegionalAccountsRequireDistinctCompleteIdentities and
+    // AuthorityAndDirectoryRolesRequireDistinctIdentitiesEndToEnd were removed with the
+    // production Development/ lab fixtures; rehome them onto a test-owned NATS identity
+    // fixture so the distinct-identity parsing rules keep their positive paths covered.
+
     [Test]
     public async Task GlobalStateHasAnExplicitR3AccountTopology()
     {
@@ -106,181 +109,4 @@ public sealed class GlobalNatsTopologyTests
                 name => values.GetValueOrDefault(name)))
             .Throws<ArgumentException>();
     }
-
-    [Test]
-    public async Task GlobalAndRegionalAccountsRequireDistinctCompleteIdentities()
-    {
-        if (!OperatingSystem.IsLinux()) return;
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-global-nats-{Guid.NewGuid():N}");
-        try
-        {
-            var topology = DevelopmentTopology.CreateRegional();
-            var security = DevelopmentNatsSecurity.Create(topology, directory);
-            var cell = topology.Cells.Single(candidate => candidate.Cell == "gru");
-            var gru = security.Cell("gru");
-            var controller = cell.OfKind(DevelopmentResourceKind.ControllerAgent).Single();
-            var regionalNkey = gru.Controllers[controller.Replica].SeedFile;
-            var regionalTls = gru.Tls.Control.Clients[controller.Name];
-            var globalNkey = gru.Operator.SeedFile;
-            var globalTls = gru.Tls.Control.Clients["operator-read"];
-            var values = Values(regionalNkey, regionalTls, globalNkey, globalTls);
-            var forgejoSecret = Path.Combine(directory, "forgejo-secret");
-            var forgejoToken = Path.Combine(directory, "forgejo-token");
-            await File.WriteAllTextAsync(forgejoSecret, "0123456789abcdef0123456789abcdef");
-            await File.WriteAllTextAsync(forgejoToken, "0123456789abcdef0123456789abcdef01234567");
-            File.SetUnixFileMode(forgejoSecret, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            File.SetUnixFileMode(forgejoToken, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            // Forgejo ingestion now fails closed without a CI executor: the runner identity
-            // AND the OCI pool must both be configured for this composition to start.
-            values["TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"] = globalNkey;
-            var runnerCloudInit = Path.Combine(directory, "runner.cloud-init");
-            var poolPath = Path.Combine(directory, "pool.json");
-            await File.WriteAllTextAsync(runnerCloudInit,
-                "#cloud-config\nruncmd:\n  - [oci, secrets, secret-bundle, get, --secret-id, ocid1.vaultsecret.oc1..runner]\n");
-            await File.WriteAllTextAsync(poolPath, JsonSerializer.Serialize(new
-            {
-                schemaVersion = 1,
-                endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
-                compartmentId = "ocid1.compartment.oc1..ci",
-                availabilityDomain = "sa-saopaulo-1-ad-1",
-                faultDomain = "FAULT-DOMAIN-1",
-                subnetId = "ocid1.subnet.oc1.sa-saopaulo-1.ci",
-                networkSecurityGroupIds = new[] { "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci" },
-                imageId = "ocid1.image.oc1.sa-saopaulo-1.runner",
-                generation = 7,
-                idleSeconds = 60,
-                pollSeconds = 1,
-                runners = new[]
-                {
-                    new { runner = "ci-untrusted-1", zone = "untrusted-product", sequence = 10, bootstrapFile = "runner.cloud-init" },
-                },
-            }));
-            values["TS_ORCH_CI_OCI_CONFIG"] = poolPath;
-            using var commandKey = System.Security.Cryptography.ECDsa.Create(
-                System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-            var commandPrivate = Path.Combine(directory, "command-private.pem");
-            var commandPublic = Path.Combine(directory, "command-public.pem");
-            await File.WriteAllTextAsync(commandPrivate, commandKey.ExportPkcs8PrivateKeyPem());
-            await File.WriteAllTextAsync(commandPublic, commandKey.ExportSubjectPublicKeyInfoPem());
-            File.SetUnixFileMode(commandPrivate, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            values["TS_ORCH_COMMAND_SIGNING_KEY_FILE"] = commandPrivate;
-            values["TS_ORCH_COMMAND_TRUST_KEY_FILES"] = commandPublic;
-            values["TS_ORCH_FORGEJO_LISTEN_PREFIX"] = "http://127.0.0.1:8080/hooks/forgejo/";
-            values["TS_ORCH_FORGEJO_API_URL"] = "https://git.terrascale.tech/";
-            values["TS_ORCH_FORGEJO_REPOSITORY"] = "TerraScale/TerraScale.Orchestrator";
-            values["TS_ORCH_FORGEJO_SECRET_FILE"] = forgejoSecret;
-            values["TS_ORCH_FORGEJO_API_TOKEN_FILE"] = forgejoToken;
-
-            var options = OrchestratorOptions.Parse(
-                ["run"],
-                name => values.GetValueOrDefault(name));
-
-            await Assert.That(options.GlobalNats).IsNotNull();
-            await Assert.That(options.GlobalNats!.Url).IsEqualTo("tls://global-control.internal:4222/");
-            await Assert.That(options.GlobalNats.NKeyFile).IsEqualTo(globalNkey);
-            await Assert.That(options.ForgejoWebhook).IsNotNull();
-            await Assert.That(options.ForgejoSource).IsNotNull();
-
-            var reused = Values(regionalNkey, regionalTls, regionalNkey, regionalTls);
-            await Assert.That(() => OrchestratorOptions.Parse(
-                    ["check"],
-                    name => reused.GetValueOrDefault(name)))
-                .Throws<ArgumentException>();
-        }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Test]
-    public async Task AuthorityAndDirectoryRolesRequireDistinctIdentitiesEndToEnd()
-    {
-        if (!OperatingSystem.IsLinux()) return;
-        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-global-nats-{Guid.NewGuid():N}");
-        try
-        {
-            var topology = DevelopmentTopology.CreateRegional();
-            var security = DevelopmentNatsSecurity.Create(topology, directory);
-            var gru = security.Cell("gru");
-            var controller = topology.Cells.Single(candidate => candidate.Cell == "gru")
-                .OfKind(DevelopmentResourceKind.ControllerAgent).Single();
-            var regionalNkey = gru.Controllers[controller.Replica].SeedFile;
-            var regionalTls = gru.Tls.Control.Clients[controller.Name];
-            var authorityNkey = gru.Operator.SeedFile;
-            var authorityTls = gru.Tls.Control.Clients["operator-read"];
-            // A third, genuinely distinct role identity from the SFO control plane.
-            var sfo = security.Cell("sfo");
-            var sfoController = topology.Cells.Single(candidate => candidate.Cell == "sfo")
-                .OfKind(DevelopmentResourceKind.ControllerAgent).Single();
-            var directoryNkey = sfo.Controllers[sfoController.Replica].SeedFile;
-            var directoryTls = sfo.Tls.Control.Clients[sfoController.Name];
-
-            Dictionary<string, string> Values(string directoryNkeyFile, DevelopmentTlsIdentity directoryIdentity) =>
-                new(StringComparer.Ordinal)
-                {
-                    ["TS_ORCH_CELL"] = "gru",
-                    ["TS_ORCH_REPLICAS"] = "3",
-                    ["TS_ORCH_NATS_URL"] = "tls://regional-control.internal:4222",
-                    ["TS_ORCH_NATS_NKEY_FILE"] = regionalNkey,
-                    ["TS_ORCH_NATS_TLS_CA_FILE"] = regionalTls.CaFile,
-                    ["TS_ORCH_NATS_TLS_CERT_FILE"] = regionalTls.CertificateFile,
-                    ["TS_ORCH_NATS_TLS_KEY_FILE"] = regionalTls.KeyFile,
-                    ["TS_ORCH_GLOBAL_NATS_URL"] = "tls://global-control.internal:4222",
-                    ["TS_ORCH_GLOBAL_NATS_NKEY_FILE"] = authorityNkey,
-                    ["TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"] = authorityTls.CaFile,
-                    ["TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"] = authorityTls.CertificateFile,
-                    ["TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"] = authorityTls.KeyFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_URL"] = "tls://global-directory.internal:4222",
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE"] = directoryNkeyFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE"] = directoryIdentity.CaFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE"] = directoryIdentity.CertificateFile,
-                    ["TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE"] = directoryIdentity.KeyFile,
-                };
-
-            // Positive control first: fully distinct authority and directory identities parse.
-            var options = OrchestratorOptions.Parse(
-                ["check"],
-                name => Values(directoryNkey, directoryTls).GetValueOrDefault(name));
-            await Assert.That(options.GlobalNats).IsNotNull();
-            await Assert.That(options.GlobalDirectoryNats).IsNotNull();
-
-            // The directory pointing at the authority's exact seed file must fail parsing.
-            await Assert.That(() => OrchestratorOptions.Parse(
-                    ["check"],
-                    name => Values(authorityNkey, directoryTls).GetValueOrDefault(name)))
-                .Throws<ArgumentException>();
-
-            // Distinct seeds are not enough: reusing the authority's TLS identity (the
-            // same certificate and key files) must fail parsing too.
-            await Assert.That(() => OrchestratorOptions.Parse(
-                    ["check"],
-                    name => Values(directoryNkey, authorityTls).GetValueOrDefault(name)))
-                .Throws<ArgumentException>();
-        }
-        finally
-        {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    private static Dictionary<string, string> Values(
-        string regionalNkey,
-        DevelopmentTlsIdentity regionalTls,
-    string globalNkey,
-    DevelopmentTlsIdentity globalTls) => new(StringComparer.Ordinal)
-    {
-        ["TS_ORCH_CELL"] = "gru",
-        ["TS_ORCH_REPLICAS"] = "3",
-        ["TS_ORCH_NATS_URL"] = "tls://regional-control.internal:4222",
-        ["TS_ORCH_NATS_NKEY_FILE"] = regionalNkey,
-        ["TS_ORCH_NATS_TLS_CA_FILE"] = regionalTls.CaFile,
-        ["TS_ORCH_NATS_TLS_CERT_FILE"] = regionalTls.CertificateFile,
-        ["TS_ORCH_NATS_TLS_KEY_FILE"] = regionalTls.KeyFile,
-        ["TS_ORCH_GLOBAL_NATS_URL"] = "tls://global-control.internal:4222",
-        ["TS_ORCH_GLOBAL_NATS_NKEY_FILE"] = globalNkey,
-        ["TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"] = globalTls.CaFile,
-        ["TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"] = globalTls.CertificateFile,
-        ["TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"] = globalTls.KeyFile,
-    };
 }

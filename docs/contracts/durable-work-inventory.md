@@ -1,9 +1,12 @@
 # Durable work inventory and delivery policy
 
 > Current implementation inventory for NATS-backed Orchestrator control work.
-> It does not define TerraBase durability and does not make NATS a permanent
-> control-plane dependency. Replacement must migrate acknowledged control work
-> without losing identity, fencing, or receipts.
+> Subject tokens name the mandatory `ts.orch.v2` control root selected by the
+> repository `GOAL.md`; the checked-in adapter still serves the superseded v1
+> root until that migration lands. It does not define TerraBase durability.
+> NATS is the Orchestrator v2 control store: replacing it is a new goal and ADR
+> decision, and any replacement must migrate acknowledged control work without
+> losing identity, fencing, or receipts.
 
 | | |
 | --- | --- |
@@ -19,11 +22,11 @@ Delivery claim: **effectively-once mutation through operation-level idempotency 
 
 | Stream | Domain | Subjects | Class | R | Retention | Max age | Max bytes | Discard | Duplicate window | Terminal evidence behavior |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CELL_SPEC` | RegionalCell | `ts.orch.v1.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence; exhaustion warns on the final delivery. |
-| `CELL_OPERATIONS` | RegionalCell | `ts.orch.v1.{cell}.operation.>` | AuthoritativeJournal | 3 | Limits | 30 d | 1 GiB | Old | 2 min | KV CAS plus operation proofs fence every append. |
-| `CELL_EVENTS` | RegionalCell | `ts.orch.v1.{cell}.event.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
-| `GLOBAL_SPEC` | GlobalControl | `ts.orch.v1.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence. |
-| `GLOBAL_CI` | GlobalControl | `ts.orch.v1.global.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts and runner identity conflicts terminate loudly; exhaustion warns on the final delivery. |
+| `CELL_SPEC` | RegionalCell | `ts.orch.v2.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence; exhaustion warns on the final delivery. |
+| `CELL_OPERATIONS` | RegionalCell | `ts.orch.v2.{cell}.operation.>` | AuthoritativeJournal | 3 | Limits | 30 d | 1 GiB | Old | 2 min | KV CAS plus operation proofs fence every append. |
+| `CELL_EVENTS` | RegionalCell | `ts.orch.v2.{cell}.event.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
+| `GLOBAL_SPEC` | GlobalControl | `ts.orch.v2.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence. |
+| `GLOBAL_CI` | GlobalControl | `ts.orch.v2.global.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts and runner identity conflicts terminate loudly; exhaustion warns on the final delivery. |
 
 Regional rows are per-cell: each region owns its streams inside its own JetStream domain, and no stream or durable consumer spans regions (gateway plan admission rejects WAN-spanning assets).
 
@@ -31,12 +34,12 @@ Regional rows are per-cell: each region owns its streams inside its own JetStrea
 
 | Consumer | Stream | Filter subject | Ownership | Ack | Max deliver | Backoff | Max pending | Batch / expires / waiting |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runtime_startup` | `CELL_EVENTS` | `ts.orch.v1.{cell}.event.runtime.started.>` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
-| `gitops_cell_spec_{instance}` | `CELL_SPEC` | `ts.orch.v1.{cell}.desired.gitops` | RegionalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
-| `gitops_global_cell_spec_{cell}` | `GLOBAL_SPEC` | `ts.orch.v1.global.desired.gitops.{cell}` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
-| `global_ci_trigger` | `GLOBAL_CI` | `ts.orch.v1.global.ci.forgejo` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
-| `global_ci_runtime_proof` | `GLOBAL_CI` | `ts.orch.v1.global.ci.runtime-proof` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | 1 / 30 s / 16 |
-| `ci_runner_{zone}_{runner}` | `GLOBAL_CI` | `ts.orch.v1.global.ci.job.{zone}.{runner}` | ReconciledRunnerIdentity | Explicit | 5 | 1/5/15/30 s | 1 | 1 / 30 s / 4 |
+| `runtime_startup` | `CELL_EVENTS` | `ts.orch.v2.{cell}.event.runtime.started.>` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
+| `gitops_cell_spec_{instance}` | `CELL_SPEC` | `ts.orch.v2.{cell}.desired.gitops` | RegionalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
+| `gitops_global_cell_spec_{cell}` | `GLOBAL_SPEC` | `ts.orch.v2.global.desired.gitops.{cell}` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
+| `global_ci_trigger` | `GLOBAL_CI` | `ts.orch.v2.global.ci.forgejo` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
+| `global_ci_runtime_proof` | `GLOBAL_CI` | `ts.orch.v2.global.ci.runtime-proof` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | 1 / 30 s / 16 |
+| `ci_runner_{zone}_{runner}` | `GLOBAL_CI` | `ts.orch.v2.global.ci.job.{zone}.{runner}` | ReconciledRunnerIdentity | Explicit | 5 | 1/5/15/30 s | 1 | 1 / 30 s / 4 |
 
 All profiles are pull consumers bounded by `MaxAckPending`, `MaxBatch`, `MaxExpires`, and `MaxWaiting`; no push delivery shape is adopted. The declared ack wait equals the first backoff interval (JetStream derives it). Exhaustion stops redelivery only with terminal evidence; no message disappears silently. Stateful mutation ownership is fenced: only the live lease holder (epoch plus KV revision, re-checked before the effect and before the acknowledgement) may write an authoritative journal; queue groups never choose an authoritative writer.
 

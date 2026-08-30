@@ -13,51 +13,11 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
-    public async Task ParsesLabPlanWithoutDeploymentEvidence()
+    public async Task RemovedLabModeIsRejectedAsAnUnknownCommand()
     {
-        var options = OrchestratorOptions.Parse(
-            ["lab", "plan", "--workspace", "/tmp/workspace", "--data-directory", "/tmp/data"],
-            _ => null);
-
-        await Assert.That(options.Command).IsEqualTo(OrchestratorCommand.Lab);
-        await Assert.That(options.LabCommand).IsEqualTo(OrchestratorLabCommand.Plan);
-        await Assert.That(options.WorkspaceRoot).IsEqualTo("/tmp/workspace");
-        await Assert.That(options.DataDirectory).IsEqualTo("/tmp/data/profiles/regional");
-    }
-
-    [Test]
-    public async Task RejectsRemovedProfileSelection()
-    {
-        await Assert.That(() => OrchestratorOptions.Parse(
-                ["lab", "plan", "--profile", "quick"],
-                _ => null))
+        var exception = await Assert.That(() => OrchestratorOptions.Parse(["lab", "up"], _ => null))
             .Throws<ArgumentException>();
-        await Assert.That(() => OrchestratorOptions.Parse(
-                ["lab", "plan", "--profile", "control"],
-                _ => null))
-            .Throws<ArgumentException>();
-    }
-
-    [Test]
-    public async Task RejectsUnknownAndDuplicateLabOptions()
-    {
-        await Assert.That(() => OrchestratorOptions.Parse(["lab", "plan", "--wat"], _ => null))
-            .Throws<ArgumentException>();
-        await Assert.That(() => OrchestratorOptions.Parse(
-                ["lab", "plan", "--workspace", "/one", "--workspace", "/two"],
-                _ => null))
-            .Throws<ArgumentException>();
-    }
-
-    [Test]
-    public async Task LabUpFailsClosedWithoutEvidence()
-    {
-        var options = OrchestratorOptions.Parse(["lab", "up"], _ => null);
-
-        var exception = await Assert.That(async () =>
-                await Development.DevelopmentLab.ExecuteAsync(options, CancellationToken.None))
-            .Throws<InvalidOperationException>();
-        await Assert.That(exception!.Message).Contains("--evidence");
+        await Assert.That(exception!.Message).Contains("Unknown command 'lab'");
     }
 
     [Test]
@@ -139,18 +99,6 @@ public sealed class OrchestratorOptionsTests
 
     [Test]
     public async Task JournalWriterRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("journal-writer", "infrastructure");
-
-    [Test]
-    public async Task LabRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("lab", "controller");
-
-    [Test]
-    public async Task LabRejectsGlobalControllerCredentials() => await RejectsUnownedCredentialsAsync("lab", "global-controller");
-
-    [Test]
-    public async Task LabRejectsInfrastructureCredentials() => await RejectsUnownedCredentialsAsync("lab", "infrastructure");
-
-    [Test]
-    public async Task LabRejectsJournalWriterCredentials() => await RejectsUnownedCredentialsAsync("lab", "journal-writer");
 
     [Test]
     public async Task CatalogRejectsControllerCredentials() => await RejectsUnownedCredentialsAsync("catalog", "controller");
@@ -385,26 +333,6 @@ public sealed class OrchestratorOptionsTests
         {
             File.Delete(path);
         }
-    }
-
-    [Test]
-    public async Task RemovedProfilesAndOptionsAreRejected()
-    {
-        foreach (var profile in new[] { "regions-smol", "dev-containers", "dev-containers-control" })
-        {
-            await Assert.That(() => OrchestratorOptions.Parse(
-                    ["lab", "plan", "--profile", profile],
-                    _ => null))
-                .Throws<ArgumentException>();
-        }
-        await Assert.That(() => OrchestratorOptions.Parse(
-            ["lab", "plan", "--watch"],
-            _ => null))
-            .Throws<ArgumentException>();
-        await Assert.That(() => OrchestratorOptions.Parse(
-                ["lab", "plan", "--base-artifact", "/tmp/base.smolmachine"],
-                _ => null))
-            .Throws<ArgumentException>();
     }
 
     private static async Task<(string Certificate, string PrivateKey)> WriteCertificateAsync(

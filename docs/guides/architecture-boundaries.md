@@ -1,8 +1,7 @@
 # Architecture boundaries
 
-The full authority is
-[`docs/architecture/orchestrator.md`](../architecture/orchestrator.md). The
-workspace [`GOAL.md`](../../../GOAL.md) controls cross-repository decisions.
+The full authority is the repository [`GOAL.md`](../../GOAL.md). The workspace
+[`GOAL.md`](../../../GOAL.md) controls cross-repository decisions.
 
 ## Product roles
 
@@ -26,10 +25,11 @@ those roles do not authorize new implementations.
 
 ## Regional control
 
-Each Region can continue serving its last accepted state while the global
-control path, Orchestrator, or NATS is unavailable. Global release and policy
-changes may pause. Existing database reads, eligible writes, replication,
-repair, and client catch-up do not pause.
+GRU owns the permanent three-replica global authority. Every Region owns a
+three-replica Regional Orchestrator and local JetStream R3 domain. Regions
+continue signed survival-policy work when GRU or the WAN is unavailable.
+Global release, policy, and catalog changes freeze. Existing database reads,
+eligible writes, replication, repair, and client catch-up do not pause.
 
 The Orchestrator uses typed desired and observed state, fenced writers,
 idempotent operations, immutable release identities, and durable receipts.
@@ -55,7 +55,7 @@ Region, spill data into an unselected Region, or appoint a leader.
 
 ## Database transport
 
-Database API is the only TBEP client. TBEP uses generated MessagePack over QUIC
+Database API is the only TBEP client. TBEP uses generated FlatBuffers over QUIC
 with mutual TLS on remote and loopback paths. UDS, raw HTTP, NATS, or a broker
 cannot become alternate correctness paths.
 
@@ -65,15 +65,15 @@ anti-entropy, and Merkle repair.
 
 ## NATS
 
-NATS is an optional, replaceable control adapter. It may carry accepted
-configuration, discovery, durable control work, and operational notifications.
+NATS is the mandatory Orchestrator v2 consensus, control-state, discovery, and
+durable-work system. Global and regional JetStream domains form one
+gateway-connected supercluster without a WAN Raft group.
 It never carries database documents, WAL, CRDT deltas, replication frames,
 query results, reactive sync, or authoritative usage.
 
-The checked-in executable currently requires NATS. That is an implementation
-gap. Current NATS contracts and runbooks remain valid for the adapter that
-exists, but they do not make NATS part of database correctness or a permanent
-product dependency.
+NATS remains absent from TerraBase correctness and customer data paths. The
+checked-in v1 subjects and the adapter's composition-time global topology are
+implementation state that must migrate to the accepted `ts.orch.v2` contract.
 
 ## Tenant isolation and capacity
 
@@ -109,16 +109,35 @@ references, not secret bytes.
 
 Build once and deploy the exact qualified digest. Release, configuration,
 schema, migration, trust, rollback, and evidence identities bind to one
-candidate. A failed or stale gate holds activation. Rollback restores retained
-qualified bytes. It never rebuilds a replacement artifact.
+candidate. Each Region builds full green capacity beside unchanged blue and
+keeps green outside production routing until startup, minimum health, real
+dependency, authorization, isolation, routing, customer-journey, and rollback
+tests pass. One durable routing generation cuts traffic over. A failed green
+generation changes only green. Blue remains available through the rollback
+window. Rollback restores retained qualified bytes and never rebuilds an
+artifact.
+
+TerraBase implements the invariant with surge Members, catch-up, causal and
+materialized Merkle verification, and TerraBase-accepted overlapping
+membership. Controllers and NATS replace one replica at a time and restore
+full quorum before the next replacement. Regional blue-green does not create a
+second writable TerraBase cluster or a competing control quorum.
+
+## Production repository boundary
+
+The production project contains no embedded development host, `dev` runtime
+mode, local product composition, development NATS bootstrap, development PKI,
+fixed lab routing, development-host-specific fixture, or fake-provider runtime
+registration. Generic fakes and process fixtures live only in test or tooling
+projects and cannot enter the production dependency graph or artifact.
 
 ## Evidence boundary
 
-Pure tests and the RF=1 DevHost lab cannot prove production RF=2 durability,
+Pure tests and an external RF=1 lab cannot prove production RF=2 durability,
 host loss, remote mutual TLS, cloud storage, systemd, twenty-Region behavior,
 or measured noisy-neighbor isolation. Only exact candidate-bound evidence from
 the owning runtime and benchmark authority can support those claims.
 
 Historical ADRs that require permanent TerraBase R3, Project-owned Regions,
-UDS TBEP, mandatory NATS, standalone Authentication, Payments, Platform, or MCP
-are superseded for future work.
+UDS TBEP, NATS inside TerraBase correctness, standalone Authentication,
+Payments, Platform, or MCP are superseded for future work.

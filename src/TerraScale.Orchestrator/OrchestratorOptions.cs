@@ -4,17 +4,9 @@ public enum OrchestratorCommand
 {
     Run,
     Check,
-    Lab,
     Catalog,
     ProvisionJournal,
     JournalWriter
-}
-
-public enum OrchestratorLabCommand
-{
-    Plan,
-    Up,
-    Status
 }
 
 public sealed record OrchestratorOptions(
@@ -22,14 +14,7 @@ public sealed record OrchestratorOptions(
     string Cell,
     string NatsUrl,
     int Replicas,
-    OrchestratorLabCommand? LabCommand = null,
-    string? WorkspaceRoot = null,
-    string? DataDirectory = null,
-    string? StateFile = null,
-    string? EndpointsFile = null,
-    string? EvidenceFile = null,
     string Instance = "local",
-    string? SocketFile = null,
     string? NatsNKeyFile = null,
     Messaging.NatsTlsFiles? NatsTls = null,
     Messaging.GlobalNatsConfiguration? GlobalNats = null,
@@ -53,11 +38,10 @@ public sealed record OrchestratorOptions(
         {
             null or "run" => OrchestratorCommand.Run,
             "check" => OrchestratorCommand.Check,
-            "lab" => OrchestratorCommand.Lab,
             "catalog" => OrchestratorCommand.Catalog,
             "provision-journal" => OrchestratorCommand.ProvisionJournal,
             "journal-writer" => OrchestratorCommand.JournalWriter,
-            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', 'catalog', 'provision-journal', 'journal-writer', or 'lab'.")
+            var value => throw new ArgumentException($"Unknown command '{value}'. Use 'run', 'check', 'catalog', 'provision-journal', or 'journal-writer'.")
         };
 
         var cell = environment("TS_ORCH_CELL") ?? "local";
@@ -222,179 +206,82 @@ public sealed record OrchestratorOptions(
         if (command == OrchestratorCommand.JournalWriter &&
             (uri.Scheme != "tls" || replicas < 3 || authoritativeJournal is null))
             throw new ArgumentException("The journal-writer command requires R3/R5 tls:// control NATS and complete TS_ORCH_JOURNAL writer credentials.");
-        if (command is not OrchestratorCommand.Lab)
+        if (args.Count > 1)
         {
-            if (args.Count > 1)
-            {
-                throw new ArgumentException($"The {args[0]} command does not accept arguments.");
-            }
-            var forgejoWebhook = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? Delivery.ForgejoWebhookConfiguration.Resolve(
-                    environment("TS_ORCH_FORGEJO_LISTEN_PREFIX"),
-                    environment("TS_ORCH_FORGEJO_REPOSITORY"),
-                    environment("TS_ORCH_FORGEJO_SECRET_FILE"))
-                : null;
-            var forgejoSource = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? Delivery.ForgejoSourceConfiguration.Resolve(
-                    environment("TS_ORCH_FORGEJO_API_URL"),
-                    environment("TS_ORCH_FORGEJO_REPOSITORY"),
-                    environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
-                : null;
-            var forgejoCiSourceGraph = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? Delivery.ForgejoRepositoryCiSourceGraphConfiguration.Load(
-                    environment("TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE"),
-                    forgejoSource)
-                : null;
-            var commandIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? Delivery.CommandIdentityConfiguration.Resolve(
-                    environment("TS_ORCH_COMMAND_SIGNING_KEY_FILE"),
-                    environment("TS_ORCH_COMMAND_TRUST_KEY_FILES"))
-                : null;
-            var ciRunnerNatsIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? Messaging.CiRunnerNatsIdentityConfiguration.Resolve(
-                    environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"),
-                    environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
-                : null;
-            var ociCiRunnerPool = command is OrchestratorCommand.Run or OrchestratorCommand.Check
-                ? ControlPlane.Providers.OciCiRunnerPoolConfiguration.Load(
-                    environment("TS_ORCH_CI_OCI_CONFIG"))
-                : null;
-            if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
-                throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
-            if (ciRunnerNatsIdentity is not null && globalNats is null)
-                throw new ArgumentException("CI runner NATS identity issuance requires configured global control authority.");
-            if (ociCiRunnerPool is not null &&
-                (globalNats is null || forgejoSource is null || commandIdentity?.SigningKeyFile is null))
-                throw new ArgumentException(
-                    "OCI CI requires global control authority, Forgejo source access, and a command signer.");
-            _ = OrchestratorRuntimeComposition.Describe(
-                cell,
-                globalDirectoryNats is not null,
-                globalDirectoryServiceNats is not null,
-                globalNats is not null,
-                forgejoWebhook is not null || forgejoSource is not null,
-                // The pool is the executor; identity-without-pool must not pass the
-                // Forgejo-requires-an-executor guard.
-                ociCiRunnerPool is not null,
-                command == OrchestratorCommand.Run &&
-                    globalNats is not null &&
-                    commandIdentity?.TrustKeyFiles.Count > 0);
-            return new(
-                command,
-                cell,
-                uri.ToString(),
-                replicas,
-                Instance: instance,
-                NatsNKeyFile: natsNKeyFile,
-                NatsTls: natsTls,
-                GlobalNats: globalNats,
-                GlobalDirectoryNats: globalDirectoryNats,
-                GlobalDirectoryServiceNats: globalDirectoryServiceNats,
-                ForgejoWebhook: forgejoWebhook,
-                ForgejoSource: forgejoSource,
-                ForgejoCiSourceGraph: forgejoCiSourceGraph,
-                CommandIdentity: commandIdentity,
-                CiRunnerNatsIdentity: ciRunnerNatsIdentity,
-                OciCiRunnerPool: ociCiRunnerPool,
-                InfrastructureNatsNKeyFile: infrastructureNatsNKeyFile,
-                InfrastructureNatsTls: infrastructureNatsTls,
-                AuthoritativeJournal: authoritativeJournal);
+            throw new ArgumentException($"The {args[0]} command does not accept arguments.");
         }
-
-        return ParseLab(args.Skip(1).ToArray(), environment, cell, uri.ToString(), replicas, instance);
-    }
-
-    private static OrchestratorOptions ParseLab(
-        IReadOnlyList<string> args,
-        Func<string, string?> environment,
-        string cell,
-        string natsUrl,
-        int replicas,
-        string instance)
-    {
-        var labCommand = (args.Count == 0 ? null : args[0]) switch
-        {
-            null or "plan" => OrchestratorLabCommand.Plan,
-            "up" => OrchestratorLabCommand.Up,
-            "status" => OrchestratorLabCommand.Status,
-            var value => throw new ArgumentException($"Unknown lab command '{value}'. Use 'plan', 'up', or 'status'.")
-        };
-
-        var values = new Dictionary<string, string>(StringComparer.Ordinal);
-        for (var index = args.Count > 0 ? 1 : 0; index < args.Count; index++)
-        {
-            var argument = args[index];
-            if (!argument.StartsWith("--", StringComparison.Ordinal) || index + 1 >= args.Count)
-            {
-                throw new ArgumentException($"Invalid lab argument '{argument}'.");
-            }
-
-            if (!values.TryAdd(argument, args[++index]))
-            {
-                throw new ArgumentException($"Duplicate lab argument '{argument}'.");
-            }
-        }
-
-        var workspaceRoot = Path.GetFullPath(GetValue(
-            values,
-            "--workspace",
-            environment("TERRASCALE_WORKSPACE_ROOT") ?? Directory.GetCurrentDirectory()));
-        var dataRoot = Path.GetFullPath(GetValue(
-            values,
-            "--data-directory",
-            environment("TS_ORCH_LAB_DATA") ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "terrascale-orchestrator",
-                "devhost")));
-        var stateFile = Path.GetFullPath(GetValue(
-            values,
-            "--state-file",
-            Path.Combine(dataRoot, "state.json")));
-        var endpointsFile = Path.GetFullPath(GetValue(
-            values,
-            "--endpoints-file",
-            Path.Combine(dataRoot, "endpoints.json")));
-        values.TryGetValue("--evidence", out var evidenceFile);
-
-        var dataDirectory = Path.Combine(
-            dataRoot,
-            "profiles",
-            "regional");
-        var socketFile = Path.GetFullPath(GetValue(
-            values,
-            "--socket",
-            Path.Combine(Path.GetDirectoryName(stateFile)!, "orchestrator.sock")));
-
-        var unknown = values.Keys.Except(
-            ["--workspace", "--data-directory", "--state-file", "--endpoints-file", "--evidence", "--socket"],
-            StringComparer.Ordinal).FirstOrDefault();
-        if (unknown is not null)
-        {
-            throw new ArgumentException($"Unknown lab option '{unknown}'.");
-        }
-
-        return new(
-            OrchestratorCommand.Lab,
+        var forgejoWebhook = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Delivery.ForgejoWebhookConfiguration.Resolve(
+                environment("TS_ORCH_FORGEJO_LISTEN_PREFIX"),
+                environment("TS_ORCH_FORGEJO_REPOSITORY"),
+                environment("TS_ORCH_FORGEJO_SECRET_FILE"))
+            : null;
+        var forgejoSource = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Delivery.ForgejoSourceConfiguration.Resolve(
+                environment("TS_ORCH_FORGEJO_API_URL"),
+                environment("TS_ORCH_FORGEJO_REPOSITORY"),
+                environment("TS_ORCH_FORGEJO_API_TOKEN_FILE"))
+            : null;
+        var forgejoCiSourceGraph = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Delivery.ForgejoRepositoryCiSourceGraphConfiguration.Load(
+                environment("TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE"),
+                forgejoSource)
+            : null;
+        var commandIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Delivery.CommandIdentityConfiguration.Resolve(
+                environment("TS_ORCH_COMMAND_SIGNING_KEY_FILE"),
+                environment("TS_ORCH_COMMAND_TRUST_KEY_FILES"))
+            : null;
+        var ciRunnerNatsIdentity = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? Messaging.CiRunnerNatsIdentityConfiguration.Resolve(
+                environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE"),
+                environment("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY"))
+            : null;
+        var ociCiRunnerPool = command is OrchestratorCommand.Run or OrchestratorCommand.Check
+            ? ControlPlane.Providers.OciCiRunnerPoolConfiguration.Load(
+                environment("TS_ORCH_CI_OCI_CONFIG"))
+            : null;
+        if ((forgejoWebhook is not null || forgejoSource is not null) && globalNats is null)
+            throw new ArgumentException("Forgejo ingestion requires configured global control authority.");
+        if (ciRunnerNatsIdentity is not null && globalNats is null)
+            throw new ArgumentException("CI runner NATS identity issuance requires configured global control authority.");
+        if (ociCiRunnerPool is not null &&
+            (globalNats is null || forgejoSource is null || commandIdentity?.SigningKeyFile is null))
+            throw new ArgumentException(
+                "OCI CI requires global control authority, Forgejo source access, and a command signer.");
+        _ = OrchestratorRuntimeComposition.Describe(
             cell,
-            natsUrl,
+            globalDirectoryNats is not null,
+            globalDirectoryServiceNats is not null,
+            globalNats is not null,
+            forgejoWebhook is not null || forgejoSource is not null,
+            // The pool is the executor; identity-without-pool must not pass the
+            // Forgejo-requires-an-executor guard.
+            ociCiRunnerPool is not null,
+            command == OrchestratorCommand.Run &&
+                globalNats is not null &&
+                commandIdentity?.TrustKeyFiles.Count > 0);
+        return new(
+            command,
+            cell,
+            uri.ToString(),
             replicas,
-            labCommand,
-            workspaceRoot,
-            dataDirectory,
-            stateFile,
-            endpointsFile,
-            evidenceFile is null ? null : Path.GetFullPath(evidenceFile),
-            instance,
-            SocketFile: socketFile);
+            Instance: instance,
+            NatsNKeyFile: natsNKeyFile,
+            NatsTls: natsTls,
+            GlobalNats: globalNats,
+            GlobalDirectoryNats: globalDirectoryNats,
+            GlobalDirectoryServiceNats: globalDirectoryServiceNats,
+            ForgejoWebhook: forgejoWebhook,
+            ForgejoSource: forgejoSource,
+            ForgejoCiSourceGraph: forgejoCiSourceGraph,
+            CommandIdentity: commandIdentity,
+            CiRunnerNatsIdentity: ciRunnerNatsIdentity,
+            OciCiRunnerPool: ociCiRunnerPool,
+            InfrastructureNatsNKeyFile: infrastructureNatsNKeyFile,
+            InfrastructureNatsTls: infrastructureNatsTls,
+            AuthoritativeJournal: authoritativeJournal);
     }
-
-    private static string GetValue(
-        IReadOnlyDictionary<string, string> values,
-        string key,
-        string fallback) =>
-        values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
-            ? value
-            : fallback;
 
     private static void RejectUnownedCredentials(
         OrchestratorCommand command,

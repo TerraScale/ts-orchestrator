@@ -50,59 +50,9 @@ public sealed class McpWorkloadAdmissionTests
     private const string DefaultProbes =
         """["/health/live","/health/ready"]""";
 
-    [Test]
-    public async Task Admits_the_exact_qualified_artifact_with_the_closed_manifest_shape()
-    {
-        var decision = McpWorkloadAdmission.AdmitDocument(ManifestDocument(), Qualification);
-
-        await Assert.That(decision.Code).IsEqualTo(McpAdmissionCode.Admitted);
-        await Assert.That(McpWorkloadAdmission.AdmitManifest(Manifest(), Qualification).Code)
-            .IsEqualTo(McpAdmissionCode.Admitted);
-    }
-
-    [Test]
-    public async Task The_catalog_entry_is_closed_native_and_two_instance()
-    {
-        var descriptor = AdmittedRoleCatalog.Get(AdmittedRole.McpServer);
-
-        await Assert.That(descriptor.ArtifactKey).IsEqualTo("terrascale-mcp");
-        await Assert.That(descriptor.DefaultDriver).IsEqualTo(RuntimeDriver.NativeSystemd);
-        await Assert.That(descriptor.AllowedDrivers).DoesNotContain(RuntimeDriver.OciContainer);
-        await Assert.That(descriptor.MinimumReplicas).IsEqualTo(2);
-        await Assert.That(descriptor.OnePerHost).IsTrue();
-        await Assert.That(descriptor.Capabilities).Contains(RoleCapability.PublicHttp);
-        await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.McpServer, RuntimeDriver.OciContainer))
-            .Throws<InvalidOperationException>();
-    }
-
-    [Test]
-    public async Task The_catalog_pins_the_mcp_resource_ceiling_and_rejects_over_ceiling_requests()
-    {
-        // The ADR-0032 admission ceiling for the stateless HTTP gateway envelope.
-        var ceiling = RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer);
-        await Assert.That(ceiling).IsEqualTo(new RuntimeResourceLimits(
-            512L * 1024 * 1024, 256, 200, 400, 300, 0));
-        await Assert.That(ceiling.MemoryHighBytes).IsEqualTo(9 * ceiling.MemoryMaxBytes / 10);
-
-        // An at-ceiling request is admitted unchanged...
-        var atCeiling = RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer, new(
-            ceiling.MemoryMaxBytes, ceiling.TasksMax, ceiling.CpuQuotaPercent, ceiling.CpuWeight, ceiling.IoWeight, ceiling.Nice));
-        await Assert.That(atCeiling).IsEqualTo(ceiling);
-
-        // ...and every over-ceiling dimension is rejected before a plan exists.
-        await Assert.That(() => RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer, new(
-            ceiling.MemoryMaxBytes + 1, ceiling.TasksMax, ceiling.CpuQuotaPercent, ceiling.CpuWeight, ceiling.IoWeight, ceiling.Nice)))
-            .Throws<ArgumentOutOfRangeException>();
-        await Assert.That(() => RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer, new(
-            ceiling.MemoryMaxBytes, ceiling.TasksMax + 1, ceiling.CpuQuotaPercent, ceiling.CpuWeight, ceiling.IoWeight, ceiling.Nice)))
-            .Throws<ArgumentOutOfRangeException>();
-        await Assert.That(() => RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer, new(
-            ceiling.MemoryMaxBytes, ceiling.TasksMax, ceiling.CpuQuotaPercent + 1, ceiling.CpuWeight, ceiling.IoWeight, ceiling.Nice)))
-            .Throws<ArgumentOutOfRangeException>();
-        await Assert.That(() => RuntimeResourceLimitPolicy.For(AdmittedRole.McpServer, new(
-            ceiling.MemoryMaxBytes, ceiling.TasksMax, ceiling.CpuQuotaPercent, ceiling.CpuWeight + 1, ceiling.IoWeight, ceiling.Nice)))
-            .Throws<ArgumentOutOfRangeException>();
-    }
+    // TODO(p0-purity): the standalone AdmittedRole.McpServer catalog entry and its admission
+    // ceilings were removed with GOAL P0 (MCP serving is Dashboard-owned Streamable HTTP);
+    // revisit the placement ceilings when the Dashboard-owned MCP placement contract lands.
 
     [Test]
     public async Task A_typed_manifest_with_null_collections_is_rejected_not_thrown()

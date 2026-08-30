@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using TerraScale.Orchestrator.Development;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -212,7 +211,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             "--pids-limit", "128",
             "--memory", $"{ServerMemoryLimitMiB}m",
             "--volume", $"{Path.GetDirectoryName(fullConfiguration)!}:{Path.GetDirectoryName(fullConfiguration)!}:rw",
-            DevelopmentContainerImages.Nats,
+            TestContainerImages.Nats,
             "--config", fullConfiguration,
         };
         var startInfo = new ProcessStartInfo("podman")

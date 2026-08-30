@@ -92,7 +92,7 @@ public sealed class DeliveryRoleIdentityTests
     }
 
     [Test]
-    public async Task ProductionRefusesARequiredRoleWithoutItsOwnConfiguredIdentity()
+    public async Task RequiredRolesRefuseCompositionWithoutTheirOwnConfiguredIdentity()
     {
         if (!OperatingSystem.IsLinux()) return;
         var root = Root();
@@ -103,7 +103,6 @@ public sealed class DeliveryRoleIdentityTests
             var missingJob = await Assert.That(() => DeliveryRoleIdentityRuntime.Open(
                     null,
                     command,
-                    DirectDeliveryDeploymentMode.Production,
                     [DeliverySigningRole.CiJob]))
                 .Throws<InvalidOperationException>();
             await Assert.That(missingJob!.Message).Contains("TS_ORCH_CI_JOB_SIGNING_KEY_FILE");
@@ -111,7 +110,6 @@ public sealed class DeliveryRoleIdentityTests
             var missingArtifact = await Assert.That(() => DeliveryRoleIdentityRuntime.Open(
                     null,
                     command,
-                    DirectDeliveryDeploymentMode.Production,
                     [DeliverySigningRole.CiArtifact]))
                 .Throws<InvalidOperationException>();
             await Assert.That(missingArtifact!.Message)
@@ -122,12 +120,11 @@ public sealed class DeliveryRoleIdentityTests
             var missingRuntime = await Assert.That(() => DeliveryRoleIdentityRuntime.Open(
                     null,
                     command,
-                    DirectDeliveryDeploymentMode.Production,
                     [DeliverySigningRole.CiRuntime]))
                 .Throws<InvalidOperationException>();
             await Assert.That(missingRuntime!.Message).Contains("TS_ORCH_CI_RUNTIME_TRUST_KEY_FILES");
 
-            // Every role configured: production opens with all three distinct trust roots.
+            // Every role configured: composition opens with all three distinct trust roots.
             var config = DeliveryRoleIdentityConfiguration.Resolve(VariableMap(
                 KeyPair(root, "ci-job"),
                 KeyPair(root, "ci-artifact"),
@@ -135,33 +132,8 @@ public sealed class DeliveryRoleIdentityTests
             using var configured = DeliveryRoleIdentityRuntime.Open(
                 config,
                 command,
-                DirectDeliveryDeploymentMode.Production,
                 [DeliverySigningRole.CiJob, DeliverySigningRole.CiArtifact, DeliverySigningRole.CiRuntime]);
             await Assert.That(configured.CiJob!.Identity).IsNotEqualTo(configured.CiArtifact!.Identity);
-        }
-        finally
-        {
-            Cleanup(root);
-        }
-    }
-
-    [Test]
-    public async Task DevelopmentFallsBackToTheSharedCommandIdentityPerRole()
-    {
-        if (!OperatingSystem.IsLinux()) return;
-        var root = Root();
-        try
-        {
-            using var command = CommandIdentity(root, "command");
-            using var roles = DeliveryRoleIdentityRuntime.Open(
-                null,
-                command,
-                DirectDeliveryDeploymentMode.Development);
-
-            await Assert.That(roles.CiJob).IsEqualTo(command.Signer);
-            await Assert.That(roles.CiArtifact).IsEqualTo(command.Signer);
-            await Assert.That(roles.CiArtifactSignatures).IsEqualTo(command.Verifier);
-            await Assert.That(roles.CiRuntimeSignatures).IsEqualTo(command.Verifier);
         }
         finally
         {
@@ -193,8 +165,7 @@ public sealed class DeliveryRoleIdentityTests
             // runtime trust must not admit the job role's public key.
             var copiedMaterial = await Assert.That(() => DeliveryRoleIdentityRuntime.Open(
                     DeliveryRoleIdentityConfiguration.Resolve(VariableMap(job, artifact, job.Public)),
-                    null,
-                    DirectDeliveryDeploymentMode.Development))
+                    null))
                 .Throws<InvalidOperationException>();
             await Assert.That(copiedMaterial!.Message).Contains("distinct key material");
         }
@@ -213,15 +184,14 @@ public sealed class DeliveryRoleIdentityTests
         {
             using var command = CommandIdentity(root, "command");
             // A role key that IS the command signing key re-couples the base identity with the
-            // CI roles; the projection from roles to base must refuse it even in development.
+            // CI roles; the projection from roles to base must refuse it.
             var shared = (Path.Combine(root, "command.private.pem"), Path.Combine(root, "command.public.pem"));
             var artifact = KeyPair(root, "ci-artifact");
             var runtime = KeyPair(root, "ci-runtime");
 
             var violation = await Assert.That(() => DeliveryRoleIdentityRuntime.Open(
                     DeliveryRoleIdentityConfiguration.Resolve(VariableMap(shared, artifact, runtime.Public)),
-                    command,
-                    DirectDeliveryDeploymentMode.Development))
+                    command))
                 .Throws<InvalidOperationException>();
 
             await Assert.That(violation!.Message).Contains("the shared command identity");
@@ -272,7 +242,7 @@ public sealed class DeliveryRoleIdentityTests
                 KeyPair(root, artifact),
                 runtime.Public)),
             command,
-            DirectDeliveryDeploymentMode.Development)!;
+            [DeliverySigningRole.CiJob, DeliverySigningRole.CiArtifact, DeliverySigningRole.CiRuntime])!;
 
     private static Func<string, string?> VariableMap(
         (string Private, string Public) job,

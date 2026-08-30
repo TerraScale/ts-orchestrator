@@ -100,35 +100,16 @@ public static class McpRouteContract
 }
 
 /// <summary>
-/// The Orchestrator-owned listener and development reservations for the MCP workload. The
-/// workload binds one fixed host-local HTTP port; the development lane is the GRU loopback
-/// reservation that DevHost republishes as fixed tailnet HTTPS.
+/// The Orchestrator-owned listener reservation for the MCP workload. The workload binds one
+/// fixed host-local HTTP port recorded in the typed manifest.
 /// </summary>
 public static class McpWorkloadPorts
 {
     /// <summary>
-    /// The single admitted host-local HTTP listener port. Development binds the reserved GRU
-    /// loopback listener http://127.0.0.1:18675; a distinct production port may be assigned
-    /// only through an ADR-0032 catalog change after deployment qualification.
+    /// The single admitted host-local HTTP listener port. A distinct port may be assigned only
+    /// through an ADR-0032 catalog change after deployment qualification.
     /// </summary>
     public const int HttpListenerPort = 18675;
-}
-
-/// <summary>The development-lane reservations the Orchestrator owns for the MCP workload.</summary>
-public static class McpDevelopmentContract
-{
-    /// <summary>The development resource key reserved for the MCP HTTP workload.</summary>
-    public const string ResourceKey = "mcp";
-
-    /// <summary>The reserved GRU public loopback listener of the MCP HTTP workload.</summary>
-    public const string GruLoopbackListener = "http://127.0.0.1:18675";
-
-    /// <summary>
-    /// The fixed DevHost tailnet HTTPS port that republishes the MCP loopback listener. Port
-    /// 18451 stays reserved as legacy cleanup-only (the retired Stripe emulator) and is never
-    /// reassigned to MCP.
-    /// </summary>
-    public const int DevHostTailnetHttpsPort = 18452;
 }
 
 /// <summary>

@@ -1,6 +1,5 @@
 using NATS.Client.Core;
 using TerraScale.Orchestrator;
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
@@ -59,21 +58,6 @@ try
         args,
         ResolvedEnvironment);
     var startupPlan = OrchestratorRuntimeComposition.Plan(options);
-    // Composition-level deployment mode for the direct-delivery provenance boundary: callers
-    // must never select trust per request, so it is read from configuration once at startup.
-    // Composition-level deployment mode for the direct-delivery provenance boundary: callers
-    // must never select trust per request, so it is read from configuration once at startup.
-    // An unrecognized non-empty value fails closed instead of silently degrading to development:
-    // this setting selects a trust posture, so "prod" must never run as Development.
-    var deliveryDeploymentModeRaw = (ResolvedEnvironment("TS_ORCH_DELIVERY_DEPLOYMENT_MODE") ?? string.Empty).Trim();
-    var deliveryDeploymentMode = deliveryDeploymentModeRaw.Length == 0
-        ? TerraScale.Orchestrator.Delivery.DirectDeliveryDeploymentMode.Development
-        : deliveryDeploymentModeRaw.Equals("development", StringComparison.OrdinalIgnoreCase)
-            ? TerraScale.Orchestrator.Delivery.DirectDeliveryDeploymentMode.Development
-            : deliveryDeploymentModeRaw.Equals("production", StringComparison.OrdinalIgnoreCase)
-                ? TerraScale.Orchestrator.Delivery.DirectDeliveryDeploymentMode.Production
-                : throw new ArgumentException(
-                    $"TS_ORCH_DELIVERY_DEPLOYMENT_MODE must be 'development' or 'production', not '{deliveryDeploymentModeRaw}'.");
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.
     TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null;
@@ -81,10 +65,6 @@ try
     if (!string.IsNullOrWhiteSpace(admittedDeliveryTargetEntries))
         admittedDeliveryTargets = TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets.Parse(
             admittedDeliveryTargetEntries.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-    if (options.Command is OrchestratorCommand.Lab)
-    {
-        return await DevelopmentLab.ExecuteAsync(options, shutdown.Token);
-    }
     if (options.Command is OrchestratorCommand.Catalog)
     {
         var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -121,7 +101,6 @@ try
     using var ciRoleIdentities = TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityRuntime.Open(
         TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityConfiguration.Resolve(ResolvedEnvironment),
         commandIdentity,
-        deliveryDeploymentMode,
         ProductionCiRoles(options, startupPlan));
     using var ciRunnerNatsIdentity = options.CiRunnerNatsIdentity?.Open();
     using var telemetry = OrchestratorTelemetry.Start(options, ResolvedEnvironment);
@@ -137,7 +116,6 @@ try
             options,
             shutdown.Token,
             commandIdentity?.Verifier,
-            deliveryDeploymentMode,
             startupPlan.RegistersDirectDeliveryEndpoint,
             admittedDeliveryTargets,
             ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier);
@@ -197,7 +175,6 @@ try
                     commandIdentity?.Signer,
                     verifier is not null,
                     ciConsumptionEnabled: startupPlan.StartsCiConsumption,
-                    deliveryDeploymentMode: deliveryDeploymentMode,
                     admittedDeliveryTargets: admittedDeliveryTargets);
                 if (globalRuntime is not null && options.Command is OrchestratorCommand.Run &&
                     NativeGitOpsRuntime.IsEnabled(

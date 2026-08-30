@@ -410,7 +410,7 @@ public sealed class DirectDeliveryTests
     public async Task Production_targets_fail_closed_without_a_production_provenance_binding()
     {
         var coordinator = Coordinator(new RecordingTarget(), new InMemoryDeliveryJournal(),
-            provenance: new DirectDeliveryDevelopmentProvenance());
+            provenance: new ProvenanceVerifier(verified: false));
 
         var receipt = await coordinator.DeliverAsync(Request() with
         {

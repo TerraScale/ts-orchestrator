@@ -8,7 +8,6 @@ using NATS.Client.JetStream.Models;
 using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
 using NATS.Net;
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol.Messaging;
 
@@ -128,7 +127,7 @@ public sealed class NatsGatewayR1PartitionTests
         var declaredStartupMiB = fixture.ServerNames.Count * NatsGatewayR1ContainerPlane.ServerMemoryLimitMiB;
         await Assert.That(declaredStartupMiB).IsEqualTo(768);
         await Assert.That((long)declaredStartupMiB * 1024 * 1024)
-            .IsLessThanOrEqualTo(DevelopmentProcessSupervisor.PodMemoryLimitBytes);
+            .IsLessThanOrEqualTo(TestValidationLimits.PodMemoryLimitBytes);
 
         // Long-lived participants: the GRU directory service (the approved
         // cross-mesh exchange), the SFO local status service, and the one

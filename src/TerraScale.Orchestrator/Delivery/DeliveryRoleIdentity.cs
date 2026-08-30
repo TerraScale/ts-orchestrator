@@ -30,10 +30,10 @@ public enum DeliverySigningRole
 /// <summary>
 /// Composition-level sources for per-role CI/delivery signing identities. Follows the command
 /// identity pattern: bounded file references resolved once at startup, never per request. A
-/// role without configured sources falls back to the shared command identity — allowed only
-/// outside production composition, where <see cref="DeliveryRoleIdentityRuntime.Open"/> fails
-/// closed instead (one shared identity across roles is exactly the compromise-amplification
-/// this configuration exists to remove).
+/// role this composition actually uses must have its own configured sources:
+/// <see cref="DeliveryRoleIdentityRuntime.Open"/> fails closed when it does not (one shared
+/// identity across roles is exactly the compromise-amplification this configuration exists to
+/// remove).
 /// </summary>
 public sealed class DeliveryRoleIdentityConfiguration
 {
@@ -113,9 +113,10 @@ public sealed class DeliveryRoleIdentityConfiguration
 }
 
 /// <summary>
-/// The opened per-role signers and verifiers for one process lifetime. Roles without configured
-/// sources fall back to the shared command identity; the fallback instances stay owned by the
-/// caller's command identity runtime and are never disposed here.
+/// The opened per-role signers and verifiers for one process lifetime. Every composed role must
+/// be configured; an uncomposed slot falls back to the shared command identity only until
+/// composition names it, and the fallback instances stay owned by the caller's command identity
+/// runtime and are never disposed here.
 /// </summary>
 internal sealed class DeliveryRoleIdentityRuntime : IDisposable
 {
@@ -143,7 +144,6 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
     internal static DeliveryRoleIdentityRuntime Open(
         DeliveryRoleIdentityConfiguration? configuration,
         CommandIdentityRuntime? fallback,
-        DirectDeliveryDeploymentMode mode,
         IReadOnlyCollection<DeliverySigningRole>? requiredRoles = null)
     {
         requiredRoles ??= [];
@@ -164,9 +164,10 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
             if (configuration is { CiRuntimeTrustKeyFiles.Count: > 0 })
                 Track(owned, ref ciRuntimeSignatures,
                     EcdsaCommandSignatureVerifier.LoadPublicPem(configuration.CiRuntimeTrustKeyFiles));
-            if (mode == DirectDeliveryDeploymentMode.Production)
-                foreach (var role in requiredRoles)
-                    RequireConfigured(role, configuration);
+            // Per-role key independence is unconditional: every role this composition
+            // composes must carry its own configured key material, never a shared fallback.
+            foreach (var role in requiredRoles)
+                RequireConfigured(role, configuration);
             EnsureDistinctMaterial(configuration, fallback);
             return new DeliveryRoleIdentityRuntime(
                 owned,
@@ -195,9 +196,9 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
     }
 
     /// <summary>
-    /// Production composition refuses the shared-identity fallback for a role it actually
-    /// composes: the fallback re-couples every role's trust root, which is the exact shape this
-    /// configuration removes.
+    /// Composition refuses the shared-identity fallback for a role it actually composes: the
+    /// fallback re-couples every role's trust root, which is the exact shape this configuration
+    /// removes.
     /// </summary>
     private static void RequireConfigured(
         DeliverySigningRole role,
@@ -208,14 +209,14 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
             case DeliverySigningRole.CiJob:
                 if (configuration?.CiJobSigningKeyFile is null)
                     throw new InvalidOperationException(
-                        $"Production requires {DeliveryRoleIdentityConfiguration.CiJobSigningKeyFileVariable} " +
+                        $"This composition requires {DeliveryRoleIdentityConfiguration.CiJobSigningKeyFileVariable} " +
                         "for the CI job signing role; the shared command identity is not admitted for it.");
                 break;
             case DeliverySigningRole.CiArtifact:
                 if (configuration?.CiArtifactSigningKeyFile is null ||
                     configuration.CiArtifactTrustKeyFiles.Count == 0)
                     throw new InvalidOperationException(
-                        $"Production requires {DeliveryRoleIdentityConfiguration.CiArtifactSigningKeyFileVariable} " +
+                        $"This composition requires {DeliveryRoleIdentityConfiguration.CiArtifactSigningKeyFileVariable} " +
                         $"and {DeliveryRoleIdentityConfiguration.CiArtifactTrustKeyFilesVariable} for the CI " +
                         "artifact attestation and delivery-evidence role; the shared command identity is not " +
                         "admitted for it.");
@@ -223,7 +224,7 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
             case DeliverySigningRole.CiRuntime:
                 if (configuration?.CiRuntimeTrustKeyFiles.Count is not > 0)
                     throw new InvalidOperationException(
-                        $"Production requires {DeliveryRoleIdentityConfiguration.CiRuntimeTrustKeyFilesVariable} " +
+                        $"This composition requires {DeliveryRoleIdentityConfiguration.CiRuntimeTrustKeyFilesVariable} " +
                         "for the native runtime-observation verification role; the shared command identity is " +
                         "not admitted for it.");
                 break;

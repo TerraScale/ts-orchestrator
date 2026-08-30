@@ -1,10 +1,13 @@
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Tests;
 
 public sealed class AdmittedRoleCatalogTests
 {
+    // TODO(rehome-agent): EveryProductionShapedDevelopmentResourceProjectsToTheClosedCatalog was
+    // removed with the production Development/ lab fixtures; rehome a role-projection completeness
+    // check onto a test-owned topology fixture.
+
     [Test]
     public async Task CatalogIsClosedCompleteAndUsesProductionRuntimeDefaults()
     {
@@ -13,11 +16,9 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo(AdmittedRoleCatalog.All.Count);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.TerraBaseMember).DefaultDriver)
             .IsEqualTo(RuntimeDriver.NativeSystemd);
-        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Platform).DefaultDriver)
-            .IsEqualTo(RuntimeDriver.OciContainer);
-        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).DefaultDriver)
-            .IsEqualTo(RuntimeDriver.OciContainer);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.CustomerDashboard).DefaultDriver)
+            .IsEqualTo(RuntimeDriver.OciContainer);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Grafana).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.ControlNatsServer).MinimumReplicas).IsEqualTo(3);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.ProductNatsServer).MinimumReplicas).IsEqualTo(3);
@@ -29,24 +30,11 @@ public sealed class AdmittedRoleCatalogTests
     [Test]
     public async Task DriverAdmissionRejectsAnUnapprovedRuntime()
     {
-        await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Platform, RuntimeDriver.NativeSystemd))
+        await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Grafana, RuntimeDriver.NativeSystemd))
             .Throws<InvalidOperationException>();
         await Assert.That(() => AdmittedRoleCatalog.Admit(AdmittedRole.Orchestrator, RuntimeDriver.OciContainer))
             .Throws<InvalidOperationException>();
         await Assert.That(AdmittedRoleCatalog.Admit(AdmittedRole.TerraBaseMember, RuntimeDriver.OciContainer).Role)
             .IsEqualTo(AdmittedRole.TerraBaseMember);
-    }
-
-    [Test]
-    public async Task EveryProductionShapedDevelopmentResourceProjectsToTheClosedCatalog()
-    {
-        var resources = DevelopmentTopology.CreateRegional().Cells.SelectMany(cell => cell.Resources).ToArray();
-
-        await Assert.That(resources.All(resource => DevelopmentRoleProjection.Get(resource.Kind) is not null)).IsTrue();
-        foreach (var resource in resources)
-        {
-            var descriptor = DevelopmentRoleProjection.Get(resource.Kind)!;
-            await Assert.That(AdmittedRoleCatalog.Get(descriptor.Role)).IsEqualTo(descriptor);
-        }
     }
 }

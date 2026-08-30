@@ -94,25 +94,25 @@ public sealed class DirectDeliveryProductionAdapterTests
     }
 
     [Test]
-    public async Task Production_adapter_composition_fails_closed_without_configuration()
+    public async Task Adapter_composition_fails_closed_without_configuration()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var trust = new HashSignature(1);
 
         await Assert.That(() => DirectDeliveryRuntimeAdapterSet.Create(
-                ledger, DirectDeliveryDeploymentMode.Production,
+                ledger,
                 static () => true, static _ => true,
                 admittedTargets: null, evidenceVerifier: trust))
             .Throws<InvalidOperationException>();
         await Assert.That(() => DirectDeliveryRuntimeAdapterSet.Create(
-                ledger, DirectDeliveryDeploymentMode.Production,
+                ledger,
                 static () => true, static _ => true,
                 admittedTargets: Targets(), evidenceVerifier: null))
             .Throws<InvalidOperationException>();
-        var development = DirectDeliveryRuntimeAdapterSet.Create(
-            ledger, DirectDeliveryDeploymentMode.Development,
+        var composed = DirectDeliveryRuntimeAdapterSet.Create(
+            ledger,
             static () => true, static _ => true, Targets(), trust);
-        await Assert.That(development.ArtifactBuilder).IsNotNull();
+        await Assert.That(composed.ArtifactBuilder).IsNull();
     }
 
     [Test]
@@ -215,7 +215,7 @@ public sealed class DirectDeliveryProductionAdapterTests
         var mutations = ledger.Mutations;
         var coordinator = new DirectDeliveryService(
             new AllowAuthorizer(),
-            new DirectDeliveryDevelopmentProvenance(),
+            new AllowProvenance(),
             new FixedResolver(new FencedTarget()),
             new NatsDirectDeliveryJournal(new LedgerAdapter(ledger)),
             auditIdFactory: static () => "audit-test");
@@ -245,7 +245,7 @@ public sealed class DirectDeliveryProductionAdapterTests
         target.Seed("sfo", PreviousArtifactDigest, PreviousManifestDigest);
         var coordinator = new DirectDeliveryService(
             new AllowAuthorizer(),
-            new DirectDeliveryDevelopmentProvenance(),
+            new AllowProvenance(),
             new FixedResolver(target),
             new NatsDirectDeliveryJournal(new LedgerAdapter(ledger)),
             auditIdFactory: static () => "audit-test");
@@ -827,21 +827,20 @@ public sealed class DirectDeliveryProductionAdapterTests
 
         await Assert.That(empty.IsEmpty).IsTrue();
         await Assert.That(() => DirectDeliveryRuntimeAdapterSet.Create(
-                new LedgerAdapter(ledger), DirectDeliveryDeploymentMode.Production,
+                new LedgerAdapter(ledger),
                 static () => true, static _ => true,
                 empty, new HashSignature(1)))
             .Throws<InvalidOperationException>();
     }
 
     [Test]
-    public async Task Production_has_no_artifact_builder_and_refuses_source_only_requests()
+    public async Task Composition_has_no_artifact_builder_and_refuses_source_only_requests()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
         var trust = new HashSignature(1);
         var (authorizer, provenance, targetResolver, journal, artifactBuilder) =
             DirectDeliveryRuntimeAdapterSet.Create(
                 new LedgerAdapter(ledger),
-                DirectDeliveryDeploymentMode.Production,
                 static () => true,
                 static _ => true,
                 Targets(),
@@ -866,7 +865,6 @@ public sealed class DirectDeliveryProductionAdapterTests
         var (authorizer, provenance, targetResolver, journal, artifactBuilder) =
             DirectDeliveryRuntimeAdapterSet.Create(
                 new LedgerAdapter(ledger),
-                DirectDeliveryDeploymentMode.Production,
                 static () => true,
                 static _ => true,
                 Targets(),
@@ -955,10 +953,10 @@ public sealed class DirectDeliveryProductionAdapterTests
     private const string AltPreviousArtifactDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
     private const string AltPreviousManifestDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 
-    /// <summary>Builds the coordinator over the real durable journal with development-grade boundaries.</summary>
+    /// <summary>Builds the coordinator over the real durable journal with test-owned boundaries.</summary>
     private static DirectDeliveryService CoordinatorOver(IForgejoDeliveryLedger ledger, IDeliveryTarget target) => new(
         new AllowAuthorizer(),
-        new DirectDeliveryDevelopmentProvenance(),
+        new AllowProvenance(),
         new FixedResolver(target),
         new NatsDirectDeliveryJournal(ledger),
         auditIdFactory: static () => "audit-test");
@@ -1064,13 +1062,27 @@ public sealed class DirectDeliveryProductionAdapterTests
             ledger.UpdateAsync(key, value, revision, cancellationToken);
     }
 
-    /// <summary>An always-authorizing development authorizer for journal-integration scenarios.</summary>
+    /// <summary>An always-authorizing test authorizer for journal-integration scenarios.</summary>
     private sealed class AllowAuthorizer : IDeliveryAuthorizer
     {
         public ValueTask<DeliveryAuthorizationResult> AuthorizeAsync(
             DeliveryRequest request,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(new DeliveryAuthorizationResult(true));
+    }
+
+    /// <summary>An always-verifying test provenance fake for journal-integration scenarios.</summary>
+    private sealed class AllowProvenance : IDeliveryProvenanceVerifier
+    {
+        public ValueTask<DeliveryProvenanceResult> VerifyAsync(
+            DeliveryRequest request,
+            DeliveryArtifact artifact,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new DeliveryProvenanceResult(
+                true,
+                false,
+                request.ConfigurationRevision,
+                request.MigrationRevision));
     }
 
     /// <summary>Resolves one fixed target for journal-integration scenarios.</summary>

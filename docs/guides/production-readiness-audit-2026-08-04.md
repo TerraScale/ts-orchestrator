@@ -3,7 +3,9 @@
 > Historical audit of the architecture implemented on 2026-08-04. It is useful
 > for code and evidence gaps, but its R3 TerraBase, dual-NATS, Platform,
 > Authentication, MagicOnion, and old placement assumptions are superseded by
-> the current architecture.
+> the current architecture. Its development-lane references describe surfaces
+> deleted by the repository `GOAL.md` P0 purity sweep on 2026-08-29; they are
+> records of what the audit reviewed, not available tooling.
 
 Date: 2026-08-04
 Scope: `TerraScale.Orchestrator` on `develop`, including only its owned production-control-plane concerns. Retired Kubernetes/Flux repositories were not used or modified.
@@ -21,7 +23,7 @@ No secret material or Polar credential was read, printed, or changed during this
 - Normative architecture and invariants: [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md), especially the regional-autonomy, dual-NATS, mTLS, native GitOps, Phase 0–10, and production-gate sections.
 - Current entry points and runtime configuration: `Program.cs`, `OrchestratorOptions.cs`, `Messaging/NatsRuntime.cs`, `Messaging/GlobalNatsRuntime.cs`, and `Operations/OperatorCli.cs`.
 - Pure decision domains and their test suites: authority, operations, scheduling, provider ownership, storage, TerraBase, identity, delivery, observability, networking, runtime, evidence, protocol, and deterministic models.
-- Development integration implementation: `Development/*`, including the rootless DevHost/lab, generated development PKI, NATS topology, and workload wiring.
+- Development integration implementation: the former `Development/*` rootless local lab, generated development PKI, NATS topology, and workload wiring (deleted 2026-08-29 by the GOAL P0 sweep).
 - Delivery/CI: `.terrascale/ci-v2.json`, `.terrascale/ci.Dockerfile`, Forgejo source/webhook handling, CI runner isolation, and signed GitOps handoff journals.
 
 ## Capability map

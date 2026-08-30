@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using TerraScale.Orchestrator.Development;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -89,7 +88,7 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
                      "--pids-limit", "128",
                      "--memory", "256m",
                      "--volume", $"{root}:{root}:rw",
-                     DevelopmentContainerImages.Nats,
+                     TestContainerImages.Nats,
                      "--config", fullConfiguration,
                  })
             startInfo.ArgumentList.Add(argument);

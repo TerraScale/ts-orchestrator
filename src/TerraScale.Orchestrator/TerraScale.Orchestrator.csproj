@@ -15,4 +15,8 @@
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="ZString" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Protocol/protocol-manifest.json"
+                      LogicalName="TerraScale.Orchestrator.Protocol.protocol-manifest.json" />
+  </ItemGroup>
 </Project>

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace TerraScale.Orchestrator.Development;
+namespace TerraScale.Orchestrator.Tooling;
 
 /// <summary>
 /// Serializes product development topologies only within the same operating-system named-mutex namespace.

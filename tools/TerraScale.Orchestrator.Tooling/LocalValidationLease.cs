@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace TerraScale.Orchestrator.Development;
+namespace TerraScale.Orchestrator.Tooling;
 
 internal sealed class LocalValidationLease : IDisposable
 {

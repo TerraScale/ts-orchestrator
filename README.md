@@ -5,10 +5,10 @@ infrastructure owner. It schedules trusted product workloads and tenant
 compute, manages Regions and hosts, admits immutable releases, and orchestrates
 TerraBase placement and repair.
 
-The current architecture is defined in
-[`docs/architecture/orchestrator.md`](docs/architecture/orchestrator.md) and the
-workspace [`GOAL.md`](../GOAL.md). Older phase records document implemented
-contracts and evidence. They do not override the current architecture.
+The current architecture is defined in the repository
+[`GOAL.md`](GOAL.md), [ADR 0033](docs/adr/0033-gru-global-authority-and-regional-autonomy.md),
+and the workspace [`GOAL.md`](../GOAL.md). Older phase records document
+implemented contracts and evidence. They do not override the current goal.
 
 ## Product boundary
 
@@ -21,7 +21,8 @@ Orchestrator owns:
 - customer database placement intent;
 - repair and rebalance orchestration;
 - Dashboard and Database API global deployment;
-- immutable delivery, admission, promotion, and rollback; and
+- immutable regional blue-green delivery, admission, promotion, and rollback;
+  and
 - cloud, storage-provider, and internal observability infrastructure.
 
 Orchestrator does not own:
@@ -44,7 +45,7 @@ The active product roles are:
 
 Dashboard uses `@terrascale/sdk` and public TerraScale APIs like any customer
 Project. It never connects directly to TerraBase or TBEP. Database API alone
-uses generated MessagePack TBEP over QUIC with mutual TLS to TerraBase,
+uses generated FlatBuffers TBEP over QUIC with mutual TLS to TerraBase,
 including on the same host.
 
 The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
@@ -71,16 +72,17 @@ owner, or permanent coordinator.
 
 ## NATS boundary
 
-NATS is a replaceable control adapter. It may simplify accepted configuration,
-discovery, durable control work, and operational event distribution. It never
+NATS JetStream R3 is the selected Orchestrator consensus and authoritative
+control-state system. Regional domains form a gateway-connected supercluster
+and continue safe work during GRU loss. NATS never
 carries TerraBase documents, WAL records, CRDT deltas, replication frames,
 query results, client sync traffic, or usage truth. NATS availability never
 decides whether a database write committed or whether replicas converged.
 
 Existing serving Regions must continue reads, eligible writes, replication,
 repair, and client reconnect recovery when Orchestrator or NATS is unavailable.
-If NATS no longer meets the control plane's safety, isolation, performance, or
-operational needs, replace it behind typed contracts.
+Replacing NATS requires a new goal and ADR. It cannot become part of TerraBase
+correctness or a customer request path.
 
 ## Noisy-neighbor protection
 
@@ -136,13 +138,15 @@ not permission to retain the old product architecture.
 
 Current facts:
 
-- `run` and `check` require JetStream-enabled NATS because their adapters have
-  not yet been replaced or made optional;
+- `run` and `check` use the earlier NATS adapter and have not migrated to the
+  accepted `ts.orch.v2` global and regional domains;
 - regional and global control journals, discovery, delivery, and native GitOps
   currently use typed NATS resources;
 - some typed policies and tests still model an R3 control journal and the old
   first-party roles;
-- local development wiring still reflects the previous service set; and
+- the production project still contains the legacy `Development/` composition,
+  local product supervision, development NATS and PKI, and related tests that
+  the production goal requires P0 to delete; and
 - the repository has no production deployment authority until its exact
   qualification gates pass.
 
@@ -154,9 +158,12 @@ Migration work must preserve durable control history and fail closed while it:
 3. changes TerraBase production placement to RF=2 per selected Region;
 4. removes UDS and HTTP engine paths in favor of QUIC TBEP with mutual TLS;
 5. removes the standalone Authentication, Payments, Platform, and MCP roles;
-6. makes NATS optional and replaceable where it provides no net benefit; and
-7. updates DevHost, delivery manifests, routes, credentials, SDK contracts,
-   tests, and receipts as one cutover.
+6. migrates v1 NATS resources to the mandatory `ts.orch.v2` global and regional
+   control domains without putting NATS in TerraBase correctness; and
+7. deletes the complete production `Development/` namespace, `dev` runtime
+   mode, local product composition, development NATS and PKI, development
+   credentials and routes, fake-provider runtime registration, and every
+   related production dependency.
 
 Until a migration item lands, current commands describe current code only. New
 features and documentation must target the accepted architecture.
@@ -168,12 +175,6 @@ dotnet restore TerraScale.Orchestrator.slnx --locked-mode --disable-parallel
 dotnet build TerraScale.Orchestrator.slnx --no-restore --maxcpucount:1
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
 ```
-
-The exact-tree `development-attest` command builds once, runs the five TUnit
-executables sequentially with at most four active tests per module, and then
-runs policy tooling. A repository-wide lease prevents overlap with the Podman
-lab. The run must stay under the 20 GiB owned-process ceiling so the 24 GiB
-development host retains 4 GiB for the operating system and tools.
 
 ```bash
 dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
@@ -212,25 +213,30 @@ metrics, NATS, fixtures, or receipts.
 The current adapter supports Infisical Universal Auth for secret references.
 Explicit typed configuration wins over fetched configuration. The runtime
 materializes file-valued secrets into owner-private temporary files and removes
-them on shutdown. Plain HTTP is allowed only for a loopback development
-Infisical endpoint.
+them on shutdown. Production secret retrieval uses authenticated TLS. A
+development-only transport or secret default is not part of the target runtime.
 
-## DevHost topology
+## Production repository boundary
 
-The development lab remains one always-on GRU/SFO/FRA topology at RF=1.
-Profile switches and reduced topologies are forbidden. RF=1 proves routing,
-causal catch-up, and convergence. It cannot prove production RF=2 durability or
-Member-loss behavior.
+The target production solution and artifact contain no embedded development
+host, `dev` runtime mode, local product composition, development NATS bootstrap,
+development PKI or credentials, fixed lab route, local Podman supervisor,
+development-host-specific fixture, or fake-provider runtime registration. Generic fakes
+and process fixtures may exist only in test or tooling projects with no
+production reference. The current legacy implementation is migration debt, not
+a supported Orchestrator feature.
 
-Dashboard keeps fixed tailnet HTTPS port `18446`. The legacy Authentication
-route remains on `18445` only until Better Auth cutover. Database API needs a
-fixed tailnet and loopback route chosen after collision checks and owner
-approval, then recorded atomically in DevHost, Orchestrator, SDKs, and public
-documentation. Do not use an unapproved floating port.
+Production releases use regional blue-green. Each Region starts a complete
+green generation beside unchanged blue, runs minimum-health, dependency,
+authorization, isolation, routing, synthetic customer-journey, and rollback
+tests, then switches traffic through one durable routing generation. Failure
+before cutover removes only green. Blue remains available through the rollback
+window. TerraBase applies the same replacement-before-removal invariant through
+surge Members and accepted membership, not a second writable cluster.
 
 ## Validation limits
 
-Pure tests and the local lab do not prove:
+Pure tests and test-owned fixtures do not prove:
 
 - production systemd, containerd, cloud, or provider storage;
 - remote mutual TLS and certificate rotation;
@@ -246,14 +252,15 @@ runtime and the benchmark authority.
 
 ## Documentation map
 
-- [Current architecture](docs/architecture/orchestrator.md)
+- [Production goal](GOAL.md)
+- [Accepted authority ADR](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
 - [Direct delivery runbook](docs/runbooks/direct-delivery.md)
+- [Superseded architecture record](docs/architecture/orchestrator.md)
 - [Historical phase contract record](docs/guides/phase1-contracts.md)
 - [Historical owner decisions](docs/decisions/README.md)
 
 Historical ADRs, phase records, and evidence remain immutable context unless a
 correction notice says otherwise. A current design must not cite them as
-authority when they conflict with the workspace `GOAL.md` or the current
-architecture document.
+authority when they conflict with the workspace or repository `GOAL.md`.

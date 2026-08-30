@@ -340,7 +340,7 @@ public static class NatsCapabilityMatrix
             "$JS.FC grants are granted only to identities that own the consuming stream/bucket; the global authority never receives durable/pull/ack shapes for watch-only buckets.",
             "A stalled consumer that stops answering flow control is marked slow and surfaced, never silently dropped.",
             "Slow-consumer advisories and outstanding flow-control latency per consumer.",
-            "Explicit $JS.FC permission grants in GlobalNatsPermissions and DevelopmentNatsCluster ACLs."),
+            "Explicit $JS.FC permission grants in GlobalNatsPermissions; the GlobalNatsAccessContract account model grants them only to the owning stream or bucket identity."),
         Accept(
             NatsCapability.KeyValueCasAndWatch,
             NatsCapabilityOwner.RegionalControlRuntime,
@@ -370,7 +370,7 @@ public static class NatsCapabilityMatrix
             "Hard namespaces: system, global authority, global directory, regional control, CI, audit/export, operator, product, test; capability determines the account, never caller-supplied credentials.",
             "An identity in the wrong account simply lacks permissions; cross-plane authorization is structurally impossible.",
             "Account-scoped auth failures and permission denials feed security alerts.",
-            "GlobalNatsAccountNames and GlobalNatsAccessContract account split; distinct control/product planes in DevelopmentNatsSecurity."),
+            "GlobalNatsAccountNames and GlobalNatsAccessContract account split; distinct control/product planes in the NatsSubjectTaxonomy account model."),
         Defer(
             NatsCapability.Jwts,
             NatsCapabilityOwner.SecurityAndIdentity,
@@ -384,7 +384,7 @@ public static class NatsCapabilityMatrix
             "NKey authentication for controllers, writer, infrastructure, directory, and operator identities; every command rejects every NATS credential family it does not own before file resolution.",
             "Anonymous connections must be denied (startup verifies); a missing NKey fails closed.",
             "Authentication failure counts by identity family; anonymous-denial verification at startup.",
-            "OrchestratorOptions.NatsNKeyFile, NatsRuntime.VerifyAnonymousDeniedAsync, CiRunnerNatsCredentialIssuer, DevelopmentNatsSecurity identity separation."),
+            "OrchestratorOptions.NatsNKeyFile, NatsRuntime.VerifyAnonymousDeniedAsync, CiRunnerNatsCredentialIssuer, GlobalNatsAccessContract identity separation."),
         Accept(
             NatsCapability.Mtls,
             NatsCapabilityOwner.SecurityAndIdentity,
@@ -394,7 +394,7 @@ public static class NatsCapabilityMatrix
             "mTLS proves machine/workload transport identity for clients, routes, and gateways; it never replaces NKey/JWT authorization; global endpoints require absolute tls:// URLs.",
             "TLS failure is a startup/connection failure; no plaintext fallback path exists.",
             "Certificate expiry freshness, handshake failures, and per-endpoint TLS mode.",
-            "NatsRuntime NatsTlsOpts Require mode; NatsTlsFiles; DevelopmentNatsCluster TLS config for clients, routes, and clusters."),
+            "NatsRuntime NatsTlsOpts Require mode; NatsTlsFiles; infrastructure mTLS required by NatsOperationJournalProvisioner."),
         Accept(
             NatsCapability.ImportsAndExports,
             NatsCapabilityOwner.SecurityAndIdentity,
@@ -444,7 +444,7 @@ public static class NatsCapabilityMatrix
             "Snapshots carry a signed stream position and schema version; restore replays from that position and refuses an older snapshot over a newer accepted epoch; journal KV stores deny snapshot/restore APIs to controllers.",
             "Restore never regresses accepted epochs; product data never enters control backups and control state never enters product backups.",
             "Snapshot freshness, restore attempts, and refusal counts by reason.",
-            "SignedSnapshot/SnapshotRestore pure core; journal snapshot/restore denials in DevelopmentNatsCluster ACLs; stream/KV snapshot-restore exercise is an L0C gate."),
+            "SignedSnapshot/SnapshotRestore pure core; journal stores provisioned by NatsOperationJournalProvisioner with snapshot/restore APIs denied to controllers; stream/KV snapshot-restore exercise is an L0C gate."),
         Accept(
             NatsCapability.RollingCompatibility,
             NatsCapabilityOwner.MessagingContracts,

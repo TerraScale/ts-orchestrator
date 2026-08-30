@@ -1,12 +1,9 @@
 using System.Collections.Frozen;
-using TerraScale.Orchestrator.Runtime.Mcp;
 
 namespace TerraScale.Orchestrator.Runtime;
 
 public enum AdmittedRole
 {
-    Platform,
-    Authentication,
     CustomerDashboard,
     TerraBaseMember,
     Orchestrator,
@@ -23,8 +20,7 @@ public enum AdmittedRole
     VpnCoordinationRelay,
     RoutePolicyController,
     CiRunner,
-    JournalWriter,
-    McpServer
+    JournalWriter
 }
 
 public enum RuntimeDriver
@@ -84,8 +80,6 @@ public static class AdmittedRoleCatalog
 
     private static IEnumerable<AdmittedRoleDescriptor> CreateDescriptors()
     {
-        yield return Oci(AdmittedRole.Platform, "terrascale-platform", RoleCapability.PublicHttp);
-        yield return Oci(AdmittedRole.Authentication, "terrascale-authentication", RoleCapability.PublicHttp);
         yield return Oci(AdmittedRole.CustomerDashboard, "terrascale-dashboard", RoleCapability.PublicHttp);
         yield return Both(
             AdmittedRole.TerraBaseMember,
@@ -124,16 +118,6 @@ public static class AdmittedRoleCatalog
         yield return Native(AdmittedRole.RoutePolicyController, "terrascale-route-policy", false, 1, RoleCapability.RoutePolicy);
         yield return Oci(AdmittedRole.CiRunner, "terrascale-ci-runner", RoleCapability.IsolatedBuild);
         yield return Native(AdmittedRole.JournalWriter, "terrascale-orchestrator", true, 3, RoleCapability.ControlMessaging);
-        // ADR 0032: the stateless MCP product workload. Native systemd because the qualified
-        // artifact is a digest-bound self-contained HTTP executable, one instance per host, two
-        // instances across independent failure domains. No payment-provider role exists here
-        // or anywhere in this catalog.
-        yield return Native(
-            AdmittedRole.McpServer,
-            "terrascale-mcp",
-            onePerHost: true,
-            minimumReplicas: McpPlacementContract.MinimumInstances,
-            RoleCapability.PublicHttp);
     }
 
     private static AdmittedRoleDescriptor Native(

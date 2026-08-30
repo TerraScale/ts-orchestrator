@@ -11,7 +11,6 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Net;
-using TerraScale.Orchestrator.Development;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;

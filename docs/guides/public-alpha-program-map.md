@@ -15,7 +15,7 @@ external launch gate passed.
 | TerraBase | #3–#6 | 4 | Engine runtime, mutations, consistency, replication, and conflict evidence |
 | TerraBase.Benchmark | #1–#2 | 2 | Decision-grade performance and claim evidence |
 | TerraScale.Deploy | #1–#3 | 3 | Immutable candidate, retained rollback bytes, and activation handoff |
-| TerraScale.DevHost | #3–#4 | 2 | Local customer journey, isolation, metering, notifications, and monitoring |
+| TerraScale development host (retired external tooling) | #3–#4 | 2 | Local customer journey, isolation, metering, notifications, and monitoring |
 | Terrascale.Documentation | #2–#6 | 5 | Product, API, legal, status, security, and support documentation |
 | TerraScale.DotNet | #2–#4 | 3 | .NET 10 SDK contract, package, and live qualification |
 | TerraScale.Internals | #5–#22 | 18 | Plans, identity, billing, routing, metering, residency, export, and launch journey |

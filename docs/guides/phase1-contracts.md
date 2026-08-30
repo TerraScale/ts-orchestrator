@@ -1,14 +1,14 @@
 # Phase 1 pure-contract map
 
 > Historical contract inventory. It describes checked-in pure contracts from
-> the earlier architecture. New work follows the workspace `GOAL.md` and
-> `docs/architecture/orchestrator.md`, including RF=2 TerraBase placement,
-> database-owned Regions, QUIC TBEP, and optional NATS.
+> the earlier architecture. New work follows the repository `GOAL.md` and the
+> workspace `GOAL.md`, including RF=2 TerraBase placement, database-owned
+> Regions, QUIC TBEP, and the mandatory `ts.orch.v2` NATS control network.
 
 > Consolidated 2026-07-17 from 113 work packages / 88 handoffs and the live `src/TerraScale.Orchestrator/ControlPlane` tree.
 
 Historical per-package scopes and handoffs are preserved in [`docs/archive/`](../archive/README.md).
-Normative architecture remains [`docs/architecture/orchestrator.md`](../../docs/architecture/orchestrator.md). Owner choices 1A–10A are accepted; measurable cost/storage/RPO/RTO targets remain deployment gates.
+Normative architecture remains the repository [`GOAL.md`](../../GOAL.md). Owner choices 1A–10A are accepted; measurable cost/storage/RPO/RTO targets remain deployment gates.
 
 ## How to read this map
 
