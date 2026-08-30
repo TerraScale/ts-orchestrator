@@ -1,0 +1,83 @@
+# TerraScale.Orchestrator Go migration design
+
+Status: active migration (C# → Go per workspace rule). This document is the
+binding contract for the port, mirroring the approach already proven in
+`ts-internals` (see ../ts-internals/docs/go-migration/DESIGN.md).
+
+## Module
+
+- Module path: `terrascale.tech/orchestrator`, Go 1.27, single module.
+- Binary entry points: `cmd/orchestrator` (runtime, from
+  src/TerraScale.Orchestrator.CLI + Program.cs composition),
+  `tools/orchestrator-tooling` (from tools/TerraScale.Orchestrator.Tooling),
+  and `tests/journalchild` (test fixture exe spawned by control-plane journal
+  tests; from tests/TerraScale.Orchestrator.ControlPlane.JournalChild).
+
+## Package map (C# folder → Go package)
+
+Dependency analysis (folder-level `using` graph) shows
+ControlPlane, Delivery, Messaging, Observability and Operations form one
+strongly connected component, so they share ONE Go package:
+
+| C# area (files, lines) | Go package | Imports |
+| --- | --- | --- |
+| Contracts (12, 1.5k) | `src/orchestrator/contracts` | — |
+| Protocol (23, 4.7k) | `src/orchestrator/protocol` | contracts |
+| Runtime (9, 2.3k) | `src/orchestrator/runtime` | — (leaf) |
+| Security (4, 1.2k) | `src/orchestrator/security` | — (leaf) |
+| Scheduling (4, 1.4k) | `src/orchestrator/scheduling` | — (leaf) |
+| ControlPlane + Delivery + Messaging + Observability + Operations (212, 63k) | `src/orchestrator/control` | contracts, protocol, runtime (+ security via root) |
+| Bootstrap (6, 0.9k) | `src/orchestrator/bootstrap` | security, control |
+| Root files (Program.cs, OrchestratorRuntimeConfiguration/Composition, ProcessLifecycle, CellTokenRule, BuildVersion, OrchestratorOptions, AssemblyInfo) | `cmd/orchestrator` + `src/orchestrator/control` for the pieces other code calls | control etc. |
+| TerraScale.Orchestrator.CLI | `cmd/orchestrator` | control |
+| TerraScale.Orchestrator.Tooling | `tools/orchestrator-tooling` | — (standalone) |
+| tests/*.Tests projects | `*_test.go` inside the matching package (control tests in src/orchestrator/control, protocol tests in src/orchestrator/protocol, …) | |
+
+Within `src/orchestrator/control`, mirror the C# folder structure as file-name
+prefixes (ControlPlane/Foo.cs → controlplanefoo.go) — one package, but names
+stay traceable to the C# tree.
+
+## Stack mapping
+
+| .NET | Go |
+| --- | --- |
+| NATS.Net (core + JetStream) | github.com/nats-io/nats.go (JetStream context) — same subjects, stream/config names, headers, NKey/creds/JWT auth semantics |
+| OCI.DotNetSDK.Core (Oracle Cloud) | github.com/oracle/oci-go-sdk/v65 — same API calls/regions |
+| OpenTelemetry OTLP export | go.opentelemetry.io/otel + otlp exporters |
+| ZString | strings.Builder / fmt |
+| System.Text.Json | encoding/json, SetEscapeHTML(false); mirror casing (camelCase for Web defaults, PascalCase for default options) and null semantics (pointers) exactly |
+| System.Security.Cryptography (certs, signatures) | crypto/x509, crypto/ecdsa, crypto/ed25519, crypto/rand |
+| Microsoft.Extensions.* (hosting/logging/config/DI) | explicit constructors + log/slog + env/JSON config loader (follow ts-internals src/core/hosting idioms — copy the helper if needed) |
+| Spectre-free CLI dispatch in Tooling/CLI | manual dispatch like ts-internals src/cli |
+| CancellationToken | context.Context (first param) |
+| async Task | (T, error) returns |
+| Records | structs, exported same-name fields |
+| Exceptions | error returns; typed error structs where callers distinguish |
+| Static classes | `var Name name` (unexported struct) with methods, so call sites read like C# |
+| Interlocked/locks | sync/atomic, sync.Mutex |
+| Channels/TaskCompletionSource | native Go channels, sync.Cond |
+
+## Contracts that must stay EXACT
+
+- NATS subjects, stream names, consumer names, message JSON payloads, headers,
+  and the `ts.orch.v2` domain naming.
+- Journal/persistence file formats and digest rules (sha256, canonicalization).
+- Certificate/trust-bundle formats and validation rules; NKey/creds handling.
+- CLI commands, options, exit codes, output strings of `cmd/orchestrator` and
+  the tooling dispatcher.
+- Env var names and defaults (TS_ORCH_*, TS_ORCH_CELL, etc.).
+- Control-plane message protocol versioning and admission rules.
+
+## Rules
+
+1. One C# file → one Go file in the mapped package (ControlPlane/Foo.cs →
+   controlplanefoo.go inside src/orchestrator/control).
+2. Keep C# type names. Interfaces keep their C# names; ports become
+   one-method Go interfaces where the C# had single-method interfaces.
+3. `go build ./... && go vet ./... && gofmt -l .` clean; ported packages get
+   their C# tests ported into `*_test.go` (skip no-longer-meaningful
+   .NET-pinning tests; note skips in the report).
+4. Fail-closed semantics preserved everywhere (admission, verification,
+   secrets handling). Never log secret material.
+5. Do not create import cycles beyond the C# project graph (single C#
+   project = the `control` package absorbs all intra-cycle areas).
