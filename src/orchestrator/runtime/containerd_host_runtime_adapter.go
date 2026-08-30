@@ -83,6 +83,9 @@ func (a *ContainerdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRu
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -145,6 +148,9 @@ func (a *ContainerdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRun
 	if a == nil || a.client == nil {
 		return ContainerdAllocationObservation{}, &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return ContainerdAllocationObservation{}, err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return ContainerdAllocationObservation{}, err
@@ -173,6 +179,9 @@ func (a *ContainerdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntim
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -194,6 +203,9 @@ func (a *ContainerdHostRuntimeAdapter) Delete(ctx context.Context, plan HostRunt
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {

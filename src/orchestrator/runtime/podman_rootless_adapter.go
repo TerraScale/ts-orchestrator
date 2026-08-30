@@ -78,6 +78,9 @@ func (a *PodmanRootlessHostRuntimeAdapter) Converge(ctx context.Context, plan Ho
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -147,6 +150,9 @@ func (a *PodmanRootlessHostRuntimeAdapter) Observe(ctx context.Context, plan Hos
 	if a == nil || a.client == nil {
 		return PodmanAllocationObservation{}, &InvalidOperationError{Message: "The podman runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return PodmanAllocationObservation{}, err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return PodmanAllocationObservation{}, err
@@ -176,6 +182,9 @@ func (a *PodmanRootlessHostRuntimeAdapter) Stop(ctx context.Context, plan HostRu
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -198,6 +207,9 @@ func (a *PodmanRootlessHostRuntimeAdapter) Delete(ctx context.Context, plan Host
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {

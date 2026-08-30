@@ -161,6 +161,9 @@ func (a *SystemdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRunti
 	if a == nil || a.commandRunner == nil {
 		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {
 		return err
@@ -220,6 +223,9 @@ func (a *SystemdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntim
 	}
 	if a == nil || a.commandRunner == nil {
 		return SystemdAllocationObservation{}, &InvalidOperationError{Message: "The systemd command runner is unavailable."}
+	}
+	if err := ctx.Err(); err != nil {
+		return SystemdAllocationObservation{}, err
 	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {
@@ -307,6 +313,9 @@ func (a *SystemdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePl
 	}
 	if a == nil || a.commandRunner == nil {
 		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {

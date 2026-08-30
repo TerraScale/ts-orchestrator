@@ -148,7 +148,12 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 			fmt.Sprintf("Node %s is cordoned and refuses new work.", e.nodeId.Value),
 			decoded.fingerprint, nil)
 	}
-	if _, err := e.reserveAllocation(decoded, "Converging"); err != nil {
+	reservation, err := e.reserveAllocation(decoded, "Converging")
+	if err != nil {
+		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
+	if err := ctx.Err(); err != nil {
+		e.releaseReservation(reservation)
 		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
@@ -197,6 +202,10 @@ func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandR
 	if err != nil {
 		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
+	if err := ctx.Err(); err != nil {
+		e.releaseReservation(reservation)
+		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	observation, err := e.observeDecoded(ctx, decoded)
 	if err != nil {
 		if reservation.created {
@@ -234,7 +243,12 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 	if err := ctx.Err(); err != nil {
 		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
-	if _, err := e.reserveAllocation(decoded, "Stopping"); err != nil {
+	reservation, err := e.reserveAllocation(decoded, "Stopping")
+	if err != nil {
+		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
+	if err := ctx.Err(); err != nil {
+		e.releaseReservation(reservation)
 		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
@@ -278,7 +292,12 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 	if err := ctx.Err(); err != nil {
 		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
-	if _, err := e.reserveAllocation(decoded, "Deleting"); err != nil {
+	reservation, err := e.reserveAllocation(decoded, "Deleting")
+	if err != nil {
+		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
+	if err := ctx.Err(); err != nil {
+		e.releaseReservation(reservation)
 		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {

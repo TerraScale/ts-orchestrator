@@ -248,6 +248,9 @@ func (c *ProcessPodmanClient) podman(ctx context.Context, arguments []string) (H
 	if ctx == nil {
 		return HostCommandResult{}, &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
 	}
+	if err := ctx.Err(); err != nil {
+		return HostCommandResult{}, err
+	}
 	if c == nil || c.commandRunner == nil {
 		return HostCommandResult{}, &InvalidOperationError{Message: "The podman command runner is unavailable."}
 	}
