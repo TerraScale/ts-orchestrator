@@ -1022,11 +1022,26 @@ func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot 
 		}
 		freshNodes[entry.nodeId] = struct{}{}
 	}
+	feedAge := now.Sub(time.Unix(r.observationUnixSec, 0))
 	feedFresh := r.observationUnixSec > 0 && !r.observationAt.IsZero() &&
 		now.Sub(r.observationAt) <= feedStaleness &&
-		now.Sub(r.observationAt) >= -autoscalerHeartbeatClockSkew
+		now.Sub(r.observationAt) >= -autoscalerHeartbeatClockSkew &&
+		feedAge >= 0 && feedAge <= feedStaleness
 	placements := make(map[string][]stateful.ReplicaHealth, len(r.observation.Placements))
 	placementComplete := feedFresh && r.observation.PlacementComplete
+	if placementComplete {
+		for nodeId, entry := range r.nodes {
+			if entry.state == autoscaling.NodeStateRetired {
+				continue
+			}
+			if _, fresh := freshNodes[nodeId]; !fresh {
+				// A tracked node with no current heartbeat/metrics is an
+				// unknown placement surface. Do not treat it as empty.
+				placementComplete = false
+				break
+			}
+		}
+	}
 	if placementComplete {
 		for _, placement := range r.observation.Placements {
 			if _, known := freshNodes[placement.NodeId]; !known {

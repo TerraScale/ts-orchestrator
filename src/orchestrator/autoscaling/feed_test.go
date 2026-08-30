@@ -58,4 +58,7 @@ func TestAutoscalerObservationFeedRejectsUnknownAndDuplicateInput(t *testing.T) 
 	if err := json.Unmarshal([]byte(`{"schemaVersion":1,"unixSeconds":1,"demand":[],"demandComplete":true,"placements":[],"placementComplete":true,"extra":1}`), &feed); err == nil {
 		t.Fatal("unknown feed fields must be rejected")
 	}
+	if err := json.Unmarshal([]byte(`{"schemaVersion":1,"unixSeconds":1,"demand":[],"demandComplete":true,"placements":[],"placementComplete":true} {}`), &feed); err == nil {
+		t.Fatal("trailing JSON values must be rejected")
+	}
 }

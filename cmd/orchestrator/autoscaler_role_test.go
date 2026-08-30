@@ -190,7 +190,7 @@ func TestAutoscalerRoleFreshFeedDrivesScaleUpAndDrain(t *testing.T) {
 	// Rebuild the feed as authoritative no-demand evidence and consume it in a
 	// second engine: the complete placement health now permits a safe drain.
 	feed, err = autoscaling.NewAutoscalerObservationFeed(
-		autoscaling.AutoscalerFeedSchemaVersion, time.Now().Add(time.Second).Unix(), nil, true,
+		autoscaling.AutoscalerFeedSchemaVersion, role.observationUnixSec+1, nil, true,
 		[]autoscaling.AutoscalerNodePlacement{{NodeId: "node-a", Replicas: []stateful.ReplicaHealth{replicaA}},
 			{NodeId: "node-b", Replicas: []stateful.ReplicaHealth{replicaB}}}, true)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestAutoscalerRoleFreshFeedDrivesScaleUpAndDrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	role.handleObservationFeed(&nats.Msg{Subject: autoscaling.AutoscalerObservationSubject, Data: payload})
-	role.snapshot(time.Now())
+	role.snapshot(time.Now().Add(2 * time.Second))
 	candidate, err := stateful.NewNodeDrainCandidate("node-a", []stateful.ReplicaHealth{replicaA})
 	if err != nil {
 		t.Fatal(err)
@@ -212,6 +212,36 @@ func TestAutoscalerRoleFreshFeedDrivesScaleUpAndDrain(t *testing.T) {
 	}
 	if !decision.Allowed {
 		t.Fatalf("complete placement feed did not permit a drain: %+v", decision)
+	}
+}
+
+func TestAutoscalerRoleDefersPlacementWhenTrackedHeartbeatIsStale(t *testing.T) {
+	now := time.Now()
+	metrics, err := hostagent.NewNodeMetricsSample(1<<30, 0, 100, 0, 128, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := &autoscalerRole{
+		settings: autoscalerRoleSettings{TickInterval: time.Second},
+		nodes: map[string]*autoscalerNodeEntry{"node-a": {
+			nodeId: "node-a", state: autoscaling.NodeStateReady, metrics: metrics,
+			lastHeartbeat: now.Add(-4 * time.Second), lastHeartbeatUnixSec: now.Unix() - 4,
+		}},
+	}
+	feed, err := autoscaling.NewAutoscalerObservationFeed(
+		autoscaling.AutoscalerFeedSchemaVersion, now.Unix(), nil, true,
+		[]autoscaling.AutoscalerNodePlacement{{NodeId: "node-a"}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(feed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.handleObservationFeed(&nats.Msg{Subject: autoscaling.AutoscalerObservationSubject, Data: payload})
+	role.snapshot(now)
+	if role.replicaHealthReady {
+		t.Fatal("stale tracked heartbeat must make placement health unavailable")
 	}
 }
 

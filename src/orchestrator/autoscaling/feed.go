@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
@@ -204,6 +205,13 @@ func (f *AutoscalerObservationFeed) UnmarshalJSON(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("autoscaler feed contains trailing JSON")
+		}
 		return err
 	}
 	demand := make([]AllocationDemand, 0, len(wire.Demand))

@@ -65,6 +65,16 @@ type allocationRecord struct {
 	pending     bool
 	state       string
 	running     bool
+	generation  uint64
+}
+
+// allocationReservation identifies a capacity reservation made before an
+// adapter call. A reservation is also a record, so the map length is the
+// authoritative capacity count while the adapter is running.
+type allocationReservation struct {
+	allocationId string
+	generation   uint64
+	created      bool
 }
 
 // WorkloadExecutor executes workload commands against the node's rootless
@@ -77,6 +87,10 @@ type WorkloadExecutor struct {
 	cordoned  atomic.Bool
 	mutex     sync.Mutex
 	records   map[string]allocationRecord
+	// maximumTrackedAllocations is a package-private test seam. Production
+	// executors use hostAgentMaximumTrackedAllocations.
+	maximumTrackedAllocations int
+	nextGeneration            uint64
 }
 
 // NewWorkloadExecutor validates the configuration and composes the executor.
@@ -102,6 +116,7 @@ func NewWorkloadExecutor(config WorkloadExecutorConfig) (*WorkloadExecutor, erro
 		systemd:   config.Systemd,
 		container: config.Container,
 		records:   make(map[string]allocationRecord),
+		maximumTrackedAllocations: hostAgentMaximumTrackedAllocations,
 	}, nil
 }
 
@@ -125,6 +140,9 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 			fmt.Sprintf("Node %s is cordoned and refuses new work.", e.nodeId.Value),
 			decoded.fingerprint, nil)
 	}
+	if _, err := e.reserveAllocation(decoded, "Converging"); err != nil {
+		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
 		err = e.container.Converge(ctx, decoded.plan)
@@ -135,10 +153,12 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
 	}
 	if err != nil {
-		e.recordState(decoded, "ConvergeFailed", false, false)
+		err = errors.Join(err, e.recordState(decoded, "ConvergeFailed", false, false))
 		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
-	e.recordState(decoded, "Converged", false, true)
+	if err := e.recordState(decoded, "Converged", false, true); err != nil {
+		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	return convergeReply(command, true,
 		fmt.Sprintf("Allocation %s converged through the %s driver.",
 			decoded.plan.AllocationId.Value, decoded.plan.Driver),
@@ -157,12 +177,24 @@ func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandR
 		return observeReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
-	observation, err := e.observeDecoded(ctx, decoded)
+	reservation, err := e.reserveAllocation(decoded, "Observing")
 	if err != nil {
-		e.recordState(decoded, "ObserveFailed", false, false)
 		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
-	e.recordObserved(decoded, observation)
+	observation, err := e.observeDecoded(ctx, decoded)
+	if err != nil {
+		if reservation.created {
+			e.releaseReservation(reservation)
+		} else if stateErr := e.recordState(decoded, "ObserveFailed", false, false); stateErr != nil {
+			err = errors.Join(err, stateErr)
+		}
+		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
+	if reservation.created && observationIsAbsent(observation) {
+		e.releaseReservation(reservation)
+	} else if err := e.recordObserved(decoded, observation); err != nil {
+		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	return observeReply(command, true,
 		fmt.Sprintf("Allocation %s is %s.", decoded.plan.AllocationId.Value, observation.state),
 		decoded.fingerprint, nil)
@@ -180,6 +212,9 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 		return stopReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
+	if _, err := e.reserveAllocation(decoded, "Stopping"); err != nil {
+		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
 		err = e.container.Stop(ctx, decoded.plan)
@@ -190,10 +225,14 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
 	}
 	if err != nil {
-		e.recordState(decoded, "StopFailed", false, false)
+		if stateErr := e.recordState(decoded, "StopFailed", false, false); stateErr != nil {
+			err = errors.Join(err, stateErr)
+		}
 		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
-	e.recordState(decoded, "Stopped", false, false)
+	if err := e.recordState(decoded, "Stopped", false, false); err != nil {
+		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
+	}
 	return stopReply(command, true,
 		fmt.Sprintf("Allocation %s stopped.", decoded.plan.AllocationId.Value), decoded.fingerprint, nil)
 }
@@ -210,6 +249,9 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 	if err != nil {
 		return deleteReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
+	}
+	if _, err := e.reserveAllocation(decoded, "Deleting"); err != nil {
+		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
@@ -245,7 +287,9 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 		err = &InvalidDataError{Message: fmt.Sprintf(
 			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
 	}
-	e.recordState(decoded, "DeleteFailed", false, false)
+	if stateErr := e.recordState(decoded, "DeleteFailed", false, false); stateErr != nil {
+		err = errors.Join(err, stateErr)
+	}
 	return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 }
 
