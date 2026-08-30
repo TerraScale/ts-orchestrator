@@ -138,7 +138,7 @@ type RegionalAuthorityCoordinator struct {
 	tolerateTransientFailures bool
 
 	stateMu           sync.Mutex
-	journalState      AuthorityState
+	journalState      *AuthorityState
 	confirmedLeaseAge time.Time
 	snapshot          RegionalAuthoritySnapshot
 
@@ -274,7 +274,7 @@ func (c *RegionalAuthorityCoordinator) Dispose() {
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 	c.stateMu.Lock()
-	state := c.journalState
+	state := c.currentState()
 	c.stateMu.Unlock()
 
 	if state.Status == AuthorityStatusLeader && state.Confirmed != nil {
@@ -331,7 +331,7 @@ func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current Author
 		elapsed = time.Since(c.confirmedLeaseAge)
 	}
 
-	state := c.journalState
+	state := c.currentState()
 	c.stateMu.Unlock()
 
 	renewalHealth := regionalAuthorityHealth(now, elapsed)

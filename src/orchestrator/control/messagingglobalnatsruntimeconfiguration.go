@@ -112,7 +112,7 @@ func NewGlobalDirectoryNatsConfiguration(
 
 // AccessPlan mirrors the C# AccessPlan property.
 func (c *GlobalDirectoryNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
-	return GlobalNatsAccessContractCreate(c.Cell, GlobalNatsCapabilityCellDirectoryPublisher)
+	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityCellDirectoryPublisher)
 }
 
 // GlobalDirectoryNatsConfigurationResolve mirrors the C# Resolve overload
@@ -306,7 +306,7 @@ func NewGlobalDirectoryServiceNatsConfiguration(
 
 // AccessPlan mirrors the C# AccessPlan property.
 func (c *GlobalDirectoryServiceNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
-	return GlobalNatsAccessContractCreate(c.Cell, GlobalNatsCapabilityCellDirectoryService)
+	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityCellDirectoryService)
 }
 
 // GlobalDirectoryServiceNatsConfigurationResolve mirrors the C# Resolve
@@ -447,7 +447,7 @@ func NewGlobalAuthorityNatsConfiguration(
 
 // AccessPlan mirrors the C# AccessPlan property.
 func (c *GlobalAuthorityNatsConfiguration) AccessPlan() (*GlobalNatsAccessPlan, error) {
-	return GlobalNatsAccessContractCreate(c.Cell, GlobalNatsCapabilityGlobalAuthority)
+	return GlobalNatsAccessContract.Create(c.Cell, GlobalNatsCapabilityGlobalAuthority)
 }
 
 // GlobalAuthorityNatsConfigurationFrom mirrors the C# From factory.

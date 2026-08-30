@@ -234,10 +234,10 @@ func (t *NatsTopology) CellSpecConsumer() (jetstream.ConsumerConfig, error) {
 	return jetstream.ConsumerConfig{
 		Name:          "gitops_cell_spec_" + t.Instance,
 		Description:   "Durable signed native GitOps CellSpecs for " + t.Cell + "/" + t.Instance,
-		DeliverPolicy: jetstream.DeliverAll,
-		AckPolicy:     jetstream.AckExplicit,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
 		FilterSubject: subject,
-		ReplayPolicy:  jetstream.ReplayInstant,
+		ReplayPolicy:  jetstream.ReplayInstantPolicy,
 		// Keep the declared value aligned with the first backoff interval.
 		AckWait:           1 * time.Second,
 		MaxDeliver:        5,

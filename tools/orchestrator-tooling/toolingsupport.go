@@ -314,15 +314,22 @@ func tryString(node any) (string, bool) {
 }
 
 func tryInt(node any) (int, bool) {
-	number, ok := node.(json.Number)
-	if !ok {
-		return 0, false
+	switch value := node.(type) {
+	case json.Number:
+		parsed, err := strconv.ParseInt(string(value), 10, 32)
+		if err != nil {
+			return 0, false
+		}
+		return int(parsed), true
+	case int:
+		return value, true
+	case int64:
+		if value < -1<<31 || value > 1<<31-1 {
+			return 0, false
+		}
+		return int(value), true
 	}
-	value, err := strconv.ParseInt(string(number), 10, 32)
-	if err != nil {
-		return 0, false
-	}
-	return int(value), true
+	return 0, false
 }
 
 func tryBool(node any) (bool, bool) {

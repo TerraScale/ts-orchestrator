@@ -244,7 +244,7 @@ func natsJournalParseControllerIdentities(value string) (map[string]struct{}, er
 				"TS_ORCH_JOURNAL_CONTROLLER_NKEYS contains an invalid user NKey public identity.")
 		}
 
-		if _, err := nkeys.Decode([]byte(identity)); err != nil {
+		if _, err := nkeys.Decode(nkeys.PrefixByteUser, []byte(identity)); err != nil {
 			return nil, errors.New(
 				"TS_ORCH_JOURNAL_CONTROLLER_NKEYS contains an invalid user NKey public identity.")
 		}

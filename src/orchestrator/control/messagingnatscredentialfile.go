@@ -31,6 +31,10 @@ func messagingUnixFileMode(path string) (uint32, error) {
 	return messagingUnixMode(info), nil
 }
 
+// messagingUnixMode mirrors the C# File.GetUnixFileMode (permission bits
+// only, as os.FileMode.Perm()).
+func messagingUnixMode(info os.FileInfo) uint32 { return uint32(info.Mode().Perm()) }
+
 // NatsCredentialFile mirrors the C# static class: resolution of a bounded,
 // owner-private NKey seed file plus the public-key helpers derived from the
 // seed.

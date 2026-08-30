@@ -197,9 +197,9 @@ func (ciResultManifestCommand) Parse(arguments []string) (CiResultManifestOption
 		}
 		paths[left.Path] = true
 	}
-	for _, left := range artifacts {
-		for _, right := range artifacts {
-			if left != right && strings.HasPrefix(right.Path, left.Path+"/") {
+	for leftIndex := range artifacts {
+		for rightIndex := range artifacts {
+			if leftIndex != rightIndex && strings.HasPrefix(artifacts[rightIndex].Path, artifacts[leftIndex].Path+"/") {
 				overlapping = true
 			}
 		}

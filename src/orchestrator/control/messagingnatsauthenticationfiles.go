@@ -68,7 +68,12 @@ func NatsAuthenticationFilesResolve(
 		return nil, err
 	}
 
-	publicKey, err := nkeys.PublicKeyFromSeed([]byte(seed))
+	seedPair, err := nkeys.FromSeed([]byte(seed))
+	if err != nil {
+		return nil, fmt.Errorf("%s_CREDENTIALS_FILE does not contain a valid user NKey seed.", optionPrefix)
+	}
+
+	publicKey, err := seedPair.PublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("%s_CREDENTIALS_FILE does not contain a valid user NKey seed.", optionPrefix)
 	}

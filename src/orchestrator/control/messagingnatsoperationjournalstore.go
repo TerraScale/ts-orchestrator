@@ -164,7 +164,7 @@ func (natsOperationJournalStore) ValidateExactStreamConfiguration(
 	invalid := actual.Name != expected.Name ||
 		actual.Description != expected.Description ||
 		!subjectsEqual ||
-		actual.SubjectTransforms != nil ||
+		actual.SubjectTransform != nil ||
 		actual.Retention != expected.Retention ||
 		actual.MaxConsumers != expected.MaxConsumers || actual.MaxMsgs != expected.MaxMsgs ||
 		actual.MaxMsgsPerSubject != expected.MaxMsgsPerSubject || actual.MaxBytes != expected.MaxBytes ||
@@ -337,7 +337,7 @@ func (natsOperationJournalStore) CanonicalKeyValueStream(configuration jetstream
 		MaxAge:      configuration.TTL,
 		MaxMsgSize:  maxValueSize,
 		Storage:     storage,
-		Compression: map[bool]jetstream.StoreCompression{true: jetstream.S2, false: jetstream.NoCompression}[configuration.Compression],
+		Compression: map[bool]jetstream.StoreCompression{true: jetstream.S2Compression, false: jetstream.NoCompression}[configuration.Compression],
 		Replicas:    replicas,
 		NoAck:       false,
 		Discard:     jetstream.DiscardNew,

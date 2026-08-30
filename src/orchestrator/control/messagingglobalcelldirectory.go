@@ -384,7 +384,7 @@ func (d *GlobalCellDirectory) ApplyAdvertisement(
 
 		d.mu.Lock()
 		existing, stillExists := d.advertisements[advertisement.Cell]
-		if stillExists && existing == current {
+		if stillExists && globalCellDirectoryIdentity(existing, current) {
 			d.advertisements[advertisement.Cell] = advertisement
 			d.mu.Unlock()
 			return GlobalCellDirectoryDispositionAcceptedValue
@@ -477,6 +477,16 @@ func (d *GlobalCellDirectory) Remove(cell string) {
 // Reject mirrors the C# Reject.
 func (d *GlobalCellDirectory) Reject() {
 	atomic.AddInt64(&d.rejectedAdvertisements, 1)
+}
+
+// globalCellDirectoryIdentity reports whether two advertisements are the same
+// observed record (the compare-and-swap guard of the update loop).
+func globalCellDirectoryIdentity(left, right GlobalCellAdvertisement) bool {
+	return left.Cell == right.Cell &&
+		left.AuthorityEpoch == right.AuthorityEpoch &&
+		left.AuthorityRevision == right.AuthorityRevision &&
+		left.Sequence == right.Sequence &&
+		left.ObservedAt.Equal(right.ObservedAt)
 }
 
 func globalCellDirectoryCompare(left, right GlobalCellAdvertisement) int {
