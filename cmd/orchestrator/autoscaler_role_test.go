@@ -245,6 +245,23 @@ func TestAutoscalerRoleDefersPlacementWhenTrackedHeartbeatIsStale(t *testing.T) 
 	}
 }
 
+func TestAutoscalerRoleRejectsFreshArrivalWithStaleHeartbeatEvent(t *testing.T) {
+	now := time.Now()
+	role := &autoscalerRole{
+		settings: autoscalerRoleSettings{TickInterval: time.Second},
+	}
+	// The message arrives now, but its producer timestamp is outside the
+	// three-tick freshness window. Arrival time must not refresh old metrics.
+	role.handleHeartbeat(&nats.Msg{
+		Subject: "terrascale.node.v1.node-a.heartbeat",
+		Data:    testAutoscalerHeartbeat(t, "node-a", now.Add(-4*time.Second).Unix()),
+	})
+	snapshot := role.snapshot(now)
+	if len(snapshot.Nodes) != 0 {
+		t.Fatalf("stale heartbeat event must not enter the snapshot: %+v", snapshot.Nodes)
+	}
+}
+
 func statefulCandidateForRoleTest(t *testing.T) stateful.NodeDrainCandidate {
 	t.Helper()
 	candidate, err := stateful.NewNodeDrainCandidate("node-a", nil)

@@ -246,6 +246,34 @@ func TestNatsTransportRejectsStartAfterClose(t *testing.T) {
 	}
 }
 
+func TestNatsTransportRejectsAlreadyCancelledStartContext(t *testing.T) {
+	connection := newFakeNatsConnection()
+	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()},
+		&fakeContainerAdapter{observation: runningPodmanObservation(t)})
+	ticker := newFakeHeartbeatTicker()
+	transport, err := NewNatsTransport(NatsTransportConfig{
+		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
+		Metrics: defaultMetricsForTest(), Ticker: ticker, Now: fixedTestClock,
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := transport.Start(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled start context must be rejected, got %v", err)
+	}
+	if len(connection.subscriptions) != 0 {
+		t.Fatalf("cancelled transport must not subscribe: %v", connection.subscriptions)
+	}
+	if flushes, _, _ := connection.counts(); flushes != 0 {
+		t.Fatalf("cancelled transport must not flush: %d", flushes)
+	}
+	if err := transport.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
 func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 	tests := []struct {
 		leaf    string

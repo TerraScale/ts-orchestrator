@@ -399,6 +399,21 @@ func (e *WorkloadExecutor) PendingAllocations() int {
 	return pending
 }
 
+// RunningAllocations reports how many tracked allocations are running; it is
+// the heartbeat's task gauge, so the autoscaler's retire gate observes the
+// node's own allocations instead of a host-wide load figure.
+func (e *WorkloadExecutor) RunningAllocations() int {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	running := 0
+	for _, record := range e.records {
+		if record.running {
+			running++
+		}
+	}
+	return running
+}
+
 // normalizedObservation is one driver-normalized observation.
 type normalizedObservation struct {
 	state   string

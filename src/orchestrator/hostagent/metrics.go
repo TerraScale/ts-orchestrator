@@ -25,6 +25,16 @@ type PendingAllocationCounter interface {
 	PendingAllocations() int
 }
 
+// RunningAllocationCounter reports how many of the node's own tracked
+// allocations are running; WorkloadExecutor implements it. The heartbeat's
+// running-task gauge must come from here, not from the kernel's host-wide
+// running-entity count: the autoscaler's retire gate reads the gauge as "the
+// node's own running allocations", and a shared development host always has
+// host-wide runnable entities even when the node hosts none.
+type RunningAllocationCounter interface {
+	RunningAllocations() int
+}
+
 // ProcFileReader reads one /proc file by its exact path; injectable for tests.
 type ProcFileReader interface {
 	ReadFile(path string) ([]byte, error)
@@ -67,6 +77,11 @@ type SystemMetricsSourceConfig struct {
 	// Pending optionally reports the node's pending allocation count; nil
 	// reports zero.
 	Pending PendingAllocationCounter
+	// Running optionally reports the node's running allocation count, the
+	// heartbeat's task gauge; nil falls back to the kernel's running
+	// scheduling entities from /proc/loadavg, a host-wide figure that is not
+	// the node's own allocation count.
+	Running RunningAllocationCounter
 }
 
 // SystemMetricsSource maps /proc/meminfo and /proc/loadavg data into one
@@ -79,6 +94,7 @@ type SystemMetricsSource struct {
 	tasksMax        int
 	logicalCpuCount int
 	pending         PendingAllocationCounter
+	running         RunningAllocationCounter
 }
 
 // NewSystemMetricsSource validates the configuration and composes the source.
@@ -110,13 +126,15 @@ func NewSystemMetricsSource(config SystemMetricsSourceConfig) (*SystemMetricsSou
 		tasksMax:        config.TasksMax,
 		logicalCpuCount: config.LogicalCpuCount,
 		pending:         config.Pending,
+		running:         config.Running,
 	}, nil
 }
 
 // Sample reads both proc files and maps them into one validated sample.
 // Memory usage is total minus available; CPU usage is the one-minute load
-// scaled by the logical CPU count; running tasks are the kernel's currently
-// running scheduling entities.
+// scaled by the logical CPU count; running tasks are the node's own running
+// allocations when a RunningAllocationCounter is wired, and otherwise the
+// kernel's currently running scheduling entities.
 func (s *SystemMetricsSource) Sample(ctx context.Context) (NodeMetricsSample, error) {
 	if ctx == nil {
 		return NodeMetricsSample{}, &ArgumentError{Param: "ctx", Message: "The metrics context must not be nil."}
@@ -148,6 +166,9 @@ func (s *SystemMetricsSource) Sample(ctx context.Context) (NodeMetricsSample, er
 		cpuUsedPercent = s.cpuQuotaPercent
 	}
 	tasksRunning := runningEntities
+	if s.running != nil {
+		tasksRunning = s.running.RunningAllocations()
+	}
 	if tasksRunning < 0 {
 		tasksRunning = 0
 	}

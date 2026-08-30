@@ -342,6 +342,48 @@ func TestPodmanObserveReturnsTheFencedObservation(t *testing.T) {
 	}
 }
 
+// TestPodmanFenceAcceptsAnUnreportedPlatform proves the ownership fence does
+// not reject the adapter's own container when podman reports no platform:
+// podman 5.8's `container inspect --format json` carries neither a top-level
+// Platform nor a Config.Platform, so the platform is unknown, not foreign, and
+// the labels, fingerprint, and image stay the fence.
+func TestPodmanFenceAcceptsAnUnreportedPlatform(t *testing.T) {
+	plan := podmanTestOciPlan(t)
+	unreported, err := NewPodmanAllocationObservation(
+		PodmanAllocationStateRunning, plan.Oci.ImageReference,
+		podmanMatchingLabels(t, plan), true)
+	if err != nil {
+		t.Fatalf("observation: %v", err)
+	}
+
+	observing := &recordingPodmanClient{observation: unreported}
+	observation, err := newPodmanTestAdapter(t, observing).Observe(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("observe: %v", err)
+	}
+	if observation.State != PodmanAllocationStateRunning {
+		t.Fatalf("unexpected observation %+v", observation)
+	}
+
+	// The same observation must let convergence treat the running allocation
+	// as already converged, and must let Stop and Delete reach the container.
+	converging := &recordingPodmanClient{observation: unreported}
+	if err := newPodmanTestAdapter(t, converging).Converge(context.Background(), plan); err != nil {
+		t.Fatalf("converge: %v", err)
+	}
+	if !stringSlicesEqual(converging.operations, []string{"preflight", "inspect"}) {
+		t.Fatalf("a converged allocation must only be inspected: %v", converging.operations)
+	}
+
+	stopping := &recordingPodmanClient{observation: unreported}
+	if err := newPodmanTestAdapter(t, stopping).Stop(context.Background(), plan); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if !stringSlicesEqual(stopping.operations, []string{"inspect", "stop"}) {
+		t.Fatalf("unexpected operations %v", stopping.operations)
+	}
+}
+
 func TestPodmanObserveFencesForeignAllocations(t *testing.T) {
 	plan := podmanTestOciPlan(t)
 	client := &recordingPodmanClient{

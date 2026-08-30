@@ -262,6 +262,86 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 	}
 }
 
+// TestUnmarshalJSONRejectsNonCanonicalExecutionPlans proves the decoder itself
+// enforces the canonical-plan trust boundary: structurally valid payloads
+// whose execution plans differ from what NewHostRuntimePlan would derive for
+// the decoded role, resources, and identity are rejected as invalid data,
+// instead of waiting for an adapter's requireCanonical* fence.
+func TestUnmarshalJSONRejectsNonCanonicalExecutionPlans(t *testing.T) {
+	validNative := string(mustMarshalPlan(t, planJsonDecodeTestNativePlan(t)))
+	validOci := string(mustMarshalPlan(t, planJsonDecodeTestOciPlan(t)))
+	replace := func(payload, needle, replacement string) string {
+		return strings.Replace(payload, needle, replacement, 1)
+	}
+	replaceLast := func(payload, needle, replacement string) string {
+		index := strings.LastIndex(payload, needle)
+		if index < 0 {
+			t.Fatalf("needle %q not found in payload", needle)
+		}
+		return payload[:index] + replacement + payload[index+len(needle):]
+	}
+
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "oci run-as uid zero",
+			payload: replace(validOci, `"runAsUser":65532`, `"runAsUser":0`),
+		},
+		{
+			name:    "oci dropped capabilities emptied",
+			payload: replace(validOci, `"droppedCapabilities":["ALL"]`, `"droppedCapabilities":[]`),
+		},
+		{
+			name:    "oci no-new-privileges cleared",
+			payload: replace(validOci, `"noNewPrivileges":true`, `"noNewPrivileges":false`),
+		},
+		{
+			name:    "oci cgroup parent rewritten",
+			payload: replace(validOci, `"cgroupParent":"terrascale/terrabase-member-7"`, `"cgroupParent":"escape"`),
+		},
+		{
+			name:    "oci nested resources disagree with the plan resources",
+			payload: replaceLast(validOci, `"tasksMax":1024`, `"tasksMax":512`),
+		},
+		{
+			name:    "oci image reference rewritten",
+			payload: replace(validOci, `"imageReference":"registry.terrascale.internal/terrascale/terrabase-server@sha256:`+hostRuntimePlanDigest+`"`,
+				`"imageReference":"evil.example/terrabase:latest"`),
+		},
+		{
+			name:    "systemd unit name rewritten",
+			payload: replace(validNative, `"unitName":"terrascale-gru-orchestrator-1.service"`, `"unitName":"evil.service"`),
+		},
+		{
+			name:    "systemd executable rewritten",
+			payload: replace(validNative, `"executable":"/opt/terrascale/artifacts/terrascale-orchestrator/sha256-`, `"executable":"/tmp/pwned/sha256-`),
+		},
+		{
+			name:    "systemd property injected",
+			payload: replace(validNative, `"Type=exec"`, `"Type=exec","User=root"`),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var decoded HostRuntimePlan
+			err := json.Unmarshal([]byte(test.payload), &decoded)
+			if err == nil {
+				t.Fatal("expected a decode error for a non-canonical execution plan")
+			}
+			var invalidData *InvalidDataError
+			if !errors.As(err, &invalidData) {
+				t.Fatalf("error %v is not an InvalidDataError", err)
+			}
+			if !strings.Contains(err.Error(), "not the canonical plan") {
+				t.Fatalf("unexpected error %v", err)
+			}
+		})
+	}
+}
+
 func TestUnmarshalJSONLeavesReceiverUntouchedOnError(t *testing.T) {
 	original := planJsonDecodeTestNativePlan(t)
 	corrupted := strings.Replace(

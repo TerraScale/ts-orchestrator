@@ -201,6 +201,9 @@ func (f AutoscalerObservationFeed) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON decodes a strict canonical feed and validates every nested
 // demand and replica at the trust boundary.
 func (f *AutoscalerObservationFeed) UnmarshalJSON(data []byte) error {
+	if autoscalerJSONHasDuplicateProperties(data) {
+		return fmt.Errorf("autoscaler feed contains duplicate JSON fields")
+	}
 	var wire autoscalerFeedWire
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -245,4 +248,59 @@ func (f *AutoscalerObservationFeed) UnmarshalJSON(data []byte) error {
 	}
 	*f = validated
 	return nil
+}
+
+// autoscalerJSONHasDuplicateProperties detects duplicate keys recursively.
+// encoding/json otherwise applies last-key-wins semantics, which would make
+// an authenticated scheduler publication ambiguous at this trust boundary.
+func autoscalerJSONHasDuplicateProperties(data []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	duplicate, err := scanAutoscalerJSONValue(decoder)
+	return err == nil && duplicate
+}
+
+func scanAutoscalerJSONValue(decoder *json.Decoder) (bool, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return false, nil
+	}
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return false, err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return false, fmt.Errorf("invalid JSON object key")
+			}
+			if _, exists := seen[name]; exists {
+				return true, nil
+			}
+			seen[name] = struct{}{}
+			duplicate, err := scanAutoscalerJSONValue(decoder)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	case '[':
+		for decoder.More() {
+			duplicate, err := scanAutoscalerJSONValue(decoder)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	default:
+		return false, fmt.Errorf("unexpected JSON delimiter")
+	}
 }

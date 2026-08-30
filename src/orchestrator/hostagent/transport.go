@@ -567,6 +567,11 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 	if ctx == nil {
 		return &ArgumentError{Param: "ctx", Message: "The transport context must not be nil."}
 	}
+	if err := ctx.Err(); err != nil {
+		// A cancelled context is never a serving context. In particular, do
+		// not subscribe or publish the initial heartbeat after cancellation.
+		return err
+	}
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	if t.closed {
@@ -574,6 +579,9 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 	}
 	if t.started {
 		return &InvalidOperationError{Message: "The transport was already started."}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	subscriptions := []struct {
 		subject func(NodeId) (string, error)
@@ -600,6 +608,10 @@ func (t *NatsTransport) Start(ctx context.Context) error {
 		t.subscriptions = append(t.subscriptions, subscription)
 	}
 	if err := t.connection.Flush(); err != nil {
+		t.unsubscribeAll()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		t.unsubscribeAll()
 		return err
 	}

@@ -35,6 +35,7 @@ import (
 // --podman-binary explicitly.
 const (
 	tsNodeDefaultPodmanBinary     = "/usr/bin/podman"
+	tsNodeDefaultSeccompProfile   = "/etc/terrascale/seccomp/terrascale-default-v1.json"
 	tsNodeDefaultHeartbeatPeriod  = 10 * time.Second
 	tsNodeDefaultConnectTimeout   = 5 * time.Second
 	tsNodeDefaultCpuQuotaPercent  = 10000
@@ -225,11 +226,17 @@ func parseTsNodeArguments(
 // first and pointed at the executor immediately after the agent is built.
 type tsNodePendingRelay struct {
 	mutex   sync.Mutex
-	counter hostagent.PendingAllocationCounter
+	counter interface {
+		hostagent.PendingAllocationCounter
+		hostagent.RunningAllocationCounter
+	}
 }
 
 // bind attaches the executor the relay reports pending allocations for.
-func (r *tsNodePendingRelay) bind(counter hostagent.PendingAllocationCounter) {
+func (r *tsNodePendingRelay) bind(counter interface {
+	hostagent.PendingAllocationCounter
+	hostagent.RunningAllocationCounter
+}) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.counter = counter
@@ -246,6 +253,17 @@ func (r *tsNodePendingRelay) PendingAllocations() int {
 	return r.counter.PendingAllocations()
 }
 
+// RunningAllocations reports the executor's running allocation count through
+// the same late-bound relay used for pending allocations.
+func (r *tsNodePendingRelay) RunningAllocations() int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.counter == nil {
+		return 0
+	}
+	return r.counter.RunningAllocations()
+}
+
 // composeTsNodeAgent composes the node agent from one validated
 // configuration: the rootless podman context is revalidated through
 // NewRootlessPodmanContext (fail-closed on uid 0 and relative paths), the
@@ -257,7 +275,8 @@ func (r *tsNodePendingRelay) PendingAllocations() int {
 // yet.
 func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent, error) {
 	rootless, err := hostruntime.NewRootlessPodmanContext(
-		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir, configuration.RunAsUid)
+		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
+		tsNodeDefaultSeccompProfile, configuration.RunAsUid)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
 	}
@@ -285,6 +304,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		TasksMax:        configuration.TasksMax,
 		LogicalCpuCount: configuration.LogicalCpuCount,
 		Pending:         pending,
+		Running:         pending,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the metrics source is unavailable: %s", err.Error())
@@ -320,6 +340,11 @@ func runTsNode(ctx context.Context, agent *hostagent.HostAgent) error {
 	}
 	select {
 	case <-ctx.Done():
+		// HostAgent closes itself from the start-context watcher, but wait for
+		// that graceful drain here before returning to the process entrypoint.
+		// Returning immediately could terminate the process while subscriptions
+		// are still serving commands.
+		_ = agent.Close()
 		return ctx.Err()
 	case <-agent.Completion():
 	}

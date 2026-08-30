@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,7 +56,11 @@ const (
 
 	autoscalerDefaultTickInterval = 10 * time.Second
 	autoscalerCordonTimeout       = 2 * time.Second
-	autoscalerHeartbeatClockSkew  = 2 * time.Minute
+	// autoscalerDrainStatusTimeout bounds the drain-status request the retire
+	// gate sends: the reply observes every allocation the node still serves,
+	// so it needs a wider bound than a single cordon acknowledgment.
+	autoscalerDrainStatusTimeout = 10 * time.Second
+	autoscalerHeartbeatClockSkew = 2 * time.Minute
 	autoscalerMaximumTrackedNodes = 1024
 	// autoscalerHeartbeatStaleTicks bounds how many tick intervals a node's
 	// last heartbeat may age before the autoscaler stops counting the node in
@@ -1073,7 +1079,7 @@ func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot 
 		demand = append(demand, r.observation.Demand...)
 	}
 	for _, entry := range r.nodes {
-		if now.Sub(entry.lastHeartbeat) > staleness {
+		if _, fresh := freshNodes[entry.nodeId]; !fresh {
 			entry.replicas = nil
 			continue
 		}

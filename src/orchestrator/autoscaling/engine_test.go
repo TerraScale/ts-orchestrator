@@ -291,22 +291,31 @@ func TestTickDoesNotDoubleProvisionWhileAProvisioningNodeCoversTheDeficit(t *tes
 	}
 
 	// The same holds while the snapshot has not reflected the provision at
-	// all: the autoscaler remembers its own in-flight reservation.
+	// all: the autoscaler remembers its own in-flight reservation, and the
+	// memory never expires by time alone, because guessing an unreflected
+	// provision failed is what provisions a replacement storm.
 	blind := mustAutoscaler(t, config, allowAllDrains())
 	if actions := mustTick(t, blind, breach); actionSignature(actions) == "" {
 		t.Fatal("the blind sequence must provision on its first tick")
 	}
-	if actions := mustTick(t, blind, breach); len(actions) != 0 {
-		t.Fatalf("an unreflected provision must still be counted, got %v", actionSignature(actions))
+	for tick := 0; tick < 5; tick++ {
+		if actions := mustTick(t, blind, breach); len(actions) != 0 {
+			t.Fatalf("an unrefuted provision must keep absorbing the deficit at tick %d, got %v",
+				tick+2, actionSignature(actions))
+		}
 	}
-	if actions := mustTick(t, blind, breach); len(actions) != 0 {
-		t.Fatalf("the bridge window must hold while unreflected, got %v", actionSignature(actions))
+	// The provisioner reports the provision failed: only that explicit
+	// refutation releases the reservation, and the next confirmed breach may
+	// order the replacement node.
+	if err := blind.RefuteProvision("as-node-1"); err != nil {
+		t.Fatalf("refute: %v", err)
 	}
-	// Once the bridge expires without the node ever appearing, the deficit is
-	// open again and the autoscaler orders a replacement node.
+	if err := blind.RefuteProvision("as-node-9"); err == nil {
+		t.Fatal("refuting an unknown provision must be refused")
+	}
 	actions := mustTick(t, blind, breach)
 	if signature := actionSignature(actions); !strings.Contains(signature, "as-node-2") {
-		t.Fatalf("the expired bridge must reprovision, got %q", signature)
+		t.Fatalf("the refuted provision must reprovision, got %q", signature)
 	}
 }
 
@@ -443,6 +452,52 @@ func TestTickScaleDownCordonsAndDrainsTheLowestUtilizationReadyNode(t *testing.T
 			t.Fatalf("a drain in flight defers further scale-down, got %v",
 				actionSignature(actions))
 		}
+	}
+}
+
+// TestTickHoldsTheEngineDrainWhileTheVictimVanishes proves the one-drain gate
+// survives a draining victim that falls out of the snapshot entirely: a
+// crashed agent is exactly the node whose containers are least certainly
+// stopped, so the engine's own drain mark must hold (no TTL, no snapshot
+// evidence) until the node is observed Retired.
+func TestTickHoldsTheEngineDrainWhileTheVictimVanishes(t *testing.T) {
+	nodes, snapshot := scaleDownCluster(t)
+	autoscaler := mustAutoscaler(t, mustConfig(t, 2, 8, 20, 30, 1, 2, 4, 3), allowAllDrains())
+
+	if actions := mustTick(t, autoscaler, snapshot); len(actions) != 0 {
+		t.Fatalf("one idle tick must not scale down, got %v", actionSignature(actions))
+	}
+	actions := mustTick(t, autoscaler, snapshot)
+	if signature := actionSignature(actions); signature != "CordonNode|gru-node-4;DrainNode|gru-node-4;" {
+		t.Fatalf("signature = %q", signature)
+	}
+
+	// The victim's agent goes silent and the node disappears from every later
+	// snapshot; sustained headroom would otherwise confirm a second drain.
+	silent := AutoscalerSnapshot{Nodes: nodes[:3]}
+	for tick := 0; tick < 4; tick++ {
+		if actions := mustTick(t, autoscaler, silent); len(actions) != 0 {
+			t.Fatalf("a vanished draining node must block further drains at tick %d, got %v",
+				tick+3, actionSignature(actions))
+		}
+	}
+	if len(autoscaler.drainingInFlight) != 1 {
+		t.Fatalf("the engine drain must still be remembered: %+v", autoscaler.drainingInFlight)
+	}
+
+	// The node is finally observed Retired: the drain is finished, its mark
+	// is released, and the next confirmed window may drain a different node.
+	retired := mustNode(t, "gru-node-4", NodeStateRetired, engineTestCapacity, NodeResources{}, 0)
+	observed := append(append([]NodeObservation{}, nodes[:3]...), retired)
+	after, err := autoscaler.Tick(context.Background(), AutoscalerSnapshot{Nodes: observed})
+	if err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if _, held := autoscaler.drainingInFlight["gru-node-4"]; held {
+		t.Fatalf("a retired victim must release its drain mark: %+v", autoscaler.drainingInFlight)
+	}
+	if signature := actionSignature(after); signature != "CordonNode|gru-node-1;DrainNode|gru-node-1;" {
+		t.Fatalf("the released gate must allow the next drain, got %q", signature)
 	}
 }
 

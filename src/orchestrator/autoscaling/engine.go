@@ -23,9 +23,13 @@ const (
 	autoscalingMaximumNodesPerSnapshot  = 1024
 	autoscalingMaximumDemandPerSnapshot = 4096
 
-	// autoscalingInFlightTickTTL bounds how long a provision or cordon this
-	// autoscaler remembers survives without being reflected by a snapshot:
-	// once the bounded bridge expires, the snapshot is authoritative again.
+	// autoscalingInFlightTickTTL bounds how long a cordon this autoscaler
+	// remembers survives without being reflected by a snapshot: once the
+	// bounded bridge expires, the snapshot is authoritative again. An
+	// in-flight provision has no TTL: it is remembered until a snapshot
+	// reflects the node or RefuteProvision reports the provisioner failed,
+	// because guessing a provision failed from elapsed ticks alone is what
+	// provisions a storm of replacement nodes for one shortfall.
 	autoscalingInFlightTickTTL = 2
 )
 
@@ -110,18 +114,19 @@ type DrainSafetyEvaluator interface {
 }
 
 // inFlightProvision is one provision action this autoscaler still remembers:
-// the reserved capacity of the node and the tick the action was emitted on.
+// the reserved capacity of the node it ordered, held until a snapshot
+// reflects the node or the provisioner refutes the provision.
 type inFlightProvision struct {
 	resources NodeResources
-	tick      int64
 }
 
 // Autoscaler is the autonomous node autoscaler engine: a deterministic
 // decision function over validated cluster snapshots. Between ticks it carries
 // only hysteresis state (confirmation counters, the remembered in-flight
-// provisions and cordons a snapshot has not reflected yet, and the recently
-// retired node ids of the flap suppression window); identical snapshots fed
-// to identically constructed autoscalers produce byte-identical actions.
+// provisions and cordons a snapshot has not reflected yet, the drains this
+// autoscaler started and has not observed finished, and the recently retired
+// node ids of the flap suppression window); identical snapshots fed to
+// identically constructed autoscalers produce byte-identical actions.
 type Autoscaler struct {
 	config              AutoscalerConfig
 	drainSafety         DrainSafetyEvaluator
@@ -131,6 +136,7 @@ type Autoscaler struct {
 	provisionSequence   int
 	inFlightProvisions  map[string]inFlightProvision
 	cordonedInFlight    map[string]int64
+	drainingInFlight    map[string]int64
 	retirementInFlight  map[string]int64
 	recentlyRetiredNode map[string]int64
 }
@@ -163,6 +169,7 @@ func NewAutoscaler(config AutoscalerConfig, drainSafety DrainSafetyEvaluator) (*
 		drainSafety:         drainSafety,
 		inFlightProvisions:  make(map[string]inFlightProvision),
 		cordonedInFlight:    make(map[string]int64),
+		drainingInFlight:    make(map[string]int64),
 		retirementInFlight:  make(map[string]int64),
 		recentlyRetiredNode: make(map[string]int64),
 	}, nil
@@ -194,6 +201,9 @@ func (a *Autoscaler) Tick(ctx context.Context, snapshot AutoscalerSnapshot) ([]A
 	if a.cordonedInFlight == nil {
 		a.cordonedInFlight = make(map[string]int64)
 	}
+	if a.drainingInFlight == nil {
+		a.drainingInFlight = make(map[string]int64)
+	}
 	if a.recentlyRetiredNode == nil {
 		a.recentlyRetiredNode = make(map[string]int64)
 	}
@@ -216,20 +226,22 @@ func (a *Autoscaler) Tick(ctx context.Context, snapshot AutoscalerSnapshot) ([]A
 	return actions, nil
 }
 
-// reconcileInFlight drops the remembered in-flight provisions and cordons
-// once a snapshot reflects them, so snapshot state always wins once it is
-// visible, and expires bridge entries the snapshots never confirmed.
+// reconcileInFlight drops the remembered in-flight provisions once a snapshot
+// reflects them, so snapshot state always wins once it is visible, and expires
+// cordon bridge entries the snapshots never confirmed. An in-flight provision
+// that no snapshot reflects is never expired by time alone: it is released
+// only by RefuteProvision, so a slow-booting or silent node can never trigger
+// a replacement storm. An engine-initiated drain likewise stays in flight
+// until the snapshot observes the node Retired: a draining node that falls out
+// of the heartbeat window is exactly the node whose containers are least
+// certainly stopped, so a second concurrent drain must stay blocked.
 func (a *Autoscaler) reconcileInFlight(snapshot AutoscalerSnapshot) {
 	states := make(map[string]NodeState, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
 		states[node.NodeId] = node.NodeState
 	}
-	for nodeId, provision := range a.inFlightProvisions {
+	for nodeId := range a.inFlightProvisions {
 		if _, present := states[nodeId]; present {
-			delete(a.inFlightProvisions, nodeId)
-			continue
-		}
-		if a.tick-provision.tick > autoscalingInFlightTickTTL {
 			delete(a.inFlightProvisions, nodeId)
 		}
 	}
@@ -239,6 +251,11 @@ func (a *Autoscaler) reconcileInFlight(snapshot AutoscalerSnapshot) {
 			(state == NodeStateCordoned || state == NodeStateDraining || state == NodeStateRetired)
 		if cordonApplied || a.tick-cordonedTick > autoscalingInFlightTickTTL {
 			delete(a.cordonedInFlight, nodeId)
+		}
+	}
+	for nodeId := range a.drainingInFlight {
+		if state, present := states[nodeId]; present && state == NodeStateRetired {
+			delete(a.drainingInFlight, nodeId)
 		}
 	}
 	// A retirement remains in flight until the snapshot observes that the
@@ -255,6 +272,31 @@ func (a *Autoscaler) reconcileInFlight(snapshot AutoscalerSnapshot) {
 			delete(a.recentlyRetiredNode, nodeId)
 		}
 	}
+}
+
+// RefuteProvision releases the remembered in-flight provision of one node
+// because its provisioner explicitly reported the provision failed. The
+// provision feedback is the only way an unreflected provision stops counting
+// against the provisioning capacity and MaxConcurrentProvisions: the engine
+// never guesses a provision failed from elapsed ticks alone.
+func (a *Autoscaler) RefuteProvision(nodeId string) error {
+	validated, err := requireAutoscalingToken(nodeId, "nodeId",
+		"Node ID must be a lowercase DNS-style token.")
+	if err != nil {
+		return err
+	}
+	if a == nil {
+		return &InvalidOperationError{Message: "The autoscaler is unavailable."}
+	}
+	if a.inFlightProvisions == nil {
+		a.inFlightProvisions = make(map[string]inFlightProvision)
+	}
+	if _, present := a.inFlightProvisions[validated]; !present {
+		return &InvalidOperationError{Message: fmt.Sprintf(
+			"Node %s has no in-flight provision to refute.", validated)}
+	}
+	delete(a.inFlightProvisions, validated)
+	return nil
 }
 
 // planRetireActions retires every Draining node that reports zero running
@@ -288,6 +330,9 @@ func (a *Autoscaler) planRetireActions(snapshot AutoscalerSnapshot) []Autoscaler
 		actions = append(actions, action)
 		a.recentlyRetiredNode[node.NodeId] = a.tick
 		a.retirementInFlight[node.NodeId] = a.tick
+		// The retire gate observed a quiet, drained node, so this
+		// autoscaler's drain of it is finished; retirement now owns the node.
+		delete(a.drainingInFlight, node.NodeId)
 	}
 	return actions
 }
@@ -325,6 +370,7 @@ func (a *Autoscaler) planScaleDown(
 			return nil
 		}
 		a.cordonedInFlight[node.NodeId] = a.tick
+		a.drainingInFlight[node.NodeId] = a.tick
 		a.scaleDownIdleTicks = 0
 		return []AutoscalerAction{cordon, drain}
 	}
@@ -354,7 +400,9 @@ func (a *Autoscaler) drainAllowed(ctx context.Context, node NodeObservation) boo
 // some Ready node), each new node carries that exact envelope, and the
 // provision count is the per-dimension deficit after the capacity of nodes
 // already Provisioning is counted against it, capped by MaxNodes and
-// MaxConcurrentProvisions.
+// MaxConcurrentProvisions. Provisions this autoscaler still remembers count
+// against that reserve until a snapshot reflects the node or RefuteProvision
+// releases the reservation, so the same shortfall is never provisioned twice.
 func (a *Autoscaler) planScaleUp(
 	snapshot AutoscalerSnapshot,
 	pressure clusterPressure,
@@ -405,7 +453,7 @@ func (a *Autoscaler) planScaleUp(
 			return nil
 		}
 		reservedIds[nodeId] = struct{}{}
-		a.inFlightProvisions[nodeId] = inFlightProvision{resources: sizing, tick: a.tick}
+		a.inFlightProvisions[nodeId] = inFlightProvision{resources: sizing}
 		actions = append(actions, action)
 	}
 	a.scaleUpBreachTicks = 0
@@ -562,11 +610,18 @@ func provisioningNodeCount(snapshot AutoscalerSnapshot) int {
 	return count
 }
 
-// drainInFlight reports whether any node is Cordoned or Draining: this lane
-// drains one node at a time so the fleet never drains in waves. A node for
-// which a retire action was already emitted is no longer an in-flight drain,
-// even if its stale pre-retirement state remains in the next snapshot.
+// drainInFlight reports whether any drain is still in flight: a drain this
+// autoscaler started and has not observed finished, or any node the snapshot
+// reports Cordoned or Draining. This lane drains one node at a time so the
+// fleet never drains in waves; remembering the engine's own drains keeps the
+// gate closed exactly when a draining victim disappears from the snapshot
+// because its agent went silent. A node for which a retire action was already
+// emitted is no longer an in-flight drain, even if its stale pre-retirement
+// state remains in the next snapshot.
 func (a *Autoscaler) drainInFlight(snapshot AutoscalerSnapshot) bool {
+	if len(a.drainingInFlight) > 0 {
+		return true
+	}
 	for _, node := range snapshot.Nodes {
 		if _, alreadyRetired := a.recentlyRetiredNode[node.NodeId]; alreadyRetired {
 			continue
