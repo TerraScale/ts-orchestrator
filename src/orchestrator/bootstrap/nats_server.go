@@ -3,10 +3,12 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -105,7 +107,7 @@ func (r *NatsServerRunner) Run(ctx context.Context) error {
 
 	serverInstance, err := server.NewServer(options)
 	if err != nil {
-		return fmt.Errorf("construct nats server: %w", err)
+		return errors.New("construct nats server: configuration was rejected")
 	}
 	fatalErrors := make(chan error, 1)
 	// The stock logger calls os.Exit from Fatalf. A linked server must report
@@ -140,9 +142,39 @@ func (r *NatsServerRunner) Run(ctx context.Context) error {
 }
 
 func loadNatsServerOptions(configPath string) (*server.Options, error) {
-	options, err := server.ProcessConfigFile(configPath)
+	configuration, err := readNatsServerConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("parse nats server configuration: %w", err)
+		return nil, err
+	}
+	if containsNatsIncludeDirective(configuration) {
+		return nil, errors.New("nats server configuration must not use include directives")
+	}
+
+	// Parse an immutable private copy in the same directory. Relative TLS and
+	// storage paths retain their documented base, while a replacement of the
+	// deployment-supplied file cannot change the bytes after validation.
+	temporary, err := os.CreateTemp(filepath.Dir(configPath), ".terrascale-nats-*.conf")
+	if err != nil {
+		return nil, errors.New("prepare nats server configuration for parsing")
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if chmodErr := temporary.Chmod(0o600); chmodErr != nil {
+		_ = temporary.Close()
+		return nil, errors.New("prepare nats server configuration for parsing")
+	}
+	if _, writeErr := temporary.Write(configuration); writeErr != nil {
+		_ = temporary.Close()
+		return nil, errors.New("prepare nats server configuration for parsing")
+	}
+	if closeErr := temporary.Close(); closeErr != nil {
+		return nil, errors.New("prepare nats server configuration for parsing")
+	}
+
+	options, err := server.ProcessConfigFile(temporaryPath)
+	if err != nil {
+		// Parser errors can contain authentication values and source snippets.
+		return nil, errors.New("parse nats server configuration: configuration is invalid")
 	}
 	return options, nil
 }
@@ -167,31 +199,97 @@ func validateNatsServerConfig(config NatsServerConfig) error {
 	if err := rejectSymlinkPath(cleanPath, false); err != nil {
 		return fmt.Errorf("reject nats server configuration path: %w", err)
 	}
-	info, err := os.Stat(cleanPath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return errors.New("nats server configuration file does not exist")
-		}
-		return fmt.Errorf("stat nats server configuration file: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return errors.New("nats server configuration must be a regular file")
-	}
-	if info.Size() <= 0 {
-		return errors.New("nats server configuration file is empty")
-	}
-	if info.Size() > NatsServerConfigSizeLimit {
-		return fmt.Errorf("nats server configuration exceeds %d bytes", NatsServerConfigSizeLimit)
-	}
-	// Group/other permissions can expose credentials and private paths. The
-	// owner may use either a read-only or owner-readable/writable file.
-	if info.Mode().Perm()&0o077 != 0 {
-		return errors.New("nats server configuration is accessible by group or other users")
+	if _, err := readNatsServerConfig(cleanPath); err != nil {
+		return err
 	}
 	if config.ReadinessTimeout < 0 || config.ReadinessTimeout > NatsServerReadinessLimit {
 		return fmt.Errorf("nats server readiness timeout must be between zero and %s", NatsServerReadinessLimit)
 	}
 	return nil
+}
+
+func readNatsServerConfig(path string) ([]byte, error) {
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, errors.New("nats server configuration file does not exist")
+		}
+		return nil, errors.New("stat nats server configuration file")
+	}
+	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() {
+		return nil, errors.New("nats server configuration must be a regular file, not a symbolic link")
+	}
+	if pathInfo.Mode().Perm()&0o077 != 0 {
+		return nil, errors.New("nats server configuration is accessible by group or other users")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("open nats server configuration file")
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil || !os.SameFile(pathInfo, openedInfo) || !openedInfo.Mode().IsRegular() {
+		return nil, errors.New("nats server configuration changed while it was opened")
+	}
+	if openedInfo.Size() <= 0 {
+		return nil, errors.New("nats server configuration file is empty")
+	}
+	if openedInfo.Size() > NatsServerConfigSizeLimit {
+		return nil, fmt.Errorf("nats server configuration exceeds %d bytes", NatsServerConfigSizeLimit)
+	}
+	configuration, err := io.ReadAll(io.LimitReader(file, NatsServerConfigSizeLimit+1))
+	if err != nil || len(configuration) > NatsServerConfigSizeLimit {
+		return nil, errors.New("read bounded nats server configuration")
+	}
+	return configuration, nil
+}
+
+// containsNatsIncludeDirective rejects the NATS parser's recursive file-read
+// feature. It ignores quoted values and the two comment forms accepted by the
+// parser. Rejecting an extra bare key named include is an intentional
+// fail-closed tradeoff for a single-file production configuration.
+func containsNatsIncludeDirective(configuration []byte) bool {
+	const include = "include"
+	for line := range bytes.Lines(configuration) {
+		quoted := byte(0)
+		escaped := false
+		for index := 0; index < len(line); index++ {
+			character := line[index]
+			if quoted != 0 {
+				if quoted == '"' && character == '\\' && !escaped {
+					escaped = true
+					continue
+				}
+				if character == quoted && !escaped {
+					quoted = 0
+				}
+				escaped = false
+				continue
+			}
+			if character == '#' || character == '/' && index+1 < len(line) && line[index+1] == '/' {
+				break
+			}
+			if character == '\'' || character == '"' {
+				quoted = character
+				continue
+			}
+			if index+len(include) <= len(line) && strings.EqualFold(string(line[index:index+len(include)]), include) {
+				beforeBoundary := index == 0 || !isNatsIdentifierByte(line[index-1])
+				after := index + len(include)
+				afterBoundary := after == len(line) || !isNatsIdentifierByte(line[after])
+				if beforeBoundary && afterBoundary {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isNatsIdentifierByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9' || value == '_' || value == '-'
 }
 
 func validateNatsServerOptions(options *server.Options) error {
@@ -320,7 +418,9 @@ func (l *natsServerLogger) Errorf(string, ...any)  {}
 func (l *natsServerLogger) Debugf(string, ...any)  {}
 func (l *natsServerLogger) Tracef(string, ...any)  {}
 func (l *natsServerLogger) Fatalf(format string, args ...any) {
-	err := fmt.Errorf(format, args...)
+	// NATS log messages may interpolate credentials or configuration text.
+	// The bootstrap boundary exposes only a stable, non-secret failure.
+	err := errors.New("nats server reported a fatal error")
 	select {
 	case l.fatalErrors <- err:
 	default:

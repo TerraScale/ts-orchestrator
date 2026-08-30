@@ -107,20 +107,28 @@ func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 	}
 
 	for _, stream := range streams {
-		if _, err := js.CreateOrUpdateStream(ctx, stream); err != nil {
+		streamHandle, err := js.CreateOrUpdateStream(ctx, stream)
+		if err != nil {
+			return err
+		}
+		info, err := streamHandle.Info(ctx)
+		if err != nil {
+			return err
+		}
+		if err := NatsOperationJournalStore.ValidateExactStreamConfiguration(info.Config, stream); err != nil {
 			return err
 		}
 	}
 
-	if _, err := js.CreateKeyValue(ctx, topology.Leaders()); err != nil {
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Leaders()); err != nil {
 		return err
 	}
 
-	if _, err := js.CreateKeyValue(ctx, topology.Runtime()); err != nil {
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Runtime()); err != nil {
 		return err
 	}
 
-	if _, err := js.CreateKeyValue(ctx, topology.Delivery()); err != nil {
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Delivery()); err != nil {
 		return err
 	}
 
@@ -174,6 +182,36 @@ func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 
 	return natsOperationJournalCreateOrUpdateAndValidateConsumer(
 		ctx, js, "CELL_SPEC", cellSpecConsumer)
+}
+
+func natsOperationJournalOpenOrCreateTopologyKeyValue(
+	ctx context.Context,
+	js jetstream.JetStream,
+	configuration jetstream.KeyValueConfig,
+) (jetstream.KeyValue, error) {
+	store, err := js.KeyValue(ctx, configuration.Bucket)
+	if err != nil {
+		if !isJetStreamNotFound(err) {
+			return nil, err
+		}
+		store, err = js.CreateKeyValue(ctx, configuration)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	streamHandle, err := js.Stream(ctx, "KV_"+configuration.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	info, err := streamHandle.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := NatsOperationJournalStore.ValidatePlainTopologyKeyValueConfiguration(info.Config, configuration); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 func natsOperationJournalCreateOrUpdateAndValidateConsumer(

@@ -73,6 +73,42 @@ func TestValidateNatsServerOptionsRequiresProductionSecurity(t *testing.T) {
 	}
 }
 
+func TestLoadNatsServerOptionsRejectsIncludes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.conf")
+	if err := os.WriteFile(path, []byte("include \"secrets.conf\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadNatsServerOptions(path); err == nil || !strings.Contains(err.Error(), "must not use include") {
+		t.Fatalf("include error = %v", err)
+	}
+	for _, safe := range [][]byte{
+		[]byte("# include \"ignored.conf\"\nport: 4222\n"),
+		[]byte("description: \"include is documentation\"\nport: 4222\n"),
+	} {
+		if containsNatsIncludeDirective(safe) {
+			t.Fatalf("safe text was classified as an include: %q", safe)
+		}
+	}
+}
+
+func TestParserErrorDoesNotExposeConfigurationSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.conf")
+	const secret = "marker-password-must-not-leak"
+	configuration := "authorization: { password: \"" + secret + "\" }\ninvalid_field: [\n"
+	if err := os.WriteFile(path, []byte(configuration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadNatsServerOptions(path)
+	if err == nil {
+		t.Fatal("invalid configuration was accepted")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("parser error exposed secret: %v", err)
+	}
+}
+
 func TestRunNatsServerCancellation(t *testing.T) {
 	dir := t.TempDir()
 	caCert, caKey := makeCertificate(t, nil, nil, true)

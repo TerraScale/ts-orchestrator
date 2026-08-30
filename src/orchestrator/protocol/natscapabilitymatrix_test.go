@@ -145,14 +145,14 @@ func findRepositoryRoot(t *testing.T) string {
 	}
 
 	for hops := 0; hops < 12; hops++ {
-		if _, err := os.Stat(filepath.Join(directory, "TerraScale.Orchestrator.slnx")); err == nil {
+		if _, err := os.Stat(filepath.Join(directory, "go.mod")); err == nil {
 			return directory
 		}
 
 		directory = filepath.Dir(directory)
 	}
 
-	t.Fatal("the repository root was not found; the capability-matrix drift test must run from the repository.")
+	t.Fatal("the Go module root was not found; the contract drift test must run from the repository")
 	return ""
 }
 

@@ -206,6 +206,7 @@ func (t *NatsTopology) StartupConsumer() (jetstream.ConsumerConfig, error) {
 
 	return jetstream.ConsumerConfig{
 		Name:          "runtime_startup",
+		Durable:       "runtime_startup",
 		Description:   "Acknowledged runtime startup events for " + t.Cell,
 		FilterSubject: filter,
 		// JetStream derives the effective acknowledgement wait from the first
@@ -231,8 +232,10 @@ func (t *NatsTopology) CellSpecConsumer() (jetstream.ConsumerConfig, error) {
 		return jetstream.ConsumerConfig{}, err
 	}
 
+	name := "gitops_cell_spec_" + t.Instance
 	return jetstream.ConsumerConfig{
-		Name:          "gitops_cell_spec_" + t.Instance,
+		Name:          name,
+		Durable:       name,
 		Description:   "Durable signed native GitOps CellSpecs for " + t.Cell + "/" + t.Instance,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckPolicy:     jetstream.AckExplicitPolicy,

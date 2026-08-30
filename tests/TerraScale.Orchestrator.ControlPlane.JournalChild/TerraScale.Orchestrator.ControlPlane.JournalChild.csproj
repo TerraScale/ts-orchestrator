@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><RuntimeIdentifier>linux-x64</RuntimeIdentifier><SelfContained>true</SelfContained></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" /></ItemGroup>
-</Project>
