@@ -265,7 +265,9 @@ func requireMatchingPodmanAllocation(
 	fingerprintLabel, hasFingerprint := observation.Labels[PodmanLabelFingerprint]
 	if !hasAllocation || !hasFingerprint ||
 		allocationLabel != allocationId ||
-		fingerprintLabel != fingerprint {
+		fingerprintLabel != fingerprint ||
+		observation.ImageReference != expected.ImageReference ||
+		observation.Platform != expected.Platform {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf(
 				"Existing podman allocation '%s' belongs to a different plan and was not adopted or mutated.",

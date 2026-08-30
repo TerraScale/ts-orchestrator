@@ -275,7 +275,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.leaf, func(t *testing.T) {
-			_, connection, systemd, container := defaultTransportForTest(t)
+			_, connection, _, _ := defaultTransportForTest(t)
 			command := executorTestCommand(t, test.plan, "cmd-"+test.leaf)
 			payload, err := json.Marshal(command)
 			if err != nil {
@@ -298,8 +298,6 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 			if fingerprint != expectedFingerprint {
 				t.Fatalf("fingerprint = %q, want %q", fingerprint, expectedFingerprint)
 			}
-			_ = systemd
-			_ = container
 		})
 	}
 }

@@ -39,6 +39,17 @@ type LiveNatsConnection struct {
 	Connection *nats.Conn
 }
 
+// NewLiveNatsConnection validates that the wrapped connection exists.
+func NewLiveNatsConnection(connection *nats.Conn) (LiveNatsConnection, error) {
+	if connection == nil {
+		return LiveNatsConnection{}, &ArgumentError{
+			Param:   "connection",
+			Message: "A live NATS connection is required.",
+		}
+	}
+	return LiveNatsConnection{Connection: connection}, nil
+}
+
 // Subscribe registers one message handler on the live connection.
 func (c LiveNatsConnection) Subscribe(subject string, handler func(*nats.Msg)) (*nats.Subscription, error) {
 	return c.Connection.Subscribe(subject, handler)

@@ -198,6 +198,7 @@ func requirePodmanCgroupParent(value, param string) (string, error) {
 type PodmanAllocationObservation struct {
 	State          PodmanAllocationState
 	ImageReference string
+	Platform       string
 	Labels         map[string]string
 	Running        bool
 }
@@ -210,7 +211,15 @@ func NewPodmanAllocationObservation(
 	imageReference string,
 	labels map[string]string,
 	running bool,
+	platform ...string,
 ) (PodmanAllocationObservation, error) {
+	if len(platform) > 1 {
+		return PodmanAllocationObservation{}, &ArgumentError{Param: "platform", Message: "At most one platform may be supplied."}
+	}
+	observedPlatform := ""
+	if len(platform) == 1 {
+		observedPlatform = platform[0]
+	}
 	if !state.defined() {
 		return PodmanAllocationObservation{}, &ArgumentOutOfRangeError{Param: "state"}
 	}
@@ -221,7 +230,7 @@ func NewPodmanAllocationObservation(
 		}
 	}
 	if state == PodmanAllocationStateAbsent {
-		if imageReference != "" || len(labels) > 0 {
+		if imageReference != "" || observedPlatform != "" || len(labels) > 0 {
 			return PodmanAllocationObservation{}, &ArgumentError{
 				Param:   "state",
 				Message: "An absent allocation carries no image reference and no labels.",
@@ -233,6 +242,11 @@ func NewPodmanAllocationObservation(
 	if err != nil {
 		return PodmanAllocationObservation{}, err
 	}
+	if observedPlatform != "" {
+		if err := requirePodmanPlatform(observedPlatform); err != nil {
+			return PodmanAllocationObservation{}, err
+		}
+	}
 	validatedLabels, err := requirePodmanLabels(labels)
 	if err != nil {
 		return PodmanAllocationObservation{}, err
@@ -240,6 +254,7 @@ func NewPodmanAllocationObservation(
 	return PodmanAllocationObservation{
 		State:          state,
 		ImageReference: validatedImage,
+		Platform:       observedPlatform,
 		Labels:         validatedLabels,
 		Running:        running,
 	}, nil

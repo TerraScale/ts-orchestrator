@@ -364,8 +364,12 @@ type decodedWorkloadPlan struct {
 // canonical fingerprint. The decode revalidates every token and re-admits the
 // role and driver pair, mirroring the trust boundary of NewHostRuntimePlan.
 func decodeWorkloadPlan(command WorkloadCommandRequest) (decodedWorkloadPlan, error) {
+	validatedCommand, err := NewWorkloadCommandRequest(command.PlanJson, command.CommandId)
+	if err != nil {
+		return decodedWorkloadPlan{}, err
+	}
 	var plan runtime.HostRuntimePlan
-	if err := json.Unmarshal(command.PlanJson, &plan); err != nil {
+	if err := json.Unmarshal(validatedCommand.PlanJson, &plan); err != nil {
 		return decodedWorkloadPlan{}, &InvalidDataError{Message: err.Error()}
 	}
 	fingerprint, err := runtime.CanonicalPlanFingerprint.Compute(plan)

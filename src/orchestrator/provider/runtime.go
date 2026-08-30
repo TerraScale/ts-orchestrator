@@ -37,6 +37,12 @@ func NewMemoryOwnershipJournal(max int) (*MemoryOwnershipJournal, error) {
 }
 
 func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwnershipRecord) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if j == nil {
+		return &InvalidOperationError{Message: "ownership journal is unavailable"}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -53,6 +59,12 @@ func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwne
 }
 
 func (j *MemoryOwnershipJournal) Lookup(ctx context.Context, id ProviderResourceId) (ProviderOwnershipRecord, bool, error) {
+	if ctx == nil {
+		return ProviderOwnershipRecord{}, false, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if j == nil {
+		return ProviderOwnershipRecord{}, false, &InvalidOperationError{Message: "ownership journal is unavailable"}
+	}
 	if err := ctx.Err(); err != nil {
 		return ProviderOwnershipRecord{}, false, err
 	}

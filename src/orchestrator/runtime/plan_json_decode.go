@@ -145,9 +145,9 @@ type wireTokenValue struct {
 }
 
 // runtimeResourceLimitsWire mirrors the marshaled resource limits. The
-// memoryHighBytes and memorySwapMaxBytes watermarks are accepted because the
-// serializer always emits them, and are then recomputed from MemoryMaxBytes
-// exactly as the source of truth does.
+// memoryHighBytes and memorySwapMaxBytes watermarks the serializer always
+// emits must match the values derived from the limits themselves, so a
+// tampered watermark cannot ride along in a decoded plan.
 type runtimeResourceLimitsWire struct {
 	MemoryMaxBytes     *int64 `json:"memoryMaxBytes"`
 	TasksMax           *int   `json:"tasksMax"`

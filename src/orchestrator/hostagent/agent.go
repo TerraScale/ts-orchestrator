@@ -149,7 +149,12 @@ func (a *HostAgent) Start(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		connection = LiveNatsConnection{Connection: dialed}
+		wrapped, err := NewLiveNatsConnection(dialed)
+		if err != nil {
+			dialed.Close()
+			return err
+		}
+		connection = wrapped
 	}
 	ticker, err := NewIntervalHeartbeatTicker(a.heartbeatInterval)
 	if err != nil {

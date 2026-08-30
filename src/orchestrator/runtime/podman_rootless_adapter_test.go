@@ -125,7 +125,7 @@ func podmanFencedObservation(
 		return observation
 	}
 	observation, err := NewPodmanAllocationObservation(
-		state, plan.Oci.ImageReference, labels, state == PodmanAllocationStateRunning)
+		state, plan.Oci.ImageReference, labels, state == PodmanAllocationStateRunning, plan.Oci.Platform)
 	if err != nil {
 		t.Fatalf("observation: %v", err)
 	}

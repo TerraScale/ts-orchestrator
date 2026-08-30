@@ -125,6 +125,12 @@ func validateRecovery(r CreateNodeProviderRequest, keys ReceiptKeyResolver, now 
 	return nil
 }
 func (p *DeterministicCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
+	if ctx == nil {
+		return CreateNodeProviderResponse{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if p == nil || p.keys == nil || p.clock == nil {
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "deterministic provider is unavailable"}
+	}
 	if err := ctx.Err(); err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
@@ -142,6 +148,12 @@ func (p *DeterministicCreateNodeProvider) CreateNode(ctx context.Context, r Crea
 	return resp, nil
 }
 func (p *DeterministicCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeReconciliation, error) {
+	if ctx == nil {
+		return CreateNodeReconciliation{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if p == nil || p.recoveryKeys == nil || p.proofSigner == nil || p.clock == nil {
+		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "deterministic provider is unavailable"}
+	}
 	if err := ctx.Err(); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
