@@ -14,18 +14,18 @@ import (
 // source-generated context (default options: PascalCase names, null semantics
 // through pointers).
 type GlobalCellAdvertisement struct {
-	SchemaVersion    int                                `json:"SchemaVersion"`
-	Cell             string                             `json:"Cell"`
-	Cluster          string                             `json:"Cluster"`
-	AuthorityId      string                             `json:"AuthorityId"`
-	AuthorityEpoch   int64                              `json:"AuthorityEpoch"`
-	AuthorityRevision int64                             `json:"AuthorityRevision"`
-	Sequence         int64                              `json:"Sequence"`
-	Capabilities     []string                           `json:"Capabilities"`
-	Membership       RegionalRuntimeMembershipHealth    `json:"Membership"`
-	ObservedAt       time.Time                          `json:"ObservedAt"`
-	LeaseExpiresAt   time.Time                          `json:"LeaseExpiresAt"`
-	Endpoints        []string                           `json:"Endpoints,omitempty"`
+	SchemaVersion     int                             `json:"SchemaVersion"`
+	Cell              string                          `json:"Cell"`
+	Cluster           string                          `json:"Cluster"`
+	AuthorityId       string                          `json:"AuthorityId"`
+	AuthorityEpoch    int64                           `json:"AuthorityEpoch"`
+	AuthorityRevision int64                           `json:"AuthorityRevision"`
+	Sequence          int64                           `json:"Sequence"`
+	Capabilities      []string                        `json:"Capabilities"`
+	Membership        RegionalRuntimeMembershipHealth `json:"Membership"`
+	ObservedAt        time.Time                       `json:"ObservedAt"`
+	LeaseExpiresAt    time.Time                       `json:"LeaseExpiresAt"`
+	Endpoints         []string                        `json:"Endpoints,omitempty"`
 }
 
 // GlobalCellAdvertisementSemanticLease mirrors the C# SemanticLease.
@@ -149,10 +149,10 @@ func GlobalCellAdvertisementIsControlEndpoint(endpoint string) bool {
 type GlobalCellAdvertisementDisposition int
 
 const (
-	GlobalCellAdvertisementDispositionAccepted GlobalCellAdvertisementDisposition = 0
+	GlobalCellAdvertisementDispositionAccepted  GlobalCellAdvertisementDisposition = 0
 	GlobalCellAdvertisementDispositionDuplicate GlobalCellAdvertisementDisposition = 1
-	GlobalCellAdvertisementDispositionStale    GlobalCellAdvertisementDisposition = 2
-	GlobalCellAdvertisementDispositionRejected GlobalCellAdvertisementDisposition = 3
+	GlobalCellAdvertisementDispositionStale     GlobalCellAdvertisementDisposition = 2
+	GlobalCellAdvertisementDispositionRejected  GlobalCellAdvertisementDisposition = 3
 )
 
 // GlobalCellDirectoryCondition mirrors the C# enum (serialized as strings by
@@ -308,8 +308,8 @@ func allCellsHealthy(cells []GlobalCellDirectoryEntry) bool {
 // advertisements into a read-only global projection. Regional state remains
 // authoritative; expiry only marks a projection stale.
 type GlobalCellDirectory struct {
-	mu                    sync.Mutex
-	advertisements        map[string]GlobalCellAdvertisement
+	mu                     sync.Mutex
+	advertisements         map[string]GlobalCellAdvertisement
 	rejectedAdvertisements int64
 }
 

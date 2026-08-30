@@ -24,15 +24,17 @@ type GlobalNatsTopology struct {
 }
 
 const (
-	GlobalNatsTopologyCellSpecStream        = "GLOBAL_SPEC"
-	GlobalNatsTopologyCiStream              = "GLOBAL_CI"
-	GlobalNatsTopologyCellsBucket           = "GLOBAL_CELLS"
-	GlobalNatsTopologyRunnerJobsBucket      = "CI_RUNNER_JOBS"
-	GlobalNatsTopologyRunnerBundlesBucket   = "CI_RUNNER_BUNDLES"
+	GlobalNatsTopologyCellSpecStream           = "GLOBAL_SPEC"
+	GlobalNatsTopologyCiStream                 = "GLOBAL_CI"
+	GlobalNatsTopologyCellsBucket              = "GLOBAL_CELLS"
+	GlobalNatsTopologyRunnerJobsBucket         = "CI_RUNNER_JOBS"
+	GlobalNatsTopologyRunnerBundlesBucket      = "CI_RUNNER_BUNDLES"
 	GlobalNatsTopologyCiRunnerJournalKeyPrefix = "ci.runner"
 )
 
-func GlobalNatsTopologyCiSubject() string { return protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject() }
+func GlobalNatsTopologyCiSubject() string {
+	return protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject()
+}
 
 func GlobalNatsTopologyCiJobSubjectPrefix() string {
 	return protocol.NatsSubjectTaxonomy.CiJobSubjectPrefix()
@@ -79,13 +81,13 @@ func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 			Name:        GlobalNatsTopologyCiStream,
 			Description: "Durable normalized CI events and fenced runner commands",
 			Subjects:    []string{protocol.NatsSubjectTaxonomy.GlobalCiFamilyPattern()},
-			MaxBytes:   1024 * 1024 * 1024,
-			MaxAge:     30 * 24 * time.Hour,
-			Duplicates: 24 * time.Hour,
-			Replicas:   t.Replicas,
-			Retention:  jetstream.LimitsPolicy,
-			Storage:    jetstream.FileStorage,
-			Discard:    jetstream.DiscardOld,
+			MaxBytes:    1024 * 1024 * 1024,
+			MaxAge:      30 * 24 * time.Hour,
+			Duplicates:  24 * time.Hour,
+			Replicas:    t.Replicas,
+			Retention:   jetstream.LimitsPolicy,
+			Storage:     jetstream.FileStorage,
+			Discard:     jetstream.DiscardOld,
 		},
 	}
 }
@@ -104,13 +106,13 @@ func (t *GlobalNatsTopology) Leaders() jetstream.KeyValueConfig {
 // Cells mirrors GlobalNatsTopology.Cells.
 func (t *GlobalNatsTopology) Cells() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
-		Bucket:      GlobalNatsTopologyCellsBucket,
-		Description: "Durable read-only regional cell advertisements",
-		History:     16,
-		TTL:         30 * 24 * time.Hour,
+		Bucket:       GlobalNatsTopologyCellsBucket,
+		Description:  "Durable read-only regional cell advertisements",
+		History:      16,
+		TTL:          30 * 24 * time.Hour,
 		MaxValueSize: 64 * 1024,
-		MaxBytes:    64 * 1024 * 1024,
-		Replicas:    t.Replicas,
+		MaxBytes:     64 * 1024 * 1024,
+		Replicas:     t.Replicas,
 	}
 }
 
@@ -120,26 +122,26 @@ func (t *GlobalNatsTopology) Releases() jetstream.KeyValueConfig {
 		// Durable bucket name kept from the retired stage for store continuity; its
 		// content is the direct-delivery and CI journal ledger, not a
 		// candidate/promotion stage journal.
-		Bucket:      "GLOBAL_RELEASES",
-		Description: "Durable delivery and CI journal ledger (triggers, pipelines, direct operations)",
-		History:     64,
-		TTL:         365 * 24 * time.Hour,
+		Bucket:       "GLOBAL_RELEASES",
+		Description:  "Durable delivery and CI journal ledger (triggers, pipelines, direct operations)",
+		History:      64,
+		TTL:          365 * 24 * time.Hour,
 		MaxValueSize: 16 * 1024,
-		MaxBytes:    1024 * 1024 * 1024,
-		Replicas:    t.Replicas,
+		MaxBytes:     1024 * 1024 * 1024,
+		Replicas:     t.Replicas,
 	}
 }
 
 // RunnerJobs mirrors GlobalNatsTopology.RunnerJobs.
 func (t *GlobalNatsTopology) RunnerJobs() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
-		Bucket:      GlobalNatsTopologyRunnerJobsBucket,
-		Description: "Fenced durable CI runner command acceptance pointers",
-		History:     8,
-		TTL:         30 * 24 * time.Hour,
+		Bucket:       GlobalNatsTopologyRunnerJobsBucket,
+		Description:  "Fenced durable CI runner command acceptance pointers",
+		History:      8,
+		TTL:          30 * 24 * time.Hour,
 		MaxValueSize: 16 * 1024,
-		MaxBytes:    512 * 1024 * 1024,
-		Replicas:    t.Replicas,
+		MaxBytes:     512 * 1024 * 1024,
+		Replicas:     t.Replicas,
 	}
 }
 
@@ -187,17 +189,17 @@ func (t *GlobalNatsTopology) CiConsumer() jetstream.ConsumerConfig {
 // CiRuntimeProofConsumer mirrors GlobalNatsTopology.CiRuntimeProofConsumer.
 func (t *GlobalNatsTopology) CiRuntimeProofConsumer() jetstream.ConsumerConfig {
 	return jetstream.ConsumerConfig{
-		Name:          "global_ci_runtime_proof",
-		Description:   "Leader-verified native CI runtime observations",
-		DeliverPolicy: jetstream.DeliverAll,
-		AckPolicy:     jetstream.AckExplicit,
-		FilterSubject: GlobalNatsTopologyCiRuntimeProofSubject(),
-		ReplayPolicy:  jetstream.ReplayInstant,
-		AckWait:       1 * time.Second,
-		MaxDeliver:    5,
-		MaxAckPending: 32,
-		MaxWaiting:    16,
-		MaxRequestBatch: 1,
+		Name:              "global_ci_runtime_proof",
+		Description:       "Leader-verified native CI runtime observations",
+		DeliverPolicy:     jetstream.DeliverAll,
+		AckPolicy:         jetstream.AckExplicit,
+		FilterSubject:     GlobalNatsTopologyCiRuntimeProofSubject(),
+		ReplayPolicy:      jetstream.ReplayInstant,
+		AckWait:           1 * time.Second,
+		MaxDeliver:        5,
+		MaxAckPending:     32,
+		MaxWaiting:        16,
+		MaxRequestBatch:   1,
 		MaxRequestExpires: 30 * time.Second,
 		BackOff: []time.Duration{
 			1 * time.Second,
@@ -217,17 +219,17 @@ func (t *GlobalNatsTopology) CellSpecConsumer(cell string) (jetstream.ConsumerCo
 	}
 
 	return jetstream.ConsumerConfig{
-		Name:          "gitops_global_cell_spec_" + cell,
-		Description:   "Durable globally signed native GitOps CellSpecs for " + cell,
-		DeliverPolicy: jetstream.DeliverAll,
-		AckPolicy:     jetstream.AckExplicit,
-		FilterSubject: subject,
-		ReplayPolicy:  jetstream.ReplayInstant,
-		AckWait:       1 * time.Second,
-		MaxDeliver:    5,
-		MaxAckPending: 8,
-		MaxWaiting:    8,
-		MaxRequestBatch: 1,
+		Name:              "gitops_global_cell_spec_" + cell,
+		Description:       "Durable globally signed native GitOps CellSpecs for " + cell,
+		DeliverPolicy:     jetstream.DeliverAll,
+		AckPolicy:         jetstream.AckExplicit,
+		FilterSubject:     subject,
+		ReplayPolicy:      jetstream.ReplayInstant,
+		AckWait:           1 * time.Second,
+		MaxDeliver:        5,
+		MaxAckPending:     8,
+		MaxWaiting:        8,
+		MaxRequestBatch:   1,
 		MaxRequestExpires: 30 * time.Second,
 		BackOff: []time.Duration{
 			1 * time.Second,
@@ -248,17 +250,17 @@ func (t *GlobalNatsTopology) CiJobConsumer(zone, runner string) (jetstream.Consu
 
 	runnerHash := subject[strings.LastIndex(subject, ".")+1:]
 	return jetstream.ConsumerConfig{
-		Name:          "ci_runner_" + strings.ReplaceAll(zone, "-", "_") + "_" + runnerHash,
-		Description:   "Durable fenced CI command inbox for " + zone + " runner " + runnerHash,
-		DeliverPolicy: jetstream.DeliverAll,
-		AckPolicy:     jetstream.AckExplicit,
-		FilterSubject: subject,
-		ReplayPolicy:  jetstream.ReplayInstant,
-		AckWait:       1 * time.Second,
-		MaxDeliver:    5,
-		MaxAckPending: 1,
-		MaxWaiting:    4,
-		MaxRequestBatch: 1,
+		Name:              "ci_runner_" + strings.ReplaceAll(zone, "-", "_") + "_" + runnerHash,
+		Description:       "Durable fenced CI command inbox for " + zone + " runner " + runnerHash,
+		DeliverPolicy:     jetstream.DeliverAll,
+		AckPolicy:         jetstream.AckExplicit,
+		FilterSubject:     subject,
+		ReplayPolicy:      jetstream.ReplayInstant,
+		AckWait:           1 * time.Second,
+		MaxDeliver:        5,
+		MaxAckPending:     1,
+		MaxWaiting:        4,
+		MaxRequestBatch:   1,
 		MaxRequestExpires: 30 * time.Second,
 		InactiveThreshold: 24 * time.Hour,
 		BackOff: []time.Duration{

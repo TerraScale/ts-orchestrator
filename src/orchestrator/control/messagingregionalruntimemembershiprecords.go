@@ -106,16 +106,16 @@ func RegionalRuntimeMembershipIdentityVerify(member RegionalRuntimeMember) bool 
 type RegionalRuntimeMembershipRecordClass int
 
 const (
-	RegionalRuntimeMembershipRecordClassUnspecified      RegionalRuntimeMembershipRecordClass = 0
-	RegionalRuntimeMembershipRecordClassHealthy          RegionalRuntimeMembershipRecordClass = 1
-	RegionalRuntimeMembershipRecordClassStale            RegionalRuntimeMembershipRecordClass = 2
-	RegionalRuntimeMembershipRecordClassMissing          RegionalRuntimeMembershipRecordClass = 3
-	RegionalRuntimeMembershipRecordClassUnexpected       RegionalRuntimeMembershipRecordClass = 4
-	RegionalRuntimeMembershipRecordClassWrongCell        RegionalRuntimeMembershipRecordClass = 5
+	RegionalRuntimeMembershipRecordClassUnspecified        RegionalRuntimeMembershipRecordClass = 0
+	RegionalRuntimeMembershipRecordClassHealthy            RegionalRuntimeMembershipRecordClass = 1
+	RegionalRuntimeMembershipRecordClassStale              RegionalRuntimeMembershipRecordClass = 2
+	RegionalRuntimeMembershipRecordClassMissing            RegionalRuntimeMembershipRecordClass = 3
+	RegionalRuntimeMembershipRecordClassUnexpected         RegionalRuntimeMembershipRecordClass = 4
+	RegionalRuntimeMembershipRecordClassWrongCell          RegionalRuntimeMembershipRecordClass = 5
 	RegionalRuntimeMembershipRecordClassConflictingSession RegionalRuntimeMembershipRecordClass = 6
-	RegionalRuntimeMembershipRecordClassStaleEpoch       RegionalRuntimeMembershipRecordClass = 7
-	RegionalRuntimeMembershipRecordClassInvalidSignature RegionalRuntimeMembershipRecordClass = 8
-	RegionalRuntimeMembershipRecordClassMalformed        RegionalRuntimeMembershipRecordClass = 9
+	RegionalRuntimeMembershipRecordClassStaleEpoch         RegionalRuntimeMembershipRecordClass = 7
+	RegionalRuntimeMembershipRecordClassInvalidSignature   RegionalRuntimeMembershipRecordClass = 8
+	RegionalRuntimeMembershipRecordClassMalformed          RegionalRuntimeMembershipRecordClass = 9
 )
 
 func (c RegionalRuntimeMembershipRecordClass) String() string {
@@ -240,13 +240,13 @@ func (regionalRuntimeMembershipReader) ExpectedInstances(expectedControllers int
 type RegionalRuntimeMembershipMutationClass int
 
 const (
-	RegionalRuntimeMembershipMutationClassUnspecified          RegionalRuntimeMembershipMutationClass = 0
-	RegionalRuntimeMembershipMutationClassCreateOwnRecord      RegionalRuntimeMembershipMutationClass = 1
-	RegionalRuntimeMembershipMutationClassRenewOwnRecord       RegionalRuntimeMembershipMutationClass = 2
-	RegionalRuntimeMembershipMutationClassTakeOverExpiredLease RegionalRuntimeMembershipMutationClass = 3
+	RegionalRuntimeMembershipMutationClassUnspecified             RegionalRuntimeMembershipMutationClass = 0
+	RegionalRuntimeMembershipMutationClassCreateOwnRecord         RegionalRuntimeMembershipMutationClass = 1
+	RegionalRuntimeMembershipMutationClassRenewOwnRecord          RegionalRuntimeMembershipMutationClass = 2
+	RegionalRuntimeMembershipMutationClassTakeOverExpiredLease    RegionalRuntimeMembershipMutationClass = 3
 	RegionalRuntimeMembershipMutationClassHoldForLiveForeignLease RegionalRuntimeMembershipMutationClass = 4
-	RegionalRuntimeMembershipMutationClassRejectStaleEpoch     RegionalRuntimeMembershipMutationClass = 5
-	RegionalRuntimeMembershipMutationClassRejectWrongBinding   RegionalRuntimeMembershipMutationClass = 6
+	RegionalRuntimeMembershipMutationClassRejectStaleEpoch        RegionalRuntimeMembershipMutationClass = 5
+	RegionalRuntimeMembershipMutationClassRejectWrongBinding      RegionalRuntimeMembershipMutationClass = 6
 )
 
 func (c RegionalRuntimeMembershipMutationClass) String() string {

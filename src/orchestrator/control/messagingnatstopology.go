@@ -136,12 +136,12 @@ func (t *NatsTopology) Runtime() jetstream.KeyValueConfig {
 // Delivery mirrors NatsTopology.Delivery.
 func (t *NatsTopology) Delivery() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
-		Bucket:      "ORCH_DELIVERY",
-		Description: "Durable regional delivery and handoff coordination for " + t.Cell,
-		History:     2,
+		Bucket:       "ORCH_DELIVERY",
+		Description:  "Durable regional delivery and handoff coordination for " + t.Cell,
+		History:      2,
 		MaxValueSize: 16 * 1024,
-		MaxBytes:    256 * 1024 * 1024,
-		Replicas:    t.Replicas,
+		MaxBytes:     256 * 1024 * 1024,
+		Replicas:     t.Replicas,
 	}
 }
 
@@ -150,12 +150,12 @@ func (t *NatsTopology) Delivery() jetstream.KeyValueConfig {
 // must never reconfigure it.
 func (t *NatsTopology) Operations() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
-		Bucket:      "ORCH_OPERATIONS",
-		Description: "Authoritative encrypted regional operation journal for " + t.Cell,
-		History:     2,
+		Bucket:       "ORCH_OPERATIONS",
+		Description:  "Authoritative encrypted regional operation journal for " + t.Cell,
+		History:      2,
 		MaxValueSize: 16 * 1024,
-		MaxBytes:    256 * 1024 * 1024,
-		Replicas:    3,
+		MaxBytes:     256 * 1024 * 1024,
+		Replicas:     3,
 	}
 }
 
@@ -164,12 +164,12 @@ func (t *NatsTopology) Operations() jetstream.KeyValueConfig {
 // single-use.
 func (t *NatsTopology) OperationProofConsumptions() jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
-		Bucket:      "ORCH_OPERATION_PROOFS",
-		Description: "Expiry-bounded single-use operation journal authority proofs for " + t.Cell,
-		History:     1,
-		TTL:         5 * time.Minute,
+		Bucket:       "ORCH_OPERATION_PROOFS",
+		Description:  "Expiry-bounded single-use operation journal authority proofs for " + t.Cell,
+		History:      1,
+		TTL:          5 * time.Minute,
 		MaxValueSize: 256,
-		MaxBytes:    8 * 1024 * 1024,
+		MaxBytes:     8 * 1024 * 1024,
 		// As with ORCH_OPERATIONS, this is provisioned only by infrastructure
 		// and must never inherit the controller's development replica count.
 		Replicas: 3,
@@ -239,11 +239,11 @@ func (t *NatsTopology) CellSpecConsumer() (jetstream.ConsumerConfig, error) {
 		FilterSubject: subject,
 		ReplayPolicy:  jetstream.ReplayInstant,
 		// Keep the declared value aligned with the first backoff interval.
-		AckWait:       1 * time.Second,
-		MaxDeliver:    5,
-		MaxAckPending: 8,
-		MaxWaiting:    8,
-		MaxRequestBatch: 1,
+		AckWait:           1 * time.Second,
+		MaxDeliver:        5,
+		MaxAckPending:     8,
+		MaxWaiting:        8,
+		MaxRequestBatch:   1,
 		MaxRequestExpires: 30 * time.Second,
 		BackOff: []time.Duration{
 			1 * time.Second,
@@ -257,33 +257,33 @@ func (t *NatsTopology) CellSpecConsumer() (jetstream.ConsumerConfig, error) {
 
 func natsTopologyStream(t *NatsTopology, name, subject string, maxBytes int64) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
-		Name:        name,
-		Description: "TerraScale Orchestrator " + name + " for " + t.Cell,
-		Subjects:    []string{subject},
-		MaxConsumers: -1,
-		MaxMsgs:     -1,
-		MaxMsgsPerSubject: -1,
-		MaxBytes:    maxBytes,
-		MaxAge:      30 * 24 * time.Hour,
-		MaxMsgSize:  -1,
-		Duplicates:  2 * time.Minute,
-		Replicas:    t.Replicas,
-		Retention:   jetstream.LimitsPolicy,
-		Storage:     jetstream.FileStorage,
-		Compression: jetstream.NoCompression,
-		NoAck:       false,
-		Discard:     jetstream.DiscardOld,
-		Sealed:      false,
-		DenyDelete:  false,
-		DenyPurge:   false,
-		AllowRollup: false,
-		AllowDirect: false,
-		MirrorDirect: false,
-		DiscardNewPerSubject: false,
-		AllowMsgTTL: false,
+		Name:                   name,
+		Description:            "TerraScale Orchestrator " + name + " for " + t.Cell,
+		Subjects:               []string{subject},
+		MaxConsumers:           -1,
+		MaxMsgs:                -1,
+		MaxMsgsPerSubject:      -1,
+		MaxBytes:               maxBytes,
+		MaxAge:                 30 * 24 * time.Hour,
+		MaxMsgSize:             -1,
+		Duplicates:             2 * time.Minute,
+		Replicas:               t.Replicas,
+		Retention:              jetstream.LimitsPolicy,
+		Storage:                jetstream.FileStorage,
+		Compression:            jetstream.NoCompression,
+		NoAck:                  false,
+		Discard:                jetstream.DiscardOld,
+		Sealed:                 false,
+		DenyDelete:             false,
+		DenyPurge:              false,
+		AllowRollup:            false,
+		AllowDirect:            false,
+		MirrorDirect:           false,
+		DiscardNewPerSubject:   false,
+		AllowMsgTTL:            false,
 		SubjectDeleteMarkerTTL: 0,
-		AllowMsgCounter: false,
-		AllowMsgSchedules: false,
-		AllowAtomicPublish: false,
+		AllowMsgCounter:        false,
+		AllowMsgSchedules:      false,
+		AllowAtomicPublish:     false,
 	}
 }

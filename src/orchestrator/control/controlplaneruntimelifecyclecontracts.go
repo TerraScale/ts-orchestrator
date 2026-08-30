@@ -11,13 +11,13 @@ import (
 
 // Host runtime aliases mirroring the C# using aliases.
 type (
-	HostArchitecture       = runtime.HostArchitecture
-	HostArtifactDigest     = runtime.ArtifactDigest
-	HostRole               = runtime.AdmittedRole
-	HostRuntimeDriver      = runtime.RuntimeDriver
+	HostArchitecture        = runtime.HostArchitecture
+	HostArtifactDigest      = runtime.ArtifactDigest
+	HostRole                = runtime.AdmittedRole
+	HostRuntimeDriver       = runtime.RuntimeDriver
 	HostRuntimeAllocationId = runtime.RuntimeAllocationId
-	HostRuntimeResources   = runtime.RuntimeResourceLimits
-	HostRuntimePlan        = runtime.HostRuntimePlan
+	HostRuntimeResources    = runtime.RuntimeResourceLimits
+	HostRuntimePlan         = runtime.HostRuntimePlan
 )
 
 // RuntimeLifecycleContract ports the versioned, persistence-safe lifecycle
@@ -28,23 +28,23 @@ var RuntimeLifecycleContract runtimeLifecycleContractStatic
 type runtimeLifecycleContractStatic struct{}
 
 const (
-	RuntimeLifecycleContractSchemaVersion         = 1
-	RuntimeLifecycleContractMaximumCasAttempts    = 3
+	RuntimeLifecycleContractSchemaVersion           = 1
+	RuntimeLifecycleContractMaximumCasAttempts      = 3
 	RuntimeLifecycleContractMaximumCoordinatorSteps = 12
 )
 
 type RuntimeLifecyclePhase int
 
 const (
-	RuntimeLifecyclePhaseProposed         RuntimeLifecyclePhase = 1
-	RuntimeLifecyclePhaseAuthorized       RuntimeLifecyclePhase = 2
+	RuntimeLifecyclePhaseProposed          RuntimeLifecyclePhase = 1
+	RuntimeLifecyclePhaseAuthorized        RuntimeLifecyclePhase = 2
 	RuntimeLifecyclePhaseDispatchPersisted RuntimeLifecyclePhase = 3
-	RuntimeLifecyclePhaseInFlight         RuntimeLifecyclePhase = 4
+	RuntimeLifecyclePhaseInFlight          RuntimeLifecyclePhase = 4
 	RuntimeLifecyclePhaseObservedConverged RuntimeLifecyclePhase = 5
-	RuntimeLifecyclePhaseObservedStopped  RuntimeLifecyclePhase = 6
-	RuntimeLifecyclePhaseUncertain        RuntimeLifecyclePhase = 7
-	RuntimeLifecyclePhaseFailed           RuntimeLifecyclePhase = 8
-	RuntimeLifecyclePhaseTerminal         RuntimeLifecyclePhase = 9
+	RuntimeLifecyclePhaseObservedStopped   RuntimeLifecyclePhase = 6
+	RuntimeLifecyclePhaseUncertain         RuntimeLifecyclePhase = 7
+	RuntimeLifecyclePhaseFailed            RuntimeLifecyclePhase = 8
+	RuntimeLifecyclePhaseTerminal          RuntimeLifecyclePhase = 9
 )
 
 func runtimeLifecyclePhaseIsDefined(value RuntimeLifecyclePhase) bool {
@@ -55,7 +55,7 @@ type RuntimeLifecycleCallStatus int
 
 const (
 	RuntimeLifecycleCallStatusNotCalled           RuntimeLifecycleCallStatus = 1
-	RuntimeLifecycleCallStatusDispatchPersisted    RuntimeLifecycleCallStatus = 2
+	RuntimeLifecycleCallStatusDispatchPersisted   RuntimeLifecycleCallStatus = 2
 	RuntimeLifecycleCallStatusInFlight            RuntimeLifecycleCallStatus = 3
 	RuntimeLifecycleCallStatusResponseLost        RuntimeLifecycleCallStatus = 4
 	RuntimeLifecycleCallStatusObservationRequired RuntimeLifecycleCallStatus = 5
@@ -69,7 +69,7 @@ func runtimeLifecycleCallStatusIsDefined(value RuntimeLifecycleCallStatus) bool 
 type RuntimeLifecycleCompensationPolicy int
 
 const (
-	RuntimeLifecycleCompensationPolicyNone            RuntimeLifecycleCompensationPolicy = 1
+	RuntimeLifecycleCompensationPolicyNone              RuntimeLifecycleCompensationPolicy = 1
 	RuntimeLifecycleCompensationPolicyAuthorizedCleanup RuntimeLifecycleCompensationPolicy = 2
 )
 
@@ -94,19 +94,19 @@ func runtimeLifecycleTerminalStatusIsDefined(value RuntimeLifecycleTerminalStatu
 type RuntimeLifecycleErrorCode int
 
 const (
-	RuntimeLifecycleErrorCodeNone                RuntimeLifecycleErrorCode = 1
-	RuntimeLifecycleErrorCodeAuthorityUnavailable RuntimeLifecycleErrorCode = 2
-	RuntimeLifecycleErrorCodeAuthorityFenced     RuntimeLifecycleErrorCode = 3
-	RuntimeLifecycleErrorCodeIdentityMismatch    RuntimeLifecycleErrorCode = 4
-	RuntimeLifecycleErrorCodeJournalUnavailable  RuntimeLifecycleErrorCode = 5
-	RuntimeLifecycleErrorCodeJournalAmbiguous     RuntimeLifecycleErrorCode = 6
-	RuntimeLifecycleErrorCodeCasExhausted        RuntimeLifecycleErrorCode = 7
-	RuntimeLifecycleErrorCodeInvalidCheckpoint   RuntimeLifecycleErrorCode = 8
-	RuntimeLifecycleErrorCodeObservationMismatch RuntimeLifecycleErrorCode = 9
-	RuntimeLifecycleErrorCodeExecutorResponseLost RuntimeLifecycleErrorCode = 10
-	RuntimeLifecycleErrorCodeExecutorFailed      RuntimeLifecycleErrorCode = 11
+	RuntimeLifecycleErrorCodeNone                   RuntimeLifecycleErrorCode = 1
+	RuntimeLifecycleErrorCodeAuthorityUnavailable   RuntimeLifecycleErrorCode = 2
+	RuntimeLifecycleErrorCodeAuthorityFenced        RuntimeLifecycleErrorCode = 3
+	RuntimeLifecycleErrorCodeIdentityMismatch       RuntimeLifecycleErrorCode = 4
+	RuntimeLifecycleErrorCodeJournalUnavailable     RuntimeLifecycleErrorCode = 5
+	RuntimeLifecycleErrorCodeJournalAmbiguous       RuntimeLifecycleErrorCode = 6
+	RuntimeLifecycleErrorCodeCasExhausted           RuntimeLifecycleErrorCode = 7
+	RuntimeLifecycleErrorCodeInvalidCheckpoint      RuntimeLifecycleErrorCode = 8
+	RuntimeLifecycleErrorCodeObservationMismatch    RuntimeLifecycleErrorCode = 9
+	RuntimeLifecycleErrorCodeExecutorResponseLost   RuntimeLifecycleErrorCode = 10
+	RuntimeLifecycleErrorCodeExecutorFailed         RuntimeLifecycleErrorCode = 11
 	RuntimeLifecycleErrorCodeCancelledAfterDispatch RuntimeLifecycleErrorCode = 12
-	RuntimeLifecycleErrorCodeUnsupportedCleanup  RuntimeLifecycleErrorCode = 13
+	RuntimeLifecycleErrorCodeUnsupportedCleanup     RuntimeLifecycleErrorCode = 13
 )
 
 func runtimeLifecycleErrorCodeIsDefined(value RuntimeLifecycleErrorCode) bool {
@@ -129,9 +129,9 @@ func runtimeLifecycleAuthorityStatusIsDefined(value RuntimeLifecycleAuthoritySta
 type RuntimeLifecycleJournalReadStatus int
 
 const (
-	RuntimeLifecycleJournalReadStatusFound      RuntimeLifecycleJournalReadStatus = 1
-	RuntimeLifecycleJournalReadStatusMissing    RuntimeLifecycleJournalReadStatus = 2
-	RuntimeLifecycleJournalReadStatusAmbiguous  RuntimeLifecycleJournalReadStatus = 3
+	RuntimeLifecycleJournalReadStatusFound       RuntimeLifecycleJournalReadStatus = 1
+	RuntimeLifecycleJournalReadStatusMissing     RuntimeLifecycleJournalReadStatus = 2
+	RuntimeLifecycleJournalReadStatusAmbiguous   RuntimeLifecycleJournalReadStatus = 3
 	RuntimeLifecycleJournalReadStatusUnavailable RuntimeLifecycleJournalReadStatus = 4
 )
 
@@ -156,10 +156,10 @@ func runtimeLifecycleJournalWriteStatusIsDefined(value RuntimeLifecycleJournalWr
 type RuntimeLifecycleExecutorStatus int
 
 const (
-	RuntimeLifecycleExecutorStatusAccepted    RuntimeLifecycleExecutorStatus = 1
-	RuntimeLifecycleExecutorStatusCompleted   RuntimeLifecycleExecutorStatus = 2
+	RuntimeLifecycleExecutorStatusAccepted     RuntimeLifecycleExecutorStatus = 1
+	RuntimeLifecycleExecutorStatusCompleted    RuntimeLifecycleExecutorStatus = 2
 	RuntimeLifecycleExecutorStatusResponseLost RuntimeLifecycleExecutorStatus = 3
-	RuntimeLifecycleExecutorStatusFailed      RuntimeLifecycleExecutorStatus = 4
+	RuntimeLifecycleExecutorStatusFailed       RuntimeLifecycleExecutorStatus = 4
 )
 
 func runtimeLifecycleExecutorStatusIsDefined(value RuntimeLifecycleExecutorStatus) bool {
@@ -169,10 +169,10 @@ func runtimeLifecycleExecutorStatusIsDefined(value RuntimeLifecycleExecutorStatu
 type RuntimeLifecycleObservationStatus int
 
 const (
-	RuntimeLifecycleObservationStatusConverged RuntimeLifecycleObservationStatus = 1
-	RuntimeLifecycleObservationStatusStopped   RuntimeLifecycleObservationStatus = 2
+	RuntimeLifecycleObservationStatusConverged   RuntimeLifecycleObservationStatus = 1
+	RuntimeLifecycleObservationStatusStopped     RuntimeLifecycleObservationStatus = 2
 	RuntimeLifecycleObservationStatusNotObserved RuntimeLifecycleObservationStatus = 3
-	RuntimeLifecycleObservationStatusUnknown   RuntimeLifecycleObservationStatus = 4
+	RuntimeLifecycleObservationStatusUnknown     RuntimeLifecycleObservationStatus = 4
 )
 
 func runtimeLifecycleObservationStatusIsDefined(value RuntimeLifecycleObservationStatus) bool {
@@ -236,18 +236,18 @@ func (a RuntimeLifecycleAuthority) IsExactLeader(expectedEpoch RuntimeEpoch) boo
 }
 
 type RuntimeLifecycleOperationRequest struct {
-	Cell                       RuntimeLifecycleCellId
-	Node                       RuntimeNodeId
-	WorkloadGeneration         RuntimeGeneration
-	AcceptedConvergenceDigest  RuntimeDigest
-	Plan                       HostRuntimePlan
-	Action                     LifecycleAction
-	WriterEpoch                RuntimeEpoch
+	Cell                        RuntimeLifecycleCellId
+	Node                        RuntimeNodeId
+	WorkloadGeneration          RuntimeGeneration
+	AcceptedConvergenceDigest   RuntimeDigest
+	Plan                        HostRuntimePlan
+	Action                      LifecycleAction
+	WriterEpoch                 RuntimeEpoch
 	AuthorizationEvidenceDigest RuntimeDigest
-	DeadlineEvidence           RuntimeLifecycleDeadlineEvidence
-	CompensationPolicy         RuntimeLifecycleCompensationPolicy
-	PlanFingerprint            RuntimeLifecyclePlanFingerprint
-	OperationKey               RuntimeLifecycleOperationKey
+	DeadlineEvidence            RuntimeLifecycleDeadlineEvidence
+	CompensationPolicy          RuntimeLifecycleCompensationPolicy
+	PlanFingerprint             RuntimeLifecyclePlanFingerprint
+	OperationKey                RuntimeLifecycleOperationKey
 }
 
 func NewRuntimeLifecycleOperationRequest(
@@ -292,32 +292,32 @@ func NewRuntimeLifecycleOperationRequest(
 }
 
 type RuntimeLifecycleCheckpoint struct {
-	SchemaVersion                int
-	OperationKey                 RuntimeLifecycleOperationKey
-	Cell                         RuntimeLifecycleCellId
-	Node                         RuntimeNodeId
-	AllocationId                 string
-	WorkloadGeneration           RuntimeGeneration
-	AcceptedConvergenceDigest    RuntimeDigest
-	PlanFingerprint              RuntimeLifecyclePlanFingerprint
-	Driver                       HostRuntimeDriver
-	Role                         HostRole
-	Action                       LifecycleAction
-	Phase                        RuntimeLifecyclePhase
-	WriterEpoch                  RuntimeEpoch
-	AuthorizationEvidenceDigest  RuntimeDigest
-	ExecutorAttempt              RuntimeAttempt
-	DispatchToken                RuntimeDigest
-	CallStatus                   RuntimeLifecycleCallStatus
-	LastObservationFingerprint   *RuntimeLifecycleHostObservationFingerprint
-	LastObservationWatermark     uint64
-	DeadlineEvidence             RuntimeLifecycleDeadlineEvidence
-	CompensationPolicy           RuntimeLifecycleCompensationPolicy
-	JournalRevision              uint64
-	PreviousEventDigest          RuntimeDigest
-	EventDigest                  RuntimeDigest
-	TerminalStatus               RuntimeLifecycleTerminalStatus
-	ErrorCode                    RuntimeLifecycleErrorCode
+	SchemaVersion               int
+	OperationKey                RuntimeLifecycleOperationKey
+	Cell                        RuntimeLifecycleCellId
+	Node                        RuntimeNodeId
+	AllocationId                string
+	WorkloadGeneration          RuntimeGeneration
+	AcceptedConvergenceDigest   RuntimeDigest
+	PlanFingerprint             RuntimeLifecyclePlanFingerprint
+	Driver                      HostRuntimeDriver
+	Role                        HostRole
+	Action                      LifecycleAction
+	Phase                       RuntimeLifecyclePhase
+	WriterEpoch                 RuntimeEpoch
+	AuthorizationEvidenceDigest RuntimeDigest
+	ExecutorAttempt             RuntimeAttempt
+	DispatchToken               RuntimeDigest
+	CallStatus                  RuntimeLifecycleCallStatus
+	LastObservationFingerprint  *RuntimeLifecycleHostObservationFingerprint
+	LastObservationWatermark    uint64
+	DeadlineEvidence            RuntimeLifecycleDeadlineEvidence
+	CompensationPolicy          RuntimeLifecycleCompensationPolicy
+	JournalRevision             uint64
+	PreviousEventDigest         RuntimeDigest
+	EventDigest                 RuntimeDigest
+	TerminalStatus              RuntimeLifecycleTerminalStatus
+	ErrorCode                   RuntimeLifecycleErrorCode
 }
 
 // RuntimeLifecycleCheckpointProposed mirrors RuntimeLifecycleCheckpoint.Proposed.
@@ -404,13 +404,13 @@ type RuntimeLifecycleExecutorResponse struct {
 // RuntimeLifecycleObservationRequest is a transient recovery context. The plan
 // is supplied by the exact caller, never retained in the checkpoint.
 type RuntimeLifecycleObservationRequest struct {
-	OperationKey               RuntimeLifecycleOperationKey
-	Plan                       HostRuntimePlan
-	Action                     LifecycleAction
-	PlanFingerprint            RuntimeLifecyclePlanFingerprint
+	OperationKey                 RuntimeLifecycleOperationKey
+	Plan                         HostRuntimePlan
+	Action                       LifecycleAction
+	PlanFingerprint              RuntimeLifecyclePlanFingerprint
 	PreviousObservationWatermark uint64
-	WriterEpoch                RuntimeEpoch
-	DispatchToken              RuntimeDigest
+	WriterEpoch                  RuntimeEpoch
+	DispatchToken                RuntimeDigest
 }
 
 type RuntimeLifecycleObservation struct {

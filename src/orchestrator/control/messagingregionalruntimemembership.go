@@ -20,23 +20,23 @@ import (
 // RegionalRuntimeMember mirrors the C# record. JSON tags mirror the C#
 // source-generated context (default options: PascalCase property names).
 type RegionalRuntimeMember struct {
-	SchemaVersion    int           `json:"SchemaVersion"`
-	Cell             string        `json:"Cell"`
-	Cluster          string        `json:"Cluster"`
-	Instance         string        `json:"Instance"`
-	SessionId        string        `json:"SessionId"`
-	Build            string        `json:"Build"`
-	Capabilities     []string      `json:"Capabilities"`
-	StartedAt        time.Time     `json:"StartedAt"`
-	ObservedAt       time.Time     `json:"ObservedAt"`
-	LeaseExpiresAt   time.Time     `json:"LeaseExpiresAt"`
-	AuthorityState   string        `json:"AuthorityState"`
-	IsAuthorityLeader bool         `json:"IsAuthorityLeader"`
-	AuthorityEpoch   int64         `json:"AuthorityEpoch"`
-	AuthorityRevision int64        `json:"AuthorityRevision"`
-	IdentityKeyId    string        `json:"IdentityKeyId"`
-	IdentityPublicKey string       `json:"IdentityPublicKey"`
-	IdentitySignature string       `json:"IdentitySignature"`
+	SchemaVersion     int       `json:"SchemaVersion"`
+	Cell              string    `json:"Cell"`
+	Cluster           string    `json:"Cluster"`
+	Instance          string    `json:"Instance"`
+	SessionId         string    `json:"SessionId"`
+	Build             string    `json:"Build"`
+	Capabilities      []string  `json:"Capabilities"`
+	StartedAt         time.Time `json:"StartedAt"`
+	ObservedAt        time.Time `json:"ObservedAt"`
+	LeaseExpiresAt    time.Time `json:"LeaseExpiresAt"`
+	AuthorityState    string    `json:"AuthorityState"`
+	IsAuthorityLeader bool      `json:"IsAuthorityLeader"`
+	AuthorityEpoch    int64     `json:"AuthorityEpoch"`
+	AuthorityRevision int64     `json:"AuthorityRevision"`
+	IdentityKeyId     string    `json:"IdentityKeyId"`
+	IdentityPublicKey string    `json:"IdentityPublicKey"`
+	IdentitySignature string    `json:"IdentitySignature"`
 }
 
 // IsValidFor mirrors the C# IsValidFor.
@@ -126,18 +126,18 @@ func (c RegionalRuntimeMembershipCondition) String() string {
 
 // RegionalRuntimeMembershipHealth mirrors the C# record.
 type RegionalRuntimeMembershipHealth struct {
-	ExpectedControllers        int                                `json:"ExpectedControllers"`
-	ActiveControllers          int                                `json:"ActiveControllers"`
-	StaleControllers           int                                `json:"StaleControllers"`
-	MissingControllers         int                                `json:"MissingControllers"`
-	UnexpectedControllers      int                                `json:"UnexpectedControllers"`
-	ConflictingControllers     int                                `json:"ConflictingControllers"`
-	RejectedRecords            int64                              `json:"RejectedRecords"`
-	AuthorityLeaders           int                                `json:"AuthorityLeaders"`
-	QuorumAvailable            bool                               `json:"QuorumAvailable"`
-	MaximumHeartbeatAgeMilliseconds int64                         `json:"MaximumHeartbeatAgeMilliseconds"`
-	Condition                  RegionalRuntimeMembershipCondition `json:"Condition"`
-	ObservedAt                 time.Time                          `json:"ObservedAt"`
+	ExpectedControllers             int                                `json:"ExpectedControllers"`
+	ActiveControllers               int                                `json:"ActiveControllers"`
+	StaleControllers                int                                `json:"StaleControllers"`
+	MissingControllers              int                                `json:"MissingControllers"`
+	UnexpectedControllers           int                                `json:"UnexpectedControllers"`
+	ConflictingControllers          int                                `json:"ConflictingControllers"`
+	RejectedRecords                 int64                              `json:"RejectedRecords"`
+	AuthorityLeaders                int                                `json:"AuthorityLeaders"`
+	QuorumAvailable                 bool                               `json:"QuorumAvailable"`
+	MaximumHeartbeatAgeMilliseconds int64                              `json:"MaximumHeartbeatAgeMilliseconds"`
+	Condition                       RegionalRuntimeMembershipCondition `json:"Condition"`
+	ObservedAt                      time.Time                          `json:"ObservedAt"`
 }
 
 // RegionalRuntimeMembershipHealthEvaluate mirrors the static Evaluate. The
@@ -281,11 +281,11 @@ func (h RegionalRuntimeMembershipHealth) Equal(other RegionalRuntimeMembershipHe
 
 // RegionalRuntimeMembershipSnapshot mirrors the C# record.
 type RegionalRuntimeMembershipSnapshot struct {
-	SchemaVersion int                                `json:"SchemaVersion"`
-	Cell          string                             `json:"Cell"`
-	ObservedAt    time.Time                          `json:"ObservedAt"`
-	Health        RegionalRuntimeMembershipHealth    `json:"Health"`
-	Members       []RegionalRuntimeMember            `json:"Members"`
+	SchemaVersion int                             `json:"SchemaVersion"`
+	Cell          string                          `json:"Cell"`
+	ObservedAt    time.Time                       `json:"ObservedAt"`
+	Health        RegionalRuntimeMembershipHealth `json:"Health"`
+	Members       []RegionalRuntimeMember         `json:"Members"`
 }
 
 // Validate mirrors the C# Validate.
@@ -329,27 +329,27 @@ type RegionalRuntimeMembership struct {
 	HeartbeatInterval time.Duration
 	LeaseDuration     time.Duration
 
-	store       jetstream.KeyValue
-	topology    *NatsTopology
-	key         string
-	sessionId   string
-	build       string
+	store        jetstream.KeyValue
+	topology     *NatsTopology
+	key          string
+	sessionId    string
+	build        string
 	capabilities []string
-	startedAt   time.Time
-	authority   func() RegionalAuthoritySnapshot
-	identity    *RegionalRuntimeMembershipIdentity
+	startedAt    time.Time
+	authority    func() RegionalAuthoritySnapshot
+	identity     *RegionalRuntimeMembershipIdentity
 	ownsIdentity bool
 
-	membersMu     sync.Mutex
-	members       map[string]RegionalRuntimeMember
+	membersMu       sync.Mutex
+	members         map[string]RegionalRuntimeMember
 	previousMembers map[string]RegionalRuntimeMember
-	identityPins  map[string]string
+	identityPins    map[string]string
 	rejectedRecords int64
 
-	stopping      context.CancelFunc
-	stoppingCtx   context.Context
-	watchLoopDone chan struct{}
-	heartbeatDone chan struct{}
+	stopping         context.CancelFunc
+	stoppingCtx      context.Context
+	watchLoopDone    chan struct{}
+	heartbeatDone    chan struct{}
 	selfObserved     chan struct{}
 	selfOnce         sync.Once
 	revision         uint64

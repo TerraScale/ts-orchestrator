@@ -17,13 +17,13 @@ import (
 
 // RegionalAuthoritySnapshot mirrors the C# record.
 type RegionalAuthoritySnapshot struct {
-	State           string
-	IsLeader        bool
-	Epoch           int64
-	KvRevision      int64
-	LeaseExpiresAt  *time.Time
-	ObservedAt      time.Time
-	Error           *string
+	State          string
+	IsLeader       bool
+	Epoch          int64
+	KvRevision     int64
+	LeaseExpiresAt *time.Time
+	ObservedAt     time.Time
+	Error          *string
 }
 
 // Ready mirrors the C# Ready property.
@@ -106,10 +106,10 @@ func (d RegionalAuthorityLeaseDocument) ToLease() (AuthorityLease, error) {
 	}
 
 	return AuthorityLease{
-		CandidateId:   d.CandidateId,
-		LeaseId:       d.LeaseId,
+		CandidateId:    d.CandidateId,
+		LeaseId:        d.LeaseId,
 		ServerIssuedAt: d.IssuedAt,
-		Duration:      time.Duration(d.DurationMilliseconds) * time.Millisecond,
+		Duration:       time.Duration(d.DurationMilliseconds) * time.Millisecond,
 	}, nil
 }
 
@@ -131,16 +131,16 @@ type RegionalAuthorityCoordinator struct {
 	leaseDuration time.Duration
 	tickInterval  time.Duration
 
-	store                   jetstream.KeyValue
-	authorityId             string
-	candidateId             string
-	leaseKey                string
+	store                     jetstream.KeyValue
+	authorityId               string
+	candidateId               string
+	leaseKey                  string
 	tolerateTransientFailures bool
 
-	stateMu       sync.Mutex
-	journalState  AuthorityState
+	stateMu           sync.Mutex
+	journalState      AuthorityState
 	confirmedLeaseAge time.Time
-	snapshot      RegionalAuthoritySnapshot
+	snapshot          RegionalAuthoritySnapshot
 
 	stoppingCtx context.Context
 	stopping    context.CancelFunc
@@ -205,18 +205,18 @@ func newRegionalAuthorityCoordinator(
 ) *RegionalAuthorityCoordinator {
 	stoppingCtx, stopping := context.WithCancel(context.Background())
 	return &RegionalAuthorityCoordinator{
-		leaseDuration:              15 * time.Second,
-		tickInterval:               3 * time.Second,
-		store:                      store,
-		authorityId:                authorityId,
-		candidateId:                candidateId,
-		leaseKey:                   leaseKey,
-		tolerateTransientFailures:  tolerateTransientFailures,
-		journalState:               AuthorityStateEmpty,
-		snapshot:                   regionalAuthoritySnapshotInitial,
-		stoppingCtx:                stoppingCtx,
-		stopping:                   stopping,
-		loopDone:                   make(chan struct{}),
+		leaseDuration:             15 * time.Second,
+		tickInterval:              3 * time.Second,
+		store:                     store,
+		authorityId:               authorityId,
+		candidateId:               candidateId,
+		leaseKey:                  leaseKey,
+		tolerateTransientFailures: tolerateTransientFailures,
+		journalState:              AuthorityStateEmpty,
+		snapshot:                  regionalAuthoritySnapshotInitial,
+		stoppingCtx:               stoppingCtx,
+		stopping:                  stopping,
+		loopDone:                  make(chan struct{}),
 	}
 }
 
@@ -297,15 +297,20 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 	}
 
 	requestId := "acquire-" + randomNatsNonce()
-	acquisition := AuthorityEngine.Decide(c.journalState, AcquireAuthority{
-		AuthorityId:   c.authorityId,
-		CandidateId:   c.candidateId,
-		RequestId:     requestId,
-		LeaseId:       "lease-" + randomNatsNonce(),
-		Baseline:      observed,
-		Health:        regionalAuthorityHealth(now, time.Duration(0)),
-		LeaseDuration: c.leaseDuration,
-	})
+	health := regionalAuthorityHealth(now, time.Duration(0))
+	baseline := observed
+	acquisition, err := AuthorityEngine.DecideFromState(c.currentState(), NewAcquireAuthority(
+		c.authorityId,
+		c.candidateId,
+		requestId,
+		"lease-"+randomNatsNonce(),
+		&baseline,
+		&health,
+		c.leaseDuration))
+	if err != nil {
+		return err
+	}
+
 	c.apply(acquisition)
 
 	intent, hasIntent := singleCompareAndSetLeaseIntent(acquisition.Intents)
@@ -314,7 +319,7 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 		return nil
 	}
 
-	return c.executeSet(ctx, intent)
+	return c.executeSet(ctx, *intent)
 }
 
 func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current AuthorityObservation) error {
@@ -329,14 +334,19 @@ func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current Author
 	state := c.journalState
 	c.stateMu.Unlock()
 
-	renewal := AuthorityEngine.Decide(state, RenewAuthority{
-		AuthorityId:   c.authorityId,
-		CandidateId:   c.candidateId,
-		RequestId:     requestId,
-		Current:       current,
-		Health:        regionalAuthorityHealth(now, elapsed),
-		LeaseDuration: c.leaseDuration,
-	})
+	renewalHealth := regionalAuthorityHealth(now, elapsed)
+	renewalCurrent := current
+	renewal, err := AuthorityEngine.DecideFromState(state, NewRenewAuthority(
+		c.authorityId,
+		c.candidateId,
+		requestId,
+		&renewalCurrent,
+		&renewalHealth,
+		c.leaseDuration))
+	if err != nil {
+		return err
+	}
+
 	c.apply(renewal)
 
 	intent, hasIntent := singleCompareAndSetLeaseIntent(renewal.Intents)
@@ -345,7 +355,7 @@ func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current Author
 		return nil
 	}
 
-	return c.executeSet(ctx, intent)
+	return c.executeSet(ctx, *intent)
 }
 
 func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent CompareAndSetLeaseIntent) error {
@@ -374,14 +384,19 @@ func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent Co
 			return readErr
 		}
 
-		result := AuthorityEngine.Decide(c.journalState, ObserveAuthorityCas{
-			AuthorityId: c.authorityId,
-			CandidateId: c.candidateId,
-			RequestId:   intent.RequestId,
-			Outcome:     AuthorityCasOutcomeConflict,
-			Observation: &observed,
-			Health:      regionalAuthorityHealth(time.Now().UTC(), time.Duration(0)),
-		})
+		conflictHealth := regionalAuthorityHealth(time.Now().UTC(), time.Duration(0))
+		conflictObservation := observed
+		result, err := AuthorityEngine.DecideFromState(c.currentState(), NewObserveAuthorityCas(
+			c.authorityId,
+			c.candidateId,
+			intent.RequestId,
+			AuthorityCasOutcomeConflict,
+			&conflictObservation,
+			&conflictHealth))
+		if err != nil {
+			return err
+		}
+
 		c.apply(result)
 		// Losing a CAS is the normal follower path. It denies mutation
 		// authority but does not make the read-serving controller unhealthy.
@@ -401,14 +416,19 @@ func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent Co
 		Lease:         &intent.ProposedLease,
 	}
 
-	result := AuthorityEngine.Decide(c.journalState, ObserveAuthorityCas{
-		AuthorityId: c.authorityId,
-		CandidateId: c.candidateId,
-		RequestId:   intent.RequestId,
-		Outcome:     AuthorityCasOutcomeSucceeded,
-		Observation: &observed,
-		Health:      regionalAuthorityHealth(time.Now().UTC(), time.Duration(0)),
-	})
+	successHealth := regionalAuthorityHealth(time.Now().UTC(), time.Duration(0))
+	successObservation := observed
+	result, err := AuthorityEngine.DecideFromState(c.currentState(), NewObserveAuthorityCas(
+		c.authorityId,
+		c.candidateId,
+		intent.RequestId,
+		AuthorityCasOutcomeSucceeded,
+		&successObservation,
+		&successHealth))
+	if err != nil {
+		return err
+	}
+
 	c.apply(result)
 	if result.State.Status == AuthorityStatusLeader {
 		c.stateMu.Lock()
@@ -469,10 +489,10 @@ func RegionalAuthorityCoordinatorHealth(now time.Time, confirmedLeaseAge time.Du
 
 func regionalAuthorityHealth(now time.Time, confirmedLeaseAge time.Duration) AuthorityHealth {
 	return AuthorityHealth{
-		ServerTime:        now,
-		MonotonicElapsed:  confirmedLeaseAge,
-		PartitionCertain:  true,
-		ClockCertain:      true,
+		ServerTime:       now,
+		MonotonicElapsed: confirmedLeaseAge,
+		PartitionCertain: true,
+		ClockCertain:     true,
 	}
 }
 
@@ -485,8 +505,19 @@ func isNatsTransientError(err error) bool {
 		errors.Is(err, nats.ErrTimeout)
 }
 
-func (c *RegionalAuthorityCoordinator) apply(decision AuthorityDecision) {
-	if len(decision.EventsToAppend) != 0 {
+func (c *RegionalAuthorityCoordinator) currentState() *AuthorityState {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	if c.journalState == nil {
+		return AuthorityStateEmpty
+	}
+
+	return c.journalState
+}
+
+func (c *RegionalAuthorityCoordinator) apply(decision *AuthorityDecision) {
+	if decision != nil && len(decision.EventsToAppend) != 0 {
 		c.stateMu.Lock()
 		c.journalState = decision.State
 		c.stateMu.Unlock()
@@ -494,11 +525,14 @@ func (c *RegionalAuthorityCoordinator) apply(decision AuthorityDecision) {
 }
 
 func (c *RegionalAuthorityCoordinator) publishDecision(
-	decision AuthorityDecision,
+	decision *AuthorityDecision,
 	observed AuthorityObservation,
 	now time.Time,
 ) {
-	state := decision.State
+	state := AuthorityStateEmpty
+	if decision != nil && decision.State != nil {
+		state = decision.State
+	}
 	var errText *string
 	if len(decision.Errors) > 0 {
 		text := decision.Errors[0].Code.String()
@@ -564,12 +598,12 @@ func (c *RegionalAuthorityCoordinator) publish(
 	c.publishLocked(state, isLeader, observed, errPointer, now)
 }
 
-func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (CompareAndSetLeaseIntent, bool) {
+func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (*CompareAndSetLeaseIntent, bool) {
 	if len(intents) != 1 {
-		return CompareAndSetLeaseIntent{}, false
+		return nil, false
 	}
 
-	intent, ok := intents[0].(CompareAndSetLeaseIntent)
+	intent, ok := intents[0].(*CompareAndSetLeaseIntent)
 	return intent, ok
 }
 

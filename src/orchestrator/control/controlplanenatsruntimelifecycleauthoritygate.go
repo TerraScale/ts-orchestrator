@@ -47,7 +47,7 @@ func NatsRuntimeLifecycleAuthorityGateMap(snapshot RegionalAuthoritySnapshot) (R
 	}
 	var status RuntimeLifecycleAuthorityStatus
 	switch {
-	case snapshot.Ready:
+	case snapshot.Ready():
 		if snapshot.State == "leader" && snapshot.IsLeader && snapshot.Epoch > 0 {
 			status = RuntimeLifecycleAuthorityStatusReadyLeader
 		} else if snapshot.State == "follower" || !snapshot.IsLeader {

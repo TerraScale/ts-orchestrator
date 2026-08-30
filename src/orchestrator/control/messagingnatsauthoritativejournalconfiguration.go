@@ -20,11 +20,11 @@ import (
 // credentials and trust root required to host the private authoritative
 // journal writer.
 type NatsAuthoritativeJournalConfiguration struct {
-	NKeyFile                    string
-	Tls                         *NatsTlsFiles
-	AuthorityPublicKey          []byte
-	ReplySigningKeyFile         string
-	ReplySigningPublicKey       []byte
+	NKeyFile                     string
+	Tls                          *NatsTlsFiles
+	AuthorityPublicKey           []byte
+	ReplySigningKeyFile          string
+	ReplySigningPublicKey        []byte
 	EligibleControllerIdentities map[string]struct{}
 }
 

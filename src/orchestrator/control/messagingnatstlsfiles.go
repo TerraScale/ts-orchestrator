@@ -17,9 +17,9 @@ import (
 // NatsTlsFiles mirrors the C# record: the three PEM file references of one
 // mTLS identity.
 type NatsTlsFiles struct {
-	CaFile         string
+	CaFile          string
 	CertificateFile string
-	KeyFile        string
+	KeyFile         string
 }
 
 // NatsTlsFilesResolve mirrors NatsTlsFiles.Resolve. A nil result with a nil

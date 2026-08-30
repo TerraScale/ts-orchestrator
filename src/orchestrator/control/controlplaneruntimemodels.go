@@ -276,8 +276,8 @@ func ociRuntimeDescriptorIsDefined(value OciRuntimeDescriptor) bool {
 type VolumeRetention int
 
 const (
-	VolumeRetentionRetained   VolumeRetention = 1
-	VolumeRetentionEphemeral  VolumeRetention = 2
+	VolumeRetentionRetained  VolumeRetention = 1
+	VolumeRetentionEphemeral VolumeRetention = 2
 )
 
 func volumeRetentionIsDefined(value VolumeRetention) bool {
@@ -302,10 +302,10 @@ func healthDimensionIsDefined(value HealthDimension) bool {
 type HealthStatus int
 
 const (
-	HealthStatusReady   HealthStatus = 1
+	HealthStatusReady    HealthStatus = 1
 	HealthStatusNotReady HealthStatus = 2
-	HealthStatusFailed  HealthStatus = 3
-	HealthStatusUnknown HealthStatus = 4
+	HealthStatusFailed   HealthStatus = 3
+	HealthStatusUnknown  HealthStatus = 4
 )
 
 func healthStatusIsDefined(value HealthStatus) bool {
@@ -315,11 +315,11 @@ func healthStatusIsDefined(value HealthStatus) bool {
 type ProcessStatus int
 
 const (
-	ProcessStatusAbsent            ProcessStatus = 1
-	ProcessStatusRunning           ProcessStatus = 2
+	ProcessStatusAbsent             ProcessStatus = 1
+	ProcessStatusRunning            ProcessStatus = 2
 	ProcessStatusExitedSuccessfully ProcessStatus = 3
-	ProcessStatusFailed            ProcessStatus = 4
-	ProcessStatusUnknown           ProcessStatus = 5
+	ProcessStatusFailed             ProcessStatus = 4
+	ProcessStatusUnknown            ProcessStatus = 5
 )
 
 func processStatusIsDefined(value ProcessStatus) bool {
@@ -385,18 +385,18 @@ func updateSlotIsDefined(value UpdateSlot) bool {
 type UpdatePhase int
 
 const (
-	UpdatePhaseUpgradePlanned              UpdatePhase = 1
-	UpdatePhaseArtifactVerified            UpdatePhase = 2
-	UpdatePhaseInactiveSlotStaged          UpdatePhase = 3
-	UpdatePhaseRollbackTimerArmed          UpdatePhase = 4
-	UpdatePhaseProcessRestarted            UpdatePhase = 5
-	UpdatePhaseLocalHealthVerified         UpdatePhase = 6
+	UpdatePhaseUpgradePlanned                UpdatePhase = 1
+	UpdatePhaseArtifactVerified              UpdatePhase = 2
+	UpdatePhaseInactiveSlotStaged            UpdatePhase = 3
+	UpdatePhaseRollbackTimerArmed            UpdatePhase = 4
+	UpdatePhaseProcessRestarted              UpdatePhase = 5
+	UpdatePhaseLocalHealthVerified           UpdatePhase = 6
 	UpdatePhaseRegionalCompatibilityVerified UpdatePhase = 7
-	UpdatePhaseSlotCommitted               UpdatePhase = 8
-	UpdatePhaseOldSlotRetainedUntilSoak    UpdatePhase = 9
-	UpdatePhaseRollingBack                 UpdatePhase = 10
-	UpdatePhaseRolledBack                  UpdatePhase = 11
-	UpdatePhaseRollbackFailed              UpdatePhase = 12
+	UpdatePhaseSlotCommitted                 UpdatePhase = 8
+	UpdatePhaseOldSlotRetainedUntilSoak      UpdatePhase = 9
+	UpdatePhaseRollingBack                   UpdatePhase = 10
+	UpdatePhaseRolledBack                    UpdatePhase = 11
+	UpdatePhaseRollbackFailed                UpdatePhase = 12
 )
 
 func updatePhaseIsDefined(value UpdatePhase) bool {
@@ -419,10 +419,10 @@ func compatibilityStatusIsDefined(value CompatibilityStatus) bool {
 type ArtifactAvailability int
 
 const (
-	ArtifactAvailabilityAvailable  ArtifactAvailability = 1
-	ArtifactAvailabilityMissing    ArtifactAvailability = 2
+	ArtifactAvailabilityAvailable   ArtifactAvailability = 1
+	ArtifactAvailabilityMissing     ArtifactAvailability = 2
 	ArtifactAvailabilityConflicting ArtifactAvailability = 3
-	ArtifactAvailabilityUnknown    ArtifactAvailability = 4
+	ArtifactAvailabilityUnknown     ArtifactAvailability = 4
 )
 
 func artifactAvailabilityIsDefined(value ArtifactAvailability) bool {
@@ -433,7 +433,7 @@ type ArtifactVerificationStatus int
 
 const (
 	ArtifactVerificationStatusVerified ArtifactVerificationStatus = 1
-	ArtifactVerificationStatusFailed    ArtifactVerificationStatus = 2
+	ArtifactVerificationStatusFailed   ArtifactVerificationStatus = 2
 	ArtifactVerificationStatusMissing  ArtifactVerificationStatus = 3
 	ArtifactVerificationStatusUnknown  ArtifactVerificationStatus = 4
 )
@@ -505,9 +505,10 @@ func runtimeEnumsCopyDistinctEnum[T ~int](source []T, name string, isDefined fun
 
 // RuntimePayload is the Go form of the abstract RuntimePayload record.
 type RuntimePayload interface {
-	runtimePayloadCommon() *runtimePayloadBase
+	runtimePayloadCommon() runtimePayloadBase
 	Driver() RuntimeDriver
 	ActivationDigest() RuntimeDigest
+	PayloadArchitecture() RuntimeArchitecture
 }
 
 type runtimePayloadBase struct {
@@ -520,7 +521,9 @@ type runtimePayloadBase struct {
 	Architecture     RuntimeArchitecture
 }
 
-func (b *runtimePayloadBase) runtimePayloadCommon() *runtimePayloadBase { return b }
+func (b runtimePayloadBase) runtimePayloadCommon() runtimePayloadBase { return b }
+
+func (b runtimePayloadBase) PayloadArchitecture() RuntimeArchitecture { return b.Architecture }
 
 type NativeRuntimePayload struct {
 	runtimePayloadBase
@@ -780,18 +783,18 @@ func NewRuntimeInventoryEvidence(operationId RuntimeOperationId, nodeId RuntimeN
 }
 
 type RuntimeLifecycleRequest struct {
-	OperationId              RuntimeOperationId
-	Epoch                    RuntimeEpoch
-	CurrentEpoch             RuntimeEpoch
-	CurrentGeneration        RuntimeGeneration
+	OperationId               RuntimeOperationId
+	Epoch                     RuntimeEpoch
+	CurrentEpoch              RuntimeEpoch
+	CurrentGeneration         RuntimeGeneration
 	AdmissionPolicyGeneration RuntimeGeneration
-	HealthTimeout            RuntimeDurationSeconds
-	Spec                     WorkloadRuntimeSpec
-	Admission                RuntimeAdmission
-	Action                   LifecycleAction
-	Observation              RuntimeObservation
-	Health                   []RuntimeHealthEvidence
-	Inventory                RuntimeInventoryEvidence
+	HealthTimeout             RuntimeDurationSeconds
+	Spec                      WorkloadRuntimeSpec
+	Admission                 RuntimeAdmission
+	Action                    LifecycleAction
+	Observation               RuntimeObservation
+	Health                    []RuntimeHealthEvidence
+	Inventory                 RuntimeInventoryEvidence
 }
 
 func NewRuntimeLifecycleRequest(operationId RuntimeOperationId, epoch RuntimeEpoch, currentEpoch RuntimeEpoch,
@@ -812,13 +815,13 @@ func NewRuntimeLifecycleRequest(operationId RuntimeOperationId, epoch RuntimeEpo
 }
 
 type UpdateArtifactSubject struct {
-	ReleaseId       RuntimeReleaseId
-	ArtifactId      RuntimeArtifactId
-	Digest          RuntimeDigest
-	SignatureId     RuntimeSignatureId
+	ReleaseId        RuntimeReleaseId
+	ArtifactId       RuntimeArtifactId
+	Digest           RuntimeDigest
+	SignatureId      RuntimeSignatureId
 	SigningProfileId RuntimeSigningProfileId
-	Architecture    RuntimeArchitecture
-	Generation      RuntimeGeneration
+	Architecture     RuntimeArchitecture
+	Generation       RuntimeGeneration
 }
 
 func NewUpdateArtifactSubject(releaseId RuntimeReleaseId, artifactId RuntimeArtifactId, digest RuntimeDigest,
@@ -832,15 +835,15 @@ func NewUpdateArtifactSubject(releaseId RuntimeReleaseId, artifactId RuntimeArti
 }
 
 type UpdateArtifactEvidence struct {
-	ReleaseId       RuntimeReleaseId
-	ArtifactId      RuntimeArtifactId
-	Digest          RuntimeDigest
-	SignatureId     RuntimeSignatureId
+	ReleaseId        RuntimeReleaseId
+	ArtifactId       RuntimeArtifactId
+	Digest           RuntimeDigest
+	SignatureId      RuntimeSignatureId
 	SigningProfileId RuntimeSigningProfileId
-	Architecture    RuntimeArchitecture
-	Generation      RuntimeGeneration
-	Availability    ArtifactAvailability
-	Verification    ArtifactVerificationStatus
+	Architecture     RuntimeArchitecture
+	Generation       RuntimeGeneration
+	Availability     ArtifactAvailability
+	Verification     ArtifactVerificationStatus
 }
 
 func NewUpdateArtifactEvidence(releaseId RuntimeReleaseId, artifactId RuntimeArtifactId, digest RuntimeDigest,
@@ -861,13 +864,13 @@ func NewUpdateArtifactEvidence(releaseId RuntimeReleaseId, artifactId RuntimeArt
 }
 
 type UpdateCompatibilityEvidence struct {
-	OperationId      RuntimeOperationId
-	CurrentGeneration RuntimeGeneration
-	TargetGeneration RuntimeGeneration
+	OperationId        RuntimeOperationId
+	CurrentGeneration  RuntimeGeneration
+	TargetGeneration   RuntimeGeneration
 	ProtocolGeneration RuntimeGeneration
-	SchemaGeneration RuntimeGeneration
-	NToNMinusOne     CompatibilityStatus
-	Status           CompatibilityStatus
+	SchemaGeneration   RuntimeGeneration
+	NToNMinusOne       CompatibilityStatus
+	Status             CompatibilityStatus
 }
 
 func NewUpdateCompatibilityEvidence(operationId RuntimeOperationId, currentGeneration RuntimeGeneration,
@@ -994,42 +997,42 @@ func NewSelfUpdateRequest(operationId RuntimeOperationId, nodeId RuntimeNodeId, 
 type RuntimeDecisionCode int
 
 const (
-	RuntimeDecisionCodeEvidenceComplete    RuntimeDecisionCode = 1
-	RuntimeDecisionCodeEvidenceUnique      RuntimeDecisionCode = 2
-	RuntimeDecisionCodeEvidenceConsistent  RuntimeDecisionCode = 3
-	RuntimeDecisionCodeOperationExact      RuntimeDecisionCode = 4
-	RuntimeDecisionCodeEpochCurrent        RuntimeDecisionCode = 5
-	RuntimeDecisionCodeGenerationCurrent   RuntimeDecisionCode = 6
-	RuntimeDecisionCodeAdmissionExact      RuntimeDecisionCode = 7
-	RuntimeDecisionCodeArchitectureExact   RuntimeDecisionCode = 8
-	RuntimeDecisionCodeArtifactExact       RuntimeDecisionCode = 9
-	RuntimeDecisionCodePortConflictFree    RuntimeDecisionCode = 10
-	RuntimeDecisionCodeVolumeConflictFree  RuntimeDecisionCode = 11
-	RuntimeDecisionCodeHealthExact         RuntimeDecisionCode = 12
-	RuntimeDecisionCodeReadinessComplete   RuntimeDecisionCode = 13
-	RuntimeDecisionCodeCallSafe            RuntimeDecisionCode = 14
-	RuntimeDecisionCodeSlotDistinct        RuntimeDecisionCode = 15
-	RuntimeDecisionCodeForwardAvailable    RuntimeDecisionCode = 16
-	RuntimeDecisionCodeRollbackAvailable   RuntimeDecisionCode = 17
-	RuntimeDecisionCodeCompatibilityExact  RuntimeDecisionCode = 18
-	RuntimeDecisionCodePhaseResumable      RuntimeDecisionCode = 19
-	RuntimeDecisionCodeRollbackPossible    RuntimeDecisionCode = 20
-	RuntimeDecisionCodeProcessConsistent   RuntimeDecisionCode = 21
-	RuntimeDecisionCodeSoakComplete        RuntimeDecisionCode = 22
+	RuntimeDecisionCodeEvidenceComplete   RuntimeDecisionCode = 1
+	RuntimeDecisionCodeEvidenceUnique     RuntimeDecisionCode = 2
+	RuntimeDecisionCodeEvidenceConsistent RuntimeDecisionCode = 3
+	RuntimeDecisionCodeOperationExact     RuntimeDecisionCode = 4
+	RuntimeDecisionCodeEpochCurrent       RuntimeDecisionCode = 5
+	RuntimeDecisionCodeGenerationCurrent  RuntimeDecisionCode = 6
+	RuntimeDecisionCodeAdmissionExact     RuntimeDecisionCode = 7
+	RuntimeDecisionCodeArchitectureExact  RuntimeDecisionCode = 8
+	RuntimeDecisionCodeArtifactExact      RuntimeDecisionCode = 9
+	RuntimeDecisionCodePortConflictFree   RuntimeDecisionCode = 10
+	RuntimeDecisionCodeVolumeConflictFree RuntimeDecisionCode = 11
+	RuntimeDecisionCodeHealthExact        RuntimeDecisionCode = 12
+	RuntimeDecisionCodeReadinessComplete  RuntimeDecisionCode = 13
+	RuntimeDecisionCodeCallSafe           RuntimeDecisionCode = 14
+	RuntimeDecisionCodeSlotDistinct       RuntimeDecisionCode = 15
+	RuntimeDecisionCodeForwardAvailable   RuntimeDecisionCode = 16
+	RuntimeDecisionCodeRollbackAvailable  RuntimeDecisionCode = 17
+	RuntimeDecisionCodeCompatibilityExact RuntimeDecisionCode = 18
+	RuntimeDecisionCodePhaseResumable     RuntimeDecisionCode = 19
+	RuntimeDecisionCodeRollbackPossible   RuntimeDecisionCode = 20
+	RuntimeDecisionCodeProcessConsistent  RuntimeDecisionCode = 21
+	RuntimeDecisionCodeSoakComplete       RuntimeDecisionCode = 22
 )
 
 type RuntimeDecisionOutcome int
 
 const (
-	RuntimeDecisionOutcomePassed      RuntimeDecisionOutcome = 1
-	RuntimeDecisionOutcomeRejected    RuntimeDecisionOutcome = 2
-	RuntimeDecisionOutcomeHeld        RuntimeDecisionOutcome = 3
+	RuntimeDecisionOutcomePassed        RuntimeDecisionOutcome = 1
+	RuntimeDecisionOutcomeRejected      RuntimeDecisionOutcome = 2
+	RuntimeDecisionOutcomeHeld          RuntimeDecisionOutcome = 3
 	RuntimeDecisionOutcomeNotApplicable RuntimeDecisionOutcome = 4
 )
 
 type RuntimeDecisionReason struct {
-	Code    RuntimeDecisionCode
-	Outcome RuntimeDecisionOutcome
+	Code     RuntimeDecisionCode
+	Outcome  RuntimeDecisionOutcome
 	Observed uint64
 	Required uint64
 }
@@ -1040,13 +1043,15 @@ type RuntimeIntent interface {
 }
 
 type runtimeIntentBase struct {
-	operationId       RuntimeOperationId
-	lifecycleRequest  *RuntimeLifecycleRequest
+	operationId      RuntimeOperationId
+	lifecycleRequest *RuntimeLifecycleRequest
 }
 
 func newRuntimeIntentFromRequest(request *RuntimeLifecycleRequest) runtimeIntentBase {
 	return runtimeIntentBase{operationId: request.OperationId, lifecycleRequest: request}
 }
+
+func (b *runtimeIntentBase) runtimeIntentCommon() *runtimeIntentBase { return b }
 
 func (b *runtimeIntentBase) OperationId() RuntimeOperationId { return b.operationId }
 
@@ -1104,11 +1109,11 @@ func NewStartRuntimeIntent(request *RuntimeLifecycleRequest) *StartRuntimeIntent
 
 type CheckRuntimeHealthIntent struct {
 	runtimeIntentBase
-	AllocationId  RuntimeAllocationId
-	NodeId        RuntimeNodeId
-	Epoch         RuntimeEpoch
-	Generation    RuntimeGeneration
-	HealthTimeout RuntimeDurationSeconds
+	AllocationId   RuntimeAllocationId
+	NodeId         RuntimeNodeId
+	Epoch          RuntimeEpoch
+	Generation     RuntimeGeneration
+	HealthTimeout  RuntimeDurationSeconds
 	requiredHealth []HealthDimension
 }
 
@@ -1211,9 +1216,13 @@ func NewObserveExecutorIntent(request *RuntimeLifecycleRequest) *ObserveExecutor
 	return &ObserveExecutorIntent{newRuntimeIntentFromRequest(request)}
 }
 
-func (i *ObserveExecutorIntent) Request() *RuntimeLifecycleRequest { return i.RequireLifecycleRequest() }
+func (i *ObserveExecutorIntent) Request() *RuntimeLifecycleRequest {
+	return i.RequireLifecycleRequest()
+}
 
-func (i *ObserveExecutorIntent) AllocationId() RuntimeAllocationId { return i.Request().Spec.AllocationId }
+func (i *ObserveExecutorIntent) AllocationId() RuntimeAllocationId {
+	return i.Request().Spec.AllocationId
+}
 
 type VerifyUpdateArtifactIntent struct {
 	runtimeIntentBase

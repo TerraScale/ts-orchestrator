@@ -10,33 +10,33 @@ import (
 // consumer. It is deliberately not a transport DTO and is emitted only by the
 // Native GitOps projector after all persisted fences agree.
 type RuntimeCommandV1 struct {
-	SchemaVersion                     int
-	AcceptedOperationId               string
-	AcceptedIdempotencyKey            string
-	AcceptedCell                      RuntimeLifecycleCellId
-	AcceptedGeneration                RuntimeGeneration
-	AcceptedGlobalPlanDigest          RuntimeDigest
-	AcceptedHandoffDigest             RuntimeDigest
-	AcceptedPayloadDigest             RuntimeDigest
-	AcceptedWriterEpoch               RuntimeEpoch
-	AcceptedProtocolVersion           int64
-	AcceptedDeliveryAttempt           int64
-	AcceptedIssuedAt                  time.Time
-	AcceptedExpiresAt                 time.Time
-	AcceptedAt                        time.Time
-	AcceptanceStreamSequence          uint64
-	AcceptanceSignatureDigest         RuntimeDigest
-	AcceptanceJournalRevision         uint64
-	ConvergenceIntentWorkloadId       string
-	ConvergenceIntentGeneration       int64
-	ConvergenceIntentWorkloadDigest   RuntimeDigest
-	ConvergenceCheckpointSequence     int64
+	SchemaVersion                       int
+	AcceptedOperationId                 string
+	AcceptedIdempotencyKey              string
+	AcceptedCell                        RuntimeLifecycleCellId
+	AcceptedGeneration                  RuntimeGeneration
+	AcceptedGlobalPlanDigest            RuntimeDigest
+	AcceptedHandoffDigest               RuntimeDigest
+	AcceptedPayloadDigest               RuntimeDigest
+	AcceptedWriterEpoch                 RuntimeEpoch
+	AcceptedProtocolVersion             int64
+	AcceptedDeliveryAttempt             int64
+	AcceptedIssuedAt                    time.Time
+	AcceptedExpiresAt                   time.Time
+	AcceptedAt                          time.Time
+	AcceptanceStreamSequence            uint64
+	AcceptanceSignatureDigest           RuntimeDigest
+	AcceptanceJournalRevision           uint64
+	ConvergenceIntentWorkloadId         string
+	ConvergenceIntentGeneration         int64
+	ConvergenceIntentWorkloadDigest     RuntimeDigest
+	ConvergenceCheckpointSequence       int64
 	PreviousConvergenceCheckpointDigest RuntimeDigest
-	ConvergenceCheckpointDigest       RuntimeDigest
-	ConvergenceJournalRevision        uint64
-	Assignment                        RuntimeHostAssignmentV1
-	Request                           RuntimeLifecycleOperationRequest
-	CanonicalDigest                   RuntimeDigest
+	ConvergenceCheckpointDigest         RuntimeDigest
+	ConvergenceJournalRevision          uint64
+	Assignment                          RuntimeHostAssignmentV1
+	Request                             RuntimeLifecycleOperationRequest
+	CanonicalDigest                     RuntimeDigest
 }
 
 const RuntimeCommandV1CurrentSchemaVersion = 1
@@ -93,32 +93,32 @@ func NewRuntimeCommandV1(
 		return nil, err
 	}
 	command := &RuntimeCommandV1{
-		SchemaVersion:                     RuntimeCommandV1CurrentSchemaVersion,
-		AcceptedOperationId:               accepted.OperationId,
-		AcceptedIdempotencyKey:            accepted.IdempotencyKey,
-		AcceptedCell:                      cell,
-		AcceptedGeneration:                acceptedGeneration,
-		AcceptedGlobalPlanDigest:          globalPlanDigest,
-		AcceptedHandoffDigest:             handoffDigest,
-		AcceptedPayloadDigest:             payloadDigest,
-		AcceptedWriterEpoch:               writerEpoch,
-		AcceptedProtocolVersion:           accepted.ProtocolVersion,
-		AcceptedDeliveryAttempt:           accepted.DeliveryAttempt,
-		AcceptedIssuedAt:                  accepted.IssuedAt,
-		AcceptedExpiresAt:                 accepted.ExpiresAt,
-		AcceptedAt:                        accepted.AcceptedAt,
-		AcceptanceStreamSequence:          accepted.StreamSequence,
-		AcceptanceSignatureDigest:         signatureDigest,
-		AcceptanceJournalRevision:         accepted.JournalRevision,
-		ConvergenceIntentWorkloadId:       checkpoint.IntentWorkloadId,
-		ConvergenceIntentGeneration:       checkpoint.IntentGeneration,
-		ConvergenceIntentWorkloadDigest:   intentWorkloadDigest,
-		ConvergenceCheckpointSequence:     checkpoint.CheckpointSequence,
+		SchemaVersion:                       RuntimeCommandV1CurrentSchemaVersion,
+		AcceptedOperationId:                 accepted.OperationId,
+		AcceptedIdempotencyKey:              accepted.IdempotencyKey,
+		AcceptedCell:                        cell,
+		AcceptedGeneration:                  acceptedGeneration,
+		AcceptedGlobalPlanDigest:            globalPlanDigest,
+		AcceptedHandoffDigest:               handoffDigest,
+		AcceptedPayloadDigest:               payloadDigest,
+		AcceptedWriterEpoch:                 writerEpoch,
+		AcceptedProtocolVersion:             accepted.ProtocolVersion,
+		AcceptedDeliveryAttempt:             accepted.DeliveryAttempt,
+		AcceptedIssuedAt:                    accepted.IssuedAt,
+		AcceptedExpiresAt:                   accepted.ExpiresAt,
+		AcceptedAt:                          accepted.AcceptedAt,
+		AcceptanceStreamSequence:            accepted.StreamSequence,
+		AcceptanceSignatureDigest:           signatureDigest,
+		AcceptanceJournalRevision:           accepted.JournalRevision,
+		ConvergenceIntentWorkloadId:         checkpoint.IntentWorkloadId,
+		ConvergenceIntentGeneration:         checkpoint.IntentGeneration,
+		ConvergenceIntentWorkloadDigest:     intentWorkloadDigest,
+		ConvergenceCheckpointSequence:       checkpoint.CheckpointSequence,
 		PreviousConvergenceCheckpointDigest: previousCheckpointDigest,
-		ConvergenceCheckpointDigest:       checkpointDigest,
-		ConvergenceJournalRevision:        checkpoint.JournalRevision,
-		Assignment:                        assignment,
-		Request:                           request,
+		ConvergenceCheckpointDigest:         checkpointDigest,
+		ConvergenceJournalRevision:          checkpoint.JournalRevision,
+		Assignment:                          assignment,
+		Request:                             request,
 	}
 	canonicalDigest, err := NewRuntimeDigest(RuntimeCommandFingerprint.Compute(command))
 	if err != nil {

@@ -69,18 +69,18 @@ type GlobalNatsServiceExportScope struct {
 
 // GlobalNatsServiceImportScope mirrors the C# GlobalNatsServiceImport record.
 type GlobalNatsServiceImportScope struct {
-	Subject        string
-	SourceAccount  string
+	Subject       string
+	SourceAccount string
 }
 
 // GlobalNatsAccessPlan mirrors the C# sealed class.
 type GlobalNatsAccessPlan struct {
-	Cell         string
-	Capability   GlobalNatsCapability
-	Account      GlobalNatsAccountDescriptor
-	Permissions  *GlobalNatsPermissionPlan
-	Imports      []GlobalNatsServiceImportScope
-	Exports      []GlobalNatsServiceExportScope
+	Cell        string
+	Capability  GlobalNatsCapability
+	Account     GlobalNatsAccountDescriptor
+	Permissions *GlobalNatsPermissionPlan
+	Imports     []GlobalNatsServiceImportScope
+	Exports     []GlobalNatsServiceExportScope
 }
 
 // Publish mirrors the C# passthrough property.

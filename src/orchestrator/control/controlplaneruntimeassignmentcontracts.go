@@ -152,8 +152,8 @@ func NewRuntimeAssignmentAuthorizationV1(authorizationEvidenceDigest RuntimeDige
 // RuntimeAssignmentProjectionScopeV1 is the local projector fence. A command
 // cannot cross a cell/node/epoch ownership boundary.
 type RuntimeAssignmentProjectionScopeV1 struct {
-	Cell       RuntimeLifecycleCellId
-	Node       RuntimeNodeId
+	Cell        RuntimeLifecycleCellId
+	Node        RuntimeNodeId
 	WriterEpoch RuntimeEpoch
 }
 

@@ -18,11 +18,11 @@ var RuntimeLifecycleNatsProtocol runtimeLifecycleNatsProtocol
 type runtimeLifecycleNatsProtocol struct{}
 
 const (
-	RuntimeLifecycleNatsProtocolSchemaVersion        = 1
+	RuntimeLifecycleNatsProtocolSchemaVersion          = 1
 	RuntimeLifecycleNatsProtocolMaximumCheckpointBytes = 16 * 1024
-	RuntimeLifecycleNatsProtocolReadAction           = "runtime-lifecycle-read"
-	RuntimeLifecycleNatsProtocolCreateAction         = "runtime-lifecycle-create"
-	RuntimeLifecycleNatsProtocolUpdateAction         = "runtime-lifecycle-update"
+	RuntimeLifecycleNatsProtocolReadAction             = "runtime-lifecycle-read"
+	RuntimeLifecycleNatsProtocolCreateAction           = "runtime-lifecycle-create"
+	RuntimeLifecycleNatsProtocolUpdateAction           = "runtime-lifecycle-update"
 )
 
 func (runtimeLifecycleNatsProtocol) Subject(cell, operation string) (string, error) {
@@ -175,14 +175,14 @@ func NewNatsRuntimeLifecycleJournalReadRequest(schemaVersion int, cell, key, req
 }
 
 type NatsRuntimeLifecycleJournalWriteRequest struct {
-	SchemaVersion   int
-	Cell            string
-	Key             string
+	SchemaVersion    int
+	Cell             string
+	Key              string
 	ExpectedRevision uint64
-	WriterEpoch     uint64
-	Checkpoint      string
-	RequestId       string
-	Authority       NatsOperationJournalMutationAuthorityProof
+	WriterEpoch      uint64
+	Checkpoint       string
+	RequestId        string
+	Authority        NatsOperationJournalMutationAuthorityProof
 }
 
 func NewNatsRuntimeLifecycleJournalWriteRequest(schemaVersion int, cell, key string, expectedRevision,
@@ -235,32 +235,32 @@ type observationFingerprintJSONValue struct {
 }
 
 type checkpointJSON struct {
-	SchemaVersion                int                              `json:"SchemaVersion"`
-	OperationKey                 checkpointJSONValue              `json:"OperationKey"`
-	Cell                         checkpointJSONValue              `json:"Cell"`
-	Node                         checkpointJSONValue              `json:"Node"`
-	AllocationId                 string                           `json:"AllocationId"`
-	WorkloadGeneration           generationJSONValue              `json:"WorkloadGeneration"`
-	AcceptedConvergenceDigest    digestJSONValue                  `json:"AcceptedConvergenceDigest"`
-	PlanFingerprint              checkpointJSONValue              `json:"PlanFingerprint"`
-	Driver                       int                              `json:"Driver"`
-	Role                         int                              `json:"Role"`
-	Action                       int                              `json:"Action"`
-	Phase                        int                              `json:"Phase"`
-	WriterEpoch                  generationJSONValue              `json:"WriterEpoch"`
-	AuthorizationEvidenceDigest  digestJSONValue                  `json:"AuthorizationEvidenceDigest"`
-	ExecutorAttempt              generationJSONValue              `json:"ExecutorAttempt"`
-	DispatchToken                digestJSONValue                  `json:"DispatchToken"`
-	CallStatus                   int                              `json:"CallStatus"`
-	LastObservationFingerprint   *observationFingerprintJSONValue `json:"LastObservationFingerprint"`
-	LastObservationWatermark     uint64                           `json:"LastObservationWatermark"`
-	DeadlineEvidence             deadlineJSONValue                `json:"DeadlineEvidence"`
-	CompensationPolicy           int                              `json:"CompensationPolicy"`
-	JournalRevision              uint64                           `json:"JournalRevision"`
-	PreviousEventDigest          digestJSONValue                  `json:"PreviousEventDigest"`
-	EventDigest                  digestJSONValue                  `json:"EventDigest"`
-	TerminalStatus               int                              `json:"TerminalStatus"`
-	ErrorCode                    int                              `json:"ErrorCode"`
+	SchemaVersion               int                              `json:"SchemaVersion"`
+	OperationKey                checkpointJSONValue              `json:"OperationKey"`
+	Cell                        checkpointJSONValue              `json:"Cell"`
+	Node                        checkpointJSONValue              `json:"Node"`
+	AllocationId                string                           `json:"AllocationId"`
+	WorkloadGeneration          generationJSONValue              `json:"WorkloadGeneration"`
+	AcceptedConvergenceDigest   digestJSONValue                  `json:"AcceptedConvergenceDigest"`
+	PlanFingerprint             checkpointJSONValue              `json:"PlanFingerprint"`
+	Driver                      int                              `json:"Driver"`
+	Role                        int                              `json:"Role"`
+	Action                      int                              `json:"Action"`
+	Phase                       int                              `json:"Phase"`
+	WriterEpoch                 generationJSONValue              `json:"WriterEpoch"`
+	AuthorizationEvidenceDigest digestJSONValue                  `json:"AuthorizationEvidenceDigest"`
+	ExecutorAttempt             generationJSONValue              `json:"ExecutorAttempt"`
+	DispatchToken               digestJSONValue                  `json:"DispatchToken"`
+	CallStatus                  int                              `json:"CallStatus"`
+	LastObservationFingerprint  *observationFingerprintJSONValue `json:"LastObservationFingerprint"`
+	LastObservationWatermark    uint64                           `json:"LastObservationWatermark"`
+	DeadlineEvidence            deadlineJSONValue                `json:"DeadlineEvidence"`
+	CompensationPolicy          int                              `json:"CompensationPolicy"`
+	JournalRevision             uint64                           `json:"JournalRevision"`
+	PreviousEventDigest         digestJSONValue                  `json:"PreviousEventDigest"`
+	EventDigest                 digestJSONValue                  `json:"EventDigest"`
+	TerminalStatus              int                              `json:"TerminalStatus"`
+	ErrorCode                   int                              `json:"ErrorCode"`
 }
 
 func checkpointToJSON(checkpoint RuntimeLifecycleCheckpoint) checkpointJSON {
@@ -269,25 +269,25 @@ func checkpointToJSON(checkpoint RuntimeLifecycleCheckpoint) checkpointJSON {
 		lastObservation = &observationFingerprintJSONValue{Value: checkpoint.LastObservationFingerprint.Value}
 	}
 	return checkpointJSON{
-		SchemaVersion: checkpoint.SchemaVersion,
-		OperationKey:  checkpointJSONValue{checkpoint.OperationKey.Value},
-		Cell:          checkpointJSONValue{checkpoint.Cell.Value},
-		Node:          checkpointJSONValue{checkpoint.Node.Value},
-		AllocationId:  checkpoint.AllocationId,
-		WorkloadGeneration: generationJSONValue{checkpoint.WorkloadGeneration.Value},
-		AcceptedConvergenceDigest: digestJSONValue{checkpoint.AcceptedConvergenceDigest.Sha256},
-		PlanFingerprint:              checkpointJSONValue{checkpoint.PlanFingerprint.Value},
-		Driver:                       int(checkpoint.Driver),
-		Role:                         int(checkpoint.Role),
-		Action:                       int(checkpoint.Action),
-		Phase:                        int(checkpoint.Phase),
-		WriterEpoch:                  generationJSONValue{checkpoint.WriterEpoch.Value},
-		AuthorizationEvidenceDigest:  digestJSONValue{checkpoint.AuthorizationEvidenceDigest.Sha256},
-		ExecutorAttempt:              generationJSONValue{checkpoint.ExecutorAttempt.Value},
-		DispatchToken:                digestJSONValue{checkpoint.DispatchToken.Sha256},
-		CallStatus:                   int(checkpoint.CallStatus),
-		LastObservationFingerprint:   lastObservation,
-		LastObservationWatermark:     checkpoint.LastObservationWatermark,
+		SchemaVersion:               checkpoint.SchemaVersion,
+		OperationKey:                checkpointJSONValue{checkpoint.OperationKey.Value},
+		Cell:                        checkpointJSONValue{checkpoint.Cell.Value},
+		Node:                        checkpointJSONValue{checkpoint.Node.Value},
+		AllocationId:                checkpoint.AllocationId,
+		WorkloadGeneration:          generationJSONValue{checkpoint.WorkloadGeneration.Value},
+		AcceptedConvergenceDigest:   digestJSONValue{checkpoint.AcceptedConvergenceDigest.Sha256},
+		PlanFingerprint:             checkpointJSONValue{checkpoint.PlanFingerprint.Value},
+		Driver:                      int(checkpoint.Driver),
+		Role:                        int(checkpoint.Role),
+		Action:                      int(checkpoint.Action),
+		Phase:                       int(checkpoint.Phase),
+		WriterEpoch:                 generationJSONValue{checkpoint.WriterEpoch.Value},
+		AuthorizationEvidenceDigest: digestJSONValue{checkpoint.AuthorizationEvidenceDigest.Sha256},
+		ExecutorAttempt:             generationJSONValue{checkpoint.ExecutorAttempt.Value},
+		DispatchToken:               digestJSONValue{checkpoint.DispatchToken.Sha256},
+		CallStatus:                  int(checkpoint.CallStatus),
+		LastObservationFingerprint:  lastObservation,
+		LastObservationWatermark:    checkpoint.LastObservationWatermark,
 		DeadlineEvidence: deadlineJSONValue{digestJSONValue{checkpoint.DeadlineEvidence.Digest.Sha256},
 			checkpoint.DeadlineEvidence.Watermark},
 		CompensationPolicy:  int(checkpoint.CompensationPolicy),
@@ -305,19 +305,19 @@ func checkpointFromJSON(value checkpointJSON) RuntimeLifecycleCheckpoint {
 		lastObservation = &RuntimeLifecycleHostObservationFingerprint{Value: value.LastObservationFingerprint.Value}
 	}
 	return RuntimeLifecycleCheckpoint{
-		SchemaVersion: value.SchemaVersion,
-		OperationKey:  RuntimeLifecycleOperationKey{Value: value.OperationKey.Value},
-		Cell:          RuntimeLifecycleCellId{RuntimeToken{Value: value.Cell.Value}},
-		Node:          RuntimeNodeId{RuntimeToken{Value: value.Node.Value}},
-		AllocationId:  value.AllocationId,
-		WorkloadGeneration: RuntimeGeneration{PositiveRuntimeNumber{Value: value.WorkloadGeneration.Value}},
-		AcceptedConvergenceDigest: RuntimeDigest{Sha256: value.AcceptedConvergenceDigest.Sha256},
-		PlanFingerprint:           RuntimeLifecyclePlanFingerprint{Value: value.PlanFingerprint.Value},
-		Driver:                    HostRuntimeDriver(value.Driver),
-		Role:                      HostRole(value.Role),
-		Action:                    LifecycleAction(value.Action),
-		Phase:                     RuntimeLifecyclePhase(value.Phase),
-		WriterEpoch:               RuntimeEpoch{PositiveRuntimeNumber{Value: value.WriterEpoch.Value}},
+		SchemaVersion:               value.SchemaVersion,
+		OperationKey:                RuntimeLifecycleOperationKey{Value: value.OperationKey.Value},
+		Cell:                        RuntimeLifecycleCellId{RuntimeToken{Value: value.Cell.Value}},
+		Node:                        RuntimeNodeId{RuntimeToken{Value: value.Node.Value}},
+		AllocationId:                value.AllocationId,
+		WorkloadGeneration:          RuntimeGeneration{PositiveRuntimeNumber{Value: value.WorkloadGeneration.Value}},
+		AcceptedConvergenceDigest:   RuntimeDigest{Sha256: value.AcceptedConvergenceDigest.Sha256},
+		PlanFingerprint:             RuntimeLifecyclePlanFingerprint{Value: value.PlanFingerprint.Value},
+		Driver:                      HostRuntimeDriver(value.Driver),
+		Role:                        HostRole(value.Role),
+		Action:                      LifecycleAction(value.Action),
+		Phase:                       RuntimeLifecyclePhase(value.Phase),
+		WriterEpoch:                 RuntimeEpoch{PositiveRuntimeNumber{Value: value.WriterEpoch.Value}},
 		AuthorizationEvidenceDigest: RuntimeDigest{Sha256: value.AuthorizationEvidenceDigest.Sha256},
 		ExecutorAttempt:             RuntimeAttempt{PositiveRuntimeNumber{Value: value.ExecutorAttempt.Value}},
 		DispatchToken:               RuntimeDigest{Sha256: value.DispatchToken.Sha256},

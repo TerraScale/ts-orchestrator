@@ -31,6 +31,11 @@ func argumentOutOfRangeError(name, message string) error {
 	return errors.New(message + " (Parameter '" + name + "')")
 }
 
+// invalidOperation stands in for C# InvalidOperationException.
+func invalidOperation(message string) error {
+	return errors.New(message)
+}
+
 const int64max = int64(^uint64(0) >> 1)
 
 // isNullOrWhiteSpace mirrors string.IsNullOrWhiteSpace.
