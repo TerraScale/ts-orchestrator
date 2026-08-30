@@ -100,6 +100,7 @@ func validateCommandSignedMaterial(material *CommandSignedMaterial) error {
 		!material.DesiredGeneration.IsValid() || !material.WriterEpoch.IsValid() ||
 		!material.OperationId.IsValid() || !material.IdempotencyKey.IsValid() || !material.Attempt.IsValid() ||
 		material.ExpiresAt.Before(material.IssuedAt) ||
+		!material.Payload.IsPresent() ||
 		material.Payload.Length() < 1 || material.Payload.Length() > maximumPayloadBytes ||
 		!material.PayloadDigest.IsValid() ||
 		material.PayloadDigest.Length() > maximumDigestBytes {

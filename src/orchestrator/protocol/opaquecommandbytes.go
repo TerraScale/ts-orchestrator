@@ -4,9 +4,12 @@ package protocol
 import "crypto/subtle"
 
 // OpaquePayload is the secret-safe opaque command payload. Its bytes are never
-// rendered by String.
+// rendered by String. The zero value stands in for the C# null reference
+// (IsPresent reports false); CopyFrom of an empty slice is a present, empty
+// payload, which the C# allows.
 type OpaquePayload struct {
-	bytes []byte
+	bytes   []byte
+	present bool
 }
 
 // Length returns the payload byte length.
@@ -15,12 +18,16 @@ func (p OpaquePayload) Length() int { return len(p.bytes) }
 // Bytes returns a read-only view of the payload bytes; callers must not mutate it.
 func (p OpaquePayload) Bytes() []byte { return p.bytes }
 
+// IsPresent distinguishes the zero value (the C# null payload) from a payload
+// constructed through CopyFrom, including an empty one.
+func (p OpaquePayload) IsPresent() bool { return p.present }
+
 // OpaquePayloadCopyFrom mirrors OpaquePayload.CopyFrom: it copies the input so
 // later mutation of the caller's slice cannot change the stored payload.
 func OpaquePayloadCopyFrom(source []byte) OpaquePayload {
 	copied := make([]byte, len(source))
 	copy(copied, source)
-	return OpaquePayload{bytes: copied}
+	return OpaquePayload{bytes: copied, present: true}
 }
 
 // Equal mirrors OpaquePayload.Equals: a fixed-time content comparison.

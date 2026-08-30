@@ -388,7 +388,7 @@ func commandEnvelopeIsWellFormed(envelope *CommandEnvelope) bool {
 		envelope.OperationId.IsValid() &&
 		envelope.IdempotencyKey.IsValid() &&
 		envelope.Attempt.IsValid() &&
-		envelope.Payload.IsValid() == false && // placeholder replaced below
+		envelope.Payload.IsPresent() &&
 		envelope.PayloadDigest.IsValid() &&
 		envelope.Signature.IsValid()
 }
