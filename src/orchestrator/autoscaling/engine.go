@@ -131,6 +131,7 @@ type Autoscaler struct {
 	provisionSequence   int
 	inFlightProvisions  map[string]inFlightProvision
 	cordonedInFlight    map[string]int64
+	retirementInFlight  map[string]int64
 	recentlyRetiredNode map[string]int64
 }
 
@@ -162,6 +163,7 @@ func NewAutoscaler(config AutoscalerConfig, drainSafety DrainSafetyEvaluator) (*
 		drainSafety:         drainSafety,
 		inFlightProvisions:  make(map[string]inFlightProvision),
 		cordonedInFlight:    make(map[string]int64),
+		retirementInFlight:  make(map[string]int64),
 		recentlyRetiredNode: make(map[string]int64),
 	}, nil
 }
@@ -227,6 +229,15 @@ func (a *Autoscaler) reconcileInFlight(snapshot AutoscalerSnapshot) {
 			delete(a.cordonedInFlight, nodeId)
 		}
 	}
+	// A retirement remains in flight until the snapshot observes that the
+	// draining node is no longer draining. Unlike flap suppression, this
+	// state has no TTL: a delayed control-plane observation must never cause a
+	// second retire action after the suppression window expires.
+	for nodeId := range a.retirementInFlight {
+		if state, present := states[nodeId]; !present || state != NodeStateDraining {
+			delete(a.retirementInFlight, nodeId)
+		}
+	}
 	for nodeId, retiredTick := range a.recentlyRetiredNode {
 		if a.tick-retiredTick > int64(a.config.FlapSuppressionTicks) {
 			delete(a.recentlyRetiredNode, nodeId)
@@ -245,6 +256,9 @@ func (a *Autoscaler) planRetireActions(snapshot AutoscalerSnapshot) []Autoscaler
 		if node.NodeState != NodeStateDraining {
 			continue
 		}
+		if _, retiring := a.retirementInFlight[node.NodeId]; retiring {
+			continue
+		}
 		if _, alreadyRetired := a.recentlyRetiredNode[node.NodeId]; alreadyRetired {
 			// The snapshot may continue to report a draining node until the
 			// control-plane mutation is observed. Do not emit duplicate retire
@@ -261,6 +275,7 @@ func (a *Autoscaler) planRetireActions(snapshot AutoscalerSnapshot) []Autoscaler
 		}
 		actions = append(actions, action)
 		a.recentlyRetiredNode[node.NodeId] = a.tick
+		a.retirementInFlight[node.NodeId] = a.tick
 	}
 	return actions
 }

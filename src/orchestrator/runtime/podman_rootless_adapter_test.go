@@ -356,6 +356,32 @@ func TestPodmanObserveFencesForeignAllocations(t *testing.T) {
 	}
 }
 
+func TestPodmanObserveFencesImageAndPlatformMismatches(t *testing.T) {
+	plan := podmanTestOciPlan(t)
+	labels := podmanMatchingLabels(t, plan)
+	for _, test := range []struct {
+		name  string
+		image string
+		plat  string
+	}{
+		{name: "image", image: "registry.terrascale.internal/terrascale/other@sha256:" + hostRuntimePlanDigest, plat: plan.Oci.Platform},
+		{name: "platform", image: plan.Oci.ImageReference, plat: "linux/arm64"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation, err := NewPodmanAllocationObservation(
+				PodmanAllocationStateRunning, test.image, labels, true, test.plat)
+			if err != nil {
+				t.Fatalf("observation: %v", err)
+			}
+			client := &recordingPodmanClient{observation: observation}
+			var operationError *InvalidOperationError
+			if _, err := newPodmanTestAdapter(t, client).Observe(context.Background(), plan); !errors.As(err, &operationError) {
+				t.Fatalf("expected ownership fence error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestPodmanStopMatrix(t *testing.T) {
 	for _, state := range AllPodmanAllocationStates {
 		t.Run(state.String(), func(t *testing.T) {

@@ -205,8 +205,14 @@ func (c *ProcessPodmanClient) Inspect(ctx context.Context, containerId string) (
 	if err != nil {
 		return PodmanAllocationObservation{}, err
 	}
+	observedPlatform := podmanObservedPlatform(documents[0])
+	if observedPlatform == "" {
+		return NewPodmanAllocationObservation(
+			state, documents[0].Config.Image, documents[0].Config.Labels, documents[0].State.Running)
+	}
 	return NewPodmanAllocationObservation(
-		state, documents[0].Config.Image, documents[0].Config.Labels, documents[0].State.Running)
+		state, documents[0].Config.Image, documents[0].Config.Labels, documents[0].State.Running,
+		observedPlatform)
 }
 
 // EnsureVolume creates one named volume when absent. Creating an existing
@@ -252,14 +258,30 @@ func (c *ProcessPodmanClient) podman(ctx context.Context, arguments []string) (H
 // `podman container inspect --format json` document. Unknown fields are
 // ignored; only the state, the image, and the labels feed the observation.
 type podmanContainerInspectDocument struct {
-	State struct {
+	Platform     string `json:"Platform"`
+	Architecture string `json:"Architecture"`
+	State        struct {
 		Status  string `json:"Status"`
 		Running bool   `json:"Running"`
 	} `json:"State"`
 	Config struct {
-		Image  string            `json:"Image"`
-		Labels map[string]string `json:"Labels"`
+		Image    string            `json:"Image"`
+		Platform string            `json:"Platform"`
+		Labels   map[string]string `json:"Labels"`
 	} `json:"Config"`
+}
+
+func podmanObservedPlatform(document podmanContainerInspectDocument) string {
+	if document.Platform == "linux" && document.Architecture != "" {
+		return "linux/" + document.Architecture
+	}
+	if document.Platform == "linux/amd64" || document.Platform == "linux/arm64" {
+		return document.Platform
+	}
+	if document.Config.Platform == "linux/amd64" || document.Config.Platform == "linux/arm64" {
+		return document.Config.Platform
+	}
+	return ""
 }
 
 // podmanAllocationStateFrom maps one observed podman State.Status onto the

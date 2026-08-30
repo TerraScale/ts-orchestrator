@@ -163,11 +163,11 @@ func converged(k ProviderIdempotencyKey, o VolumeObservation) VolumeExpansionRes
 	return VolumeExpansionResult{VolumeConverged, k, o.Size, o.ETag, true}
 }
 func isOCID(v, kind string) bool {
-	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") {
+	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") || strings.Count(v, ".") < 3 {
 		return false
 	}
 	for _, r := range v {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x21 || r == 0x7f || r == '/' || r == '\\' || r == '?' || r == '#' || r == '%' {
 			return false
 		}
 	}
@@ -188,11 +188,12 @@ type OCITransportConfig struct {
 }
 
 func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) {
+	region = strings.TrimSpace(region)
 	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
 		return OCITransportConfig{}, &ArgumentError{Message: "configured OCI region is not canonical"}
 	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
+	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
 		return OCITransportConfig{}, &ArgumentError{Message: "OCI endpoint is invalid"}
 	}
 	u.Path = "/"
@@ -210,6 +211,7 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if len(config.Region) < 1 || len(config.Region) > 63 || !regionPattern.MatchString(config.Region) ||
 		config.Endpoint == nil || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
 		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
+		config.Endpoint.Opaque != "" || config.Endpoint.RawPath != "" ||
 		(config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
 		config.Endpoint.Host != "iaas."+config.Region+".oraclecloud.com" {
 		return nil, &ArgumentError{Message: "OCI endpoint is invalid"}
@@ -284,6 +286,15 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		}
 		resp, err := t.Client.Do(req)
 		if err == nil {
+			if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && n+1 < attempts {
+				_, _ = ReadBoundedBody(resp, t.Config.MaxBodyBytes)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(time.Duration(1<<n) * 25 * time.Millisecond):
+				}
+				continue
+			}
 			return resp, nil
 		}
 		if ctx.Err() != nil {

@@ -110,6 +110,8 @@ type Poller struct {
 	Client     *SourceClient
 	Journal    *SourceJournal
 	Authority  func() AuthoritySnapshot
+	Graph      *RepositorySourceGraph
+	Processor  *DeliveryProcessor
 	Interval   time.Duration
 	completion chan struct{}
 	cancel     context.CancelFunc
@@ -117,4 +119,5 @@ type Poller struct {
 	mu         sync.Mutex
 	started    bool
 	closed     bool
+	sequence   int64
 }

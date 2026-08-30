@@ -519,9 +519,11 @@ type NatsTransport struct {
 	subscriptions  []*nats.Subscription
 	closing        chan struct{}
 	heartbeatDone  chan struct{}
+	mutex          sync.Mutex
 	closeOnce      sync.Once
 	closeErr       error
 	started        bool
+	closed         bool
 }
 
 // NewNatsTransport validates the configuration and composes the transport.
@@ -564,6 +566,11 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 func (t *NatsTransport) Start(ctx context.Context) error {
 	if ctx == nil {
 		return &ArgumentError{Param: "ctx", Message: "The transport context must not be nil."}
+	}
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	if t.closed {
+		return &InvalidOperationError{Message: "The transport was already closed."}
 	}
 	if t.started {
 		return &InvalidOperationError{Message: "The transport was already started."}
@@ -632,6 +639,9 @@ func (t *NatsTransport) HeartbeatOnce(ctx context.Context) error {
 // transport owns it. Close is idempotent.
 func (t *NatsTransport) Close() error {
 	t.closeOnce.Do(func() {
+		t.mutex.Lock()
+		defer t.mutex.Unlock()
+		t.closed = true
 		close(t.closing)
 		if t.started {
 			<-t.heartbeatDone

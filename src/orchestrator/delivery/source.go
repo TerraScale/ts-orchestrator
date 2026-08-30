@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -106,9 +107,12 @@ func (SourceNotFoundError) Is(target error) bool {
 }
 
 type SourceClient struct {
-	config    SourceConfig
-	http      *http.Client
-	closeOnce bool
+	config SourceConfig
+	http   *http.Client
+	mutex  sync.RWMutex
+	closed bool
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func NewSourceClient(config SourceConfig, client *http.Client) (*SourceClient, error) {
@@ -118,9 +122,59 @@ func NewSourceClient(config SourceConfig, client *http.Client) (*SourceClient, e
 	if client == nil {
 		client = &http.Client{Transport: &http.Transport{Proxy: nil, DisableCompression: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }, Timeout: 0}
 	}
-	return &SourceClient{config: config, http: client}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	return &SourceClient{config: config, http: client, ctx: ctx, cancel: cancel}, nil
 }
-func (c *SourceClient) Close() error { c.closeOnce = true; return nil }
+func (c *SourceClient) Close() error {
+	if c == nil {
+		return errors.New("source client is unavailable")
+	}
+	c.mutex.Lock()
+	if !c.closed {
+		c.closed = true
+		if c.cancel != nil {
+			c.cancel()
+		}
+	}
+	c.mutex.Unlock()
+	return nil
+}
+
+// requestContext validates the caller context and binds it to the client's
+// lifecycle. Closing the client therefore cancels in-flight HTTP requests;
+// callers cannot accidentally pass nil to the context-aware net/http APIs.
+func (c *SourceClient) requestContext(ctx context.Context) (context.Context, func(), error) {
+	if c == nil {
+		return nil, nil, errors.New("source client is unavailable")
+	}
+	if ctx == nil {
+		return nil, nil, errors.New("source context must not be nil")
+	}
+	c.mutex.RLock()
+	closed := c.closed
+	clientContext := c.ctx
+	c.mutex.RUnlock()
+	if closed {
+		return nil, nil, errors.New("source client is closed")
+	}
+	if clientContext == nil {
+		clientContext = context.Background()
+	}
+	effective, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-clientContext.Done():
+			cancel()
+		case <-done:
+		}
+	}()
+	stop := func() {
+		close(done)
+		cancel()
+	}
+	return effective, stop, nil
+}
 func (c *SourceClient) Resolve(ctx context.Context, commit string) (ResolvedRevision, error) {
 	if !objectID(commit) || allZero(commit) {
 		return ResolvedRevision{}, errors.New("invalid commit")
@@ -255,6 +309,11 @@ func (c *SourceClient) ReadFile(ctx context.Context, commit, path string, maximu
 	return SourceFile{Repository: c.config.Repository, Commit: strings.ToLower(commit), Path: path, Blob: strings.ToLower(blob), ContentSHA256: fmt.Sprintf("%x", sum), Content: content}, nil
 }
 func (c *SourceClient) ReadArchive(ctx context.Context, revision ResolvedRevision) (SourceArchive, error) {
+	effectiveContext, stop, err := c.requestContext(ctx)
+	if err != nil {
+		return SourceArchive{}, err
+	}
+	defer stop()
 	if revision.Repository != c.config.Repository || !objectID(revision.Commit) || allZero(revision.Commit) || !objectID(revision.Tree) || allZero(revision.Tree) {
 		return SourceArchive{}, errors.New("invalid source revision")
 	}
@@ -264,7 +323,7 @@ func (c *SourceClient) ReadArchive(ctx context.Context, revision ResolvedRevisio
 	if e != nil {
 		return SourceArchive{}, e
 	}
-	request, e := http.NewRequestWithContext(ctx, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
+	request, e := http.NewRequestWithContext(effectiveContext, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
 	if e != nil {
 		return SourceArchive{}, e
 	}
@@ -302,13 +361,18 @@ func (c *SourceClient) ReadArchive(ctx context.Context, revision ResolvedRevisio
 	return SourceArchive{Revision: revision, ContentSHA256: fmt.Sprintf("%x", sum), Content: content}, nil
 }
 func (c *SourceClient) getJSON(ctx context.Context, path string, maximum int, out *map[string]json.RawMessage) error {
+	effectiveContext, stop, err := c.requestContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer stop()
 	token, e := c.config.token()
 	if e != nil {
 		return e
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	effectiveContext, cancel := context.WithTimeout(effectiveContext, 10*time.Second)
 	defer cancel()
-	req, e := http.NewRequestWithContext(ctx, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
+	req, e := http.NewRequestWithContext(effectiveContext, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
 	if e != nil {
 		return e
 	}

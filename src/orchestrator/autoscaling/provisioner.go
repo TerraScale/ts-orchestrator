@@ -115,6 +115,7 @@ func NewNodeProcessSpec(
 	for _, argument := range args {
 		if argument == "" || len(argument) > autoscalingMaximumArgumentLength ||
 			argument == "--node-id" || argument == "--nats-url" ||
+			strings.HasPrefix(argument, "--node-id=") || strings.HasPrefix(argument, "--nats-url=") ||
 			strings.ContainsFunc(argument, isAutoscalingSpaceOrControlRune) {
 			return NodeProcessSpec{}, &ArgumentError{
 				Param:   "args",
@@ -508,11 +509,8 @@ func (s *CommandProcessSpawner) Terminate(ctx context.Context, pid int) error {
 		}
 	}
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	child, ours := s.processes[pid]
-	if ours {
-		delete(s.processes, pid)
-	}
-	s.mutex.Unlock()
 	if !ours {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Process %d is not a child of this spawner.", pid),
@@ -523,27 +521,42 @@ func (s *CommandProcessSpawner) Terminate(ctx context.Context, pid int) error {
 			Message: fmt.Sprintf("Process %d has no process handle.", pid),
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Process %d could not be terminated: %v.", pid, err),
 		}
 	}
+	timer := time.NewTimer(s.terminateGrace)
+	defer timer.Stop()
 	select {
 	case <-child.exited:
+		delete(s.processes, pid)
 		return nil
-	case <-time.After(s.terminateGrace):
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Process %d could not be killed: %v.", pid, err),
 		}
 	}
+	timer.Reset(s.terminateGrace)
 	select {
 	case <-child.exited:
+		delete(s.processes, pid)
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Process %d ignored SIGTERM and was killed after the grace period.", pid),
 		}
-	case <-time.After(s.terminateGrace):
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Process %d could not be reaped within the grace period.", pid),
 		}

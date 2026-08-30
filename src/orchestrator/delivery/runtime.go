@@ -2,9 +2,12 @@ package delivery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,6 +17,13 @@ func NewPoller(client *SourceClient, journal *SourceJournal, authority func() Au
 		interval = 30 * time.Second
 	}
 	return &Poller{Client: client, Journal: journal, Authority: authority, Interval: interval, completion: make(chan struct{})}
+}
+
+func NewGraphPoller(graph *RepositorySourceGraph, journal *SourceJournal, processor *DeliveryProcessor, authority func() AuthoritySnapshot, interval time.Duration) *Poller {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	return &Poller{Graph: graph, Journal: journal, Processor: processor, Authority: authority, Interval: interval, completion: make(chan struct{})}
 }
 func (p *Poller) Start(ctx context.Context) {
 	if p == nil {
@@ -58,7 +68,16 @@ func (p *Poller) Completion() <-chan struct{} {
 	return p.completion
 }
 func (p *Poller) PollOnce(ctx context.Context) error {
-	if p == nil || ctx == nil || p.Client == nil || p.Journal == nil || p.Authority == nil {
+	if p == nil || ctx == nil || p.Journal == nil || p.Authority == nil {
+		return errors.New("poller dependencies are missing")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p.Graph != nil {
+		return p.pollGraph(ctx)
+	}
+	if p.Client == nil {
 		return errors.New("poller dependencies are missing")
 	}
 	lease := p.Authority()
@@ -86,6 +105,77 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (p *Poller) pollGraph(ctx context.Context) error {
+	if p.Graph == nil || p.Processor == nil || p.Graph.Sources[p.Graph.Root] == nil {
+		return errors.New("graph poller dependencies are missing")
+	}
+	lease := p.Authority()
+	if !lease.Ready || !lease.Leader || lease.Epoch <= 0 {
+		return nil
+	}
+	for _, branch := range []string{"develop", "main"} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		root, err := p.Graph.Sources[p.Graph.Root].PollBranch(ctx, branch)
+		if err != nil {
+			return err
+		}
+		if err := ensureAuthority(p.Authority, lease); err != nil {
+			return nil
+		}
+		if r, err := p.Journal.Observe(ctx, root, lease.Epoch, p.nextSequence()); err != nil {
+			return err
+		} else if r.Disposition == SourceStaleAuthority || r.Disposition == SourceStaleSequence {
+			return nil
+		} else if r.Disposition == SourceUnprotectedBranch || r.Disposition == SourceIdentityConflict || r.Disposition == SourceUnspecified {
+			return errors.New("unsafe Forgejo source observation")
+		}
+		event := pollEvent(p.Graph.Root, branch, root.Revision.Commit)
+		if branch == "develop" {
+			snapshot, err := p.Graph.Snapshot(ctx, &event, branch, true)
+			if err != nil {
+				return err
+			}
+			for _, observation := range snapshot.Observations {
+				if err := ensureAuthority(p.Authority, lease); err != nil {
+					return nil
+				}
+				if r, err := p.Journal.Observe(ctx, observation, lease.Epoch, p.nextSequence()); err != nil {
+					return err
+				} else if r.Disposition == SourceUnprotectedBranch || r.Disposition == SourceIdentityConflict || r.Disposition == SourceUnspecified {
+					return errors.New("unsafe Forgejo source observation")
+				}
+			}
+			if _, err := p.Processor.ProcessSnapshot(ctx, &event, snapshot); err != nil {
+				return err
+			}
+		} else {
+			if _, err := p.Processor.Process(ctx, &event); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (p *Poller) nextSequence() int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now().UnixNano()
+	if now <= p.sequence {
+		now = p.sequence + 1
+	}
+	p.sequence = now
+	return now
+}
+
+func pollEvent(repository, branch, commit string) WebhookEnvelope {
+	identity := sha256.Sum256([]byte(repository + "\n" + branch + "\n" + strings.ToLower(commit)))
+	digest := hex.EncodeToString(identity[:])
+	return WebhookEnvelope{DeliveryID: digest[:8] + "-" + digest[8:12] + "-" + digest[12:16] + "-" + digest[16:20] + "-" + digest[20:32], Kind: WebhookPush, Action: "push", Repository: repository, SourceRepository: repository, BaseRevision: strings.Repeat("0", 40), Revision: strings.ToLower(commit), SourceRef: "refs/heads/" + branch, PayloadSHA256: digest}
 }
 func (p *Poller) Close() error {
 	if p == nil {
@@ -117,6 +207,9 @@ func (p *Poller) Close() error {
 	if p.Client != nil {
 		_ = p.Client.Close()
 	}
+	if p.Graph != nil {
+		_ = p.Graph.Close()
+	}
 	return nil
 }
 
@@ -129,11 +222,15 @@ type RuntimeConfig struct {
 	Authority    func() AuthoritySnapshot
 	Ledger       Ledger
 	Publisher    EventPublisher
+	Handoff      DeliveryHandoff
+	Reconciler   DeliveryReconciler
 }
 type RuntimeDependencies struct {
 	Ledger     Ledger
 	Publisher  EventPublisher
 	HTTPClient *http.Client
+	Handoff    DeliveryHandoff
+	Reconciler DeliveryReconciler
 }
 type Runtime struct {
 	handler      *WebhookHandler
@@ -161,9 +258,64 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 	if publisher == nil {
 		publisher = deps.Publisher
 	}
+	handoff := cfg.Handoff
+	if handoff == nil {
+		handoff = deps.Handoff
+	}
+	reconciler := cfg.Reconciler
+	if reconciler == nil {
+		reconciler = deps.Reconciler
+	}
+	if handoff == nil && reconciler != nil {
+		handoff = reconcilerHandoff{reconciler: reconciler}
+	}
+	var graph *RepositorySourceGraph
+	var processor *DeliveryProcessor
+	if cfg.Source.Server != nil || len(cfg.Graph.Repositories) > 0 {
+		if cfg.Source.Server == nil || !ValidRepository(cfg.Source.Repository) || len(cfg.Graph.Repositories) == 0 || len(cfg.Graph.Repositories) > MaximumGraphRepositories {
+			return nil, errors.New("delivery source graph configuration is incomplete")
+		}
+		if cfg.Authority == nil || handoff == nil {
+			return nil, errors.New("delivery source graph requires authority and handoff")
+		}
+		if _, err := cfg.Source.token(); err != nil {
+			return nil, err
+		}
+		sources := make(map[string]RepositorySource, len(cfg.Graph.Repositories))
+		seen := map[string]struct{}{}
+		for _, repository := range cfg.Graph.Repositories {
+			if !ValidRepository(repository) {
+				return nil, errors.New("delivery source graph repository is invalid")
+			}
+			if _, ok := seen[repository]; ok {
+				return nil, errors.New("delivery source graph repository is duplicated")
+			}
+			seen[repository] = struct{}{}
+			sourceConfig, err := cfg.Source.ForRepository(repository)
+			if err != nil {
+				return nil, err
+			}
+			client, err := NewSourceClient(sourceConfig, cfg.HTTPClient)
+			if err != nil {
+				return nil, err
+			}
+			sources[repository] = client
+		}
+		var graphErr error
+		graph, graphErr = NewSourceGraph(cfg.Source.Repository, sources)
+		if graphErr != nil {
+			_ = (&RepositorySourceGraph{Sources: sources}).Close()
+			return nil, graphErr
+		}
+		processor = NewDeliveryProcessor(graph, ledger, handoff, cfg.Authority)
+		publisher = &processingPublisher{processor: processor, next: publisher}
+	}
 	journal := NewWebhookJournal(ledger, publisher)
 	handler, e := NewWebhookHandler(cfg.Webhook, journal)
 	if e != nil {
+		if graph != nil {
+			_ = graph.Close()
+		}
 		return nil, e
 	}
 	r := &Runtime{handler: handler, completion: make(chan struct{})}
@@ -184,19 +336,9 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 			r.complete()
 		}()
 	}
-	if cfg.Source.Server != nil {
-		client, e := NewSourceClient(cfg.Source, cfg.HTTPClient)
-		if e != nil {
-			if r.server != nil {
-				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_ = r.server.Shutdown(shutdownCtx)
-				shutdownCancel()
-			}
-			handler.Close()
-			return nil, e
-		}
+	if graph != nil {
 		sj := NewSourceJournal(ledger)
-		r.poller = NewPoller(client, sj, cfg.Authority, cfg.PollInterval)
+		r.poller = NewGraphPoller(graph, sj, processor, cfg.Authority, cfg.PollInterval)
 		r.poller.Start(ctx)
 	}
 	go func() {
@@ -210,6 +352,24 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 		}
 	}()
 	return r, nil
+}
+
+type processingPublisher struct {
+	processor *DeliveryProcessor
+	next      EventPublisher
+}
+
+func (p *processingPublisher) Publish(ctx context.Context, event *WebhookEnvelope) error {
+	if p == nil || p.processor == nil {
+		return errors.New("delivery processor is missing")
+	}
+	if _, err := p.processor.Process(ctx, event); err != nil {
+		return err
+	}
+	if p.next != nil {
+		return p.next.Publish(ctx, event)
+	}
+	return nil
 }
 func (r *Runtime) Completion() <-chan struct{} {
 	if r == nil {

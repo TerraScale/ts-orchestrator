@@ -222,6 +222,30 @@ func TestNatsTransportSubscribesToEveryRequestSubject(t *testing.T) {
 	}
 }
 
+func TestNatsTransportRejectsStartAfterClose(t *testing.T) {
+	connection := newFakeNatsConnection()
+	executor := newExecutorForTest(t, &fakeNativeAdapter{observation: runningSystemdObservation()},
+		&fakeContainerAdapter{observation: runningPodmanObservation(t)})
+	ticker := newFakeHeartbeatTicker()
+	transport, err := NewNatsTransport(NatsTransportConfig{
+		NodeId: executorTestNodeId(t), Connection: connection, Executor: executor,
+		Metrics: defaultMetricsForTest(), Ticker: ticker, Now: fixedTestClock,
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if err := transport.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	var operationError *InvalidOperationError
+	if err := transport.Start(context.Background()); !errors.As(err, &operationError) {
+		t.Fatalf("start after close must be rejected, got %v", err)
+	}
+	if flushes, _, _ := connection.counts(); flushes != 0 {
+		t.Fatalf("closed transport must not subscribe or flush: %d", flushes)
+	}
+}
+
 func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 	tests := []struct {
 		leaf    string

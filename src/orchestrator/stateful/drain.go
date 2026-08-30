@@ -41,7 +41,10 @@ func NewDrainPolicy(maxLagBytes int64) (DrainPolicy, error) {
 // ReplicaDrainSafetyEvaluator is the stateful drain gate. A node may drain
 // iff every replica it hosts is up, every hosted replica's replication lag is
 // strictly below the configured bound, and every hosted replica keeps at
-// least MinReplicas up replicas of the same role kind on other nodes. Any
+// least MinReplicas acknowledgements plus up replicas of the same role kind
+// on other nodes. PeerAckCount is the candidate replica's already-observed
+// quorum contribution; peer acknowledgements are not summed again, avoiding
+// double counting. Any
 // failing replica defers the drain and is named in the blocking allocation
 // IDs, sorted and deduplicated.
 type ReplicaDrainSafetyEvaluator struct {
@@ -118,7 +121,7 @@ func (e *ReplicaDrainSafetyEvaluator) EvaluateDrainSafety(
 			blocking[replica.AllocationId] = struct{}{}
 		case replica.LagBytes >= e.policy.MaxLagBytes:
 			blocking[replica.AllocationId] = struct{}{}
-		case int64(len(upElsewhereByRole[replica.RoleKind])) < int64(replica.MinReplicas):
+		case int64(replica.PeerAckCount)+int64(len(upElsewhereByRole[replica.RoleKind])) < int64(replica.MinReplicas):
 			blocking[replica.AllocationId] = struct{}{}
 		}
 	}

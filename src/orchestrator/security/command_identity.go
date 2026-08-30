@@ -65,11 +65,26 @@ func (c *CommandIdentityConfiguration) String() string {
 }
 
 // Open loads the configured identities and creates a process-local replay
-// boundary. A future multi-instance runtime should replace Replay with a
-// durable CAS-backed implementation before admitting commands.
+// boundary. It is intentionally suitable only for single-process tools and
+// tests. Multi-instance production composition must call OpenWithReplay with
+// an explicitly durable CAS-backed implementation.
 func (c *CommandIdentityConfiguration) Open() (*CommandIdentityRuntime, error) {
+	replay, err := NewMemoryCommandReplayStore(maximumCommandReplayEntries)
+	if err != nil {
+		return nil, err
+	}
+	return c.OpenWithReplay(replay)
+}
+
+// OpenWithReplay loads identities while retaining the caller-owned replay
+// implementation. The store is never replaced with memory, which prevents a
+// production process from accidentally losing replay protection at restart.
+func (c *CommandIdentityConfiguration) OpenWithReplay(replay CommandReplayStore) (*CommandIdentityRuntime, error) {
 	if c == nil {
 		return nil, errors.New("command identity configuration is required")
+	}
+	if replay == nil {
+		return nil, errors.New("command replay store is required")
 	}
 	var signer *CommandSignatureSigner
 	var verifier *CommandSignatureVerifier
@@ -87,12 +102,17 @@ func (c *CommandIdentityConfiguration) Open() (*CommandIdentityRuntime, error) {
 			return nil, err
 		}
 	}
-	replay, err := NewMemoryCommandReplayStore(maximumCommandReplayEntries)
-	if err != nil {
-		_ = signer.Close()
+	return &CommandIdentityRuntime{Signer: signer, Verifier: verifier, Replay: replay}, nil
+}
+
+// OpenForMultiInstanceProduction is the fail-closed composition entry point.
+// In particular, passing a MemoryCommandReplayStore returns an error before
+// credentials are loaded or any subscriber can be started.
+func (c *CommandIdentityConfiguration) OpenForMultiInstanceProduction(replay CommandReplayStore) (*CommandIdentityRuntime, error) {
+	if err := RequireDurableCommandReplayStore(replay); err != nil {
 		return nil, err
 	}
-	return &CommandIdentityRuntime{Signer: signer, Verifier: verifier, Replay: replay}, nil
+	return c.OpenWithReplay(replay)
 }
 
 // CommandIdentityRuntime owns loaded cryptographic identities for one process
@@ -100,7 +120,7 @@ func (c *CommandIdentityConfiguration) Open() (*CommandIdentityRuntime, error) {
 type CommandIdentityRuntime struct {
 	Signer   *CommandSignatureSigner
 	Verifier *CommandSignatureVerifier
-	Replay   *MemoryCommandReplayStore
+	Replay   CommandReplayStore
 	close    sync.Once
 }
 

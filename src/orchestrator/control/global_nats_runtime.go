@@ -225,7 +225,7 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 		RunnerBundles: state.runnerBundles, CiConsumer: state.ciConsumer,
 		RuntimeProof: state.runtimeProof, CellSpec: state.cellSpec,
 	}
-	if configuration.CiRuntime != nil {
+	if configuration.CiRuntimeEnabled && configuration.CiRuntime != nil {
 		runtime.ciRuntime, err = configuration.CiRuntime(lifetime, deps)
 		if err != nil || runtime.ciRuntime == nil {
 			if err == nil {
@@ -235,7 +235,7 @@ func GlobalNatsRuntimeStartAsync(ctx context.Context, configuration *GlobalNatsR
 			return nil, err
 		}
 	}
-	if configuration.Delivery != nil {
+	if configuration.DeliveryEnabled && configuration.Delivery != nil {
 		runtime.delivery, err = configuration.Delivery(lifetime, deps)
 		if err != nil || runtime.delivery == nil {
 			if err == nil {

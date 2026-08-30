@@ -242,6 +242,40 @@ func TestEvaluateDrainSafetyMatrix(t *testing.T) {
 	}
 }
 
+func TestEvaluateDrainSafetyUsesPeerAckCountWithoutCountingPeerAcks(t *testing.T) {
+	evaluator := drainTestEvaluator(t, 1024)
+	// The candidate has one already-observed acknowledgement and one healthy
+	// peer, which exactly satisfies MinReplicas=2.
+	candidateReplica, err := NewReplicaHealth("terrabase", "tb-1", true, 1, 2, 0)
+	if err != nil {
+		t.Fatalf("candidate replica: %v", err)
+	}
+	peerReplica, err := NewReplicaHealth("terrabase", "tb-2", true, 99, 2, 0)
+	if err != nil {
+		t.Fatalf("peer replica: %v", err)
+	}
+	decision, err := evaluator.EvaluateDrainSafety(
+		drainTestCandidate(t, "node-a", candidateReplica),
+		[]NodeDrainCandidate{drainTestCandidate(t, "node-b", peerReplica)})
+	if err != nil {
+		t.Fatalf("decision: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("peer acknowledgement must contribute once: %+v", decision)
+	}
+
+	// A peer's PeerAckCount is not another physical survivor. Without a
+	// healthy peer allocation, it must not satisfy the candidate's quorum.
+	decision, err = evaluator.EvaluateDrainSafety(
+		drainTestCandidate(t, "node-a", candidateReplica), nil)
+	if err != nil {
+		t.Fatalf("decision without peer: %v", err)
+	}
+	if decision.Allowed {
+		t.Fatal("peer acknowledgements must not be summed as additional replicas")
+	}
+}
+
 func TestEvaluateDrainSafetyIsInputOrderIndependent(t *testing.T) {
 	evaluator := drainTestEvaluator(t, 1024)
 	forward := drainTestCandidate(t, "node-a",

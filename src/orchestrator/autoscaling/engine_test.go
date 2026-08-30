@@ -559,6 +559,20 @@ func TestTickRetireThenImmediateBreachHonorsTheFlapSuppressionWindow(t *testing.
 	}
 }
 
+func TestTickDoesNotRepeatRetirementAfterFlapWindowWhileDrainIsStale(t *testing.T) {
+	autoscaler := mustAutoscaler(t, mustConfig(t, 1, 8, 20, 30, 1, 50, 4, 1), allowAllDrains())
+	drained := mustNode(t, "gru-node-1", NodeStateDraining, engineTestCapacity, NodeResources{}, 0)
+	snapshot := AutoscalerSnapshot{Nodes: []NodeObservation{drained}}
+	if signature := actionSignature(mustTick(t, autoscaler, snapshot)); signature != "RetireNode|gru-node-1;" {
+		t.Fatalf("first retirement signature = %q", signature)
+	}
+	for tick := 0; tick < 4; tick++ {
+		if actions := mustTick(t, autoscaler, snapshot); len(actions) != 0 {
+			t.Fatalf("stale drain must not be retired again at tick %d: %q", tick+2, actionSignature(actions))
+		}
+	}
+}
+
 func TestTickDecisionsAreDeterministicUnderPermutedNodeInput(t *testing.T) {
 	config := mustConfig(t, 2, 8, 20, 30, 1, 1, 4, 3)
 	draining := mustNode(t, "gru-node-9", NodeStateDraining, engineTestCapacity, NodeResources{}, 0)

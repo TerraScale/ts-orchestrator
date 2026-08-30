@@ -179,8 +179,12 @@ type OciCreateNodeClient interface {
 	ReconcileCreateNode(context.Context, CreateNodeProviderRequest) (CreateNodeReconciliation, error)
 }
 type OciCreateNodeProvider struct {
-	Enabled                            bool
-	Client                             OciCreateNodeClient
+	Enabled bool
+	Client  OciCreateNodeClient
+	// OCI is used to build the concrete HTTP client when Client is omitted.
+	// Client remains available as a narrow seam for deterministic unit tests.
+	OCI                                *OCIHTTPTransport
+	ProofSigner                        *CreateNodeProviderProofSigner
 	Keys, RecoveryKeys, InvocationKeys ReceiptKeyResolver
 	Journal                            CreateNodeJournal
 	Clock                              func() time.Time
@@ -190,8 +194,15 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	if p == nil || !p.Enabled {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode is disabled"}
 	}
-	if p.Client == nil || p.Journal == nil || p.Clock == nil || p.Keys == nil || p.InvocationKeys == nil {
+	if p.Journal == nil || p.Clock == nil || p.Keys == nil || p.InvocationKeys == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode dependencies are incomplete"}
+	}
+	client := p.Client
+	if client == nil && p.OCI != nil {
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner}
+	}
+	if client == nil {
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
 	}
 	if ctx == nil {
 		return CreateNodeProviderResponse{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
@@ -199,17 +210,30 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	if err := validateCreateRequest(r, p.Keys, p.Clock()); err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
-	if r.InvocationCapability == nil || !p.Journal.AuthoritativeDurable() || !VerifyInvocationCapability(*r.InvocationCapability, p.InvocationKeys, r.Binding, p.Clock()) || p.Journal.ConsumeInvocationCapability(ctx, *r.InvocationCapability, r.Binding, p.Clock()) != nil {
+	if r.InvocationCapability == nil || !p.Journal.AuthoritativeDurable() || !VerifyInvocationCapability(*r.InvocationCapability, p.InvocationKeys, r.Binding, p.Clock()) {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode requires an unconsumed authoritative invocation capability"}
 	}
-	return p.Client.CreateNode(ctx, r)
+	if err := p.Journal.ConsumeInvocationCapability(ctx, *r.InvocationCapability, r.Binding, p.Clock()); err != nil {
+		if ctx.Err() != nil {
+			return CreateNodeProviderResponse{}, ctx.Err()
+		}
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode invocation capability was not consumed"}
+	}
+	return client.CreateNode(ctx, r)
 }
 func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeReconciliation, error) {
 	if p == nil || !p.Enabled {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode is disabled"}
 	}
-	if p.Client == nil || p.Clock == nil || p.RecoveryKeys == nil {
+	if p.Clock == nil || p.RecoveryKeys == nil {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode dependencies are incomplete"}
+	}
+	client := p.Client
+	if client == nil && p.OCI != nil {
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner}
+	}
+	if client == nil {
+		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
 	}
 	if ctx == nil {
 		return CreateNodeReconciliation{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
@@ -217,5 +241,5 @@ func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r Creat
 	if err := validateRecovery(r, p.RecoveryKeys, p.Clock()); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
-	return p.Client.ReconcileCreateNode(ctx, r)
+	return client.ReconcileCreateNode(ctx, r)
 }

@@ -58,6 +58,29 @@ type CommandReplayStore interface {
 	TryConsume(key CommandReplayKey, expiresAt time.Time) (CommandReplayConsumeResult, error)
 }
 
+// DurableCommandReplayStore is the explicit production durability contract.
+// A replay implementation must opt in to this marker before it can be used by
+// a multi-instance command ingress. Process-local memory is intentionally not
+// considered durable, even when it is bounded and concurrency-safe.
+type DurableCommandReplayStore interface {
+	CommandReplayStore
+	DurableCommandReplayStore()
+}
+
+// RequireDurableCommandReplayStore rejects stores that cannot provide a
+// cross-process atomic claim. This check belongs at runtime composition, not
+// in the cryptographic verifier, so tests and single-process tools can still
+// use the bounded memory implementation explicitly.
+func RequireDurableCommandReplayStore(store CommandReplayStore) error {
+	if store == nil {
+		return errors.New("a durable command replay store is required")
+	}
+	if _, ok := store.(DurableCommandReplayStore); !ok {
+		return errors.New("a durable command replay store is required for multi-instance command ingress")
+	}
+	return nil
+}
+
 // CommandReplayConsumer is an alias for runtimes that name the boundary by
 // its consume operation (matching the existing bootstrap security seam).
 type CommandReplayConsumer = CommandReplayStore
@@ -288,6 +311,25 @@ func (b *CommandSecurityBoundary) String() string {
 		return "<nil>"
 	}
 	return "<command-security-boundary>"
+}
+
+// Verifier exposes the protocol verifier as a narrow composition port. It is
+// read-only and does not expose trust keys or signed material.
+func (b *CommandSecurityBoundary) Verifier() protocol.ICommandSignatureVerifier {
+	if b == nil {
+		return nil
+	}
+	return b.verifier
+}
+
+// UsesDurableReplay reports whether this boundary is backed by a store that
+// explicitly guarantees cross-process claims.
+func (b *CommandSecurityBoundary) UsesDurableReplay() bool {
+	if b == nil || b.replay == nil {
+		return false
+	}
+	_, ok := b.replay.(DurableCommandReplayStore)
+	return ok
 }
 
 func commandEnvelopeMaterialMatches(envelope *protocol.CommandEnvelope) bool {

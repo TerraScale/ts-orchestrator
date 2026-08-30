@@ -6,6 +6,7 @@ package hostagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -197,5 +198,19 @@ func TestHostAgentRejectsNilStartContext(t *testing.T) {
 	}
 	if err := agent.Start(nil); err == nil {
 		t.Fatal("a nil start context must be rejected")
+	}
+}
+
+func TestHostAgentRejectsStartAfterClose(t *testing.T) {
+	agent, err := NewHostAgent(agentTestConfig(t, newFakeNatsConnection()))
+	if err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+	if err := agent.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	var operationError *InvalidOperationError
+	if err := agent.Start(context.Background()); !errors.As(err, &operationError) {
+		t.Fatalf("start after close must be rejected, got %v", err)
 	}
 }

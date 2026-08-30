@@ -54,8 +54,10 @@ type HostAgent struct {
 	transport         *NatsTransport
 	completion        chan struct{}
 	completionOnce    sync.Once
+	mutex             sync.Mutex
 	closeOnce         sync.Once
 	closeErr          error
+	closed            bool
 }
 
 // NewHostAgent validates the configuration and composes the agent. Nothing is
@@ -137,6 +139,11 @@ func (a *HostAgent) Start(ctx context.Context) error {
 	if ctx == nil {
 		return &ArgumentError{Param: "ctx", Message: "The agent context must not be nil."}
 	}
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+	if a.closed {
+		return &InvalidOperationError{Message: "The agent was already closed."}
+	}
 	if a.transport != nil {
 		return &InvalidOperationError{Message: "The agent was already started."}
 	}
@@ -197,6 +204,9 @@ func (a *HostAgent) Start(ctx context.Context) error {
 // goroutine.
 func (a *HostAgent) Close() error {
 	a.closeOnce.Do(func() {
+		a.mutex.Lock()
+		defer a.mutex.Unlock()
+		a.closed = true
 		if a.transport != nil {
 			a.closeErr = a.transport.Close()
 		}

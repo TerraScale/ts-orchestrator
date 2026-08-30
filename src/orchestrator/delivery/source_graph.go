@@ -7,6 +7,8 @@ import (
 	"sort"
 )
 
+const MaximumGraphRepositories = 64
+
 // RepositorySource is the narrow seam used by the graph; tests and alternate
 // Forgejo transports can supply it without constructing an HTTP client.
 type RepositorySource interface {
@@ -25,8 +27,23 @@ type RepositorySourceGraph struct {
 	Sources map[string]RepositorySource
 }
 
+func (g *RepositorySourceGraph) Close() error {
+	if g == nil {
+		return nil
+	}
+	var first error
+	for _, source := range g.Sources {
+		if client, ok := source.(*SourceClient); ok {
+			if err := client.Close(); err != nil && first == nil {
+				first = err
+			}
+		}
+	}
+	return first
+}
+
 func NewSourceGraph(root string, sources map[string]RepositorySource) (*RepositorySourceGraph, error) {
-	if !ValidRepository(root) || len(sources) == 0 {
+	if !ValidRepository(root) || len(sources) == 0 || len(sources) > MaximumGraphRepositories {
 		return nil, errors.New("invalid source graph")
 	}
 	copyMap := map[string]RepositorySource{}
@@ -42,7 +59,10 @@ func NewSourceGraph(root string, sources map[string]RepositorySource) (*Reposito
 	return &RepositorySourceGraph{Root: root, Sources: copyMap}, nil
 }
 func (g *RepositorySourceGraph) Snapshot(ctx context.Context, event *WebhookEnvelope, branch string, exactRoot bool) (SourceSnapshot, error) {
-	if g == nil || event == nil || event.Repository != g.Root || g.Sources[g.Root] == nil {
+	if ctx == nil {
+		return SourceSnapshot{}, errors.New("snapshot context is required")
+	}
+	if g == nil || event == nil || event.Repository != g.Root || g.Sources[g.Root] == nil || branch != "develop" && branch != "main" {
 		return SourceSnapshot{}, errors.New("trigger is outside source graph root")
 	}
 	repos := make([]string, 0, len(g.Sources))
@@ -52,6 +72,9 @@ func (g *RepositorySourceGraph) Snapshot(ctx context.Context, event *WebhookEnve
 	sort.Strings(repos)
 	out := SourceSnapshot{}
 	for _, repo := range repos {
+		if err := ctx.Err(); err != nil {
+			return SourceSnapshot{}, err
+		}
 		var rev ResolvedRevision
 		var obs BranchObservation
 		var e error
