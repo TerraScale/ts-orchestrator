@@ -613,7 +613,10 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 
 		if hasCurrent && RegionalRuntimeMembershipMutation.MayDeleteCurrentRecord(
 			m.sessionId, &current, revision) {
-			if err := m.store.Delete(context.Background(), m.key, jetstream.LastRevision(revision)); err != nil &&
+			deleteCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := m.store.Delete(deleteCtx, m.key, jetstream.LastRevision(revision))
+			cancel()
+			if err != nil &&
 				!errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 				if failure := m.LastFailure(); failure != nil {
 					return failure

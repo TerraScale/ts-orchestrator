@@ -145,6 +145,7 @@ type RegionalAuthorityCoordinator struct {
 	stoppingCtx context.Context
 	stopping    context.CancelFunc
 	loopDone    chan struct{}
+	disposeOnce sync.Once
 }
 
 var regionalAuthoritySnapshotInitial = RegionalAuthoritySnapshot{
@@ -299,13 +300,15 @@ func (c *RegionalAuthorityCoordinator) Dispose() {
 	if c == nil {
 		return
 	}
-	if c.stopping != nil {
-		c.stopping()
-	}
-	if c.loopDone != nil {
-		<-c.loopDone
-	}
-	c.stoppingCtx = nil
+	c.disposeOnce.Do(func() {
+		if c.stopping != nil {
+			c.stopping()
+		}
+		if c.loopDone != nil {
+			<-c.loopDone
+		}
+		c.stoppingCtx = nil
+	})
 }
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
