@@ -597,6 +597,9 @@ func defaultDirectoryRuntime(ctx context.Context, options *control.OrchestratorO
 }
 
 func natsServerConfiguration(lookup envLookup) (bootstrap.NatsServerConfig, error) {
+	if lookup == nil {
+		return bootstrap.NatsServerConfig{}, errors.New("nats-server environment lookup is required")
+	}
 	path, present := firstEnvironment(lookup, natsServerConfigEnvironment, natsServerConfigAliasEnvironment, natsConfigAliasEnvironment)
 	if !present || strings.TrimSpace(path) == "" {
 		return bootstrap.NatsServerConfig{}, errors.New("nats-server configuration file is required")
@@ -616,6 +619,9 @@ func natsServerConfiguration(lookup envLookup) (bootstrap.NatsServerConfig, erro
 }
 
 func firstEnvironment(lookup envLookup, names ...string) (string, bool) {
+	if lookup == nil {
+		return "", false
+	}
 	for _, name := range names {
 		if value, present := lookup(name); present {
 			return value, true
@@ -712,6 +718,9 @@ func autoscalerRequiredInt(lookup envLookup, name string) (int, error) {
 // the local process provisioner, and the drain lag bound of the stateful
 // replica evaluator. Nothing is defaulted silently except the tick interval.
 func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, error) {
+	if lookup == nil {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: environment lookup is required")
+	}
 	natsUrl, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_URL")
 	if err != nil {
 		return autoscalerRoleSettings{}, err

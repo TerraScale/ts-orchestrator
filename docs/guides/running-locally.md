@@ -118,8 +118,9 @@ silent for three tick intervals leaves the snapshot), the drain gate consults
 the stateful `ReplicaDrainSafetyEvaluator`, and the emitted actions are
 applied fail-closed — the role stops on the first failed provision, cordon,
 or retire rather than retrying blind. The demand set is currently fed by the
-scheduler integration (follow-up lane), so a fleet without demand scales
-down but never up.
+scheduler integration (follow-up lane), so a fleet without demand never
+scales up. Drain actions remain deferred until the scheduler supplies complete
+replica placement health.
 
 ## Sending a converge request
 
