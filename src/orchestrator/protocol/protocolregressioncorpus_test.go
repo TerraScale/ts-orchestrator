@@ -126,13 +126,7 @@ func protocolRegressionCorpusLoadBytes(source []byte, requireContentAddress bool
 		return corpusResult(CorpusLoadInvalidSchema, nil)
 	}
 
-	return *document, nil
-}
-
-// corpusProperty is one raw JSON property, in document order (duplicates kept).
-type corpusProperty struct {
-	name  string
-	value []byte
+	return *document
 }
 
 // parseCorpusDocument performs the strict, order-preserving, duplicate-aware

@@ -106,7 +106,23 @@ func validEnvelope(overrides ...func(*validEnvelopeOption)) CommandEnvelope {
 		override(&options)
 	}
 
-	envelope := NewCommandEnvelope(
+	// A nil payload/digest/signature pointer reproduces the C# `null` test inputs.
+	var payload OpaquePayload
+	if options.payload != nil {
+		payload = *options.payload
+	}
+
+	var digest PayloadDigest
+	if options.digest != nil {
+		digest = *options.digest
+	}
+
+	var signature OpaqueSignature
+	if options.signature != nil {
+		signature = *options.signature
+	}
+
+	return NewCommandEnvelope(
 		*options.protocol,
 		*options.cell,
 		*options.aggregate,
@@ -117,25 +133,9 @@ func validEnvelope(overrides ...func(*validEnvelopeOption)) CommandEnvelope {
 		*options.issuedAt,
 		*options.expiresAt,
 		*options.attempt,
-		*options.payload,
-		*options.digest,
-		*options.signature)
-	// A nil payload pointer reproduces the C# `payload: null` test input.
-	if options.payload == nil {
-		envelope.Payload = OpaquePayload{}
-		envelope.SignedMaterial.Payload = OpaquePayload{}
-	}
-
-	if options.digest == nil {
-		envelope.PayloadDigest = PayloadDigest{}
-		envelope.SignedMaterial.PayloadDigest = PayloadDigest{}
-	}
-
-	if options.signature == nil {
-		envelope.Signature = OpaqueSignature{}
-	}
-
-	return envelope
+		payload,
+		digest,
+		signature)
 }
 
 func ptrOf[T any](value T) *T { return &value }
