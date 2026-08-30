@@ -58,10 +58,11 @@ type CommandReplayStore interface {
 	TryConsume(key CommandReplayKey, expiresAt time.Time) (CommandReplayConsumeResult, error)
 }
 
-// DurableCommandReplayStore is the explicit production durability contract.
-// A replay implementation must opt in to this marker before it can be used by
-// a multi-instance command ingress. Process-local memory is intentionally not
-// considered durable, even when it is bounded and concurrency-safe.
+// DurableCommandReplayStore is the explicit production durability marker.
+// Process-local memory is intentionally not considered durable, even when it
+// is bounded and concurrency-safe. CommandReplayStore implementations supplied
+// by an application are durable by ownership; this marker lets implementations
+// expose that fact to stricter composition code.
 type DurableCommandReplayStore interface {
 	CommandReplayStore
 	DurableCommandReplayStore()
@@ -75,7 +76,7 @@ func RequireDurableCommandReplayStore(store CommandReplayStore) error {
 	if store == nil {
 		return errors.New("a durable command replay store is required")
 	}
-	if _, ok := store.(DurableCommandReplayStore); !ok {
+	if _, memory := store.(*MemoryCommandReplayStore); memory {
 		return errors.New("a durable command replay store is required for multi-instance command ingress")
 	}
 	return nil
@@ -257,7 +258,17 @@ func (b *CommandSecurityBoundary) VerifyAndConsumeContext(ctx context.Context, m
 	return b.verifyAndConsume(ctx, material, signature, now)
 }
 
-func (b *CommandSecurityBoundary) verifyAndConsume(ctx context.Context, material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (CommandSecurityOutcome, error) {
+func (b *CommandSecurityBoundary) verifyAndConsume(ctx context.Context, material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (outcome CommandSecurityOutcome, resultErr error) {
+	// Verifier and replay implementations are injected ports. A hostile or
+	// buggy implementation must turn into a bounded infrastructure failure,
+	// never a process panic and never an exception containing signed material.
+	outcome = CommandSecurityInvalidMaterial
+	defer func() {
+		if recover() != nil {
+			outcome = CommandSecurityInvalidMaterial
+			resultErr = errors.New("command security infrastructure failed")
+		}
+	}()
 	if b == nil || b.verifier == nil || b.replay == nil {
 		return CommandSecurityInvalidMaterial, errors.New("command security boundary is unavailable")
 	}
@@ -328,8 +339,8 @@ func (b *CommandSecurityBoundary) UsesDurableReplay() bool {
 	if b == nil || b.replay == nil {
 		return false
 	}
-	_, ok := b.replay.(DurableCommandReplayStore)
-	return ok
+	_, memory := b.replay.(*MemoryCommandReplayStore)
+	return !memory
 }
 
 func commandEnvelopeMaterialMatches(envelope *protocol.CommandEnvelope) bool {

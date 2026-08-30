@@ -12,3 +12,4 @@ __pycache__/
 *.user
 *.suo
 orchestrator-tooling
+/ts-node

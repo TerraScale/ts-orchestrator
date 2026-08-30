@@ -145,6 +145,8 @@ func (p *Poller) pollGraph(ctx context.Context) error {
 				}
 				if r, err := p.Journal.Observe(ctx, observation, lease.Epoch, p.nextSequence()); err != nil {
 					return err
+				} else if r.Disposition == SourceStaleAuthority || r.Disposition == SourceStaleSequence {
+					return nil
 				} else if r.Disposition == SourceUnprotectedBranch || r.Disposition == SourceIdentityConflict || r.Disposition == SourceUnspecified {
 					return errors.New("unsafe Forgejo source observation")
 				}
@@ -285,18 +287,22 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 		seen := map[string]struct{}{}
 		for _, repository := range cfg.Graph.Repositories {
 			if !ValidRepository(repository) {
+				_ = (&RepositorySourceGraph{Sources: sources}).Close()
 				return nil, errors.New("delivery source graph repository is invalid")
 			}
 			if _, ok := seen[repository]; ok {
+				_ = (&RepositorySourceGraph{Sources: sources}).Close()
 				return nil, errors.New("delivery source graph repository is duplicated")
 			}
 			seen[repository] = struct{}{}
 			sourceConfig, err := cfg.Source.ForRepository(repository)
 			if err != nil {
+				_ = (&RepositorySourceGraph{Sources: sources}).Close()
 				return nil, err
 			}
 			client, err := NewSourceClient(sourceConfig, cfg.HTTPClient)
 			if err != nil {
+				_ = (&RepositorySourceGraph{Sources: sources}).Close()
 				return nil, err
 			}
 			sources[repository] = client
@@ -323,6 +329,9 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 		listenURL, parseErr := url.Parse(cfg.Webhook.ListenAddress)
 		if parseErr != nil || listenURL.Host == "" {
 			handler.Close()
+			if graph != nil {
+				_ = graph.Close()
+			}
 			return nil, errors.New("webhook listen address is invalid")
 		}
 		r.server = &http.Server{Addr: listenURL.Host, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}

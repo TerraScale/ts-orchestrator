@@ -14,12 +14,19 @@ import (
 	"os/signal"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
+	"terrascale.tech/orchestrator/src/orchestrator/autoscaling"
 	"terrascale.tech/orchestrator/src/orchestrator/bootstrap"
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
+	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
 
 const (
@@ -28,7 +35,30 @@ const (
 	natsServerConfigAliasEnvironment = "TS_ORCH_NATS_SERVER_CONFIG"
 	natsConfigAliasEnvironment       = "TS_ORCH_NATS_CONFIG_FILE"
 	natsReadinessAliasEnvironment    = "TS_ORCH_NATS_READINESS_TIMEOUT"
-	globalCheckTimeout               = 30 * time.Second
+
+	// The documented explicit configuration flags of the autoscaler role.
+	// Every value is read through the injected environment lookup, mirroring
+	// the nats-server role; nothing is discovered ambiently.
+	autoscalerTickIntervalEnvironment      = "TS_ORCH_AUTOSCALER_TICK_INTERVAL"
+	autoscalerMinNodesEnvironment          = "TS_ORCH_AUTOSCALER_MIN_NODES"
+	autoscalerMaxNodesEnvironment          = "TS_ORCH_AUTOSCALER_MAX_NODES"
+	autoscalerScaleUpHeadroomEnvironment   = "TS_ORCH_AUTOSCALER_SCALE_UP_HEADROOM_PERCENT"
+	autoscalerScaleDownHeadroomEnvironment = "TS_ORCH_AUTOSCALER_SCALE_DOWN_HEADROOM_PERCENT"
+	autoscalerScaleUpTicksEnvironment      = "TS_ORCH_AUTOSCALER_SCALE_UP_CONFIRM_TICKS"
+	autoscalerScaleDownTicksEnvironment    = "TS_ORCH_AUTOSCALER_SCALE_DOWN_CONFIRM_TICKS"
+	autoscalerConcurrencyEnvironment       = "TS_ORCH_AUTOSCALER_MAX_CONCURRENT_PROVISIONS"
+	autoscalerFlapTicksEnvironment         = "TS_ORCH_AUTOSCALER_FLAP_SUPPRESSION_TICKS"
+	autoscalerAgentBinaryEnvironment       = "TS_ORCH_AUTOSCALER_AGENT_BINARY"
+	autoscalerRunAsUidEnvironment          = "TS_ORCH_AUTOSCALER_RUN_AS_UID"
+	autoscalerDrainLagEnvironment          = "TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES"
+
+	autoscalerDefaultTickInterval = 10 * time.Second
+	autoscalerCordonTimeout       = 2 * time.Second
+	// autoscalerHeartbeatStaleTicks bounds how many tick intervals a node's
+	// last heartbeat may age before the autoscaler stops counting the node in
+	// its snapshots: a silent node is unschedulable evidence, not capacity.
+	autoscalerHeartbeatStaleTicks = 3
+	globalCheckTimeout            = 30 * time.Second
 )
 
 // component is the common lifecycle contract of all long-running roles.
@@ -112,6 +142,16 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		}
 		return nil
 	}
+	if name == "autoscaler" {
+		configuration, err := autoscalerRoleConfiguration(lookup)
+		if err != nil {
+			return commandFailure(name, err)
+		}
+		if err := startAutoscalerRole(ctx, configuration); err != nil {
+			return commandFailure(name, err)
+		}
+		return nil
+	}
 
 	options, err := parseOptions(args, control.EnvironmentLookup(lookup))
 	if err != nil {
@@ -147,7 +187,7 @@ func requestedCommand(args []string) (string, error) {
 		return "unsupported", errors.New("orchestrator: command accepts no arguments")
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "autoscaler":
 		return args[0], nil
 	default:
 		// Do not echo an arbitrary argument: command lines can contain secrets.
@@ -160,7 +200,7 @@ func commandName(args []string) string {
 		return "run"
 	}
 	switch args[0] {
-	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer":
+	case "run", "check", "nats-server", "catalog", "provision-journal", "journal-writer", "autoscaler":
 		return args[0]
 	default:
 		return "unsupported"
@@ -604,6 +644,7 @@ func writeCatalog(output io.Writer) error {
 		{Name: "catalog", Description: "render this deterministic command and configuration catalog"},
 		{Name: "provision-journal", Description: "provision the infrastructure-owned operation journal"},
 		{Name: "journal-writer", Description: "start the isolated authoritative journal writer"},
+		{Name: "autoscaler", Description: "run the autonomous node autoscaler against the regional NATS"},
 	}
 	environment := []string{
 		"TS_ORCH_CELL", "TS_ORCH_NATS_URL", "TS_ORCH_REPLICAS", "TS_ORCH_INSTANCE",
@@ -616,6 +657,11 @@ func writeCatalog(output io.Writer) error {
 		"TS_ORCH_JOURNAL_NATS_NKEY_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CA_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE", "TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE", "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE", "TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE", "TS_ORCH_JOURNAL_CONTROLLER_NKEYS",
 		natsServerConfigEnvironment, natsServerReadinessEnvironment,
 		natsServerConfigAliasEnvironment, natsConfigAliasEnvironment, natsReadinessAliasEnvironment,
+		autoscalerTickIntervalEnvironment, autoscalerMinNodesEnvironment, autoscalerMaxNodesEnvironment,
+		autoscalerScaleUpHeadroomEnvironment, autoscalerScaleDownHeadroomEnvironment,
+		autoscalerScaleUpTicksEnvironment, autoscalerScaleDownTicksEnvironment,
+		autoscalerConcurrencyEnvironment, autoscalerFlapTicksEnvironment,
+		autoscalerAgentBinaryEnvironment, autoscalerRunAsUidEnvironment, autoscalerDrainLagEnvironment,
 	}
 	sort.Strings(environment)
 	document := catalogDocument{SchemaVersion: 1, Commands: commands, Environment: environment}

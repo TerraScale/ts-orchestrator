@@ -185,6 +185,18 @@ func (a *Autoscaler) Tick(ctx context.Context, snapshot AutoscalerSnapshot) ([]A
 	if err != nil {
 		return nil, err
 	}
+	if a.retirementInFlight == nil {
+		a.retirementInFlight = make(map[string]int64)
+	}
+	if a.inFlightProvisions == nil {
+		a.inFlightProvisions = make(map[string]inFlightProvision)
+	}
+	if a.cordonedInFlight == nil {
+		a.cordonedInFlight = make(map[string]int64)
+	}
+	if a.recentlyRetiredNode == nil {
+		a.recentlyRetiredNode = make(map[string]int64)
+	}
 	a.tick++
 	a.reconcileInFlight(validated)
 	actions := a.planRetireActions(validated)

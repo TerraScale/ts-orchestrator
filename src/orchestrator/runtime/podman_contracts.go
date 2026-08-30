@@ -205,7 +205,8 @@ type PodmanAllocationObservation struct {
 
 // NewPodmanAllocationObservation validates one observation. The state comes
 // from the closed vocabulary, Running is true only for a Running allocation,
-// and an Absent allocation carries no image and no labels.
+// an optional platform is restricted to the canonical Linux platforms, and
+// an Absent allocation carries no image, platform, or labels.
 func NewPodmanAllocationObservation(
 	state PodmanAllocationState,
 	imageReference string,

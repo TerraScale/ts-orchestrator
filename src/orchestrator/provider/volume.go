@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -166,6 +167,20 @@ func isOCID(v, kind string) bool {
 	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") || strings.Count(v, ".") < 3 {
 		return false
 	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 4 || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
+		return false
+	}
+	for _, r := range parts[2][2:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	for _, part := range parts[3:] {
+		if !ocidSegmentPattern.MatchString(part) {
+			return false
+		}
+	}
 	for _, r := range v {
 		if r < 0x21 || r == 0x7f || r == '/' || r == '\\' || r == '?' || r == '#' || r == '%' {
 			return false
@@ -178,6 +193,7 @@ func indeterminate(err error) bool {
 }
 
 var regionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var ocidSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]*$`)
 
 type OCITransportConfig struct {
 	Region       string
@@ -228,7 +244,22 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if client == nil {
 		client = &http.Client{Timeout: config.Timeout}
 	}
+	// Keep the endpoint immutable from callers that reuse their config value.
+	endpoint := *config.Endpoint
+	config.Endpoint = &endpoint
 	return &OCIHTTPTransport{config, client, signer}, nil
+}
+
+// NewOCIInstancePrincipalTransport composes the standard OCI transport with
+// the host instance-principal RSA signer. Credential loading stays outside
+// this package, which keeps the HTTP client testable and avoids metadata
+// endpoint access from a control process.
+func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Client, keyID string, key *rsa.PrivateKey) (*OCIHTTPTransport, error) {
+	signer, err := NewInstancePrincipalSigner(keyID, key)
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIHTTPTransport(config, client, signer)
 }
 func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	return t.DoWithHeaders(ctx, method, path, body, nil)
@@ -265,13 +296,16 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		attempts += t.Config.MaxRetries
 	}
 	for n := 0; n < attempts; n++ {
-		req, err := http.NewRequestWithContext(ctx, method, t.Config.Endpoint.String()+strings.TrimPrefix(path, "/"), strings.NewReader(string(data)))
+		req, err := http.NewRequestWithContext(ctx, method, t.Config.Endpoint.String()+strings.TrimPrefix(path, "/"), bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Accept", "application/json")
+		if len(headers) > 16 {
+			return nil, &ArgumentError{Message: "OCI request headers exceed limit"}
+		}
 		for k, v := range headers {
-			if k == "" || strings.ContainsAny(k+v, "\r\n") {
+			if k == "" || strings.TrimSpace(k) != k || strings.ContainsAny(k+v, "\r\n") || strings.ContainsAny(k, ": \t") || len(v) > 4096 {
 				return nil, &ArgumentError{Message: "OCI request header is invalid"}
 			}
 			req.Header.Set(k, v)

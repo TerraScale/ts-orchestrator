@@ -85,6 +85,7 @@ type DeliveryPlan struct {
 	Idempotency    string
 	Digest         string
 	Trigger        TriggerPlan
+	Job            JobRequest
 	Snapshot       SourceSnapshot
 	Descriptors    []SourceDescriptor
 	Archives       []SourceArchive
@@ -214,6 +215,11 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 		if !ok {
 			return DeliveryReceipt{}, errors.New("source graph snapshot omits root")
 		}
+		job, err := trigger.CreateJob(ResolvedJobRevision{Repository: root.Repository, Commit: root.Commit, Tree: root.Tree, SignatureVerified: root.SignatureVerified}, 1, 1, 1)
+		if err != nil {
+			return DeliveryReceipt{}, err
+		}
+		plan.Job = job
 		archive, err := p.Graph.ReadArchive(ctx, root)
 		if err != nil {
 			return DeliveryReceipt{}, err
@@ -232,7 +238,7 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 		return DeliveryReceipt{}, errors.New("delivery plan digest is missing")
 	}
 
-	doc := deliveryJournalDocument{SchemaVersion: 1, State: "pending", Envelope: *event, Digest: plan.Digest, AuthorityEpoch: authority.Epoch}
+	doc := deliveryJournalDocument{SchemaVersion: 1, State: "pending", Envelope: *event, Digest: plan.Digest, AuthorityEpoch: authority.Epoch, Job: plan.Job, Sources: append([]ResolvedRevision(nil), plan.Snapshot.Sources...), Descriptors: append([]SourceDescriptor(nil), plan.Descriptors...), Archives: append([]ArchiveDescriptor(nil), plan.ArchiveRecords...), Intent: plan.Intent}
 	reservation, err := p.reserve(ctx, key, doc)
 	if err != nil {
 		return DeliveryReceipt{}, err
@@ -261,15 +267,20 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 }
 
 type deliveryJournalDocument struct {
-	SchemaVersion  int             `json:"schemaVersion"`
-	State          string          `json:"state"`
-	Envelope       WebhookEnvelope `json:"envelope"`
-	Digest         string          `json:"digest"`
-	AuthorityEpoch int64           `json:"authorityEpoch"`
+	SchemaVersion  int                  `json:"schemaVersion"`
+	State          string               `json:"state"`
+	Envelope       WebhookEnvelope      `json:"envelope"`
+	Digest         string               `json:"digest"`
+	AuthorityEpoch int64                `json:"authorityEpoch"`
+	Job            JobRequest           `json:"job,omitempty"`
+	Sources        []ResolvedRevision   `json:"sources,omitempty"`
+	Descriptors    []SourceDescriptor   `json:"descriptors,omitempty"`
+	Archives       []ArchiveDescriptor  `json:"archives,omitempty"`
+	Intent         ReconciliationIntent `json:"intent"`
 }
 
 func (d deliveryJournalDocument) matches(e *WebhookEnvelope) bool {
-	return d.SchemaVersion == 1 && d.Envelope.DeliveryID == e.DeliveryID && d.Envelope.Repository == e.Repository && d.Envelope.PayloadSHA256 == e.PayloadSHA256 && d.Envelope.DedupeKey() == e.DedupeKey()
+	return d.SchemaVersion == 1 && d.Envelope.DeliveryID == e.DeliveryID && d.Envelope.Kind == e.Kind && d.Envelope.Action == e.Action && d.Envelope.Repository == e.Repository && d.Envelope.SourceRepository == e.SourceRepository && d.Envelope.BaseRevision == e.BaseRevision && d.Envelope.Revision == e.Revision && d.Envelope.SourceRef == e.SourceRef && d.Envelope.TargetRef == e.TargetRef && d.Envelope.PullRequestNumber == e.PullRequestNumber && d.Envelope.IsDeletion == e.IsDeletion && d.Envelope.PayloadSHA256 == e.PayloadSHA256 && d.Envelope.DedupeKey() == e.DedupeKey()
 }
 
 func decodeDeliveryJournal(b []byte) (deliveryJournalDocument, error) {
@@ -293,6 +304,9 @@ func (p *DeliveryProcessor) reserve(ctx context.Context, key string, wanted deli
 	b, err := json.Marshal(wanted)
 	if err != nil {
 		return deliveryReservation{}, err
+	}
+	if len(b) > MaximumDeliveryPlanBytes {
+		return deliveryReservation{}, errors.New("delivery journal record exceeds bound")
 	}
 	for i := 0; i < 8; i++ {
 		cur, err := p.Ledger.Get(ctx, key)
@@ -342,6 +356,9 @@ func (p *DeliveryProcessor) accept(ctx context.Context, key string, r deliveryRe
 	b, err := json.Marshal(pending)
 	if err != nil {
 		return err
+	}
+	if len(b) > MaximumDeliveryPlanBytes {
+		return errors.New("delivery journal record exceeds bound")
 	}
 	for i := 0; i < 8; i++ {
 		if _, err := p.Ledger.Update(ctx, key, b, r.Revision); err == nil {
@@ -430,7 +447,7 @@ func validateSnapshot(graph *RepositorySourceGraph, event *WebhookEnvelope, snap
 	if !ok || event.Repository != graph.Root {
 		return errors.New("source graph root is missing")
 	}
-	if event.Kind == WebhookPush && !strings.EqualFold(root.Commit, event.Revision) {
+	if (event.Kind == WebhookPush || event.Kind == WebhookPullRequest) && !strings.EqualFold(root.Commit, event.Revision) {
 		return errors.New("source graph root does not match event")
 	}
 	return nil
@@ -473,12 +490,18 @@ func digestPlan(plan DeliveryPlan) string {
 		Idempotency   string
 		Trigger       TriggerPlan
 		Sources       []ResolvedRevision
+		Job           JobRequest
 		Files         []SourceDescriptor
 		Archives      []ArchiveDescriptor
 		Intent        ReconciliationIntent
 	}
 	trigger := *cloneTrigger(&plan.Trigger)
-	input := digestInput{SchemaVersion: plan.SchemaVersion, Idempotency: plan.Idempotency, Trigger: trigger, Sources: append([]ResolvedRevision(nil), plan.Snapshot.Sources...), Files: append([]SourceDescriptor(nil), plan.Descriptors...), Archives: append([]ArchiveDescriptor(nil), plan.ArchiveRecords...), Intent: plan.Intent}
+	intent := plan.Intent
+	// The authority epoch fences the external mutation, but does not change
+	// the event's deterministic plan identity. A pending plan can therefore be
+	// resumed safely by the next leader.
+	intent.AuthorityEpoch = 0
+	input := digestInput{SchemaVersion: plan.SchemaVersion, Idempotency: plan.Idempotency, Trigger: trigger, Sources: append([]ResolvedRevision(nil), plan.Snapshot.Sources...), Job: plan.Job, Files: append([]SourceDescriptor(nil), plan.Descriptors...), Archives: append([]ArchiveDescriptor(nil), plan.ArchiveRecords...), Intent: intent}
 	b, err := json.Marshal(input)
 	if err != nil || len(b) > MaximumDeliveryPlanBytes {
 		return ""

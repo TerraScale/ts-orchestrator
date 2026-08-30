@@ -175,7 +175,29 @@ func (c *SourceClient) requestContext(ctx context.Context) (context.Context, fun
 	}
 	return effective, stop, nil
 }
+
+func (c *SourceClient) checkContext(ctx context.Context) error {
+	if c == nil {
+		return errors.New("source client is unavailable")
+	}
+	if ctx == nil {
+		return errors.New("source context must not be nil")
+	}
+	c.mutex.RLock()
+	closed := c.closed
+	c.mutex.RUnlock()
+	if closed {
+		return errors.New("source client is closed")
+	}
+	if c.http == nil || c.config.Server == nil || !ValidRepository(c.config.Repository) {
+		return errors.New("source client is not configured")
+	}
+	return nil
+}
 func (c *SourceClient) Resolve(ctx context.Context, commit string) (ResolvedRevision, error) {
+	if err := c.checkContext(ctx); err != nil {
+		return ResolvedRevision{}, err
+	}
 	if !objectID(commit) || allZero(commit) {
 		return ResolvedRevision{}, errors.New("invalid commit")
 	}
@@ -204,6 +226,9 @@ func (c *SourceClient) Resolve(ctx context.Context, commit string) (ResolvedRevi
 	return ResolvedRevision{Repository: c.config.Repository, Commit: strings.ToLower(observed), Tree: strings.ToLower(tree), SignatureVerified: verified}, nil
 }
 func (c *SourceClient) PollBranch(ctx context.Context, branch string) (BranchObservation, error) {
+	if err := c.checkContext(ctx); err != nil {
+		return BranchObservation{}, err
+	}
 	if branch != "develop" && branch != "main" {
 		return BranchObservation{}, errors.New("branch polling is restricted")
 	}
@@ -233,6 +258,9 @@ func (c *SourceClient) PollBranch(ctx context.Context, branch string) (BranchObs
 	return BranchObservation{Branch: branch, Protected: protected, Revision: rev}, nil
 }
 func (c *SourceClient) ReadChangedPaths(ctx context.Context, event *WebhookEnvelope) ([]string, error) {
+	if err := c.checkContext(ctx); err != nil {
+		return nil, err
+	}
 	if event == nil || event.Repository != c.config.Repository || !objectID(event.BaseRevision) || !objectID(event.Revision) || allZero(event.Revision) || event.IsDeletion {
 		return nil, errors.New("event does not identify comparable revisions")
 	}
@@ -278,6 +306,9 @@ func (c *SourceClient) ReadChangedPaths(ctx context.Context, event *WebhookEnvel
 	return out, nil
 }
 func (c *SourceClient) ReadFile(ctx context.Context, commit, path string, maximum int) (SourceFile, error) {
+	if err := c.checkContext(ctx); err != nil {
+		return SourceFile{}, err
+	}
 	if !objectID(commit) || allZero(commit) || !safePath(path) || maximum < 1 || maximum > MaximumSourceFileBytes {
 		return SourceFile{}, errors.New("invalid source file request")
 	}

@@ -26,6 +26,13 @@ type ForgejoSourceJournalReceipt = SourceJournalReceipt
 type ForgejoCiTriggerPlan = TriggerPlan
 type ForgejoCiTriggerDisposition = TriggerDisposition
 type ForgejoCiTriggerReason = TriggerReason
+type ForgejoDeliveryPlan = DeliveryPlan
+type ForgejoDeliveryReceipt = DeliveryReceipt
+type ForgejoDeliveryDisposition = DeliveryDisposition
+type ForgejoDeliveryHandoff = DeliveryHandoff
+type ForgejoDeliveryReconciler = DeliveryReconciler
+type ForgejoSourceDescriptor = SourceDescriptor
+type ForgejoReconciliationIntent = ReconciliationIntent
 
 func ForgejoWebhookVerify(payload, secret []byte, expectedRepository, contentType, signature, deliveryID, event string) WebhookVerification {
 	return VerifyWebhook(payload, secret, expectedRepository, contentType, signature, deliveryID, event)

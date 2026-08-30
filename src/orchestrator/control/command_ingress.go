@@ -34,12 +34,16 @@ const (
 // command subject. []byte fields use encoding/json's standard base64 form;
 // no credential or exception field exists on this wire type.
 type NatsCommandEnvelope struct {
-	ProtocolVersion   int64     `json:"protocolVersion"`
-	Cell              string    `json:"cell"`
-	AggregateID       string    `json:"aggregateId"`
+	ProtocolVersion int64  `json:"protocolVersion"`
+	Cell            string `json:"cell"`
+	AggregateID     string `json:"aggregateId"`
+	// AggregateId is the repository's Go spelling; AggregateID remains a
+	// source-compatible alias for callers using initialism style.
+	AggregateId       string    `json:"-"`
 	DesiredGeneration int64     `json:"desiredGeneration"`
 	WriterEpoch       int64     `json:"writerEpoch"`
 	OperationID       string    `json:"operationId"`
+	OperationId       string    `json:"-"`
 	IdempotencyKey    string    `json:"idempotencyKey"`
 	IssuedAt          time.Time `json:"issuedAt"`
 	ExpiresAt         time.Time `json:"expiresAt"`
@@ -59,7 +63,9 @@ func EncodeNatsCommandEnvelope(envelope protocol.CommandEnvelope) ([]byte, error
 	wire := NatsCommandEnvelope{
 		ProtocolVersion: envelope.ProtocolVersion.Value, Cell: envelope.Cell.Value,
 		AggregateID: envelope.AggregateId.Value, DesiredGeneration: envelope.DesiredGeneration.Value,
+		AggregateId: envelope.AggregateId.Value,
 		WriterEpoch: envelope.WriterEpoch.Value, OperationID: envelope.OperationId.Value,
+		OperationId:    envelope.OperationId.Value,
 		IdempotencyKey: envelope.IdempotencyKey.Value, IssuedAt: envelope.IssuedAt,
 		ExpiresAt: envelope.ExpiresAt, Attempt: envelope.Attempt.Value,
 		Payload: envelope.Payload.Bytes(), PayloadDigest: envelope.PayloadDigest.Bytes(),
@@ -97,7 +103,11 @@ func decodeNatsCommandEnvelope(data []byte) (protocol.CommandEnvelope, error) {
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid cell")
 	}
-	aggregate, ok := contracts.AggregateIdTryCreate(wire.AggregateID)
+	aggregateValue := wire.AggregateID
+	if aggregateValue == "" {
+		aggregateValue = wire.AggregateId
+	}
+	aggregate, ok := contracts.AggregateIdTryCreate(aggregateValue)
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid aggregate")
 	}
@@ -109,7 +119,11 @@ func decodeNatsCommandEnvelope(data []byte) (protocol.CommandEnvelope, error) {
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid writer epoch")
 	}
-	operation, ok := contracts.OperationIdTryCreate(wire.OperationID)
+	operationValue := wire.OperationID
+	if operationValue == "" {
+		operationValue = wire.OperationId
+	}
+	operation, ok := contracts.OperationIdTryCreate(operationValue)
 	if !ok {
 		return protocol.CommandEnvelope{}, errors.New("command envelope has invalid operation")
 	}
@@ -151,6 +165,7 @@ type NatsCommandIngressConfiguration struct {
 
 	ExpectedCell             contracts.CellId
 	ExpectedAggregateID      contracts.AggregateId
+	ExpectedAggregateId      contracts.AggregateId
 	MinimumDesiredGeneration protocol.DesiredGeneration
 	MinimumWriterEpoch       protocol.WriterEpoch
 	AcceptedProtocolVersions []protocol.ProtocolRevision
@@ -174,6 +189,9 @@ type NatsCommandIngress struct {
 	dispatch     CommandIngressDispatcher
 	now          func() time.Time
 	closeOnce    sync.Once
+	startOnce    sync.Once
+	startErr     error
+	complete     chan struct{}
 	closeErr     error
 }
 
@@ -245,7 +263,11 @@ func NewNatsCommandIngress(configuration NatsCommandIngressConfiguration) (*Nats
 		}
 		return nil, errors.New("command security boundary verifier is required")
 	}
-	validation, err := protocol.NewCommandValidationContext(configuration.ExpectedCell, configuration.ExpectedAggregateID,
+	expectedAggregate := configuration.ExpectedAggregateID
+	if !expectedAggregate.IsValid() {
+		expectedAggregate = configuration.ExpectedAggregateId
+	}
+	validation, err := protocol.NewCommandValidationContext(configuration.ExpectedCell, expectedAggregate,
 		configuration.MinimumDesiredGeneration, configuration.MinimumWriterEpoch,
 		configuration.AcceptedProtocolVersions, configuration.AllowedClockSkew,
 		configuration.PayloadDigestVerifier, boundary.Verifier())
@@ -261,7 +283,7 @@ func NewNatsCommandIngress(configuration NatsCommandIngressConfiguration) (*Nats
 	}
 	return &NatsCommandIngress{connection: configuration.Connection, identity: identityRuntime,
 		boundary: boundary, validation: validation, dispatch: configuration.Dispatch, now: now,
-		subjectValue: configuration.Subject}, nil
+		subjectValue: configuration.Subject, complete: make(chan struct{})}, nil
 }
 
 func commandIngressSubjectIsExact(subject, cell string) bool {
@@ -272,7 +294,11 @@ func commandIngressSubjectIsExact(subject, cell string) bool {
 	if grammarError != protocol.SubjectGrammarErrorNone || parsed == nil {
 		return false
 	}
-	prefix := protocol.NatsSubjectTaxonomy.Root() + "." + cell + ".command."
+	root, err := protocol.NatsSubjectTaxonomy.RegionalRoot(cell)
+	if err != nil {
+		return false
+	}
+	prefix := root + ".command."
 	return strings.HasPrefix(subject, prefix) && len(strings.TrimPrefix(subject, prefix)) > 0 &&
 		!strings.Contains(strings.TrimPrefix(subject, prefix), ".")
 }
@@ -283,21 +309,34 @@ func (i *NatsCommandIngress) Start(ctx context.Context) error {
 	if i == nil || i.connection == nil || i.boundary == nil {
 		return errors.New("command ingress is unavailable")
 	}
-	if ctx == nil {
-		return errors.New("a command ingress context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	i.lifetime, i.cancel = context.WithCancel(ctx)
-	subscription, err := i.connection.Subscribe(i.subject(), i.handleMessage)
-	if err != nil {
-		i.cancel()
-		return errors.New("command ingress subscription could not be started")
-	}
-	i.subscription = subscription
-	return nil
+	i.startOnce.Do(func() {
+		if ctx == nil {
+			i.startErr = errors.New("a command ingress context is required")
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			i.startErr = err
+			return
+		}
+		i.lifetime, i.cancel = context.WithCancel(ctx)
+		subscription, err := i.connection.Subscribe(i.subject(), i.handleMessage)
+		if err != nil {
+			i.cancel()
+			i.startErr = errors.New("command ingress subscription could not be started")
+			return
+		}
+		i.subscription = subscription
+		go func() {
+			<-i.lifetime.Done()
+			_ = i.Close()
+		}()
+	})
+	return i.startErr
 }
+
+// StartAsync is the async-naming spelling used by the other control runtime
+// composition entry points.
+func (i *NatsCommandIngress) StartAsync(ctx context.Context) error { return i.Start(ctx) }
 
 func (i *NatsCommandIngress) subject() string {
 	// The exact subject is retained by the subscription; this helper exists to
@@ -348,10 +387,19 @@ func (i *NatsCommandIngress) Handle(ctx context.Context, data []byte) (CommandIn
 	if err := ctx.Err(); err != nil {
 		return CommandIngressDecision{Code: CommandIngressCodeCanceled}, err
 	}
-	if err := i.dispatch(ctx, envelope); err != nil {
+	if err := dispatchCommandSafely(i.dispatch, ctx, envelope); err != nil {
 		return CommandIngressDecision{Code: CommandIngressCodeDispatchFailed}, errors.New("command dispatch failed")
 	}
 	return CommandIngressDecision{Code: CommandIngressCodeAccepted, SecurityOutcome: outcome}, nil
+}
+
+func dispatchCommandSafely(dispatch CommandIngressDispatcher, ctx context.Context, envelope protocol.CommandEnvelope) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("command dispatch failed")
+		}
+	}()
+	return dispatch(ctx, envelope)
 }
 
 // CommandIngressCode is a stable, credential-free reply projection.
@@ -395,7 +443,18 @@ func (i *NatsCommandIngress) Close() error {
 		if i.identity != nil {
 			_ = i.identity.Close()
 		}
+		if i.complete != nil {
+			close(i.complete)
+		}
 	})
 	return i.closeErr
 }
 func (i *NatsCommandIngress) Dispose() error { return i.Close() }
+
+// Completion closes when the ingress has stopped accepting transport input.
+func (i *NatsCommandIngress) Completion() <-chan struct{} {
+	if i == nil {
+		return nil
+	}
+	return i.complete
+}

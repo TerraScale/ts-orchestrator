@@ -82,7 +82,7 @@ func (e *ReplicaDrainSafetyEvaluator) EvaluateDrainSafety(
 	}
 	ownAllocations := make(map[string]struct{}, len(revalidated.Replicas))
 	for _, replica := range revalidated.Replicas {
-		ownAllocations[replica.AllocationId] = struct{}{}
+		ownAllocations[replica.RoleKind+"/"+replica.AllocationId] = struct{}{}
 	}
 	upElsewhereByRole := make(map[string]map[string]struct{})
 	seenPeers := make(map[string]struct{}, len(peers))
@@ -103,7 +103,7 @@ func (e *ReplicaDrainSafetyEvaluator) EvaluateDrainSafety(
 		}
 		seenPeers[revalidatedPeer.NodeId] = struct{}{}
 		for _, replica := range revalidatedPeer.Replicas {
-			if _, own := ownAllocations[replica.AllocationId]; own || !replica.Up {
+			if _, own := ownAllocations[replica.RoleKind+"/"+replica.AllocationId]; own || !replica.Up {
 				continue
 			}
 			upSet := upElsewhereByRole[replica.RoleKind]

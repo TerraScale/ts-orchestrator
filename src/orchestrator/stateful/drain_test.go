@@ -276,6 +276,32 @@ func TestEvaluateDrainSafetyUsesPeerAckCountWithoutCountingPeerAcks(t *testing.T
 	}
 }
 
+func TestEvaluateDrainSafetyScopesReplicaIdentityByRole(t *testing.T) {
+	evaluator := drainTestEvaluator(t, 1024)
+	candidateA, err := NewReplicaHealth("role-a", "shared-id", true, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("candidate A: %v", err)
+	}
+	candidateB, err := NewReplicaHealth("role-b", "other-id", true, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("candidate B: %v", err)
+	}
+	peer, err := NewReplicaHealth("role-b", "shared-id", true, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("peer: %v", err)
+	}
+	_ = candidateA // The shared token is intentionally used by another role.
+	decision, err := evaluator.EvaluateDrainSafety(
+		drainTestCandidate(t, "node-a", candidateB),
+		[]NodeDrainCandidate{drainTestCandidate(t, "node-b", peer)})
+	if err != nil {
+		t.Fatalf("decision: %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("same allocation token in another role must not hide a peer: %+v", decision)
+	}
+}
+
 func TestEvaluateDrainSafetyIsInputOrderIndependent(t *testing.T) {
 	evaluator := drainTestEvaluator(t, 1024)
 	forward := drainTestCandidate(t, "node-a",

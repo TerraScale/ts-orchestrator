@@ -28,7 +28,7 @@ type ociInstanceList struct {
 
 func ociStatus(resp *http.Response, operation string) error {
 	if resp == nil {
-		return &InvalidDataError{Message: "OCI " + operation + " returned no response"}
+		return &InvalidDataError{Message: "OCI request returned no response"}
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -36,7 +36,7 @@ func ociStatus(resp *http.Response, operation string) error {
 	// Consume and discard the provider body. Error strings must never carry
 	// response text because OCI errors can echo request metadata.
 	_, _ = ReadBoundedBody(resp, 64<<10)
-	return &InvalidDataError{Message: "OCI " + operation + " request failed"}
+	return &InvalidDataError{Message: "OCI request failed"}
 }
 
 func validInstanceTemplate(t OciCiRunnerLaunchTemplate) bool {
@@ -99,8 +99,11 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 		if etag == "" {
 			etag = resp.Header.Get("ETag")
 		}
-		if !isSafeETag(etag) && state != RunnerTerminated {
-			return nil, &InvalidDataError{Message: "OCI instance observation is missing an ETag"}
+		// OCI list responses do not consistently include per-instance ETags.
+		// Preserve an empty fence so the capacity planner can refuse a
+		// destructive action, rather than pretending that the list is mutable.
+		if etag != "" && !isSafeETag(etag) {
+			return nil, &InvalidDataError{Message: "OCI instance observation contains an invalid ETag"}
 		}
 		last := item.TimeCreated
 		if last.IsZero() {
@@ -175,6 +178,9 @@ func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction
 		return OciCiRunnerMutationReceipt{}, err
 	}
 	if err := ociStatus(resp, "runner launch"); err != nil {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			return c.reconcileLaunch(ctx, a)
+		}
 		return OciCiRunnerMutationReceipt{}, err
 	}
 	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
@@ -220,6 +226,9 @@ func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunner
 		return OciCiRunnerMutationReceipt{InstanceId: a.InstanceId, ETag: a.ETag, OpcRequestId: safeHeader(resp, "opc-request-id"), OpcWorkRequestId: safeHeader(resp, "opc-work-request-id")}, nil
 	}
 	if err := ociStatus(resp, "runner termination"); err != nil {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			return c.reconcileTermination(ctx, a)
+		}
 		return OciCiRunnerMutationReceipt{}, err
 	}
 	return OciCiRunnerMutationReceipt{InstanceId: a.InstanceId, ETag: a.ETag}, nil
@@ -272,17 +281,33 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 	}{r.Context.CompartmentId.Value, "terrascale-node-" + r.Binding.CreateKey, map[string]string{"terrascale-operation": r.Context.OperationId.Value, "terrascale-create-key": target.Key.Value, "terrascale-idempotency-key": r.Context.IdempotencyKey.Value}}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": r.Context.IdempotencyKey.Value})
 	if err != nil {
+		if indeterminate(err) {
+			if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
+				return recovered, nil
+			}
+		}
 		return CreateNodeProviderResponse{}, err
 	}
 	if err := ociStatus(resp, "node create"); err != nil {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
+				return recovered, nil
+			}
+		}
 		return CreateNodeProviderResponse{}, err
 	}
 	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
 	if err != nil {
+		if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
+			return recovered, nil
+		}
 		return CreateNodeProviderResponse{}, err
 	}
 	var item ociInstanceDocument
 	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
+		if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
+			return recovered, nil
+		}
 		return CreateNodeProviderResponse{}, &InvalidDataError{Message: "OCI node create response is invalid"}
 	}
 	work := safeHeader(resp, "opc-work-request-id")
@@ -312,34 +337,20 @@ func (c *OCIComputeNodeClient) ReconcileCreateNode(ctx context.Context, r Create
 	if err := validateCreateRequestShape(r); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
-	v := url.Values{}
-	v.Set("compartmentId", r.Context.CompartmentId.Value)
-	v.Set("limit", "1000")
-	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
+	items, err := c.listNodeInstances(ctx, r.Context.CompartmentId.Value)
 	if err != nil {
 		return CreateNodeReconciliation{}, err
 	}
-	if err := ociStatus(resp, "node reconciliation"); err != nil {
-		return CreateNodeReconciliation{}, err
-	}
-	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-	if err != nil {
-		return CreateNodeReconciliation{}, err
-	}
-	var list ociInstanceList
-	if json.Unmarshal(body, &list) != nil || len(list.Items) > 1000 {
-		return CreateNodeReconciliation{}, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
-	}
-	for _, item := range list.Items {
+	for _, item := range items {
 		if item.FreeformTags["terrascale-create-key"] != r.Binding.CreateKey || item.FreeformTags["terrascale-operation"] != r.Context.OperationId.Value {
 			continue
 		}
 		if !isOCID(item.ID, "instance") {
 			return CreateNodeReconciliation{}, &InvalidDataError{Message: "OCI node reconciliation identity is invalid"}
 		}
-		response := CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: safeHeader(resp, "opc-work-request-id")}}
+		response := CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: item.ETag}}
 		if response.WorkRequestId.Value == "" {
-			response.WorkRequestId.Value = item.ETag
+			response.WorkRequestId.Value = "recovered-" + r.Binding.CreateKey
 		}
 		if response.WorkRequestId.Value == "" {
 			return CreateNodeReconciliation{}, &InvalidDataError{Message: "OCI node reconciliation has no work request"}
@@ -351,6 +362,45 @@ func (c *OCIComputeNodeClient) ReconcileCreateNode(ctx context.Context, r Create
 		return CreateNodeReconciliation{Status: CreateNodeFound, Response: &response, Proof: &proof}, nil
 	}
 	return CreateNodeReconciliation{Status: CreateNodeNotFound}, nil
+}
+
+func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartment string) ([]ociInstanceDocument, error) {
+	v := url.Values{}
+	v.Set("compartmentId", compartment)
+	v.Set("limit", "1000")
+	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := ociStatus(resp, "node reconciliation"); err != nil {
+		return nil, err
+	}
+	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	var list ociInstanceList
+	if json.Unmarshal(body, &list) != nil || len(list.Items) > 1000 {
+		return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
+	}
+	return list.Items, nil
+}
+
+func (c *OCIComputeNodeClient) reconcileNodeCreate(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
+	items, err := c.listNodeInstances(ctx, r.Context.CompartmentId.Value)
+	if err != nil {
+		return CreateNodeProviderResponse{}, err
+	}
+	for _, item := range items {
+		if item.FreeformTags["terrascale-create-key"] == r.Binding.CreateKey && item.FreeformTags["terrascale-operation"] == r.Context.OperationId.Value && isOCID(item.ID, "instance") {
+			work := item.ETag
+			if work == "" {
+				work = "recovered-" + r.Binding.CreateKey
+			}
+			return CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: work}}, nil
+		}
+	}
+	return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node create outcome is unknown"}
 }
 
 var _ RunnerCapacityAdapter = (*OCIComputeClient)(nil)

@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -39,7 +42,8 @@ func NewDurableOwnershipJournal(store OwnershipCASStore, max int) (*DurableOwner
 func (j *DurableOwnershipJournal) AuthoritativeDurable() bool { return j != nil && j.store != nil }
 
 func ownershipJournalKey(id ProviderResourceId) string {
-	return "terrascale/provider/ownership/" + id.Value
+	h := sha256.Sum256([]byte(id.Value))
+	return "provider.ownership." + hex.EncodeToString(h[:])
 }
 
 func validateOwnershipRecord(ctx context.Context, record ProviderOwnershipRecord) error {
@@ -87,14 +91,21 @@ func (j *DurableOwnershipJournal) Record(ctx context.Context, record ProviderOwn
 			if prior.Generation.Value > record.Generation.Value {
 				return &InvalidOperationError{Message: "ownership record generation is stale"}
 			}
-			if prior.Generation == record.Generation && string(old) == string(b) {
+			if prior.Generation == record.Generation {
+				if prior != record {
+					return &InvalidOperationError{Message: "ownership record conflicts at the same generation"}
+				}
 				return nil
 			}
 		}
 		if err := j.store.CompareAndSwap(ctx, ownershipJournalKey(record.ResourceId), revision, b); err == nil {
 			return nil
-		} else if _, ok := err.(OwnershipCASConflict); !ok {
-			return err
+		} else {
+			var conflict OwnershipCASConflict
+			var conflictPointer *OwnershipCASConflict
+			if !errors.As(err, &conflict) && !errors.As(err, &conflictPointer) {
+				return err
+			}
 		}
 	}
 	return OwnershipCASConflict{}
