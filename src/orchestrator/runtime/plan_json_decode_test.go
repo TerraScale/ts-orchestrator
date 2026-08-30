@@ -47,6 +47,28 @@ func planJsonDecodeTestOciPlan(t *testing.T) HostRuntimePlan {
 	return plan
 }
 
+func planJsonDecodeTestControlNatsPlan(t *testing.T) HostRuntimePlan {
+	t.Helper()
+	plan, err := NewHostRuntimePlan(
+		AdmittedRoleControlNatsServer,
+		RuntimeDriverNativeSystemd,
+		mustRuntimeAllocationId(t, "nats-a"),
+		mustArtifactDigest(t, hostRuntimePlanDigest),
+		HostArchitectureX64,
+		&RuntimeResourceLimits{
+			MemoryMaxBytes:  1 * 1024 * 1024 * 1024,
+			TasksMax:        512,
+			CpuQuotaPercent: 200,
+			CpuWeight:       800,
+			IoWeight:        800,
+			Nice:            0,
+		})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	return plan
+}
+
 func TestUnmarshalJSONRoundTripsNativeSystemdPlan(t *testing.T) {
 	original := planJsonDecodeTestNativePlan(t)
 
@@ -88,14 +110,10 @@ func TestUnmarshalJSONRoundTripsOciPlan(t *testing.T) {
 }
 
 func TestUnmarshalJSONDecodesCamelCaseWireShape(t *testing.T) {
-	payload := `{"schemaVersion":2,"role":"controlNatsServer","driver":"nativeSystemd",` +
-		`"allocationId":{"value":"nats-a"},"artifactDigest":{"value":"` + hostRuntimePlanDigest + `"},` +
-		`"architecture":"x64","resources":{"memoryMaxBytes":1073741824,"tasksMax":512,` +
-		`"cpuQuotaPercent":200,"cpuWeight":800,"ioWeight":800,"nice":0,` +
-		`"memoryHighBytes":966367641,"memorySwapMaxBytes":0},` +
-		`"systemd":{"unitName":"terrascale-nats-a.service","executable":"/opt/x",` +
-		`"arguments":["--config","/var/lib/terrascale-nats-a/config.json"],"properties":["Type=exec"]},` +
-		`"oci":null}`
+	// MarshalJSON emits the canonical camelCase wire shape. Keep this test
+	// focused on decoding that shape rather than duplicating the derived
+	// execution-plan policy in a hand-written payload.
+	payload := string(mustMarshalPlan(t, planJsonDecodeTestControlNatsPlan(t)))
 
 	var decoded HostRuntimePlan
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
@@ -259,25 +277,24 @@ func TestUnmarshalJSONLeavesReceiverUntouchedOnError(t *testing.T) {
 }
 
 func TestUnmarshalJSONRejectsDriverPlanShapeMismatch(t *testing.T) {
-	native, err := json.Marshal(planJsonDecodeTestNativePlan(t))
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	oci := string(mustMarshalPlan(t, planJsonDecodeTestOciPlan(t)))
+	memberStart := strings.LastIndex(oci, `,"oci":`)
+	if memberStart < 0 {
+		t.Fatal("the oci member was not found")
 	}
-	oci, err := json.Marshal(planJsonDecodeTestOciPlan(t))
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	nativeSystemd := substringBetween(t, string(native), `"systemd":`, `,"oci"`)
-	ociPlan := substringBetween(t, string(oci), `"oci":`, `}`)
+	absent := oci[:memberStart] + `}`
 
-	swapped := strings.Replace(string(native), nativeSystemd, `"systemd":null,"oci":`+ociPlan, 1)
 	var decoded HostRuntimePlan
-	err = json.Unmarshal([]byte(swapped), &decoded)
+	err := json.Unmarshal([]byte(absent), &decoded)
 	if err == nil {
-		t.Fatal("a nativeSystemd plan carrying an OCI plan must be rejected")
+		t.Fatal("an ociContainer plan without its OCI plan must be rejected")
 	}
-	if _, expected := err.(*InvalidDataError); !expected {
+	var invalidData *InvalidDataError
+	if !errors.As(err, &invalidData) {
 		t.Fatalf("error %v is not an InvalidDataError", err)
+	}
+	if !strings.Contains(err.Error(), "must carry its OCI plan") {
+		t.Fatalf("unexpected shape error %v", err)
 	}
 }
 
@@ -288,18 +305,4 @@ func mustMarshalPlan(t *testing.T, plan HostRuntimePlan) []byte {
 		t.Fatalf("marshal: %v", err)
 	}
 	return encoded
-}
-
-func substringBetween(t *testing.T, value, start, end string) string {
-	t.Helper()
-	startIndex := strings.Index(value, start)
-	if startIndex < 0 {
-		t.Fatalf("start marker %q not found", start)
-	}
-	rest := value[startIndex+len(start):]
-	endIndex := strings.Index(rest, end)
-	if endIndex < 0 {
-		t.Fatalf("end marker %q not found", end)
-	}
-	return rest[:endIndex]
 }

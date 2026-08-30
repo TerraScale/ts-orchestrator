@@ -296,7 +296,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 		},
 		{
 			name:                     "zero min nodes",
@@ -307,7 +307,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "minNodes",
 		},
 		{
@@ -319,7 +319,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "maxNodes",
 		},
 		{
@@ -331,7 +331,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "scaleUpHeadroomPercent",
 		},
 		{
@@ -343,7 +343,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "scaleDownHeadroomPercent",
 		},
 		{
@@ -355,7 +355,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      0,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "scaleUpConfirmTicks",
 		},
 		{
@@ -367,7 +367,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    0,
 			maxConcurrentProvisions:  2,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "scaleDownConfirmTicks",
 		},
 		{
@@ -379,7 +379,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  0,
-			flapSuppressionTicks: 4,
+			flapSuppressionTicks:     4,
 			expectParam:              "maxConcurrentProvisions",
 		},
 		{

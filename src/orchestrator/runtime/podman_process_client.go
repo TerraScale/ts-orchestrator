@@ -83,6 +83,12 @@ func (c *ProcessPodmanClient) Pull(ctx context.Context, imageReference string, p
 // envelope: the read-only root filesystem, no-new-privileges, and the ALL
 // capability drop stay fixed no matter what the caller passed in.
 func (c *ProcessPodmanClient) Create(ctx context.Context, request PodmanRunRequest) error {
+	// The rootless safety fields are invariants, not caller-controlled options.
+	// Pin them before revalidation so a hand-built request cannot widen the
+	// container's privilege envelope.
+	request.ReadOnlyRootfs = true
+	request.NoNewPrivileges = true
+	request.CapDrop = []string{"ALL"}
 	normalized, err := NewPodmanRunRequest(
 		request.ContainerId,
 		request.ImageReference,
