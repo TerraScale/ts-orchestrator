@@ -2,7 +2,12 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -100,5 +105,69 @@ func TestSafeErrorDoesNotEchoProviderBody(t *testing.T) {
 	resp := &http.Response{StatusCode: http.StatusBadRequest, Body: http.NoBody, Header: make(http.Header)}
 	if err := ociStatus(resp, secret); err == nil || strings.Contains(err.Error(), secret) {
 		t.Fatalf("provider response leaked into error: %v", err)
+	}
+}
+
+func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
+	bootstrap := []byte("#cloud-config\nruncmd: []\n")
+	digest := sha256.Sum256(bootstrap)
+	demand, err := NewOciCiRunnerDemand("runner-1", TrustUntrustedProduct, 7,
+		base64.StdEncoding.EncodeToString(bootstrap), hex.EncodeToString(digest[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := NewOciCiRunnerLaunchTemplate(
+		"ocid1.compartment.oc1.x", "AD-1", "FAULT-1", "ocid1.subnet.oc1.x",
+		[]string{"ocid1.networksecuritygroup.oc1.x"}, "ocid1.image.oc1.x", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var requestBody []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var err error
+		requestBody, err = io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x"}`))}, nil
+	})}
+	config, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := NewOCIHTTPTransport(config, client, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute, err := NewOCIComputeClient(transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = compute.Execute(context.Background(), LaunchOciCiRunnerAction{Demand: demand, Template: template})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(requestBody, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["sourceDetails"].(map[string]any)["imageId"] != template.ImageId ||
+		body["sourceDetails"].(map[string]any)["sourceType"] != "image" {
+		t.Fatalf("launch omitted image source: %s", requestBody)
+	}
+	if body["createVnicDetails"].(map[string]any)["subnetId"] != template.SubnetId {
+		t.Fatalf("launch omitted subnet: %s", requestBody)
+	}
+	nsgs := body["createVnicDetails"].(map[string]any)["nsgIds"].([]any)
+	if len(nsgs) != 1 || nsgs[0] != template.NetworkSecurityGroupIds[0] {
+		t.Fatalf("launch omitted network security groups: %s", requestBody)
+	}
+	shape := body["shapeConfig"].(map[string]any)
+	if shape["ocpus"] != float64(4) || shape["memoryInGBs"] != float64(24) {
+		t.Fatalf("launch omitted shape config: %s", requestBody)
+	}
+	if body["metadata"].(map[string]any)["user_data"] != demand.BootstrapCloudInitBase64 {
+		t.Fatalf("launch omitted cloud-init bootstrap: %s", requestBody)
 	}
 }

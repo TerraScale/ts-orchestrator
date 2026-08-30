@@ -381,11 +381,14 @@ func (c *SourceClient) ReadArchive(ctx context.Context, revision ResolvedRevisio
 	if !strings.EqualFold(strings.Split(ct, ";")[0], "application/gzip") && !strings.EqualFold(strings.Split(ct, ";")[0], "application/octet-stream") || response.Header.Get("Content-Encoding") != "" {
 		return SourceArchive{}, errors.New("archive is not an unencoded gzip")
 	}
-	if response.ContentLength <= 0 || response.ContentLength > MaximumSourceArchiveBytes {
+	// ContentLength is optional for a streamed/chunked response. The bounded
+	// reader below remains the authority in that case; reject only a known
+	// empty or oversized response.
+	if response.ContentLength == 0 || response.ContentLength > MaximumSourceArchiveBytes {
 		return SourceArchive{}, errors.New("archive exceeds bound")
 	}
 	content, e := readBounded(response.Body, MaximumSourceArchiveBytes)
-	if e != nil || len(content) != int(response.ContentLength) || len(content) < 3 || content[0] != 0x1f || content[1] != 0x8b || content[2] != 0x08 {
+	if e != nil || response.ContentLength > 0 && len(content) != int(response.ContentLength) || len(content) < 3 || content[0] != 0x1f || content[1] != 0x8b || content[2] != 0x08 {
 		return SourceArchive{}, errors.New("archive is invalid")
 	}
 	sum := sha256.Sum256(content)

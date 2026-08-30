@@ -373,6 +373,9 @@ func (i *NatsCommandIngress) Handle(ctx context.Context, data []byte) (CommandIn
 	if i == nil || i.boundary == nil || i.validation == nil {
 		return CommandIngressDecision{}, errors.New("command ingress is unavailable")
 	}
+	if i.closed.Load() {
+		return CommandIngressDecision{}, errors.New("command ingress is closed")
+	}
 	if ctx == nil {
 		return CommandIngressDecision{}, errors.New("command ingress context is required")
 	}
