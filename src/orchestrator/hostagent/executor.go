@@ -131,10 +131,16 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 	if ctx == nil {
 		return ConvergeReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
 	}
+	if e == nil {
+		return ConvergeReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
+	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
 		return convergeReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	if e.Cordoned() {
 		return convergeReply(command, false,
@@ -175,10 +181,16 @@ func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandR
 	if ctx == nil {
 		return ObserveReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
 	}
+	if e == nil {
+		return ObserveReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
+	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
 		return observeReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	reservation, err := e.reserveAllocation(decoded, "Observing")
 	if err != nil {
@@ -210,10 +222,16 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 	if ctx == nil {
 		return StopReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
 	}
+	if e == nil {
+		return StopReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
+	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
 		return stopReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	if _, err := e.reserveAllocation(decoded, "Stopping"); err != nil {
 		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
@@ -248,10 +266,16 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 	if ctx == nil {
 		return DeleteReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
 	}
+	if e == nil {
+		return DeleteReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
+	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
 		return deleteReply(command, false,
 			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	if _, err := e.reserveAllocation(decoded, "Deleting"); err != nil {
 		return deleteReply(command, false, err.Error(), decoded.fingerprint, err)

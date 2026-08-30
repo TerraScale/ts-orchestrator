@@ -75,12 +75,27 @@ Flags (all optional except the first two):
 | `--node-class` | `greenfield` | informational node class token (the provisioner passes it) |
 | `--podman-binary` | `/usr/bin/podman` | absolute rootless podman path |
 | `--xdg-runtime-dir` | `/run/user/<uid>` | absolute XDG runtime dir of this account |
+| `--seccomp-profile` | `/etc/terrascale/seccomp/terrascale-default-v1.json` | absolute path of the seccomp JSON every created container loads (podman fails the create when the file is absent) |
 | `--run-as-uid` | current uid | must equal the current uid and be nonzero |
 | `--heartbeat-interval` | `10s` | heartbeat cadence |
 | `--connect-timeout` | `5s` | NATS dial timeout |
 | `--cpu-quota-percent` | `10000` | the node CPU envelope reported in heartbeats |
 | `--tasks-max` | `512` | the node task ceiling reported in heartbeats |
 | `--logical-cpu-count` | host CPU count | scales the load average into a CPU percent |
+
+The heartbeat's running-task gauge comes from the agent's own tracked
+allocations (its executor), not from `/proc/loadavg`, so the autoscaler's
+retire gate observes the node's own allocations; the load average only feeds
+the CPU-used dimension.
+
+Before the first converge, place a seccomp profile document at the
+`--seccomp-profile` path (or point the flag at one) — for local bring-up a
+permissive profile is enough to prove the plumbing:
+
+```sh
+sudo install -D -m 0644 /dev/null /etc/terrascale/seccomp/terrascale-default-v1.json
+echo '{"defaultAction":"SCMP_ACT_ALLOW"}' | sudo tee /etc/terrascale/seccomp/terrascale-default-v1.json >/dev/null
+```
 
 NixOS note: podman lives at `/run/current-system/sw/bin/podman`, so pass
 `--podman-binary /run/current-system/sw/bin/podman`. Native systemd plans also
@@ -127,11 +142,12 @@ synthetic demand or replica health.
 
 A workload command is a `WorkloadCommandRequest` — the serialized canonical
 plan plus a bounded command id — sent as a NATS request on the node's
-converge subject. With the `nats` CLI:
+converge subject. The `planJson` field is a byte array on the wire, so the
+plan text must be base64-encoded; with the `nats` CLI and `jq`:
 
 ```sh
 nats req terrascale.node.v1.as-node-1.converge \
-  "$(jq -Rs '{planJson: ., commandId: "local-converge-1"}' < plan.json)"
+  "$(jq -Rs '{planJson: (@base64), commandId: "local-converge-1"}' < plan.json)"
 ```
 
 where `plan.json` is a canonical plan. This is a complete, valid example for
@@ -217,8 +233,8 @@ The live podman smoke is gated twice — by the `live_podman` build tag and by
 `TS_ORCH_LIVE=1` — so the ordinary sweep never touches a real runtime. It
 runs the real `ProcessPodmanClient` as your unprivileged user against the
 local image `localhost/benchmark-csharp-noble:latest` (present on this host;
-it never pulls from the network) and asserts preflight, Running, stop,
-delete, and Absent:
+it never pulls from the network) and asserts preflight, create (not
+started), start, Running, stop, delete, and Absent:
 
 ```sh
 TS_ORCH_LIVE=1 go test -tags live_podman ./tests/live/ -run Podman -v

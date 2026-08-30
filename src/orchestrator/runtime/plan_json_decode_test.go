@@ -306,7 +306,7 @@ func TestUnmarshalJSONRejectsNonCanonicalExecutionPlans(t *testing.T) {
 			payload: replaceLast(validOci, `"tasksMax":1024`, `"tasksMax":512`),
 		},
 		{
-			name:    "oci image reference rewritten",
+			name: "oci image reference rewritten",
 			payload: replace(validOci, `"imageReference":"registry.terrascale.internal/terrascale/terrabase-server@sha256:`+hostRuntimePlanDigest+`"`,
 				`"imageReference":"evil.example/terrabase:latest"`),
 		},

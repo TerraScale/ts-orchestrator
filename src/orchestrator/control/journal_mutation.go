@@ -929,6 +929,9 @@ func natsRequestReplyOnce(
 	}
 	deadline, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if err := deadline.Err(); err != nil {
+		return nil, err
+	}
 
 	replies := make(chan *nats.Msg, 1)
 	subscription, err := client.ChanSubscribe(replySubject, replies)
@@ -937,10 +940,16 @@ func natsRequestReplyOnce(
 	}
 	defer subscription.Unsubscribe()
 
+	if err := deadline.Err(); err != nil {
+		return nil, err
+	}
 	if err := client.Flush(); err != nil {
 		return nil, err
 	}
 
+	if err := deadline.Err(); err != nil {
+		return nil, err
+	}
 	if err := client.PublishMsg(&nats.Msg{Subject: subject, Reply: replySubject, Data: payload}); err != nil {
 		return nil, err
 	}

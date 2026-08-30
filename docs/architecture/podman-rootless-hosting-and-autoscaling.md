@@ -45,11 +45,12 @@ implementers build against:
 ## The two hosting modes
 
 Both modes execute the **same** canonical `HostRuntimePlan`
-(`src/orchestrator/runtime/hostruntimeplan.go`). No new `RuntimeDriver` value
-is introduced: the plan still carries exactly `RuntimeDriverNativeSystemd`
-or `RuntimeDriverOciContainer`, and the admitted-role catalog keeps deciding
-which driver a role may use. What changes is the adapter behind the OCI
-driver on nodes that host workloads rootlessly.
+(`src/orchestrator/runtime/host_runtime_plan.go`). No new `RuntimeDriver`
+value is introduced: the plan still carries exactly
+`RuntimeDriverNativeSystemd` or `RuntimeDriverOciContainer`, and the
+admitted-role catalog keeps deciding which driver a role may use. What
+changes is the adapter behind the OCI driver on nodes that host workloads
+rootlessly.
 
 1. **Binaries via systemd user units.** The existing
    `SystemdHostRuntimeAdapter`, composed with `userManager=true`, places the
@@ -60,7 +61,7 @@ driver on nodes that host workloads rootlessly.
    account, so the workload never gains root even if the unit file layer is
    compromised.
 2. **OCI containers via rootless podman.** A new
-   `PodmanHostRuntimeAdapter` implements the same
+   `PodmanRootlessHostRuntimeAdapter` implements the same
    Converge/Observe/Stop/Delete surface as the existing
    `SystemdHostRuntimeAdapter` and `ContainerdHostRuntimeAdapter`: it takes
    a canonical plan, fences it with `CanonicalPlanFingerprint`, and drives a
@@ -68,7 +69,11 @@ driver on nodes that host workloads rootlessly.
    ensure-volume). The plan's `OciExecutionPlan` maps onto the validated
    `PodmanRunRequest`: container id, digest-pinned image reference, platform,
    UID/GID, capability drops, cgroup parent under the user slice, memory/PID
-  /CPU limits, and the fencing labels.
+  /CPU limits, and the fencing labels. The client creates the container with
+   `podman create` and starts it separately, and every created container
+   loads the seccomp profile named by the validated rootless context; the
+   plan's IoWeight, Nice, and memory-high dimensions are not expressible on
+   this podman surface and stay enforced by the native systemd driver only.
 
 Every adapter accepts only plans whose derived execution plan is byte-equal
 to what `NewHostRuntimePlan` would produce for the same admitted role;
@@ -191,11 +196,12 @@ operation, not a fast path.
 ## Composition
 
 - **`cmd/ts-node`** — a new per-node host-agent binary. It owns the node's
-  `NodeId`, subscribes to the four request-reply subjects, executes
-  commands against the local adapter (systemd user units or rootless
-  podman, chosen by the plan's driver), returns typed receipts, and
-  publishes heartbeats. It holds no cluster credentials beyond its regional
-  NATS connection.
+  `NodeId`, serves the six node subjects (the converge, observe, stop,
+  delete, cordon, and drain-status requests), executes commands against the
+  local adapter (systemd user units or rootless podman, chosen by the
+  plan's driver), returns typed receipts, and publishes heartbeats whose
+  running-task gauge comes from its own tracked allocations. It holds no
+  cluster credentials beyond its regional NATS connection.
 - **Autoscaler role** — a control-plane role that consumes heartbeats and
   the schedule state, applies the decision rules above, and drives a
   `NodeProvisioner` implementation (the greenfield OCI estate of ADR 0024

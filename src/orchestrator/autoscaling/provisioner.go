@@ -229,6 +229,9 @@ func (p *StaticNodeProvisioner) Provision(ctx context.Context, request NodeProvi
 	if ctx == nil {
 		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	validated, err := NewNodeProvisionRequest(
 		request.NodeId, request.NodeClass, request.Resources, request.Reason)
 	if err != nil {
@@ -245,6 +248,9 @@ func (p *StaticNodeProvisioner) Provision(ctx context.Context, request NodeProvi
 func (p *StaticNodeProvisioner) Retire(ctx context.Context, nodeId string) error {
 	if ctx == nil {
 		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	validated, err := requireAutoscalingToken(nodeId, "nodeId",
 		"Node ID must be a lowercase DNS-style token.")
@@ -339,6 +345,9 @@ func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request Nod
 	if p == nil || p.spawner == nil {
 		return &InvalidOperationError{Message: "The process spawner is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	validated, err := NewNodeProvisionRequest(
 		request.NodeId, request.NodeClass, request.Resources, request.Reason)
 	if err != nil {
@@ -359,6 +368,9 @@ func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request Nod
 	// race into a second child process.
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, already := p.children[validated.NodeId]; already {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Node %s is already provisioned locally.", validated.NodeId),
@@ -389,6 +401,9 @@ func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string)
 	if p == nil || p.spawner == nil {
 		return &InvalidOperationError{Message: "The process spawner is unavailable."}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	validated, err := requireAutoscalingToken(nodeId, "nodeId",
 		"Node ID must be a lowercase DNS-style token.")
 	if err != nil {
@@ -401,6 +416,10 @@ func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string)
 		return &InvalidOperationError{
 			Message: fmt.Sprintf("Node %s is not a locally provisioned child.", validated),
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		p.mutex.Unlock()
+		return err
 	}
 	delete(p.children, validated)
 	p.mutex.Unlock()

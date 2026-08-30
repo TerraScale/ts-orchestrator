@@ -498,10 +498,10 @@ type PodmanClient interface {
 // podman client. RunAsUid 0 is forbidden: rootless safety is the point of
 // this lane, so validation fails closed on it.
 type RootlessPodmanContext struct {
-	PodmanBinaryPath string
-	XdgRuntimeDir    string
+	PodmanBinaryPath   string
+	XdgRuntimeDir      string
 	SeccompProfilePath string
-	RunAsUid         uint32
+	RunAsUid           uint32
 }
 
 // ValidateRootlessContext fails closed unless the context names a bounded

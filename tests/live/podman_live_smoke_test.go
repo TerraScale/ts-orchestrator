@@ -27,9 +27,11 @@ const liveSmokeTimeout = 90 * time.Second
 
 // TestProcessPodmanClientRootlessSmoke drives the real ProcessPodmanClient
 // under the current unprivileged account: preflight proves the rootless
-// environment, a detached run creates the container from the local image
-// (no pull), inspect observes it Running, stop stops it, rm deletes it, and a
-// final inspect observes Absent. The container is removed on every exit path.
+// environment, create builds the container from the local image (no pull)
+// without starting it, start starts it, inspect observes it Running, stop
+// stops it, rm deletes it, and a final inspect observes Absent. The create
+// loads the seccomp profile named by the rootless context, proving the
+// profile plumbing end to end. The container is removed on every exit path.
 func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	if os.Getenv("TS_ORCH_LIVE") != "1" {
 		t.Skip("live rootless podman smoke: set TS_ORCH_LIVE=1 (and build with -tags live_podman) to run")
@@ -37,7 +39,8 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	podmanBinary := liveSmokePodmanBinary(t)
 	uid := uint32(os.Getuid())
 	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", uid)
-	rootless, err := runtime.NewRootlessPodmanContext(podmanBinary, xdgRuntimeDir, uid)
+	rootless, err := runtime.NewRootlessPodmanContext(
+		podmanBinary, xdgRuntimeDir, liveSmokeSeccompProfile(t), uid)
 	if err != nil {
 		t.Fatalf("rootless context (uid %d, %s, %s): %v", uid, podmanBinary, xdgRuntimeDir, err)
 	}
@@ -82,10 +85,21 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 		_ = client.Delete(cleanupContext, containerId)
 	})
 
-	// Create is the detached run; with the local image present it never
-	// resolves anything from the network.
+	// Create builds the container without starting it; with the local image
+	// present it never resolves anything from the network.
 	if err := client.Create(ctx, request); err != nil {
-		t.Fatalf("podman run of the local image failed: %v", err)
+		t.Fatalf("podman create of the local image failed: %v", err)
+	}
+	created, err := client.Inspect(ctx, containerId)
+	if err != nil {
+		t.Fatalf("inspect after create: %v", err)
+	}
+	if created.State != runtime.PodmanAllocationStateCreating {
+		t.Fatalf("state after create = %s; want Creating (created, not started)", created.State)
+	}
+
+	if err := client.Start(ctx, containerId); err != nil {
+		t.Fatalf("podman start failed: %v", err)
 	}
 
 	// The container's entrypoint is a server, but startup takes a moment:
@@ -95,7 +109,7 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	for !running {
 		observation, observeErr := client.Inspect(ctx, containerId)
 		if observeErr != nil {
-			t.Fatalf("inspect after run: %v", observeErr)
+			t.Fatalf("inspect after start: %v", observeErr)
 		}
 		if observation.State == runtime.PodmanAllocationStateRunning {
 			if observation.ImageReference != liveSmokeImage {
@@ -131,6 +145,19 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	if absent.State != runtime.PodmanAllocationStateAbsent {
 		t.Fatalf("state after rm = %s; want Absent", absent.State)
 	}
+}
+
+// liveSmokeSeccompProfile writes the smoke's seccomp profile document and
+// returns its absolute path. The profile is deliberately permissive: the
+// smoke proves the create/start plumbing loads a real profile document (the
+// create fails when the document is absent), not the policy inside it.
+func liveSmokeSeccompProfile(t *testing.T) string {
+	t.Helper()
+	path := t.TempDir() + "/terrascale-default-v1.json"
+	if err := os.WriteFile(path, []byte(`{"defaultAction":"SCMP_ACT_ALLOW"}`), 0o600); err != nil {
+		t.Fatalf("seccomp profile fixture: %v", err)
+	}
+	return path
 }
 
 // liveSmokePodmanBinary resolves the absolute podman binary: the explicit
