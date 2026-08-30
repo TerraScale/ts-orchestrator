@@ -14,16 +14,21 @@ func testToken(value string) MessageIdentityToken {
 	return token
 }
 
-func messagingEnvelope(overrides ...func(*messagingEnvelopeOptions)) *MessagingEnvelope {
+func messagingEnvelope(t *testing.T, overrides ...func(*messagingEnvelopeOptions)) *MessagingEnvelope {
+	defaultSubject, subjectErr := NatsSubjectTaxonomy.CellSpecSubject("gru")
+	if subjectErr != nil {
+		t.Fatalf("default subject composition failed: %v", subjectErr)
+	}
+
 	options := messagingEnvelopeOptions{
-		schema:     MessagingSchemaVersionCurrent,
-		messageId:  testToken("message-1"),
-		source:     MessagingSource{Instance: "controller-1", Session: "session-1", Cell: "gru", Cluster: "orchestrator-control-gru"},
-		target:     messagingTarget(NatsSubjectNamespaceRegionalControl, mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), "gru"),
+		schema:      MessagingSchemaVersionCurrent,
+		messageId:   testToken("message-1"),
+		source:      MessagingSource{Instance: "controller-1", Session: "session-1", Cell: "gru", Cluster: "orchestrator-control-gru"},
+		target:      messagingTarget(NatsSubjectNamespaceRegionalControl, defaultSubject, "gru"),
 		payloadType: payloadType,
-		command:    ptrOf(validEnvelope()),
-		trace: &MessagingTraceContext{TraceId: strings.Repeat("a", 32), SpanId: strings.Repeat("b", 16)},
-		observedAt: protocolNow,
+		command:     ptrOf(validEnvelope()),
+		trace:       &MessagingTraceContext{TraceId: strings.Repeat("a", 32), SpanId: strings.Repeat("b", 16)},
+		observedAt:  protocolNow,
 	}
 
 	for _, override := range overrides {
@@ -94,7 +99,7 @@ type messagingContextOptions struct {
 }
 
 func TestAWellFormedEnvelopeOverAValidSignedCommandIsAccepted(t *testing.T) {
-	result := MessagingEnvelopeValidator.Validate(messagingEnvelope(), messagingContext())
+	result := MessagingEnvelopeValidator.Validate(messagingEnvelope(t), messagingContext())
 
 	if !result.IsAccepted() || result.Error != MessagingEnvelopeErrorNone || result.Envelope == nil {
 		t.Fatalf("result = %v", result.Error)
@@ -104,7 +109,7 @@ func TestAWellFormedEnvelopeOverAValidSignedCommandIsAccepted(t *testing.T) {
 func TestAnUnknownMajorSchemaVersionFailsClosed(t *testing.T) {
 	for _, offered := range []int{0, 2, 99} {
 		result := MessagingEnvelopeValidator.Validate(
-			messagingEnvelope(func(o *messagingEnvelopeOptions) { o.schema = MessagingSchemaVersion{Major: offered} }),
+			messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.schema = MessagingSchemaVersion{Major: offered} }),
 			messagingContext())
 		if result.Error != MessagingEnvelopeErrorUnknownMajorVersion || result.IsAccepted() {
 			t.Fatalf("major %d: error = %v", offered, result.Error)
@@ -119,21 +124,21 @@ func TestMalformedIdentityOrSourceFailsClosed(t *testing.T) {
 	}
 
 	emptyMessageId := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) { o.messageId = testToken("") }),
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.messageId = testToken("") }),
 		messagingContext())
 	if emptyMessageId.Error != MessagingEnvelopeErrorMalformedEnvelope {
 		t.Fatalf("empty message id error = %v", emptyMessageId.Error)
 	}
 
 	controlCharacterMessageId := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) { o.messageId = testToken("message\x01") }),
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.messageId = testToken("message\x01") }),
 		messagingContext())
 	if controlCharacterMessageId.Error != MessagingEnvelopeErrorMalformedEnvelope {
 		t.Fatalf("control character message id error = %v", controlCharacterMessageId.Error)
 	}
 
 	invalidSource := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.source = MessagingSource{Instance: "", Session: "session-1", Cell: "gru", Cluster: "cluster"}
 		}),
 		messagingContext())
@@ -144,7 +149,7 @@ func TestMalformedIdentityOrSourceFailsClosed(t *testing.T) {
 
 func TestAMalformedSubjectFailsClosed(t *testing.T) {
 	whitespace := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru. query.health", "")
 		}),
 		messagingContext())
@@ -153,7 +158,7 @@ func TestAMalformedSubjectFailsClosed(t *testing.T) {
 	}
 
 	wildcard := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru.query.>", "")
 		}),
 		messagingContext())
@@ -162,7 +167,7 @@ func TestAMalformedSubjectFailsClosed(t *testing.T) {
 	}
 
 	empty := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "", "")
 		}),
 		messagingContext())
@@ -173,7 +178,7 @@ func TestAMalformedSubjectFailsClosed(t *testing.T) {
 
 func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 	productPlane := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceProductPlane, "ts.product.v1.queue.default", "")
 		}),
 		messagingContext())
@@ -182,7 +187,7 @@ func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 	}
 
 	unknown := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v2.gru.unknown.channel", "")
 		}),
 		messagingContext())
@@ -191,7 +196,7 @@ func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 	}
 
 	superseded := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v1.gru.desired.gitops", "")
 		}),
 		messagingContext())
@@ -202,7 +207,7 @@ func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 
 func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) {
 	declaredRegional := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), "")
 		}),
 		messagingContext())
@@ -210,10 +215,10 @@ func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) 
 		t.Fatalf("declared regional error = %v", declaredRegional.Error)
 	}
 
+	cellSpecGru := mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru"))
 	declaredGlobal := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceGlobalDirectory,
-				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), "gru")
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
+			o.target = messagingTarget(NatsSubjectNamespaceGlobalDirectory, cellSpecGru, "gru")
 		}),
 		messagingContext())
 	if declaredGlobal.Error != MessagingEnvelopeErrorDeclaredNamespaceMismatch {
@@ -221,9 +226,8 @@ func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) 
 	}
 
 	unspecified := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceUnspecified,
-				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), "gru")
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
+			o.target = messagingTarget(NatsSubjectNamespaceUnspecified, cellSpecGru, "gru")
 		}),
 		messagingContext())
 	if unspecified.Error != MessagingEnvelopeErrorDeclaredNamespaceMismatch {
@@ -236,7 +240,7 @@ func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
 	// scope even though it lives under the global root, so a target naming
 	// another cell fails closed.
 	mismatch := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
 				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")), "sfo")
 		}),
@@ -246,7 +250,7 @@ func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
 	}
 
 	matching := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
 				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("gru")), "gru")
 		}),
@@ -258,7 +262,7 @@ func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
 
 func TestAGlobalPerCellSubjectCannotBypassCellValidationWhenTargetCellIsOmitted(t *testing.T) {
 	result := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
 				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")), "")
 		}),
@@ -294,7 +298,7 @@ func TestCellScopeExtractionCoversRegionalAndGlobalPerCellShapesOnly(t *testing.
 
 func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 	subjectNamesAnotherCell := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl,
 				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("sfo")), "sfo")
 		}),
@@ -304,7 +308,7 @@ func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 	}
 
 	sourceNamesAnotherCell := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.source = MessagingSource{Instance: "controller-1", Session: "session-1", Cell: "sfo", Cluster: "orchestrator-control-sfo"}
 		}),
 		messagingContext())
@@ -313,7 +317,7 @@ func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 	}
 
 	targetNamesAnotherCell := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl,
 				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), "sfo")
 		}),
@@ -325,7 +329,7 @@ func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 
 func TestAnUnpermittedPayloadTypeFailsClosed(t *testing.T) {
 	result := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) { o.payloadType = "unknown-payload-type-v9" }),
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.payloadType = "unknown-payload-type-v9" }),
 		messagingContext())
 	if result.Error != MessagingEnvelopeErrorPayloadTypeNotPermitted {
 		t.Fatalf("error = %v", result.Error)
@@ -334,7 +338,7 @@ func TestAnUnpermittedPayloadTypeFailsClosed(t *testing.T) {
 
 func TestAMalformedTraceContextFailsClosed(t *testing.T) {
 	result := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.trace = &MessagingTraceContext{TraceId: "not-hex", SpanId: strings.Repeat("b", 16)}
 		}),
 		messagingContext())
@@ -345,7 +349,7 @@ func TestAMalformedTraceContextFailsClosed(t *testing.T) {
 
 func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) {
 	expired := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.command = ptrOf(validEnvelope(
 				func(v *validEnvelopeOption) { v.issuedAt = ptrOf(protocolNow.Add(-2 * time.Hour)) },
 				func(v *validEnvelopeOption) { v.expiresAt = ptrOf(protocolNow.Add(-time.Hour)) }))
@@ -357,7 +361,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	}
 
 	delayed := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.command = ptrOf(validEnvelope(
 				func(v *validEnvelopeOption) { v.issuedAt = ptrOf(protocolNow.Add(30 * time.Minute)) },
 				func(v *validEnvelopeOption) { v.expiresAt = ptrOf(protocolNow.Add(60 * time.Minute)) }))
@@ -368,7 +372,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	}
 
 	wrongCell := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.command = ptrOf(validEnvelope(func(v *validEnvelopeOption) { v.cell = ptrOf(testCell("sfo")) }))
 			o.source = MessagingSource{Instance: "controller-1", Session: "session-1", Cell: "sfo", Cluster: "orchestrator-control-sfo"}
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalDirectory, NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), "")
@@ -379,7 +383,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	}
 
 	staleEpoch := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.command = ptrOf(validEnvelope(func(v *validEnvelopeOption) { v.epoch = ptrOf(testEpoch(6)) }))
 		}),
 		messagingContext())
@@ -392,7 +396,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	shapelessSignatureCommand := validEnvelope()
 	shapelessSignatureCommand.Signature = OpaqueSignature{}
 	invalidSignatureShape := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) { o.command = ptrOf(shapelessSignatureCommand) }),
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.command = ptrOf(shapelessSignatureCommand) }),
 		messagingContext())
 	if invalidSignatureShape.Error != MessagingEnvelopeErrorCommandRejected ||
 		invalidSignatureShape.CommandError != CommandValidationErrorMalformedEnvelope {
@@ -400,7 +404,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	}
 
 	digestDisagreement := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(func(o *messagingEnvelopeOptions) {
+		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.command = ptrOf(validEnvelope(func(v *validEnvelopeOption) { v.digest = ptrOf(testDigest([]byte{9, 9, 9, 9})) }))
 		}),
 		messagingContext())
@@ -409,7 +413,7 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 	}
 
 	invalidSignature := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(),
+		messagingEnvelope(t),
 		messagingContext(func(o *messagingContextOptions) {
 			o.command = validContext(func(v *validContextOption) { v.signatureVerifier = newTestSignatureVerifier(false, false) })
 		}))
@@ -419,13 +423,13 @@ func TestSignedCommandRejectionsSurfaceAsTypedMessagingRejections(t *testing.T) 
 }
 
 func TestAMissingOrUnwellContextFailsClosed(t *testing.T) {
-	result := MessagingEnvelopeValidator.Validate(messagingEnvelope(), nil)
+	result := MessagingEnvelopeValidator.Validate(messagingEnvelope(t), nil)
 	if result.Error != MessagingEnvelopeErrorMalformedEnvelope {
 		t.Fatalf("missing context error = %v", result.Error)
 	}
 
 	emptyMajors := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(),
+		messagingEnvelope(t),
 		NewMessagingValidationContext(
 			map[int]struct{}{},
 			map[string]struct{}{payloadType: {}},
@@ -436,7 +440,7 @@ func TestAMissingOrUnwellContextFailsClosed(t *testing.T) {
 }
 
 func TestTheMessageEnvelopeExtendsRatherThanDuplicatesTheSignedCommandContract(t *testing.T) {
-	envelope := messagingEnvelope()
+	envelope := messagingEnvelope(t)
 
 	if envelope.Command == nil {
 		t.Fatal("envelope must carry the signed command")

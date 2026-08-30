@@ -21,6 +21,14 @@ func (k McpChangeKind) defined() bool {
 	return k >= McpChangeKindInitialCreation && k <= McpChangeKindRestart
 }
 
+func (k McpChangeKind) String() string {
+	names := [...]string{"InitialCreation", "Upgrade", "Rollback", "Restart"}
+	if k >= 0 && int(k) < len(names) {
+		return names[k]
+	}
+	return fmt.Sprintf("McpChangeKind(%d)", int(k))
+}
+
 var mcpFailureDomainTokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 // McpDesiredWorkload is the desired MCP workload state: one generation, one

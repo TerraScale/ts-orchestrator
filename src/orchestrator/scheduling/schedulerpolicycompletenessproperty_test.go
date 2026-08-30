@@ -104,7 +104,7 @@ func TestConsumableReserveNeverPermitsPlacementBeyondCapacityAcrossOneThousandSe
 			TargetNodeId:          mustAvailabilityNodeId(t, "node-a"),
 			TargetFailureDomainId: mustFailureDomainId(t, "fd-a"),
 			RequestedResources:    requested,
-			AvailableResources:   available,
+			AvailableResources:    available,
 		}
 	}
 	for seed := uint64(110_001); seed < 110_001+propertyFeatureCases; seed++ {
@@ -173,7 +173,7 @@ func TestEveryAvailabilityPathPreservesTheExactTwentyEightRowPrefixAndAppendsGen
 					TargetNodeId:          mustAvailabilityNodeId(t, "node-a"),
 					TargetFailureDomainId: mustFailureDomainId(t, "fd-a"),
 					RequestedResources:    availabilityResources(1),
-					AvailableResources:   availabilityResources(1),
+					AvailableResources:    availabilityResources(1),
 				},
 				ObservationCompletenessComplete, generation, generation, []ReplicaObservation{})
 		case 1:
