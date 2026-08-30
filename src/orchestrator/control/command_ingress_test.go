@@ -101,11 +101,16 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 	if dispatches.Load() != 1 {
 		t.Fatal("hostile command reached the dispatcher")
 	}
-
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	if decision, err := ingress.Handle(canceled, wire); err == nil || decision.Code != CommandIngressCodeCanceled {
 		t.Fatalf("canceled command was not stopped: %v, %v", decision, err)
+	}
+	if err := ingress.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingress.Handle(context.Background(), wire); err == nil {
+		t.Fatal("closed command ingress accepted a direct payload")
 	}
 }
 

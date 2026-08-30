@@ -261,6 +261,14 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
 	}
+	// The runtime directory is part of the rootless identity boundary.  An
+	// explicit path must still belong to the UID running this process; merely
+	// requiring an absolute path would allow a node agent to use another
+	// user's Podman socket and containers.
+	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", configuration.RunAsUid)
+	if configuration.XdgRuntimeDir != expectedRuntimeDir {
+		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
+	}
 	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, hostruntime.ProcessHostCommandRunner{})
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())

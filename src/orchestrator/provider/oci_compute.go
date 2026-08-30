@@ -161,15 +161,48 @@ func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction
 	}
 	r := CompileRunnerLaunch(a)
 	payload := struct {
-		CompartmentID string            `json:"compartmentId"`
-		Availability  string            `json:"availabilityDomain"`
-		SubnetID      string            `json:"subnetId"`
-		ImageID       string            `json:"imageId"`
-		Shape         string            `json:"shape"`
-		DisplayName   string            `json:"displayName"`
-		Hostname      string            `json:"hostnameLabel"`
-		FreeformTags  map[string]string `json:"freeformTags"`
-	}{r.CompartmentId, r.AvailabilityDomain, r.SubnetId, r.ImageId, r.Shape, r.DisplayName, r.HostnameLabel, r.Tags}
+		CompartmentID string `json:"compartmentId"`
+		Availability  string `json:"availabilityDomain"`
+		FaultDomain   string `json:"faultDomain,omitempty"`
+		Shape         string `json:"shape"`
+		ShapeConfig   struct {
+			OCPUs       float64 `json:"ocpus"`
+			MemoryInGBs float64 `json:"memoryInGBs"`
+		} `json:"shapeConfig"`
+		DisplayName       string `json:"displayName"`
+		Hostname          string `json:"hostnameLabel"`
+		CreateVnicDetails struct {
+			SubnetID                string   `json:"subnetId"`
+			NetworkSecurityGroupIDs []string `json:"nsgIds"`
+		} `json:"createVnicDetails"`
+		SourceDetails struct {
+			SourceType string `json:"sourceType"`
+			ImageID    string `json:"imageId"`
+		} `json:"sourceDetails"`
+		Metadata     map[string]string `json:"metadata"`
+		FreeformTags map[string]string `json:"freeformTags"`
+	}{
+		CompartmentID: r.CompartmentId,
+		Availability:  r.AvailabilityDomain,
+		FaultDomain:   r.FaultDomain,
+		Shape:         r.Shape,
+		ShapeConfig: struct {
+			OCPUs       float64 `json:"ocpus"`
+			MemoryInGBs float64 `json:"memoryInGBs"`
+		}{OCPUs: r.Ocpus, MemoryInGBs: r.MemoryGB},
+		DisplayName: r.DisplayName,
+		Hostname:    r.HostnameLabel,
+		CreateVnicDetails: struct {
+			SubnetID                string   `json:"subnetId"`
+			NetworkSecurityGroupIDs []string `json:"nsgIds"`
+		}{SubnetID: r.SubnetId, NetworkSecurityGroupIDs: r.NsgIds},
+		SourceDetails: struct {
+			SourceType string `json:"sourceType"`
+			ImageID    string `json:"imageId"`
+		}{SourceType: "image", ImageID: r.ImageId},
+		Metadata:     map[string]string{"user_data": r.BootstrapBase64},
+		FreeformTags: r.Tags,
+	}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(mustJSON(payload)), map[string]string{"opc-retry-token": a.Demand.IdempotencyToken})
 	if err != nil {
 		if indeterminate(err) {
