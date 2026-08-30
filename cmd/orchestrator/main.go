@@ -60,7 +60,10 @@ const (
 	// last heartbeat may age before the autoscaler stops counting the node in
 	// its snapshots: a silent node is unschedulable evidence, not capacity.
 	autoscalerHeartbeatStaleTicks = 3
-	globalCheckTimeout            = 30 * time.Second
+	// Scheduler demand and placement observations use their own bounded
+	// freshness window; stale placement always blocks drains.
+	autoscalerObservationStaleTicks = 3
+	globalCheckTimeout              = 30 * time.Second
 )
 
 // component is the common lifecycle contract of all long-running roles.
@@ -820,6 +823,7 @@ type autoscalerNodeEntry struct {
 	metrics              hostagent.NodeMetricsSample
 	lastHeartbeat        time.Time
 	lastHeartbeatUnixSec int64
+	replicas             []stateful.ReplicaHealth
 }
 
 // autoscalerRole is the control-plane runtime of the autoscaler command: it
@@ -829,14 +833,17 @@ type autoscalerNodeEntry struct {
 // engine's drain safety seam by adapting the stateful replica evaluator with
 // the peer candidates observed on every other node.
 type autoscalerRole struct {
-	settings      autoscalerRoleSettings
-	connection    *nats.Conn
-	provisioner   autoscaling.NodeProvisioner
-	replicaDrains *stateful.ReplicaDrainSafetyEvaluator
-	// Heartbeat payloads currently carry metrics only. Until placement state
-	// supplies a complete replica view, no node is safe to cordon, including a
-	// node that appears stateless in the incomplete view.
+	settings           autoscalerRoleSettings
+	connection         *nats.Conn
+	provisioner        autoscaling.NodeProvisioner
+	replicaDrains      *stateful.ReplicaDrainSafetyEvaluator
 	replicaHealthReady bool
+	// observation is the latest validated scheduler/placement feed. Demand and
+	// placement completeness are independent so scale-up may consume current
+	// demand while drain safety remains fail-closed until placement is complete.
+	observation        autoscaling.AutoscalerObservationFeed
+	observationAt      time.Time
+	observationUnixSec int64
 	engine             *autoscaling.Autoscaler
 	mutex              sync.Mutex
 	nodes              map[string]*autoscalerNodeEntry
@@ -855,17 +862,18 @@ func (r *autoscalerRole) EvaluateDrainSafety(
 	if r == nil || r.replicaDrains == nil {
 		return stateful.DrainDecision{}, errors.New("autoscaler: the replica drain evaluator is unavailable")
 	}
-	if !r.replicaHealthReady {
+	r.mutex.Lock()
+	placementReady := r.replicaHealthReady
+	r.mutex.Unlock()
+	if !placementReady {
 		return stateful.NewDrainDecision(false,
 			"Replica placement health is unavailable; node drain is deferred.", nil)
 	}
 	return r.replicaDrains.EvaluateDrainSafety(candidate, r.peerCandidates(candidate.NodeId))
 }
 
-// peerCandidates returns the drain candidates of every other tracked node.
-// Heartbeat metric samples name no replicas, so the peer candidates carry
-// empty replica lists: a node observed to host replicas through a future
-// replica-health source blocks its own drain fail-closed, never silently.
+// peerCandidates returns the drain candidates of every other tracked node,
+// including the latest complete placement feed's replica observations.
 func (r *autoscalerRole) peerCandidates(excluded string) []stateful.NodeDrainCandidate {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -874,7 +882,7 @@ func (r *autoscalerRole) peerCandidates(excluded string) []stateful.NodeDrainCan
 		if nodeId == excluded || entry.state == autoscaling.NodeStateRetired {
 			continue
 		}
-		peer, err := stateful.NewNodeDrainCandidate(nodeId, nil)
+		peer, err := stateful.NewNodeDrainCandidate(nodeId, entry.replicas)
 		if err != nil {
 			// Unreachable for a heartbeat-validated node token; skip.
 			continue
@@ -941,6 +949,34 @@ func (r *autoscalerRole) handleHeartbeat(message *nats.Msg) {
 	entry.lastHeartbeatUnixSec = heartbeat.UnixSeconds
 }
 
+// handleObservationFeed folds one scheduler/placement publication into the
+// role. Malformed, future, stale-by-arrival, or replayed publications are not
+// trusted. Freshness is checked again when a tick builds its snapshot.
+func (r *autoscalerRole) handleObservationFeed(message *nats.Msg) {
+	if r == nil || message == nil || message.Subject != autoscaling.AutoscalerObservationSubject {
+		return
+	}
+	var feed autoscaling.AutoscalerObservationFeed
+	if err := json.Unmarshal(message.Data, &feed); err != nil {
+		return
+	}
+	now := time.Now()
+	if feed.UnixSeconds < now.Add(-autoscalerHeartbeatClockSkew).Unix() ||
+		feed.UnixSeconds > now.Add(autoscalerHeartbeatClockSkew).Unix() {
+		return
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if feed.UnixSeconds <= r.observationUnixSec {
+		return
+	}
+	r.observation = feed
+	r.observationAt = now
+	r.observationUnixSec = feed.UnixSeconds
+	// snapshot computes coverage against the currently fresh heartbeat set.
+	r.replicaHealthReady = false
+}
+
 // setState records one lifecycle transition of a tracked node, creating the
 // entry when the node has not heartbeated yet.
 func (r *autoscalerRole) setState(nodeId string, state autoscaling.NodeState) {
@@ -954,18 +990,62 @@ func (r *autoscalerRole) setState(nodeId string, state autoscaling.NodeState) {
 	entry.state = state
 }
 
-// snapshot derives the validated cluster observation of one tick from the
-// node table: a node counts while its last heartbeat is fresh inside the
-// staleness window. Heartbeats carry no replica health and no unsatisfied
-// demand, so StatefulReplicas is empty and the demand set is empty; the
-// scheduler integration that feeds both is the follow-up lane.
+// snapshot derives the validated cluster observation of one tick from fresh
+// host heartbeats and the latest scheduler/placement feed. Demand is included
+// only when its feed is fresh and complete. Replica health is included only
+// when a fresh complete placement view covers every node in this snapshot;
+// otherwise the role marks placement unavailable and drains fail closed.
 func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot {
 	staleness := autoscalerHeartbeatStaleTicks * r.settings.TickInterval
+	if staleness <= 0 {
+		staleness = autoscalerHeartbeatStaleTicks * autoscalerDefaultTickInterval
+	}
+	feedStaleness := autoscalerObservationStaleTicks * r.settings.TickInterval
+	if feedStaleness <= 0 {
+		feedStaleness = autoscalerObservationStaleTicks * autoscalerDefaultTickInterval
+	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	nodes := make([]autoscaling.NodeObservation, 0, len(r.nodes))
+	freshNodes := make(map[string]struct{}, len(r.nodes))
 	for _, entry := range r.nodes {
 		if now.Sub(entry.lastHeartbeat) > staleness {
+			continue
+		}
+		_, capacityErr := autoscaling.NewNodeResources(
+			entry.metrics.MemoryTotalBytes, entry.metrics.CpuQuotaPercent, entry.metrics.TasksMax)
+		_, usageErr := autoscaling.NewNodeResources(
+			entry.metrics.MemoryUsedBytes, entry.metrics.CpuUsedPercent, entry.metrics.TasksRunning)
+		if capacityErr != nil || usageErr != nil {
+			// Unreachable for a heartbeat-validated metric sample; skip.
+			continue
+		}
+		freshNodes[entry.nodeId] = struct{}{}
+	}
+	feedFresh := r.observationUnixSec > 0 && !r.observationAt.IsZero() &&
+		now.Sub(r.observationAt) <= feedStaleness &&
+		now.Sub(r.observationAt) >= -autoscalerHeartbeatClockSkew
+	placements := make(map[string][]stateful.ReplicaHealth, len(r.observation.Placements))
+	placementComplete := feedFresh && r.observation.PlacementComplete
+	if placementComplete {
+		for _, placement := range r.observation.Placements {
+			if _, known := freshNodes[placement.NodeId]; !known {
+				placementComplete = false
+				break
+			}
+			placements[placement.NodeId] = append([]stateful.ReplicaHealth(nil), placement.Replicas...)
+		}
+		if placementComplete && len(placements) != len(freshNodes) {
+			placementComplete = false
+		}
+	}
+	demand := []autoscaling.AllocationDemand(nil)
+	if feedFresh && r.observation.DemandComplete {
+		demand = append(demand, r.observation.Demand...)
+	}
+	for _, entry := range r.nodes {
+		if now.Sub(entry.lastHeartbeat) > staleness {
+			entry.replicas = nil
 			continue
 		}
 		capacity, capacityErr := autoscaling.NewNodeResources(
@@ -973,18 +1053,24 @@ func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot 
 		usage, usageErr := autoscaling.NewNodeResources(
 			entry.metrics.MemoryUsedBytes, entry.metrics.CpuUsedPercent, entry.metrics.TasksRunning)
 		if capacityErr != nil || usageErr != nil {
-			// Unreachable for a heartbeat-validated metric sample; skip.
+			entry.replicas = nil
 			continue
 		}
+		replicas := []stateful.ReplicaHealth(nil)
+		if placementComplete {
+			replicas = placements[entry.nodeId]
+		}
+		entry.replicas = append([]stateful.ReplicaHealth(nil), replicas...)
 		observation, err := autoscaling.NewNodeObservation(
 			entry.nodeId, entry.state, capacity, usage,
-			entry.metrics.PendingAllocations, nil)
+			entry.metrics.PendingAllocations, replicas)
 		if err != nil {
 			continue
 		}
 		nodes = append(nodes, observation)
 	}
-	return autoscaling.AutoscalerSnapshot{Nodes: nodes}
+	r.replicaHealthReady = placementComplete
+	return autoscaling.AutoscalerSnapshot{Nodes: nodes, Demand: demand}
 }
 
 // apply executes one autoscaler action. Every application is fail-closed: a
@@ -1118,6 +1204,12 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 		return err
 	}
 	defer func() { _ = subscription.Unsubscribe() }()
+	observationSubscription, err := connection.Subscribe(
+		autoscaling.AutoscalerObservationSubject, role.handleObservationFeed)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observationSubscription.Unsubscribe() }()
 	if err := connection.Flush(); err != nil {
 		return err
 	}

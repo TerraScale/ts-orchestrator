@@ -80,6 +80,141 @@ func TestAutoscalerRoleDefersDrainWithoutReplicaPlacementState(t *testing.T) {
 	}
 }
 
+func TestAutoscalerRoleSnapshotConsumesFreshSchedulerFeed(t *testing.T) {
+	now := time.Now()
+	role := &autoscalerRole{
+		settings: autoscalerRoleSettings{TickInterval: time.Second},
+		nodes:    make(map[string]*autoscalerNodeEntry),
+	}
+	role.handleHeartbeat(&nats.Msg{Subject: "terrascale.node.v1.node-a.heartbeat",
+		Data: testAutoscalerHeartbeat(t, "node-a", now.Unix())})
+	demandResources, err := autoscaling.NewNodeResources(2<<30, 200, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := autoscaling.NewAllocationDemand("dashboard-a", "dashboard", false, demandResources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed, err := autoscaling.NewAutoscalerObservationFeed(
+		autoscaling.AutoscalerFeedSchemaVersion, now.Unix(),
+		[]autoscaling.AllocationDemand{demand}, true, []autoscaling.AutoscalerNodePlacement{
+			{NodeId: "node-a", Replicas: nil},
+		}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(feed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.handleObservationFeed(&nats.Msg{Subject: autoscaling.AutoscalerObservationSubject, Data: payload})
+	snapshot := role.snapshot(time.Now())
+	if len(snapshot.Demand) != 1 || snapshot.Demand[0].RoleId != "dashboard-a" {
+		t.Fatalf("snapshot demand did not come from scheduler feed: %+v", snapshot.Demand)
+	}
+	if !role.replicaHealthReady || len(snapshot.Nodes) != 1 {
+		t.Fatalf("complete placement feed was not applied: ready=%v nodes=%+v", role.replicaHealthReady, snapshot.Nodes)
+	}
+	stale := role.snapshot(now.Add((autoscalerObservationStaleTicks + 1) * time.Second))
+	if len(stale.Demand) != 0 || role.replicaHealthReady {
+		t.Fatalf("stale scheduler feed must be unavailable: demand=%+v ready=%v", stale.Demand, role.replicaHealthReady)
+	}
+}
+
+func TestAutoscalerRoleFreshFeedDrivesScaleUpAndDrain(t *testing.T) {
+	policy, err := stateful.NewDrainPolicy(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := stateful.NewReplicaDrainSafetyEvaluator(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := &autoscalerRole{
+		settings:      autoscalerRoleSettings{TickInterval: time.Second},
+		replicaDrains: evaluator,
+		nodes:         make(map[string]*autoscalerNodeEntry),
+	}
+	for _, node := range []string{"node-a", "node-b"} {
+		role.handleHeartbeat(&nats.Msg{Subject: "terrascale.node.v1." + node + ".heartbeat",
+			Data: testAutoscalerHeartbeat(t, node, time.Now().Unix())})
+	}
+	resources, err := autoscaling.NewNodeResources(2<<30, 200, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := autoscaling.NewAllocationDemand("dashboard-a", "dashboard", false, resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicaA, err := stateful.NewReplicaHealth("terrabase", "member-a", true, 0, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicaB, err := stateful.NewReplicaHealth("terrabase", "member-b", true, 0, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed, err := autoscaling.NewAutoscalerObservationFeed(
+		autoscaling.AutoscalerFeedSchemaVersion, time.Now().Unix(),
+		[]autoscaling.AllocationDemand{demand}, true, []autoscaling.AutoscalerNodePlacement{
+			{NodeId: "node-a", Replicas: []stateful.ReplicaHealth{replicaA}},
+			{NodeId: "node-b", Replicas: []stateful.ReplicaHealth{replicaB}},
+		}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(feed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.handleObservationFeed(&nats.Msg{Subject: autoscaling.AutoscalerObservationSubject, Data: payload})
+
+	config, err := autoscaling.NewAutoscalerConfig(1, 3, 20, 30, 1, 1, 2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.engine, err = autoscaling.NewAutoscaler(config, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.provisioner = autoscaling.NewStaticNodeProvisioner()
+	if err := role.tick(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(role.provisioner.(*autoscaling.StaticNodeProvisioner).Provisions) != 1 {
+		t.Fatalf("fresh demand did not drive scale-up: %+v", role.provisioner)
+	}
+
+	// Rebuild the feed as authoritative no-demand evidence and consume it in a
+	// second engine: the complete placement health now permits a safe drain.
+	feed, err = autoscaling.NewAutoscalerObservationFeed(
+		autoscaling.AutoscalerFeedSchemaVersion, time.Now().Add(time.Second).Unix(), nil, true,
+		[]autoscaling.AutoscalerNodePlacement{{NodeId: "node-a", Replicas: []stateful.ReplicaHealth{replicaA}},
+			{NodeId: "node-b", Replicas: []stateful.ReplicaHealth{replicaB}}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err = json.Marshal(feed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role.handleObservationFeed(&nats.Msg{Subject: autoscaling.AutoscalerObservationSubject, Data: payload})
+	role.snapshot(time.Now())
+	candidate, err := stateful.NewNodeDrainCandidate("node-a", []stateful.ReplicaHealth{replicaA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := role.EvaluateDrainSafety(context.Background(), candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("complete placement feed did not permit a drain: %+v", decision)
+	}
+}
+
 func statefulCandidateForRoleTest(t *testing.T) stateful.NodeDrainCandidate {
 	t.Helper()
 	candidate, err := stateful.NewNodeDrainCandidate("node-a", nil)

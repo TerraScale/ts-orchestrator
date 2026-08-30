@@ -117,10 +117,11 @@ What it does on every tick: nodes are tracked from their heartbeats (a node
 silent for three tick intervals leaves the snapshot), the drain gate consults
 the stateful `ReplicaDrainSafetyEvaluator`, and the emitted actions are
 applied fail-closed — the role stops on the first failed provision, cordon,
-or retire rather than retrying blind. The demand set is currently fed by the
-scheduler integration (follow-up lane), so a fleet without demand never
-scales up. Drain actions remain deferred until the scheduler supplies complete
-replica placement health.
+or retire rather than retrying blind. A scheduler publishes the typed,
+complete observation feed on `terrascale.scheduler.v1.autoscaler`; fresh
+`demandComplete` data can drive scale-up, while fresh `placementComplete`
+data is required before any drain. Missing or stale feed data never becomes
+synthetic demand or replica health.
 
 ## Sending a converge request
 
