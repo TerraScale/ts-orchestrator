@@ -1181,6 +1181,11 @@ internal sealed class NatsGatewayR1Fixture : IAsyncDisposable
         alternativeNames.AddUri(new Uri(spiffeId));
         alternativeNames.AddDnsName("localhost");
         alternativeNames.AddIpAddress(IPAddress.Loopback);
+        // The RF1 plan deliberately uses the all-interface address for its
+        // mandatory single-server self-route so production plan validation
+        // remains strict while the route survives gateway-network removal.
+        // NATS verifies the dialed route host exactly, including 0.0.0.0.
+        alternativeNames.AddIpAddress(IPAddress.Any);
         foreach (var address in addresses)
             alternativeNames.AddIpAddress(IPAddress.Parse(address));
         request.CertificateExtensions.Add(alternativeNames.Build());
