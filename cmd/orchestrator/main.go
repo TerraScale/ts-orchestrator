@@ -54,6 +54,8 @@ const (
 
 	autoscalerDefaultTickInterval = 10 * time.Second
 	autoscalerCordonTimeout       = 2 * time.Second
+	autoscalerHeartbeatClockSkew  = 2 * time.Minute
+	autoscalerMaximumTrackedNodes = 1024
 	// autoscalerHeartbeatStaleTicks bounds how many tick intervals a node's
 	// last heartbeat may age before the autoscaler stops counting the node in
 	// its snapshots: a silent node is unschedulable evidence, not capacity.
@@ -804,10 +806,11 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 // lifecycle state, its latest heartbeat metric sample, and when that
 // heartbeat arrived.
 type autoscalerNodeEntry struct {
-	nodeId        string
-	state         autoscaling.NodeState
-	metrics       hostagent.NodeMetricsSample
-	lastHeartbeat time.Time
+	nodeId               string
+	state                autoscaling.NodeState
+	metrics              hostagent.NodeMetricsSample
+	lastHeartbeat        time.Time
+	lastHeartbeatUnixSec int64
 }
 
 // autoscalerRole is the control-plane runtime of the autoscaler command: it
@@ -821,9 +824,13 @@ type autoscalerRole struct {
 	connection    *nats.Conn
 	provisioner   autoscaling.NodeProvisioner
 	replicaDrains *stateful.ReplicaDrainSafetyEvaluator
-	engine        *autoscaling.Autoscaler
-	mutex         sync.Mutex
-	nodes         map[string]*autoscalerNodeEntry
+	// Heartbeat payloads currently carry metrics only. Until placement state
+	// supplies a complete replica view, no node is safe to cordon, including a
+	// node that appears stateless in the incomplete view.
+	replicaHealthReady bool
+	engine             *autoscaling.Autoscaler
+	mutex              sync.Mutex
+	nodes              map[string]*autoscalerNodeEntry
 }
 
 // EvaluateDrainSafety adapts the engine's drain seam onto the stateful
@@ -838,6 +845,10 @@ func (r *autoscalerRole) EvaluateDrainSafety(
 	}
 	if r == nil || r.replicaDrains == nil {
 		return stateful.DrainDecision{}, errors.New("autoscaler: the replica drain evaluator is unavailable")
+	}
+	if !r.replicaHealthReady {
+		return stateful.NewDrainDecision(false,
+			"Replica placement health is unavailable; node drain is deferred.", nil)
 	}
 	return r.replicaDrains.EvaluateDrainSafety(candidate, r.peerCandidates(candidate.NodeId))
 }
@@ -871,8 +882,30 @@ func (r *autoscalerRole) peerCandidates(excluded string) []stateful.NodeDrainCan
 // malformed heartbeat is dropped rather than trusted, and a retired node
 // stays retired.
 func (r *autoscalerRole) handleHeartbeat(message *nats.Msg) {
+	if r == nil || message == nil {
+		return
+	}
+	parts := strings.Split(message.Subject, ".")
+	if len(parts) != 5 || parts[0] != "terrascale" || parts[1] != "node" ||
+		parts[2] != "v1" || parts[4] != hostagent.NatsSubjectLeafHeartbeat {
+		return
+	}
+	subjectNode, err := hostagent.NewNodeId(parts[3])
+	if err != nil {
+		return
+	}
 	var heartbeat hostagent.NodeHeartbeat
 	if err := json.Unmarshal(message.Data, &heartbeat); err != nil {
+		return
+	}
+	if heartbeat.NodeId != subjectNode {
+		// The wildcard subscription is not an identity proof. Bind the
+		// payload to the node token in the subject before trusting metrics.
+		return
+	}
+	now := time.Now()
+	if heartbeat.UnixSeconds < now.Add(-autoscalerHeartbeatClockSkew).Unix() ||
+		heartbeat.UnixSeconds > now.Add(autoscalerHeartbeatClockSkew).Unix() {
 		return
 	}
 	r.mutex.Lock()
@@ -882,14 +915,21 @@ func (r *autoscalerRole) handleHeartbeat(message *nats.Msg) {
 		return
 	}
 	if !present {
+		if len(r.nodes) >= autoscalerMaximumTrackedNodes {
+			return
+		}
 		entry = &autoscalerNodeEntry{
 			nodeId: heartbeat.NodeId.Value,
 			state:  autoscaling.NodeStateReady,
 		}
 		r.nodes[heartbeat.NodeId.Value] = entry
 	}
+	if present && heartbeat.UnixSeconds <= entry.lastHeartbeatUnixSec {
+		return
+	}
 	entry.metrics = heartbeat.Metrics
-	entry.lastHeartbeat = time.Now()
+	entry.lastHeartbeat = now
+	entry.lastHeartbeatUnixSec = heartbeat.UnixSeconds
 }
 
 // setState records one lifecycle transition of a tracked node, creating the

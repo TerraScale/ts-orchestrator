@@ -336,10 +336,14 @@ func podmanRunArguments(request PodmanRunRequest) []string {
 		arguments = append(arguments, "--cap-drop", capability)
 	}
 	arguments = append(arguments,
-		"--cgroup-parent", request.CgroupParent,
+		"--cgroup-parent", podmanSystemdSliceName(request.CgroupParent),
 		"--memory", strconv.FormatInt(request.MemoryMaxBytes, 10),
 		"--pids-limit", strconv.Itoa(request.PidsLimit),
-		"--cpu-quota", strconv.Itoa(request.CpuQuotaPercent),
+		// --cpu-quota is microseconds per --cpu-period (default 100000us), so
+		// the plan's percent converts by one thousand: 100 percent is exactly
+		// one CPU per period, and the runtime rejects every sub-millisecond
+		// quota (crun: write to cpu.max: Invalid argument).
+		"--cpu-quota", strconv.Itoa(request.CpuQuotaPercent * 1000),
 		"--cpu-shares", strconv.Itoa(request.CpuWeight),
 		"--restart=no")
 	for _, mount := range request.Volumes {
@@ -354,6 +358,18 @@ func podmanRunArguments(request PodmanRunRequest) []string {
 	}
 	arguments = append(arguments, request.ImageReference)
 	return arguments
+}
+
+// podmanSystemdSliceName maps one validated canonical cgroup parent path onto
+// the systemd slice name rootless podman's cgroup manager requires on cgroup
+// v2: slash separators become dashes and the slice suffix is appended, so
+// terrascale/<allocation> becomes terrascale-<allocation>.slice. Podman
+// rejects every other spelling ("did not receive systemd slice as cgroup
+// parent"), and the slice is created under the caller's own user manager, so
+// the canonical path keeps meaning "under the user's slice, never a system
+// slice".
+func podmanSystemdSliceName(cgroupParent string) string {
+	return strings.ReplaceAll(cgroupParent, "/", "-") + ".slice"
 }
 
 // requirePodmanPlatform enforces the closed platform vocabulary shared with

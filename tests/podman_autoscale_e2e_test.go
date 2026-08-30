@@ -57,9 +57,10 @@ func mustE2EDigest() runtime.ArtifactDigest {
 
 // fakeE2EContainer is the fake client's tracked container.
 type fakeE2EContainer struct {
-	image   string
-	labels  map[string]string
-	running bool
+	image    string
+	platform string
+	labels   map[string]string
+	running  bool
 }
 
 // fakeE2EPodmanClient implements runtime.PodmanClient with an in-memory
@@ -105,9 +106,10 @@ func (c *fakeE2EPodmanClient) Create(ctx context.Context, request runtime.Podman
 		labels[key] = value
 	}
 	c.containers[request.ContainerId] = &fakeE2EContainer{
-		image:   request.ImageReference,
-		labels:  labels,
-		running: false,
+		image:    request.ImageReference,
+		platform: request.Platform,
+		labels:   labels,
+		running:  false,
 	}
 	c.createdRequests = append(c.createdRequests, request)
 	return nil
@@ -155,10 +157,10 @@ func (c *fakeE2EPodmanClient) Inspect(ctx context.Context, containerId string) (
 	}
 	if container.running {
 		return runtime.NewPodmanAllocationObservation(
-			runtime.PodmanAllocationStateRunning, container.image, container.labels, true)
+			runtime.PodmanAllocationStateRunning, container.image, container.labels, true, container.platform)
 	}
 	return runtime.NewPodmanAllocationObservation(
-		runtime.PodmanAllocationStateStopped, container.image, container.labels, false)
+		runtime.PodmanAllocationStateStopped, container.image, container.labels, false, container.platform)
 }
 
 // EnsureVolume records the named volume without creating anything.

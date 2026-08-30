@@ -114,12 +114,17 @@ func (g *RepositorySourceGraph) ReadArchive(ctx context.Context, rev ResolvedRev
 func parseDescriptor(content []byte) (string, []string, error) {
 	var d struct {
 		SchemaVersion          int    `json:"schemaVersion"`
+		APIVersion             string `json:"apiVersion"`
 		Repository             string `json:"repository"`
 		RepositoryDependencies []struct {
 			Repository string `json:"repository"`
 		} `json:"repositoryDependencies"`
 	}
-	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) || json.Unmarshal(content, &d) != nil || d.SchemaVersion != 1 || !ValidRepository(d.Repository) {
+	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) || json.Unmarshal(content, &d) != nil {
+		return "", nil, errors.New("invalid CI descriptor")
+	}
+	validVersion := (d.APIVersion == "" && d.SchemaVersion == 1) || d.APIVersion == "terrascale.ci/v3"
+	if !validVersion || !ValidRepository(d.Repository) {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
 	deps := make([]string, 0, len(d.RepositoryDependencies))

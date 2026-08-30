@@ -405,6 +405,12 @@ func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string)
 	delete(p.children, validated)
 	p.mutex.Unlock()
 	if err := p.spawner.Terminate(ctx, pid); err != nil {
+		var escalated *processTerminationEscalatedError
+		if errors.As(err, &escalated) {
+			// The spawner already killed and reaped the child. Preserve the
+			// diagnostic, but do not resurrect a pid that cannot be retried.
+			return err
+		}
 		// Keep the recorded pid so a failed termination stays visible and
 		// retryable instead of silently orphaning the child.
 		p.mutex.Lock()
@@ -422,6 +428,12 @@ type spawnedProcess struct {
 	command *exec.Cmd
 	exited  chan struct{}
 }
+
+// processTerminationEscalatedError reports that SIGTERM was ignored but the
+// child was successfully killed and reaped. The child is gone, so callers
+// must not retain a pid mapping merely because the operation returns an
+// error for observability.
+type processTerminationEscalatedError struct{ *InvalidOperationError }
 
 // CommandProcessSpawner is the production ProcessSpawner: it spawns the
 // host-agent binary via os/exec with dropped credentials, its own process
@@ -551,9 +563,8 @@ func (s *CommandProcessSpawner) Terminate(ctx context.Context, pid int) error {
 	select {
 	case <-child.exited:
 		delete(s.processes, pid)
-		return &InvalidOperationError{
-			Message: fmt.Sprintf("Process %d ignored SIGTERM and was killed after the grace period.", pid),
-		}
+		return &processTerminationEscalatedError{InvalidOperationError: &InvalidOperationError{Message: fmt.Sprintf(
+			"Process %d ignored SIGTERM and was killed after the grace period.", pid)}}
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
