@@ -198,3 +198,34 @@ func TestRuntimeInputsCannotInjectPathsImagesOrUnknownRoles(t *testing.T) {
 		t.Fatalf("role errors must keep the exact message: %v", blankRoleErr)
 	}
 }
+
+func TestHostRuntimePlanRevalidatesValueObjectFieldsAtPlanBoundary(t *testing.T) {
+	validAllocation := mustRuntimeAllocationId(t, "gru-orchestrator-1")
+	validDigest := mustArtifactDigest(t, hostRuntimePlanDigest)
+	cases := []struct {
+		name         string
+		allocation   RuntimeAllocationId
+		digest       ArtifactDigest
+		architecture HostArchitecture
+	}{
+		{"path traversal allocation", RuntimeAllocationId{Value: "../../root"}, validDigest, HostArchitectureArm64},
+		{"empty allocation", RuntimeAllocationId{}, validDigest, HostArchitectureArm64},
+		{"floating digest", validAllocation, ArtifactDigest{Value: "latest"}, HostArchitectureArm64},
+		{"empty digest", validAllocation, ArtifactDigest{}, HostArchitectureArm64},
+		{"unknown architecture", validAllocation, validDigest, HostArchitecture(99)},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, err := NewHostRuntimePlan(
+				AdmittedRoleOrchestrator,
+				RuntimeDriverNativeSystemd,
+				testCase.allocation,
+				testCase.digest,
+				testCase.architecture,
+				nil); err == nil {
+				t.Fatal("malformed value-object fields must be rejected before path derivation")
+			}
+		})
+	}
+}

@@ -149,6 +149,20 @@ func NewHostRuntimePlan(
 	architecture HostArchitecture,
 	requestedResources *RuntimeResourceLimits,
 ) (HostRuntimePlan, error) {
+	// RuntimeAllocationId and ArtifactDigest are value structs with exported
+	// fields for protocol compatibility. Revalidate them at this trust boundary
+	// before deriving any filesystem path, unit name, image reference, or cgroup
+	// identity from their values.
+	if _, err := NewRuntimeAllocationId(allocationId.Value); err != nil {
+		return HostRuntimePlan{}, err
+	}
+	if _, err := NewArtifactDigest(digest.Value); err != nil {
+		return HostRuntimePlan{}, err
+	}
+	if !architecture.defined() {
+		return HostRuntimePlan{}, &ArgumentOutOfRangeError{Param: "architecture"}
+	}
+
 	descriptor, err := AdmittedRoleCatalog.Admit(role, driver)
 	if err != nil {
 		return HostRuntimePlan{}, err

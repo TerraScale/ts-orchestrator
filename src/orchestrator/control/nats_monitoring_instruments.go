@@ -648,11 +648,11 @@ const NatsMonitoringSnapshotCurrentSchemaVersion = 1
 
 // NatsMonitoringSnapshot mirrors the C# record.
 type NatsMonitoringSnapshot struct {
-	SchemaVersion int                             `json:"SchemaVersion"`
-	Cell          string                          `json:"Cell"`
-	ObservedAt    time.Time                       `json:"ObservedAt"`
-	Availability  NatsMonitoringAvailability      `json:"Availability"`
-	Entries       []NatsMonitoringSnapshotEntry   `json:"Entries"`
+	SchemaVersion int                           `json:"SchemaVersion"`
+	Cell          string                        `json:"Cell"`
+	ObservedAt    time.Time                     `json:"ObservedAt"`
+	Availability  NatsMonitoringAvailability    `json:"Availability"`
+	Entries       []NatsMonitoringSnapshotEntry `json:"Entries"`
 }
 
 // NatsMonitoringSnapshotFrom mirrors the static From: projects the bounded

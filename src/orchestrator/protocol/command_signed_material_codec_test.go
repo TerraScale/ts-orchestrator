@@ -61,6 +61,21 @@ func TestCanonicalHashIsDeterministicAndCoversEveryMaterialField(t *testing.T) {
 	}
 }
 
+func TestCanonicalHashMatchesNonUtcDateTimeOffsetVector(t *testing.T) {
+	zone := time.FixedZone("BRT", -3*60*60)
+	envelope := validEnvelope(
+		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(protocolNow.Add(-time.Minute).In(zone)) },
+		func(o *validEnvelopeOption) { o.expiresAt = ptrOf(protocolNow.Add(time.Minute).In(zone)) })
+
+	hash, err := CommandSignedMaterialCodec.Hash(&envelope.SignedMaterial)
+	if err != nil {
+		t.Fatalf("hash failed: %v", err)
+	}
+	if got, want := hex.EncodeToString(hash[:]), "8e9b4a27ace84e4ad08be229be1df79a3fb438f1e2cfc1b888f2327c9e528142"; got != want {
+		t.Fatalf("non-UTC canonical hash = %s, want %s", got, want)
+	}
+}
+
 func TestInvalidWindowAndOversizedPayloadCannotReachASigner(t *testing.T) {
 	invalidWindow := validEnvelope(
 		func(o *validEnvelopeOption) { o.issuedAt = ptrOf(protocolNow) },

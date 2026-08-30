@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 )
 
 type recordingHostRunner struct {
@@ -179,5 +180,45 @@ func TestAdapterRejectsAPlanWithInjectedExecutableOrProperty(t *testing.T) {
 	err := adapter.Converge(context.Background(), injected)
 	if !errors.As(err, &operationError) {
 		t.Fatalf("expected InvalidOperationError, got %v", err)
+	}
+}
+
+func TestProcessHostCommandRunnerHandlesStartFailureAndBoundsOutput(t *testing.T) {
+	runner := ProcessHostCommandRunner{}
+	if _, err := runner.Run(context.Background(), "/definitely/not-an-executable", nil); err == nil {
+		t.Fatal("a command start failure must be returned as an error")
+	}
+
+	result, err := runner.Run(context.Background(), "/bin/sh", []string{"-c", "head -c 1048576 /dev/zero"})
+	if err != nil {
+		t.Fatalf("bounded command: %v", err)
+	}
+	if len([]rune(result.StandardOutput)) > hostCommandMaximumCapturedCharacters {
+		t.Fatalf("captured output exceeded bound: %d", len([]rune(result.StandardOutput)))
+	}
+}
+
+func TestProcessHostCommandRunnerCancellationKillsProcessGroup(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	_, err := (ProcessHostCommandRunner{}).Run(ctx, "/bin/sh", []string{"-c", "sleep 30"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("canceled command took too long: %s", elapsed)
+	}
+}
+
+func TestBoundedOutputWriterDropsExcessWithoutReturningAnIoError(t *testing.T) {
+	var writer boundedOutputWriter
+	writer.limit = 4
+	if written, err := writer.Write([]byte("abcdef")); err != nil || written != 6 {
+		t.Fatalf("Write = (%d, %v), want (6, nil)", written, err)
+	}
+	if got := writer.String(); got != "abcd" {
+		t.Fatalf("captured output = %q", got)
 	}
 }

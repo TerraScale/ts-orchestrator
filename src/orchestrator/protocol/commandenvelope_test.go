@@ -88,3 +88,20 @@ func TestEnvelopeFormattingNeverRendersPayloadDigestOrSignature(t *testing.T) {
 		t.Fatal("rendered envelope must redact the signature")
 	}
 }
+
+func TestDotNetDateTimeOffsetHelpersPreserveLocalWallClockAndOffset(t *testing.T) {
+	zone := time.FixedZone("BRT", -3*60*60)
+	value := time.Date(2026, 8, 30, 12, 4, 5, 123456700, zone)
+
+	if got, want := dotNetTicks(value), int64(639236882451234567); got != want {
+		t.Fatalf("DateTimeOffset ticks = %d, want %d", got, want)
+	}
+	if got, want := formatDotNetRoundTrip(value), "2026-08-30T12:04:05.1234567-03:00"; got != want {
+		t.Fatalf("DateTimeOffset round-trip = %q, want %q", got, want)
+	}
+
+	utc := value.UTC()
+	if dotNetTicks(value) == dotNetTicks(utc) {
+		t.Fatal("local DateTimeOffset ticks must retain the wall-clock offset")
+	}
+}

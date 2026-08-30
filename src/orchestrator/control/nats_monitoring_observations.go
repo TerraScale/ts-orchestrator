@@ -33,7 +33,7 @@ func (p NatsMonitoringPlane) String() string {
 type NatsClusterRole int
 
 const (
-	NatsClusterRoleRegional       NatsClusterRole = 1
+	NatsClusterRoleRegional        NatsClusterRole = 1
 	NatsClusterRoleGlobalAuthority NatsClusterRole = 2
 )
 
@@ -118,7 +118,7 @@ func (c NatsConsumerClass) String() string {
 type NatsStoreClass int
 
 const (
-	NatsStoreClassKeyValue   NatsStoreClass = 1
+	NatsStoreClassKeyValue    NatsStoreClass = 1
 	NatsStoreClassObjectStore NatsStoreClass = 2
 )
 
@@ -137,8 +137,8 @@ func (c NatsStoreClass) String() string {
 type NatsCertificateClass int
 
 const (
-	NatsCertificateClassServerListener  NatsCertificateClass = 1
-	NatsCertificateClassGatewayLink     NatsCertificateClass = 2
+	NatsCertificateClassServerListener   NatsCertificateClass = 1
+	NatsCertificateClassGatewayLink      NatsCertificateClass = 2
 	NatsCertificateClassMonitoringClient NatsCertificateClass = 3
 )
 
@@ -160,12 +160,12 @@ func (c NatsCertificateClass) String() string {
 type NatsAdvisoryKind int
 
 const (
-	NatsAdvisoryKindSlowConsumer        NatsAdvisoryKind = 1
-	NatsAdvisoryKindLeaderChange        NatsAdvisoryKind = 2
+	NatsAdvisoryKindSlowConsumer          NatsAdvisoryKind = 1
+	NatsAdvisoryKindLeaderChange          NatsAdvisoryKind = 2
 	NatsAdvisoryKindAuthenticationFailure NatsAdvisoryKind = 3
-	NatsAdvisoryKindMaxDeliveries       NatsAdvisoryKind = 4
-	NatsAdvisoryKindResourceExhausted   NatsAdvisoryKind = 5
-	NatsAdvisoryKindUnclassified        NatsAdvisoryKind = 6
+	NatsAdvisoryKindMaxDeliveries         NatsAdvisoryKind = 4
+	NatsAdvisoryKindResourceExhausted     NatsAdvisoryKind = 5
+	NatsAdvisoryKindUnclassified          NatsAdvisoryKind = 6
 )
 
 func (k NatsAdvisoryKind) String() string {
@@ -243,11 +243,11 @@ func (o NatsRoutesObservation) Validate() error {
 // NatsGatewaysObservation mirrors the C# record: aggregate observation of one
 // server's outbound gateway links.
 type NatsGatewaysObservation struct {
-	SchemaVersion      int
-	Cell               string
-	ConnectedGateways  int
+	SchemaVersion        int
+	Cell                 string
+	ConnectedGateways    int
 	DisconnectedGateways int
-	ObservedAt         time.Time
+	ObservedAt           time.Time
 }
 
 // NatsGatewaysObserve mirrors the static Observe.
@@ -399,11 +399,11 @@ func (s NatsStoreClassState) Validate() error {
 
 // NatsServerResourceObservation mirrors the C# record.
 type NatsServerResourceObservation struct {
-	SchemaVersion       int
-	Cell                string
-	ServerMemoryBytes   int64
+	SchemaVersion         int
+	Cell                  string
+	ServerMemoryBytes     int64
 	JetStreamStorageBytes int64
-	ObservedAt          time.Time
+	ObservedAt            time.Time
 }
 
 // NatsServerResourceObserve mirrors the static Observe.
@@ -693,29 +693,29 @@ const NatsMonitoringAggregateCurrentSchemaVersion = 1
 // NatsMonitoringAggregate mirrors the C# record: the bounded NATS monitoring
 // aggregate the observability instruments project.
 type NatsMonitoringAggregate struct {
-	SchemaVersion               int
-	Cell                        string
-	Plane                       NatsMonitoringPlane
-	ClusterRole                 NatsClusterRole
-	ObservedAt                  time.Time
-	Availability                NatsMonitoringAvailability
-	Mesh                        NatsMeshHealth
-	Connections                 int64
-	Reconnects                  int64
-	Routes                      int64
-	Accounts                    int64
-	JetStreamDomains            int64
-	GatewaysConnected           int64
-	GatewaysDisconnected        int64
-	ServerMemoryBytes           int64
-	JetStreamStorageBytes       int64
+	SchemaVersion                 int
+	Cell                          string
+	Plane                         NatsMonitoringPlane
+	ClusterRole                   NatsClusterRole
+	ObservedAt                    time.Time
+	Availability                  NatsMonitoringAvailability
+	Mesh                          NatsMeshHealth
+	Connections                   int64
+	Reconnects                    int64
+	Routes                        int64
+	Accounts                      int64
+	JetStreamDomains              int64
+	GatewaysConnected             int64
+	GatewaysDisconnected          int64
+	ServerMemoryBytes             int64
+	JetStreamStorageBytes         int64
 	PartitionDurationMilliseconds int64
 	RecoveryDurationMilliseconds  int64
-	StreamsByClass              []NatsStreamClassState
-	ConsumersByClass            []NatsConsumerClassState
-	StoresByClass               []NatsStoreClassState
-	Advisories                  []NatsAdvisoryCount
-	Certificates                []NatsCertificateObservation
+	StreamsByClass                []NatsStreamClassState
+	ConsumersByClass              []NatsConsumerClassState
+	StoresByClass                 []NatsStoreClassState
+	Advisories                    []NatsAdvisoryCount
+	Certificates                  []NatsCertificateObservation
 }
 
 // WithAvailability mirrors the C# `with` expression used by supervision.

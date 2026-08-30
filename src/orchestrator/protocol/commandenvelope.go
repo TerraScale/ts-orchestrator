@@ -19,10 +19,14 @@ const (
 	dotNetEpochTickOffset = int64(621355968000000000)
 )
 
-// dotNetTicks returns the .NET DateTimeOffset tick count (100-nanosecond units
-// since 0001-01-01) of the instant t.
+// dotNetTicks returns DateTimeOffset.Ticks: the local wall-clock tick count
+// (100-nanosecond units since 0001-01-01), not UTC instant ticks. The offset is
+// serialized separately by CommandSignedMaterialCodec, matching the C# wire
+// contract.
 func dotNetTicks(t time.Time) int64 {
-	return t.Unix()*dotNetTicksPerSecond + int64(t.Nanosecond())/100 + dotNetEpochTickOffset
+	_, offsetSeconds := t.Zone()
+	return (t.Unix()+int64(offsetSeconds))*dotNetTicksPerSecond +
+		int64(t.Nanosecond())/100 + dotNetEpochTickOffset
 }
 
 // dotNetOffsetTicks returns the .NET tick count of t's UTC offset.
@@ -42,10 +46,9 @@ func timeZoneOffset(t time.Time) time.Duration {
 // signed ±hh:mm offset.
 func formatDotNetRoundTrip(t time.Time) string {
 	var builder strings.Builder
-	utc := t.UTC()
-	builder.WriteString(utc.Format("2006-01-02T15:04:05"))
+	builder.WriteString(t.Format("2006-01-02T15:04:05"))
 	builder.WriteByte('.')
-	fraction := utc.Nanosecond() / 100 // 100ns ticks, exactly seven digits
+	fraction := t.Nanosecond() / 100 // 100ns ticks, exactly seven digits
 	builder.WriteString(padLeft(strconv.Itoa(fraction), 7, '0'))
 	offset := timeZoneOffset(t)
 	sign := "+"

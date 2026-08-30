@@ -352,7 +352,9 @@ type RegionalRuntimeMembership struct {
 	heartbeatDone    chan struct{}
 	selfObserved     chan struct{}
 	selfOnce         sync.Once
+	revisionMu       sync.Mutex
 	revision         uint64
+	watchStarted     int32
 	disposed         int32
 	heartbeatStarted int32
 }
@@ -431,6 +433,9 @@ func RegionalRuntimeMembershipStartAsync(
 		return nil, err
 	}
 
+	// Mark the watcher started before launching it so Dispose can distinguish a
+	// live lifecycle from claim failures that occur before any goroutine exists.
+	atomic.StoreInt32(&membership.watchStarted, 1)
 	go membership.watchLoop()
 
 	select {
@@ -443,6 +448,9 @@ func RegionalRuntimeMembershipStartAsync(
 		return nil, ctx.Err()
 	}
 
+	// Mark the loop started before launching it so Dispose cannot race with
+	// goroutine startup and skip the completion wait.
+	atomic.StoreInt32(&membership.heartbeatStarted, 1)
 	go membership.heartbeatLoop()
 
 	return membership, nil
@@ -537,23 +545,25 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 	}
 
 	m.stopping()
-	<-m.watchLoopDone
-	select {
-	case <-m.heartbeatDone:
-	default:
+	if atomic.LoadInt32(&m.watchStarted) != 0 {
+		<-m.watchLoopDone
+	}
+	if atomic.LoadInt32(&m.heartbeatStarted) != 0 {
+		<-m.heartbeatDone
 	}
 
 	// The pure rule: only this session's own record, only under the
 	// compare-and-swap revision this process still holds. A newer owner must
 	// never lose its registration to a departing peer.
-	if m.revision != 0 {
+	revision := m.currentRevision()
+	if revision != 0 {
 		m.membersMu.Lock()
 		current, hasCurrent := m.members[m.key]
 		m.membersMu.Unlock()
 
 		if hasCurrent && RegionalRuntimeMembershipMutation.MayDeleteCurrentRecord(
-			m.sessionId, &current, m.revision) {
-			if err := m.store.Delete(context.Background(), m.key, jetstream.LastRevision(m.revision)); err != nil &&
+			m.sessionId, &current, revision) {
+			if err := m.store.Delete(context.Background(), m.key, jetstream.LastRevision(revision)); err != nil &&
 				!errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
 				return err
 			}
@@ -562,8 +572,6 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 
 	return nil
 }
-
-var heartbeatStarted int32
 
 func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 	document, err := m.document(time.Now().UTC())
@@ -578,7 +586,7 @@ func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 
 	revision, err := m.store.Create(ctx, m.key, value)
 	if err == nil {
-		m.revision = revision
+		m.setRevision(revision)
 		return nil
 	}
 
@@ -617,7 +625,7 @@ func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 			// slot is safely reclaimable under the observed revision.
 			revision, err := m.store.Update(ctx, m.key, value, entry.Revision())
 			if err == nil {
-				m.revision = revision
+				m.setRevision(revision)
 				return nil
 			}
 
@@ -637,7 +645,6 @@ func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 }
 
 func (m *RegionalRuntimeMembership) heartbeatLoop() {
-	atomic.StoreInt32(&m.heartbeatStarted, 1)
 	defer close(m.heartbeatDone)
 
 	ticker := time.NewTicker(m.HeartbeatInterval)
@@ -660,13 +667,26 @@ func (m *RegionalRuntimeMembership) heartbeatLoop() {
 			continue
 		}
 
-		revision, err := m.store.Update(m.stoppingCtx, m.key, value, m.revision)
+		currentRevision := m.currentRevision()
+		revision, err := m.store.Update(m.stoppingCtx, m.key, value, currentRevision)
 		if err != nil {
 			continue
 		}
 
-		m.revision = revision
+		m.setRevision(revision)
 	}
+}
+
+func (m *RegionalRuntimeMembership) currentRevision() uint64 {
+	m.revisionMu.Lock()
+	defer m.revisionMu.Unlock()
+	return m.revision
+}
+
+func (m *RegionalRuntimeMembership) setRevision(revision uint64) {
+	m.revisionMu.Lock()
+	m.revision = revision
+	m.revisionMu.Unlock()
 }
 
 func (m *RegionalRuntimeMembership) watchLoop() {

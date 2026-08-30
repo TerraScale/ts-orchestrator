@@ -385,11 +385,11 @@ func isLowercaseDnsToken(value string) bool {
 // NatsGatewayAccountLimits mirrors the C# record: the account limits one
 // account scope enforces.
 type NatsGatewayAccountLimits struct {
-	MaxConnections     int
-	MaxSubscriptions   int
-	MaxPayloadBytes    int64
-	MaxStreams         int
-	MaxConsumers       int
+	MaxConnections      int
+	MaxSubscriptions    int
+	MaxPayloadBytes     int64
+	MaxStreams          int
+	MaxConsumers        int
 	MaxDiskStorageBytes int64
 }
 
@@ -425,11 +425,11 @@ func NewNatsGatewayAccountLimits(
 	}
 
 	return &NatsGatewayAccountLimits{
-		MaxConnections:     maxConnections,
-		MaxSubscriptions:   maxSubscriptions,
-		MaxPayloadBytes:    maxPayloadBytes,
-		MaxStreams:         maxStreams,
-		MaxConsumers:       maxConsumers,
+		MaxConnections:      maxConnections,
+		MaxSubscriptions:    maxSubscriptions,
+		MaxPayloadBytes:     maxPayloadBytes,
+		MaxStreams:          maxStreams,
+		MaxConsumers:        maxConsumers,
 		MaxDiskStorageBytes: maxDiskStorageBytes,
 	}, nil
 }
@@ -437,11 +437,11 @@ func NewNatsGatewayAccountLimits(
 // NatsGatewayAccountScope mirrors the C# record: one separately scoped account
 // inside the plane trust model.
 type NatsGatewayAccountScope struct {
-	Cell             string
-	AccountName      string
-	SigningKeyNames  []string
-	Users            []string
-	Limits           *NatsGatewayAccountLimits
+	Cell            string
+	AccountName     string
+	SigningKeyNames []string
+	Users           []string
+	Limits          *NatsGatewayAccountLimits
 }
 
 // NewNatsGatewayAccountScope mirrors the C# constructor.
@@ -550,8 +550,8 @@ func NewNatsGatewayServiceExportScope(accountName, subject string) (*NatsGateway
 
 // NatsGatewayServiceImportScope mirrors the C# NatsGatewayServiceImport record.
 type NatsGatewayServiceImportScope struct {
-	AccountName      string
-	Subject          string
+	AccountName       string
+	Subject           string
 	SourceAccountName string
 }
 
@@ -570,8 +570,8 @@ func NewNatsGatewayServiceImportScope(accountName, subject, sourceAccountName st
 	}
 
 	return &NatsGatewayServiceImportScope{
-		AccountName:      accountName,
-		Subject:          subject,
+		AccountName:       accountName,
+		Subject:           subject,
 		SourceAccountName: sourceAccountName,
 	}, nil
 }
@@ -585,26 +585,26 @@ type NatsGatewayRelationship struct {
 
 // NatsGatewayCluster port constants mirror the C# consts.
 const (
-	NatsGatewayClusterControlClientPort = 4222
-	NatsGatewayClusterControlRoutePort  = 6222
+	NatsGatewayClusterControlClientPort  = 4222
+	NatsGatewayClusterControlRoutePort   = 6222
 	NatsGatewayClusterControlGatewayPort = 7222
-	NatsGatewayClusterProductClientPort = 4223
-	NatsGatewayClusterProductRoutePort  = 6223
+	NatsGatewayClusterProductClientPort  = 4223
+	NatsGatewayClusterProductRoutePort   = 6223
 )
 
 // NatsGatewayCluster mirrors the C# record: one immutable regional cluster of
 // the plane.
 type NatsGatewayCluster struct {
-	Plane                 NatsGatewayPlane
-	Cell                  string
-	ClusterName           string
-	JetStreamDomain       string
-	OperatorName          string
-	Servers               []*NatsGatewayServerIdentity
-	Accounts              []string
-	JetStreamAssets       []string
-	CgroupSlice           string
-	TrustGeneration       int
+	Plane                   NatsGatewayPlane
+	Cell                    string
+	ClusterName             string
+	JetStreamDomain         string
+	OperatorName            string
+	Servers                 []*NatsGatewayServerIdentity
+	Accounts                []string
+	JetStreamAssets         []string
+	CgroupSlice             string
+	TrustGeneration         int
 	ConfigurationGeneration int
 }
 
@@ -692,16 +692,16 @@ func NewNatsGatewayCluster(
 	}
 
 	return &NatsGatewayCluster{
-		Plane:                 plane,
-		Cell:                  cell,
-		ClusterName:           clusterName,
-		JetStreamDomain:       jetStreamDomain,
-		OperatorName:          operatorName,
-		Servers:               servers,
-		Accounts:              distinctSorted(accounts),
-		JetStreamAssets:       distinctSorted(jetStreamAssets),
-		CgroupSlice:           cgroupSlice,
-		TrustGeneration:       trustGeneration,
+		Plane:                   plane,
+		Cell:                    cell,
+		ClusterName:             clusterName,
+		JetStreamDomain:         jetStreamDomain,
+		OperatorName:            operatorName,
+		Servers:                 servers,
+		Accounts:                distinctSorted(accounts),
+		JetStreamAssets:         distinctSorted(jetStreamAssets),
+		CgroupSlice:             cgroupSlice,
+		TrustGeneration:         trustGeneration,
 		ConfigurationGeneration: configurationGeneration,
 	}, nil
 }
@@ -753,15 +753,15 @@ func isUppercaseToken(value string) bool {
 // NatsGatewayPlan mirrors the C# record: the complete typed plan for one NATS
 // plane.
 type NatsGatewayPlan struct {
-	Plane                NatsGatewayPlane
-	OperatorName         string
-	TrustGeneration      int
+	Plane                   NatsGatewayPlane
+	OperatorName            string
+	TrustGeneration         int
 	ConfigurationGeneration int
-	Clusters             []*NatsGatewayCluster
-	GatewayRelationships []NatsGatewayRelationship
-	Accounts             []*NatsGatewayAccountScope
-	Exports              []*NatsGatewayServiceExportScope
-	Imports              []*NatsGatewayServiceImportScope
+	Clusters                []*NatsGatewayCluster
+	GatewayRelationships    []NatsGatewayRelationship
+	Accounts                []*NatsGatewayAccountScope
+	Exports                 []*NatsGatewayServiceExportScope
+	Imports                 []*NatsGatewayServiceImportScope
 }
 
 // NewNatsGatewayPlan mirrors the C# constructor.
@@ -806,15 +806,15 @@ func NewNatsGatewayPlan(
 	}
 
 	return &NatsGatewayPlan{
-		Plane:                plane,
-		OperatorName:         operatorName,
-		TrustGeneration:      trustGeneration,
+		Plane:                   plane,
+		OperatorName:            operatorName,
+		TrustGeneration:         trustGeneration,
 		ConfigurationGeneration: configurationGeneration,
-		Clusters:             clusters,
-		GatewayRelationships: gatewayRelationships,
-		Accounts:             accounts,
-		Exports:              exports,
-		Imports:              imports,
+		Clusters:                clusters,
+		GatewayRelationships:    gatewayRelationships,
+		Accounts:                accounts,
+		Exports:                 exports,
+		Imports:                 imports,
 	}, nil
 }
 

@@ -33,9 +33,10 @@ strongly connected component, so they share ONE Go package:
 | TerraScale.Orchestrator.Tooling | `tools/orchestrator-tooling` | — (standalone) |
 | tests/*.Tests projects | `*_test.go` inside the matching package (control tests in src/orchestrator/control, protocol tests in src/orchestrator/protocol, …) | |
 
-Within `src/orchestrator/control`, mirror the C# folder structure as file-name
-prefixes (ControlPlane/Foo.cs → controlplanefoo.go) — one package, but names
-stay traceable to the C# tree.
+Within `src/orchestrator/control`, use concise snake_case filenames named for
+the Go responsibility (`authority_engine.go`, `journal_store.go`). Package and
+symbol names carry the contract identity; filenames must not concatenate the
+old C# folder and class names.
 
 ## Stack mapping
 
@@ -70,8 +71,9 @@ stay traceable to the C# tree.
 
 ## Rules
 
-1. One C# file → one Go file in the mapped package (ControlPlane/Foo.cs →
-   controlplanefoo.go inside src/orchestrator/control).
+1. Keep cohesive Go responsibilities together and use concise snake_case
+   filenames. Do not preserve C# folder prefixes or one-class-per-file naming
+   when that makes the Go package harder to navigate.
 2. Keep C# type names. Interfaces keep their C# names; ports become
    one-method Go interfaces where the C# had single-method interfaces.
 3. `go build ./... && go vet ./... && gofmt -l .` clean; ported packages get

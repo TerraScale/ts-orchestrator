@@ -247,8 +247,11 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 
 				c.journalState = AuthorityStateEmpty
 				c.confirmedLeaseAge = time.Time{}
-				c.publish("unavailable", false, confirmed, "global-nats-unavailable", time.Now().UTC())
 				c.stateMu.Unlock()
+				// Snapshot publication takes stateMu itself. Keep it outside the
+				// state transition lock to avoid a self-deadlock on transient NATS
+				// failures.
+				c.publish("unavailable", false, confirmed, "global-nats-unavailable", time.Now().UTC())
 			}
 		}
 	}()
@@ -273,9 +276,7 @@ func (c *RegionalAuthorityCoordinator) Dispose() {
 }
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
-	c.stateMu.Lock()
 	state := c.currentState()
-	c.stateMu.Unlock()
 
 	if state.Status == AuthorityStatusLeader && state.Confirmed != nil {
 		return c.renew(ctx, *state.Confirmed)
@@ -292,7 +293,7 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 
 	now := time.Now().UTC()
 	if observed.Lease != nil && observed.Lease.ServerIssuedAt.Add(observed.Lease.Duration).After(now) {
-		c.publishLocked("follower", false, observed, nil, now)
+		c.publishSnapshot("follower", false, observed, nil, now)
 		return nil
 	}
 
@@ -331,7 +332,7 @@ func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current Author
 		elapsed = time.Since(c.confirmedLeaseAge)
 	}
 
-	state := c.currentState()
+	state := c.currentStateLocked()
 	c.stateMu.Unlock()
 
 	renewalHealth := regionalAuthorityHealth(now, elapsed)
@@ -400,7 +401,7 @@ func (c *RegionalAuthorityCoordinator) executeSet(ctx context.Context, intent Co
 		c.apply(result)
 		// Losing a CAS is the normal follower path. It denies mutation
 		// authority but does not make the read-serving controller unhealthy.
-		c.publishLocked("follower", false, observed, nil, time.Now().UTC())
+		c.publishSnapshot("follower", false, observed, nil, time.Now().UTC())
 		return nil
 	}
 
@@ -508,7 +509,13 @@ func isNatsTransientError(err error) bool {
 func (c *RegionalAuthorityCoordinator) currentState() *AuthorityState {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
+	return c.currentStateLocked()
+}
 
+// currentStateLocked returns the current state while stateMu is held by the
+// caller. AuthorityState values are immutable after a decision is applied, so
+// returning the pointer is safe for the decision engine's read-only use.
+func (c *RegionalAuthorityCoordinator) currentStateLocked() *AuthorityState {
 	if c.journalState == nil {
 		return AuthorityStateEmpty
 	}
@@ -551,13 +558,15 @@ func (c *RegionalAuthorityCoordinator) publishDecision(
 
 	isLeader := state.Status == AuthorityStatusLeader && decision.MutationPermit != nil
 	if state.Confirmed != nil {
-		c.publishLocked(statusText, isLeader, *state.Confirmed, errText, now)
+		c.publishSnapshot(statusText, isLeader, *state.Confirmed, errText, now)
 	} else {
-		c.publishLocked(statusText, isLeader, observed, errText, now)
+		c.publishSnapshot(statusText, isLeader, observed, errText, now)
 	}
 }
 
-func (c *RegionalAuthorityCoordinator) publishLocked(
+// publishSnapshot updates the externally visible snapshot under its own lock.
+// Callers must not hold stateMu.
+func (c *RegionalAuthorityCoordinator) publishSnapshot(
 	state string,
 	isLeader bool,
 	observed AuthorityObservation,
@@ -595,7 +604,7 @@ func (c *RegionalAuthorityCoordinator) publish(
 		errPointer = &errText
 	}
 
-	c.publishLocked(state, isLeader, observed, errPointer, now)
+	c.publishSnapshot(state, isLeader, observed, errPointer, now)
 }
 
 func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (*CompareAndSetLeaseIntent, bool) {

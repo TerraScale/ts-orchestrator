@@ -4,11 +4,13 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // HostCommandResult is one captured host command execution.
@@ -29,37 +31,76 @@ type ProcessHostCommandRunner struct{}
 
 const hostCommandMaximumCapturedCharacters = 64 * 1024
 
+// boundedOutputWriter keeps the host command's output bounded while the
+// process is running. Four bytes per character covers UTF-8's maximum encoded
+// width; the final character bound is applied when the result is converted to
+// a string.
+type boundedOutputWriter struct {
+	buffer bytes.Buffer
+	limit  int
+}
+
+func (w *boundedOutputWriter) Write(value []byte) (int, error) {
+	originalLength := len(value)
+	if w.buffer.Len() < w.limit {
+		remaining := w.limit - w.buffer.Len()
+		if len(value) > remaining {
+			value = value[:remaining]
+		}
+		_, _ = w.buffer.Write(value)
+	}
+
+	// Always report the complete input as consumed. Dropping excess diagnostic
+	// output must not turn an otherwise successful host command into an I/O
+	// failure.
+	return originalLength, nil
+}
+
+func (w *boundedOutputWriter) String() string { return w.buffer.String() }
+
 // Run executes one host command and captures its bounded output.
 func (ProcessHostCommandRunner) Run(ctx context.Context, executable string, arguments []string) (HostCommandResult, error) {
-	command := exec.Command(executable, arguments...)
+	if ctx == nil {
+		return HostCommandResult{}, errors.New("host command context must not be nil")
+	}
+
+	command := exec.CommandContext(ctx, executable, arguments...)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Mirror ProcessLifecycle.WaitForExitAsync: cancellation kills the whole
 	// process tree, then the wait result surfaces the cancellation.
 	command.Cancel = func() error {
 		if command.Process != nil {
+			// A negative PID addresses the process group created by Setpgid,
+			// including descendants spawned by the host command.
 			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
-			return fmt.Errorf("process group killed by cancellation")
 		}
 		return nil
 	}
-	var stdout, stderr bytes.Buffer
+	command.WaitDelay = 2 * time.Second
+	var stdout, stderr boundedOutputWriter
+	stdout.limit = hostCommandMaximumCapturedCharacters * 4
+	stderr.limit = hostCommandMaximumCapturedCharacters * 4
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	runErr := command.Run()
 	if ctx.Err() != nil {
 		return HostCommandResult{}, ctx.Err()
 	}
-	var exitError error
 	if runErr != nil {
-		exitError = runErr
+		var exitError *exec.ExitError
+		if !errors.As(runErr, &exitError) || command.ProcessState == nil {
+			// Start failures (for example, an absent executable) do not create a
+			// ProcessState. Return the error before attempting to inspect it.
+			return HostCommandResult{}, runErr
+		}
+	}
+	if command.ProcessState == nil {
+		return HostCommandResult{}, errors.New("host command exited without process state")
 	}
 	result := HostCommandResult{
 		ExitCode:       command.ProcessState.ExitCode(),
 		StandardOutput: boundCapturedCharacters(stdout.String()),
 		StandardError:  boundCapturedCharacters(stderr.String()),
-	}
-	if _, ok := exitError.(*exec.ExitError); !ok && exitError != nil {
-		return HostCommandResult{}, exitError
 	}
 	return result, nil
 }
