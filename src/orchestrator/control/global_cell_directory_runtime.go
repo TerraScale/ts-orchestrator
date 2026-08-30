@@ -30,6 +30,7 @@ type GlobalCellDirectoryRuntime struct {
 	authority   func() RegionalAuthoritySnapshot
 	endpoints   []string
 	ownedClient *nats.Conn
+	publishEnabled bool
 
 	stoppingCtx context.Context
 	stopping    context.CancelFunc
@@ -90,6 +91,7 @@ func newGlobalCellDirectoryRuntime(
 		authority:   authority,
 		endpoints:   append([]string(nil), endpoints...),
 		ownedClient: ownedClient,
+		publishEnabled: publishEnabled,
 		stoppingCtx: stoppingCtx,
 		stopping:    stopping,
 		directory:   NewGlobalCellDirectory(),
@@ -203,6 +205,11 @@ func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
 	}
 	done := make(chan struct{})
 	go func() {
+		if !r.publishEnabled {
+			<-r.watchDone
+			close(done)
+			return
+		}
 		select {
 		case <-r.watchDone:
 		case <-r.publishDone:

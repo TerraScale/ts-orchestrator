@@ -5,11 +5,11 @@
 | Mapping version | **1** |
 | Ratified by | `TerraScale.Orchestrator` issue #26 (part of #2; dependency #13) |
 | Handoff manifest schema | v1 (`minimum 1`, `maximum 1`) |
-| Executable contract | `DeliveryRequest` schema version **1** — `src/TerraScale.Orchestrator/ControlPlane/Delivery/DirectDeliveryContracts.cs` (`DeliveryRequest.CurrentSchemaVersion`) |
+| Executable contract | `DeliveryRequest` schema version **1** — the Go delivery package (`src/orchestrator/delivery`) |
 | Producing side | `TerraScale.Deploy` — `terrascale-deploy deploy` will publish the version-1 handoff manifest shaped by its public manifest conventions (`docs/public-alpha-handoff.md`, multi-architecture OCI image indexes with preserved digests). Contract-first: this document defines the target shape; `TerraScale/TerraScale.Deploy#1`–`#3` are the tickets that will publish producers for it, so until they land only the fixtures here represent the Deploy side |
 | Consuming side | `TerraScale.Orchestrator` issue #3 (direct-delivery runtime) and #6; referenced by `TerraScale/TerraScale.Deploy#1`, `#2`, `#3` |
-| Implementation | `src/TerraScale.Orchestrator/Delivery/DeployHandoff/DeployHandoffMapper.cs` (pure translation; no I/O) |
-| Drift binding | `tests/TerraScale.Orchestrator.Tests/DeployHandoffContractDriftTests.cs` reads the machine-readable table below as the source of truth |
+| Implementation | `src/orchestrator/delivery` (pure translation boundary; no I/O) |
+| Drift binding | Go delivery tests and the fixtures under `testdata/delivery/deploy_handoff/` |
 
 ## 1. Purpose and ownership
 
@@ -220,11 +220,11 @@ mutation: authorization, provenance, health, and journaling remain #3's gates.
 
 ## 11. Compatibility fixtures
 
-`tests/TerraScale.Orchestrator.Tests/DeployHandoff/fixtures/` holds the cross-repository corpus
+`testdata/delivery/deploy_handoff/` holds the cross-repository corpus
 modeled on TerraScale.Deploy's public manifest conventions: `valid-service.json`,
 `valid-first-deployment.json`, `missing-tree-digest.json`,
 `missing-rollback-manifest-digest.json`, `unknown-field.json`, `stale-digest.json`,
 `mismatched-manifest.json`, `incompatible-rollback-artifact.json`,
 `incompatible-rollback-architecture.json`, `wrong-schema-version.json`, and
-`ambiguous-generic-content.json`. `DeployHandoffMapperTests` binds each fixture to its documented
-outcome; `DeployHandoffContractDriftTests` binds this document to the implementation.
+`ambiguous-generic-content.json`. The Go delivery tests bind each fixture to its documented
+outcome as the mapper is brought across.

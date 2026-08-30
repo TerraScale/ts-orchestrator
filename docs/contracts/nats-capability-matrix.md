@@ -13,9 +13,9 @@
 | --- | --- |
 | Contract version | 1 (frozen) |
 | Ratified by | `TerraScale.Orchestrator` issue #18 (parent #16, dependency #17) |
-| Machine-readable definitions | `src/TerraScale.Orchestrator/Protocol/Messaging/` — `NatsCapabilityMatrix.cs`, `NatsSubjectTaxonomy.cs`, `MessagingEnvelope.cs`, `MessagingSemanticClasses.cs`, `MessagingDeliverySemantics.cs`, `MessagingRegionalAutonomy.cs`, `MessagingCompatibility.cs` |
-| Signed command envelope | `src/TerraScale.Orchestrator/Protocol/CommandEnvelope.cs` + `CommandValidation.cs` (INV-005 fail-closed admission) |
-| Drift binding | `tests/TerraScale.Orchestrator.Protocol.Tests/NatsCapabilityMatrixTests.cs` reads the table below; `NatsSubjectTaxonomyTests`/`MessagingSemanticClassesTests` bind subjects to the landed topologies; `tests/TerraScale.Orchestrator.Tests/MessagingContractSourceScanTests.cs` forbids private subject copies outside the canonical taxonomy |
+| Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go`, `messaging_regional_autonomy.go`, `messaging_compatibility.go` |
+| Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
+| Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
 | Canonicality | Canonical for the checked-in v1 implementation only. The repository `GOAL.md` and ADR 0033 control the v2 target. |
 
 Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.

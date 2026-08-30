@@ -131,9 +131,13 @@ func NatsRuntimeStartAsync(ctx context.Context, options *OrchestratorOptions) (*
 		case <-ctx.Done():
 			_ = runtime.Close()
 		case <-authority.Completion():
-			runtime.complete()
+			// A component exiting is terminal for this composition. Close the
+			// service, membership, authority, and client immediately so callers
+			// cannot observe a completed runtime while its transport is still
+			// serving requests.
+			_ = runtime.Close()
 		case <-membership.Completion():
-			runtime.complete()
+			_ = runtime.Close()
 		case <-runtime.lifetimeCtx.Done():
 		}
 	}()

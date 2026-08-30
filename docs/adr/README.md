@@ -58,8 +58,8 @@ Only the exact canonical owner lane names from `docs/architecture/orchestrator.m
 ## Validation
 
 ```bash
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+go run ./tools/orchestrator-tooling adr-readiness
+go run ./tools/orchestrator-tooling test
 ```
 
 The validator proves IDs 1 through 24 occur exactly once, fields are populated, lanes and statuses are canonical, and every local evidence anchor resolves to an existing file with in-bounds line numbers.

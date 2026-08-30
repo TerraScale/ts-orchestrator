@@ -12,8 +12,8 @@
 | --- | --- |
 | Contract version | 1 |
 | Ratified by | `TerraScale.Orchestrator` issue #22 (parent #16, dependencies #17, #18, #20) |
-| Machine-readable definitions | `src/TerraScale.Orchestrator/Protocol/Messaging/DurableWorkInventory.cs` (typed inventory), `MessagingDeliverySemantics.cs` (bounded redelivery, duplicate windows, poisoning, queue-group ownership) |
-| Drift binding | `tests/TerraScale.Orchestrator.Protocol.Tests/DurableWorkInventoryTests.cs` pins completeness and policy binding; `tests/TerraScale.Orchestrator.Tests/DurableWorkInventoryDriftTests.cs` binds the table to the provisioning topologies (`NatsTopology`, `GlobalNatsTopology`) and to every consumer name a runtime reconciles |
+| Machine-readable definitions | `src/orchestrator/protocol/durable_work_inventory.go` (typed inventory), `messaging_delivery_semantics.go` (bounded redelivery, duplicate windows, poisoning, queue-group ownership) |
+| Drift binding | Go protocol tests pin completeness and policy binding; Go control tests bind the table to the provisioning topologies (`NatsTopology`, `GlobalNatsTopology`) and every consumer name a runtime reconciles |
 | Canonicality | `docs/contracts/nats-capability-matrix.md` remains the ONE canonical NATS capability contract; this document is the canonical per-stream, per-consumer inventory beneath it and defers to it on capability dispositions |
 
 Delivery claim: **effectively-once mutation through operation-level idempotency keys and fencing — never exactly-once delivery.** Message-id transport windows (2 min regional, 24 h global CI) suppress transport-level replays only; a duplicate outside the window is admitted and the idempotency key decides the effect.
@@ -57,4 +57,8 @@ All profiles are pull consumers bounded by `MaxAckPending`, `MaxBatch`, `MaxExpi
 
 ## 5. Evidence
 
-Real-NATS proofs live in `tests/TerraScale.Orchestrator.Tests/NatsDurableDeliveryTests.cs` (rootless Podman lane): message-id suppression including the silently-swallowed conflicting payload, durable replay after consumer recreation converging through idempotency, lost-acknowledgement redelivery inside the backoff bound, and redelivery stopping at the declared delivery cap.
+Real-NATS proofs belong in the Go control and delivery integration tests (the
+rootless Podman lane): message-id suppression including the silently-swallowed
+conflicting payload, durable replay after consumer recreation converging through
+idempotency, lost-acknowledgement redelivery inside the backoff bound, and
+redelivery stopping at the declared delivery cap.

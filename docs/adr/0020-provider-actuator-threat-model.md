@@ -164,5 +164,5 @@ Phase 4 cannot exit until crash/retry and leadership loss at every provider and 
 The live stable-identifier registry now transcribes the accepted identifiers in
 `GOAL.md`. The proposal names in this ADR remain historical and are not frozen
 stable identifiers
-([current registry](../../src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierRegistry.cs),
+([current registry](../../src/orchestrator/contracts/stable_identifier_registry.go),
 [historical registry note](../guides/phase0-evidence.md#registry-and-retirement)).

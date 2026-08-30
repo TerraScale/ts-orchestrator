@@ -48,9 +48,9 @@ Unknown numeric values are filled only from approved evidence. Until then, cost 
 ## Validation
 
 ```text
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- json-format docs/decisions/owner-decision-packet.json
+go run ./tools/orchestrator-tooling owner-decisions
+go run ./tools/orchestrator-tooling test
+go run ./tools/orchestrator-tooling json-format docs/decisions/owner-decision-packet.json
 git diff --check
 ```
 

@@ -3,7 +3,8 @@
 - Status: landed contract tranche (TerraScale.Orchestrator#21)
 - Subject root: `ts.orch.v2` per the repository `GOAL.md`; the checked-in
   adapter serves the superseded v1 root until that migration lands.
-- Source of truth: the C# contracts in `src/TerraScale.Orchestrator/Messaging/`
+- Source of truth: the Go contracts in `src/orchestrator/control/` and
+  `src/orchestrator/protocol/`
   (`RegionalRuntimeMembership.cs`, `RegionalRuntimeMembershipRecords.cs`,
   `GlobalCellDirectory.cs`, `GlobalCellDirectoryRuntime.cs`,
   `GlobalCellDirectoryLifecycle.cs`, `ControllerEligibility.cs`).

@@ -117,5 +117,5 @@ No SUT cloud instance or OCI mutation is authorized by this ADR. The repository'
 The live stable-identifier registry now transcribes the accepted identifiers in
 `GOAL.md`. The proposal names in this superseded ADR are not current stable
 identifiers and must not be implemented as such
-([current registry](../../src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierRegistry.cs),
+([current registry](../../src/orchestrator/contracts/stable_identifier_registry.go),
 [historical registry note](../guides/phase0-evidence.md#registry-and-retirement)).

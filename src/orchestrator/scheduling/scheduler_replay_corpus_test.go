@@ -4,9 +4,9 @@ package scheduling
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
-	_ "embed"
 	"fmt"
 	"strings"
 	"testing"

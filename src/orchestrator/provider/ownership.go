@@ -20,6 +20,9 @@ func definedObserved(v ProviderObservedState) bool {
 func definedPerformance(v ProviderVolumePerformance) bool {
 	return v >= PerformanceBalanced && v <= PerformanceIops
 }
+func definedCallStatus(v ProviderCallStatus) bool {
+	return v >= CallNotCalled && v <= CallCompleted
+}
 func copyApprovals(in []ProviderApproval) ([]ProviderApproval, error) {
 	if len(in) > MaximumApprovalCount {
 		return nil, &ArgumentError{Param: "approvals", Message: "provider approval input exceeds its bound"}
@@ -355,7 +358,7 @@ func Authorize(request ProviderAuthorizationRequest) ProviderAuthorizationDecisi
 			approved = false
 		}
 	}
-	callMatch := request.CallEvidence.Context.fingerprint() == c.fingerprint()
+	callMatch := providerCallEvidenceMatches(request.CallEvidence, c)
 	priorOK := request.PriorAuthorization == nil || priorExact
 	tagsOK := tagsConsistent(request, tg)
 	trace = append(trace, passReject(DecisionApprovalsComplete, approved, false, uint64(count), uint64(len(request.RequiredApprovals))), passReject(DecisionCallEvidenceMatches, callMatch, false, boolToU(callMatch), 1), passReject(DecisionPriorAuthorizationCompatible, priorOK, false, boolToU(priorOK), 1), passReject(DecisionActionResourceCompatible, compatible(c), false, boolToU(compatible(c)), 1), passReject(DecisionTagsConsistent, tagsOK, false, boolToU(tagsOK), 1), authReason(DecisionTagsNotAuthority, DecisionNotApplicable, uint64(len(request.Tags)), 0))
@@ -370,6 +373,23 @@ func Authorize(request ProviderAuthorizationRequest) ProviderAuthorizationDecisi
 		accepted = &c
 	}
 	return ProviderAuthorizationDecision{Authorized: true, Trace: trace, Intents: []ProviderIntent{intent}, accepted: accepted}
+}
+
+// providerCallEvidenceMatches validates the complete call outcome before an
+// intent is emitted. Unknown status values (or malformed work-request IDs)
+// must never fall through nextIntent and become a fresh provider mutation.
+func providerCallEvidenceMatches(evidence ProviderCallEvidence, expected ProviderOperationContext) bool {
+	if !definedCallStatus(evidence.Status) || evidence.Context.fingerprint() != expected.fingerprint() {
+		return false
+	}
+	if evidence.WorkRequestId == nil {
+		return true
+	}
+	if evidence.Status != CallAccepted && evidence.Status != CallResponseLost {
+		return false
+	}
+	_, err := nativeToken(evidence.WorkRequestId.Value, "workRequestId")
+	return err == nil
 }
 func boolToU(v bool) uint64 {
 	if v {

@@ -76,7 +76,7 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 		imageReference string
 		labels         map[string]string
 		running        bool
-		expectedErr    error
+		wantErrorType  string
 		expectedParam  string
 	}{
 		{
@@ -100,7 +100,7 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 		{
 			name:          "undefined state is rejected",
 			state:         PodmanAllocationState(99),
-			expectedErr:   &ArgumentOutOfRangeError{},
+			wantErrorType: "ArgumentOutOfRangeError",
 			expectedParam: "state",
 		},
 		{
@@ -108,28 +108,28 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 			state:          PodmanAllocationStateStopped,
 			imageReference: "registry.terrascale.internal/x@sha256:" + hostRuntimePlanDigest,
 			running:        true,
-			expectedErr:    &ArgumentError{},
+			wantErrorType:  "ArgumentError",
 			expectedParam:  "running",
 		},
 		{
 			name:           "absent observation carrying an image is rejected",
 			state:          PodmanAllocationStateAbsent,
 			imageReference: "registry.terrascale.internal/x@sha256:" + hostRuntimePlanDigest,
-			expectedErr:    &ArgumentError{},
+			wantErrorType:  "ArgumentError",
 			expectedParam:  "state",
 		},
 		{
-			name:        "absent observation carrying labels is rejected",
-			state:       PodmanAllocationStateAbsent,
-			labels:      map[string]string{PodmanLabelAllocation: "terrascale-loki-1"},
-			expectedErr: &ArgumentError{},
+			name:          "absent observation carrying labels is rejected",
+			state:         PodmanAllocationStateAbsent,
+			labels:        map[string]string{PodmanLabelAllocation: "terrascale-loki-1"},
+			wantErrorType: "ArgumentError",
 			expectedParam: "state",
 		},
 		{
 			name:          "non-absent observation without an image is rejected",
 			state:         PodmanAllocationStateRunning,
 			running:       true,
-			expectedErr:   &ArgumentError{},
+			wantErrorType: "ArgumentError",
 			expectedParam: "imageReference",
 		},
 		{
@@ -137,7 +137,7 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 			state:          PodmanAllocationStateRunning,
 			imageReference: "--privileged",
 			running:        true,
-			expectedErr:    &ArgumentError{},
+			wantErrorType:  "ArgumentError",
 			expectedParam:  "imageReference",
 		},
 		{
@@ -146,7 +146,7 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 			imageReference: "registry.terrascale.internal/x@sha256:" + hostRuntimePlanDigest,
 			labels:         map[string]string{PodmanLabelAllocation: "with space"},
 			running:        true,
-			expectedErr:    &ArgumentError{},
+			wantErrorType:  "ArgumentError",
 			expectedParam:  "labels",
 		},
 	}
@@ -155,12 +155,12 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			observation, err := NewPodmanAllocationObservation(
 				test.state, test.imageReference, test.labels, test.running)
-			if test.expectedErr != nil {
-				if !errors.As(err, &test.expectedErr) && err == nil {
-					t.Fatalf("expected an error, got nil")
-				}
+			if test.wantErrorType != "" {
 				if err == nil {
-					t.Fatalf("expected %T, got a valid observation", test.expectedErr)
+					t.Fatalf("expected %s, got a valid observation", test.wantErrorType)
+				}
+				if !hasPodmanErrorType(err, test.wantErrorType) {
+					t.Fatalf("expected %s, got %T: %v", test.wantErrorType, err, err)
 				}
 				if !errorsAsParam(err, test.expectedParam) {
 					t.Fatalf("error %v does not reference param %q", err, test.expectedParam)
@@ -244,94 +244,94 @@ func TestNewPodmanRunRequestAcceptsCanonicalRequestAndFixesSafetyEnvelope(t *tes
 
 func TestNewPodmanRunRequest(t *testing.T) {
 	tests := []struct {
-		name        string
-		mutate      func(arguments []any)
-		expectErr   error
-		expectParam string
+		name          string
+		mutate        func(arguments []any)
+		wantErrorType string
+		expectParam   string
 	}{
 		{
-			name: "uppercase container id",
-			mutate: func(a []any) { a[0] = "Terrascale-1" },
-			expectErr:   &ArgumentError{},
-			expectParam: "containerId",
+			name:          "uppercase container id",
+			mutate:        func(a []any) { a[0] = "Terrascale-1" },
+			wantErrorType: "ArgumentError",
+			expectParam:   "containerId",
 		},
 		{
-			name: "empty image reference",
-			mutate: func(a []any) { a[1] = "" },
-			expectErr:   &ArgumentError{},
-			expectParam: "imageReference",
+			name:          "empty image reference",
+			mutate:        func(a []any) { a[1] = "" },
+			wantErrorType: "ArgumentError",
+			expectParam:   "imageReference",
 		},
 		{
-			name: "flag-like image reference",
-			mutate: func(a []any) { a[1] = "-v/etc:/etc" },
-			expectErr:   &ArgumentError{},
-			expectParam: "imageReference",
+			name:          "flag-like image reference",
+			mutate:        func(a []any) { a[1] = "-v/etc:/etc" },
+			wantErrorType: "ArgumentError",
+			expectParam:   "imageReference",
 		},
 		{
-			name: "unknown platform",
-			mutate: func(a []any) { a[2] = "linux/riscv64" },
-			expectErr:   &ArgumentOutOfRangeError{},
-			expectParam: "platform",
+			name:          "unknown platform",
+			mutate:        func(a []any) { a[2] = "linux/riscv64" },
+			wantErrorType: "ArgumentOutOfRangeError",
+			expectParam:   "platform",
 		},
 		{
-			name: "root uid",
-			mutate: func(a []any) { a[3] = uint32(0) },
-			expectErr:   &ArgumentError{},
-			expectParam: "runAsUser",
+			name:          "root uid",
+			mutate:        func(a []any) { a[3] = uint32(0) },
+			wantErrorType: "ArgumentError",
+			expectParam:   "runAsUser",
 		},
 		{
-			name: "root gid",
-			mutate: func(a []any) { a[4] = uint32(0) },
-			expectErr:   &ArgumentError{},
-			expectParam: "runAsGroup",
+			name:          "root gid",
+			mutate:        func(a []any) { a[4] = uint32(0) },
+			wantErrorType: "ArgumentError",
+			expectParam:   "runAsGroup",
 		},
 		{
-			name: "empty cgroup parent",
-			mutate: func(a []any) { a[5] = "" },
-			expectErr:   &ArgumentError{},
-			expectParam: "cgroupParent",
+			name:          "empty cgroup parent",
+			mutate:        func(a []any) { a[5] = "" },
+			wantErrorType: "ArgumentError",
+			expectParam:   "cgroupParent",
 		},
 		{
-			name: "traversal cgroup parent",
-			mutate: func(a []any) { a[5] = "terrascale/../escape" },
-			expectErr:   &ArgumentError{},
-			expectParam: "cgroupParent",
+			name:          "traversal cgroup parent",
+			mutate:        func(a []any) { a[5] = "terrascale/../escape" },
+			wantErrorType: "ArgumentError",
+			expectParam:   "cgroupParent",
 		},
 		{
-			name: "missing ALL capability drop",
-			mutate: func(a []any) { a[6] = []string{"NET_BIND_SERVICE"} },
-			expectErr:   &ArgumentError{},
-			expectParam: "capDrop",
+			name:          "missing ALL capability drop",
+			mutate:        func(a []any) { a[6] = []string{"NET_BIND_SERVICE"} },
+			wantErrorType: "ArgumentError",
+			expectParam:   "capDrop",
 		},
 		{
-			name: "lowercase capability token",
-			mutate: func(a []any) { a[6] = []string{"all"} },
-			expectErr:   &ArgumentError{},
-			expectParam: "capDrop",
+			name:          "lowercase capability token",
+			mutate:        func(a []any) { a[6] = []string{"all"} },
+			wantErrorType: "ArgumentError",
+			expectParam:   "capDrop",
 		},
 		{
-			name: "memory below the floor",
-			mutate: func(a []any) { a[7] = int64(1024) },
-			expectErr:   &ArgumentOutOfRangeError{},
-			expectParam: "memoryMaxBytes",
+			name:          "memory below the floor",
+			mutate:        func(a []any) { a[7] = int64(1024) },
+			wantErrorType: "ArgumentOutOfRangeError",
+			expectParam:   "memoryMaxBytes",
 		},
 		{
-			name: "pids below the floor",
-			mutate: func(a []any) { a[8] = 8 },
-			expectErr:   &ArgumentOutOfRangeError{},
-			expectParam: "pidsLimit",
+			name:          "pids below the floor",
+			mutate:        func(a []any) { a[8] = 8 },
+			wantErrorType: "ArgumentOutOfRangeError",
+			expectParam:   "pidsLimit",
 		},
 		{
-			name: "cpu quota below the floor",
-			mutate: func(a []any) { a[9] = 5 },
-			expectErr:   &ArgumentOutOfRangeError{},
-			expectParam: "cpuQuotaPercent",
+			name:          "cpu quota below the floor",
+			mutate:        func(a []any) { a[9] = 5 },
+			wantErrorType: "ArgumentOutOfRangeError",
+			expectParam:   "cpuQuotaPercent",
 		},
 		{
-			name: "cpu weight above the ceiling",
-			mutate: func(a []any) { a[10] = 10001 },
-			expectErr:   &ArgumentOutOfRangeError{},
-			expectParam: "cpuWeight",
+			name:          "cpu weight above the ceiling",
+			mutate:        func(a []any) { a[10] = 10001 },
+			wantErrorType: "ArgumentOutOfRangeError",
+			expectParam:   "cpuWeight",
 		},
 		{
 			name: "duplicate volume destination",
@@ -341,8 +341,8 @@ func TestNewPodmanRunRequest(t *testing.T) {
 					{VolumeName: "terrabase-gru-2", Destination: "/var/lib/terrabase"},
 				}
 			},
-			expectErr:   &ArgumentError{},
-			expectParam: "volumes",
+			wantErrorType: "ArgumentError",
+			expectParam:   "volumes",
 		},
 		{
 			name: "same named volume mounted twice",
@@ -352,32 +352,32 @@ func TestNewPodmanRunRequest(t *testing.T) {
 					{VolumeName: "terrabase-gru-1", Destination: "/var/lib/terrabase-2"},
 				}
 			},
-			expectErr:   &ArgumentError{},
-			expectParam: "volumes",
+			wantErrorType: "ArgumentError",
+			expectParam:   "volumes",
 		},
 		{
 			name: "invalid volume inside the request",
 			mutate: func(a []any) {
 				a[11] = []PodmanVolumeMount{{VolumeName: "bad_volume", Destination: "/data"}}
 			},
-			expectErr:   &ArgumentError{},
-			expectParam: "volumeName",
+			wantErrorType: "ArgumentError",
+			expectParam:   "volumeName",
 		},
 		{
 			name: "uppercase label key",
 			mutate: func(a []any) {
 				a[12] = map[string]string{"TerraScale.Allocation": "terrascale-gru-orchestrator-1"}
 			},
-			expectErr:   &ArgumentError{},
-			expectParam: "labels",
+			wantErrorType: "ArgumentError",
+			expectParam:   "labels",
 		},
 		{
 			name: "flag-like label value",
 			mutate: func(a []any) {
 				a[12] = map[string]string{PodmanLabelAllocation: "--privileged"}
 			},
-			expectErr:   &ArgumentError{},
-			expectParam: "labels",
+			wantErrorType: "ArgumentError",
+			expectParam:   "labels",
 		},
 	}
 
@@ -389,8 +389,8 @@ func TestNewPodmanRunRequest(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error, got a valid request")
 			}
-			if !errors.As(err, &test.expectErr) {
-				t.Fatalf("expected %T, got %T: %v", test.expectErr, err, err)
+			if !hasPodmanErrorType(err, test.wantErrorType) {
+				t.Fatalf("expected %s, got %T: %v", test.wantErrorType, err, err)
 			}
 			if !errorsAsParam(err, test.expectParam) {
 				t.Fatalf("error %v does not reference param %q", err, test.expectParam)
@@ -421,23 +421,23 @@ func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		mutate   func(context *RootlessPodmanContext)
+		name      string
+		mutate    func(context *RootlessPodmanContext)
 		wantParam string
 	}{
 		{
-			name:     "relative binary path",
-			mutate:   func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "podman" },
+			name:      "relative binary path",
+			mutate:    func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "podman" },
 			wantParam: "PodmanBinaryPath",
 		},
 		{
-			name:     "traversal binary path",
-			mutate:   func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "/usr/bin/../podman" },
+			name:      "traversal binary path",
+			mutate:    func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "/usr/bin/../podman" },
 			wantParam: "PodmanBinaryPath",
 		},
 		{
-			name:     "relative runtime dir",
-			mutate:   func(c *RootlessPodmanContext) { c.XdgRuntimeDir = "run/user/1000" },
+			name:      "relative runtime dir",
+			mutate:    func(c *RootlessPodmanContext) { c.XdgRuntimeDir = "run/user/1000" },
 			wantParam: "XdgRuntimeDir",
 		},
 	}
@@ -482,4 +482,26 @@ func errorsAsParam(err error, param string) bool {
 		return outOfRange.Param == param
 	}
 	return false
+}
+
+// hasPodmanErrorType reports whether err unwraps to one of the package's
+// typed validation errors. Keep this alongside errorsAsParam so tests remain
+// resilient to wrapped errors without relying on string matching.
+func hasPodmanErrorType(err error, name string) bool {
+	switch name {
+	case "ArgumentError":
+		var target *ArgumentError
+		return errors.As(err, &target)
+	case "ArgumentOutOfRangeError":
+		var target *ArgumentOutOfRangeError
+		return errors.As(err, &target)
+	case "InvalidOperationError":
+		var target *InvalidOperationError
+		return errors.As(err, &target)
+	case "InvalidDataError":
+		var target *InvalidDataError
+		return errors.As(err, &target)
+	default:
+		return false
+	}
 }
