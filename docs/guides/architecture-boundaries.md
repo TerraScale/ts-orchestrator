@@ -13,7 +13,7 @@ Kubernetes compatibility or provide a generic cluster API.
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript app. Owns Better Auth, Organizations, Projects, Users, Payments, entitlements, Streamable HTTP MCP, and customer workflows. |
 | Database API | Independently deployable C#/.NET 10 ASP.NET Core service. Sole QUIC/TBEP gateway to TerraBase. Permanent source lives in `TerraScale.Internals`; the standalone repository is migration-only until retirement. |
-| TerraBaseV2 | Private Rust database engine. Owns mutations, replication, repair, reactive sync, metrics, and authoritative usage. |
+| TerraBase | Private Rust database engine. Owns mutations, replication, repair, reactive sync, metrics, and authoritative usage. |
 | Orchestrator | Owns infrastructure, scheduling, workload identity, database placement intent, capacity, repair orchestration, and delivery. |
 
 Dashboard uses `@terrascale/sdk` and the same public APIs as customer

@@ -100,11 +100,11 @@ interview:
 
 Build TerraScale's production control plane. It creates the greenfield OCI
 estate, operates one global authority in GRU, runs one autonomous regional
-control group per active Region, deploys TerraBaseV2 and the TerraScale product
+control group per active Region, deploys TerraBase and the TerraScale product
 services, and maintains their capacity, identity, storage, delivery, routing,
 and recovery workflows.
 
-The Orchestrator must deploy and operate TerraBaseV2 across a catalog of up to
+The Orchestrator must deploy and operate TerraBase across a catalog of up to
 twenty Regions without becoming a database coordinator. It allocates Member
 and volume identities, provisions admitted capacity, starts containers, asks
 TerraBase to add or retire seats, and follows TerraBase's accepted membership
@@ -114,7 +114,7 @@ evidence.
 
 The system is production-ready only when it can start from an empty greenfield
 tenancy, qualify GRU, SFO, and FRA, survive the required faults, add another
-Region, deploy the exact qualified TerraBaseV2 release, autoscale within policy,
+Region, deploy the exact qualified TerraBase release, autoscale within policy,
 restore control and database state, qualify green beside unchanged blue, cut
 over through a fenced routing generation, roll back safely, and retain exact
 receipts for every claim.
@@ -395,7 +395,7 @@ superseded and adds a new ID. It never changes the old meaning in place.
 | Global Orchestrator | Global policy, Region catalog proposals, accepted releases, global NATS schema, budget ceilings, signed `RegionSpec` generation, global operation coordination, and regional journal aggregation |
 | Regional Orchestrator | Regional NATS, OCI actuator, hosts, allocations, volumes, local routing backends, certificates, repair orchestration, autoscaling, regional release execution, and regional journal |
 | Host agent | Exact allocation execution, containerd and systemd interaction, local observation, health, drain, secret materialization, and orphan reporting |
-| TerraBaseV2 | Database commits, causality, CRDT merge, replication, membership acceptance, repair, anti-entropy, snapshots, split and merge, retirement safety, and usage truth |
+| TerraBase | Database commits, causality, CRDT merge, replication, membership acceptance, repair, anti-entropy, snapshots, split and merge, retirement safety, and usage truth |
 | Database API | Public database and reactive API, authorization admission, and sole QUIC TBEP gateway |
 | Dashboard | Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows |
 | NATS | Orchestrator consensus storage, typed control delivery, control discovery, and operational request-response |
@@ -1524,7 +1524,7 @@ noisy-neighbor pressure.
   queues.
 - Qualify regional controller and NATS cohosting under pressure.
 
-### P4: TerraBaseV2 placement and autoscaling
+### P4: TerraBase placement and autoscaling
 
 - Integrate typed TerraBase Member, membership, capacity, recovery, and endpoint
   contracts.
@@ -1852,7 +1852,7 @@ exact-digest delivery.
 - Repository instructions: [`AGENTS.md`](AGENTS.md)
 - Foundational decision: [`docs/adr/0033-gru-global-authority-and-regional-autonomy.md`](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
 - Provider fencing: [`docs/adr/0020-provider-actuator-threat-model.md`](docs/adr/0020-provider-actuator-threat-model.md)
-- TerraBaseV2 production and placement ADR: [`../TerraBaseV2/docs/adr/0033-production-slos-oci-placement-and-operability.md`](../TerraBaseV2/docs/adr/0033-production-slos-oci-placement-and-operability.md)
+- TerraBase production and placement ADR: [`../TerraBase/docs/adr/0033-production-slos-oci-placement-and-operability.md`](../TerraBase/docs/adr/0033-production-slos-oci-placement-and-operability.md)
 - NATS documentation: `https://docs.nats.io/`
 - OCI Container Instances shapes: `https://docs.oracle.com/en-us/iaas/Content/container-instances/container-instance-shapes.htm`
 - OCI Container Instances creation: `https://docs.oracle.com/en-us/iaas/Content/container-instances/creating-a-container-instance.htm`

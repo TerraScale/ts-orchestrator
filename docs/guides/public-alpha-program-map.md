@@ -1,6 +1,6 @@
 # Public Alpha program map
 
-> Historical snapshot. This issue map predates TerraBaseV2 native replication,
+> Historical snapshot. This issue map predates TerraBase native replication,
 > the C# Database API, Dashboard-owned Better Auth and MCP, database-level
 > Region selection, and removal of the standalone Auth, Payments, Platform,
 > and MCP services. It does not define current ownership or launch readiness.

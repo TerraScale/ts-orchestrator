@@ -40,7 +40,7 @@ The active product roles are:
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript application. It owns Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows. |
 | Database API | An independently deployable C#/.NET 10 ASP.NET Core service and the sole TBEP gateway. Its permanent source home is `TerraScale.Internals`; the standalone `TerraScale.Database` repository retires after migration receipts pass. |
-| Database engine | TerraBaseV2, the private Rust engine. |
+| Database engine | TerraBase, the private Rust engine. |
 | Orchestrator | Infrastructure, scheduling, workload identity, placement intent, repair orchestration, and delivery. |
 
 Dashboard uses `@terrascale/sdk` and public TerraScale APIs like any customer
@@ -153,7 +153,7 @@ Current facts:
 
 Migration work must preserve durable control history and fail closed while it:
 
-1. changes product roles to Dashboard, Database API, and TerraBaseV2;
+1. changes product roles to Dashboard, Database API, and TerraBase;
 2. moves database placement from Project inheritance to database-owned Region
    selection;
 3. changes TerraBase production placement to RF=2 per selected Region;

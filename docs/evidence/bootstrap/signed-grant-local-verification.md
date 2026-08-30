@@ -2,7 +2,7 @@
 
 Status: implemented and lane-tested on `develop`, 2026-08-29. This note is the
 honest evidence record for the Orchestrator side of qualification gap sweep
-row 31 (`/home/mariogk/Projects/TerraScale/TerraBaseV2/docs/evidence/qualification-gap-sweep.md`,
+row 31 (`/home/mariogk/Projects/TerraScale/TerraBase/docs/evidence/qualification-gap-sweep.md`,
 "system Project cold bootstrap and complete recovery"). It does not close the
 row: the row also requires the Database API wiring, which lives in another
 repository.

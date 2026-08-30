@@ -35,7 +35,7 @@ customer data proxy.
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript project owning Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows |
 | Database API | Independent C#/.NET 10 ASP.NET Core service owning public database and reactive APIs and the sole QUIC TBEP gateway |
-| TerraBaseV2 | Private Rust engine owning native replication, database authorization, reactive sync, usage accounting, and recovery |
+| TerraBase | Private Rust engine owning native replication, database authorization, reactive sync, usage accounting, and recovery |
 | Orchestrator | Infrastructure, scheduling, identity, certificates, capacity, placement intent, repair orchestration, delivery, and the NATS control network |
 | Public SDKs | Typed customer and reactive contracts |
 
@@ -290,7 +290,7 @@ mTLS is mandatory for:
 - CI worker enrollment;
 - operator APIs;
 - cross-Region privileged control; and
-- every `TerraScale.Database` to TerraBaseV2 QUIC link, including same-host
+- every `TerraScale.Database` to TerraBase QUIC link, including same-host
   loopback.
 
 Public customer HTTPS uses server TLS plus Better Auth or Project credentials.

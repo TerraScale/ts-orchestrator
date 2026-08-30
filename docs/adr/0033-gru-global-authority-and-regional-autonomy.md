@@ -11,7 +11,7 @@
 ## Context
 
 TerraScale needs one global control authority and autonomous regional repair.
-The system must deploy TerraBaseV2 into as many as twenty Regions, create OCI
+The system must deploy TerraBase into as many as twenty Regions, create OCI
 capacity, operate product workloads, and reconcile failures without putting a
 global controller or broker in the database request path.
 
