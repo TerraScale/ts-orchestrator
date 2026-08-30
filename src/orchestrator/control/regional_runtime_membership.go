@@ -352,6 +352,10 @@ type RegionalRuntimeMembership struct {
 	heartbeatDone    chan struct{}
 	selfObserved     chan struct{}
 	selfOnce         sync.Once
+	heartbeatStartMu sync.Mutex
+	marshal          func(any) ([]byte, error)
+	heartbeatTicks   <-chan time.Time
+	heartbeatFailure atomic.Pointer[errorBox]
 	revisionMu       sync.Mutex
 	revision         uint64
 	watchStarted     int32
@@ -370,6 +374,9 @@ func RegionalRuntimeMembershipStartAsync(
 	authority func() RegionalAuthoritySnapshot,
 	identity *RegionalRuntimeMembershipIdentity,
 ) (*RegionalRuntimeMembership, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if store == nil || topology == nil {
 		return nil, errors.New("(Parameter 'store')")
 	}
@@ -426,6 +433,7 @@ func RegionalRuntimeMembershipStartAsync(
 		watchLoopDone:     make(chan struct{}),
 		heartbeatDone:     make(chan struct{}),
 		selfObserved:      make(chan struct{}),
+		marshal:           json.Marshal,
 	}
 
 	if err := membership.claim(ctx); err != nil {
@@ -450,8 +458,10 @@ func RegionalRuntimeMembershipStartAsync(
 
 	// Mark the loop started before launching it so Dispose cannot race with
 	// goroutine startup and skip the completion wait.
+	membership.heartbeatStartMu.Lock()
 	atomic.StoreInt32(&membership.heartbeatStarted, 1)
 	go membership.heartbeatLoop()
+	membership.heartbeatStartMu.Unlock()
 
 	return membership, nil
 }
@@ -459,6 +469,9 @@ func RegionalRuntimeMembershipStartAsync(
 // Completion mirrors the C# Completion: the first loop to stop completes the
 // membership.
 func (m *RegionalRuntimeMembership) Completion() <-chan struct{} {
+	if m == nil || m.watchLoopDone == nil {
+		return nil
+	}
 	done := make(chan struct{})
 	go func() {
 		var heartbeat <-chan struct{}
@@ -479,10 +492,21 @@ func (m *RegionalRuntimeMembership) Completion() <-chan struct{} {
 
 // Snapshot mirrors the C# Snapshot property.
 func (m *RegionalRuntimeMembership) Snapshot() RegionalRuntimeMembershipSnapshot {
+	if m == nil || m.topology == nil {
+		return RegionalRuntimeMembershipSnapshot{}
+	}
 	now := time.Now().UTC()
 	m.membersMu.Lock()
 	records := make([]RegionalRuntimeMember, 0, len(m.members))
 	for _, member := range m.members {
+		// Once this process can no longer renew its own record, that record is
+		// no longer a trustworthy representation of a live controller. Keep the
+		// failure visible in health immediately instead of waiting for lease
+		// expiry or a watcher update.
+		if member.Instance == m.topology.Instance && m.LastFailure() != nil {
+			continue
+		}
+
 		records = append(records, member)
 	}
 
@@ -538,17 +562,38 @@ func (m *RegionalRuntimeMembership) Health() RegionalRuntimeMembershipHealth {
 	return m.Snapshot().Health
 }
 
+// LastFailure returns the terminal background-loop error, if any. Cancellation
+// during normal disposal is not a failure.
+func (m *RegionalRuntimeMembership) LastFailure() error {
+	if m == nil {
+		return nil
+	}
+	if boxed := m.heartbeatFailure.Load(); boxed != nil {
+		return boxed.err
+	}
+
+	return nil
+}
+
 // Dispose mirrors the C# DisposeAsync.
 func (m *RegionalRuntimeMembership) Dispose() error {
+	if m == nil {
+		return nil
+	}
 	if !atomic.CompareAndSwapInt32(&m.disposed, 0, 1) {
 		return nil
 	}
 
-	m.stopping()
+	if m.stopping != nil {
+		m.stopping()
+	}
 	if atomic.LoadInt32(&m.watchStarted) != 0 {
 		<-m.watchLoopDone
 	}
-	if atomic.LoadInt32(&m.heartbeatStarted) != 0 {
+	m.heartbeatStartMu.Lock()
+	heartbeatStarted := atomic.LoadInt32(&m.heartbeatStarted) != 0
+	m.heartbeatStartMu.Unlock()
+	if heartbeatStarted {
 		<-m.heartbeatDone
 	}
 
@@ -565,12 +610,16 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 			m.sessionId, &current, revision) {
 			if err := m.store.Delete(context.Background(), m.key, jetstream.LastRevision(revision)); err != nil &&
 				!errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
+				if failure := m.LastFailure(); failure != nil {
+					return failure
+				}
+
 				return err
 			}
 		}
 	}
 
-	return nil
+	return m.LastFailure()
 }
 
 func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
@@ -647,34 +696,62 @@ func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 func (m *RegionalRuntimeMembership) heartbeatLoop() {
 	defer close(m.heartbeatDone)
 
-	ticker := time.NewTicker(m.HeartbeatInterval)
-	defer ticker.Stop()
+	var ticks <-chan time.Time
+	var stopTicker func()
+	if m.heartbeatTicks != nil {
+		ticks = m.heartbeatTicks
+	} else {
+		ticker := time.NewTicker(m.HeartbeatInterval)
+		ticks = ticker.C
+		stopTicker = ticker.Stop
+	}
+	if stopTicker != nil {
+		defer stopTicker()
+	}
 
 	for {
 		select {
 		case <-m.stoppingCtx.Done():
 			return
-		case <-ticker.C:
+		case <-ticks:
 		}
 
-		document, err := m.document(time.Now().UTC())
-		if err != nil {
-			continue
-		}
+		if err := m.heartbeatOnce(); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				m.heartbeatFailure.Store(&errorBox{err: err})
+				if m.stopping != nil {
+					m.stopping()
+				}
+			}
 
-		value, err := json.Marshal(document)
-		if err != nil {
-			continue
+			return
 		}
-
-		currentRevision := m.currentRevision()
-		revision, err := m.store.Update(m.stoppingCtx, m.key, value, currentRevision)
-		if err != nil {
-			continue
-		}
-
-		m.setRevision(revision)
 	}
+}
+
+func (m *RegionalRuntimeMembership) heartbeatOnce() error {
+	document, err := m.document(time.Now().UTC())
+	if err != nil {
+		return err
+	}
+
+	marshal := m.marshal
+	if marshal == nil {
+		marshal = json.Marshal
+	}
+	value, err := marshal(document)
+	if err != nil {
+		return err
+	}
+
+	currentRevision := m.currentRevision()
+	revision, err := m.store.Update(m.stoppingCtx, m.key, value, currentRevision)
+	if err != nil {
+		return err
+	}
+
+	m.setRevision(revision)
+	return nil
 }
 
 func (m *RegionalRuntimeMembership) currentRevision() uint64 {
