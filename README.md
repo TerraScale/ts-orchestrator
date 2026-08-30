@@ -172,15 +172,19 @@ features and documentation must target the accepted architecture.
 ## Baseline validation
 
 ```bash
-dotnet restore TerraScale.Orchestrator.slnx --locked-mode --disable-parallel
-dotnet build TerraScale.Orchestrator.slnx --no-restore --maxcpucount:1
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+go mod download
+go build ./...
+go vet ./...
+go test ./...
+go test -race ./...
 ```
 
+The repository tooling is a Go command. Run it with, for example:
+
 ```bash
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+go run ./tools/orchestrator-tooling adr-readiness
+go run ./tools/orchestrator-tooling owner-decisions
+go run ./tools/orchestrator-tooling test
 ```
 
 Run the tooling executable without arguments for the full command inventory.
@@ -194,7 +198,7 @@ product boundary.
 TS_ORCH_CELL=gru \
 TS_ORCH_NATS_URL=nats://127.0.0.1:4222 \
 TS_ORCH_REPLICAS=1 \
-dotnet run --project src/TerraScale.Orchestrator -- check
+go run ./cmd/orchestrator check
 
 TS_ORCH_CELL=gru \
 TS_ORCH_NATS_URL=tls://control-nats-gru.internal:4222 \
@@ -203,7 +207,7 @@ TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.nk \
 TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
 TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
 TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
-dotnet run --project src/TerraScale.Orchestrator -- run
+go run ./cmd/orchestrator run
 ```
 
 Remote NATS connections require TLS, scoped NKey or credentials files, and

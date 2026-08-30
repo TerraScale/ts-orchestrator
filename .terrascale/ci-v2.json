@@ -11,13 +11,12 @@
       "paths": [
         ".editorconfig",
         ".terrascale/",
-        "Directory.Build.props",
-        "Directory.Packages.props",
-        "TerraScale.Orchestrator.slnx",
+        "go.mod",
+        "go.sum",
         "docs/",
-        "global.json",
+        "cmd/",
         "src/",
-        "tests/",
+        "testdata/",
         "tools/"
       ]
     },
@@ -28,12 +27,11 @@
       "profiles": ["Feature", "Build"],
       "paths": [
         ".terrascale/",
-        "Directory.Build.props",
-        "Directory.Packages.props",
-        "TerraScale.Orchestrator.slnx",
-        "global.json",
+        "go.mod",
+        "go.sum",
+        "cmd/",
         "src/",
-        "tests/",
+        "testdata/",
         "tools/"
       ],
       "dependsOn": ["static"]
@@ -46,7 +44,7 @@
       "paths": [
         "docs/",
         "src/",
-        "tests/",
+        "testdata/",
         "tools/"
       ],
       "dependsOn": ["build"]
@@ -59,10 +57,9 @@
       "architectures": ["LinuxX64", "LinuxArm64"],
       "paths": [
         ".terrascale/",
-        "Directory.Build.props",
-        "Directory.Packages.props",
-        "TerraScale.Orchestrator.slnx",
-        "global.json",
+        "go.mod",
+        "go.sum",
+        "cmd/",
         "src/"
       ],
       "dependsOn": ["test"]

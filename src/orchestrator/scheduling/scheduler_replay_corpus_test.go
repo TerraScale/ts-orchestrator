@@ -1,16 +1,13 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// SchedulerReplayCorpus.cs (corpus loader, parser and its tests). The C#
-// embedded resource is read from its original location in the C# test project
-// so the content-addressed fixture stays single-sourced.
+// The scheduler replay corpus is kept beside this package's tests so it stays
+// available to `go test` from any working directory.
 package scheduling
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
@@ -19,7 +16,8 @@ import (
 const schedulerReplayMaximumBytes = 8_192
 const schedulerReplayMaximumEntries = 32
 
-const schedulerReplayCorpusPath = "../../../tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/ReplayCorpus/scheduler-replay-v1.json"
+//go:embed testdata/scheduler-replay-v1.json
+var schedulerReplayCorpus []byte
 
 type schedulerReplayKind int
 
@@ -45,11 +43,7 @@ type schedulerReplayDocument struct {
 
 func schedulerReplayLoad(t *testing.T) schedulerReplayDocument {
 	t.Helper()
-	bytes, err := os.ReadFile(filepath.Clean(schedulerReplayCorpusPath))
-	if err != nil {
-		t.Fatalf("The fixed scheduler replay corpus is missing: %v", err)
-	}
-	document, err := schedulerReplayParse(bytes)
+	document, err := schedulerReplayParse(schedulerReplayCorpus)
 	if err != nil {
 		t.Fatalf("corpus: %v", err)
 	}

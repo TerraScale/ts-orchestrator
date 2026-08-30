@@ -1,25 +1,25 @@
 # TerraScale.Orchestrator Go migration design
 
-Status: active migration (C# → Go per workspace rule). This document is the
-binding contract for the port, mirroring the approach already proven in
-`ts-internals` (see ../ts-internals/docs/go-migration/DESIGN.md).
+Status: active Go implementation. This document is the binding contract for
+the package layout and wire-compatible behavior, following the approach proven
+in `ts-internals` (see ../ts-internals/docs/go-migration/DESIGN.md). Historical
+source names in the mapping below identify where contracts originated; they are
+not active source paths or build inputs.
 
 ## Module
 
 - Module path: `terrascale.tech/orchestrator`, Go 1.27, single module.
-- Binary entry points: `cmd/orchestrator` (runtime, from
-  src/TerraScale.Orchestrator.CLI + Program.cs composition),
-  `tools/orchestrator-tooling` (from tools/TerraScale.Orchestrator.Tooling),
-  and `tests/journalchild` (test fixture exe spawned by control-plane journal
-  tests; from tests/TerraScale.Orchestrator.ControlPlane.JournalChild).
+- Binary entry points: `cmd/orchestrator` (runtime),
+  `tools/orchestrator-tooling` (repository validation), and `tests/journalchild`
+  (the fixture executable spawned by control journal tests).
 
-## Package map (C# folder → Go package)
+## Package map (historical source area → Go package)
 
-Dependency analysis (folder-level `using` graph) shows
+The historical dependency analysis (folder-level import graph) shows
 ControlPlane, Delivery, Messaging, Observability and Operations form one
 strongly connected component, so they share ONE Go package:
 
-| C# area (files, lines) | Go package | Imports |
+| Historical area (files, lines) | Go package | Imports |
 | --- | --- | --- |
 | Contracts (12, 1.5k) | `src/orchestrator/contracts` | — |
 | Protocol (23, 4.7k) | `src/orchestrator/protocol` | contracts |
@@ -29,8 +29,8 @@ strongly connected component, so they share ONE Go package:
 | ControlPlane + Delivery + Messaging + Observability + Operations (212, 63k) | `src/orchestrator/control` | contracts, protocol, runtime (+ security via root) |
 | Bootstrap (6, 0.9k) | `src/orchestrator/bootstrap` | security, control |
 | Root files (Program.cs, OrchestratorRuntimeConfiguration/Composition, ProcessLifecycle, CellTokenRule, BuildVersion, OrchestratorOptions, AssemblyInfo) | `cmd/orchestrator` + `src/orchestrator/control` for the pieces other code calls | control etc. |
-| TerraScale.Orchestrator.CLI | `cmd/orchestrator` | control |
-| TerraScale.Orchestrator.Tooling | `tools/orchestrator-tooling` | — (standalone) |
+| CLI source | `cmd/orchestrator` | control |
+| Repository tooling | `tools/orchestrator-tooling` | — (standalone) |
 | tests/*.Tests projects | `*_test.go` inside the matching package (control tests in src/orchestrator/control, protocol tests in src/orchestrator/protocol, …) | |
 
 Within `src/orchestrator/control`, use concise snake_case filenames named for

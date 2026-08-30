@@ -220,6 +220,10 @@ func LoadSourceGraphConfig(path string, root SourceConfig) (SourceGraphConfig, e
 	return SourceGraphConfig{Repositories: d.Repositories}, nil
 }
 func readBoundedFile(path string, max int) ([]byte, error) {
+	lst, e := os.Lstat(path)
+	if e != nil || !lst.Mode().IsRegular() {
+		return nil, errors.New("source graph must be a bounded regular file")
+	}
 	f, e := os.Open(path)
 	if e != nil {
 		return nil, e

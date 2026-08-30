@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -159,7 +160,15 @@ func converged(k ProviderIdempotencyKey, o VolumeObservation) VolumeExpansionRes
 	return VolumeExpansionResult{VolumeConverged, k, o.Size, o.ETag, true}
 }
 func isOCID(v, kind string) bool {
-	return len(v) >= 12 && len(v) <= 255 && strings.HasPrefix(v, "ocid1."+kind+".") && !strings.ContainsAny(v, "\r\n\t ")
+	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") {
+		return false
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 func indeterminate(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error))
@@ -180,9 +189,10 @@ func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) 
 		return OCITransportConfig{}, &ArgumentError{Message: "configured OCI region is not canonical"}
 	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "/" || u.Host != "iaas."+region+".oraclecloud.com" {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
 		return OCITransportConfig{}, &ArgumentError{Message: "OCI endpoint is invalid"}
 	}
+	u.Path = "/"
 	return OCITransportConfig{region, u, 30 * time.Second, 1 << 20, 2}, nil
 }
 
@@ -310,7 +320,7 @@ func DecodeVolumeResponse(resp *http.Response) (*VolumeObservation, error) {
 		return nil, &InvalidDataError{Message: "OCI volume request failed"}
 	}
 	var v ociVolumeResponse
-	if json.Unmarshal(body, &v) != nil || !isOCID(v.Id, "volume") || !isOCID(v.CompartmentId, "compartment") || v.SizeInGBs <= 0 || !isSafeETag(resp.Header.Get("ETag")) {
+	if json.Unmarshal(body, &v) != nil || !isOCID(v.Id, "volume") || !isOCID(v.CompartmentId, "compartment") || v.SizeInGBs <= 0 || uint64(v.SizeInGBs) > math.MaxUint64/BytesPerGiB || !isSafeETag(resp.Header.Get("ETag")) {
 		return nil, nil
 	}
 	return &VolumeObservation{ProviderResourceId{v.Id}, ProviderCompartmentId{v.CompartmentId}, ProviderByteCount{uint64(v.SizeInGBs) * BytesPerGiB}, resp.Header.Get("ETag")}, nil

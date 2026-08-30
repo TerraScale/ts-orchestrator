@@ -43,6 +43,9 @@ func NewOciCiRunnerDemand(runner string, zone TrustZone, sequence int64, bootstr
 	if runner == "" || zone < TrustUntrustedProduct || zone > TrustTrustedBuild || sequence <= 0 {
 		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner demand identity is invalid"}
 	}
+	if len(runner) > 256 || strings.ContainsAny(runner, "\r\n") {
+		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner demand identity is invalid"}
+	}
 	raw, err := base64.StdEncoding.DecodeString(bootstrapBase64)
 	if err != nil || len(raw) < 1 || len(raw) > 32*1024 {
 		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner bootstrap is invalid"}
@@ -76,7 +79,7 @@ func NewOciCiRunnerLaunchTemplate(compartment, availability, fault, subnet strin
 			return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI CI runner OCID is invalid"}
 		}
 	}
-	if availability == "" || len(availability) > 128 || generation <= 0 || len(nsg) < 1 || len(nsg) > 5 {
+	if availability == "" || len(availability) > 128 || strings.IndexFunc(availability, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || generation <= 0 || len(nsg) < 1 || len(nsg) > 5 {
 		return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI CI runner launch template is invalid"}
 	}
 	seen := map[string]bool{}
@@ -86,7 +89,7 @@ func NewOciCiRunnerLaunchTemplate(compartment, availability, fault, subnet strin
 		}
 		seen[x] = true
 	}
-	if fault != "" && len(fault) > 64 {
+	if fault != "" && (len(fault) > 64 || strings.IndexFunc(fault, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0) {
 		return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI fault domain is invalid"}
 	}
 	return OciCiRunnerLaunchTemplate{compartment, availability, fault, subnet, image, append([]string(nil), nsg...), generation}, nil
@@ -273,7 +276,7 @@ func LoadOciCiRunnerPoolConfiguration(path string) (*OciCiRunnerPoolConfiguratio
 	if strings.TrimSpace(path) == "" {
 		return nil, nil
 	}
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil || !st.Mode().IsRegular() || st.Size() < 1 || st.Size() > 256*1024 {
 		return nil, &ArgumentError{Message: "CI runner pool configuration must be a bounded regular file"}
 	}
@@ -292,12 +295,17 @@ func LoadOciCiRunnerPoolConfiguration(path string) (*OciCiRunnerPoolConfiguratio
 			Sequence                    int64
 		} `json:"runners"`
 	}
-	if json.Unmarshal(raw, &d) != nil || d.SchemaVersion != 1 || len(d.Runners) < 1 || len(d.Runners) > 32 {
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&d) != nil || d.SchemaVersion != 1 || len(d.Runners) < 1 || len(d.Runners) > 32 {
 		return nil, &InvalidDataError{Message: "CI runner pool configuration has unsupported shape"}
 	}
 	eu, eerr := url.Parse(strings.TrimSpace(d.Endpoint))
-	if eerr != nil || eu.Scheme != "https" || eu.User != nil || eu.Path != "/" || eu.RawQuery != "" || eu.Fragment != "" || !strings.HasPrefix(eu.Host, "iaas.") || !strings.HasSuffix(eu.Host, ".oraclecloud.com") || !regionPattern.MatchString(strings.TrimSuffix(strings.TrimPrefix(eu.Host, "iaas."), ".oraclecloud.com")) {
+	if eerr != nil || eu.Scheme != "https" || eu.User != nil || (eu.Path != "" && eu.Path != "/") || eu.RawQuery != "" || eu.Fragment != "" || !strings.HasPrefix(eu.Host, "iaas.") || !strings.HasSuffix(eu.Host, ".oraclecloud.com") || !regionPattern.MatchString(strings.TrimSuffix(strings.TrimPrefix(eu.Host, "iaas."), ".oraclecloud.com")) {
 		return nil, &InvalidDataError{Message: "CI runner pool endpoint is invalid"}
+	}
+	if d.IdleSeconds < 30 || d.IdleSeconds > 900 || d.PollSeconds < 1 || d.PollSeconds > 30 {
+		return nil, &InvalidDataError{Message: "CI runner pool timing is outside its bound"}
 	}
 	t, err := NewOciCiRunnerLaunchTemplate(d.CompartmentId, d.AvailabilityDomain, d.FaultDomain, d.SubnetId, d.NetworkSecurityGroupIds, d.ImageId, d.Generation)
 	if err != nil {
@@ -321,6 +329,10 @@ func LoadOciCiRunnerPoolConfiguration(path string) (*OciCiRunnerPoolConfiguratio
 		bp := x.BootstrapFile
 		if !filepath.IsAbs(bp) {
 			bp = filepath.Join(filepath.Dir(path), bp)
+		}
+		bsInfo, bErr := os.Lstat(bp)
+		if bErr != nil || !bsInfo.Mode().IsRegular() || bsInfo.Size() < 1 || bsInfo.Size() > 32*1024 {
+			return nil, &InvalidDataError{Message: "runner bootstrap file is invalid"}
 		}
 		bs, bErr := os.ReadFile(bp)
 		if bErr != nil || len(bs) < 1 || len(bs) > 32*1024 {

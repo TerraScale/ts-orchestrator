@@ -48,7 +48,7 @@ func (toolingTests) Run(arguments []string) (int, error) {
 	if len(failures) != 0 {
 		return 0, newToolValidationException(failures)
 	}
-	fmt.Printf("Passed %d C# tooling tests.\n", len(tests))
+	fmt.Printf("Passed %d Go tooling tests.\n", len(tests))
 	return 0, nil
 }
 

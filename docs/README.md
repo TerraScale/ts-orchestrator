@@ -53,9 +53,9 @@ authority. Their validators still protect the integrity of that historical
 record.
 
 ```bash
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- adr-readiness
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- owner-decisions
-dotnet run --project tools/TerraScale.Orchestrator.Tooling -- test
+go run ./tools/orchestrator-tooling adr-readiness
+go run ./tools/orchestrator-tooling owner-decisions
+go run ./tools/orchestrator-tooling test
 ```
 
 ## Archives

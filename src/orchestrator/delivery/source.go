@@ -18,6 +18,7 @@ const (
 	MaximumSourceFileBytes    = 1 << 20
 	MaximumSourceArchiveBytes = 256 << 20
 	MaximumChangedPaths       = 4096
+	CIDescriptorPath          = ".terrascale/ci-v2.json"
 )
 
 type SourceConfig struct {
@@ -172,7 +173,7 @@ func (c *SourceClient) ReadChangedPaths(ctx context.Context, event *WebhookEnvel
 		return nil, errors.New("event does not identify comparable revisions")
 	}
 	if allZero(event.BaseRevision) {
-		return []string{".terrascale/ci.json"}, nil
+		return []string{CIDescriptorPath}, nil
 	}
 	owner, repo := splitRepo(c.config.Repository)
 	rangePath := url.PathEscape(strings.ToLower(event.BaseRevision) + "..." + strings.ToLower(event.Revision))
@@ -202,7 +203,7 @@ func (c *SourceClient) ReadChangedPaths(ctx context.Context, event *WebhookEnvel
 		seen[name] = struct{}{}
 		paths[name] = struct{}{}
 		if status == "renamed" || status == "copied" {
-			paths[".terrascale/ci.json"] = struct{}{}
+			paths[CIDescriptorPath] = struct{}{}
 		}
 	}
 	out := make([]string, 0, len(paths))

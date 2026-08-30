@@ -67,11 +67,11 @@ func (g *RepositorySourceGraph) Snapshot(ctx context.Context, event *WebhookEnve
 		if e != nil {
 			return SourceSnapshot{}, e
 		}
-		file, e := g.Sources[repo].ReadFile(ctx, rev.Commit, ".terrascale/ci.json", MaximumSourceFileBytes)
+		file, e := g.Sources[repo].ReadFile(ctx, rev.Commit, CIDescriptorPath, MaximumSourceFileBytes)
 		if e != nil {
 			return SourceSnapshot{}, e
 		}
-		if file.Repository != repo || file.Commit != rev.Commit || file.Path != ".terrascale/ci.json" {
+		if file.Repository != repo || file.Commit != rev.Commit || file.Path != CIDescriptorPath {
 			return SourceSnapshot{}, errors.New("source descriptor identity changed")
 		}
 		out.Files = append(out.Files, file)
