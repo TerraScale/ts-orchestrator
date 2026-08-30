@@ -11,6 +11,8 @@ using NATS.Client.Services;
 using NATS.Net;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -233,7 +235,11 @@ public sealed class NatsControlR3L0cTests
             "global-authority-1",
             "gru",
             ciRunnerNatsSigner: null,
-            cancellationToken: CancellationToken.None);
+            cancellationToken: CancellationToken.None,
+            ciArtifactSignatures: new DenyingArtifactSignatureVerifier(),
+            admittedDeliveryTargets: DirectDeliveryAdmittedTargets.Parse([
+                "terrascale-dashboard:production:gru,sfo,fra",
+            ]));
         await using var authority = await fixture.ConnectAsync(fixture.Authority);
         var jetStream = authority.CreateJetStreamContext();
 
@@ -315,7 +321,11 @@ public sealed class NatsControlR3L0cTests
             "global-authority-1",
             "gru",
             ciRunnerNatsSigner: null,
-            cancellationToken: CancellationToken.None);
+            cancellationToken: CancellationToken.None,
+            ciArtifactSignatures: new DenyingArtifactSignatureVerifier(),
+            admittedDeliveryTargets: DirectDeliveryAdmittedTargets.Parse([
+                "terrascale-dashboard:production:gru,sfo,fra",
+            ]));
         // Production-shaped request timeout (the runtime's own connections allow 15s):
         // consumer creation on an R3 stream needs a raft-quorum ack from all three
         // members, which the fixture's tight 3s probe timeout cannot absorb while the
@@ -541,7 +551,7 @@ public sealed class NatsControlR3L0cTests
         await using var fixture = await NatsControlR3L0cFixture.StartAsync();
         await fixture.ProvisionAsync();
         var topology = fixture.Topology;
-        var root = $"ts.orch.v1.{topology.Cell}";
+        var root = NatsSubjectTaxonomy.RegionalRoot(topology.Cell);
 
         await using var infrastructure = await fixture.ConnectAsync(fixture.Infrastructure);
         var jetStream = infrastructure.CreateJetStreamContext();
@@ -834,6 +844,14 @@ public sealed class NatsControlR3L0cTests
         var key = ECDsa.Create();
         key.ImportPkcs8PrivateKey(privateKey, out _);
         return new(key);
+    }
+
+    private sealed class DenyingArtifactSignatureVerifier : IRepositoryCiArtifactSignatureVerifier
+    {
+        public VerificationOutcome Verify(
+            string signingIdentity,
+            ReadOnlyMemory<byte> canonicalMaterial,
+            OpaqueSignature signature) => VerificationOutcome.Invalid;
     }
 
     private static bool IsProcessRunning(int processId)

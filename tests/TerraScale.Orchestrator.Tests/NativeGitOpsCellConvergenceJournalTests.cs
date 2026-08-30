@@ -328,7 +328,7 @@ public sealed class NativeGitOpsCellConvergenceJournalTests
     }
 
     private static byte[] Plan(long generation, string artifactDigest) => Encoding.UTF8.GetBytes($$"""
-        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
+        {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
         """);
 
     private static string Hash(string value) => Convert.ToHexStringLower(

@@ -143,16 +143,16 @@ internal static class NatsMonitoringPermissions
             NatsSubjectTaxonomy.DirectDeliverySubject(cell),
             NatsSubjectTaxonomy.OperationJournalCreateSubject(cell),
             NatsSubjectTaxonomy.OperationJournalUpdateSubject(cell),
-            $"{NatsSubjectTaxonomy.RegionalRoot(cell)}.desired.>",
-            $"{NatsSubjectTaxonomy.RegionalRoot(cell)}.event.>"
+            NatsSubjectTaxonomy.RegionalFamilyPattern(cell, NatsSubjectTaxonomy.DesiredFamilySegment),
+            NatsSubjectTaxonomy.RegionalFamilyPattern(cell, NatsSubjectTaxonomy.ObservationFamilySegment)
         ];
 
         /// <summary>Global control-plane work subjects.</summary>
         internal static IReadOnlyList<string> GlobalControlPublish() =>
         [
-            $"{NatsSubjectTaxonomy.GlobalRoot}.desired.gitops.>",
-            $"{NatsSubjectTaxonomy.GlobalRoot}.ci.job.>",
-            $"{NatsSubjectTaxonomy.GlobalRoot}.global.query.cells"
+            NatsSubjectTaxonomy.GlobalCellSpecPrefix + ".>",
+            NatsSubjectTaxonomy.CiJobSubjectPrefix + ".>",
+            NatsSubjectTaxonomy.GlobalDirectoryQuerySubject
         ];
 
         /// <summary>JetStream mutation and management APIs.</summary>

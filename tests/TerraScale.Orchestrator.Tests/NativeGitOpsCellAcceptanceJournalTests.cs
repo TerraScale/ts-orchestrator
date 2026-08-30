@@ -193,7 +193,7 @@ public sealed class NativeGitOpsCellAcceptanceJournalTests
         const string tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         var source = new NativeGitOpsSourcePlan(

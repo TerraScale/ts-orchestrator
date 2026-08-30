@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -25,7 +26,8 @@ public sealed class NativeGitOpsCellPublisherTests
         await Assert.That(receipt.Disposition).IsEqualTo(NativeGitOpsCellPublishDisposition.Published);
         await Assert.That(receipt.IsDurable).IsTrue();
         await Assert.That(receipt.StreamSequence).IsEqualTo(41UL);
-        await Assert.That(transport.Messages.Single().Subject).IsEqualTo("ts.orch.v1.gru.desired.gitops");
+        await Assert.That(transport.Messages.Single().Subject)
+            .IsEqualTo(NatsSubjectTaxonomy.CellSpecSubject("gru"));
         await Assert.That(transport.Messages.Single().MessageId)
             .IsEqualTo($"gitops:{handoff.HandoffDigest}:gru:7");
         await Assert.That(decoded.Handoff.HandoffDigest).IsEqualTo(handoff.HandoffDigest);
@@ -104,7 +106,7 @@ public sealed class NativeGitOpsCellPublisherTests
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         const string digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{digest}}","cells":["gru"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"orchestrator","role":"Orchestrator","artifactDigest":"{{digest}}","cells":["gru"]}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         return NativeGitOpsCellSpecCompiler.Compile(new(

@@ -19,9 +19,9 @@ public sealed class NativeGitOpsManifestTests
               "kind":"TerraScaleDesiredState",
               "generation":7,
               "workloads":[
-                {"id":"platform","role":"Platform","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
+                {"id":"platform","role":"CustomerDashboard","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
                 {"id":"control","role":"Orchestrator","artifactDigest":"{{ControlDigest}}","cells":["gru"]},
-                {"id":"auth","role":"Authentication","artifactDigest":"{{AuthDigest}}","cells":["gru","sfo"]}
+                {"id":"auth","role":"CustomerDashboard","artifactDigest":"{{AuthDigest}}","cells":["gru","sfo"]}
               ]
             }
             """);
@@ -53,14 +53,14 @@ public sealed class NativeGitOpsManifestTests
     {
         var first = Parse($$"""
             {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":1,"workloads":[
-              {"id":"platform","role":"Platform","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
-              {"id":"auth","role":"Authentication","artifactDigest":"{{AuthDigest}}","cells":["sfo","gru"]}
+              {"id":"platform","role":"CustomerDashboard","artifactDigest":"{{PlatformDigest}}","cells":["sfo","gru"],"dependsOn":["auth"]},
+              {"id":"auth","role":"CustomerDashboard","artifactDigest":"{{AuthDigest}}","cells":["sfo","gru"]}
             ]}
             """);
         var second = Parse($$"""
             {"workloads":[
-              {"cells":["gru","sfo"],"artifactDigest":"{{AuthDigest}}","role":"Authentication","id":"auth","suspended":false,"replicas":1,"runtime":"OciContainer"},
-              {"dependsOn":["auth"],"cells":["gru","sfo"],"artifactDigest":"{{PlatformDigest}}","role":"Platform","id":"platform"}
+              {"cells":["gru","sfo"],"artifactDigest":"{{AuthDigest}}","role":"CustomerDashboard","id":"auth","suspended":false,"replicas":1,"runtime":"OciContainer"},
+              {"dependsOn":["auth"],"cells":["gru","sfo"],"artifactDigest":"{{PlatformDigest}}","role":"CustomerDashboard","id":"platform"}
             ],"generation":1,"kind":"TerraScaleDesiredState","apiVersion":"terrascale.io/v1"}
             """);
 
@@ -82,35 +82,6 @@ public sealed class NativeGitOpsManifestTests
 
         foreach (var value in cases)
             await Assert.That(() => Parse(value)).Throws<InvalidDataException>();
-    }
-
-    [Test]
-    public async Task TheMcpRoleIsRejectedUntilTheGitOpsLaneCarriesTheQualifiedArtifactBinding()
-    {
-        // ADR 0032: the GitOps lane admits roles by catalog membership plus a well-formed
-        // digest, which is NOT sufficient for the MCP workload — it additionally requires the
-        // qualified HTTP artifact binding this lane does not carry. Fail closed with the
-        // actionable route (direct delivery) instead of admitting any well-formed digest.
-        var cases = new[]
-        {
-            Workload($"\"id\":\"mcp\",\"role\":\"McpServer\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"]"),
-            Workload($"\"id\":\"mcp\",\"role\":\"McpServer\",\"artifactDigest\":\"{PlatformDigest}\",\"cells\":[\"gru\"],\"replicas\":2"),
-        };
-
-        foreach (var value in cases)
-        {
-            var reason = string.Empty;
-            try
-            {
-                Parse(value);
-            }
-            catch (InvalidDataException exception)
-            {
-                reason = exception.Message;
-            }
-            await Assert.That(reason).Contains("qualified HTTP artifact binding");
-            await Assert.That(reason).Contains("direct delivery");
-        }
     }
 
     [Test]

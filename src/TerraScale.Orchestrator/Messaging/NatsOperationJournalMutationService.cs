@@ -563,7 +563,12 @@ internal sealed class NatsOperationJournalMutationClient(
         await client.PublishAsync(subject, request, replyTo: replySubject, cancellationToken: responseTimeout.Token);
         var response = (await subscription.Msgs.ReadAsync(responseTimeout.Token)).Data
             ?? throw new InvalidOperationException("The private journal mutation service returned no reply.");
-        if (!replies.Verify(response, NatsOperationJournalMutationRequestDigest.Create(((INatsOperationJournalMutationRequest)request).Authority)))
+        var requestDigest = NatsOperationJournalMutationRequestDigest.Create(
+            ((INatsOperationJournalMutationRequest)request).Authority);
+        if (!string.Equals(response.RequestDigest, requestDigest, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "The private journal mutation service reply did not bind the exact request authority.");
+        if (!replies.Verify(response, requestDigest))
             throw new InvalidOperationException("The private journal mutation service reply failed authority verification.");
         return response;
     }

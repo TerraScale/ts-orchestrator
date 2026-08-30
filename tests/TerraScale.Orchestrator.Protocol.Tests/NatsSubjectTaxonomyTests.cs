@@ -78,22 +78,22 @@ public sealed class NatsSubjectTaxonomyTests
     public async Task Rehomed_bridge_subjects_land_inside_the_closed_v2_families()
     {
         await Assert.That(NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"))
-            .IsEqualTo("ts.orch.v2.gru.operation.journal.create");
+            .IsEqualTo("ts.orch.v2.gru.command.journal.create");
         await Assert.That(NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru"))
-            .IsEqualTo("ts.orch.v2.gru.operation.journal.update");
+            .IsEqualTo("ts.orch.v2.gru.command.journal.update");
         await Assert.That(NatsSubjectTaxonomy.OperationJournalReplySubject("gru", "UABC", new string('a', 32)))
-            .IsEqualTo("ts.orch.v2.gru.operation.journal.reply.UABC." + new string('a', 32));
+            .IsEqualTo("ts.orch.v2.gru.command.journal.reply.UABC." + new string('a', 32));
         await Assert.That(NatsSubjectTaxonomy.ControllerInboxPrefix("gru", "UABC"))
             .IsEqualTo("ts.orch.v2.gru.command.reply.UABC");
         await Assert.That(NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1"))
             .IsEqualTo("ts.orch.v2.gru.observation.runtime.started.controller-1");
         await Assert.That(NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"))
-            .IsEqualTo("ts.orch.v2.gru.operation.runtime-lifecycle.read");
+            .IsEqualTo("ts.orch.v2.gru.command.runtime-lifecycle.read");
 
         foreach (var (subject, expected) in new[]
                  {
-                     (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), NatsSubjectNamespace.Operations),
-                     (NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"), NatsSubjectNamespace.Operations),
+                     (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), NatsSubjectNamespace.RegionalControl),
+                     (NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"), NatsSubjectNamespace.RegionalControl),
                      (NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1"), NatsSubjectNamespace.RegionalControl),
                      (NatsSubjectTaxonomy.ControllerInboxPrefix("gru", "UABC"), NatsSubjectNamespace.RegionalControl),
                  })
@@ -168,8 +168,8 @@ public sealed class NatsSubjectTaxonomyTests
             (NatsSubjectTaxonomy.DirectDeliverySubject("fra"), NatsSubjectNamespace.RegionalControl),
             (NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1"), NatsSubjectNamespace.RegionalControl),
             (NatsSubjectTaxonomy.RegionalRoot("gru") + ".observation.host.pressure", NatsSubjectNamespace.RegionalControl),
-            (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), NatsSubjectNamespace.Operations),
-            (NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"), NatsSubjectNamespace.Operations),
+            (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), NatsSubjectNamespace.RegionalControl),
+            (NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read"), NatsSubjectNamespace.RegionalControl),
             (NatsSubjectTaxonomy.RegionalRoot("gru") + ".operation.created", NatsSubjectNamespace.Operations),
             (NatsSubjectTaxonomy.CiForgejoTriggerSubject, NatsSubjectNamespace.ContinuousIntegration),
             (NatsSubjectTaxonomy.CiRuntimeProofSubject, NatsSubjectNamespace.ContinuousIntegration),

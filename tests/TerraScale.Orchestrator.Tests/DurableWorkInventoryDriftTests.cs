@@ -30,6 +30,10 @@ public sealed class DurableWorkInventoryDriftTests
         {
             var plan = plans[stream.Name!];
             await Assert.That(stream.Subjects).IsEquivalentTo(plan.SubjectFor(Cell));
+            foreach (var subject in stream.Subjects!)
+            {
+                await Assert.That(subject).StartsWith(NatsSubjectTaxonomy.RegionalRoot(Cell) + ".");
+            }
             await Assert.That(stream.NumReplicas).IsEqualTo(plan.Replicas);
             await Assert.That(stream.Retention).IsEqualTo(StreamConfigRetention.Limits);
             await Assert.That(stream.MaxAge).IsEqualTo(plan.MaximumAge);
@@ -60,6 +64,10 @@ public sealed class DurableWorkInventoryDriftTests
         {
             var plan = plans[stream.Name!];
             await Assert.That(stream.Subjects).IsEquivalentTo(plan.SubjectFor(Cell));
+            foreach (var subject in stream.Subjects!)
+            {
+                await Assert.That(subject).StartsWith(NatsSubjectTaxonomy.GlobalRoot + ".");
+            }
             await Assert.That(stream.NumReplicas).IsEqualTo(plan.Replicas);
             await Assert.That(stream.Retention).IsEqualTo(StreamConfigRetention.Limits);
             await Assert.That(stream.MaxAge).IsEqualTo(plan.MaximumAge);

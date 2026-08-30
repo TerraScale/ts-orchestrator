@@ -17,8 +17,14 @@ public sealed class MessagingSemanticClassesTests
             (topology.StatusSubject, MessagingSemanticClass.Lossy),
             (topology.MembersSubject, MessagingSemanticClass.Lossy),
             (topology.DirectDeliverySubject, MessagingSemanticClass.Lossy),
-            (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), MessagingSemanticClass.AuthoritativeJournal),
-            (NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru"), MessagingSemanticClass.AuthoritativeJournal),
+            (NatsSubjectTaxonomy.OperationJournalCreateSubject("gru"), MessagingSemanticClass.Lossy),
+            (NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru"), MessagingSemanticClass.Lossy),
+            (NatsSubjectTaxonomy.OperationJournalReplySubject("gru", "UABC", new string('a', 32)),
+                MessagingSemanticClass.Lossy),
+            (NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject("gru", "UABC", new string('b', 32)),
+                MessagingSemanticClass.Lossy),
+            (NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1"),
+                MessagingSemanticClass.Replayable),
             (GlobalNatsTopology.CellDirectorySubject, MessagingSemanticClass.Lossy),
             (NatsSubjectTaxonomy.CiForgejoTriggerSubject, MessagingSemanticClass.WorkQueue),
             (NatsSubjectTaxonomy.CiRuntimeProofSubject, MessagingSemanticClass.Replayable),
@@ -26,7 +32,7 @@ public sealed class MessagingSemanticClassesTests
                 + GlobalNatsTopology.CiRunnerIdentityHash("runner-7")[..24], MessagingSemanticClass.WorkQueue),
             (GlobalNatsTopology.CellSpecSubject("sfo"), MessagingSemanticClass.AuthoritativeJournal),
             (TerraScale.Orchestrator.ControlPlane.Runtime.RuntimeLifecycleNatsProtocol.Subject("gru", "read"),
-                MessagingSemanticClass.AuthoritativeJournal),
+                MessagingSemanticClass.Lossy),
         };
 
         foreach (var (subject, expected) in cases)

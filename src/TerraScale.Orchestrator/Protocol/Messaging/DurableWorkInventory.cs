@@ -10,9 +10,9 @@ namespace TerraScale.Orchestrator.Protocol.Messaging;
 public enum DurableWorkDomain
 {
     Unspecified = 0,
-    /// <summary>The owning regional cell's JetStream domain (subjects are cell-scoped under <c>ts.orch.v1.&lt;cell&gt;</c>).</summary>
+    /// <summary>The owning regional cell's JetStream domain (subjects are cell-scoped under <c>ts.orch.v2.&lt;cell&gt;</c>).</summary>
     RegionalCell,
-    /// <summary>The single global control domain (subjects under <c>ts.orch.v1.global</c>).</summary>
+    /// <summary>The single global control domain (subjects under <c>ts.orch.v2.global</c>).</summary>
     GlobalControl,
 }
 
@@ -241,7 +241,7 @@ public static class DurableWorkInventory
         return
         [
             new("CELL_SPEC",
-                ["ts.orch.v1.{cell}.desired.>"],
+                [NatsSubjectTaxonomy.RegionalDesiredFamilyTemplate],
                 DurableWorkDomain.RegionalCell,
                 MessagingSemanticClass.AuthoritativeJournal,
                 3,
@@ -252,7 +252,7 @@ public static class DurableWorkInventory
                 cell,
                 "Accepted CellSpec history; deterministic conflicts terminate with terminal evidence, exhaustion warns on the final delivery."),
             new("CELL_OPERATIONS",
-                ["ts.orch.v1.{cell}.operation.>"],
+                [NatsSubjectTaxonomy.RegionalOperationFamilyTemplate],
                 DurableWorkDomain.RegionalCell,
                 MessagingSemanticClass.AuthoritativeJournal,
                 3,
@@ -263,7 +263,7 @@ public static class DurableWorkInventory
                 cell,
                 "Authoritative regional operation history; KV CAS plus operation proofs fence every append."),
             new("CELL_EVENTS",
-                ["ts.orch.v1.{cell}.event.>"],
+                [NatsSubjectTaxonomy.RegionalObservationFamilyTemplate],
                 DurableWorkDomain.RegionalCell,
                 MessagingSemanticClass.Replayable,
                 3,
@@ -285,7 +285,7 @@ public static class DurableWorkInventory
                 cell,
                 "Accepted global revisions; deterministic conflicts terminate with terminal evidence."),
             new("GLOBAL_CI",
-                [NatsSubjectTaxonomy.GlobalRoot + ".ci.>"],
+                [NatsSubjectTaxonomy.GlobalCiFamilyPattern],
                 DurableWorkDomain.GlobalControl,
                 MessagingSemanticClass.WorkQueue,
                 3,
@@ -309,7 +309,7 @@ public static class DurableWorkInventory
         [
             new("CELL_EVENTS",
                 "runtime_startup",
-                "ts.orch.v1.{cell}.event.runtime.started.>",
+                NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate,
                 DurableWorkDomain.RegionalCell,
                 DurableWorkOwnership.RegionalEquivalentWorkers,
                 DurableAcknowledgement.Explicit,
@@ -323,7 +323,7 @@ public static class DurableWorkInventory
                 "Acknowledged startup events; a lost acknowledgement redelivers and the idempotent event id converges."),
             new("CELL_SPEC",
                 "gitops_cell_spec_{instance}",
-                "ts.orch.v1.{cell}.desired.gitops",
+                NatsSubjectTaxonomy.RegionalCellSpecTemplate,
                 DurableWorkDomain.RegionalCell,
                 DurableWorkOwnership.RegionalFencedAuthority,
                 DurableAcknowledgement.Explicit,

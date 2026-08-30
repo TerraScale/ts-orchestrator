@@ -9,14 +9,13 @@ namespace TerraScale.Orchestrator.Messaging;
 
 public sealed class GlobalNatsTopology
 {
-    private const string Root = NatsSubjectTaxonomy.GlobalRoot;
     public const string CellSpecStream = "GLOBAL_SPEC";
     public const string CiStream = "GLOBAL_CI";
-    public const string CiSubject = $"{Root}.ci.forgejo";
-    public const string CiJobSubjectPrefix = $"{Root}.ci.job";
-    public const string CiRuntimeProofSubject = $"{Root}.ci.runtime-proof";
-    public const string CellDirectorySubject = $"{Root}.query.cells";
-    public const string CellSpecSubjectPrefix = $"{Root}.desired.gitops";
+    public const string CiSubject = NatsSubjectTaxonomy.CiForgejoTriggerSubject;
+    public const string CiJobSubjectPrefix = NatsSubjectTaxonomy.CiJobSubjectPrefix;
+    public const string CiRuntimeProofSubject = NatsSubjectTaxonomy.CiRuntimeProofSubject;
+    public const string CellDirectorySubject = NatsSubjectTaxonomy.GlobalDirectoryQuerySubject;
+    public const string CellSpecSubjectPrefix = NatsSubjectTaxonomy.GlobalCellSpecPrefix;
     public const string CellsBucket = "GLOBAL_CELLS";
     public const string RunnerJobsBucket = "CI_RUNNER_JOBS";
     public const string RunnerBundlesBucket = "CI_RUNNER_BUNDLES";
@@ -33,7 +32,7 @@ public sealed class GlobalNatsTopology
 
     public IReadOnlyList<StreamConfig> Streams =>
     [
-        new(CellSpecStream, [$"{Root}.desired.>"])
+        new(CellSpecStream, [NatsSubjectTaxonomy.GlobalFamilyPattern(NatsSubjectTaxonomy.DesiredFamilySegment)])
         {
             Description = "Accepted global revisions and compiled cell handoffs",
             MaxBytes = 256 * 1024 * 1024,
@@ -44,7 +43,7 @@ public sealed class GlobalNatsTopology
             Storage = StreamConfigStorage.File,
             Discard = StreamConfigDiscard.Old,
         },
-        new(CiStream, [$"{Root}.ci.>"])
+        new(CiStream, [NatsSubjectTaxonomy.GlobalCiFamilyPattern])
         {
             Description = "Durable normalized CI events and fenced runner commands",
             MaxBytes = 1024L * 1024 * 1024,

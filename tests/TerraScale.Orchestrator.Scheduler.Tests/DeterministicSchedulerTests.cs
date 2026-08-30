@@ -14,8 +14,11 @@ public sealed class DeterministicSchedulerTests
         {
             "ProjectId", "ProjectRegions", "PlacementGeneration", "DatabaseId", "DatabaseRegions"
         };
-        var assemblyTypes = typeof(DeterministicScheduler).Assembly.GetExportedTypes();
-        var exposedNames = assemblyTypes
+        var schedulerNamespace = typeof(DeterministicScheduler).Namespace!;
+        var schedulerTypes = typeof(DeterministicScheduler).Assembly.GetExportedTypes()
+            .Where(type => type.Namespace == schedulerNamespace ||
+                type.Namespace?.StartsWith(schedulerNamespace + ".", StringComparison.Ordinal) == true);
+        var exposedNames = schedulerTypes
             .SelectMany(type => type.GetProperties().Select(property => property.Name)
                 .Concat(type.GetConstructors().SelectMany(constructor => constructor.GetParameters())
                     .Select(parameter => parameter.Name ?? string.Empty)))

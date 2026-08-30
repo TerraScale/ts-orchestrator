@@ -294,7 +294,7 @@ public sealed class NativeGitOpsCellRuntimeProjectorTests
         var plan = HostRuntimePlan.Create(
             HostRole.CustomerDashboard,
             HostRuntimeDriver.OciContainer,
-            new HostRuntimeAllocationId("dashboard-a"),
+            new HostRuntimeAllocationId("platform-a"),
             new HostArtifactDigest(Artifact),
             HostArchitecture.Arm64,
             resources);

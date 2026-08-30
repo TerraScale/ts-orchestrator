@@ -20,8 +20,8 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task ExactSourceCompilesDeterministicSameDigestCellPayloads()
     {
         var source = SourcePlan(null, Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru", "sfo"])));
 
         var first = NativeGitOpsCellSpecCompiler.Compile(source);
         var second = NativeGitOpsCellSpecCompiler.Compile(source);
@@ -48,11 +48,11 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task CellRemovalRetiresDependentsWhileOtherCellsCreateOrUpdate()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("platform", "Platform", PlatformV1, ["gru"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru"]),
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru"]),
             Workload("control", "Orchestrator", Control, ["fra"], replicas: 3)));
 
         var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
@@ -78,11 +78,11 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task PayloadBindsAcceptedPlanAndBeforeAfterWorkloadIdentities()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru"])));
+            Workload("platform", "CustomerDashboard", PlatformV2, ["gru"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru"])));
         var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
 
         foreach (var cell in handoff.Cells)
@@ -105,7 +105,7 @@ public sealed class NativeGitOpsCellSpecTests
         }
 
         var first = NativeGitOpsCellSpecCompiler.Compile(SourcePlan(null, Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru"])))).Cells.Single();
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru"])))).Cells.Single();
         using var initial = JsonDocument.Parse(first.Payload);
         await Assert.That(initial.RootElement.GetProperty("acceptedGeneration").ValueKind)
             .IsEqualTo(JsonValueKind.Null);
@@ -117,11 +117,11 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task CombinedContentAndSuspensionChangeStopsDependentsFirst()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru"])));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru"])));
         var source = SourcePlan(accepted, Plan(2,
-            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"], suspended: true),
-            Workload("auth", "Authentication", Auth, ["gru"], suspended: true)));
+            Workload("platform", "CustomerDashboard", PlatformV2, ["gru"], ["auth"], suspended: true),
+            Workload("auth", "CustomerDashboard", Auth, ["gru"], suspended: true)));
 
         var cell = NativeGitOpsCellSpecCompiler.Compile(source).Cells.Single();
 
@@ -133,8 +133,8 @@ public sealed class NativeGitOpsCellSpecTests
     public async Task EmptyProposedSetStillHandsRetirementToEveryAcceptedCell()
     {
         var accepted = NativeGitOpsManifest.Parse(Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru", "sfo"])));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru", "sfo"])));
         var source = SourcePlan(accepted, Plan(2));
 
         var handoff = NativeGitOpsCellSpecCompiler.Compile(source);
@@ -155,7 +155,7 @@ public sealed class NativeGitOpsCellSpecTests
         var workloads = Enumerable.Range(0, NativeGitOpsCellSpecCompiler.MaximumCellsPerHandoff + 1)
             .Select(index => Workload(
                 $"platform-{index}",
-                "Platform",
+                "Orchestrator",
                 PlatformV1,
                 [$"cell-{index}"]))
             .ToArray();

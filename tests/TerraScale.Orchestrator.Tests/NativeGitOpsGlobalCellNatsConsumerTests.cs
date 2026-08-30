@@ -2,6 +2,7 @@ using Microsoft.Extensions.Primitives;
 using NATS.Client.Core;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -16,7 +17,7 @@ public sealed class NativeGitOpsGlobalCellNatsConsumerTests
         await Assert.That(consumer.Name).IsEqualTo("gitops_global_cell_spec_gru");
         await Assert.That(consumer.DurableName).IsEqualTo(consumer.Name);
         await Assert.That(consumer.FilterSubject)
-            .IsEqualTo("ts.orch.v1.global.desired.gitops.gru");
+            .IsEqualTo(NatsSubjectTaxonomy.GlobalCellSpecSubject("gru"));
         await Assert.That(consumer.AckPolicy).IsEqualTo(NATS.Client.JetStream.Models.ConsumerConfigAckPolicy.Explicit);
         await Assert.That(consumer.AckWait).IsEqualTo(TimeSpan.FromSeconds(1));
         await Assert.That(consumer.MaxDeliver).IsEqualTo(5);

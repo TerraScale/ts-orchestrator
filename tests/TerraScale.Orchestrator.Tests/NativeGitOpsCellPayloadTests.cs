@@ -14,11 +14,11 @@ public sealed class NativeGitOpsCellPayloadTests
     public async Task DurablePayloadRehydratesExactBaseDesiredAndRetirementIdentities()
     {
         var accepted = Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["gru", "sfo"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru", "sfo"]));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["gru", "sfo"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru", "sfo"]));
         var handoff = Handoff(accepted, Plan(2,
-            Workload("platform", "Platform", PlatformV2, ["gru"], ["auth"]),
-            Workload("auth", "Authentication", Auth, ["gru"])));
+            Workload("platform", "CustomerDashboard", PlatformV2, ["gru"], ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth, ["gru"])));
 
         var gru = handoff.Cells.Single(static cell => cell.Cell == "gru");
         var parsedGru = NativeGitOpsCellPayload.Parse(Accepted(handoff, gru));
@@ -47,7 +47,7 @@ public sealed class NativeGitOpsCellPayloadTests
     [Test]
     public async Task UnknownDuplicateAndContradictoryChangeFieldsFailClosed()
     {
-        var handoff = Handoff(null, Plan(1, Workload("platform", "Platform", PlatformV1, ["gru"])));
+        var handoff = Handoff(null, Plan(1, Workload("platform", "CustomerDashboard", PlatformV1, ["gru"])));
         var cell = handoff.Cells.Single();
         var json = Encoding.UTF8.GetString(cell.Payload.Span);
         var unknown = json.Replace("\"changes\":", "\"unknown\":true,\"changes\":", StringComparison.Ordinal);
@@ -68,7 +68,7 @@ public sealed class NativeGitOpsCellPayloadTests
     [Test]
     public async Task PayloadMustRetainItsDurableCellGenerationPlanAndDigestIdentity()
     {
-        var handoff = Handoff(null, Plan(1, Workload("platform", "Platform", PlatformV1, ["gru"])));
+        var handoff = Handoff(null, Plan(1, Workload("platform", "CustomerDashboard", PlatformV1, ["gru"])));
         var cell = handoff.Cells.Single();
         var accepted = Accepted(handoff, cell);
 

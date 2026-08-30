@@ -156,7 +156,7 @@ public sealed class NativeGitOpsGlobalCellRelayTests
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         var artifact = new string('0', 64);
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifact}}","cells":["gru"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{artifact}}","cells":["gru"]}]}
             """);
         var plan = NativeGitOpsManifest.Parse(content);
         var handoff = NativeGitOpsCellSpecCompiler.Compile(new(

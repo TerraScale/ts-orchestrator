@@ -1,4 +1,5 @@
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -50,7 +51,7 @@ public sealed class GlobalNatsAccessContractTests
             .IsEquivalentTo([GlobalNatsTopology.CellDirectorySubject]);
         await Assert.That(access.Imports).IsEmpty();
         await Assert.That(access.Exports.Single().Subject)
-            .IsEqualTo("ts.orch.v1.global.query.cells");
+            .IsEqualTo(NatsSubjectTaxonomy.GlobalDirectoryQuerySubject);
     }
 
     [Test]

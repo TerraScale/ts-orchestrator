@@ -1,5 +1,6 @@
 using NATS.Client.JetStream.Models;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -20,12 +21,15 @@ public sealed class GlobalNatsTopologyTests
         var runtimeProof = topology.CiRuntimeProofConsumer;
 
         await Assert.That(specification.Name).IsEqualTo("GLOBAL_SPEC");
-        await Assert.That(specification.Subjects).IsEquivalentTo(["ts.orch.v1.global.desired.>"]);
+        await Assert.That(specification.Subjects)
+            .IsEquivalentTo([
+                NatsSubjectTaxonomy.GlobalFamilyPattern(NatsSubjectTaxonomy.DesiredFamilySegment),
+            ]);
         await Assert.That(specification.NumReplicas).IsEqualTo(3);
         await Assert.That(specification.Storage).IsEqualTo(StreamConfigStorage.File);
-        await Assert.That(ci.Subjects).IsEquivalentTo(["ts.orch.v1.global.ci.>"]);
+        await Assert.That(ci.Subjects).IsEquivalentTo([NatsSubjectTaxonomy.GlobalCiFamilyPattern]);
         await Assert.That(GlobalNatsTopology.CiJobSubjectPrefix)
-            .IsEqualTo("ts.orch.v1.global.ci.job");
+            .IsEqualTo(NatsSubjectTaxonomy.CiJobSubjectPrefix);
         await Assert.That(ci.NumReplicas).IsEqualTo(3);
         await Assert.That(ci.DuplicateWindow).IsEqualTo(TimeSpan.FromHours(24));
         await Assert.That(topology.CiConsumer.FilterSubject).IsEqualTo(GlobalNatsTopology.CiSubject);
@@ -50,7 +54,7 @@ public sealed class GlobalNatsTopologyTests
         await Assert.That(topology.Cells.MaxValueSize).IsEqualTo(64 * 1024);
         await Assert.That(GlobalNatsTopology.CellAdvertisementKey("gru")).IsEqualTo("cell.gru");
         await Assert.That(GlobalNatsTopology.CellDirectorySubject)
-            .IsEqualTo("ts.orch.v1.global.query.cells");
+            .IsEqualTo(NatsSubjectTaxonomy.GlobalDirectoryQuerySubject);
         await Assert.That(topology.Releases.Bucket).IsEqualTo("GLOBAL_RELEASES");
         await Assert.That(topology.Releases.NumberOfReplicas).IsEqualTo(3);
         await Assert.That(topology.Releases.History).IsEqualTo(64);

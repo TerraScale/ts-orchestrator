@@ -379,7 +379,7 @@ public sealed class NativeGitOpsGlobalLiveJournalTests
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         var cellJson = string.Join(',', cells.Select(static cell => $"\"{cell}\""));
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifactDigest}}","cells":[{{cellJson}}]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{artifactDigest}}","cells":[{{cellJson}}]}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         return NativeGitOpsCellSpecCompiler.Compile(new(

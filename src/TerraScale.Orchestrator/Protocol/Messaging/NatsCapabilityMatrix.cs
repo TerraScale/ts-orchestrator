@@ -250,7 +250,8 @@ public static class NatsCapabilityMatrix
             "Typed endpoints only; callers hold scoped subscribe permissions plus _INBOX; no-responder surfaces as an error, never silence.",
             "Timeout/no-responder is caller-visible; callers retry with the same idempotency key.",
             "Request latency and no-responder rate per endpoint; bounded timeouts are pinned by the contract.",
-            "NatsRuntime health/status/members endpoints; GlobalCellDirectoryServiceRuntime serves ts.orch.v1.global.query.cells."),
+            "NatsRuntime health/status/members endpoints; GlobalCellDirectoryServiceRuntime serves " +
+                NatsSubjectTaxonomy.GlobalDirectoryQuerySubject + "."),
         Accept(
             NatsCapability.ServicesAndDiscovery,
             NatsCapabilityOwner.RegionalControlRuntime,
@@ -404,7 +405,8 @@ public static class NatsCapabilityMatrix
             "Least-privilege service import/export across accounts within one cluster only (the directory query service); cross-cluster/region stream or service import/export is rejected — the gateway mesh is the only cross-cluster path and no stream may span regions.",
             "A missing import/export makes the cross-account call fail closed with no-responder.",
             "Import/export presence checks per account pair; any undeclared cross-account subject is a security alert.",
-            "GlobalNatsServiceImport/Export for ts.orch.v1.global.query.cells in GlobalNatsAccessContract; no cross-region stream exists in either topology."),
+            "GlobalNatsServiceImport/Export for " + NatsSubjectTaxonomy.GlobalDirectoryQuerySubject +
+                " in GlobalNatsAccessContract; no cross-region stream exists in either topology."),
         Accept(
             NatsCapability.Gateways,
             NatsCapabilityOwner.InfrastructureBootstrap,

@@ -307,17 +307,15 @@ public static class MessagingEnvelopeValidator
 
     /// <summary>
     /// Extracts the cell token of a cell-scoped subject: the regional shape
-    /// (<c>ts.orch.v1.&lt;cell&gt;…</c>, token 4) and, as defense in depth, the canonical
-    /// global per-cell shape (<c>ts.orch.v1.global.desired.gitops.&lt;cell&gt;</c>). Any other
+    /// (<c>ts.orch.v2.&lt;cell&gt;…</c>, token 4) and, as defense in depth, the canonical
+    /// global per-cell shape (<c>ts.orch.v2.global.desired.gitops.&lt;cell&gt;</c>). Any other
     /// global subject carries no cell scope and returns <c>null</c>.
     /// </summary>
     internal static string? ExtractCellScope(string subject)
     {
         var tokens = subject.Split('.');
         if (tokens.Length >= 4 &&
-            string.Equals(tokens[0], "ts", StringComparison.Ordinal) &&
-            string.Equals(tokens[1], "orch", StringComparison.Ordinal) &&
-            string.Equals(tokens[2], "v1", StringComparison.Ordinal))
+            subject.StartsWith(NatsSubjectTaxonomy.Root + ".", StringComparison.Ordinal))
         {
             if (string.Equals(tokens[3], "global", StringComparison.Ordinal))
             {

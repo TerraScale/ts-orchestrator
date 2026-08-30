@@ -210,7 +210,7 @@ public sealed class NatsControlAccountModelTests
         {
             yield return "ts.orch.v2." + region + ".desired.gitops";
             yield return "ts.orch.v2." + region + ".command.delivery";
-            yield return "ts.orch.v2." + region + ".operation.journal.create";
+            yield return "ts.orch.v2." + region + ".command.journal.create";
             yield return "ts.orch.v2." + region + ".query.health";
             yield return "ts.orch.v2." + region + ".audit.event.7";
             yield return "ts.orch.v2." + region + ".observation.runtime.started.controller-1";

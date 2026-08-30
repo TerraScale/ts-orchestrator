@@ -155,8 +155,6 @@ public sealed class MessagingEnvelopeTests
     {
         // Defense in depth: ts.orch.v2.global.desired.gitops.<cell> carries a cell scope even
         // though it lives under the global root, so a target naming another cell fails closed.
-        // The v2 subject-shape extraction lands with the envelope's v2 update; until then the
-        // declared target scope carries the defense.
         var mismatch = MessagingEnvelopeValidator.Validate(
             Envelope(target: new MessagingTargetScope(
                 NatsSubjectNamespace.GlobalAuthority,
@@ -173,27 +171,48 @@ public sealed class MessagingEnvelopeTests
     }
 
     [Test]
+    public async Task A_global_per_cell_subject_cannot_bypass_cell_validation_when_target_cell_is_omitted()
+    {
+        var result = MessagingEnvelopeValidator.Validate(
+            Envelope(target: new MessagingTargetScope(
+                NatsSubjectNamespace.GlobalAuthority,
+                NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo"),
+                null)), Context());
+
+        await Assert.That(result.Error).IsEqualTo(MessagingEnvelopeError.SubjectCellMismatch);
+        await Assert.That(result.IsAccepted).IsFalse();
+    }
+
+    [Test]
     public async Task Cell_scope_extraction_covers_regional_and_global_per_cell_shapes_only()
     {
-        // The extractor still matches the superseded v1 literals it was written against; the v2
-        // subject-shape extraction lands with the envelope's v2 update. Both shapes are pinned
-        // here so the follow-up cannot silently drop either direction.
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.gru.desired.gitops"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.CellSpecSubject("gru")))
             .IsEqualTo("gru");
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.desired.gitops.sfo"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")))
             .IsEqualTo("sfo");
 
         // Global subjects without a per-cell shape carry no cell scope.
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.query.cells"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.GlobalDirectoryQuerySubject))
             .IsNull();
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.ci.forgejo"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.CiForgejoTriggerSubject))
             .IsNull();
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.journal.ledger"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.GlobalAcceptedReleasePrefix + ".ledger"))
+            .IsNull();
+
+        // Superseded subjects never contribute an inferred cell scope.
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.SupersededRoot + ".gru.desired.gitops"))
             .IsNull();
 
         // Only the canonical global per-cell shape is scoped; a longer subject under the same
         // prefix is not canonical and extracts nothing rather than guessing.
-        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope("ts.orch.v1.global.desired.gitops.gru.extra"))
+        await Assert.That(MessagingEnvelopeValidator.ExtractCellScope(
+                NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") + ".extra"))
             .IsNull();
     }
 

@@ -183,7 +183,7 @@ public sealed class NativeGitOpsSourceJournalTests
         string blob = Blob)
     {
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"CustomerDashboard","artifactDigest":"{{artifactDigest}}","cells":["gru"]}]}
             """);
         var plan = NativeGitOpsManifest.Parse(content);
         var contentDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content));

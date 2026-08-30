@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Protocol;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -25,8 +26,8 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
             NativeGitOpsGlobalCellPublishDisposition.Duplicate,
         ]);
         await Assert.That(transport.Published.Select(static message => message.Subject)).IsEquivalentTo([
-            "ts.orch.v1.global.desired.gitops.gru",
-            "ts.orch.v1.global.desired.gitops.sfo",
+            NatsSubjectTaxonomy.GlobalCellSpecSubject("gru"),
+            NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo"),
         ]);
         await Assert.That(transport.MaximumConcurrentPublishes).IsEqualTo(1);
         await Assert.That(transport.Published.Zip(prepared.Cells).All(pair =>
@@ -278,7 +279,7 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
         await Assert.That(completed.PublishedCells).IsEqualTo(1);
         await Assert.That(transport.Published).HasSingleItem();
         await Assert.That(transport.Published[0].Subject)
-            .IsEqualTo("ts.orch.v1.global.desired.gitops.sfo");
+            .IsEqualTo(NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo"));
         await Assert.That(replay.Disposition)
             .IsEqualTo(NativeGitOpsGlobalHandoffDispatchDisposition.AlreadyComplete);
         await Assert.That(replay.PublishedCells).IsEqualTo(0);
@@ -403,7 +404,7 @@ public sealed class NativeGitOpsGlobalHandoffPublisherTests
         const string tree = "117eb74224043ba2feb48d137756c8a9331c44ff";
         const string blob = "217eb74224043ba2feb48d137756c8a9331c44ee";
         var content = Encoding.UTF8.GetBytes($$"""
-            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"platform","role":"Platform","artifactDigest":"{{artifact}}","cells":{{System.Text.Json.JsonSerializer.Serialize(cells)}}}]}
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":{{generation}},"workloads":[{"id":"orchestrator","role":"Orchestrator","artifactDigest":"{{artifact}}","cells":{{System.Text.Json.JsonSerializer.Serialize(cells)}}}]}
             """);
         var proposed = NativeGitOpsManifest.Parse(content);
         return new(

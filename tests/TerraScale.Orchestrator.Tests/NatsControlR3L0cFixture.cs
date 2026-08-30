@@ -11,6 +11,7 @@ using NATS.Client.JetStream;
 using NATS.Client.KeyValueStore;
 using NATS.Net;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -1065,19 +1066,31 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
     private static PermissionSet Permissions(Role role, string publicKey, int controllerNumber)
     {
-        var root = $"ts.orch.v1.{Cell}";
+        var root = NatsSubjectTaxonomy.RegionalRoot(Cell);
+        var desired = NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.DesiredFamilySegment);
+        var observation = NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.ObservationFamilySegment);
+        var operation = NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.OperationFamilySegment);
+        var query = NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.QueryFamilySegment);
+        var journalCreate = NatsSubjectTaxonomy.OperationJournalCreateSubject(Cell);
+        var journalUpdate = NatsSubjectTaxonomy.OperationJournalUpdateSubject(Cell);
+        var runtimeLifecycleRead = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "read");
+        var runtimeLifecycleWrite = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "write");
         return role switch
         {
             Role.Controller => new(
                 [
-                    $"{root}.desired.>",
-                    $"{root}.event.>",
-                    $"{root}.operation.>",
-                    $"{root}.query.>",
-                    $"{root}.internal.operation-journal.create",
-                    $"{root}.internal.operation-journal.update",
-                    $"{root}.internal.runtime-lifecycle-journal.read",
-                    $"{root}.internal.runtime-lifecycle-journal.write",
+                    desired,
+                    observation,
+                    operation,
+                    query,
+                    journalCreate,
+                    journalUpdate,
+                    runtimeLifecycleRead,
+                    runtimeLifecycleWrite,
                     $"$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
                     $"$JS.API.CONSUMER.MSG.NEXT.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
                     $"$JS.ACK.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}.>",
@@ -1108,12 +1121,12 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 ],
                 [
                     "_INBOX.>",
-                    $"{root}.desired.>",
-                    $"{root}.event.>",
-                    $"{root}.operation.>",
-                    $"{root}.query.>",
-                    $"{root}.internal.operation-journal.reply.{publicKey}.>",
-                    $"{root}.internal.runtime-lifecycle-journal.reply.{publicKey}.>",
+                    desired,
+                    observation,
+                    operation,
+                    query,
+                    $"{root}.command.journal.reply.{publicKey}.>",
+                    $"{root}.command.runtime-lifecycle.reply.{publicKey}.>",
                     "$KV.ORCH_RUNTIME.>",
                 ]),
             Role.Infrastructure => new(
@@ -1181,8 +1194,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 [
                     "$KV.ORCH_OPERATIONS.>",
                     "$KV.ORCH_OPERATION_PROOFS.>",
-                    $"{root}.internal.operation-journal.reply.>",
-                    $"{root}.internal.runtime-lifecycle-journal.reply.>",
+                    $"{root}.command.journal.reply.>",
+                    $"{root}.command.runtime-lifecycle.reply.>",
                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATIONS",
                     "$JS.API.STREAM.INFO.KV_ORCH_OPERATION_PROOFS",
                     "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
@@ -1193,10 +1206,10 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "_INBOX.>",
                     "$KV.ORCH_OPERATIONS.>",
                     "$KV.ORCH_OPERATION_PROOFS.>",
-                    $"{root}.internal.operation-journal.create",
-                    $"{root}.internal.operation-journal.update",
-                    $"{root}.internal.runtime-lifecycle-journal.read",
-                    $"{root}.internal.runtime-lifecycle-journal.write",
+                    journalCreate,
+                    journalUpdate,
+                    runtimeLifecycleRead,
+                    runtimeLifecycleWrite,
                     "$SRV.>",
                 ]),
             Role.GlobalDirectoryInfrastructure => new(
@@ -1215,7 +1228,10 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             Role.GlobalAuthority => From(
                 GlobalNatsPermissions.Create("gru", GlobalNatsRole.GlobalAuthority)),
             Role.Operator => new(
-                [$"{root}.query.status", $"{root}.query.members"],
+                [
+                    NatsSubjectTaxonomy.ControllerStatusSubject(Cell),
+                    NatsSubjectTaxonomy.ControllerMembersSubject(Cell),
+                ],
                 ["_INBOX.>"]),
             Role.WrongAccount => new([">"], ["_INBOX.>"]),
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown L0C role."),

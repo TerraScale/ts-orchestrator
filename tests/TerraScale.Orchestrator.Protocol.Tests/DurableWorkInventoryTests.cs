@@ -47,12 +47,16 @@ public sealed class DurableWorkInventoryTests
         var regional = DurableWorkInventory.Streams.Single(stream => stream.Stream == "CELL_EVENTS");
 
         await Assert.That(regional.SubjectFor("gru"))
-            .IsEquivalentTo(["ts.orch.v1.gru.event.>"]);
+            .IsEquivalentTo([
+                NatsSubjectTaxonomy.RegionalFamilyPattern(
+                    "gru", NatsSubjectTaxonomy.ObservationFamilySegment),
+            ]);
         await Assert.That(() => regional.SubjectFor("GRU")).Throws<ArgumentException>();
         await Assert.That(() => regional.SubjectFor("bad cell")).Throws<ArgumentException>();
 
         var consumer = DurableWorkInventory.Consumers.Single(plan => plan.Consumer == "gitops_cell_spec_{instance}");
-        await Assert.That(consumer.FilterSubjectFor("sfo")).IsEqualTo("ts.orch.v1.sfo.desired.gitops");
+        await Assert.That(consumer.FilterSubjectFor("sfo"))
+            .IsEqualTo(NatsSubjectTaxonomy.CellSpecSubject("sfo"));
     }
 
     [Test]

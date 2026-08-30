@@ -78,6 +78,24 @@ public static class NatsSubjectTaxonomy
     /// <summary>Regional host-agent family segment; deeper tokens pin the admitted agent hash.</summary>
     public const string RegionalAgentPrefixSegment = "agent";
 
+    /// <summary>Cell-substitution template for the durable regional desired-state family.</summary>
+    public const string RegionalDesiredFamilyTemplate = Root + ".{cell}." + DesiredFamilySegment + ".>";
+
+    /// <summary>Cell-substitution template for the durable regional operation family.</summary>
+    public const string RegionalOperationFamilyTemplate = Root + ".{cell}." + OperationFamilySegment + ".>";
+
+    /// <summary>Cell-substitution template for the durable regional observation family.</summary>
+    public const string RegionalObservationFamilyTemplate = Root + ".{cell}." + ObservationFamilySegment + ".>";
+
+    /// <summary>Cell-substitution template for one durable signed regional CellSpec.</summary>
+    public const string RegionalCellSpecTemplate = Root + ".{cell}.desired.gitops";
+
+    /// <summary>Cell-substitution template for all regional runtime-startup observations.</summary>
+    public const string RegionalRuntimeStartupTemplate = Root + ".{cell}.observation.runtime.started.>";
+
+    /// <summary>The complete global CI family under the closed release namespace.</summary>
+    public const string GlobalCiFamilyPattern = GlobalRoot + ".release.ci.>";
+
     /// <summary>Length of the truncated SHA-256 host-agent hash token used in subjects.</summary>
     public const int AgentHashTokenLength = 24;
 
@@ -134,28 +152,32 @@ public static class NatsSubjectTaxonomy
     public static string ControllerInboxPrefix(string cell, string publicKey) =>
         RegionalRoot(cell) + ".command.reply." + RequireToken(publicKey, "publicKey");
 
-    /// <summary>Regional operation journal append subject of the closed operation family.</summary>
+    /// <summary>Ephemeral regional operation-journal append RPC under the non-streamed command family.</summary>
     public static string OperationJournalCreateSubject(string cell) =>
-        RegionalRoot(cell) + ".operation.journal.create";
+        RegionalRoot(cell) + ".command.journal.create";
 
-    /// <summary>Regional operation journal update subject of the closed operation family.</summary>
+    /// <summary>Ephemeral regional operation-journal update RPC under the non-streamed command family.</summary>
     public static string OperationJournalUpdateSubject(string cell) =>
-        RegionalRoot(cell) + ".operation.journal.update";
+        RegionalRoot(cell) + ".command.journal.update";
 
     public static string OperationJournalReplySubject(string cell, string callerIdentity, string nonce) =>
-        RegionalRoot(cell) + ".operation.journal.reply."
+        RegionalRoot(cell) + ".command.journal.reply."
             + RequireToken(callerIdentity, "callerIdentity") + "." + RequireNonce(nonce);
 
     /// <summary>Runtime startup observation of the closed observation family.</summary>
     public static string RuntimeStartupSubject(string cell, string instance) =>
         RegionalRoot(cell) + ".observation.runtime.started." + RequireToken(instance, "instance");
 
-    /// <summary>Private runtime-lifecycle journal bridge subject of the closed operation family.</summary>
+    /// <summary>All runtime-startup observations for one Region.</summary>
+    public static string RuntimeStartupPattern(string cell) =>
+        RegionalRoot(cell) + ".observation.runtime.started.>";
+
+    /// <summary>Private runtime-lifecycle journal RPC under the non-streamed command family.</summary>
     public static string RuntimeLifecycleJournalSubject(string cell, string operation) =>
-        RegionalRoot(cell) + ".operation.runtime-lifecycle." + RequireToken(operation, "operation");
+        RegionalRoot(cell) + ".command.runtime-lifecycle." + RequireToken(operation, "operation");
 
     public static string RuntimeLifecycleJournalReplySubject(string cell, string callerIdentity, string nonce) =>
-        RegionalRoot(cell) + ".operation.runtime-lifecycle.reply."
+        RegionalRoot(cell) + ".command.runtime-lifecycle.reply."
             + RequireToken(callerIdentity, "callerIdentity") + "." + RequireNonce(nonce);
 
     /// <summary>The fixed SHA-256 subject token of one admitted host-agent identity (lowercase hex).</summary>

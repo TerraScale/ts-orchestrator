@@ -14,8 +14,8 @@ public sealed class NativeGitOpsCellConvergenceTests
     public async Task OneDependencyOrderedActionAdvancesFromObservationToLiveConvergence()
     {
         var accepted = Accepted(null, Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["auth"]),
-            Workload("auth", "Authentication", Auth)));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth)));
         var authDigest = DesiredDigest(accepted, "auth");
         var platformDigest = DesiredDigest(accepted, "platform");
 
@@ -38,9 +38,9 @@ public sealed class NativeGitOpsCellConvergenceTests
     [Test]
     public async Task StaleDriftForeignAndConflictingObservationsFailOrRepairSafely()
     {
-        var acceptedPlan = Plan(1, Workload("platform", "Platform", PlatformV1));
+        var acceptedPlan = Plan(1, Workload("platform", "CustomerDashboard", PlatformV1));
         var acceptedManifest = NativeGitOpsManifest.Parse(acceptedPlan);
-        var accepted = Accepted(acceptedPlan, Plan(2, Workload("platform", "Platform", PlatformV2)));
+        var accepted = Accepted(acceptedPlan, Plan(2, Workload("platform", "CustomerDashboard", PlatformV2)));
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, acceptedManifest.Digest);
         var desired = DesiredDigest(accepted, "platform");
         var previous = NativeGitOpsCellSpecCompiler.WorkloadDigest(acceptedManifest.Workloads.Single());
@@ -66,9 +66,9 @@ public sealed class NativeGitOpsCellConvergenceTests
     [Test]
     public async Task FailedHealthRequestsANewQualifiedGenerationInsteadOfLocalRewind()
     {
-        var prior = Plan(1, Workload("platform", "Platform", PlatformV1));
+        var prior = Plan(1, Workload("platform", "CustomerDashboard", PlatformV1));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
-        var accepted = Accepted(prior, Plan(2, Workload("platform", "Platform", PlatformV2)));
+        var accepted = Accepted(prior, Plan(2, Workload("platform", "CustomerDashboard", PlatformV2)));
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, priorPlan.Digest);
         var failed = Present(
             "platform",
@@ -94,11 +94,11 @@ public sealed class NativeGitOpsCellConvergenceTests
     public async Task RetirementIsDependentFirstAndRequiresEveryBoundProofBeforeMutation()
     {
         var prior = Plan(1,
-            Workload("platform", "Platform", PlatformV1, ["auth"]),
-            Workload("auth", "Authentication", Auth));
+            Workload("platform", "CustomerDashboard", PlatformV1, ["auth"]),
+            Workload("auth", "CustomerDashboard", Auth));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
         var accepted = Accepted(prior, Plan(2,
-            Workload("auth", "Authentication", Auth, suspended: true)));
+            Workload("auth", "CustomerDashboard", Auth, suspended: true)));
         var baseline = new NativeGitOpsAcceptedCellBaseline("gru", 1, priorPlan.Digest);
         var parsed = NativeGitOpsCellPayload.Parse(accepted);
         var retirement = parsed.Changes.Single(static value => value.Kind == NativeGitOpsChangeKind.GuardedRetirement);
@@ -131,9 +131,9 @@ public sealed class NativeGitOpsCellConvergenceTests
     [Test]
     public async Task AcceptedBaseContinuityIsMandatoryBeforeAnyRegionalAction()
     {
-        var prior = Plan(4, Workload("platform", "Platform", PlatformV1));
+        var prior = Plan(4, Workload("platform", "CustomerDashboard", PlatformV1));
         var priorPlan = NativeGitOpsManifest.Parse(prior);
-        var accepted = Accepted(prior, Plan(5, Workload("platform", "Platform", PlatformV2)));
+        var accepted = Accepted(prior, Plan(5, Workload("platform", "CustomerDashboard", PlatformV2)));
 
         await AssertHold(Decide(accepted, null, []),
             NativeGitOpsCellConvergenceHoldReason.AcceptedBaseMismatch);

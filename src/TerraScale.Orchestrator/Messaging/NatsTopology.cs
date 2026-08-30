@@ -7,35 +7,33 @@ namespace TerraScale.Orchestrator.Messaging;
 
 public sealed record NatsTopology(string Cell, int Replicas, string Instance = "local")
 {
-    private string Root => NatsSubjectTaxonomy.RegionalRoot(Cell);
+    public string HealthSubject => NatsSubjectTaxonomy.ControllerHealthSubject(Cell);
 
-    public string HealthSubject => $"{Root}.query.health";
+    public string InstanceHealthSubject => NatsSubjectTaxonomy.ControllerInstanceHealthSubject(Cell, Instance);
 
-    public string InstanceHealthSubject => $"{HealthSubject}.{Instance}";
+    public string StatusSubject => NatsSubjectTaxonomy.ControllerStatusSubject(Cell);
 
-    public string StatusSubject => $"{Root}.query.status";
-
-    public string MembersSubject => $"{Root}.query.members";
+    public string MembersSubject => NatsSubjectTaxonomy.ControllerMembersSubject(Cell);
 
     /// <summary>Read-only service statistics endpoint: version, schema, health, request/error/latency aggregates.</summary>
-    public string StatsSubject => $"{Root}.query.stats";
+    public string StatsSubject => NatsSubjectTaxonomy.ControllerStatsSubject(Cell);
 
-    public string DirectDeliverySubject => $"{Root}.command.delivery";
+    public string DirectDeliverySubject => NatsSubjectTaxonomy.DirectDeliverySubject(Cell);
 
-    public string OperationJournalCreateSubject => $"{Root}.internal.operation-journal.create";
+    public string OperationJournalCreateSubject => NatsSubjectTaxonomy.OperationJournalCreateSubject(Cell);
 
-    public string OperationJournalUpdateSubject => $"{Root}.internal.operation-journal.update";
+    public string OperationJournalUpdateSubject => NatsSubjectTaxonomy.OperationJournalUpdateSubject(Cell);
 
     public string OperationJournalReplySubject(string callerIdentity, string nonce) =>
-        $"{Root}.internal.operation-journal.reply.{callerIdentity}.{nonce}";
+        NatsSubjectTaxonomy.OperationJournalReplySubject(Cell, callerIdentity, nonce);
 
     public string OperationJournalWriterQueueGroup => $"terrascale_orchestrator_journal_writer_{Cell}";
 
-    public string CellSpecSubject => $"{Root}.desired.gitops";
+    public string CellSpecSubject => NatsSubjectTaxonomy.CellSpecSubject(Cell);
 
-    public string StartupSubject => $"{Root}.event.runtime.started.{Instance}";
+    public string StartupSubject => NatsSubjectTaxonomy.RuntimeStartupSubject(Cell, Instance);
 
-    public string ProtocolObject => "orchestrator-protocol-v1";
+    public string ProtocolObject => "orchestrator-protocol-v2";
 
     public string ServiceName => $"terrascale_orchestrator_{Cell}";
 
@@ -43,9 +41,12 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
 
     public IReadOnlyList<StreamConfig> Streams =>
     [
-        Stream("CELL_SPEC", $"{Root}.desired.>", 256 * 1024 * 1024),
-        Stream("CELL_OPERATIONS", $"{Root}.operation.>", 1024 * 1024 * 1024),
-        Stream("CELL_EVENTS", $"{Root}.event.>", 256 * 1024 * 1024)
+        Stream("CELL_SPEC", NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.DesiredFamilySegment), 256 * 1024 * 1024),
+        Stream("CELL_OPERATIONS", NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.OperationFamilySegment), 1024 * 1024 * 1024),
+        Stream("CELL_EVENTS", NatsSubjectTaxonomy.RegionalFamilyPattern(
+            Cell, NatsSubjectTaxonomy.ObservationFamilySegment), 256 * 1024 * 1024)
     ];
 
     public NatsKVConfig Leaders => new("ORCH_LEADERS")
@@ -116,7 +117,7 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     public ConsumerConfig StartupConsumer => new("runtime_startup")
     {
         Description = $"Acknowledged runtime startup events for {Cell}",
-        FilterSubject = $"{Root}.event.runtime.started.>",
+        FilterSubject = NatsSubjectTaxonomy.RuntimeStartupPattern(Cell),
         // JetStream derives the effective acknowledgement wait from the first
         // backoff interval, so declare the value it will return on readback.
         AckWait = TimeSpan.FromSeconds(1),

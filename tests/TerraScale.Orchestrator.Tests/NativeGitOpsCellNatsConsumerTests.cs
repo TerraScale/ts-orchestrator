@@ -3,6 +3,7 @@ using NATS.Client.Core;
 using NATS.Net;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -34,7 +35,8 @@ public sealed class NativeGitOpsCellNatsConsumerTests
         var topology = new NatsTopology("gru", 3, "controller-1");
         var consumer = topology.CellSpecConsumer;
 
-        await Assert.That(topology.CellSpecSubject).IsEqualTo("ts.orch.v1.gru.desired.gitops");
+        await Assert.That(topology.CellSpecSubject)
+            .IsEqualTo(NatsSubjectTaxonomy.CellSpecSubject("gru"));
         await Assert.That(consumer.Name).IsEqualTo("gitops_cell_spec_controller-1");
         await Assert.That(consumer.DurableName).IsEqualTo(consumer.Name);
         await Assert.That(consumer.FilterSubject).IsEqualTo(topology.CellSpecSubject);

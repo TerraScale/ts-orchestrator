@@ -162,7 +162,7 @@ public sealed class GlobalNatsPermissionsTests
                 // suffix below represents within the concrete subject grammar.
                 "$JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES",
                 "$JS.API.CONSUMER.CREATE.KV_GLOBAL_RELEASES.ephemeral-enumeration.$KV.GLOBAL_RELEASES.release.alpha.1",
-                "$JS.API.CONSUMER.CREATE.GLOBAL_CI.ci_runner_untrusted_product_abc123.ts.orch.v1.global.ci.job.untrusted-product.abc123",
+                $"$JS.API.CONSUMER.CREATE.GLOBAL_CI.ci_runner_untrusted_product_abc123.{GlobalNatsTopology.CiJobSubjectPrefix}.untrusted-product.abc123",
                 "$JS.API.CONSUMER.INFO.GLOBAL_CI.ci_runner_untrusted_product_abc123",
                 "$JS.API.CONSUMER.MSG.NEXT.GLOBAL_CI.ci_runner_untrusted_product_abc123",
                 "$JS.ACK.GLOBAL_CI.ci_runner_untrusted_product_abc123.sequence",
