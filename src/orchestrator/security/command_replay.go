@@ -58,6 +58,10 @@ type CommandReplayStore interface {
 	TryConsume(key CommandReplayKey, expiresAt time.Time) (CommandReplayConsumeResult, error)
 }
 
+// CommandReplayConsumer is an alias for runtimes that name the boundary by
+// its consume operation (matching the existing bootstrap security seam).
+type CommandReplayConsumer = CommandReplayStore
+
 // MemoryCommandReplayStore is a bounded process-local replay store. It is
 // suitable for one process lifetime and tests; a multi-instance runtime should
 // supply a durable implementation of CommandReplayStore.
@@ -68,10 +72,18 @@ type MemoryCommandReplayStore struct {
 	now     func() time.Time
 }
 
+// BoundedCommandReplayStore is the explicit bounded-store spelling used by
+// composition code.
+type BoundedCommandReplayStore = MemoryCommandReplayStore
+
 // NewMemoryCommandReplayStore constructs a bounded store using the system
 // clock. Capacity is deliberately capped to prevent configuration accidents.
 func NewMemoryCommandReplayStore(capacity int) (*MemoryCommandReplayStore, error) {
 	return newMemoryCommandReplayStore(capacity, time.Now)
+}
+
+func NewBoundedCommandReplayStore(capacity int) (*MemoryCommandReplayStore, error) {
+	return NewMemoryCommandReplayStore(capacity)
 }
 
 // NewMemoryCommandReplayStoreWithClock is deterministic and is useful to
@@ -148,6 +160,15 @@ const (
 	CommandSecurityReplayDetected
 )
 
+const (
+	CommandSecurityOutcomeInvalidMaterial  = CommandSecurityInvalidMaterial
+	CommandSecurityOutcomeNotYetValid      = CommandSecurityNotYetValid
+	CommandSecurityOutcomeExpired          = CommandSecurityExpired
+	CommandSecurityOutcomeInvalidSignature = CommandSecurityInvalidSignature
+	CommandSecurityOutcomeAccepted         = CommandSecurityAccepted
+	CommandSecurityOutcomeReplayDetected   = CommandSecurityReplayDetected
+)
+
 func (o CommandSecurityOutcome) String() string {
 	switch o {
 	case CommandSecurityInvalidMaterial:
@@ -190,6 +211,17 @@ func NewCommandSecurityBoundary(verifier protocol.ICommandSignatureVerifier, rep
 // replay capacity.
 func (b *CommandSecurityBoundary) VerifyAndConsume(material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (CommandSecurityOutcome, error) {
 	return b.verifyAndConsume(context.Background(), material, signature, now)
+}
+
+// VerifyEnvelope is the envelope-oriented seam used by a future control
+// ingress. Protocol-level context validation remains the caller's concern;
+// this method only confirms the envelope's derived material has not drifted,
+// then applies authentication and replay protection.
+func (b *CommandSecurityBoundary) VerifyEnvelope(envelope *protocol.CommandEnvelope, now time.Time) (CommandSecurityOutcome, error) {
+	if envelope == nil || !commandEnvelopeMaterialMatches(envelope) {
+		return CommandSecurityInvalidMaterial, nil
+	}
+	return b.VerifyAndConsume(envelope.SignedMaterial, envelope.Signature, now)
 }
 
 // VerifyAndConsumeContext is the cancellation-aware form used by runtimes
@@ -256,4 +288,15 @@ func (b *CommandSecurityBoundary) String() string {
 		return "<nil>"
 	}
 	return "<command-security-boundary>"
+}
+
+func commandEnvelopeMaterialMatches(envelope *protocol.CommandEnvelope) bool {
+	material := envelope.SignedMaterial
+	return material.ProtocolVersion == envelope.ProtocolVersion &&
+		material.Cell == envelope.Cell && material.AggregateId == envelope.AggregateId &&
+		material.DesiredGeneration == envelope.DesiredGeneration && material.WriterEpoch == envelope.WriterEpoch &&
+		material.OperationId == envelope.OperationId && material.IdempotencyKey == envelope.IdempotencyKey &&
+		material.IssuedAt.Equal(envelope.IssuedAt) && material.ExpiresAt.Equal(envelope.ExpiresAt) &&
+		material.Attempt == envelope.Attempt && material.Payload.Equal(envelope.Payload) &&
+		material.PayloadDigest.Equal(envelope.PayloadDigest)
 }

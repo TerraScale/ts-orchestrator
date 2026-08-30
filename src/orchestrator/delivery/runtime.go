@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -86,6 +87,9 @@ func (p *Poller) Close() error {
 			return errors.New("poller shutdown timed out")
 		}
 	}
+	if p.Client != nil {
+		_ = p.Client.Close()
+	}
 	return nil
 }
 
@@ -105,12 +109,14 @@ type RuntimeDependencies struct {
 	HTTPClient *http.Client
 }
 type Runtime struct {
-	handler    *WebhookHandler
-	server     *http.Server
-	poller     *Poller
-	completion chan struct{}
-	closeOnce  sync.Once
-	closeErr   error
+	handler      *WebhookHandler
+	server       *http.Server
+	poller       *Poller
+	completion   chan struct{}
+	closeOnce    sync.Once
+	closeErr     error
+	completeOnce sync.Once
+	mu           sync.Mutex
 }
 
 func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*Runtime, error) {
@@ -135,13 +141,20 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 	}
 	r := &Runtime{handler: handler, completion: make(chan struct{})}
 	if cfg.Webhook.ListenAddress != "" {
-		r.server = &http.Server{Addr: cfg.Webhook.ListenAddress, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+		listenURL, parseErr := url.Parse(cfg.Webhook.ListenAddress)
+		if parseErr != nil || listenURL.Host == "" {
+			handler.Close()
+			return nil, errors.New("webhook listen address is invalid")
+		}
+		r.server = &http.Server{Addr: listenURL.Host, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
 		go func() {
 			e := r.server.ListenAndServe()
 			if e != nil && e != http.ErrServerClosed {
+				r.mu.Lock()
 				r.closeErr = e
+				r.mu.Unlock()
 			}
-			close(r.completion)
+			r.complete()
 		}()
 	}
 	if cfg.Source.Server != nil {
@@ -154,6 +167,15 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 		r.poller = NewPoller(client, sj, cfg.Authority, cfg.PollInterval)
 		r.poller.Start(ctx)
 	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = r.Close()
+		case <-r.pollerCompletion():
+			_ = r.Close()
+		case <-r.completion:
+		}
+	}()
 	return r, nil
 }
 func (r *Runtime) Completion() <-chan struct{} {
@@ -161,6 +183,13 @@ func (r *Runtime) Completion() <-chan struct{} {
 		return nil
 	}
 	return r.completion
+}
+func (r *Runtime) complete() { r.completeOnce.Do(func() { close(r.completion) }) }
+func (r *Runtime) pollerCompletion() <-chan struct{} {
+	if r.poller == nil {
+		return make(chan struct{})
+	}
+	return r.poller.Completion()
 }
 func (r *Runtime) Close() error {
 	if r == nil {
@@ -173,8 +202,12 @@ func (r *Runtime) Close() error {
 		if r.server != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if e := r.server.Shutdown(ctx); e != nil && r.closeErr == nil {
-				r.closeErr = e
+			if e := r.server.Shutdown(ctx); e != nil {
+				r.mu.Lock()
+				if r.closeErr == nil {
+					r.closeErr = e
+				}
+				r.mu.Unlock()
 			}
 		}
 		if r.handler != nil {
@@ -183,11 +216,11 @@ func (r *Runtime) Close() error {
 		select {
 		case <-r.completion:
 		default:
-			if r.server == nil {
-				close(r.completion)
-			}
+			r.complete()
 		}
 	})
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.closeErr
 }
 

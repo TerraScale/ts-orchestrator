@@ -52,11 +52,26 @@ func copyCompensations(in []ProviderCompensation) ([]ProviderCompensation, error
 }
 
 func NewProviderOperationContext(operationID ProviderOperationId, cellID ProviderCellId, compartmentID ProviderCompartmentId, epoch ProviderEpoch, kind ProviderResourceKind, action ProviderAction, target ProviderTarget, generation ProviderGeneration, observed ProviderObservedState, terminal ProviderTerminalState, approvals []ProviderApproval, deadline DeadlineEvidence, idempotency ProviderIdempotencyKey, compensations []ProviderCompensation, params ProviderActionParameters) (ProviderOperationContext, error) {
+	if _, err := canonicalToken(operationID.Value, "operationId"); err != nil {
+		return ProviderOperationContext{}, err
+	}
+	if _, err := canonicalToken(cellID.Value, "cellId"); err != nil {
+		return ProviderOperationContext{}, err
+	}
+	if _, err := nativeToken(compartmentID.Value, "compartmentId"); err != nil {
+		return ProviderOperationContext{}, err
+	}
+	if _, err := canonicalToken(idempotency.Value, "idempotencyKey"); err != nil {
+		return ProviderOperationContext{}, err
+	}
 	if operationID.Value == "" || cellID.Value == "" || compartmentID.Value == "" || epoch.Value == 0 || generation.Value == 0 || idempotency.Value == "" || target == nil || params == nil {
 		return ProviderOperationContext{}, &ArgumentError{Message: "provider operation context is incomplete"}
 	}
 	if !definedResourceKind(kind) || !definedAction(action) || !definedObserved(observed) || !definedTerminal(terminal) || deadline.EvidenceGeneration.Value == 0 {
 		return ProviderOperationContext{}, &ArgumentOutOfRangeError{Param: "context"}
+	}
+	if err := validateProviderParameters(params); err != nil {
+		return ProviderOperationContext{}, err
 	}
 	a, err := copyApprovals(approvals)
 	if err != nil {
@@ -67,6 +82,16 @@ func NewProviderOperationContext(operationID ProviderOperationId, cellID Provide
 		return ProviderOperationContext{}, err
 	}
 	isCreate := action == ActionCreateNode || action == ActionCreateVolume
+	switch t := target.(type) {
+	case ExistingProviderResource:
+		if _, err := nativeToken(t.Id.Value, "resourceId"); err != nil {
+			return ProviderOperationContext{}, err
+		}
+	case IdempotentProviderCreate:
+		if _, err := canonicalToken(t.Key.Value, "createKey"); err != nil {
+			return ProviderOperationContext{}, err
+		}
+	}
 	if isCreate {
 		if _, ok := target.(IdempotentProviderCreate); !ok {
 			return ProviderOperationContext{}, &ArgumentError{Message: "create actions require a create key"}
@@ -75,6 +100,52 @@ func NewProviderOperationContext(operationID ProviderOperationId, cellID Provide
 		return ProviderOperationContext{}, &ArgumentError{Message: "non-create actions require an existing resource target"}
 	}
 	return ProviderOperationContext{operationID, cellID, compartmentID, epoch, kind, action, target, generation, observed, terminal, a, deadline, idempotency, c, params}, nil
+}
+
+func validateProviderParameters(params ProviderActionParameters) error {
+	switch p := params.(type) {
+	case CreateNodeProviderParameters:
+		if _, err := canonicalToken(p.TemplateId.Value, "templateId"); err != nil {
+			return err
+		}
+		if _, err := canonicalToken(p.PlacementId.Value, "placementId"); err != nil {
+			return err
+		}
+		if _, err := NewProviderBootstrapEnvelopeDigest(p.BootstrapEnvelopeDigest.Sha256); err != nil {
+			return err
+		}
+	case CreateVolumeProviderParameters:
+		if p.Size.Value == 0 || !definedPerformance(p.Performance) {
+			return &ArgumentOutOfRangeError{Param: "createVolumeParameters"}
+		}
+	case ExpandVolumeProviderParameters:
+		if p.NewSize.Value == 0 {
+			return &ArgumentOutOfRangeError{Param: "newSize"}
+		}
+	case ChangeVolumePerformanceProviderParameters:
+		if !definedPerformance(p.Performance) {
+			return &ArgumentOutOfRangeError{Param: "performance"}
+		}
+	case AttachVolumeProviderParameters:
+		if _, err := nativeToken(p.VolumeId.Value, "volumeId"); err != nil {
+			return err
+		}
+		if _, err := nativeToken(p.NodeId.Value, "nodeId"); err != nil {
+			return err
+		}
+	case RegisterBackendProviderParameters:
+		if _, err := nativeToken(p.BackendId.Value, "backendId"); err != nil {
+			return err
+		}
+	case DeregisterBackendProviderParameters:
+		if _, err := nativeToken(p.BackendId.Value, "backendId"); err != nil {
+			return err
+		}
+	case ObserveProviderParameters, StartNodeProviderParameters, StopNodeProviderParameters, TerminateNodeProviderParameters, DetachVolumeProviderParameters:
+	default:
+		return &ArgumentError{Message: "unsupported provider action parameters"}
+	}
+	return nil
 }
 
 func NewDeadlineEvidence(status DeadlineEvidenceStatus, generation ProviderGeneration) (DeadlineEvidence, error) {
@@ -418,7 +489,9 @@ func EvaluateHandoff(r HandoffRequest) HandoffDecision {
 	for _, items := range all {
 		seen := map[string]bool{}
 		for _, x := range items {
-			k := x.ResourceId.Value + ":" + string(rune(x.Kind)) + ":" + fmtUint(x.Generation.Value)
+			// A resource may occur only once in each inventory projection. A
+			// duplicate with a different kind/generation is still ambiguous.
+			k := x.ResourceId.Value
 			if seen[k] {
 				dups++
 			}

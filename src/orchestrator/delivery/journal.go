@@ -157,13 +157,20 @@ func (p NatsEventPublisher) Publish(ctx context.Context, e *WebhookEnvelope) err
 }
 
 type eventDocument struct {
-	SchemaVersion                                                                      int         `json:"schemaVersion"`
-	DeliveryID                                                                         string      `json:"deliveryId"`
-	Kind                                                                               WebhookKind `json:"kind"`
-	Action, Repository, SourceRepository, BaseRevision, Revision, SourceRef, TargetRef string
-	PullRequestNumber                                                                  int64 `json:"pullRequestNumber,omitempty"`
-	IsDeletion                                                                         bool  `json:"isDeletion"`
-	PayloadSHA256, DedupeKey                                                           string
+	SchemaVersion     int         `json:"schemaVersion"`
+	DeliveryID        string      `json:"deliveryId"`
+	Kind              WebhookKind `json:"kind"`
+	Action            string      `json:"action"`
+	Repository        string      `json:"repository"`
+	SourceRepository  string      `json:"sourceRepository"`
+	BaseRevision      string      `json:"baseRevision"`
+	Revision          string      `json:"revision"`
+	SourceRef         string      `json:"sourceRef"`
+	TargetRef         string      `json:"targetRef,omitempty"`
+	PullRequestNumber int64       `json:"pullRequestNumber,omitempty"`
+	IsDeletion        bool        `json:"isDeletion"`
+	PayloadSHA256     string      `json:"payloadSha256"`
+	DedupeKey         string      `json:"dedupeKey"`
 }
 
 func kindString(k WebhookKind) string {
@@ -322,10 +329,11 @@ type noopPublisher struct{}
 func (noopPublisher) Publish(context.Context, *WebhookEnvelope) error { return nil }
 
 type journalDocument struct {
-	SchemaVersion          int             `json:"schemaVersion"`
-	State                  string          `json:"state"`
-	Envelope               WebhookEnvelope `json:"envelope"`
-	DeliveryKey, DedupeKey string          `json:"deliveryKey" json:"dedupeKey"`
+	SchemaVersion int             `json:"schemaVersion"`
+	State         string          `json:"state"`
+	Envelope      WebhookEnvelope `json:"envelope"`
+	DeliveryKey   string          `json:"deliveryKey"`
+	DedupeKey     string          `json:"dedupeKey"`
 }
 
 func (d journalDocument) matches(p journalDocument) bool {

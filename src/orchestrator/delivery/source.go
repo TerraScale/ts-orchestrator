@@ -253,7 +253,7 @@ func (c *SourceClient) ReadArchive(ctx context.Context, revision ResolvedRevisio
 	if e != nil {
 		return SourceArchive{}, e
 	}
-	request, e := http.NewRequestWithContext(ctx, http.MethodGet, c.config.Server.ResolveReference(&url.URL{Path: path}).String(), nil)
+	request, e := http.NewRequestWithContext(ctx, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
 	if e != nil {
 		return SourceArchive{}, e
 	}
@@ -297,7 +297,7 @@ func (c *SourceClient) getJSON(ctx context.Context, path string, maximum int, ou
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, e := http.NewRequestWithContext(ctx, http.MethodGet, c.config.Server.ResolveReference(&url.URL{Path: path}).String(), nil)
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, sourceEndpoint(c.config.Server, path), nil)
 	if e != nil {
 		return e
 	}
@@ -409,4 +409,11 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+func sourceEndpoint(base *url.URL, path string) string {
+	rel, err := url.Parse(path)
+	if err != nil {
+		return base.ResolveReference(&url.URL{Path: path}).String()
+	}
+	return base.ResolveReference(rel).String()
 }

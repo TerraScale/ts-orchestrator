@@ -305,7 +305,7 @@ func parseCommandPublicKey(spki []byte) (*ecdsa.PublicKey, string, error) {
 		return nil, "", err
 	}
 	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok || key.Curve != elliptic.P256() || key.X == nil || key.Y == nil || !key.Curve.IsOnCurve(key.X, key.Y) {
+	if !ok || !validCommandPublicKey(key) {
 		return nil, "", errors.New("not p256")
 	}
 	canonical, err := x509.MarshalPKIXPublicKey(key)
@@ -337,6 +337,18 @@ func equalBytes(a, b []byte) bool {
 		mismatch |= a[i] ^ b[i]
 	}
 	return mismatch == 0
+}
+
+func validCommandPublicKey(key *ecdsa.PublicKey) bool {
+	return key != nil && key.Curve != nil && key.Curve.Params() != nil &&
+		key.Curve.Params().Name == elliptic.P256().Params().Name &&
+		key.Curve.Params().BitSize == elliptic.P256().Params().BitSize &&
+		key.X != nil && key.Y != nil && key.Curve.IsOnCurve(key.X, key.Y)
+}
+
+func validCommandPrivateKey(key *ecdsa.PrivateKey) bool {
+	return key != nil && validCommandPublicKey(&key.PublicKey) && key.D != nil &&
+		key.D.Sign() > 0 && key.D.Cmp(key.Curve.Params().N) < 0
 }
 
 // CommandSignatureSigner is the private-key counterpart used by a future
@@ -373,7 +385,7 @@ func LoadCommandSignatureSignerPEM(path string) (*CommandSignatureSigner, error)
 		parsed, err = x509.ParseECPrivateKey(block.Bytes)
 	}
 	key, ok := parsed.(*ecdsa.PrivateKey)
-	if err != nil || !ok || key.Curve != elliptic.P256() || key.D == nil || key.D.Sign() <= 0 {
+	if err != nil || !ok || !validCommandPrivateKey(key) {
 		return nil, errors.New("the command signing credential is not a P-256 private key")
 	}
 	spki, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
@@ -387,7 +399,7 @@ func LoadCommandSignatureSignerPEM(path string) (*CommandSignatureSigner, error)
 // NewCommandSignatureSignerFromKey is intended for controlled test or KMS
 // adapters; callers must supply a P-256 private key.
 func NewCommandSignatureSignerFromKey(key *ecdsa.PrivateKey) (*CommandSignatureSigner, error) {
-	if key == nil || key.Curve != elliptic.P256() || key.D == nil {
+	if !validCommandPrivateKey(key) {
 		return nil, errors.New("the command signing key must be a P-256 private key")
 	}
 	spki, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
@@ -400,13 +412,38 @@ func NewCommandSignatureSignerFromKey(key *ecdsa.PrivateKey) (*CommandSignatureS
 // Sign authenticates canonical command material and returns the versioned
 // detached signature envelope.
 func (s *CommandSignatureSigner) Sign(material protocol.CommandSignedMaterial) (protocol.OpaqueSignature, error) {
-	if s == nil || s.key == nil {
+	if s == nil {
 		return protocol.OpaqueSignature{}, errors.New("the command signer is unavailable")
 	}
 	digest, err := protocol.CommandSignedMaterialCodec.Hash(&material)
 	if err != nil {
 		return protocol.OpaqueSignature{}, err
 	}
+	s.sync.Lock()
+	key := s.key
+	if key == nil {
+		s.sync.Unlock()
+		return protocol.OpaqueSignature{}, errors.New("the command signer is unavailable")
+	}
+	value, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	s.sync.Unlock()
+	if err != nil {
+		return protocol.OpaqueSignature{}, errors.New("the command signature could not be produced")
+	}
+	return encodeCommandSignature(s.id, value)
+}
+
+// SignCanonicalMaterial signs already-encoded material for a caller such as a
+// KMS bridge. The bytes are bounded before hashing so this seam cannot become
+// an unbounded signing oracle.
+func (s *CommandSignatureSigner) SignCanonicalMaterial(canonicalMaterial []byte) (protocol.OpaqueSignature, error) {
+	if s == nil {
+		return protocol.OpaqueSignature{}, errors.New("the command signer is unavailable")
+	}
+	if len(canonicalMaterial) < 1 || len(canonicalMaterial) > 2*1024*1024 {
+		return protocol.OpaqueSignature{}, errors.New("the canonical command material exceeded its bound")
+	}
+	digest := sha256.Sum256(canonicalMaterial)
 	s.sync.Lock()
 	key := s.key
 	if key == nil {
@@ -445,6 +482,9 @@ func (s *CommandSignatureSigner) String() string {
 func (s *CommandSignatureSigner) Close() error {
 	if s != nil {
 		s.sync.Lock()
+		if s.key != nil && s.key.D != nil {
+			s.key.D.SetInt64(0)
+		}
 		s.key = nil
 		s.sync.Unlock()
 	}

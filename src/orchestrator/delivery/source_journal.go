@@ -86,10 +86,16 @@ func (j *SourceJournal) Observe(ctx context.Context, o BranchObservation, epoch,
 }
 
 type sourceDocument struct {
-	SchemaVersion                               int `json:"schemaVersion"`
-	SourceKey, Repository, Branch, Commit, Tree string
-	SignatureVerified, Protected                bool
-	AuthorityEpoch, PollSequence                int64
+	SchemaVersion     int    `json:"schemaVersion"`
+	SourceKey         string `json:"sourceKey"`
+	Repository        string `json:"repository"`
+	Branch            string `json:"branch"`
+	Commit            string `json:"commit"`
+	Tree              string `json:"tree"`
+	SignatureVerified bool   `json:"signatureVerified"`
+	Protected         bool   `json:"protected"`
+	AuthorityEpoch    int64  `json:"authorityEpoch"`
+	PollSequence      int64  `json:"pollSequence"`
 }
 
 func sameSource(a, b sourceDocument) bool {

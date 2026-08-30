@@ -455,20 +455,30 @@ type WebhookAcceptor interface {
 	Accept(context.Context, *WebhookEnvelope) (JournalReceipt, error)
 }
 type WebhookHandler struct {
-	Config  WebhookConfig
-	Journal WebhookAcceptor
-	secret  []byte
-	once    sync.Once
+	Config   WebhookConfig
+	Journal  WebhookAcceptor
+	secret   []byte
+	once     sync.Once
+	secretMu sync.RWMutex
 }
 
 func NewWebhookHandler(config WebhookConfig, journal WebhookAcceptor) (*WebhookHandler, error) {
+	if journal == nil {
+		return nil, errors.New("webhook journal is required")
+	}
 	s, e := readSecret(config.SecretFile, MinimumWebhookSecret, 4096)
 	if e != nil {
 		return nil, e
 	}
 	return &WebhookHandler{Config: config, Journal: journal, secret: s}, nil
 }
-func (h *WebhookHandler) Close() { h.once.Do(func() { clear(h.secret) }) }
+func (h *WebhookHandler) Close() {
+	h.once.Do(func() {
+		h.secretMu.Lock()
+		defer h.secretMu.Unlock()
+		clear(h.secret)
+	})
+}
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -489,7 +499,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 		return
 	}
-	v := VerifyWebhook(body, h.secret, h.Config.Repository, r.Header.Get("Content-Type"), r.Header.Get("X-Forgejo-Signature"), r.Header.Get("X-Forgejo-Delivery"), r.Header.Get("X-Forgejo-Event"))
+	h.secretMu.RLock()
+	secret := append([]byte(nil), h.secret...)
+	h.secretMu.RUnlock()
+	v := VerifyWebhook(body, secret, h.Config.Repository, r.Header.Get("Content-Type"), r.Header.Get("X-Forgejo-Signature"), r.Header.Get("X-Forgejo-Delivery"), r.Header.Get("X-Forgejo-Event"))
+	clear(secret)
 	if !v.Accepted() {
 		if v.Error == WebhookUnsupportedContentType {
 			w.WriteHeader(http.StatusUnsupportedMediaType)

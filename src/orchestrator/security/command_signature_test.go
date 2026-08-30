@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"strings"
@@ -14,22 +15,11 @@ import (
 )
 
 func TestCommandSignatureVerifierUsesCanonicalMaterialAndPinsKey(t *testing.T) {
-	first, err := ecdsa.GenerateKey(elliptic.P256(), deterministicReader{})
+	first, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := ecdsa.GenerateKey(elliptic.P256(), deterministicReader{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// GenerateKey needs an entropy source. The reader above intentionally
-	// returns crypto/rand-compatible bytes through its implementation below.
-	_ = second
-	first, err = ecdsa.GenerateKey(elliptic.P256(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err = ecdsa.GenerateKey(elliptic.P256(), nil)
+	second, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,4 +162,3 @@ func commandTestMaterialAt(aggregate string, issued time.Time) protocol.CommandS
 		Attempt: attempt, Payload: payload, PayloadDigest: digest,
 	}
 }
-
