@@ -21,6 +21,16 @@ func argumentNil(name string) error {
 	return errors.New("Value cannot be null. (Parameter '" + name + "')")
 }
 
+// argumentOutOfRange stands in for C# ArgumentOutOfRangeException.
+func argumentOutOfRange(name string) error {
+	return errors.New("Specified argument was out of the range of valid values. (Parameter '" + name + "')")
+}
+
+// argumentOutOfRangeError carries the C# ArgumentOutOfRangeException message.
+func argumentOutOfRangeError(name, message string) error {
+	return errors.New(message + " (Parameter '" + name + "')")
+}
+
 const int64max = int64(^uint64(0) >> 1)
 
 // isNullOrWhiteSpace mirrors string.IsNullOrWhiteSpace.

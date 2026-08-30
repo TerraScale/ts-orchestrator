@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -280,5 +279,3 @@ func natsJournalResolveReplySigningKey(value string) (string, error) {
 
 	return path, nil
 }
-
-var _ = fmt.Sprintf
