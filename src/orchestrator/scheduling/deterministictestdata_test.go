@@ -907,14 +907,14 @@ func oracleNaturalRemaining(candidate *NodeCandidate, workload *WorkloadRequest)
 func oracleScore(candidate *NodeCandidate, workload *WorkloadRequest, policy *LeastWastePolicy) oraclePlacement {
 	natural := oracleNaturalRemaining(candidate, workload)
 	byDimension := map[ResourceDimension]int64{
-		ResourceDimensionCpu:            natural[0],
-		ResourceDimensionMemory:         natural[1],
-		ResourceDimensionBlockIo:        natural[2],
-		ResourceDimensionEphemeralDisk:  natural[3],
-		ResourceDimensionBandwidth:      natural[4],
-		ResourceDimensionPids:           natural[5],
+		ResourceDimensionCpu:             natural[0],
+		ResourceDimensionMemory:          natural[1],
+		ResourceDimensionBlockIo:         natural[2],
+		ResourceDimensionEphemeralDisk:   natural[3],
+		ResourceDimensionBandwidth:       natural[4],
+		ResourceDimensionPids:            natural[5],
 		ResourceDimensionFileDescriptors: natural[6],
-		ResourceDimensionHugePages:      natural[7],
+		ResourceDimensionHugePages:       natural[7],
 	}
 	ordered := make([]int64, len(policy.Dimensions))
 	total := new(big.Int)
