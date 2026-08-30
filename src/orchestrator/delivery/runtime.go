@@ -19,8 +19,24 @@ func (p *Poller) Start(ctx context.Context) {
 	if p == nil {
 		return
 	}
+	p.mu.Lock()
+	if p.closed || p.started {
+		p.mu.Unlock()
+		return
+	}
+	if p.completion == nil {
+		p.completion = make(chan struct{})
+	}
+	p.started = true
+	if ctx == nil {
+		p.closed = true
+		close(p.completion)
+		p.mu.Unlock()
+		return
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
+	p.mu.Unlock()
 	go func() {
 		defer close(p.completion)
 		ticker := time.NewTicker(p.Interval)
@@ -42,7 +58,7 @@ func (p *Poller) Completion() <-chan struct{} {
 	return p.completion
 }
 func (p *Poller) PollOnce(ctx context.Context) error {
-	if p == nil || p.Client == nil || p.Journal == nil || p.Authority == nil {
+	if p == nil || ctx == nil || p.Client == nil || p.Journal == nil || p.Authority == nil {
 		return errors.New("poller dependencies are missing")
 	}
 	lease := p.Authority()
@@ -76,8 +92,19 @@ func (p *Poller) Close() error {
 		return nil
 	}
 	p.once.Do(func() {
-		if p.cancel != nil {
-			p.cancel()
+		p.mu.Lock()
+		p.closed = true
+		cancel := p.cancel
+		started := p.started
+		if p.completion == nil {
+			p.completion = make(chan struct{})
+		}
+		if !started {
+			close(p.completion)
+		}
+		p.mu.Unlock()
+		if cancel != nil {
+			cancel()
 		}
 	})
 	if p.completion != nil {
@@ -160,6 +187,9 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 	if cfg.Source.Server != nil {
 		client, e := NewSourceClient(cfg.Source, cfg.HTTPClient)
 		if e != nil {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = r.server.Shutdown(shutdownCtx)
+			shutdownCancel()
 			handler.Close()
 			return nil, e
 		}
@@ -174,6 +204,7 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 		case <-r.pollerCompletion():
 			_ = r.Close()
 		case <-r.completion:
+			_ = r.Close()
 		}
 	}()
 	return r, nil
@@ -197,7 +228,13 @@ func (r *Runtime) Close() error {
 	}
 	r.closeOnce.Do(func() {
 		if r.poller != nil {
-			_ = r.poller.Close()
+			if err := r.poller.Close(); err != nil {
+				r.mu.Lock()
+				if r.closeErr == nil {
+					r.closeErr = err
+				}
+				r.mu.Unlock()
+			}
 		}
 		if r.server != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -114,4 +114,7 @@ type Poller struct {
 	completion chan struct{}
 	cancel     context.CancelFunc
 	once       sync.Once
+	mu         sync.Mutex
+	started    bool
+	closed     bool
 }

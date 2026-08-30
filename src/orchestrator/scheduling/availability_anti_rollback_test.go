@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var audit4ReplayPolicy = func() *ServiceAvailabilityPolicy {
+var antiRollbackReplayPolicy = func() *ServiceAvailabilityPolicy {
 	policy, err := NewServiceAvailabilityPolicy(
 		availabilityTestService,
 		NewAvailabilityCount(3), NewAvailabilityCount(2), NewAvailabilityCount(2),
@@ -22,7 +22,7 @@ var audit4ReplayPolicy = func() *ServiceAvailabilityPolicy {
 	return policy
 }()
 
-var audit4Policy = func() *ServiceAvailabilityPolicy {
+var antiRollbackPolicy = func() *ServiceAvailabilityPolicy {
 	policy, err := NewServiceAvailabilityPolicy(
 		availabilityTestService,
 		NewAvailabilityCount(4), NewAvailabilityCount(0), NewAvailabilityCount(0),
@@ -44,7 +44,7 @@ func antiRollbackEvaluate(
 ) AvailabilityDecision {
 	t.Helper()
 	if policy == nil {
-		policy = audit4Policy
+		policy = antiRollbackPolicy
 	}
 	observation, err := NewAvailabilityGeneration(observationGeneration)
 	if err != nil {
@@ -108,14 +108,14 @@ func TestOlderHealthySnapshotCannotReauthorizeASecondDisruption(t *testing.T) {
 	evaluator := AvailabilityPolicyEvaluator{}
 	healthyGenerationThree := availabilityHealthyThree(t)
 	maintainB := MaintainReplicaChange{ReplicaId: mustReplicaId(t, "replica-b")}
-	initiallyAccepted := antiRollbackEvaluate(t, evaluator, maintainB, healthyGenerationThree, 3, 3, audit4ReplayPolicy)
+	initiallyAccepted := antiRollbackEvaluate(t, evaluator, maintainB, healthyGenerationThree, 3, 3, antiRollbackReplayPolicy)
 	if !initiallyAccepted.Admitted() {
 		t.Fatal("expected initial admission")
 	}
 
 	generationFour := availabilityHealthyThree(t)
 	generationFour[0] = availabilityTestObservation(t, "replica-a", "node-a", "fd-a", ReplicaAvailabilityStateDisrupting)
-	current := antiRollbackEvaluate(t, evaluator, maintainB, generationFour, 4, 4, audit4ReplayPolicy)
+	current := antiRollbackEvaluate(t, evaluator, maintainB, generationFour, 4, 4, antiRollbackReplayPolicy)
 	if current.Admitted() {
 		t.Fatal("expected denial at generation 4")
 	}
@@ -126,7 +126,7 @@ func TestOlderHealthySnapshotCannotReauthorizeASecondDisruption(t *testing.T) {
 		t.Fatal("disruption budget must reject")
 	}
 
-	replay := antiRollbackEvaluate(t, evaluator, maintainB, healthyGenerationThree, 3, 4, audit4ReplayPolicy)
+	replay := antiRollbackEvaluate(t, evaluator, maintainB, healthyGenerationThree, 3, 4, antiRollbackReplayPolicy)
 	if replay.Admitted() {
 		t.Fatal("a replayed older snapshot must not re-authorize")
 	}
@@ -168,12 +168,12 @@ func TestGenerationContractAndTraceNumericSurfaceAreExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generation: %v", err)
 	}
-	if _, err := NewAvailabilityEvaluationRequest(audit4ReplayPolicy,
+	if _, err := NewAvailabilityEvaluationRequest(antiRollbackReplayPolicy,
 		MaintainReplicaChange{ReplicaId: mustReplicaId(t, "replica-b")},
 		ObservationCompletenessComplete, generation, generation, nil); err == nil {
 		t.Fatal("nil observations must be rejected")
 	}
-	if _, err := NewAvailabilityEvaluationRequest(audit4ReplayPolicy,
+	if _, err := NewAvailabilityEvaluationRequest(antiRollbackReplayPolicy,
 		MaintainReplicaChange{ReplicaId: mustReplicaId(t, "replica-b")},
 		ObservationCompletenessComplete, generation, generation, availabilityHealthyThree(t)); err != nil {
 		t.Fatalf("request: %v", err)

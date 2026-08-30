@@ -268,6 +268,15 @@ func passReject(code ProviderDecisionCode, ok bool, held bool, observed, require
 // ambiguous evidence is held and can never produce a mutation intent.
 func Authorize(request ProviderAuthorizationRequest) ProviderAuthorizationDecision {
 	c := request.Context
+	// ProviderAuthorizationRequest is intentionally a value type and callers
+	// can bypass the constructors with a struct literal.  Treat the evaluator
+	// as a trust boundary too: no malformed context may reach nextIntent and
+	// become an external mutation.
+	if !validProviderOperationContext(c) || !validProviderEvidence(request) {
+		return ProviderAuthorizationDecision{Trace: []ProviderDecisionReason{
+			authReason(DecisionActionResourceCompatible, DecisionRejected, 0, 1),
+		}}
+	}
 	_, og := groupsDuplicate(request.OwnershipRecords, func(x ProviderOwnershipRecord) string { return x.ResourceId.Value })
 	_, rg := groupsDuplicate(request.Observations, func(x ProviderResourceObservation) string { return x.ResourceId.Value })
 	_, cg := groupsDuplicate(request.CreateObservations, func(x ProviderCreateObservation) string { return x.CreateKey.Value })
@@ -374,6 +383,111 @@ func Authorize(request ProviderAuthorizationRequest) ProviderAuthorizationDecisi
 		accepted = &c
 	}
 	return ProviderAuthorizationDecision{Authorized: true, Trace: trace, Intents: []ProviderIntent{intent}, accepted: accepted}
+}
+
+func validProviderOperationContext(c ProviderOperationContext) bool {
+	if _, err := canonicalToken(c.OperationId.Value, "operationId"); err != nil {
+		return false
+	}
+	if _, err := canonicalToken(c.CellId.Value, "cellId"); err != nil {
+		return false
+	}
+	if _, err := nativeToken(c.CompartmentId.Value, "compartmentId"); err != nil {
+		return false
+	}
+	if _, err := canonicalToken(c.IdempotencyKey.Value, "idempotencyKey"); err != nil {
+		return false
+	}
+	if c.ControllerEpoch.Value == 0 || c.ExpectedGeneration.Value == 0 ||
+		!definedResourceKind(c.ResourceKind) || !definedAction(c.Action) ||
+		!definedObserved(c.ExpectedObservedState) || !definedTerminal(c.DesiredTerminalState) ||
+		c.DeadlineEvidence.Status < DeadlineValid || c.DeadlineEvidence.Status > DeadlineUnknown ||
+		c.DeadlineEvidence.EvidenceGeneration.Value == 0 || c.Target == nil || c.ActionParameters == nil {
+		return false
+	}
+	if _, err := copyApprovals(c.Approvals); err != nil {
+		return false
+	}
+	if _, err := copyCompensations(c.PermittedCompensations); err != nil {
+		return false
+	}
+	if err := validateProviderParameters(c.ActionParameters); err != nil {
+		return false
+	}
+	switch target := c.Target.(type) {
+	case ExistingProviderResource:
+		if _, err := nativeToken(target.Id.Value, "resourceId"); err != nil {
+			return false
+		}
+	case IdempotentProviderCreate:
+		if _, err := canonicalToken(target.Key.Value, "createKey"); err != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	isCreate := c.Action == ActionCreateNode || c.Action == ActionCreateVolume
+	if isCreate {
+		if _, ok := c.Target.(IdempotentProviderCreate); !ok {
+			return false
+		}
+	} else if _, ok := c.Target.(ExistingProviderResource); !ok {
+		return false
+	}
+	return compatible(c)
+}
+
+func validProviderEvidence(request ProviderAuthorizationRequest) bool {
+	for _, record := range request.OwnershipRecords {
+		if _, err := nativeToken(record.ResourceId.Value, "resourceId"); err != nil {
+			return false
+		}
+		if _, err := canonicalToken(record.CellId.Value, "cellId"); err != nil {
+			return false
+		}
+		if _, err := nativeToken(record.CompartmentId.Value, "compartmentId"); err != nil || record.Generation.Value == 0 {
+			return false
+		}
+	}
+	for _, observation := range request.Observations {
+		if _, err := nativeToken(observation.ResourceId.Value, "resourceId"); err != nil || observation.Generation.Value == 0 || !definedObserved(observation.State) {
+			return false
+		}
+	}
+	for _, observation := range request.CreateObservations {
+		if _, err := canonicalToken(observation.CreateKey.Value, "createKey"); err != nil {
+			return false
+		}
+		if _, err := canonicalToken(observation.CellId.Value, "cellId"); err != nil {
+			return false
+		}
+		if _, err := nativeToken(observation.CompartmentId.Value, "compartmentId"); err != nil || observation.Generation.Value == 0 || !definedObserved(observation.State) {
+			return false
+		}
+		if observation.ResolvedResourceId != nil {
+			if _, err := nativeToken(observation.ResolvedResourceId.Value, "resourceId"); err != nil {
+				return false
+			}
+		}
+	}
+	for _, tag := range request.Tags {
+		if _, err := nativeToken(tag.ResourceId.Value, "resourceId"); err != nil {
+			return false
+		}
+		if _, err := canonicalToken(tag.CellId.Value, "cellId"); err != nil {
+			return false
+		}
+		if _, err := nativeToken(tag.CompartmentId.Value, "compartmentId"); err != nil {
+			return false
+		}
+		if _, err := canonicalToken(tag.OperationId.Value, "operationId"); err != nil || tag.Generation.Value == 0 {
+			return false
+		}
+	}
+	if _, err := copyApprovals(request.RequiredApprovals); err != nil {
+		return false
+	}
+	return true
 }
 
 // providerCallEvidenceMatches validates the complete call outcome before an
