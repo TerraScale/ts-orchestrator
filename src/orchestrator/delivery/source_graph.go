@@ -123,7 +123,8 @@ func parseDescriptor(content []byte) (string, []string, error) {
 	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) || json.Unmarshal(content, &d) != nil {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
-	validVersion := (d.APIVersion == "" && d.SchemaVersion == 1) || d.APIVersion == "terrascale.ci/v3"
+	validVersion := (d.APIVersion == "" && d.SchemaVersion == 1) ||
+		(d.APIVersion == "terrascale.ci/v3" && d.SchemaVersion == 0)
 	if !validVersion || !ValidRepository(d.Repository) {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
