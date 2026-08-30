@@ -2,7 +2,6 @@
 package control
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 )

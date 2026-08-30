@@ -111,6 +111,12 @@ func (boundedProcessRunner) Run(
 	if !exited {
 		waitErr = <-done
 	}
+	if peakMemoryBytes == 0 && command.ProcessState != nil {
+		if usage, ok := command.ProcessState.SysUsage().(*syscall.Rusage); ok && usage.Maxrss > 0 {
+			// Linux reports ru_maxrss in KiB.
+			peakMemoryBytes = usage.Maxrss * 1024
+		}
+	}
 	if violation != "" {
 		return ObservedProcessResult{}, newToolValidationException([]string{fileName + " " + violation})
 	}

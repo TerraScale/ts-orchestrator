@@ -7,6 +7,7 @@
 package contracts
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -272,10 +273,13 @@ func assertNamedKind(t *testing.T, registry map[string]string, prefix string) {
 	}
 }
 
-func registryTexts[V interface{ ~struct{ Value string } }](registry map[V]string) map[string]string {
+func registryTexts[V interface {
+	comparable
+	fmt.Stringer
+}](registry map[V]string) map[string]string {
 	result := map[string]string{}
 	for id, text := range registry {
-		result[id.Value] = text
+		result[id.String()] = text
 	}
 
 	return result
@@ -463,16 +467,19 @@ func typedStableErrorSurface() []StableErrorId {
 	}
 }
 
-func assertSurfaceCoversRegistry[V interface{ ~struct{ Value string } }](t *testing.T, surface []V, registry map[V]string) {
+func assertSurfaceCoversRegistry[V interface {
+	comparable
+	fmt.Stringer
+}](t *testing.T, surface []V, registry map[V]string) {
 	t.Helper()
 	surfaceValues := map[string]struct{}{}
 	for _, identifier := range surface {
-		surfaceValues[identifier.Value] = struct{}{}
+		surfaceValues[identifier.String()] = struct{}{}
 	}
 
 	registryValues := map[string]struct{}{}
 	for id := range registry {
-		registryValues[id.Value] = struct{}{}
+		registryValues[id.String()] = struct{}{}
 	}
 
 	if len(surfaceValues) != len(registryValues) {

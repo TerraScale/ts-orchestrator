@@ -623,15 +623,15 @@ func testCiResultManifest() {
 	}
 	document := node.(*JsonObject)
 	assertEqualValue(2, testInt(document, "schemaVersion"))
-	assertEqualValue("pipeline:job", testString(document, "job"))
-	assertEqualValue(digest, testString(document, "planDigest"))
+	assertEqualValue("pipeline:job", testString(document.Get("job"), "job"))
+	assertEqualValue(digest, testString(document.Get("planDigest"), "planDigest"))
 	assertEqualValue(true, testBool(document, "succeeded"))
 	assertEqualValue(1, testInt(document, "requiredTestSkips"))
 	artifacts := objectArray(document.Get("artifacts"))
 	artifact := artifacts.Get(0).(*JsonObject)
-	assertEqualValue("TerraScale/Orchestrator", testString(artifact, "artifact"))
-	assertEqualValue("LinuxX64", testString(artifact, "architecture"))
-	assertEqualValue("linux-x64", testString(artifact, "path"))
+	assertEqualValue("TerraScale/Orchestrator", testString(artifact.Get("artifact"), "artifact"))
+	assertEqualValue("LinuxX64", testString(artifact.Get("architecture"), "architecture"))
+	assertEqualValue("linux-x64", testString(artifact.Get("path"), "path"))
 	entrypoints := objectArray(artifact.Get("entrypoints"))
 	assertEqualValue("bin/app", testString(entrypoints.Get(0), "entrypoint"))
 	if _, _, err := CiResultManifestCommand.ReadTrx(invalid); !isToolValidationException(err) {
@@ -829,12 +829,15 @@ func startWorkspaceTopologyLeaseHolder(leaseNamespace string, noisyStderr bool, 
 	if err != nil {
 		panic(errors.New("The tooling test host path is unavailable."))
 	}
-	arguments := []string{"workspace-topology-lease-holder", "--namespace", leaseNamespace}
-	if noisyStderr {
-		arguments = append(arguments, "--noisy-stderr", "--ignore-stdin")
-	}
+	arguments := []string{"-test.run=^TestWorkspaceTopologyLeaseHolderProcess$"}
 	command := exec.Command(processPath, arguments...)
 	command.Dir = ToolingSupport.Root()
+	command.Env = append(os.Environ(),
+		"TERRASCALE_TOOLING_LEASE_HOLDER=1",
+		"TERRASCALE_TOOLING_LEASE_NAMESPACE="+leaseNamespace,
+		fmt.Sprintf("TERRASCALE_TOOLING_LEASE_NOISY=%t", noisyStderr),
+		fmt.Sprintf("TERRASCALE_TOOLING_LEASE_IGNORE_STDIN=%t", ignoreStandardInput),
+	)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := command.StdinPipe()
 	if err != nil {

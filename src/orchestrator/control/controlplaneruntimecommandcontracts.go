@@ -6,6 +6,49 @@ import (
 	"time"
 )
 
+// NativeGitOpsAcceptedCellSpec is the immutable scalar acceptance receipt
+// consumed by the runtime command boundary. Payload bytes stay in the delivery
+// journal and are deliberately excluded from host commands.
+type NativeGitOpsAcceptedCellSpec struct {
+	Cell             string
+	Generation       int64
+	GlobalPlanDigest string
+	HandoffDigest    string
+	PayloadSha256    string
+	WriterEpoch      int64
+	ProtocolVersion  int64
+	OperationId      string
+	IdempotencyKey   string
+	DeliveryAttempt  int64
+	IssuedAt         time.Time
+	ExpiresAt        time.Time
+	AcceptedAt       time.Time
+	StreamSequence   uint64
+	SignatureSha256  string
+	JournalRevision  uint64
+}
+
+// NativeGitOpsVerifiedConvergenceDispatchV1 is the durable convergence receipt
+// accepted by the runtime command boundary.
+type NativeGitOpsVerifiedConvergenceDispatchV1 struct {
+	Cell                      string
+	Generation                int64
+	GlobalPlanDigest          string
+	HandoffDigest             string
+	PayloadSha256             string
+	WriterEpoch               int64
+	AcceptanceStreamSequence  uint64
+	AcceptanceSignatureSha256 string
+	AcceptanceRevision        uint64
+	IntentWorkloadId          string
+	IntentGeneration          int64
+	IntentWorkloadSha256      string
+	CheckpointSequence        int64
+	PreviousCheckpointDigest  string
+	CheckpointDigest          string
+	JournalRevision           uint64
+}
+
 // RuntimeCommandV1 is the internal v1 command for a future durable host
 // consumer. It is deliberately not a transport DTO and is emitted only by the
 // Native GitOps projector after all persisted fences agree.
@@ -51,6 +94,12 @@ func NewRuntimeCommandV1(
 	}
 	if checkpoint == nil {
 		return nil, argumentNil("checkpoint")
+	}
+	if accepted.Generation <= 0 {
+		return nil, argumentOutOfRange("accepted.Generation")
+	}
+	if accepted.WriterEpoch <= 0 {
+		return nil, argumentOutOfRange("accepted.WriterEpoch")
 	}
 	cell, err := NewRuntimeLifecycleCellId(accepted.Cell)
 	if err != nil {
@@ -190,15 +239,6 @@ func (runtimeCommandFingerprint) Compute(command *RuntimeCommandV1) string {
 		command.Request.DeadlineEvidence.Digest.Sha256,
 		strconv.FormatUint(command.Request.DeadlineEvidence.Watermark, 10),
 		strconv.FormatInt(dotNetTimestampTicks(assignment.Authorization.ExpiresAt), 10),
-	}
-	for _, value := range assignment.SecretVersions {
-		values = append(values, value.Value)
-	}
-	for _, value := range assignment.Volumes {
-		values = append(values, value.VolumeId.Value+":"+strconv.Itoa(int(value.Retention)))
-	}
-	for _, value := range assignment.Ports {
-		values = append(values, strconv.FormatUint(uint64(value.Value), 10))
 	}
 	// The C# Add helper prefixes each list with its item count.
 	values = append(values, strconv.Itoa(len(assignment.SecretVersions)))

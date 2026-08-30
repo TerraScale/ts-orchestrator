@@ -22,7 +22,7 @@ func (natsOperationJournalProvisioner) ProvisionAsync(
 	ctx context.Context,
 	options *OrchestratorOptions,
 ) error {
-	return natsOperationJournalProvisioner.provision(ctx, options, true)
+	return NatsOperationJournalProvisioner.provision(ctx, options, true)
 }
 
 // ProvisionControllerAsync mirrors the C# ProvisionControllerAsync.
@@ -30,7 +30,7 @@ func (natsOperationJournalProvisioner) ProvisionControllerAsync(
 	ctx context.Context,
 	options *OrchestratorOptions,
 ) error {
-	return natsOperationJournalProvisioner.provision(ctx, options, false)
+	return NatsOperationJournalProvisioner.provision(ctx, options, false)
 }
 
 func (natsOperationJournalProvisioner) provision(
@@ -38,6 +38,9 @@ func (natsOperationJournalProvisioner) provision(
 	options *OrchestratorOptions,
 	includeAuthoritativeJournal bool,
 ) error {
+	if options == nil {
+		return errors.New("Orchestrator options are required to provision ORCH_OPERATIONS.")
+	}
 	if options.InfrastructureNatsNKeyFile == nil || *options.InfrastructureNatsNKeyFile == "" {
 		return errors.New("The infrastructure NATS identity is required to provision ORCH_OPERATIONS.")
 	}
@@ -51,7 +54,7 @@ func (natsOperationJournalProvisioner) provision(
 		nats.MaxReconnects(0),
 		natsNkeyOption(*options.InfrastructureNatsNKeyFile),
 	}, options.InfrastructureNatsTls.Options()...)
-	client, err := nats.Connect(options.NatsUrl, connectionOptions...)
+	client, err := nats.Connect(options.NatsURL, connectionOptions...)
 	if err != nil {
 		return err
 	}

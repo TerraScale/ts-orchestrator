@@ -4,7 +4,11 @@
 // TerraScale workspace repositories to be checked out next to this module.
 package main
 
-import "testing"
+import (
+	"context"
+	"os"
+	"testing"
+)
 
 var hermeticToolingTests = map[string]bool{
 	"adr absolute source anchor":                         true,
@@ -38,5 +42,19 @@ func TestToolingHermetic(t *testing.T) {
 	}
 	if ran == 0 {
 		t.Fatal("no hermetic tooling tests were selected")
+	}
+}
+
+func TestWorkspaceTopologyLeaseHolderProcess(t *testing.T) {
+	if os.Getenv("TERRASCALE_TOOLING_LEASE_HOLDER") != "1" {
+		t.Skip("helper process")
+	}
+	arguments := []string{"--namespace", os.Getenv("TERRASCALE_TOOLING_LEASE_NAMESPACE")}
+	if os.Getenv("TERRASCALE_TOOLING_LEASE_NOISY") == "true" &&
+		os.Getenv("TERRASCALE_TOOLING_LEASE_IGNORE_STDIN") == "true" {
+		arguments = append(arguments, "--noisy-stderr", "--ignore-stdin")
+	}
+	if _, err := WorkspaceTopologyLeaseHolderCommand.RunAsync(context.Background(), arguments); err != nil {
+		t.Fatal(err)
 	}
 }
