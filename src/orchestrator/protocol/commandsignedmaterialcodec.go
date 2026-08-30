@@ -50,7 +50,7 @@ func (commandSignedMaterialCodec) Encode(material *CommandSignedMaterial) ([]byt
 	}
 
 	writer := newBigEndianWriter(1024)
-	writer.writeRaw(commandSignedMaterialMagic)
+	writer.writeBytes(commandSignedMaterialMagic)
 	writer.writeInt64(material.ProtocolVersion.Value)
 	if err := writer.writeString(material.Cell.Value); err != nil {
 		return nil, err
@@ -122,11 +122,6 @@ func newBigEndianWriter(capacity int) *bigEndianWriter {
 
 func (w *bigEndianWriter) bytes() []byte {
 	return w.buffer
-}
-
-func (w *bigEndianWriter) writeRaw(value []byte) {
-	w.buffer = append(w.buffer, value...)
-	w.written += len(value)
 }
 
 func (w *bigEndianWriter) writeInt64(value int64) {

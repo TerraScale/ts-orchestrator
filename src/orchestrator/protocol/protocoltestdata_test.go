@@ -160,8 +160,8 @@ func validContext(overrides ...func(*validContextOption)) *CommandValidationCont
 		minimumEpoch:      ptrOf(testEpoch(7)),
 		acceptedProtocols: []ProtocolRevision{testProtocol(1)},
 		skew:              ptrOf(2 * time.Minute),
-		digestVerifier:    &testDigestVerifier{},
-		signatureVerifier: &testSignatureVerifier{},
+		digestVerifier:    &testDigestVerifier{matches: true},
+		signatureVerifier: &testSignatureVerifier{isValid: true},
 	}
 
 	for _, override := range overrides {

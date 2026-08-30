@@ -117,19 +117,14 @@ func runNumericFuzz(seed uint64) fuzzSummary {
 	digest := uint64(0)
 	values := map[int64]struct{}{}
 	for index := 0; index < casesPerFamily; index++ {
-		var value int64
-		switch index % 7 {
-		case 0:
-			value = 0
-		case 1:
-			value = -1
-		case 2:
-			value = -1 << 63
-		case 3:
-			value = 1<<63 - 1
-		default:
-			value = int64(generator.next()&uint64(1<<63-1)) + 1
-		}
+		// Fidelity note: the C# source writes `index % 7 switch { 0 => 0, ... }`,
+		// which C# binds as `index % (7 switch { ... })` — the switch input is the
+		// constant 7, which always falls to the `_` arm. The value is therefore
+		// index modulo one huge generator draw, which equals index for this range;
+		// the `_` arm (and only it) advances the generator every iteration. The
+		// port reproduces that behavior exactly, including the digest.
+		divisor := int64(generator.next()&uint64(1<<63-1)) + 1
+		value := int64(index) % divisor
 
 		expected := value > 0
 		protocolRevision, protocolOk := ProtocolRevisionTryCreate(value)
@@ -261,7 +256,7 @@ func TestSubjectAndPatternParsersRunTenThousandDeterministicCases(t *testing.T) 
 
 func runSubjectFuzz(seed uint64) subjectSummary {
 	generator := &deterministicGenerator{state: seed}
-	limits := defaultTestLimits()
+	limits := fuzzLimits()
 	subjectAccepted, subjectRejected := 0, 0
 	patternAccepted, patternRejected := 0, 0
 	subjectErrors := map[SubjectGrammarError]struct{}{}
@@ -419,9 +414,10 @@ func runPolicyFuzz(seed uint64) policySummary {
 			continue
 		}
 
-		alpha := testPattern("alpha"+strconv.Itoa(index%10)+".*", limits)
-		beta := testPattern("beta.*", limits)
-		blocked := testPattern("blocked.>", limits)
+		fixed := fuzzLimits()
+		alpha := testPattern("alpha"+strconv.Itoa(index%10)+".*", fixed)
+		beta := testPattern("beta.*", fixed)
+		blocked := testPattern("blocked.>", fixed)
 		var allow []*SubjectPermissionPattern
 		var deny []*SubjectPermissionPattern
 		var expectedError SubjectPermissionPolicyError
@@ -439,7 +435,7 @@ func runPolicyFuzz(seed uint64) policySummary {
 			expectedError = SubjectPermissionPolicyErrorPatternInAllowAndDeny
 		case 3:
 			allow = []*SubjectPermissionPattern{alpha, beta, blocked}
-			deny = []*SubjectPermissionPattern{testPattern("extra.*", limits)}
+			deny = []*SubjectPermissionPattern{testPattern("extra.*", fixed)}
 			expectedError = SubjectPermissionPolicyErrorTooManyPatterns
 		default:
 			allow = []*SubjectPermissionPattern{alpha, nil}
@@ -460,9 +456,9 @@ func runPolicyFuzz(seed uint64) policySummary {
 				return policySummary{}
 			}
 
-			allowed := testConcreteSubject("alpha"+strconv.Itoa(index%10)+".one", limits)
+			allowed := testConcreteSubject("alpha"+strconv.Itoa(index%10)+".one", fixed)
 			if policy.Authorize(allowed).Reason != SubjectPermissionReasonAllowedByPattern ||
-				policy.Authorize(testConcreteSubject("blocked.one", limits)).Reason != SubjectPermissionReasonDeniedByPattern ||
+				policy.Authorize(testConcreteSubject("blocked.one", fixed)).Reason != SubjectPermissionReasonDeniedByPattern ||
 				policy.Authorize(nil).IsAllowed() {
 				return policySummary{}
 			}
@@ -620,7 +616,7 @@ func runDecisionFuzz(seed uint64) decisionSummary {
 	allowed, denied := 0, 0
 	digest := uint64(0)
 	reasons := map[SubjectPermissionReason]struct{}{}
-	limits := defaultTestLimits()
+	limits := fuzzLimits()
 	for index := 0; index < casesPerFamily; index++ {
 		suffix := strconv.Itoa(generator.nextInt(1000))
 		category := index % 7
@@ -796,12 +792,12 @@ func replayCorpusEntry(t *testing.T, entry ProtocolCorpusEntry) {
 	for replay := 0; replay < repetitions; replay++ {
 		switch entry.Family {
 		case "concrete-subject":
-			_, subjectError := ConcreteSubjectTryParse(entry.Input, defaultTestLimits())
+			_, subjectError := ConcreteSubjectTryParse(entry.Input, fuzzLimits())
 			if subjectError == SubjectGrammarErrorNone || subjectError.String() != entry.Expected {
 				t.Fatalf("corpus subject replay mismatch at seed %d", entry.Seed)
 			}
 		case "permission-pattern":
-			_, patternError := SubjectPermissionPatternTryParse(entry.Input, defaultTestLimits())
+			_, patternError := SubjectPermissionPatternTryParse(entry.Input, fuzzLimits())
 			if patternError == SubjectGrammarErrorNone || patternError.String() != entry.Expected {
 				t.Fatalf("corpus pattern replay mismatch at seed %d", entry.Seed)
 			}

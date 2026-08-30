@@ -18,6 +18,11 @@ func defaultTestLimits() *SubjectGrammarLimits {
 	return testLimits(128, 16, 32, 16)
 }
 
+// fuzzLimits mirrors the private Limits() fixture of DeterministicProtocolFuzzTests.
+func fuzzLimits() *SubjectGrammarLimits {
+	return testLimits(64, 8, 16, 16)
+}
+
 func testConcreteSubject(value string, limits *SubjectGrammarLimits) *ConcreteSubject {
 	subject, _ := ConcreteSubjectTryParse(value, limits)
 	return subject

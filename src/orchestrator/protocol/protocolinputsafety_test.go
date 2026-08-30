@@ -43,8 +43,8 @@ func TestAcceptedVersionCaptureRejectsMaximumPlusOne(t *testing.T) {
 		testEpoch(7),
 		versions,
 		0,
-		&testDigestVerifier{},
-		&testSignatureVerifier{})
+		&testDigestVerifier{matches: true},
+		&testSignatureVerifier{isValid: true})
 
 	if err == nil {
 		t.Fatal("maximum plus one versions must fail closed")
