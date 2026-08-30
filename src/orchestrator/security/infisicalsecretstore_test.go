@@ -12,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	goruntime "runtime"
 )
@@ -103,6 +105,31 @@ func TestConfigurationRequiresACompleteSecureUniversalAuthIdentity(t *testing.T)
 		"http://127.0.0.1:8080", "project-1", "prod", "/orchestrator",
 		fixture.clientId, fixture.clientSecret, ""); err == nil {
 		t.Fatal("a non-private credential file must be rejected")
+	}
+}
+
+func TestInfisicalStoreSnapshotsConfigurationOwnership(t *testing.T) {
+	skipUnlessLinux(t)
+	fixture := newInfisicalFixture(t)
+	organization := "original-org"
+	configuration := fixture.configuration(t)
+	configuration.OrganizationSlug = &organization
+	store := InfisicalSecretStoreCreateWithTransport(configuration, infisicalHandlerTransport{
+		handle: func(*http.Request) *http.Response { return infisicalJsonResponse(http.StatusInternalServerError, `{}`) },
+	})
+	t.Cleanup(store.Close)
+
+	configuration.Server = "https://mutated.example/"
+	configuration.VaultProject = "mutated-project"
+	organization = "mutated-org"
+
+	snapshot, err := store.configurationSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Server != "http://127.0.0.1:8080/" || snapshot.VaultProject != "project-1" ||
+		snapshot.OrganizationSlug == nil || *snapshot.OrganizationSlug != "original-org" {
+		t.Fatalf("store did not retain an owned configuration snapshot: %+v", snapshot)
 	}
 }
 
@@ -274,6 +301,111 @@ func TestV4ClientAuthenticatesAndSupportsSecretCrudWithoutLeakingValues(t *testi
 		if request.Path == "/api/v4/secrets" && !strings.Contains(request.Query, "viewSecretValue=false") {
 			t.Fatalf("listing must not request secret values: %q", request.Query)
 		}
+	}
+}
+
+func TestCloseDefersTokenClearUntilInFlightSendReleases(t *testing.T) {
+	skipUnlessLinux(t)
+	fixture := newInfisicalFixture(t)
+	secretStarted := make(chan struct{})
+	releaseSecret := make(chan struct{})
+	var startedOnce sync.Once
+	transport := infisicalHandlerTransport{handle: func(request *http.Request) *http.Response {
+		switch request.URL.Path {
+		case "/api/v1/auth/universal-auth/login":
+			return infisicalJsonResponse(200,
+				`{"accessToken":"access-token","expiresIn":3600,"accessTokenMaxTTL":7200}`)
+		case "/api/v4/secrets/API_KEY":
+			startedOnce.Do(func() { close(secretStarted) })
+			<-releaseSecret
+			return infisicalJsonResponse(200,
+				`{"secret":{"secretKey":"API_KEY","secretValue":"sentinel-secret-value","version":1,"secretPath":"/orchestrator"}}`)
+		default:
+			return nil
+		}
+	}}
+	store := InfisicalSecretStoreCreateWithTransport(fixture.configuration(t), transport)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := store.Get(context.Background(), "API_KEY")
+		result <- err
+	}()
+	<-secretStarted
+
+	closed := make(chan struct{})
+	go func() {
+		store.Close()
+		store.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close must not wait for an in-flight network request")
+	}
+
+	store.mu.Lock()
+	tokenRetained := len(store.accessToken) > 0
+	store.mu.Unlock()
+	if !tokenRetained {
+		t.Fatal("an in-flight request must retain token ownership")
+	}
+
+	close(releaseSecret)
+	if err := <-result; err != nil {
+		t.Fatalf("an in-flight request should complete: %v", err)
+	}
+	store.mu.Lock()
+	tokenCleared := len(store.accessToken) == 0 && store.inFlight == 0
+	store.mu.Unlock()
+	if !tokenCleared {
+		t.Fatal("the token must be cleared when the last request releases it")
+	}
+}
+
+func TestCloseRejectsAuthenticationThatFinishesAfterDisposal(t *testing.T) {
+	skipUnlessLinux(t)
+	fixture := newInfisicalFixture(t)
+	authStarted := make(chan struct{})
+	releaseAuth := make(chan struct{})
+	var startedOnce sync.Once
+	transport := infisicalHandlerTransport{handle: func(request *http.Request) *http.Response {
+		if request.URL.Path != "/api/v1/auth/universal-auth/login" {
+			return nil
+		}
+		startedOnce.Do(func() { close(authStarted) })
+		<-releaseAuth
+		return infisicalJsonResponse(200,
+			`{"accessToken":"access-token","expiresIn":3600,"accessTokenMaxTTL":7200}`)
+	}}
+	store := InfisicalSecretStoreCreateWithTransport(fixture.configuration(t), transport)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := store.Get(context.Background(), "API_KEY")
+		result <- err
+	}()
+	<-authStarted
+	closed := make(chan struct{})
+	go func() {
+		store.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close must not wait for authentication network I/O")
+	}
+	close(releaseAuth)
+	if err := <-result; err == nil {
+		t.Fatal("a request finishing after Close must fail")
+	}
+	store.mu.Lock()
+	tokenCleared := len(store.accessToken) == 0 && store.inFlight == 0
+	store.mu.Unlock()
+	if !tokenCleared {
+		t.Fatal("authentication must not install a token after Close")
 	}
 }
 

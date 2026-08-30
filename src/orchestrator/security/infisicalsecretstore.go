@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -329,10 +330,13 @@ type InfisicalSecretMetadata struct {
 // InfisicalSecretStore is the direct Universal Auth and v4 Secrets API adapter.
 // Secret values never appear in its errors.
 type InfisicalSecretStore struct {
+	mu             sync.Mutex
 	configuration  *InfisicalConfiguration
 	client         *http.Client
 	authentication chan struct{}
-	accessToken    *string
+	closed         chan struct{}
+	accessToken    []byte
+	inFlight       int
 	disposed       bool
 }
 
@@ -346,10 +350,12 @@ func InfisicalSecretStoreCreate(configuration *InfisicalConfiguration) *Infisica
 
 // InfisicalSecretStoreCreateWithTransport is the injectable seam used by tests.
 func InfisicalSecretStoreCreateWithTransport(configuration *InfisicalConfiguration, transport http.RoundTripper) *InfisicalSecretStore {
+	configuration = cloneInfisicalConfiguration(configuration)
 	return &InfisicalSecretStore{
 		configuration:  configuration,
 		client:         &http.Client{Timeout: 15 * time.Second, Transport: transport},
 		authentication: make(chan struct{}, 1),
+		closed:         make(chan struct{}),
 	}
 }
 
@@ -422,11 +428,15 @@ func (s *InfisicalSecretStore) write(ctx context.Context, method string, name st
 	if err := infisicalRequireSecretValue(value); err != nil {
 		return InfisicalSecretMetadata{}, err
 	}
+	configuration, err := s.configurationSnapshot()
+	if err != nil {
+		return InfisicalSecretMetadata{}, err
+	}
 	body := secretWriteRequest{
-		ProjectId:   s.configuration.VaultProject,
-		Environment: s.configuration.Environment,
+		ProjectId:   configuration.VaultProject,
+		Environment: configuration.Environment,
 		SecretValue: value,
-		SecretPath:  s.configuration.SecretPath,
+		SecretPath:  configuration.SecretPath,
 		Type:        "shared",
 	}
 	var response secretResponse
@@ -443,10 +453,14 @@ func (s *InfisicalSecretStore) Delete(ctx context.Context, name string) (Infisic
 	if err := infisicalRequireSecretName(name); err != nil {
 		return InfisicalSecretMetadata{}, err
 	}
+	configuration, err := s.configurationSnapshot()
+	if err != nil {
+		return InfisicalSecretMetadata{}, err
+	}
 	body := secretDeleteRequest{
-		ProjectId:   s.configuration.VaultProject,
-		Environment: s.configuration.Environment,
-		SecretPath:  s.configuration.SecretPath,
+		ProjectId:   configuration.VaultProject,
+		Environment: configuration.Environment,
+		SecretPath:  configuration.SecretPath,
 		Type:        "shared",
 	}
 	var response secretResponse
@@ -528,26 +542,42 @@ func (s *InfisicalSecretStore) listDocuments(ctx context.Context, viewValues boo
 }
 
 func (s *InfisicalSecretStore) send(ctx context.Context, method string, relativeUri string, body any, result any) error {
-	if s.disposed {
+	if s == nil {
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The Infisical context must not be nil."}
+	}
+	s.mu.Lock()
+	disposed := s.disposed
+	configured := s.configuration != nil
+	s.mu.Unlock()
+	if disposed || !configured {
 		return &InvalidOperationError{Message: "Cannot access a disposed object."}
 	}
 	if err := s.ensureAuthenticated(ctx); err != nil {
 		return err
 	}
+	lease, err := s.acquireRequestLease(true)
+	if err != nil {
+		return err
+	}
+	defer lease.release()
 	var payload io.Reader
 	if body != nil {
 		encoded, err := infisicalMarshalJSON(body)
 		if err != nil {
 			return &InvalidDataError{Message: "Infisical returned an invalid secret response."}
 		}
+		defer clearBytes(encoded)
 		payload = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, s.configuration.Server+relativeUri, payload)
+	request, err := http.NewRequestWithContext(ctx, method, lease.server+relativeUri, payload)
 	if err != nil {
 		return &InvalidDataError{Message: "Infisical returned an invalid secret response."}
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Authorization", "Bearer "+*s.accessToken)
+	request.Header.Set("Authorization", "Bearer "+string(lease.token))
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	}
@@ -555,37 +585,65 @@ func (s *InfisicalSecretStore) send(ctx context.Context, method string, relative
 }
 
 func (s *InfisicalSecretStore) ensureAuthenticated(ctx context.Context) error {
-	if s.accessToken != nil {
+	if s == nil {
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The Infisical context must not be nil."}
+	}
+	s.mu.Lock()
+	if s.disposed {
+		s.mu.Unlock()
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	if len(s.accessToken) > 0 {
+		s.mu.Unlock()
 		return nil
+	}
+	configuration := cloneInfisicalConfiguration(s.configuration)
+	closed := s.closed
+	s.mu.Unlock()
+	if configuration == nil {
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
 	}
 	select {
 	case s.authentication <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-closed:
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
 	}
 	defer func() { <-s.authentication }()
-	if s.accessToken != nil {
+	s.mu.Lock()
+	if s.disposed {
+		s.mu.Unlock()
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	if len(s.accessToken) > 0 {
+		s.mu.Unlock()
 		return nil
 	}
-	clientId, err := s.configuration.ReadClientId()
+	s.mu.Unlock()
+	clientId, err := configuration.ReadClientId()
 	if err != nil {
 		return err
 	}
-	clientSecret, err := s.configuration.ReadClientSecret()
+	clientSecret, err := configuration.ReadClientSecret()
 	if err != nil {
 		return err
 	}
 	body := loginRequest{
 		ClientId:         clientId,
 		ClientSecret:     clientSecret,
-		OrganizationSlug: s.configuration.OrganizationSlug,
+		OrganizationSlug: configuration.OrganizationSlug,
 	}
 	encoded, err := infisicalMarshalJSON(body)
 	if err != nil {
 		return &InvalidDataError{Message: "Infisical returned an invalid authentication response."}
 	}
+	defer clearBytes(encoded)
 	request, requestErr := http.NewRequestWithContext(
-		ctx, http.MethodPost, s.configuration.Server+"api/v1/auth/universal-auth/login",
+		ctx, http.MethodPost, configuration.Server+"api/v1/auth/universal-auth/login",
 		bytes.NewReader(encoded))
 	if requestErr != nil {
 		return &InvalidDataError{Message: "Infisical returned an invalid authentication response."}
@@ -593,15 +651,64 @@ func (s *InfisicalSecretStore) ensureAuthenticated(ctx context.Context) error {
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	var response loginResponse
+	lease, leaseErr := s.acquireRequestLease(false)
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer lease.release()
 	if err := s.sendRequest(ctx, request, "authentication", &response); err != nil {
 		return err
 	}
 	if response.ExpiresIn <= 0 || isBlank(response.AccessToken) || containsWhitespaceOrControl(response.AccessToken) {
 		return &InvalidDataError{Message: "Infisical returned an invalid authentication response."}
 	}
-	accessToken := response.AccessToken
-	s.accessToken = &accessToken
+	accessToken := []byte(response.AccessToken)
+	s.mu.Lock()
+	if s.disposed {
+		s.mu.Unlock()
+		clearBytes(accessToken)
+		return &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	s.accessToken = accessToken
+	s.mu.Unlock()
 	return nil
+}
+
+type infisicalRequestLease struct {
+	store  *InfisicalSecretStore
+	server string
+	token  []byte
+}
+
+func (s *InfisicalSecretStore) acquireRequestLease(requireToken bool) (*infisicalRequestLease, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.disposed || s.configuration == nil || (requireToken && len(s.accessToken) == 0) {
+		return nil, &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	s.inFlight++
+	return &infisicalRequestLease{
+		store:  s,
+		server: s.configuration.Server,
+		token:  s.accessToken,
+	}, nil
+}
+
+func (l *infisicalRequestLease) release() {
+	if l == nil || l.store == nil {
+		return
+	}
+	store := l.store
+	store.mu.Lock()
+	store.inFlight--
+	if store.disposed && store.inFlight == 0 {
+		clearBytes(store.accessToken)
+		store.accessToken = nil
+	}
+	store.mu.Unlock()
+	l.store = nil
+	l.server = ""
+	l.token = nil
 }
 
 func (s *InfisicalSecretStore) sendRequest(ctx context.Context, request *http.Request, operation string, result any) error {
@@ -637,11 +744,39 @@ func (s *InfisicalSecretStore) sendRequest(ctx context.Context, request *http.Re
 }
 
 func (s *InfisicalSecretStore) scopeQuery() string {
+	configuration, err := s.configurationSnapshot()
+	if err != nil {
+		return ""
+	}
 	return strings.Join([]string{
-		infisicalPair("projectId", s.configuration.VaultProject),
-		infisicalPair("environment", s.configuration.Environment),
-		infisicalPair("secretPath", s.configuration.SecretPath),
+		infisicalPair("projectId", configuration.VaultProject),
+		infisicalPair("environment", configuration.Environment),
+		infisicalPair("secretPath", configuration.SecretPath),
 	}, "&")
+}
+
+func (s *InfisicalSecretStore) configurationSnapshot() (*InfisicalConfiguration, error) {
+	if s == nil {
+		return nil, &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.disposed || s.configuration == nil {
+		return nil, &InvalidOperationError{Message: "Cannot access a disposed object."}
+	}
+	return cloneInfisicalConfiguration(s.configuration), nil
+}
+
+func cloneInfisicalConfiguration(configuration *InfisicalConfiguration) *InfisicalConfiguration {
+	if configuration == nil {
+		return nil
+	}
+	clone := *configuration
+	if configuration.OrganizationSlug != nil {
+		organization := *configuration.OrganizationSlug
+		clone.OrganizationSlug = &organization
+	}
+	return &clone
 }
 
 func infisicalPair(key string, value string) string {
@@ -727,12 +862,27 @@ func containsWhitespaceOrControl(value string) bool {
 
 // Close disposes the store (IAsyncDisposable in the C# source).
 func (s *InfisicalSecretStore) Close() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
 	if s.disposed {
+		s.mu.Unlock()
 		return
 	}
 	s.disposed = true
-	s.accessToken = nil
-	s.client.CloseIdleConnections()
+	if s.closed != nil {
+		close(s.closed)
+	}
+	if s.inFlight == 0 {
+		clearBytes(s.accessToken)
+		s.accessToken = nil
+	}
+	client := s.client
+	s.mu.Unlock()
+	if client != nil {
+		client.CloseIdleConnections()
+	}
 }
 
 type loginRequest struct {
@@ -789,6 +939,7 @@ const infisicalSecretFileMode = 0o600
 // InfisicalSecretEnvironment materializes fetched secrets, writing every
 // *_FILE setting to an owner-private temporary file and substituting its path.
 type InfisicalSecretEnvironment struct {
+	mu        sync.RWMutex
 	values    map[string]string
 	directory *string
 	closed    bool
@@ -804,6 +955,9 @@ func InfisicalSecretEnvironmentLoad(ctx context.Context, configuration *Infisica
 // InfisicalSecretEnvironmentLoadFromStore loads the environment through an
 // existing store.
 func InfisicalSecretEnvironmentLoadFromStore(ctx context.Context, store *InfisicalSecretStore) (*InfisicalSecretEnvironment, error) {
+	if store == nil {
+		return nil, &ArgumentError{Param: "store"}
+	}
 	if goruntime.GOOS != "linux" {
 		return nil, &PlatformNotSupportedError{
 			Message: "Infisical secret files require Linux file permissions.",
@@ -849,19 +1003,32 @@ func InfisicalSecretEnvironmentLoadFromStore(ctx context.Context, store *Infisic
 
 // GetValue returns the materialized environment value for a key.
 func (e *InfisicalSecretEnvironment) GetValue(key string) (string, bool) {
+	if e == nil {
+		return "", false
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	value, present := e.values[key]
 	return value, present
 }
 
 // Dispose clears the in-memory values and removes the secret directory.
 func (e *InfisicalSecretEnvironment) Dispose() {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
 	if e.closed {
+		e.mu.Unlock()
 		return
 	}
 	e.closed = true
 	e.values = nil
-	if e.directory != nil {
-		os.RemoveAll(*e.directory)
+	directory := e.directory
+	e.directory = nil
+	e.mu.Unlock()
+	if directory != nil {
+		os.RemoveAll(*directory)
 	}
 }
 
