@@ -19,6 +19,14 @@ func errorsAsParam(err error, param string) bool {
 	if errors.As(err, &outOfRange) {
 		return outOfRange.Param == param
 	}
+	var statefulOutOfRange *stateful.ArgumentOutOfRangeError
+	if errors.As(err, &statefulOutOfRange) {
+		return statefulOutOfRange.Param == param
+	}
+	var statefulArgument *stateful.ArgumentError
+	if errors.As(err, &statefulArgument) {
+		return statefulArgument.Param == param
+	}
 	return false
 }
 

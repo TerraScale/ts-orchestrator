@@ -271,6 +271,12 @@ func NewDrainDecision(allowed bool, reason string, blockingAllocationIds []strin
 	if err != nil {
 		return DrainDecision{}, err
 	}
+	if len(blockingAllocationIds) > statefulMaximumReplicaCount {
+		return DrainDecision{}, &ArgumentError{
+			Param:   "blockingAllocationIds",
+			Message: fmt.Sprintf("Blocking allocation input exceeds the bound of %d entries.", statefulMaximumReplicaCount),
+		}
+	}
 	snapshot := make([]string, 0, len(blockingAllocationIds))
 	for _, allocationId := range blockingAllocationIds {
 		validated, err := requireStatefulToken(allocationId, "blockingAllocationIds",

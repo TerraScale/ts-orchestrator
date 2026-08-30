@@ -1,5 +1,5 @@
 // This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// SchedulerAudit4CounterexampleTests.cs.
+// Counterexample coverage for scheduler request and snapshot invariants.
 //
 // Skipped from the C# suite:
 //   - Availability_decision_admission_surface_is_assembly_wide_construction_

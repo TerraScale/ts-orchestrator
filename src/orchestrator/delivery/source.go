@@ -93,7 +93,17 @@ var ErrSourceNotFound = errors.New("Forgejo source revision was not found")
 type SourceNotFoundError struct{}
 
 func (SourceNotFoundError) Error() string { return ErrSourceNotFound.Error() }
-func (SourceNotFoundError) Is(error) bool { return true }
+func (SourceNotFoundError) Is(target error) bool {
+	if target == ErrSourceNotFound {
+		return true
+	}
+	switch target.(type) {
+	case SourceNotFoundError, *SourceNotFoundError:
+		return true
+	default:
+		return false
+	}
+}
 
 type SourceClient struct {
 	config    SourceConfig

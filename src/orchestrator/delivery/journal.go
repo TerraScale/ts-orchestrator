@@ -187,6 +187,7 @@ type WebhookJournal struct {
 	Ledger                 Ledger
 	Publisher              EventPublisher
 	HistoryCap, PruneEvery int
+	acceptMu               sync.Mutex
 	mu                     sync.Mutex
 	accepted               int
 }
@@ -204,6 +205,13 @@ func (j *WebhookJournal) Accept(ctx context.Context, e *WebhookEnvelope) (Journa
 	if j.HistoryCap < 2 || j.HistoryCap > 262144 {
 		return JournalReceipt{}, errors.New("invalid journal history cap")
 	}
+	// A pending reservation is not an ownership lease: without a process-local
+	// serialization point two concurrent deliveries can both publish before
+	// either marks the reservation accepted. Durable publishers may add their
+	// own cross-process deduplication, but the journal must not duplicate normal
+	// webhook delivery under local concurrency.
+	j.acceptMu.Lock()
+	defer j.acceptMu.Unlock()
 	pending := journalDocument{SchemaVersion: 1, State: "pending", Envelope: *e, DeliveryKey: e.DeliveryKey(), DedupeKey: e.DedupeKey()}
 	payload, err := j.ensure(ctx, "payload."+e.PayloadSHA256, pending)
 	if err != nil {
@@ -355,6 +363,9 @@ func hash(s string) string { d := sha256.Sum256([]byte(s)); return hex.EncodeToS
 type NatsLedger struct{ Store jetstream.KeyValue }
 
 func (n NatsLedger) Get(ctx context.Context, key string) (*LedgerEntry, error) {
+	if n.Store == nil {
+		return nil, errors.New("delivery ledger store is unavailable")
+	}
 	v, e := n.Store.Get(ctx, key)
 	if e != nil {
 		if errors.Is(e, jetstream.ErrKeyNotFound) {
@@ -365,16 +376,28 @@ func (n NatsLedger) Get(ctx context.Context, key string) (*LedgerEntry, error) {
 	return &LedgerEntry{Value: append([]byte(nil), v.Value()...), Revision: v.Revision(), Key: key}, nil
 }
 func (n NatsLedger) Create(ctx context.Context, key string, b []byte) (LedgerEntry, error) {
+	if n.Store == nil {
+		return LedgerEntry{}, errors.New("delivery ledger store is unavailable")
+	}
 	r, e := n.Store.Create(ctx, key, b)
 	if e != nil {
-		return LedgerEntry{}, ErrLedgerConflict
+		if errors.Is(e, jetstream.ErrKeyExists) || errors.Is(e, jetstream.ErrKeyRevisionMismatch) {
+			return LedgerEntry{}, ErrLedgerConflict
+		}
+		return LedgerEntry{}, e
 	}
 	return LedgerEntry{Value: b, Revision: r, Key: key}, nil
 }
 func (n NatsLedger) Update(ctx context.Context, key string, b []byte, rev uint64) (LedgerEntry, error) {
+	if n.Store == nil {
+		return LedgerEntry{}, errors.New("delivery ledger store is unavailable")
+	}
 	r, e := n.Store.Update(ctx, key, b, rev)
 	if e != nil {
-		return LedgerEntry{}, ErrLedgerConflict
+		if errors.Is(e, jetstream.ErrKeyExists) || errors.Is(e, jetstream.ErrKeyRevisionMismatch) {
+			return LedgerEntry{}, ErrLedgerConflict
+		}
+		return LedgerEntry{}, e
 	}
 	return LedgerEntry{Value: b, Revision: r, Key: key}, nil
 }

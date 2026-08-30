@@ -5,12 +5,23 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestSourceNotFoundErrorMatchesOnlyItsSentinel(t *testing.T) {
+	err := SourceNotFoundError{}
+	if !errors.Is(err, ErrSourceNotFound) {
+		t.Fatal("source-not-found error must match its sentinel")
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("source-not-found error must not match unrelated errors")
+	}
+}
 
 func signedPush(t *testing.T, after, ref, delivery string) []byte {
 	t.Helper()

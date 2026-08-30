@@ -1,4 +1,4 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/ProtocolAudit3CounterexampleTests.cs.
+// Counterexample coverage for protocol validation invariants.
 // The reflection-based closed-surface tests have no Go equivalent; the
 // behavioral assertions are fully ported.
 package protocol
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func auditAccept(t *testing.T, envelope CommandEnvelope, now time.Time) CommandValidationResult {
+func acceptTestEnvelope(t *testing.T, envelope CommandEnvelope, now time.Time) CommandValidationResult {
 	t.Helper()
 	context, err := NewCommandValidationContext(
 		envelope.Cell,
@@ -111,8 +111,8 @@ func TestAcceptanceRetainsEveryApprovedFieldButNotTheRawPayload(t *testing.T) {
 
 func TestIdenticalReplayIsEqualAndEachReceiptFieldParticipatesInEquality(t *testing.T) {
 	baselineEnvelope := validEnvelope()
-	baseline := auditAccept(t, baselineEnvelope, protocolNow)
-	if !auditAccept(t, baselineEnvelope, protocolNow).Equal(baseline) {
+	baseline := acceptTestEnvelope(t, baselineEnvelope, protocolNow)
+	if !acceptTestEnvelope(t, baselineEnvelope, protocolNow).Equal(baseline) {
 		t.Fatal("identical replay must be equal")
 	}
 
@@ -136,7 +136,7 @@ func TestIdenticalReplayIsEqualAndEachReceiptFieldParticipatesInEquality(t *test
 	}
 
 	for index, variant := range variants {
-		if auditAccept(t, variant.envelope, variant.now).Equal(baseline) {
+		if acceptTestEnvelope(t, variant.envelope, variant.now).Equal(baseline) {
 			t.Fatalf("variant %d must not equal the baseline", index)
 		}
 	}

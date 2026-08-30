@@ -438,14 +438,20 @@ func NewNodeProvisionRequest(
 	if err != nil {
 		return NodeProvisionRequest{}, err
 	}
-	validatedResources, err := NewNodeResources(resources.MemoryBytes, resources.CpuPercent, resources.Tasks)
-	if err != nil {
-		return NodeProvisionRequest{}, err
-	}
 	if reason == "" || len(reason) > autoscalingMaximumReasonLength {
 		return NodeProvisionRequest{}, &ArgumentError{
 			Param:   "reason",
 			Message: "A nonempty bounded reason is required.",
+		}
+	}
+	validatedResources, err := NewNodeResources(resources.MemoryBytes, resources.CpuPercent, resources.Tasks)
+	if err != nil {
+		return NodeProvisionRequest{}, err
+	}
+	if validatedResources.MemoryBytes == 0 && validatedResources.CpuPercent == 0 && validatedResources.Tasks == 0 {
+		return NodeProvisionRequest{}, &ArgumentError{
+			Param:   "resources",
+			Message: "A provision request must reserve at least one resource.",
 		}
 	}
 	return NodeProvisionRequest{

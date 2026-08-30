@@ -24,12 +24,12 @@ const GlobalCellDirectoryAdvertisementLease = GlobalCellAdvertisementSemanticLea
 // regional leader's renewable advertisement and watches the durable global KV
 // projection. WAN failures are retried and never revoke local authority.
 type GlobalCellDirectoryRuntime struct {
-	store       jetstream.KeyValue
-	cell        string
-	membership  func() RegionalRuntimeMembershipSnapshot
-	authority   func() RegionalAuthoritySnapshot
-	endpoints   []string
-	ownedClient *nats.Conn
+	store          jetstream.KeyValue
+	cell           string
+	membership     func() RegionalRuntimeMembershipSnapshot
+	authority      func() RegionalAuthoritySnapshot
+	endpoints      []string
+	ownedClient    *nats.Conn
 	publishEnabled bool
 
 	stoppingCtx context.Context
@@ -85,18 +85,18 @@ func newGlobalCellDirectoryRuntime(
 ) *GlobalCellDirectoryRuntime {
 	stoppingCtx, stopping := context.WithCancel(context.Background())
 	runtime := &GlobalCellDirectoryRuntime{
-		store:       store,
-		cell:        cell,
-		membership:  membership,
-		authority:   authority,
-		endpoints:   append([]string(nil), endpoints...),
-		ownedClient: ownedClient,
+		store:          store,
+		cell:           cell,
+		membership:     membership,
+		authority:      authority,
+		endpoints:      append([]string(nil), endpoints...),
+		ownedClient:    ownedClient,
 		publishEnabled: publishEnabled,
-		stoppingCtx: stoppingCtx,
-		stopping:    stopping,
-		directory:   NewGlobalCellDirectory(),
-		watchDone:   make(chan struct{}),
-		publishDone: make(chan struct{}),
+		stoppingCtx:    stoppingCtx,
+		stopping:       stopping,
+		directory:      NewGlobalCellDirectory(),
+		watchDone:      make(chan struct{}),
+		publishDone:    make(chan struct{}),
 	}
 
 	go runtime.watchLoop()

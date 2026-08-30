@@ -98,6 +98,9 @@ type BlockVolumeExpansionAdapter struct {
 }
 
 func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent ProviderIntent) (VolumeExpansionResult, error) {
+	if ctx == nil {
+		return VolumeExpansionResult{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return VolumeExpansionResult{}, err
 	}
@@ -204,8 +207,12 @@ type OCIHTTPTransport struct {
 }
 
 func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer RequestSigner) (*OCIHTTPTransport, error) {
-	if config.Endpoint == nil {
-		return nil, &ArgumentError{Message: "OCI endpoint is required"}
+	if len(config.Region) < 1 || len(config.Region) > 63 || !regionPattern.MatchString(config.Region) ||
+		config.Endpoint == nil || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
+		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
+		(config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
+		config.Endpoint.Host != "iaas."+config.Region+".oraclecloud.com" {
+		return nil, &ArgumentError{Message: "OCI endpoint is invalid"}
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = 30 * time.Second
@@ -228,6 +235,12 @@ func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.
 // DoWithHeaders is Do with a small caller-supplied set of validated headers.
 // Header names/values are rejected if they contain controls.
 func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	if t == nil || t.Client == nil || t.Config.Endpoint == nil {
+		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
+	}
+	if ctx == nil {
+		return nil, &ArgumentError{Message: "OCI context is required"}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

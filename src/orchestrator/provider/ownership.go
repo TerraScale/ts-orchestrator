@@ -3,6 +3,7 @@ package provider
 import (
 	"sort"
 	"strconv"
+	"strings"
 )
 
 func definedResourceKind(v ProviderResourceKind) bool {
@@ -500,11 +501,17 @@ func NewFreshBootstrapInventory(expected, pulumi, regional []HandoffInventoryIte
 		if len(x) > MaximumHandoffInventoryCount {
 			return FreshBootstrapInventory{}, &ArgumentError{Message: "handoff inventory exceeds its bound"}
 		}
+		for _, item := range x {
+			if !validHandoffInventoryItem(item) {
+				return FreshBootstrapInventory{}, &ArgumentError{Message: "handoff inventory contains an invalid resource"}
+			}
+		}
 	}
 	return FreshBootstrapInventory{append([]HandoffInventoryItem(nil), expected...), append([]HandoffInventoryItem(nil), pulumi...), append([]HandoffInventoryItem(nil), regional...)}, nil
 }
 func EvaluateHandoff(r HandoffRequest) HandoffDecision {
 	all := [][]HandoffInventoryItem{r.Inventory.Expected, r.Inventory.Pulumi, r.Inventory.Regional}
+	inventoryValid := validHandoffInventory(r.Inventory)
 	dups := 0
 	for _, items := range all {
 		seen := map[string]bool{}
@@ -518,17 +525,18 @@ func EvaluateHandoff(r HandoffRequest) HandoffDecision {
 			seen[k] = true
 		}
 	}
-	exact := digestProjection(r.Inventory.Expected) == digestProjection(r.Inventory.Pulumi) && digestProjection(r.Inventory.Expected) == digestProjection(r.Inventory.Regional)
-	scope := r.ExpectedScope.InventoryFingerprint.Value == digestProjection(r.Inventory.Expected)
-	notRollback := r.ExpectedScope.BootstrapGeneration.Value >= r.CurrentAcceptedBootstrapGeneration.Value
-	tr := []ProviderDecisionReason{passReject(DecisionHandoffInventoryUnique, dups == 0, true, uint64(dups), 0), passReject(DecisionHandoffInventoryExact, exact, false, boolToU(exact), 1), passReject(DecisionHandoffScopeMatches, scope, false, boolToU(scope), 1), passReject(DecisionHandoffGenerationNotRollback, notRollback, false, r.ExpectedScope.BootstrapGeneration.Value, r.CurrentAcceptedBootstrapGeneration.Value)}
+	expectedDigest := digestProjection(r.Inventory.Expected)
+	exact := inventoryValid && expectedDigest == digestProjection(r.Inventory.Pulumi) && expectedDigest == digestProjection(r.Inventory.Regional)
+	scope := validHandoffScope(r.ExpectedScope) && r.ExpectedScope.InventoryFingerprint.Value == expectedDigest
+	notRollback := r.CurrentAcceptedBootstrapGeneration.Value > 0 && r.ExpectedScope.BootstrapGeneration.Value >= r.CurrentAcceptedBootstrapGeneration.Value
+	tr := []ProviderDecisionReason{passReject(DecisionHandoffInventoryUnique, inventoryValid && dups == 0, false, uint64(dups), 0), passReject(DecisionHandoffInventoryExact, exact, false, boolToU(exact), 1), passReject(DecisionHandoffScopeMatches, scope, false, boolToU(scope), 1), passReject(DecisionHandoffGenerationNotRollback, notRollback, false, r.ExpectedScope.BootstrapGeneration.Value, r.CurrentAcceptedBootstrapGeneration.Value)}
 	proofs := []struct {
 		c ProviderDecisionCode
 		p HandoffProof
 	}{{DecisionHandoffRetainUnmanage, r.Evidence.RetainUnmanage}, {DecisionHandoffJournalReceipt, r.Evidence.RegionalJournalReceipt}, {DecisionHandoffProviderReady, r.Evidence.ProviderReady}, {DecisionHandoffTrustReady, r.Evidence.TrustReady}, {DecisionHandoffBackupReady, r.Evidence.BackupReady}, {DecisionHandoffFenceActivated, r.Evidence.RegionalFenceActivated}}
 	for _, x := range proofs {
 		out := DecisionRejected
-		if x.p.Scope == r.ExpectedScope {
+		if scope && x.p.Scope == r.ExpectedScope {
 			switch x.p.Status {
 			case HandoffVerified:
 				out = DecisionPassed
@@ -551,4 +559,46 @@ func EvaluateHandoff(r HandoffRequest) HandoffDecision {
 	}
 	return HandoffDecision{ready, tr, in}
 }
+
+func validHandoffInventoryItem(item HandoffInventoryItem) bool {
+	_, resourceErr := nativeToken(item.ResourceId.Value, "resourceId")
+	return resourceErr == nil && definedResourceKind(item.Kind) && item.Generation.Value > 0
+}
+
+func validHandoffInventory(inventory FreshBootstrapInventory) bool {
+	for _, items := range [][]HandoffInventoryItem{inventory.Expected, inventory.Pulumi, inventory.Regional} {
+		if len(items) > MaximumHandoffInventoryCount {
+			return false
+		}
+		for _, item := range items {
+			if !validHandoffInventoryItem(item) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validHandoffScope(scope HandoffScope) bool {
+	if _, err := canonicalToken(scope.CellId.Value, "cellId"); err != nil {
+		return false
+	}
+	if _, err := nativeToken(scope.CompartmentId.Value, "compartmentId"); err != nil {
+		return false
+	}
+	if _, err := canonicalToken(scope.OperationId.Value, "operationId"); err != nil {
+		return false
+	}
+	return scope.BootstrapGeneration.Value > 0 && len(scope.InventoryFingerprint.Value) == 64 && strings.ToLower(scope.InventoryFingerprint.Value) == scope.InventoryFingerprint.Value && isLowerHex(scope.InventoryFingerprint.Value)
+}
+
+func isLowerHex(value string) bool {
+	for _, r := range value {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func fmtUint(v uint64) string { return strconv.FormatUint(v, 10) }
