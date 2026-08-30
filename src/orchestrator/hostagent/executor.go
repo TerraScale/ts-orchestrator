@@ -409,6 +409,10 @@ func (e *WorkloadExecutor) observeDecoded(ctx context.Context, decoded decodedWo
 func (e *WorkloadExecutor) recordState(decoded decodedWorkloadPlan, state string, running bool, pending bool) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
+	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
+		len(e.records) >= hostAgentMaximumTrackedAllocations {
+		return
+	}
 	e.records[decoded.plan.AllocationId.Value] = allocationRecord{
 		plan:        decoded.plan,
 		fingerprint: decoded.fingerprint,
@@ -424,6 +428,16 @@ func (e *WorkloadExecutor) recordObserved(decoded decodedWorkloadPlan, observati
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 	previous := e.records[decoded.plan.AllocationId.Value]
+	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
+		observation.state == runtime.PodmanAllocationStateAbsent.String() {
+		// An observe of an absent, never-served allocation must not let an
+		// unauthenticated caller grow the tracking table indefinitely.
+		return
+	}
+	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
+		len(e.records) >= hostAgentMaximumTrackedAllocations {
+		return
+	}
 	e.records[decoded.plan.AllocationId.Value] = allocationRecord{
 		plan:        decoded.plan,
 		fingerprint: decoded.fingerprint,

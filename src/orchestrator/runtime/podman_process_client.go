@@ -343,7 +343,7 @@ func podmanRunArguments(request PodmanRunRequest) []string {
 		// the plan's percent converts by one thousand: 100 percent is exactly
 		// one CPU per period, and the runtime rejects every sub-millisecond
 		// quota (crun: write to cpu.max: Invalid argument).
-		"--cpu-quota", strconv.Itoa(request.CpuQuotaPercent * 1000),
+		"--cpu-quota", strconv.Itoa(request.CpuQuotaPercent*1000),
 		"--cpu-shares", strconv.Itoa(request.CpuWeight),
 		"--restart=no")
 	for _, mount := range request.Volumes {

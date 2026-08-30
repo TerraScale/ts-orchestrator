@@ -191,6 +191,7 @@ type NatsCommandIngress struct {
 	now          func() time.Time
 	closeOnce    sync.Once
 	startOnce    sync.Once
+	lifecycleMu  sync.Mutex
 	startErr     error
 	complete     chan struct{}
 	closed       atomic.Bool
@@ -311,6 +312,8 @@ func (i *NatsCommandIngress) Start(ctx context.Context) error {
 	if i == nil || i.connection == nil || i.boundary == nil {
 		return errors.New("command ingress is unavailable")
 	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
 	if i.closed.Load() {
 		return errors.New("command ingress is closed")
 	}
@@ -372,6 +375,9 @@ func (i *NatsCommandIngress) handleMessage(message *nats.Msg) {
 func (i *NatsCommandIngress) Handle(ctx context.Context, data []byte) (CommandIngressDecision, error) {
 	if i == nil || i.boundary == nil || i.validation == nil {
 		return CommandIngressDecision{}, errors.New("command ingress is unavailable")
+	}
+	if i.closed.Load() {
+		return CommandIngressDecision{}, errors.New("command ingress is closed")
 	}
 	if ctx == nil {
 		return CommandIngressDecision{}, errors.New("command ingress context is required")
@@ -443,6 +449,8 @@ func (i *NatsCommandIngress) Close() error {
 		return nil
 	}
 	i.closeOnce.Do(func() {
+		i.lifecycleMu.Lock()
+		defer i.lifecycleMu.Unlock()
 		i.closed.Store(true)
 		if i.cancel != nil {
 			i.cancel()

@@ -46,10 +46,11 @@ var hostAgentTokenPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?
 var hostAgentFingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 const (
-	hostAgentMaximumTokenLength   = 63
-	hostAgentMaximumDetailLength  = 512
-	hostAgentMaximumPlanJsonBytes = 256 * 1024
-	hostAgentMaximumCpuPercent    = 10000
+	hostAgentMaximumTokenLength        = 63
+	hostAgentMaximumDetailLength       = 512
+	hostAgentMaximumPlanJsonBytes      = 256 * 1024
+	hostAgentMaximumCpuPercent         = 10000
+	hostAgentMaximumTrackedAllocations = 4096
 )
 
 // requireHostAgentToken enforces the bounded canonical token vocabulary shared
