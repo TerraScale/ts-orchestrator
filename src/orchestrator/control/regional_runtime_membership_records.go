@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,7 +21,9 @@ import (
 // leaves the process: only the key identifier, the public key, and the
 // signature travel in the record.
 type RegionalRuntimeMembershipIdentity struct {
+	mu         sync.RWMutex
 	privateKey *ecdsa.PrivateKey
+	disposed   bool
 	KeyId      string
 	PublicKey  string
 }
@@ -36,6 +39,9 @@ func RegionalRuntimeMembershipIdentityCreate() (*RegionalRuntimeMembershipIdenti
 }
 
 func newRegionalRuntimeMembershipIdentity(key *ecdsa.PrivateKey) (*RegionalRuntimeMembershipIdentity, error) {
+	if key == nil {
+		return nil, fmt.Errorf("membership identity key is nil")
+	}
 	publicKey, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		return nil, err
@@ -52,6 +58,14 @@ func newRegionalRuntimeMembershipIdentity(key *ecdsa.PrivateKey) (*RegionalRunti
 // Sign mirrors the C# Sign: signs the record's canonical material; the
 // signature covers every field except itself.
 func (i *RegionalRuntimeMembershipIdentity) Sign(member RegionalRuntimeMember) string {
+	if i == nil {
+		return ""
+	}
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if i.disposed || i.privateKey == nil {
+		return ""
+	}
 	digest := sha256.Sum256([]byte(member.CanonicalMaterial()))
 	signature, err := ecdsa.SignASN1(rand.Reader, i.privateKey, digest[:])
 	if err != nil {
@@ -61,8 +75,24 @@ func (i *RegionalRuntimeMembershipIdentity) Sign(member RegionalRuntimeMember) s
 	return base64.StdEncoding.EncodeToString(signature)
 }
 
-// Dispose mirrors the C# Dispose (a no-op in Go; keys are garbage collected).
-func (i *RegionalRuntimeMembershipIdentity) Dispose() {}
+// Dispose invalidates the private key before releasing the identity. The
+// explicit zeroing is best-effort (big.Int may retain implementation details),
+// but it prevents future signing and bounds the key's usable lifetime.
+func (i *RegionalRuntimeMembershipIdentity) Dispose() {
+	if i == nil {
+		return
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.disposed {
+		return
+	}
+	i.disposed = true
+	if i.privateKey != nil && i.privateKey.D != nil {
+		i.privateKey.D.SetInt64(0)
+	}
+	i.privateKey = nil
+}
 
 // RegionalRuntimeMembershipIdentityVerify mirrors the static Verify: the key
 // identifier must be the fingerprint of the embedded public key and the

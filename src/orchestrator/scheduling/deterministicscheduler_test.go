@@ -99,6 +99,48 @@ func schedulerTestVector(dimension ResourceDimension, value int64) ResourceVecto
 	return vector
 }
 
+func TestNodeCandidateSnapshotsOptionalPointerInputs(t *testing.T) {
+	cap := AllocationSafetyCap{CurrentAllocations: 0, MaximumAllocations: 1}
+	veto := CandidateVeto{Code: CandidateVetoCodeControllerHold}
+	node := schedulerTestNode(t, "node", schedulerTestAbundant(), nil, nil, nil, &cap, &veto)
+
+	cap.MaximumAllocations = 0
+	veto.Code = CandidateVetoCodeStatefulSafetyHold
+	if node.SafetyCap == nil || !node.SafetyCap.CanAdmit() {
+		t.Fatal("candidate must retain an independent safety-cap snapshot")
+	}
+	if node.Veto == nil || node.Veto.Code != CandidateVetoCodeControllerHold {
+		t.Fatal("candidate must retain an independent veto snapshot")
+	}
+}
+
+func TestScoreDimensionRejectsUnknownResourceDimension(t *testing.T) {
+	if _, err := NewScoreDimension(ResourceDimension(99), 1); err == nil {
+		t.Fatal("unknown resource dimensions must be rejected")
+	}
+}
+
+func TestLeastWastePolicyRejectsNegativeWeights(t *testing.T) {
+	dimensions := make([]ScoreDimension, 0, len(AllResourceDimensions))
+	for _, dimension := range AllResourceDimensions {
+		dimensions = append(dimensions, ScoreDimension{Dimension: dimension, Weight: 1})
+	}
+	dimensions[0].Weight = -1
+	if _, err := NewLeastWastePolicy(dimensions); err == nil {
+		t.Fatal("negative score weights must be rejected")
+	}
+}
+
+func TestSchedulingConstructorsRejectNegativeResources(t *testing.T) {
+	negative := ResourceVector{Cpu: -1}
+	if _, err := NewNodeCandidate("node", "compute", "linux-amd64", "fd-a", negative, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		t.Fatal("negative candidate resources must be rejected")
+	}
+	if _, err := NewWorkloadRequest("workload", "linux-amd64", negative, nil, nil, nil, nil, nil, nil, nil, nil, nil); err == nil {
+		t.Fatal("negative workload resources must be rejected")
+	}
+}
+
 func schedulerTestScale(t *testing.T, value ResourceVector, multiplier int64) ResourceVector {
 	t.Helper()
 	scaled, err := NewResourceVector(

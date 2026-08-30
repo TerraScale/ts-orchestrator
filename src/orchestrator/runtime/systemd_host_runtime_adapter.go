@@ -155,6 +155,12 @@ func NewSystemdHostRuntimeAdapter(commandRunner HostCommandRunner, userManager b
 
 // Converge brings the unit to the running state.
 func (a *SystemdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRuntimePlan) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+	}
+	if a == nil || a.commandRunner == nil {
+		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
+	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {
 		return err
@@ -209,6 +215,12 @@ func (a *SystemdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRunti
 
 // Observe parses one fenced systemctl show observation.
 func (a *SystemdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntimePlan) (SystemdAllocationObservation, error) {
+	if ctx == nil {
+		return SystemdAllocationObservation{}, &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+	}
+	if a == nil || a.commandRunner == nil {
+		return SystemdAllocationObservation{}, &InvalidOperationError{Message: "The systemd command runner is unavailable."}
+	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {
 		return SystemdAllocationObservation{}, err
@@ -290,6 +302,12 @@ func (a *SystemdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntim
 
 // Stop stops a running unit.
 func (a *SystemdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePlan) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+	}
+	if a == nil || a.commandRunner == nil {
+		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
+	}
 	systemd, err := requireCanonicalSystemdPlan(plan)
 	if err != nil {
 		return err
@@ -355,7 +373,8 @@ func requireCanonicalSystemdPlan(plan HostRuntimePlan) (*SystemdExecutionPlan, e
 		}
 	}
 	systemd := plan.Systemd
-	if systemd.UnitName != expectedSystemd.UnitName ||
+	if !canonicalPlanFieldsMatch(plan, expected) ||
+		systemd.UnitName != expectedSystemd.UnitName ||
 		systemd.Executable != expectedSystemd.Executable ||
 		!stringSlicesEqual(systemd.Arguments, expectedSystemd.Arguments) ||
 		!stringSlicesEqual(systemd.Properties, expectedSystemd.Properties) ||

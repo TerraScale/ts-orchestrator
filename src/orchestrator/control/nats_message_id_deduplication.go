@@ -64,16 +64,34 @@ func NewNatsMessageIdDeduplication(
 }
 
 // Policy mirrors the C# Policy property.
-func (d *NatsMessageIdDeduplication) Policy() protocol.DuplicateWindowPolicy { return d.policy }
+func (d *NatsMessageIdDeduplication) Policy() protocol.DuplicateWindowPolicy {
+	if d == nil {
+		return protocol.DuplicateWindowPolicy{}
+	}
+	return d.policy
+}
 
 // Channel mirrors the C# Channel property.
-func (d *NatsMessageIdDeduplication) Channel() string { return d.policy.Channel }
+func (d *NatsMessageIdDeduplication) Channel() string {
+	if d == nil {
+		return ""
+	}
+	return d.policy.Channel
+}
 
 // Window mirrors the C# Window property.
-func (d *NatsMessageIdDeduplication) Window() time.Duration { return d.policy.Window }
+func (d *NatsMessageIdDeduplication) Window() time.Duration {
+	if d == nil {
+		return 0
+	}
+	return d.policy.Window
+}
 
 // Snapshot mirrors the C# Snapshot property.
 func (d *NatsMessageIdDeduplication) Snapshot() NatsMessageIdDeduplicationSnapshot {
+	if d == nil || d.window == nil {
+		return NatsMessageIdDeduplicationSnapshot{}
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -89,6 +107,11 @@ func (d *NatsMessageIdDeduplication) Snapshot() NatsMessageIdDeduplicationSnapsh
 // Inspect mirrors the C# Inspect: read-only pre-dispatch decision; never
 // records anything.
 func (d *NatsMessageIdDeduplication) Inspect(messageId, digest string, now time.Time) protocol.DuplicateWindowDecision {
+	if d == nil || d.window == nil {
+		return protocol.DuplicateWindowDecisionAdmit
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.window.Inspect(messageId, digest, now)
 }
 
@@ -96,6 +119,9 @@ func (d *NatsMessageIdDeduplication) Inspect(messageId, digest string, now time.
 // only after the durable effect exists or a terminal disposition was recorded
 // for this exact delivery.
 func (d *NatsMessageIdDeduplication) Record(messageId, digest string, now time.Time) protocol.DuplicateWindowDecision {
+	if d == nil || d.window == nil {
+		return protocol.DuplicateWindowDecisionAdmit
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 

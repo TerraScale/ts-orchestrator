@@ -270,19 +270,21 @@ func (c *CommandValidationContext) IsWellFormed() bool {
 
 // Accepts reports whether the context admits the given protocol revision.
 func (c *CommandValidationContext) Accepts(version ProtocolRevision) bool {
+	if c == nil {
+		return false
+	}
 	_, ok := c.acceptedProtocolVersions[version]
 	return ok
 }
 
 func captureAcceptedProtocolVersions(source []ProtocolRevision) (map[ProtocolRevision]struct{}, error) {
+	if len(source) > ProtocolTechnicalInputLimits.MaximumAcceptedProtocolVersionCount() {
+		return nil, errors.New(
+			"Accepted protocol versions could not be captured within the technical input bound. " +
+				"(Parameter 'acceptedProtocolVersions')")
+	}
 	captured := make(map[ProtocolRevision]struct{}, len(source))
 	for _, version := range source {
-		if len(captured) == ProtocolTechnicalInputLimits.MaximumAcceptedProtocolVersionCount() {
-			return nil, errors.New(
-				"Accepted protocol versions could not be captured within the technical input bound. " +
-					"(Parameter 'acceptedProtocolVersions')")
-		}
-
 		captured[version] = struct{}{}
 	}
 
@@ -311,7 +313,8 @@ func (commandEnvelopeValidator) Validate(
 		return commandValidationRejected(CommandValidationErrorInvalidValidationContext)
 	}
 
-	if envelope == nil || !commandEnvelopeIsWellFormed(envelope) {
+	if envelope == nil || !commandEnvelopeIsWellFormed(envelope) ||
+		!signedMaterialMatchesEnvelope(envelope) {
 		return commandValidationRejected(CommandValidationErrorMalformedEnvelope)
 	}
 
@@ -391,4 +394,26 @@ func commandEnvelopeIsWellFormed(envelope *CommandEnvelope) bool {
 		envelope.Payload.IsPresent() &&
 		envelope.PayloadDigest.IsValid() &&
 		envelope.Signature.IsValid()
+}
+
+// signedMaterialMatchesEnvelope protects the Go representation's mutable
+// exported fields. The C# envelope constructor made this relationship
+// structural, but a caller can construct a Go CommandEnvelope literal with a
+// stale SignedMaterial. Verifying that stale material would otherwise accept
+// a signature for different command metadata.
+func signedMaterialMatchesEnvelope(envelope *CommandEnvelope) bool {
+	material := envelope.SignedMaterial
+	return material.ProtocolVersion == envelope.ProtocolVersion &&
+		material.Cell == envelope.Cell &&
+		material.AggregateId == envelope.AggregateId &&
+		material.DesiredGeneration == envelope.DesiredGeneration &&
+		material.WriterEpoch == envelope.WriterEpoch &&
+		material.OperationId == envelope.OperationId &&
+		material.IdempotencyKey == envelope.IdempotencyKey &&
+		material.IssuedAt.Equal(envelope.IssuedAt) &&
+		material.ExpiresAt.Equal(envelope.ExpiresAt) &&
+		material.Attempt == envelope.Attempt &&
+		material.Payload.Equal(envelope.Payload) &&
+		material.Payload.IsPresent() == envelope.Payload.IsPresent() &&
+		material.PayloadDigest.Equal(envelope.PayloadDigest)
 }

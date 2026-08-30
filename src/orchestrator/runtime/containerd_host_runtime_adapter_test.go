@@ -158,6 +158,29 @@ func TestExistingForeignAllocationIsFencedInsteadOfReplaced(t *testing.T) {
 	}
 }
 
+func TestExistingAllocationWithADifferentContainerIdIsFenced(t *testing.T) {
+	plan := containerdTestOciPlan(t)
+	imageReference := plan.Oci.ImageReference
+	platform := plan.Oci.Platform
+	fingerprint, err := CanonicalPlanFingerprint.Compute(plan)
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	otherID := "terrascale-other-allocation"
+	client := newRecordingContainerdClient()
+	client.observation = ContainerdAllocationObservation{
+		ContainerId:     otherID,
+		State:           ContainerdAllocationStateRunning,
+		ImageReference:  &imageReference,
+		Platform:        &platform,
+		PlanFingerprint: &fingerprint,
+	}
+	var operationError *InvalidOperationError
+	if err := NewContainerdHostRuntimeAdapter(client).Converge(context.Background(), plan); !errors.As(err, &operationError) {
+		t.Fatalf("expected InvalidOperationError, got %v", err)
+	}
+}
+
 func ptrInt(value int) *int { return &value }
 
 func TestPulledManifestMustMatchTheRequestedImmutableDigest(t *testing.T) {

@@ -28,6 +28,18 @@ func (natsOperationJournalStore) ProvisionAsync(
 	keyValue jetstream.JetStream,
 	configuration jetstream.KeyValueConfig,
 ) (jetstream.KeyValue, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return nil, errors.New("(Parameter 'client')")
+	}
+	if js == nil {
+		return nil, errors.New("(Parameter 'js')")
+	}
+	if keyValue == nil {
+		return nil, errors.New("(Parameter 'keyValue')")
+	}
 	if err := natsOperationJournalValidateExpected(configuration); err != nil {
 		return nil, err
 	}
@@ -59,6 +71,12 @@ func (natsOperationJournalStore) OpenAsync(
 	configuration jetstream.KeyValueConfig,
 	client *nats.Conn,
 ) (jetstream.KeyValue, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if keyValue == nil {
+		return nil, errors.New("(Parameter 'keyValue')")
+	}
 	if err := natsOperationJournalValidateExpected(configuration); err != nil {
 		return nil, err
 	}
@@ -84,6 +102,12 @@ func (natsOperationJournalStore) ValidateAsync(
 	store jetstream.KeyValue,
 	configuration jetstream.KeyValueConfig,
 ) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if keyValue == nil || store == nil {
+		return errors.New("(Parameter 'store')")
+	}
 	return natsOperationJournalValidate(ctx, keyValue, store, configuration, nil)
 }
 

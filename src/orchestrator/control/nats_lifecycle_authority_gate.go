@@ -22,6 +22,12 @@ func NewNatsRuntimeLifecycleAuthorityGate(cell RuntimeLifecycleCellId,
 
 func (g *NatsRuntimeLifecycleAuthorityGate) ReadAsync(ctx context.Context,
 	requestedCell RuntimeLifecycleCellId) (RuntimeLifecycleAuthority, error) {
+	if g == nil || g.authority == nil {
+		return RuntimeLifecycleAuthority{}, argumentNil("authority")
+	}
+	if ctx == nil {
+		return RuntimeLifecycleAuthority{}, argumentNil("ctx")
+	}
 	if ctx.Err() != nil {
 		return RuntimeLifecycleAuthority{}, ctx.Err()
 	}

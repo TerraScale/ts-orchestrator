@@ -24,6 +24,10 @@ func TestOpaqueValuesCopyInputAndDoNotRenderContents(t *testing.T) {
 	for index := range exportedCopy {
 		exportedCopy[index] = 255
 	}
+	digestBytes := digest.Bytes()
+	digestBytes[0] = 255
+	signatureBytes := signature.Bytes()
+	signatureBytes[0] = 255
 
 	if !bytes.Equal(payload.Bytes(), expected) {
 		t.Fatal("payload must be an independent copy")

@@ -23,11 +23,17 @@ func NewNatsRuntimeLifecycleJournal(cell RuntimeLifecycleCellId,
 }
 
 func isContextCancellation(ctx context.Context, err error) bool {
-	return errors.Is(err, context.Canceled) && ctx.Err() != nil
+	return errors.Is(err, context.Canceled) && ctx != nil && ctx.Err() != nil
 }
 
 func (j *NatsRuntimeLifecycleJournal) ReadAsync(ctx context.Context,
 	operationKey RuntimeLifecycleOperationKey) (RuntimeLifecycleJournalRead, error) {
+	if j == nil || j.mutations == nil {
+		return RuntimeLifecycleJournalRead{}, argumentNil("mutations")
+	}
+	if ctx == nil {
+		return RuntimeLifecycleJournalRead{}, argumentNil("ctx")
+	}
 	reply, err := j.mutations.ReadRuntimeLifecycleAsync(ctx, j.cell.Value,
 		RuntimeLifecycleNatsProtocol.Key(operationKey))
 	if err != nil {
@@ -54,6 +60,12 @@ func (j *NatsRuntimeLifecycleJournal) ReadAsync(ctx context.Context,
 func (j *NatsRuntimeLifecycleJournal) CompareExchangeAsync(ctx context.Context,
 	operationKey RuntimeLifecycleOperationKey, expectedRevision *uint64,
 	checkpoint RuntimeLifecycleCheckpoint) (RuntimeLifecycleJournalWrite, error) {
+	if j == nil || j.mutations == nil {
+		return RuntimeLifecycleJournalWrite{}, argumentNil("mutations")
+	}
+	if ctx == nil {
+		return RuntimeLifecycleJournalWrite{}, argumentNil("ctx")
+	}
 	if ctx.Err() != nil {
 		return RuntimeLifecycleJournalWrite{}, ctx.Err()
 	}

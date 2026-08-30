@@ -140,13 +140,16 @@ func TestOrchestratorOptionsRejectsEveryUnownedCredentialVariable(t *testing.T) 
 		{"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE", "journal-writer", "journal-writer"},
 		{"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE", "journal-writer", "journal-writer"},
 		{"TS_ORCH_JOURNAL_CONTROLLER_NKEYS", "journal-writer", "journal-writer"},
+		{"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE", "ci-runner", "CI runner NATS identity"},
+		{"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY", "ci-runner", "CI runner NATS identity"},
 	}
 	commands := []string{"run", "check", "catalog", "provision-journal", "journal-writer"}
 	for _, variable := range variables {
 		for _, command := range commands {
 			if (variable.owner == "controller" && (command == "run" || command == "check")) ||
 				(variable.owner == "infrastructure" && command == "provision-journal") ||
-				(variable.owner == "journal-writer" && command == "journal-writer") {
+				(variable.owner == "journal-writer" && command == "journal-writer") ||
+				(variable.owner == "ci-runner" && (command == "run" || command == "check")) {
 				continue
 			}
 			t.Run(variable.name+"/"+command, func(t *testing.T) {

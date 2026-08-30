@@ -516,7 +516,12 @@ func (r *NatsRuntime) ready() bool {
 }
 
 // Completion closes when either long-running controller component exits.
-func (r *NatsRuntime) Completion() <-chan struct{} { return r.completion }
+func (r *NatsRuntime) Completion() <-chan struct{} {
+	if r == nil {
+		return nil
+	}
+	return r.completion
+}
 func (r *NatsRuntime) complete() {
 	if r == nil {
 		return

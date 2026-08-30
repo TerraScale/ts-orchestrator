@@ -230,3 +230,21 @@ func TestRegionalRuntimeMembershipNilReceiverIsSafe(t *testing.T) {
 		t.Fatalf("nil Dispose returned %v", err)
 	}
 }
+
+func TestRegionalRuntimeMembershipSnapshotDoesNotExposeCapabilityStorage(t *testing.T) {
+	membership := newRegionalRuntimeMembershipForHeartbeat(nil, nil)
+	document, err := membership.document(time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	membership.members[membership.key] = document
+
+	snapshot := membership.Snapshot()
+	if len(snapshot.Members) != 1 || len(snapshot.Members[0].Capabilities) != 1 {
+		t.Fatalf("unexpected snapshot: %#v", snapshot)
+	}
+	snapshot.Members[0].Capabilities[0] = "caller-mutated"
+	if got := membership.members[membership.key].Capabilities[0]; got != "authority" {
+		t.Fatalf("snapshot mutation changed internal capabilities to %q", got)
+	}
+}

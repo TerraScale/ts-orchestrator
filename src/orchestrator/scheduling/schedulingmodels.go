@@ -328,6 +328,9 @@ type ScoreDimension struct {
 
 // NewScoreDimension validates that the weight is non-negative.
 func NewScoreDimension(dimension ResourceDimension, weight int64) (ScoreDimension, error) {
+	if dimension < ResourceDimensionCpu || dimension > ResourceDimensionHugePages {
+		return ScoreDimension{}, &ArgumentOutOfRangeError{Param: "dimension"}
+	}
 	if weight < 0 {
 		return ScoreDimension{}, &ArgumentOutOfRangeError{Param: "weight"}
 	}
@@ -354,6 +357,12 @@ func NewLeastWastePolicy(dimensions []ScoreDimension) (*LeastWastePolicy, error)
 	seen := make(map[ResourceDimension]bool, len(copyDimensions))
 	positive := false
 	for _, item := range copyDimensions {
+		if item.Dimension < ResourceDimensionCpu || item.Dimension > ResourceDimensionHugePages {
+			return nil, &ArgumentOutOfRangeError{Param: "dimensions"}
+		}
+		if item.Weight < 0 {
+			return nil, &ArgumentOutOfRangeError{Param: "dimensions"}
+		}
 		if seen[item.Dimension] {
 			return nil, &ArgumentError{
 				Param:   "dimensions",
@@ -423,6 +432,11 @@ func NewNodeCandidate(
 	veto *CandidateVeto,
 ) (*NodeCandidate, error) {
 	var err error
+	if _, err := NewResourceVector(
+		available.Cpu, available.Memory, available.BlockIo, available.EphemeralDisk,
+		available.Bandwidth, available.Pids, available.FileDescriptors, available.HugePages); err != nil {
+		return nil, err
+	}
 	if id, err = requireText(id, "id"); err != nil {
 		return nil, err
 	}
@@ -459,6 +473,22 @@ func NewNodeCandidate(
 	if err != nil {
 		return nil, err
 	}
+	var capSnapshot *AllocationSafetyCap
+	if safetyCap != nil {
+		captured, capErr := NewAllocationSafetyCap(safetyCap.CurrentAllocations, safetyCap.MaximumAllocations)
+		if capErr != nil {
+			return nil, capErr
+		}
+		capSnapshot = &captured
+	}
+	var vetoSnapshot *CandidateVeto
+	if veto != nil {
+		captured, vetoErr := NewCandidateVeto(veto.Code)
+		if vetoErr != nil {
+			return nil, vetoErr
+		}
+		vetoSnapshot = &captured
+	}
 	return &NodeCandidate{
 		Id:            id,
 		NodeClass:     nodeClass,
@@ -471,8 +501,8 @@ func NewNodeCandidate(
 		NetworkZones:  network,
 		SecretZones:   secret,
 		AffinityFacts: affinity,
-		SafetyCap:     safetyCap,
-		Veto:          veto,
+		SafetyCap:     capSnapshot,
+		Veto:          vetoSnapshot,
 	}, nil
 }
 
@@ -508,6 +538,11 @@ func NewWorkloadRequest(
 	prohibitedAffinityFacts []string,
 ) (*WorkloadRequest, error) {
 	var err error
+	if _, err := NewResourceVector(
+		resources.Cpu, resources.Memory, resources.BlockIo, resources.EphemeralDisk,
+		resources.Bandwidth, resources.Pids, resources.FileDescriptors, resources.HugePages); err != nil {
+		return nil, err
+	}
 	if id, err = requireText(id, "id"); err != nil {
 		return nil, err
 	}

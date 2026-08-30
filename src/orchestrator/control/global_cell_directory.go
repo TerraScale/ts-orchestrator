@@ -324,6 +324,9 @@ func (d *GlobalCellDirectory) Apply(
 	advertisement GlobalCellAdvertisement,
 	appliedAt *time.Time,
 ) GlobalCellAdvertisementDisposition {
+	if d == nil {
+		return GlobalCellAdvertisementDispositionRejected
+	}
 	if strings.TrimSpace(sourceKey) == "" {
 		panic("The value cannot be an empty string or composed entirely of whitespace. (Parameter 'sourceKey')")
 	}
@@ -342,6 +345,13 @@ func (d *GlobalCellDirectory) ApplyAdvertisement(
 	advertisement GlobalCellAdvertisement,
 	appliedAt *time.Time,
 ) GlobalCellAdvertisementDisposition {
+	if d == nil {
+		return GlobalCellAdvertisementDispositionRejected
+	}
+	// Keep the projection independent from caller-owned slices. A directory
+	// snapshot is read concurrently by service handlers, so retaining a caller's
+	// backing arrays would permit mutation races after this method returns.
+	advertisement = cloneGlobalCellAdvertisement(advertisement)
 	now := time.Now().UTC()
 	if appliedAt != nil {
 		now = *appliedAt
@@ -354,6 +364,9 @@ func (d *GlobalCellDirectory) ApplyAdvertisement(
 
 	for {
 		d.mu.Lock()
+		if d.advertisements == nil {
+			d.advertisements = make(map[string]GlobalCellAdvertisement)
+		}
 		current, exists := d.advertisements[advertisement.Cell]
 		if !exists {
 			d.advertisements[advertisement.Cell] = advertisement
@@ -401,6 +414,9 @@ const (
 
 // Snapshot mirrors the C# Snapshot.
 func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirectorySnapshot {
+	if d == nil {
+		return globalCellDirectoryLifecycleUnavailableSnapshot()
+	}
 	now := time.Now().UTC()
 	if observedAt != nil {
 		now = *observedAt
@@ -409,7 +425,7 @@ func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirector
 	d.mu.Lock()
 	advertisements := make([]GlobalCellAdvertisement, 0, len(d.advertisements))
 	for _, advertisement := range d.advertisements {
-		advertisements = append(advertisements, advertisement)
+		advertisements = append(advertisements, cloneGlobalCellAdvertisement(advertisement))
 	}
 	rejected := atomic.LoadInt64(&d.rejectedAdvertisements)
 	d.mu.Unlock()
@@ -420,7 +436,7 @@ func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirector
 
 	cells := make([]GlobalCellDirectoryEntry, 0, len(advertisements))
 	for _, advertisement := range advertisements {
-		endpoints := advertisement.Endpoints
+		endpoints := append([]string(nil), advertisement.Endpoints...)
 		if endpoints == nil {
 			endpoints = []string{}
 		}
@@ -432,7 +448,7 @@ func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirector
 			AuthorityEpoch:    advertisement.AuthorityEpoch,
 			AuthorityRevision: advertisement.AuthorityRevision,
 			Sequence:          advertisement.Sequence,
-			Capabilities:      advertisement.Capabilities,
+			Capabilities:      append([]string(nil), advertisement.Capabilities...),
 			Membership:        advertisement.Membership,
 			ObservedAt:        advertisement.ObservedAt,
 			LeaseExpiresAt:    advertisement.LeaseExpiresAt,
@@ -467,8 +483,17 @@ func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirector
 	}
 }
 
+func cloneGlobalCellAdvertisement(advertisement GlobalCellAdvertisement) GlobalCellAdvertisement {
+	advertisement.Capabilities = append([]string(nil), advertisement.Capabilities...)
+	advertisement.Endpoints = append([]string(nil), advertisement.Endpoints...)
+	return advertisement
+}
+
 // Remove mirrors the C# Remove.
 func (d *GlobalCellDirectory) Remove(cell string) {
+	if d == nil {
+		return
+	}
 	d.mu.Lock()
 	delete(d.advertisements, cell)
 	d.mu.Unlock()
@@ -476,6 +501,9 @@ func (d *GlobalCellDirectory) Remove(cell string) {
 
 // Reject mirrors the C# Reject.
 func (d *GlobalCellDirectory) Reject() {
+	if d == nil {
+		return
+	}
 	atomic.AddInt64(&d.rejectedAdvertisements, 1)
 }
 

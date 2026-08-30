@@ -396,7 +396,9 @@ func RegionalRuntimeMembershipStartAsync(
 			"Runtime capabilities must be non-empty, unique, and ordinally sorted. (Parameter 'capabilities')")
 	}
 
-	ownsIdentity := identity != nil
+	// A supplied identity remains caller-owned; identities generated here are
+	// released when membership is disposed.
+	ownsIdentity := identity == nil
 	if identity == nil {
 		generated, err := RegionalRuntimeMembershipIdentityCreate()
 		if err != nil {
@@ -507,7 +509,7 @@ func (m *RegionalRuntimeMembership) Snapshot() RegionalRuntimeMembershipSnapshot
 			continue
 		}
 
-		records = append(records, member)
+		records = append(records, cloneRegionalRuntimeMember(member))
 	}
 
 	previous := make(map[string]RegionalRuntimeMember, len(m.previousMembers))
@@ -583,6 +585,9 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 	if !atomic.CompareAndSwapInt32(&m.disposed, 0, 1) {
 		return nil
 	}
+	if m.ownsIdentity && m.identity != nil {
+		defer m.identity.Dispose()
+	}
 
 	if m.stopping != nil {
 		m.stopping()
@@ -618,7 +623,6 @@ func (m *RegionalRuntimeMembership) Dispose() error {
 			}
 		}
 	}
-
 	return m.LastFailure()
 }
 
@@ -890,7 +894,7 @@ func (m *RegionalRuntimeMembership) document(observedAt time.Time) (RegionalRunt
 		Instance:          m.topology.Instance,
 		SessionId:         m.sessionId,
 		Build:             m.build,
-		Capabilities:      m.capabilities,
+		Capabilities:      append([]string(nil), m.capabilities...),
 		StartedAt:         m.startedAt,
 		ObservedAt:        observedAt,
 		LeaseExpiresAt:    observedAt.Add(m.LeaseDuration),
@@ -914,6 +918,15 @@ func regionalRuntimeMembershipDeserialize(value string) (RegionalRuntimeMember, 
 	}
 
 	return member, nil
+}
+
+// cloneRegionalRuntimeMember prevents callers of Snapshot from retaining the
+// internal capabilities backing array. Without this copy, a caller mutating a
+// returned snapshot could race the heartbeat serializer or alter the next
+// membership record.
+func cloneRegionalRuntimeMember(member RegionalRuntimeMember) RegionalRuntimeMember {
+	member.Capabilities = append([]string(nil), member.Capabilities...)
+	return member
 }
 
 func isOrdinallySortedAndDistinct(values []string) bool {

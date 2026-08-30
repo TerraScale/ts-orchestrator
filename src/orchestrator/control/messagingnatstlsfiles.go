@@ -65,6 +65,9 @@ func NatsTlsFilesResolve(caFile, certificateFile, keyFile, optionPrefix string) 
 
 // SameIdentity mirrors NatsTlsFiles.SameIdentity.
 func (t *NatsTlsFiles) SameIdentity(other *NatsTlsFiles) bool {
+	if t == nil || other == nil {
+		return false
+	}
 	first, err := natsTlsSubjectPublicKeyInfo(t.CertificateFile)
 	if err != nil {
 		return false
@@ -80,6 +83,9 @@ func (t *NatsTlsFiles) SameIdentity(other *NatsTlsFiles) bool {
 
 // HasSubjectPublicKeyInfo mirrors NatsTlsFiles.HasSubjectPublicKeyInfo.
 func (t *NatsTlsFiles) HasSubjectPublicKeyInfo(subjectPublicKeyInfo []byte) bool {
+	if t == nil {
+		return false
+	}
 	key, err := natsTlsSubjectPublicKeyInfo(t.CertificateFile)
 	if err != nil {
 		return false
@@ -106,6 +112,9 @@ func natsTlsResolvePublic(value, optionName string) (string, error) {
 	path, err := filepath.Abs(value)
 	if err != nil {
 		return "", fmt.Errorf("%s must identify a bounded existing PEM file.", optionName)
+	}
+	if err := messagingRejectSymlinkPath(path); err != nil {
+		return "", fmt.Errorf("%s must not contain symbolic links.", optionName)
 	}
 
 	info, err := os.Stat(path)

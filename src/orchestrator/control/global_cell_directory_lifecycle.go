@@ -114,6 +114,9 @@ func GlobalCellDirectoryLifecycleStartForTesting(
 	cancellationToken context.Context,
 	observeFailure func(error),
 ) (*GlobalCellDirectoryLifecycle, error) {
+	if cancellationToken == nil {
+		return nil, errors.New("(Parameter 'cancellationToken')")
+	}
 	if startDirectory == nil {
 		return nil, errors.New("(Parameter 'startDirectory')")
 	}
@@ -144,11 +147,19 @@ func GlobalCellDirectoryLifecycleStartForTesting(
 }
 
 // Completion mirrors the C# Completion.
-func (l *GlobalCellDirectoryLifecycle) Completion() <-chan struct{} { return l.supervision }
+func (l *GlobalCellDirectoryLifecycle) Completion() <-chan struct{} {
+	if l == nil {
+		return nil
+	}
+	return l.supervision
+}
 
 // Snapshot mirrors the C# Snapshot: the active directory projection or the
 // unavailable snapshot.
 func (l *GlobalCellDirectoryLifecycle) Snapshot() GlobalCellDirectorySnapshot {
+	if l == nil {
+		return globalCellDirectoryLifecycleUnavailableSnapshot()
+	}
 	if active := l.activeDirectory.Load(); active != nil {
 		return active.instance.Snapshot()
 	}
@@ -163,6 +174,9 @@ func (l *GlobalCellDirectoryLifecycle) Health() GlobalCellDirectoryCondition {
 
 // LastFailure mirrors the C# LastFailure.
 func (l *GlobalCellDirectoryLifecycle) LastFailure() error {
+	if l == nil {
+		return nil
+	}
 	if boxed := l.lastFailure.Load(); boxed != nil {
 		return boxed.err
 	}
@@ -172,12 +186,19 @@ func (l *GlobalCellDirectoryLifecycle) LastFailure() error {
 
 // Dispose mirrors the C# DisposeAsync.
 func (l *GlobalCellDirectoryLifecycle) Dispose() {
+	if l == nil {
+		return
+	}
 	if !atomic.CompareAndSwapInt32(&l.disposed, 0, 1) {
 		return
 	}
 
-	l.stopping()
-	<-l.supervision
+	if l.stopping != nil {
+		l.stopping()
+	}
+	if l.supervision != nil {
+		<-l.supervision
+	}
 }
 
 func (l *GlobalCellDirectoryLifecycle) supervise() {
@@ -279,6 +300,9 @@ func globalCellDirectoryLifecycleRetryDelay(attempt int) time.Duration {
 }
 
 func globalCellDirectoryLifecycleDelay(ctx context.Context, duration time.Duration) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 

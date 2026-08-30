@@ -4,6 +4,7 @@ package control
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -12,7 +13,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +45,9 @@ func NatsOperationJournalMutationServiceStartAsync(
 	replies *NatsOperationJournalMutationReplySigner,
 	enableRuntimeLifecycleProtocol bool,
 ) (*NatsOperationJournalMutationService, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if writer == nil {
 		return nil, errors.New("(Parameter 'writer')")
 	}
@@ -188,9 +191,18 @@ func NatsOperationJournalMutationServiceStartAsync(
 
 // Dispose mirrors the C# DisposeAsync.
 func (s *NatsOperationJournalMutationService) Dispose() {
-	s.lifetime()
-	s.service.Stop()
-	s.replies.Dispose()
+	if s == nil {
+		return
+	}
+	if s.lifetime != nil {
+		s.lifetime()
+	}
+	if s.service != nil {
+		s.service.Stop()
+	}
+	if s.replies != nil {
+		s.replies.Dispose()
+	}
 }
 
 func natsOperationJournalCreate(
@@ -650,6 +662,9 @@ func (c *NatsOperationJournalMutationClient) CreateAsync(
 	key string,
 	value string,
 ) (NatsOperationJournalMutationReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsOperationJournalMutationReply{}, err
+	}
 	subject, err := c.topology.OperationJournalCreateSubject()
 	if err != nil {
 		return NatsOperationJournalMutationReply{}, err
@@ -667,6 +682,9 @@ func (c *NatsOperationJournalMutationClient) UpdateAsync(
 	value string,
 	revision uint64,
 ) (NatsOperationJournalMutationReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsOperationJournalMutationReply{}, err
+	}
 	subject, err := c.topology.OperationJournalUpdateSubject()
 	if err != nil {
 		return NatsOperationJournalMutationReply{}, err
@@ -683,6 +701,12 @@ func (c *NatsOperationJournalMutationClient) ReadRuntimeLifecycleAsync(
 	cell string,
 	key string,
 ) (NatsRuntimeLifecycleJournalReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsRuntimeLifecycleJournalReply{}, err
+	}
+	if ctx == nil {
+		return NatsRuntimeLifecycleJournalReply{}, errors.New("(Parameter 'ctx')")
+	}
 	deadline, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -741,6 +765,12 @@ func (c *NatsOperationJournalMutationClient) WriteRuntimeLifecycleAsync(
 	expectedRevision uint64,
 	checkpoint string,
 ) (NatsRuntimeLifecycleJournalReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsRuntimeLifecycleJournalReply{}, err
+	}
+	if ctx == nil {
+		return NatsRuntimeLifecycleJournalReply{}, errors.New("(Parameter 'ctx')")
+	}
 	action := RuntimeLifecycleNatsProtocolUpdateAction
 	if expectedRevision == 0 {
 		action = RuntimeLifecycleNatsProtocolCreateAction
@@ -775,6 +805,9 @@ func (c *NatsOperationJournalMutationClient) WriteRuntimeLifecycleAsync(
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 
@@ -792,6 +825,9 @@ func (c *NatsOperationJournalMutationClient) requestAsync(
 	request any,
 	proof NatsOperationJournalMutationAuthorityProof,
 ) (NatsOperationJournalMutationReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsOperationJournalMutationReply{}, err
+	}
 	replySubject, err := c.topology.OperationJournalReplySubject(c.authority.CallerIdentity, randomNatsNonce())
 	if err != nil {
 		return NatsOperationJournalMutationReply{}, err
@@ -829,6 +865,9 @@ func (c *NatsOperationJournalMutationClient) requestRuntimeAsync(
 	request any,
 	proof NatsOperationJournalMutationAuthorityProof,
 ) (NatsRuntimeLifecycleJournalReply, error) {
+	if err := c.validate(); err != nil {
+		return NatsRuntimeLifecycleJournalReply{}, err
+	}
 	replySubject, err := RuntimeLifecycleNatsProtocol.ReplySubject(cell, c.authority.CallerIdentity, randomNatsNonce())
 	if err != nil {
 		return NatsRuntimeLifecycleJournalReply{}, err
@@ -853,6 +892,25 @@ func (c *NatsOperationJournalMutationClient) requestRuntimeAsync(
 	return runtimeReply, nil
 }
 
+func (c *NatsOperationJournalMutationClient) validate() error {
+	if c == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if c.client == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if c.topology == nil {
+		return errors.New("(Parameter 'topology')")
+	}
+	if c.authority == nil {
+		return errors.New("(Parameter 'authority')")
+	}
+	if c.replies == nil {
+		return errors.New("(Parameter 'replies')")
+	}
+	return nil
+}
+
 // natsRequestReplyOnce implements the C# one-shot reply subscription: publish
 // with an explicit reply subject, read exactly one reply, bounded by a
 // 15-second window.
@@ -863,6 +921,12 @@ func natsRequestReplyOnce(
 	payload []byte,
 	replySubject string,
 ) ([]byte, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return nil, errors.New("(Parameter 'client')")
+	}
 	deadline, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -978,9 +1042,13 @@ func (s *NatsOperationJournalMutationAuthoritySigner) Issue(
 	value string,
 ) NatsOperationJournalMutationAuthorityProof {
 	digest := sha256.Sum256([]byte(value))
+	callerIdentity := ""
+	if s != nil {
+		callerIdentity = s.CallerIdentity
+	}
 	proof := NatsOperationJournalMutationAuthorityProof{
 		Cell:             cell,
-		CallerIdentity:   s.CallerIdentity,
+		CallerIdentity:   callerIdentity,
 		Action:           action,
 		Key:              keyName,
 		Revision:         revision,
@@ -991,6 +1059,9 @@ func (s *NatsOperationJournalMutationAuthoritySigner) Issue(
 		Signature:        "",
 	}
 
+	if s == nil || s.key == nil {
+		return proof
+	}
 	signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum(proofPayloadBytes(proof)))
 	if err == nil {
 		proof.Signature = base64.StdEncoding.EncodeToString(signature)
@@ -1030,7 +1101,7 @@ func (v *NatsOperationJournalMutationAuthorityVerifier) Verify(
 	revision uint64,
 	value string,
 ) bool {
-	if proof == nil {
+	if v == nil || proof == nil {
 		return false
 	}
 
@@ -1051,7 +1122,7 @@ func (v *NatsOperationJournalMutationAuthorityVerifier) Verify(
 	}
 
 	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok {
+	if !ok || !natsJournalIsP256(key) {
 		return false
 	}
 
@@ -1083,10 +1154,11 @@ type NatsOperationJournalMutationReplySigner struct {
 
 // NatsOperationJournalMutationReplySignerLoad mirrors the C# Load.
 func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJournalMutationReplySigner, error) {
-	data, err := os.ReadFile(path)
+	_, data, err := natsJournalReadFile(path, 8192, true)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("The reply signing key file is unavailable.")
 	}
+	defer clear(data)
 
 	block, _ := pem.Decode(data)
 	if block == nil {
@@ -1103,7 +1175,7 @@ func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJou
 	}
 
 	privateKey, ok := key.(*ecdsa.PrivateKey)
-	if !ok {
+	if !ok || privateKey == nil || !natsJournalIsP256(&privateKey.PublicKey) {
 		return nil, errors.New("The reply signing key is not an ECDSA key.")
 	}
 
@@ -1123,6 +1195,9 @@ func (s *NatsOperationJournalMutationReplySigner) Sign(
 		Signature:     "",
 	}
 
+	if s == nil || s.key == nil {
+		return reply
+	}
 	if signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum([]byte(reply.Payload()))); err == nil {
 		reply.Signature = base64.StdEncoding.EncodeToString(signature)
 	}
@@ -1146,6 +1221,9 @@ func (s *NatsOperationJournalMutationReplySigner) SignRuntime(
 		Signature:     "",
 	}
 
+	if s == nil || s.key == nil {
+		return reply
+	}
 	if signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum([]byte(reply.Payload()))); err == nil {
 		reply.Signature = base64.StdEncoding.EncodeToString(signature)
 	}
@@ -1155,6 +1233,9 @@ func (s *NatsOperationJournalMutationReplySigner) SignRuntime(
 
 // ExportPublicKey mirrors the C# ExportPublicKey.
 func (s *NatsOperationJournalMutationReplySigner) ExportPublicKey() ([]byte, error) {
+	if s == nil || s.key == nil {
+		return nil, errors.New("The reply signing key is unavailable.")
+	}
 	return x509.MarshalPKIXPublicKey(&s.key.PublicKey)
 }
 
@@ -1201,13 +1282,16 @@ func (v *NatsOperationJournalMutationReplyVerifier) VerifyRuntime(
 }
 
 func (v *NatsOperationJournalMutationReplyVerifier) verifySignature(digest []byte, signature string) bool {
+	if v == nil {
+		return false
+	}
 	parsed, err := x509.ParsePKIXPublicKey(v.publicKey)
 	if err != nil {
 		return false
 	}
 
 	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok {
+	if !ok || !natsJournalIsP256(key) {
 		return false
 	}
 
@@ -1217,6 +1301,10 @@ func (v *NatsOperationJournalMutationReplyVerifier) verifySignature(digest []byt
 	}
 
 	return ecdsa.VerifyASN1(key, digest, signatureBytes)
+}
+
+func natsJournalIsP256(key *ecdsa.PublicKey) bool {
+	return key != nil && key.Curve != nil && key.Curve.Params().Name == elliptic.P256().Params().Name
 }
 
 // The following section maps the NATS.Net services API (NatsSvcConfig,
@@ -1256,6 +1344,12 @@ func newNatsSvcServer(client *nats.Conn, config natsSvcConfig) *natsSvcServer {
 }
 
 func (s *natsSvcServer) AddEndpoint(config natsSvcEndpointConfig) error {
+	if s == nil {
+		return errors.New("NATS service is unavailable.")
+	}
+	if config.Handler == nil {
+		return errors.New("NATS service endpoint handler is required.")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1268,6 +1362,15 @@ func (s *natsSvcServer) AddEndpoint(config natsSvcEndpointConfig) error {
 }
 
 func (s *natsSvcServer) Start(ctx context.Context) error {
+	if s == nil {
+		return errors.New("NATS service is unavailable.")
+	}
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if s.client == nil {
+		return errors.New("NATS service client is unavailable.")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

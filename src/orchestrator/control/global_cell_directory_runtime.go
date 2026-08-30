@@ -117,7 +117,13 @@ func GlobalCellDirectoryRuntimeStartAsync(
 	authority func() RegionalAuthoritySnapshot,
 	publishEnabled bool,
 ) (*GlobalCellDirectoryRuntime, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if configuration == nil {
+		return nil, errors.New("(Parameter 'configuration')")
+	}
+	if configuration.Authentication == nil || configuration.Tls == nil {
 		return nil, errors.New("(Parameter 'configuration')")
 	}
 
@@ -133,6 +139,9 @@ func GlobalCellDirectoryRuntimeStartAsync(
 		return nil, errors.New(
 			"Publishing a cell advertisement requires the cell's advertised control endpoints. (Parameter 'configuration')")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	client, err := nats.Connect(configuration.Url,
 		append([]nats.Option{
@@ -142,6 +151,10 @@ func GlobalCellDirectoryRuntimeStartAsync(
 		},
 			append(configuration.Authentication.Options(), configuration.Tls.Options()...)...)...)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		client.Close()
 		return nil, err
 	}
 
@@ -174,11 +187,20 @@ func GlobalCellDirectoryRuntimeOpenExistingStore(
 	ctx context.Context,
 	keyValue jetstream.JetStream,
 ) (jetstream.KeyValue, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if keyValue == nil {
+		return nil, errors.New("(Parameter 'keyValue')")
+	}
 	return keyValue.KeyValue(ctx, GlobalNatsTopologyCellsBucket)
 }
 
 // Completion mirrors the C# Completion.
 func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
+	if r == nil || r.watchDone == nil {
+		return nil
+	}
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -194,6 +216,9 @@ func (r *GlobalCellDirectoryRuntime) Completion() <-chan struct{} {
 
 // Snapshot mirrors the C# Snapshot.
 func (r *GlobalCellDirectoryRuntime) Snapshot() GlobalCellDirectorySnapshot {
+	if r == nil || r.directory == nil {
+		return globalCellDirectoryLifecycleUnavailableSnapshot()
+	}
 	return r.directory.Snapshot(nil)
 }
 
@@ -204,13 +229,22 @@ func (r *GlobalCellDirectoryRuntime) Health() GlobalCellDirectoryCondition {
 
 // Dispose mirrors the C# DisposeAsync.
 func (r *GlobalCellDirectoryRuntime) Dispose() error {
+	if r == nil {
+		return nil
+	}
 	if !casInt32(&r.disposed, 0, 1) {
 		return nil
 	}
 
-	r.stopping()
-	<-r.watchDone
-	<-r.publishDone
+	if r.stopping != nil {
+		r.stopping()
+	}
+	if r.watchDone != nil {
+		<-r.watchDone
+	}
+	if r.publishDone != nil {
+		<-r.publishDone
+	}
 	if r.ownedClient != nil {
 		r.ownedClient.Close()
 	}

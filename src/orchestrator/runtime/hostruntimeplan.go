@@ -294,6 +294,9 @@ const runtimeMinimumMemoryBytes = int64(64 * 1024 * 1024)
 
 // For resolves the effective limits of one role against the closed ceiling.
 func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResourceLimits) (RuntimeResourceLimits, error) {
+	if _, err := AdmittedRoleCatalog.Get(role); err != nil {
+		return RuntimeResourceLimits{}, err
+	}
 	var maximum RuntimeResourceLimits
 	switch role {
 	case AdmittedRoleTerraBaseMember:

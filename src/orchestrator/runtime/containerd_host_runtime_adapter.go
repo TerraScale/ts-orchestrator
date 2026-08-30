@@ -77,6 +77,12 @@ func NewContainerdHostRuntimeAdapter(client ContainerdClient) *ContainerdHostRun
 // Converge brings the allocation to the running state, fenced by the canonical
 // plan fingerprint and the immutable digest.
 func (a *ContainerdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRuntimePlan) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+	}
+	if a == nil || a.client == nil {
+		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -133,6 +139,12 @@ func (a *ContainerdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRu
 
 // Observe returns one fenced observation of the allocation.
 func (a *ContainerdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntimePlan) (ContainerdAllocationObservation, error) {
+	if ctx == nil {
+		return ContainerdAllocationObservation{}, &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+	}
+	if a == nil || a.client == nil {
+		return ContainerdAllocationObservation{}, &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return ContainerdAllocationObservation{}, err
@@ -155,6 +167,12 @@ func (a *ContainerdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRun
 
 // Stop stops a running allocation.
 func (a *ContainerdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePlan) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+	}
+	if a == nil || a.client == nil {
+		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -171,6 +189,12 @@ func (a *ContainerdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntim
 
 // Delete removes the allocation (stopping it first when needed).
 func (a *ContainerdHostRuntimeAdapter) Delete(ctx context.Context, plan HostRuntimePlan) error {
+	if ctx == nil {
+		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+	}
+	if a == nil || a.client == nil {
+		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
+	}
 	oci, err := requireCanonicalOciPlan(plan)
 	if err != nil {
 		return err
@@ -195,10 +219,11 @@ func requireMatchingAllocation(
 	expected *OciExecutionPlan,
 	fingerprint string,
 ) error {
+	containerIDMatches := observation.ContainerId == expected.ContainerId
 	imageMatches := observation.ImageReference != nil && *observation.ImageReference == expected.ImageReference
 	platformMatches := observation.Platform != nil && *observation.Platform == expected.Platform
 	fingerprintMatches := observation.PlanFingerprint != nil && *observation.PlanFingerprint == fingerprint
-	if !imageMatches || !platformMatches || !fingerprintMatches {
+	if !containerIDMatches || !imageMatches || !platformMatches || !fingerprintMatches {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf(
 				"Existing containerd allocation '%s' is not owned by the canonical plan.",
@@ -234,7 +259,8 @@ func requireCanonicalOciPlan(plan HostRuntimePlan) (*OciExecutionPlan, error) {
 		}
 	}
 	actualOci := plan.Oci
-	if plan.SchemaVersion != expected.SchemaVersion ||
+	if !canonicalPlanFieldsMatch(plan, expected) ||
+		plan.SchemaVersion != expected.SchemaVersion ||
 		actualOci.ContainerId != expectedOci.ContainerId ||
 		actualOci.ImageReference != expectedOci.ImageReference ||
 		actualOci.Platform != expectedOci.Platform ||
@@ -252,6 +278,13 @@ func requireCanonicalOciPlan(plan HostRuntimePlan) (*OciExecutionPlan, error) {
 		}
 	}
 	return actualOci, nil
+}
+
+func canonicalPlanFieldsMatch(actual, expected HostRuntimePlan) bool {
+	return actual.Role == expected.Role && actual.Driver == expected.Driver &&
+		actual.AllocationId == expected.AllocationId &&
+		actual.ArtifactDigest == expected.ArtifactDigest &&
+		actual.Architecture == expected.Architecture
 }
 
 func stringSlicesEqual(left, right []string) bool {

@@ -31,6 +31,34 @@ func messagingUnixFileMode(path string) (uint32, error) {
 	return messagingUnixMode(info), nil
 }
 
+// messagingRejectSymlinkPath rejects symlinks in every path component. NATS
+// credentials are private identity material, so following a link here would
+// make the identity depend on mutable filesystem state outside the configured
+// path.
+func messagingRejectSymlinkPath(path string) error {
+	clean := filepath.Clean(path)
+	volume := filepath.VolumeName(clean)
+	remainder := strings.TrimPrefix(clean, volume)
+	if remainder == "" {
+		return nil
+	}
+	current := volume + string(filepath.Separator)
+	for _, component := range strings.Split(strings.TrimPrefix(remainder, string(filepath.Separator)), string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("path contains a symbolic link")
+		}
+	}
+	return nil
+}
+
 // messagingUnixMode mirrors the C# File.GetUnixFileMode (permission bits
 // only, as os.FileMode.Perm()).
 func messagingUnixMode(info os.FileInfo) uint32 { return uint32(info.Mode().Perm()) }
@@ -53,6 +81,9 @@ func (natsCredentialFile) Resolve(value string, optionName string) (string, erro
 	path, err := filepath.Abs(value)
 	if err != nil {
 		return "", fmt.Errorf("%s must identify a bounded existing NKey seed file.", optionName)
+	}
+	if err := messagingRejectSymlinkPath(path); err != nil {
+		return "", fmt.Errorf("%s must not contain symbolic links.", optionName)
 	}
 
 	info, err := os.Stat(path)

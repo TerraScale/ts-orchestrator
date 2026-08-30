@@ -163,6 +163,15 @@ func RegionalAuthorityCoordinatorStartAsync(
 	cell string,
 	instance string,
 ) (*RegionalAuthorityCoordinator, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if store == nil {
+		return nil, errors.New("(Parameter 'store')")
+	}
+	if !messagingCellTokenIsValid(cell) || !messagingCellTokenIsValid(instance) {
+		return nil, errors.New("The regional authority identity is invalid.")
+	}
 	coordinator := newRegionalAuthorityCoordinator(
 		store, cell+"-regional", cell+"-controller-"+instance, "authority.regional", false)
 
@@ -181,8 +190,17 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	cell string,
 	instance string,
 ) (*RegionalAuthorityCoordinator, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if store == nil {
+		return nil, errors.New("(Parameter 'store')")
+	}
 	if !GlobalNatsTopologyIsCellToken(cell) {
 		return nil, errors.New("The global authority candidate cell is invalid. (Parameter 'cell')")
+	}
+	if !messagingCellTokenIsValid(instance) {
+		return nil, errors.New("The global authority candidate instance is invalid. (Parameter 'instance')")
 	}
 
 	coordinator := newRegionalAuthorityCoordinator(
@@ -259,6 +277,9 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 
 // Snapshot mirrors the C# Snapshot property.
 func (c *RegionalAuthorityCoordinator) Snapshot() RegionalAuthoritySnapshot {
+	if c == nil {
+		return RegionalAuthoritySnapshot{}
+	}
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 
@@ -266,16 +287,34 @@ func (c *RegionalAuthorityCoordinator) Snapshot() RegionalAuthoritySnapshot {
 }
 
 // Completion mirrors the C# Completion task.
-func (c *RegionalAuthorityCoordinator) Completion() <-chan struct{} { return c.loopDone }
+func (c *RegionalAuthorityCoordinator) Completion() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	return c.loopDone
+}
 
 // Dispose mirrors the C# DisposeAsync.
 func (c *RegionalAuthorityCoordinator) Dispose() {
-	c.stopping()
-	<-c.loopDone
+	if c == nil {
+		return
+	}
+	if c.stopping != nil {
+		c.stopping()
+	}
+	if c.loopDone != nil {
+		<-c.loopDone
+	}
 	c.stoppingCtx = nil
 }
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if c == nil || c.store == nil {
+		return errors.New("(Parameter 'coordinator')")
+	}
 	state := c.currentState()
 
 	if state.Status == AuthorityStatusLeader && state.Confirmed != nil {

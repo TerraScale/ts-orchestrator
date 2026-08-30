@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nkeys"
@@ -53,6 +54,9 @@ func CiRunnerNatsIdentityConfigurationResolve(
 
 // Open mirrors the C# Open.
 func (c *CiRunnerNatsIdentityConfiguration) Open() (*NatsAccountJwtSigner, error) {
+	if c == nil {
+		return nil, errors.New("The CI runner NATS identity is unavailable.")
+	}
 	return NatsAccountJwtSignerOpen(c.SigningKeyFile, c.AccountPublicKey)
 }
 
@@ -78,21 +82,10 @@ func NatsAccountJwtSignerOpen(path string, accountPublicKey *string) (*NatsAccou
 		return nil, errors.New("The NATS account signing credential path is required. (Parameter 'path')")
 	}
 
-	fullPath, err := filepath.Abs(path)
+	fullPath, err := NatsCredentialFile.Resolve(path, "path")
 	if err != nil {
-		return nil, err
-	}
-
-	info, err := os.Stat(fullPath)
-	if err != nil || info.IsDir() || info.Size() < 1 || info.Size() > 4096 {
 		return nil, errors.New(
-			"The NATS account signing credential must be a bounded existing file. (Parameter 'path')")
-	}
-
-	mode, err := messagingUnixFileMode(fullPath)
-	if err != nil || mode&(messagingGroupAny|messagingOtherAny) != 0 {
-		return nil, errors.New(
-			"The NATS account signing credential must be private to the current user. (Parameter 'path')")
+			"The NATS account signing credential must be a bounded owner-private NKey file. (Parameter 'path')")
 	}
 
 	seed, err := nkeySeed(fullPath)
@@ -139,34 +132,69 @@ func (s *NatsAccountJwtSigner) AccountPublicKey() string { return s.accountPubli
 
 // SignAsync mirrors the C# SignAsync.
 func (s *NatsAccountJwtSigner) SignAsync(ctx context.Context, material []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errors.New("The NATS account signing credential is unavailable.")
+	}
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if s.mu == nil {
+		return nil, errors.New("The NATS account signing credential is unavailable.")
+	}
 
-	s.mu <- struct{}{}
+	select {
+	case s.mu <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-s.mu }()
+
 	pair, err := nkeys.FromSeed(s.seed)
-	<-s.mu
 	if err != nil {
 		return nil, err
 	}
+	defer pair.Wipe()
 
 	return pair.Sign(material)
 }
 
 // Dispose mirrors the C# Dispose.
 func (s *NatsAccountJwtSigner) Dispose() {
+	if s == nil {
+		return
+	}
+	if s.mu == nil {
+		for index := range s.seed {
+			s.seed[index] = 0
+		}
+		s.seed = nil
+		return
+	}
+	// Hold the same guard as SignAsync while clearing the seed. This keeps
+	// disposal from racing either seed parsing or signing with the derived key.
+	s.mu <- struct{}{}
+	defer func() { <-s.mu }()
 	for index := range s.seed {
 		s.seed[index] = 0
 	}
+	s.seed = nil
 }
 
 func natsRequireAccountPublicKey(value, message string) error {
+	if len(value) == 0 || len(value) > natsAccountPublicKeyMaximumCharacters {
+		return errors.New(message)
+	}
 	decoded, err := nkeys.Decode(nkeys.PrefixByteAccount, []byte(value))
 	if err != nil {
 		return errors.New(message)
 	}
 
-	if len(decoded) != 33 || decoded[0] != 0 {
+	// nkeys.Decode strips the one-byte type prefix; account public keys
+	// therefore decode to exactly the 32-byte payload.
+	if len(decoded) != 32 {
 		return errors.New(message)
 	}
 
@@ -176,6 +204,7 @@ func natsRequireAccountPublicKey(value, message string) error {
 // CiRunnerNatsCredentialLease mirrors the C# class: a disposable user JWT and
 // nonce-signing seed. Its string form never contains either.
 type CiRunnerNatsCredentialLease struct {
+	mu        sync.Mutex
 	PublicKey string
 	Jwt       string
 	seed      []byte
@@ -206,6 +235,11 @@ func NewCiRunnerNatsCredentialLease(
 // WriteCredentialsFile mirrors the C# WriteCredentialsFile: an owner-private
 // credentials file in the exact NATS.Net format.
 func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string, error) {
+	if l == nil {
+		return "", os.ErrClosed
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.seed == nil {
 		return "", os.ErrClosed
 	}
@@ -269,6 +303,11 @@ func (l *CiRunnerNatsCredentialLease) WriteCredentialsFile(path string) (string,
 
 // Dispose mirrors the C# Dispose.
 func (l *CiRunnerNatsCredentialLease) Dispose() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for index := range l.seed {
 		l.seed[index] = 0
 	}
@@ -288,6 +327,7 @@ const (
 	CiRunnerNatsCredentialIssuerMinimumLifetime      = time.Minute
 	CiRunnerNatsCredentialIssuerMaximumPayloadBytes  = 128 * 1024
 	CiRunnerNatsCredentialIssuerMaximumSubscriptions = 32
+	natsAccountPublicKeyMaximumCharacters            = 128
 )
 
 // CiRunnerNatsCredentialIssuer mirrors the C# class: issues a short-lived NATS
@@ -321,6 +361,12 @@ func (i *CiRunnerNatsCredentialIssuer) IssueAsync(
 	now time.Time,
 	lifetime time.Duration,
 ) (*CiRunnerNatsCredentialLease, error) {
+	if i == nil || i.topology == nil || i.signer == nil {
+		return nil, errors.New("The CI runner NATS credential issuer is unavailable.")
+	}
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if lifetime < CiRunnerNatsCredentialIssuerMinimumLifetime ||
 		lifetime > CiRunnerNatsCredentialIssuerMaximumLifetime ||
 		lifetime%time.Second != 0 {
@@ -415,6 +461,18 @@ func NatsUserJwtCodecEncodeAsync(
 	issuedAt int64,
 	expiresAt int64,
 ) (*NatsUserJwtCodecToken, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
+	if signer == nil {
+		return nil, errors.New("(Parameter 'signer')")
+	}
+	if permissions == nil {
+		return nil, errors.New("(Parameter 'permissions')")
+	}
+	if issuedAt <= 0 || expiresAt <= issuedAt {
+		return nil, errors.New("The NATS user JWT lifetime is invalid.")
+	}
 	claims := map[string]interface{}{
 		"exp":  expiresAt,
 		"iat":  issuedAt,

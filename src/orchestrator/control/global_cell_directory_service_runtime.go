@@ -25,12 +25,21 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 	configuration *GlobalDirectoryServiceNatsConfiguration,
 	snapshot func() GlobalCellDirectorySnapshot,
 ) (*GlobalCellDirectoryServiceRuntime, error) {
+	if ctx == nil {
+		return nil, errors.New("(Parameter 'ctx')")
+	}
 	if configuration == nil {
+		return nil, errors.New("(Parameter 'configuration')")
+	}
+	if configuration.Authentication == nil || configuration.Tls == nil {
 		return nil, errors.New("(Parameter 'configuration')")
 	}
 
 	if snapshot == nil {
 		return nil, errors.New("(Parameter 'snapshot')")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	if configuration.Cell != "gru" {
@@ -45,6 +54,10 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 		},
 			append(configuration.Authentication.Options(), configuration.Tls.Options()...)...)...)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		client.Close()
 		return nil, err
 	}
 
@@ -90,10 +103,17 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 
 // Dispose mirrors the C# DisposeAsync.
 func (r *GlobalCellDirectoryServiceRuntime) Dispose() {
+	if r == nil {
+		return
+	}
 	if !atomic.CompareAndSwapInt32(&r.disposed, 0, 1) {
 		return
 	}
 
-	r.service.Stop()
-	r.client.Close()
+	if r.service != nil {
+		r.service.Stop()
+	}
+	if r.client != nil {
+		r.client.Close()
+	}
 }

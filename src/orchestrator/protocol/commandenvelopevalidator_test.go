@@ -77,6 +77,23 @@ func TestMalformedEnvelopeFieldsFailBeforeVerifiers(t *testing.T) {
 	}
 }
 
+func TestEnvelopeRejectsSignedMaterialThatDoesNotMatchEnvelopeFields(t *testing.T) {
+	envelope := validEnvelope()
+	envelope.SignedMaterial.WriterEpoch = testEpoch(999)
+	signatureVerifier := &testSignatureVerifier{isValid: true}
+
+	result := CommandEnvelopeValidator.Validate(
+		&envelope,
+		validContext(func(o *validContextOption) { o.signatureVerifier = signatureVerifier }),
+		protocolNow)
+	if result.Error != CommandValidationErrorMalformedEnvelope {
+		t.Fatalf("error = %v, want malformed envelope", result.Error)
+	}
+	if signatureVerifier.calls != 0 {
+		t.Fatal("a mismatched signed material must not reach the signature verifier")
+	}
+}
+
 func TestInvalidContextIsClosedAndPrecedesEnvelopeValidation(t *testing.T) {
 	validEnvelopeValue := validEnvelope()
 	skew := time.Duration(0)

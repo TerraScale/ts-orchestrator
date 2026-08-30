@@ -38,6 +38,9 @@ func (natsOperationJournalProvisioner) provision(
 	options *OrchestratorOptions,
 	includeAuthoritativeJournal bool,
 ) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
 	if options == nil {
 		return errors.New("Orchestrator options are required to provision ORCH_OPERATIONS.")
 	}
@@ -59,6 +62,9 @@ func (natsOperationJournalProvisioner) provision(
 		return err
 	}
 	defer client.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	js, err := jetstream.New(client)
 	if err != nil {
@@ -80,6 +86,18 @@ func (natsOperationJournalProvisioner) ProvisionTopologyAsync(
 	js jetstream.JetStream,
 	topology *NatsTopology,
 ) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if js == nil {
+		return errors.New("(Parameter 'js')")
+	}
+	if topology == nil {
+		return errors.New("(Parameter 'topology')")
+	}
 	if err := NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(ctx, client, js, topology); err != nil {
 		return err
 	}
@@ -101,6 +119,18 @@ func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 	js jetstream.JetStream,
 	topology *NatsTopology,
 ) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if js == nil {
+		return errors.New("(Parameter 'js')")
+	}
+	if topology == nil {
+		return errors.New("(Parameter 'topology')")
+	}
 	streams, err := topology.Streams()
 	if err != nil {
 		return err

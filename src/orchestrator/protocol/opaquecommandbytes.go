@@ -15,8 +15,10 @@ type OpaquePayload struct {
 // Length returns the payload byte length.
 func (p OpaquePayload) Length() int { return len(p.bytes) }
 
-// Bytes returns a read-only view of the payload bytes; callers must not mutate it.
-func (p OpaquePayload) Bytes() []byte { return p.bytes }
+// Bytes returns a copy of the payload bytes. Go slices cannot enforce a
+// read-only view, so returning the backing slice would let a caller mutate
+// already-admitted signed material after validation.
+func (p OpaquePayload) Bytes() []byte { return append([]byte(nil), p.bytes...) }
 
 // IsPresent distinguishes the zero value (the C# null payload) from a payload
 // constructed through CopyFrom, including an empty one.
@@ -47,7 +49,7 @@ type PayloadDigest struct {
 func (d PayloadDigest) Length() int { return len(d.bytes) }
 
 // Bytes returns a read-only view of the digest bytes; callers must not mutate it.
-func (d PayloadDigest) Bytes() []byte { return d.bytes }
+func (d PayloadDigest) Bytes() []byte { return append([]byte(nil), d.bytes...) }
 
 // IsValid reports whether the digest is nonempty.
 func (d PayloadDigest) IsValid() bool { return len(d.bytes) > 0 }
@@ -80,7 +82,7 @@ type OpaqueSignature struct {
 func (s OpaqueSignature) Length() int { return len(s.bytes) }
 
 // Bytes returns a read-only view of the signature bytes; callers must not mutate it.
-func (s OpaqueSignature) Bytes() []byte { return s.bytes }
+func (s OpaqueSignature) Bytes() []byte { return append([]byte(nil), s.bytes...) }
 
 // IsValid reports whether the signature is nonempty.
 func (s OpaqueSignature) IsValid() bool { return len(s.bytes) > 0 }

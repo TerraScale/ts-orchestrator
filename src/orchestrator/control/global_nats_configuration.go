@@ -15,7 +15,12 @@ type GlobalNatsConfiguration struct {
 }
 
 // NKeyFile mirrors the C# NKeyFile property.
-func (c *GlobalNatsConfiguration) NKeyFile() *string { return c.Authentication.NKeyFile }
+func (c *GlobalNatsConfiguration) NKeyFile() *string {
+	if c == nil || c.Authentication == nil {
+		return nil
+	}
+	return c.Authentication.NKeyFile
+}
 
 // GlobalNatsConfigurationIsLegacyAuthorityAliasAllowed mirrors the C# pure
 // check: the legacy TS_ORCH_GLOBAL_NATS_* settings identify GRU global

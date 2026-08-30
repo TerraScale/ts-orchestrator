@@ -552,7 +552,12 @@ func firstGlobalNatsCompletion(channels ...<-chan struct{}) <-chan struct{} {
 
 // Completion closes when the authority or an owned long-running optional
 // component exits.  Directory lifecycle retry itself remains degraded state.
-func (r *GlobalNatsRuntime) Completion() <-chan struct{} { return r.complete }
+func (r *GlobalNatsRuntime) Completion() <-chan struct{} {
+	if r == nil {
+		return nil
+	}
+	return r.complete
+}
 
 func (r *GlobalNatsRuntime) AuthoritySnapshot() RegionalAuthoritySnapshot {
 	if r == nil || r.authority == nil {

@@ -236,7 +236,7 @@ func infisicalRequirePrivateFile(value string, mustExist bool) (string, error) {
 	}
 	info, statErr := os.Stat(path)
 	linkInfo, linkErr := os.Lstat(path)
-	if statErr != nil || linkErr != nil || linkInfo.Mode()&os.ModeSymlink != 0 ||
+	if statErr != nil || linkErr != nil || !info.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 ||
 		info.Size() > 1024*1024 || unixMode(linkInfo)&infisicalForbiddenFileMode != 0 {
 		return "", &ArgumentError{
 			Message: "The Infisical secret file must be bounded, regular, and owner-private.",
