@@ -343,16 +343,28 @@ func (e *WorkloadExecutor) ObserveAllocations(ctx context.Context) ([]Allocation
 	if ctx == nil {
 		return nil, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
 	}
+	if e == nil {
+		return nil, &InvalidOperationError{Message: "The executor is unavailable."}
+	}
 	type observedPair struct {
-		decoded    decodedWorkloadPlan
-		normalized normalizedObservation
-		err        error
+		decoded     decodedWorkloadPlan
+		normalized  normalizedObservation
+		reservation allocationReservation
+		reserved    bool
+		err         error
 	}
 	decodedPlans := e.snapshotRecords()
 	observed := make([]observedPair, 0, len(decodedPlans))
 	for _, decoded := range decodedPlans {
+		reservation, reserveErr := e.reserveAllocation(decoded, "Observing")
+		if reserveErr != nil {
+			observed = append(observed, observedPair{decoded: decoded, err: reserveErr})
+			continue
+		}
 		normalized, err := e.observeDecoded(ctx, decoded)
-		observed = append(observed, observedPair{decoded: decoded, normalized: normalized, err: err})
+		observed = append(observed, observedPair{
+			decoded: decoded, normalized: normalized, reservation: reservation, reserved: true, err: err,
+		})
 	}
 	observations := make([]AllocationObservation, 0, len(observed))
 	var failures []error
@@ -360,9 +372,18 @@ func (e *WorkloadExecutor) ObserveAllocations(ctx context.Context) ([]Allocation
 		state := pair.normalized.state
 		running := pair.normalized.running
 		if pair.err != nil {
+			if pair.reserved {
+				if pair.reservation.created {
+					e.releaseReservation(pair.reservation)
+				} else if stateErr := e.recordState(pair.decoded, "ObserveFailed", false, false); stateErr != nil {
+					pair.err = errors.Join(pair.err, stateErr)
+				}
+			}
 			state = allocationStateUnknown
 			running = false
 			failures = append(failures, pair.err)
+		} else if pair.reservation.created && observationIsAbsent(pair.normalized) {
+			e.releaseReservation(pair.reservation)
 		} else {
 			if err := e.recordObserved(pair.decoded, pair.normalized); err != nil {
 				state = allocationStateUnknown
