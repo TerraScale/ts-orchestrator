@@ -147,75 +147,15 @@ func findRepositoryRoot(t *testing.T) string {
 	return ""
 }
 
-func parseGoalTable(t *testing.T, lines []string, heading string) map[string]string {
-	t.Helper()
-	headingIndex := -1
-	for index, line := range lines {
-		if strings.TrimSpace(line) == heading {
-			headingIndex = index
-			break
-		}
-	}
-
-	if headingIndex < 0 {
-		t.Fatalf("GOAL.md does not contain the %s table.", heading)
-	}
-
-	rows := map[string]string{}
-	for index := headingIndex + 1; index < len(lines); index++ {
-		line := lines[index]
-		if strings.HasPrefix(line, "#") {
-			break
-		}
-
-		if !strings.HasPrefix(line, "|") {
-			continue
-		}
-
-		parts := strings.Split(line, "|")
-		if len(parts) != 4 {
-			continue
-		}
-
-		id := strings.TrimSpace(parts[1])
-		if id == "ID" || !strings.HasPrefix(id, "`") {
-			continue
-		}
-
-		rows[strings.Trim(id, "`")] = strings.TrimSpace(parts[2])
-	}
-
-	return rows
-}
-
-func TestRegistryMatchesTheGoalMarkdownSourceTables(t *testing.T) {
+func TestGoalMarkdownDefersToWorkspaceAuthority(t *testing.T) {
 	goalBytes, err := os.ReadFile(filepath.Join(findRepositoryRoot(t), "GOAL.md"))
 	if err != nil {
 		t.Fatalf("GOAL.md unavailable: %v", err)
 	}
 
-	goal := strings.Split(string(goalBytes), "\n")
-	assertMatchesExactly(t, parseGoalTable(t, goal, "### Requirements"), expectedRequirements())
-	assertMatchesExactly(t, parseGoalTable(t, goal, "### Invariants"), expectedInvariants())
-	assertMatchesExactly(t, parseGoalTable(t, goal, "### Security rules"), expectedSecurityRules())
-	assertMatchesExactly(t, parseGoalTable(t, goal, "### State machines"), expectedStateMachines())
-	assertMatchesExactly(t, parseGoalTable(t, goal, "### Stable errors"), expectedStableErrors())
-
-	revised := ""
-	for _, line := range goal {
-		if strings.HasPrefix(line, "Last revised:") {
-			revised = line
-			break
-		}
-	}
-
-	if revised == "" {
-		t.Fatal("GOAL.md does not state a last-revised date.")
-	}
-
-	revision := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(revised, "Last revised:")), ".")
-	if revision != RegistryRevision {
-		t.Fatalf("GOAL.md revision %q != registry revision %q", revision, RegistryRevision)
+	const authority = "The [workspace goal](../GOAL.md) is the sole authority for ts-orchestrator."
+	if !strings.Contains(string(goalBytes), authority) {
+		t.Fatalf("GOAL.md does not defer to the workspace authority with %q", authority)
 	}
 }
 
