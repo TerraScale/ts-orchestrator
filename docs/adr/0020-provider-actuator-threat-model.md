@@ -1,6 +1,6 @@
 # ADR 0020: Provider actuator crash-stop and irreversible-operation fencing
 
-- Status: Proposed
+- Status: Accepted safety boundary; provider qualification pending
 - Date: 2026-07-13
 - Decision owner: Cloud
 - Readiness entry: `20 / provider-actuator-threat-model`
@@ -13,7 +13,7 @@ The safety requirement is stronger than avoiding duplicate API calls: every exte
 
 This threat model is scoped to crash-stop failure of trusted, signed orchestrator code and ordinary provider/network faults. It does not claim safety against Byzantine execution by a root-compromised actuator host. Compromise prevention, detection, credential revocation, and recovery still require a separately reviewed IAM/host security design.
 
-## Proposed decision
+## Decision
 
 Use **persisted intent plus same-operation resume** as the control fence:
 
@@ -127,9 +127,11 @@ The readiness map requires exact OCI SDK idempotency/work-request semantics, a c
 - owner decisions governing regional outage mutation policy, storage cleanup, runtime defaults, and provider portability where downstream operations differ;
 - independent review of the crash-stop assumption and the residual risk of host or credential compromise.
 
-The incomplete read-only OCI audit grants no mutation authority and establishes no resource ownership ([OCI audit, lines 22-40](../audits/oci/phase0-residual-inventory.md#L22-L40)).
+The incomplete read-only OCI evidence grants no mutation authority and
+establishes no resource ownership
+([OCI evidence manifest](../evidence/phase0/oci-residual-inventory.yaml)).
 
-## Required verification before acceptance
+## Required verification before production qualification
 
 - **Review:** primary OCI semantics for every mutating API, exact `ProviderOperationContext`, per-operation ambiguity/compensation matrix, compartment policy, and independent security threat-model review.
 - **L0:** exhaustively inject leader loss and deadline/approval/observation changes on both sides of the `AuthorizedForProviderCall` commit, then before and after every dispatch, call, response, work-request, reconciliation, compensation, and completion checkpoint. Explore duplicate, reordered, delayed, and contradictory observations. Prove pre-commit changes make no call, post-commit changes cannot alter the exact terminal target/request identity, one owned terminal outcome, no stale accepted mutation, and no tag-authorized action.
@@ -159,4 +161,8 @@ Phase 4 cannot exit until crash/retry and leadership loss at every provider and 
 | Proposed error | `ERR-CLOCK-SKEW-DESTRUCTIVE-HOLD` | Holds destructive action when wall-clock validity is anomalous. |
 | Proposed gate | `REQ-GATE-PHASE4` | Requires leadership-loss and delayed-call proof at every checkpoint. |
 
-The registry audit classifies existing requirement/invariant entries as ID-only and proposes the state-machine/security/error/gate IDs; this ADR does not freeze those proposals ([registry audit, lines 30-57](../audits/registry/registry-audit.json#L30-L57); [registry audit, lines 67-98](../audits/registry/registry-audit.json#L67-L98)).
+The live stable-identifier registry now transcribes the accepted identifiers in
+`GOAL.md`. The proposal names in this ADR remain historical and are not frozen
+stable identifiers
+([current registry](../../src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierRegistry.cs),
+[historical registry note](../guides/phase0-evidence.md#registry-and-retirement)).

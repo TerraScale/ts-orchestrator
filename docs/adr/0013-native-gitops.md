@@ -4,7 +4,7 @@
 > remain accepted. References to the old role catalog, mandatory NATS topology,
 > Project placement, or previous TerraBase topology are historical.
 
-- Status: Proposed
+- Status: Partially superseded by ADR 0033; immutable delivery constraints retained
 - Date: 2026-07-13
 - Owner lane: Delivery
 - Readiness entry: `docs/adr/readiness-index.yaml` entry for native-gitops, ADR 13 (`native-gitops`)

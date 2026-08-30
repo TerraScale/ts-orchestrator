@@ -21,22 +21,23 @@ Owner choices **1A–10A were accepted on 2026-07-16** with reliability first. M
 
 `readiness-index.yaml` is JSON-compatible YAML validated by the dependency-free C# tooling executable. It is the canonical Phase 0/1 map of backlog items 1–24.
 
-## Draft ADRs in this directory
+## Decision register
 
-| ADR | Title | Status |
-|---|---|---|
-| [0004](0004-pulumi-provider-ownership.md) | Pulumi and regional provider ownership | Proposed / draft-ready |
-| [0013](0013-native-gitops.md) | Native GitOps and complete Flux removal | Proposed / draft-ready |
-| [0018](0018-placement-boundary.md) | Project placement versus host scheduling | Proposed / draft-ready |
-| [0020](0020-provider-actuator-threat-model.md) | Provider actuator crash-stop fencing | Proposed / draft-ready |
-
-## Current accepted ADRs
-
-| ADR | Title | Status |
+| ADR | Decision | Current status |
 | --- | --- | --- |
-| [0025](0025-rollback-on-customer-gate-failure.md) | Roll back on customer and security gate failure | Accepted |
-| [0029](0029-offer-stateless-tenant-compute.md) | Offer stateless tenant compute with managed TerraBase | Accepted |
-| [0031](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) | Run tenant workloads as unprivileged OCI containers | Accepted |
+| [0004](0004-pulumi-provider-ownership.md) | Pulumi and regional provider ownership | Superseded by ADR 0033 |
+| [0013](0013-native-gitops.md) | Native GitOps and Flux removal | Partially superseded; immutable delivery constraints retained |
+| [0018](0018-placement-boundary.md) | Project placement versus host scheduling | Superseded; Region selection belongs to each database |
+| [0020](0020-provider-actuator-threat-model.md) | Provider mutation fencing and same-operation recovery | Accepted safety boundary; live provider evidence pending |
+| [0024](0024-greenfield-bringup.md) | Greenfield bring-up and residual-resource quarantine | Accepted boundary; scoped inventory pending |
+| [0025](0025-rollback-on-customer-gate-failure.md) | Roll back on customer or security gate failure | Accepted |
+| [0026](0026-use-global-blue-green-activation.md) | Global blue-green activation barrier | Superseded by ADR 0033 regional blue-green generations |
+| [0027](0027-open-workload-admission.md) | Open workload admission | Superseded by ADRs 0030 and 0031 |
+| [0028](0028-isolate-tenant-workloads-with-microvms.md) | MicroVM tenant isolation | Superseded by ADR 0031 |
+| [0029](0029-offer-stateless-tenant-compute.md) | Stateless tenant compute with managed TerraBase | Accepted |
+| [0030](0030-run-customer-workloads-as-wasi-components.md) | WASI customer workloads | Superseded by ADR 0031 |
+| [0031](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) | Unprivileged OCI tenant workloads | Accepted |
+| [0032](0032-mcp-first-party-workload.md) | Standalone first-party MCP workload | Superseded by Dashboard MCP authority |
 | [0033](0033-gru-global-authority-and-regional-autonomy.md) | GRU global authority and autonomous regional control | Accepted |
 
 ADR 0033 supersedes ADR 0004's Pulumi ownership, ADR 0013's Git authority

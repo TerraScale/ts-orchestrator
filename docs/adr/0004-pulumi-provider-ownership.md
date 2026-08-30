@@ -5,7 +5,7 @@
 > workload-role assumptions do not. Any implementation must reconcile this
 > record with the current architecture first.
 
-- Status: Proposed
+- Status: Superseded by ADR 0033
 - Date: 2026-07-13
 - Decision owner: Cloud
 - Readiness entry: `4 / pulumi-provider-ownership`
@@ -83,7 +83,10 @@ The readiness map labels this draft-ready but requires exact OCI IAM/tag schemas
 - a complete resource-type handoff matrix, including which seed boot/NATS volumes transfer and which foundation resources never do;
 - owner questions that determine regional authority/topology, vault custody, elastic volume retention, and physical NATS isolation;
 - approved cost, storage performance, regional RPO/RTO, security, and survival-window targets;
-- repaired read-only OCI evidence. Current account discovery is authentication-blocked and proves no resource absence ([OCI audit, lines 34-50](../audits/oci/phase0-residual-inventory.md#L34-L50)).
+- repaired read-only OCI evidence. The current host preflight could not run an
+  OCI API request, and the archived API attempt failed authentication before
+  resource discovery. Neither record proves resource absence
+  ([OCI evidence manifest](../evidence/phase0/oci-residual-inventory.yaml)).
 
 ## Required verification before acceptance
 
@@ -111,4 +114,8 @@ No SUT cloud instance or OCI mutation is authorized by this ADR. The repository'
 | Proposed error | `ERR-PROVIDER-OWNERSHIP-MISMATCH` | Holds mutation on absent/mismatched ownership proof. |
 | Proposed gate | `REQ-GATE-PHASE4` | Requires exact-one-owner outcome across every provider/handoff crash checkpoint. |
 
-The canonical registry currently contains the requirement/invariant IDs but lacks semantic anchors, while the state-machine/security/error/gate IDs above are registry-audit proposals rather than frozen IDs ([registry audit, lines 30-57](../audits/registry/registry-audit.json#L30-L57); [registry audit, lines 67-98](../audits/registry/registry-audit.json#L67-L98)).
+The live stable-identifier registry now transcribes the accepted identifiers in
+`GOAL.md`. The proposal names in this superseded ADR are not current stable
+identifiers and must not be implemented as such
+([current registry](../../src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierRegistry.cs),
+[historical registry note](../guides/phase0-evidence.md#registry-and-retirement)).

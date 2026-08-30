@@ -1,6 +1,6 @@
 # ADR 0024: Greenfield bring-up remains gated by incomplete OCI residual evidence
 
-- Status: Proposed
+- Status: Accepted greenfield boundary; residual inventory evidence pending
 - Date: 2026-08-05
 - Decision owner: Cloud
 - Readiness entry: `24 / greenfield-bringup`

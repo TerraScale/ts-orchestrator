@@ -119,6 +119,29 @@ restore control and database state, qualify green beside unchanged blue, cut
 over through a fenced routing generation, roll back safely, and retain exact
 receipts for every claim.
 
+## Evidence-backed implementation baseline
+
+The 2026-08-29 documentation audit uses commit `4309019` as its point-in-time
+baseline. It is not a promise that the branch tip will remain at that commit.
+That baseline removed the production `Development/` source graph and its
+production-referenced lab, local NATS, PKI, process-supervision, and DevHost
+tests. The remaining reusable validation-lease and pre-deployment-evidence
+types live in the tooling project. The same baseline added the stable
+requirement, invariant, security, state-machine, and error identifier registry,
+plus a versioned protocol manifest and focused tests.
+
+Those landings close only the repository-purity deletion step and establish
+contract structure. They do not qualify the v2 control topology, live OCI,
+Cloudflare, NATS R3, systemd, containerd, workload identity, regional
+blue-green rollout, recovery, SLO, or soak gates below.
+
+The Database API remains one independently deployable runtime and the sole
+public TBEP gateway. Its permanent C# source owner is
+`TerraScale.Internals`; the standalone `TerraScale.Database` repository is a
+migration source until provenance, parity, consumer cutover, and retirement
+receipts pass. Orchestrator deploys the Database API artifact and does not
+depend on which repository contains its source.
+
 ## Product promises
 
 1. One global authority in GRU owns global policy and accepted configuration.
@@ -1416,11 +1439,12 @@ tests without explicit owner authority and an exact target-scoped lease.
 ## Repository purity and evidence layers
 
 The Orchestrator production repository and solution do not own local product
-composition. Remove `src/TerraScale.Orchestrator/Development/`, DevHost project
-or package references, `dev` CLI and configuration modes, local Podman product
-supervision, development NATS cluster creation, development PKI and credentials,
-fixed lab routing, development-only secret defaults, and production service
-registrations that select fake providers or local product processes.
+composition. Commit `4309019` removed
+`src/TerraScale.Orchestrator/Development/` and the production-referenced local
+product supervision, development NATS, PKI, credentials, and DevHost tests.
+Repository-purity checks must keep those paths, `dev` runtime modes, fixed lab
+routing, development-only secret defaults, and fake-provider production
+registrations out of the production source and artifact graphs.
 
 Tests may use pure fakes, deterministic simulators, and process fixtures only
 from test or tooling projects. Those fixtures cannot compile into, register
@@ -1460,11 +1484,12 @@ noisy-neighbor pressure.
 - Remove optional-NATS, Git-authority, Pulumi, permanent-R3-TerraBase, old
   workload-role, Project-placement, UDS, and standalone MCP assumptions from
   active code and docs.
-- Delete the complete production `Development/` namespace and every DevHost,
-  `dev` mode, embedded lab, local product supervisor, development NATS, PKI,
-  credential, port, route, ownership-label, build, service-registration, test,
-  tooling, and documentation dependency from the Orchestrator project. Move
-  required generic fakes into test-owned fixtures with no production reference.
+- Preserve the completed removal of the production `Development/` namespace.
+  Add source-graph, binary, image, configuration, and credential scans that
+  prevent DevHost, `dev` mode, embedded lab, local product supervisor,
+  development NATS/PKI, fixed-route, or fake-provider production dependencies
+  from returning. Keep required generic fakes in test-owned fixtures with no
+  production reference.
 - Freeze state ownership, envelopes, subjects, authority claims, receipts,
   provider operations, `RegionSpec`, and survival policy.
 

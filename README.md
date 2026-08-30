@@ -39,7 +39,7 @@ The active product roles are:
 | Role | Owner and runtime |
 | --- | --- |
 | Dashboard | One full-stack Vinext TypeScript application. It owns Better Auth, Organizations, Projects, Users, Payments, Streamable HTTP MCP, and customer workflows. |
-| Database API | `TerraScale.Database`, an independent C#/.NET 10 ASP.NET Core service and the sole TBEP gateway. |
+| Database API | An independently deployable C#/.NET 10 ASP.NET Core service and the sole TBEP gateway. Its permanent source home is `TerraScale.Internals`; the standalone `TerraScale.Database` repository retires after migration receipts pass. |
 | Database engine | TerraBaseV2, the private Rust engine. |
 | Orchestrator | Infrastructure, scheduling, workload identity, placement intent, repair orchestration, and delivery. |
 
@@ -144,9 +144,10 @@ Current facts:
   currently use typed NATS resources;
 - some typed policies and tests still model an R3 control journal and the old
   first-party roles;
-- the production project still contains the legacy `Development/` composition,
-  local product supervision, development NATS and PKI, and related tests that
-  the production goal requires P0 to delete; and
+- commit `4309019` removed the legacy production `Development/` composition,
+  local product supervision, development NATS and PKI, and their
+  production-referenced tests; repository-purity scans still need release
+  evidence; and
 - the repository has no production deployment authority until its exact
   qualification gates pass.
 
@@ -160,10 +161,10 @@ Migration work must preserve durable control history and fail closed while it:
 5. removes the standalone Authentication, Payments, Platform, and MCP roles;
 6. migrates v1 NATS resources to the mandatory `ts.orch.v2` global and regional
    control domains without putting NATS in TerraBase correctness; and
-7. deletes the complete production `Development/` namespace, `dev` runtime
-   mode, local product composition, development NATS and PKI, development
-   credentials and routes, fake-provider runtime registration, and every
-   related production dependency.
+7. preserves the completed removal of the production `Development/` namespace
+   and proves that `dev` runtime modes, local product composition, development
+   NATS/PKI, fixed lab routes, and fake-provider runtime registrations cannot
+   re-enter production artifacts.
 
 Until a migration item lands, current commands describe current code only. New
 features and documentation must target the accepted architecture.
