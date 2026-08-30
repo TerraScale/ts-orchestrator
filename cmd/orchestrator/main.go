@@ -927,6 +927,9 @@ func (r *autoscalerRole) handleHeartbeat(message *nats.Msg) {
 	}
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+	if r.nodes == nil {
+		r.nodes = make(map[string]*autoscalerNodeEntry)
+	}
 	entry, present := r.nodes[heartbeat.NodeId.Value]
 	if present && entry.state == autoscaling.NodeStateRetired {
 		return
@@ -982,6 +985,9 @@ func (r *autoscalerRole) handleObservationFeed(message *nats.Msg) {
 func (r *autoscalerRole) setState(nodeId string, state autoscaling.NodeState) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+	if r.nodes == nil {
+		r.nodes = make(map[string]*autoscalerNodeEntry)
+	}
 	entry, present := r.nodes[nodeId]
 	if !present {
 		r.nodes[nodeId] = &autoscalerNodeEntry{nodeId: nodeId, state: state, lastHeartbeat: time.Now()}
@@ -1009,7 +1015,15 @@ func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot 
 	nodes := make([]autoscaling.NodeObservation, 0, len(r.nodes))
 	freshNodes := make(map[string]struct{}, len(r.nodes))
 	for _, entry := range r.nodes {
-		if now.Sub(entry.lastHeartbeat) > staleness {
+		// Arrival freshness alone is insufficient: a delayed heartbeat with an
+		// old event timestamp could otherwise keep a dead node schedulable.
+		// Require both transport arrival and the producer's event timestamp to
+		// be inside the bounded window. The timestamp is second precision, so
+		// this deliberately fails closed for sub-second windows.
+		eventAge := now.Sub(time.Unix(entry.lastHeartbeatUnixSec, 0))
+		if entry.lastHeartbeatUnixSec <= 0 || now.Sub(entry.lastHeartbeat) > staleness ||
+			now.Sub(entry.lastHeartbeat) < -autoscalerHeartbeatClockSkew ||
+			eventAge > staleness || eventAge < -autoscalerHeartbeatClockSkew {
 			continue
 		}
 		_, capacityErr := autoscaling.NewNodeResources(
@@ -1092,10 +1106,19 @@ func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot 
 // failed provision, cordon, or retire surfaces to the run loop and stops the
 // role instead of being retried blind.
 func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.AutoscalerAction) error {
+	if r == nil {
+		return errors.New("autoscaler: the role is unavailable")
+	}
 	switch action.Kind() {
 	case autoscaling.AutoscalerActionProvisionNode:
+		if r.provisioner == nil {
+			return errors.New("autoscaler: the node provisioner is unavailable")
+		}
 		return r.provisioner.Provision(ctx, action.ProvisionRequest())
 	case autoscaling.AutoscalerActionCordonNode:
+		if r.connection == nil {
+			return errors.New("autoscaler: the NATS connection is unavailable")
+		}
 		if err := r.cordonNode(action.NodeId()); err != nil {
 			return err
 		}
@@ -1108,6 +1131,9 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 		r.setState(action.NodeId(), autoscaling.NodeStateDraining)
 		return nil
 	case autoscaling.AutoscalerActionRetireNode:
+		if r.provisioner == nil {
+			return errors.New("autoscaler: the node provisioner is unavailable")
+		}
 		if err := r.provisioner.Retire(ctx, action.NodeId()); err != nil {
 			return err
 		}
@@ -1121,6 +1147,9 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 // cordonNode delivers one cordon command to the node agent over the regional
 // NATS and requires the agent's acknowledgment before the state transition.
 func (r *autoscalerRole) cordonNode(nodeId string) error {
+	if r == nil || r.connection == nil {
+		return errors.New("autoscaler: the NATS connection is unavailable")
+	}
 	command, err := hostagent.NewCordonCommand("autoscaler-cordon-"+nodeId, true)
 	if err != nil {
 		return err
@@ -1154,6 +1183,9 @@ func (r *autoscalerRole) cordonNode(nodeId string) error {
 // tick runs one autoscaler tick over the current snapshot and applies every
 // emitted action in the tick's canonical order.
 func (r *autoscalerRole) tick(ctx context.Context, now time.Time) error {
+	if r == nil || r.engine == nil {
+		return errors.New("autoscaler: the engine is unavailable")
+	}
 	actions, err := r.engine.Tick(ctx, r.snapshot(now))
 	if err != nil {
 		return err
@@ -1181,7 +1213,13 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	if err != nil {
 		return err
 	}
-	defer connection.Close()
+	defer func() {
+		// Drain subscriptions before closing so a cancellation cannot leave
+		// heartbeat or scheduler-feed callbacks active against torn-down role
+		// state. Close remains the final fallback if draining fails.
+		_ = connection.Drain()
+		connection.Close()
+	}()
 	role := &autoscalerRole{
 		settings:   settings,
 		connection: connection,

@@ -500,12 +500,17 @@ type PodmanClient interface {
 type RootlessPodmanContext struct {
 	PodmanBinaryPath string
 	XdgRuntimeDir    string
+	SeccompProfilePath string
 	RunAsUid         uint32
 }
 
 // ValidateRootlessContext fails closed unless the context names a bounded
-// absolute podman binary, a bounded absolute XDG runtime directory, and a
-// nonzero run UID.
+// absolute podman binary, a bounded absolute XDG runtime directory, a bounded
+// absolute seccomp profile document, and a nonzero run UID. The seccomp path
+// is required, not optional: every created container loads exactly the named
+// profile the canonical plan attests (terrascale-default-v1), and podman
+// itself fails the create when the document is absent, so the profile can
+// never silently degrade to podman's built-in default.
 func ValidateRootlessContext(rootless RootlessPodmanContext) error {
 	if rootless.RunAsUid == 0 {
 		return &ArgumentError{
@@ -519,15 +524,24 @@ func ValidateRootlessContext(rootless RootlessPodmanContext) error {
 	if _, err := requirePodmanAbsolutePath(rootless.XdgRuntimeDir, "XdgRuntimeDir"); err != nil {
 		return err
 	}
+	if _, err := requirePodmanAbsolutePath(rootless.SeccompProfilePath, "SeccompProfilePath"); err != nil {
+		return err
+	}
 	return nil
 }
 
 // NewRootlessPodmanContext validates and snapshots one rootless context.
-func NewRootlessPodmanContext(podmanBinaryPath string, xdgRuntimeDir string, runAsUid uint32) (RootlessPodmanContext, error) {
+func NewRootlessPodmanContext(
+	podmanBinaryPath string,
+	xdgRuntimeDir string,
+	seccompProfilePath string,
+	runAsUid uint32,
+) (RootlessPodmanContext, error) {
 	candidate := RootlessPodmanContext{
-		PodmanBinaryPath: podmanBinaryPath,
-		XdgRuntimeDir:    xdgRuntimeDir,
-		RunAsUid:         runAsUid,
+		PodmanBinaryPath:   podmanBinaryPath,
+		XdgRuntimeDir:      xdgRuntimeDir,
+		SeccompProfilePath: seccompProfilePath,
+		RunAsUid:           runAsUid,
 	}
 	if err := ValidateRootlessContext(candidate); err != nil {
 		return RootlessPodmanContext{}, err

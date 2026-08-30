@@ -15,9 +15,10 @@ import (
 
 func podmanTestRootlessContext() RootlessPodmanContext {
 	return RootlessPodmanContext{
-		PodmanBinaryPath: "/usr/bin/podman",
-		XdgRuntimeDir:    "/run/user/1042",
-		RunAsUid:         1042,
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "/run/user/1042",
+		SeccompProfilePath: "/etc/terrascale/seccomp/terrascale-default-v1.json",
+		RunAsUid:           1042,
 	}
 }
 
@@ -97,6 +98,11 @@ func TestProcessPodmanClientRefusesToRunWhenTheContextIsNotRootless(t *testing.T
 			mutate:    func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "podman" },
 			wantParam: "PodmanBinaryPath",
 		},
+		{
+			name:      "missing seccomp profile path",
+			mutate:    func(c *RootlessPodmanContext) { c.SeccompProfilePath = "" },
+			wantParam: "SeccompProfilePath",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -121,7 +127,7 @@ func TestProcessPodmanClientRefusesToRunWhenTheContextIsNotRootless(t *testing.T
 	}
 }
 
-func TestProcessPodmanClientRunEmitsTheExactSecurityArgumentVector(t *testing.T) {
+func TestProcessPodmanClientCreateEmitsTheExactSecurityArgumentVector(t *testing.T) {
 	runner := newRecordingHostRunner()
 	client := newPodmanProcessClient(t, runner)
 	request := podmanTestRunRequest(t)
@@ -142,12 +148,13 @@ func TestProcessPodmanClientRunEmitsTheExactSecurityArgumentVector(t *testing.T)
 		t.Fatalf("executable = %q, want the absolute podman path", command.Executable)
 	}
 	expected := []string{
-		"run", "-d",
+		"create",
 		"--name", plan.Oci.ContainerId,
 		"--platform", plan.Oci.Platform,
 		"--user", "65532:65532",
 		"--read-only",
 		"--security-opt", "no-new-privileges",
+		"--security-opt", "seccomp=" + podmanTestRootlessContext().SeccompProfilePath,
 		"--cap-drop", "ALL",
 		"--cgroup-parent", "terrascale-gru-loki-1.slice",
 		"--memory", "4294967296",
@@ -292,7 +299,10 @@ func TestProcessPodmanClientSubcommandsMapToExactArgumentVectors(t *testing.T) {
 
 // podmanCapturedInspectJson renders one captured `podman container inspect
 // --format json` document of the test allocation with the observed status and
-// running flag, keeping the surrounding noise fields a real podman emits.
+// running flag, keeping the surrounding noise fields a real podman emits. The
+// document deliberately carries no top-level Platform and no Config.Platform,
+// because podman 5.8.6 emits neither: the observed platform is unknown, and
+// the adapter's ownership fence must accept its own container anyway.
 func podmanCapturedInspectJson(t *testing.T, status string, running bool) string {
 	t.Helper()
 	plan := podmanTestOciPlan(t)
@@ -342,7 +352,6 @@ func podmanCapturedInspectJson(t *testing.T, status string, running bool) string
     "Name": "terrascale-gru-loki-1",
     "RestartCount": 0,
     "Driver": "overlay",
-    "Platform": "linux",
     "InfraConfig": null,
     "Config": {
       "Image": "registry.terrascale.internal/terrascale/loki@sha256:%[1]s",
@@ -547,7 +556,7 @@ func TestProcessPodmanClientMapsNonZeroExitsToTrimmedStderr(t *testing.T) {
 	if !errors.As(err, &operationError) {
 		t.Fatalf("expected InvalidOperationError, got %v", err)
 	}
-	expected := "podman run failed with exit code 125. Error: name is already in use by another container"
+	expected := "podman create failed with exit code 125. Error: name is already in use by another container"
 	if err.Error() != expected {
 		t.Fatalf("message = %q, want %q", err.Error(), expected)
 	}

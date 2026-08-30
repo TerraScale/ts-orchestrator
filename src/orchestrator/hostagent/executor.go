@@ -74,6 +74,7 @@ type allocationRecord struct {
 type allocationReservation struct {
 	allocationId string
 	generation   uint64
+	state        string
 	created      bool
 }
 
@@ -112,10 +113,10 @@ func NewWorkloadExecutor(config WorkloadExecutorConfig) (*WorkloadExecutor, erro
 		}
 	}
 	return &WorkloadExecutor{
-		nodeId:    nodeId,
-		systemd:   config.Systemd,
-		container: config.Container,
-		records:   make(map[string]allocationRecord),
+		nodeId:                    nodeId,
+		systemd:                   config.Systemd,
+		container:                 config.Container,
+		records:                   make(map[string]allocationRecord),
 		maximumTrackedAllocations: hostAgentMaximumTrackedAllocations,
 	}, nil
 }
@@ -153,7 +154,9 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
 	}
 	if err != nil {
-		err = errors.Join(err, e.recordState(decoded, "ConvergeFailed", false, false))
+		if stateErr := e.recordState(decoded, "ConvergeFailed", false, false); stateErr != nil {
+			err = errors.Join(err, stateErr)
+		}
 		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	if err := e.recordState(decoded, "Converged", false, true); err != nil {
@@ -336,7 +339,11 @@ func (e *WorkloadExecutor) ObserveAllocations(ctx context.Context) ([]Allocation
 			running = false
 			failures = append(failures, pair.err)
 		} else {
-			e.recordObserved(pair.decoded, pair.normalized)
+			if err := e.recordObserved(pair.decoded, pair.normalized); err != nil {
+				state = allocationStateUnknown
+				running = false
+				failures = append(failures, err)
+			}
 		}
 		observations = append(observations, AllocationObservation{
 			AllocationId:    pair.decoded.plan.AllocationId.Value,
@@ -449,13 +456,19 @@ func (e *WorkloadExecutor) observeDecoded(ctx context.Context, decoded decodedWo
 }
 
 // recordState stores one allocation record under its allocation id, marking
-// whether the allocation is pending observation of its running state.
-func (e *WorkloadExecutor) recordState(decoded decodedWorkloadPlan, state string, running bool, pending bool) {
+// whether the allocation is pending observation of its running state. It
+// returns an error instead of silently dropping a record when the table is at
+// capacity; mutating callers reserve before invoking their adapter.
+func (e *WorkloadExecutor) recordState(decoded decodedWorkloadPlan, state string, running bool, pending bool) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
-		len(e.records) >= hostAgentMaximumTrackedAllocations {
-		return
+	previous, present := e.records[decoded.plan.AllocationId.Value]
+	if !present {
+		if len(e.records) >= e.maximumTrackedAllocationsLocked() {
+			return e.trackingCapacityError(decoded.plan.AllocationId.Value)
+		}
+		e.nextGeneration++
+		previous.generation = e.nextGeneration
 	}
 	e.records[decoded.plan.AllocationId.Value] = allocationRecord{
 		plan:        decoded.plan,
@@ -463,24 +476,30 @@ func (e *WorkloadExecutor) recordState(decoded decodedWorkloadPlan, state string
 		pending:     pending,
 		state:       state,
 		running:     running,
+		generation:  previous.generation,
 	}
+	return nil
 }
 
 // recordObserved stores one observation, keeping the pending mark of an
 // accepted allocation until it is observed running.
-func (e *WorkloadExecutor) recordObserved(decoded decodedWorkloadPlan, observation normalizedObservation) {
+func (e *WorkloadExecutor) recordObserved(decoded decodedWorkloadPlan, observation normalizedObservation) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 	previous := e.records[decoded.plan.AllocationId.Value]
-	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
-		observation.state == runtime.PodmanAllocationStateAbsent.String() {
+	present := false
+	_, present = e.records[decoded.plan.AllocationId.Value]
+	if !present && observationIsAbsent(observation) {
 		// An observe of an absent, never-served allocation must not let an
 		// unauthenticated caller grow the tracking table indefinitely.
-		return
+		return nil
 	}
-	if _, present := e.records[decoded.plan.AllocationId.Value]; !present &&
-		len(e.records) >= hostAgentMaximumTrackedAllocations {
-		return
+	if !present {
+		if len(e.records) >= e.maximumTrackedAllocationsLocked() {
+			return e.trackingCapacityError(decoded.plan.AllocationId.Value)
+		}
+		e.nextGeneration++
+		previous.generation = e.nextGeneration
 	}
 	e.records[decoded.plan.AllocationId.Value] = allocationRecord{
 		plan:        decoded.plan,
@@ -488,7 +507,9 @@ func (e *WorkloadExecutor) recordObserved(decoded decodedWorkloadPlan, observati
 		pending:     previous.pending && !observation.running,
 		state:       observation.state,
 		running:     observation.running,
+		generation:  previous.generation,
 	}
+	return nil
 }
 
 // forgetAllocation removes one allocation record after a successful delete.
@@ -496,6 +517,71 @@ func (e *WorkloadExecutor) forgetAllocation(allocationId string) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 	delete(e.records, allocationId)
+}
+
+// reserveAllocation atomically admits an allocation record before an adapter
+// operation. Existing records are reusable at capacity; only a new id needs
+// one of the bounded table's slots.
+func (e *WorkloadExecutor) reserveAllocation(decoded decodedWorkloadPlan, state string) (allocationReservation, error) {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	allocationId := decoded.plan.AllocationId.Value
+	if previous, present := e.records[allocationId]; present {
+		return allocationReservation{
+			allocationId: allocationId,
+			generation:   previous.generation,
+			state:        previous.state,
+		}, nil
+	}
+	if len(e.records) >= e.maximumTrackedAllocationsLocked() {
+		return allocationReservation{}, e.trackingCapacityError(allocationId)
+	}
+	e.nextGeneration++
+	e.records[allocationId] = allocationRecord{
+		plan:        decoded.plan,
+		fingerprint: decoded.fingerprint,
+		state:       state,
+		generation:  e.nextGeneration,
+	}
+	return allocationReservation{
+		allocationId: allocationId,
+		generation:   e.nextGeneration,
+		state:        state,
+		created:      true,
+	}, nil
+}
+
+// releaseReservation removes a newly reserved record only while it still has
+// the same generation and reservation state. A concurrent operation that has
+// made progress therefore keeps the record tracked.
+func (e *WorkloadExecutor) releaseReservation(reservation allocationReservation) {
+	if !reservation.created {
+		return
+	}
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	current, present := e.records[reservation.allocationId]
+	if present && current.generation == reservation.generation &&
+		current.state == reservation.state {
+		delete(e.records, reservation.allocationId)
+	}
+}
+
+func (e *WorkloadExecutor) maximumTrackedAllocationsLocked() int {
+	if e.maximumTrackedAllocations > 0 {
+		return e.maximumTrackedAllocations
+	}
+	return hostAgentMaximumTrackedAllocations
+}
+
+func (e *WorkloadExecutor) trackingCapacityError(allocationId string) error {
+	return &InvalidOperationError{Message: fmt.Sprintf(
+		"The executor cannot track allocation %s: maximum tracked allocations reached.", allocationId)}
+}
+
+func observationIsAbsent(observation normalizedObservation) bool {
+	return observation.state == runtime.PodmanAllocationStateAbsent.String() ||
+		observation.state == runtime.SystemdAllocationStateAbsent.String()
 }
 
 // snapshotRecords copies the decoded plans of every tracked allocation.

@@ -19,8 +19,10 @@ const hostRuntimePlanCurrentSchemaVersion = 2
 // driver, and architecture as camelCase enum strings, the allocation id and
 // artifact digest as {value:...} objects, and the optional systemd and OCI
 // plans as null or nested objects. Unknown fields, trailing data, unknown enum
-// names, and a driver that disagrees with the carried execution plan are
-// rejected as invalid data; the receiver is left untouched on any error.
+// names, a driver that disagrees with the carried execution plan, and an
+// execution plan that is not the canonical plan NewHostRuntimePlan would
+// derive for the decoded role, resources, and identity are rejected as
+// invalid data; the receiver is left untouched on any error.
 func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 	var wire hostRuntimePlanWire
 	if err := decodeStrictPlanJSON(data, &wire); err != nil {
@@ -107,8 +109,14 @@ func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 	if err := requirePlanDriverShape(driver, systemd, oci); err != nil {
 		return err
 	}
-	if _, err := NewHostRuntimePlan(role, driver, allocationId, digest, architecture, &resources); err != nil {
+	expected, err := NewHostRuntimePlan(role, driver, allocationId, digest, architecture, &resources)
+	if err != nil {
 		return err
+	}
+	if !decodedPlansAreCanonical(systemd, oci, expected) {
+		return &InvalidDataError{
+			Message: "The decoded execution plan is not the canonical plan of the admitted role.",
+		}
 	}
 
 	*p = HostRuntimePlan{
@@ -287,6 +295,44 @@ func parseHostArchitectureWire(value string) (HostArchitecture, bool) {
 	default:
 		return HostArchitecture(0), false
 	}
+}
+
+// decodedPlansAreCanonical reports whether the decoded execution plans are
+// exactly the plans NewHostRuntimePlan derives for the same admitted role, so
+// the decoder itself enforces the canonical-plan trust boundary this file
+// documents: a tampered unit name, executable, argument list, property list,
+// container id, image reference, platform, security envelope, or nested
+// resource copy is rejected at decode instead of waiting for an adapter's
+// requireCanonical* fence.
+func decodedPlansAreCanonical(systemd *SystemdExecutionPlan, oci *OciExecutionPlan, expected HostRuntimePlan) bool {
+	if systemd != nil {
+		expectedSystemd := expected.Systemd
+		if expectedSystemd == nil ||
+			systemd.UnitName != expectedSystemd.UnitName ||
+			systemd.Executable != expectedSystemd.Executable ||
+			!stringSlicesEqual(systemd.Arguments, expectedSystemd.Arguments) ||
+			!stringSlicesEqual(systemd.Properties, expectedSystemd.Properties) {
+			return false
+		}
+	}
+	if oci != nil {
+		expectedOci := expected.Oci
+		if expectedOci == nil ||
+			oci.ContainerId != expectedOci.ContainerId ||
+			oci.ImageReference != expectedOci.ImageReference ||
+			oci.Platform != expectedOci.Platform ||
+			oci.Resources != expectedOci.Resources ||
+			oci.Security.RunAsUser != expectedOci.Security.RunAsUser ||
+			oci.Security.RunAsGroup != expectedOci.Security.RunAsGroup ||
+			oci.Security.NoNewPrivileges != expectedOci.Security.NoNewPrivileges ||
+			oci.Security.ReadOnlyRootFileSystem != expectedOci.Security.ReadOnlyRootFileSystem ||
+			!stringSlicesEqual(oci.Security.DroppedCapabilities, expectedOci.Security.DroppedCapabilities) ||
+			oci.Security.SeccompProfile != expectedOci.Security.SeccompProfile ||
+			oci.Security.CgroupParent != expectedOci.Security.CgroupParent {
+			return false
+		}
+	}
+	return true
 }
 
 // requirePlanDriverShape enforces that the decoded driver agrees with which

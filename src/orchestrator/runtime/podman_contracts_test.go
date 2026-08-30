@@ -401,9 +401,10 @@ func TestNewPodmanRunRequest(t *testing.T) {
 
 func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 	valid := RootlessPodmanContext{
-		PodmanBinaryPath: "/usr/bin/podman",
-		XdgRuntimeDir:    "/run/user/1000",
-		RunAsUid:         1000,
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "/run/user/1000",
+		SeccompProfilePath: "/etc/terrascale/seccomp/terrascale-default-v1.json",
+		RunAsUid:           1000,
 	}
 	if err := ValidateRootlessContext(valid); err != nil {
 		t.Fatalf("valid context: %v", err)
@@ -440,6 +441,16 @@ func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 			mutate:    func(c *RootlessPodmanContext) { c.XdgRuntimeDir = "run/user/1000" },
 			wantParam: "XdgRuntimeDir",
 		},
+		{
+			name:      "missing seccomp profile path",
+			mutate:    func(c *RootlessPodmanContext) { c.SeccompProfilePath = "" },
+			wantParam: "SeccompProfilePath",
+		},
+		{
+			name:      "relative seccomp profile path",
+			mutate:    func(c *RootlessPodmanContext) { c.SeccompProfilePath = "seccomp.json" },
+			wantParam: "SeccompProfilePath",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -457,14 +468,20 @@ func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 }
 
 func TestNewRootlessPodmanContextRejectsAndAcceptsExplicitly(t *testing.T) {
-	if _, err := NewRootlessPodmanContext("/usr/bin/podman", "/run/user/1000", 0); err == nil {
+	if _, err := NewRootlessPodmanContext("/usr/bin/podman", "/run/user/1000",
+		"/etc/terrascale/seccomp/terrascale-default-v1.json", 0); err == nil {
 		t.Fatal("uid 0 must fail closed")
 	}
-	context, err := NewRootlessPodmanContext("/usr/bin/podman", "/run/user/1000", 1000)
+	if _, err := NewRootlessPodmanContext("/usr/bin/podman", "/run/user/1000", "seccomp.json", 1000); err == nil {
+		t.Fatal("a relative seccomp profile path must fail closed")
+	}
+	context, err := NewRootlessPodmanContext("/usr/bin/podman", "/run/user/1000",
+		"/etc/terrascale/seccomp/terrascale-default-v1.json", 1000)
 	if err != nil {
 		t.Fatalf("context: %v", err)
 	}
 	if context.PodmanBinaryPath != "/usr/bin/podman" || context.XdgRuntimeDir != "/run/user/1000" ||
+		context.SeccompProfilePath != "/etc/terrascale/seccomp/terrascale-default-v1.json" ||
 		context.RunAsUid != 1000 {
 		t.Fatalf("context = %+v", context)
 	}

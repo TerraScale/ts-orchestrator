@@ -77,11 +77,14 @@ func (c *ProcessPodmanClient) Pull(ctx context.Context, imageReference string, p
 	return nil
 }
 
-// Create creates the container described by the request as one detached
-// `podman run`. The request is revalidated and re-pinned through
-// NewPodmanRunRequest first, so a hand-built struct cannot widen the safety
-// envelope: the read-only root filesystem, no-new-privileges, and the ALL
-// capability drop stay fixed no matter what the caller passed in.
+// Create creates the container described by the request with one
+// `podman create` and does not start it; Start starts the created container.
+// The request is revalidated and re-pinned through NewPodmanRunRequest first,
+// so a hand-built struct cannot widen the safety envelope: the read-only root
+// filesystem, no-new-privileges, and the ALL capability drop stay fixed no
+// matter what the caller passed in. The seccomp profile path is not
+// caller-controlled either: it always comes from the validated rootless
+// context, so no request can strip the profile the canonical plan attests.
 func (c *ProcessPodmanClient) Create(ctx context.Context, request PodmanRunRequest) error {
 	// The rootless safety fields are invariants, not caller-controlled options.
 	// Pin them before revalidation so a hand-built request cannot widen the
@@ -107,12 +110,12 @@ func (c *ProcessPodmanClient) Create(ctx context.Context, request PodmanRunReque
 	if err != nil {
 		return err
 	}
-	result, err := c.podman(ctx, podmanRunArguments(normalized))
+	result, err := c.podman(ctx, podmanCreateArguments(normalized, c.rootless.SeccompProfilePath))
 	if err != nil {
 		return err
 	}
 	if result.ExitCode != 0 {
-		return podmanCommandError("run", result.ExitCode, result.StandardError)
+		return podmanCommandError("create", result.ExitCode, result.StandardError)
 	}
 	return nil
 }
@@ -313,25 +316,38 @@ func podmanAllocationStateFrom(status string, containerId string) (PodmanAllocat
 	}
 }
 
-// podmanRunArguments renders the exact argument vector of one validated run
-// request. The order is fixed, capability drops keep their validated order,
-// volumes keep their validated order, and labels are emitted in sorted key
-// order so the vector is fully deterministic. Every dynamic value occupies
-// its own argument, so no value can smuggle an extra flag.
-func podmanRunArguments(request PodmanRunRequest) []string {
-	arguments := make([]string, 0, 26+2*len(request.CapDrop)+2*len(request.Volumes)+2*len(request.Labels))
+// podmanCreateArguments renders the exact argument vector of one validated
+// `podman create` invocation. The order is fixed, capability drops keep their
+// validated order, volumes keep their validated order, and labels are emitted
+// in sorted key order so the vector is fully deterministic. Every dynamic
+// value occupies its own argument, so no value can smuggle an extra flag.
+//
+// The vector applies the plan's memory, PID, and CPU limits but deliberately
+// omits three resource dimensions this podman surface cannot express: podman
+// has no --nice for the plan's Nice, no --memory-high for the derived memory
+// high watermark, and its --blkio-weight domain (10..1000, device-relative,
+// often without an io controller under rootless cgroup v2) differs from the
+// plan's IoWeight, so forwarding it could reject valid plans or silently
+// mis-scale them. Those three dimensions are enforced only by the native
+// systemd driver; the seccomp profile, in contrast, is always loaded from the
+// context's validated absolute path.
+func podmanCreateArguments(request PodmanRunRequest, seccompProfilePath string) []string {
+	arguments := make([]string, 0, 28+2*len(request.CapDrop)+2*len(request.Volumes)+2*len(request.Labels))
 	arguments = append(arguments,
-		"run",
-		"-d",
+		"create",
 		"--name", request.ContainerId,
 		"--platform", request.Platform,
 		"--user", strconv.FormatUint(uint64(request.RunAsUser), 10)+":"+
 			strconv.FormatUint(uint64(request.RunAsGroup), 10),
 		// The safety envelope is unconditional: the validated request always
 		// carries a read-only root filesystem, no-new-privileges, and the ALL
-		// capability drop, and the vector never omits them.
+		// capability drop, and the vector never omits them. The seccomp
+		// profile path always comes from the validated rootless context, and
+		// podman fails the create when its document is absent, so a container
+		// can never fall back to the built-in default profile unnoticed.
 		"--read-only",
-		"--security-opt", "no-new-privileges")
+		"--security-opt", "no-new-privileges",
+		"--security-opt", "seccomp="+seccompProfilePath)
 	for _, capability := range request.CapDrop {
 		arguments = append(arguments, "--cap-drop", capability)
 	}

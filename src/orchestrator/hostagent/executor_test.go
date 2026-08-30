@@ -6,9 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
@@ -124,6 +128,29 @@ type fakeContainerAdapter struct {
 	observation   runtime.PodmanAllocationObservation
 	seenPlans     []runtime.HostRuntimePlan
 }
+
+type concurrentNativeAdapter struct {
+	convergeCalls atomic.Int32
+	entered       chan struct{}
+	release       chan struct{}
+}
+
+func (a *concurrentNativeAdapter) Converge(ctx context.Context, plan runtime.HostRuntimePlan) error {
+	a.convergeCalls.Add(1)
+	a.entered <- struct{}{}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-a.release:
+		return nil
+	}
+}
+
+func (a *concurrentNativeAdapter) Observe(context.Context, runtime.HostRuntimePlan) (runtime.SystemdAllocationObservation, error) {
+	return runtime.SystemdAllocationObservation{State: runtime.SystemdAllocationStateAbsent}, nil
+}
+
+func (a *concurrentNativeAdapter) Stop(context.Context, runtime.HostRuntimePlan) error { return nil }
 
 func (f *fakeContainerAdapter) Converge(ctx context.Context, plan runtime.HostRuntimePlan) error {
 	f.convergeCalls++
@@ -501,4 +528,131 @@ func newExecutorForTest(t *testing.T, systemd NativePlanAdapter, container Conta
 		t.Fatalf("executor: %v", err)
 	}
 	return executor
+}
+
+func TestConvergeReservesCapacityBeforeConcurrentAdapterCalls(t *testing.T) {
+	adapter := &concurrentNativeAdapter{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	executor := newExecutorForTest(t, adapter, &fakeContainerAdapter{})
+	executor.maximumTrackedAllocations = 1
+
+	const callers = 32
+	type result struct {
+		receipt ConvergeReceipt
+		err     error
+	}
+	results := make(chan result, callers)
+	var group sync.WaitGroup
+	for index := 0; index < callers; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+				runtime.RuntimeDriverNativeSystemd, fmt.Sprintf("concurrent-%d", index))
+			receipt, err := executor.Converge(context.Background(),
+				executorTestCommand(t, plan, fmt.Sprintf("cmd-concurrent-%d", index)))
+			results <- result{receipt: receipt, err: err}
+		}(index)
+	}
+
+	select {
+	case <-adapter.entered:
+	case <-time.After(time.Second):
+		t.Fatal("the admitted adapter call did not start")
+	}
+	close(adapter.release)
+	group.Wait()
+	close(results)
+
+	accepted := 0
+	for outcome := range results {
+		if outcome.err == nil && outcome.receipt.Accepted {
+			accepted++
+		} else if outcome.err == nil {
+			// Capacity rejection is a processed receipt with its cause returned.
+			continue
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("accepted converges = %d, want 1", accepted)
+	}
+	if got := adapter.convergeCalls.Load(); got != 1 {
+		t.Fatalf("adapter converge calls = %d, want 1", got)
+	}
+	if got := len(executor.records); got != 1 {
+		t.Fatalf("tracked records = %d, want 1", got)
+	}
+}
+
+func TestExistingAllocationOperatesAtCapacityAndDeleteReleasesSlot(t *testing.T) {
+	container := &fakeContainerAdapter{}
+	executor := newExecutorForTest(t, &fakeNativeAdapter{}, container)
+	executor.maximumTrackedAllocations = 1
+	first := executorTestPlan(t, runtime.AdmittedRoleGrafana,
+		runtime.RuntimeDriverOciContainer, "capacity-first")
+	second := executorTestPlan(t, runtime.AdmittedRoleAlertmanager,
+		runtime.RuntimeDriverOciContainer, "capacity-second")
+
+	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, first, "cmd-capacity-first")); err != nil || !receipt.Accepted {
+		t.Fatalf("first converge: receipt=%+v err=%v", receipt, err)
+	}
+	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, second, "cmd-capacity-full")); err == nil || receipt.Accepted {
+		t.Fatalf("full capacity converge: receipt=%+v err=%v", receipt, err)
+	}
+	if receipt, err := executor.Stop(context.Background(), executorTestCommand(t, second, "cmd-capacity-stop-full")); err == nil || receipt.Accepted {
+		t.Fatalf("full capacity stop: receipt=%+v err=%v", receipt, err)
+	}
+	if receipt, err := executor.Delete(context.Background(), executorTestCommand(t, second, "cmd-capacity-delete-full")); err == nil || receipt.Accepted {
+		t.Fatalf("full capacity delete: receipt=%+v err=%v", receipt, err)
+	}
+	if receipt, err := executor.Stop(context.Background(), executorTestCommand(t, first, "cmd-capacity-stop")); err != nil || !receipt.Accepted {
+		t.Fatalf("existing stop at capacity: receipt=%+v err=%v", receipt, err)
+	}
+	if receipt, err := executor.Delete(context.Background(), executorTestCommand(t, first, "cmd-capacity-delete")); err != nil || !receipt.Accepted {
+		t.Fatalf("delete at capacity: receipt=%+v err=%v", receipt, err)
+	}
+	if got := len(executor.records); got != 0 {
+		t.Fatalf("records after successful delete = %d, want 0", got)
+	}
+	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, second, "cmd-capacity-retry")); err != nil || !receipt.Accepted {
+		t.Fatalf("converge after delete release: receipt=%+v err=%v", receipt, err)
+	}
+	if container.convergeCalls != 2 || container.stopCalls != 1 || container.deleteCalls != 1 {
+		t.Fatalf("adapter calls = converge %d stop %d delete %d, want 2/1/1",
+			container.convergeCalls, container.stopCalls, container.deleteCalls)
+	}
+}
+
+func TestUnknownObservationsDoNotConsumeCapacity(t *testing.T) {
+	systemd := &fakeNativeAdapter{observation: runtime.SystemdAllocationObservation{
+		State: runtime.SystemdAllocationStateAbsent,
+	}}
+	container := &fakeContainerAdapter{observeErr: errors.New("observation unavailable")}
+	executor := newExecutorForTest(t, systemd, container)
+	executor.maximumTrackedAllocations = 1
+
+	nativePlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+		runtime.RuntimeDriverNativeSystemd, "unknown-absent")
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleGrafana,
+		runtime.RuntimeDriverOciContainer, "unknown-error")
+	if receipt, err := executor.Observe(context.Background(), executorTestCommand(t, nativePlan, "cmd-unknown-absent")); err != nil || !receipt.Accepted {
+		t.Fatalf("absent observation: receipt=%+v err=%v", receipt, err)
+	}
+	if got := len(executor.records); got != 0 {
+		t.Fatalf("records after absent observation = %d, want 0", got)
+	}
+	if receipt, err := executor.Observe(context.Background(), executorTestCommand(t, ociPlan, "cmd-unknown-error")); err == nil || receipt.Accepted {
+		t.Fatalf("failed observation: receipt=%+v err=%v", receipt, err)
+	}
+	if got := len(executor.records); got != 0 {
+		t.Fatalf("records after failed unknown observation = %d, want 0", got)
+	}
+
+	trackedPlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+		runtime.RuntimeDriverNativeSystemd, "after-unknown")
+	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, trackedPlan, "cmd-after-unknown")); err != nil || !receipt.Accepted {
+		t.Fatalf("converge after unknown observations: receipt=%+v err=%v", receipt, err)
+	}
 }

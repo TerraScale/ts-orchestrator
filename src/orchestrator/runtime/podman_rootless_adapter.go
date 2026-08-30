@@ -224,7 +224,12 @@ func (a *PodmanRootlessHostRuntimeAdapter) Delete(ctx context.Context, plan Host
 // root filesystem, no-new-privileges, and the ALL capability drop so no plan
 // can widen them), memory, PID, and CPU limits from the plan resources, the
 // stateful volume mounts from the adapter construction, and the two fencing
-// labels.
+// labels. The plan's named seccomp profile and the IoWeight, Nice, and
+// memory-high dimensions are not carried by the request: the process client
+// always loads the seccomp document named by the validated rootless context,
+// while podman's surface cannot express the three resource dimensions (see
+// podmanCreateArguments), so they are enforced only by the native systemd
+// driver.
 func (a *PodmanRootlessHostRuntimeAdapter) runRequestForPlan(
 	plan HostRuntimePlan,
 	oci *OciExecutionPlan,
@@ -252,9 +257,13 @@ func (a *PodmanRootlessHostRuntimeAdapter) runRequestForPlan(
 
 // requireMatchingPodmanAllocation fences one observation against the plan
 // being converged: both fencing labels must be present and equal to the
-// allocation identifier and the canonical plan fingerprint. A container that
-// fails the fence belongs to a different plan and must never be adopted or
-// mutated.
+// allocation identifier and the canonical plan fingerprint, and the image
+// reference must match. The platform is compared only when podman reported
+// one: podman 5.8's `container inspect --format json` carries no top-level
+// Platform or Architecture and no Config.Platform, so an absent platform is
+// an unknown platform, not a foreign one, and the labels, the fingerprint,
+// and the image stay the fence. A container that fails the fence belongs to a
+// different plan and must never be adopted or mutated.
 func requireMatchingPodmanAllocation(
 	observation PodmanAllocationObservation,
 	allocationId string,
@@ -263,11 +272,12 @@ func requireMatchingPodmanAllocation(
 ) error {
 	allocationLabel, hasAllocation := observation.Labels[PodmanLabelAllocation]
 	fingerprintLabel, hasFingerprint := observation.Labels[PodmanLabelFingerprint]
+	platformMatches := observation.Platform == "" || observation.Platform == expected.Platform
 	if !hasAllocation || !hasFingerprint ||
 		allocationLabel != allocationId ||
 		fingerprintLabel != fingerprint ||
 		observation.ImageReference != expected.ImageReference ||
-		observation.Platform != expected.Platform {
+		!platformMatches {
 		return &InvalidOperationError{
 			Message: fmt.Sprintf(
 				"Existing podman allocation '%s' belongs to a different plan and was not adopted or mutated.",
