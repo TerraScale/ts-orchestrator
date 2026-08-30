@@ -27,7 +27,14 @@ func dotNetTicks(t time.Time) int64 {
 
 // dotNetOffsetTicks returns the .NET tick count of t's UTC offset.
 func dotNetOffsetTicks(t time.Time) int64 {
-	return int64(t.Offset()) / 100
+	_, offsetSeconds := t.Zone()
+	return int64(offsetSeconds) * dotNetTicksPerSecond
+}
+
+// timeZoneOffset returns the UTC offset of t as a duration.
+func timeZoneOffset(t time.Time) time.Duration {
+	_, offsetSeconds := t.Zone()
+	return time.Duration(offsetSeconds) * time.Second
 }
 
 // formatDotNetRoundTrip mirrors the C# DateTimeOffset "O" format string:
@@ -40,7 +47,7 @@ func formatDotNetRoundTrip(t time.Time) string {
 	builder.WriteByte('.')
 	fraction := utc.Nanosecond() / 100 // 100ns ticks, exactly seven digits
 	builder.WriteString(padLeft(strconv.Itoa(fraction), 7, '0'))
-	offset := t.Offset()
+	offset := timeZoneOffset(t)
 	sign := "+"
 	if offset < 0 {
 		sign = "-"
@@ -70,20 +77,20 @@ func padLeft(value string, width int, padding byte) string {
 
 // CommandEnvelope is the signed command envelope of the control protocol.
 type CommandEnvelope struct {
-	ProtocolVersion  ProtocolRevision
-	Cell             contracts.CellId
-	AggregateId      contracts.AggregateId
+	ProtocolVersion   ProtocolRevision
+	Cell              contracts.CellId
+	AggregateId       contracts.AggregateId
 	DesiredGeneration DesiredGeneration
-	WriterEpoch      WriterEpoch
-	OperationId      contracts.OperationId
-	IdempotencyKey   contracts.IdempotencyKey
-	IssuedAt         time.Time
-	ExpiresAt        time.Time
-	Attempt          DeliveryAttempt
-	Payload          OpaquePayload
-	PayloadDigest    PayloadDigest
-	Signature        OpaqueSignature
-	SignedMaterial   CommandSignedMaterial
+	WriterEpoch       WriterEpoch
+	OperationId       contracts.OperationId
+	IdempotencyKey    contracts.IdempotencyKey
+	IssuedAt          time.Time
+	ExpiresAt         time.Time
+	Attempt           DeliveryAttempt
+	Payload           OpaquePayload
+	PayloadDigest     PayloadDigest
+	Signature         OpaqueSignature
+	SignedMaterial    CommandSignedMaterial
 }
 
 // NewCommandEnvelope mirrors the CommandEnvelope constructor; it derives the

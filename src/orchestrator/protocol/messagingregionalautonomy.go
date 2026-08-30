@@ -9,7 +9,7 @@ type MessagingConnectivity int
 
 const (
 	MessagingConnectivityUnspecified MessagingConnectivity = 0
-	MessagingConnectivityConnected MessagingConnectivity = 1
+	MessagingConnectivityConnected   MessagingConnectivity = 1
 	// MessagingConnectivityGlobalIsolated: the cell is isolated from the global
 	// plane but its regional quorum is healthy.
 	MessagingConnectivityGlobalIsolated MessagingConnectivity = 2
@@ -49,7 +49,7 @@ type RegionalAutonomyDecision int
 
 const (
 	RegionalAutonomyDecisionUnspecified RegionalAutonomyDecision = 0
-	RegionalAutonomyDecisionPermitted RegionalAutonomyDecision = 1
+	RegionalAutonomyDecisionPermitted   RegionalAutonomyDecision = 1
 	// RegionalAutonomyDecisionFrozenGlobalMutation: frozen; hold the mutation;
 	// it requires reconnection and a current global epoch.
 	RegionalAutonomyDecisionFrozenGlobalMutation RegionalAutonomyDecision = 2

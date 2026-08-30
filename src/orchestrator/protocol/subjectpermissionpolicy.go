@@ -10,13 +10,13 @@ import (
 type SubjectPermissionPolicyError int
 
 const (
-	SubjectPermissionPolicyErrorNone SubjectPermissionPolicyError = 0
-	SubjectPermissionPolicyErrorInvalidLimits SubjectPermissionPolicyError = 1
-	SubjectPermissionPolicyErrorNullPattern SubjectPermissionPolicyError = 2
-	SubjectPermissionPolicyErrorTooManyPatterns SubjectPermissionPolicyError = 3
-	SubjectPermissionPolicyErrorDuplicatePattern SubjectPermissionPolicyError = 4
+	SubjectPermissionPolicyErrorNone                  SubjectPermissionPolicyError = 0
+	SubjectPermissionPolicyErrorInvalidLimits         SubjectPermissionPolicyError = 1
+	SubjectPermissionPolicyErrorNullPattern           SubjectPermissionPolicyError = 2
+	SubjectPermissionPolicyErrorTooManyPatterns       SubjectPermissionPolicyError = 3
+	SubjectPermissionPolicyErrorDuplicatePattern      SubjectPermissionPolicyError = 4
 	SubjectPermissionPolicyErrorPatternInAllowAndDeny SubjectPermissionPolicyError = 5
-	SubjectPermissionPolicyErrorEnumerationFailed SubjectPermissionPolicyError = 6
+	SubjectPermissionPolicyErrorEnumerationFailed     SubjectPermissionPolicyError = 6
 )
 
 func (e SubjectPermissionPolicyError) String() string {
@@ -44,11 +44,11 @@ func (e SubjectPermissionPolicyError) String() string {
 type SubjectPermissionReason int
 
 const (
-	SubjectPermissionReasonUninitialized SubjectPermissionReason = 0
-	SubjectPermissionReasonAllowedByPattern SubjectPermissionReason = 1
-	SubjectPermissionReasonDeniedByPattern SubjectPermissionReason = 2
-	SubjectPermissionReasonDeniedEmptyAllowSet SubjectPermissionReason = 3
-	SubjectPermissionReasonDeniedNoAllowMatch SubjectPermissionReason = 4
+	SubjectPermissionReasonUninitialized        SubjectPermissionReason = 0
+	SubjectPermissionReasonAllowedByPattern     SubjectPermissionReason = 1
+	SubjectPermissionReasonDeniedByPattern      SubjectPermissionReason = 2
+	SubjectPermissionReasonDeniedEmptyAllowSet  SubjectPermissionReason = 3
+	SubjectPermissionReasonDeniedNoAllowMatch   SubjectPermissionReason = 4
 	SubjectPermissionReasonDeniedInvalidSubject SubjectPermissionReason = 5
 )
 

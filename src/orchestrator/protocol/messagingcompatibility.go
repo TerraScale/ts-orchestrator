@@ -71,14 +71,14 @@ func (messagingSchemaNegotiation) Decide(
 type MessagingCompatibilityRulesArea int
 
 const (
-	MessagingCompatibilityRulesAreaUnspecified MessagingCompatibilityRulesArea = 0
-	MessagingCompatibilityRulesAreaClients MessagingCompatibilityRulesArea = 1
-	MessagingCompatibilityRulesAreaServers MessagingCompatibilityRulesArea = 2
-	MessagingCompatibilityRulesAreaStreams MessagingCompatibilityRulesArea = 3
-	MessagingCompatibilityRulesAreaConsumers MessagingCompatibilityRulesArea = 4
-	MessagingCompatibilityRulesAreaKeyValueValues MessagingCompatibilityRulesArea = 5
+	MessagingCompatibilityRulesAreaUnspecified         MessagingCompatibilityRulesArea = 0
+	MessagingCompatibilityRulesAreaClients             MessagingCompatibilityRulesArea = 1
+	MessagingCompatibilityRulesAreaServers             MessagingCompatibilityRulesArea = 2
+	MessagingCompatibilityRulesAreaStreams             MessagingCompatibilityRulesArea = 3
+	MessagingCompatibilityRulesAreaConsumers           MessagingCompatibilityRulesArea = 4
+	MessagingCompatibilityRulesAreaKeyValueValues      MessagingCompatibilityRulesArea = 5
 	MessagingCompatibilityRulesAreaObjectStoreMetadata MessagingCompatibilityRulesArea = 6
-	MessagingCompatibilityRulesAreaRollingUpgrades MessagingCompatibilityRulesArea = 7
+	MessagingCompatibilityRulesAreaRollingUpgrades     MessagingCompatibilityRulesArea = 7
 )
 
 // CompatibilityRule mirrors the nested CompatibilityRule record.

@@ -83,16 +83,16 @@ const (
 // and drift-bound to the provisioning topology. Regional subjects are
 // templates over the cell token; SubjectFor substitutes a validated cell.
 type DurableStreamPlan struct {
-	Stream                 string
-	Subjects               []string
-	Domain                 DurableWorkDomain
-	SemanticClass          MessagingSemanticClass
-	Replicas               int
-	Retention              DurableStreamRetention
-	MaximumAge             time.Duration
-	MaximumBytes           int64
-	Discard                DurableStreamDiscard
-	DuplicateWindow        DuplicateWindowPolicy
+	Stream                   string
+	Subjects                 []string
+	Domain                   DurableWorkDomain
+	SemanticClass            MessagingSemanticClass
+	Replicas                 int
+	Retention                DurableStreamRetention
+	MaximumAge               time.Duration
+	MaximumBytes             int64
+	Discard                  DurableStreamDiscard
+	DuplicateWindow          DuplicateWindowPolicy
 	TerminalEvidenceBehavior string
 }
 
@@ -252,11 +252,11 @@ func (p DurableConsumerPlan) FilterSubjectFor(cell string) (string, error) {
 // never by a queue group, and the group's subjects stay cell-scoped so no
 // cross-region member can join.
 type QueueGroupPlan struct {
-	Group           string
-	Domain          DurableWorkDomain
-	Ownership       DurableWorkOwnership
+	Group            string
+	Domain           DurableWorkDomain
+	Ownership        DurableWorkOwnership
 	DistributionRule string
-	FencingBasis    string
+	FencingBasis     string
 }
 
 // IsWellFormed mirrors the internal rule.
@@ -268,13 +268,12 @@ func (p QueueGroupPlan) IsWellFormed() bool {
 		isBoundedPlanText(p.FencingBasis, 256)
 }
 
-const pullFlowControlBasis =
-	"Pull consumers bounded by MaxAckPending, MaxBatch, MaxExpires, and MaxWaiting; no push delivery shape is adopted."
+const pullFlowControlBasis = "Pull consumers bounded by MaxAckPending, MaxBatch, MaxExpires, and MaxWaiting; no push delivery shape is adopted."
 
 var (
-	durableStreamPlans  = createDurableStreams()
+	durableStreamPlans   = createDurableStreams()
 	durableConsumerPlans = createDurableConsumers()
-	queueGroupPlans     = createQueueGroups()
+	queueGroupPlans      = createQueueGroups()
 )
 
 // DurableWorkInventory mirrors the C# static class: the typed inventory of
@@ -291,7 +290,9 @@ type durableWorkInventory struct{}
 
 // Redelivery mirrors DurableWorkInventory.Redelivery: the landed bounded
 // redelivery contract every profile must satisfy.
-func (durableWorkInventory) Redelivery() BoundedRedeliveryPolicy { return BoundedRedeliveryPolicyLanded }
+func (durableWorkInventory) Redelivery() BoundedRedeliveryPolicy {
+	return BoundedRedeliveryPolicyLanded
+}
 
 // Streams mirrors DurableWorkInventory.Streams; treat the slice as read-only.
 func (durableWorkInventory) Streams() []DurableStreamPlan { return durableStreamPlans }
@@ -371,14 +372,14 @@ func createDurableStreams() []DurableStreamPlan {
 			Subjects: []string{
 				NatsSubjectTaxonomy.RegionalDesiredFamilyTemplate(),
 			},
-			Domain:        DurableWorkDomainRegionalCell,
-			SemanticClass: MessagingSemanticClassAuthoritativeJournal,
-			Replicas:      3,
-			Retention:     DurableStreamRetentionLimits,
-			MaximumAge:    30 * 24 * time.Hour,
-			MaximumBytes:  256 * 1024 * 1024,
-			Discard:       DurableStreamDiscardOld,
-			DuplicateWindow: cell,
+			Domain:                   DurableWorkDomainRegionalCell,
+			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
+			Replicas:                 3,
+			Retention:                DurableStreamRetentionLimits,
+			MaximumAge:               30 * 24 * time.Hour,
+			MaximumBytes:             256 * 1024 * 1024,
+			Discard:                  DurableStreamDiscardOld,
+			DuplicateWindow:          cell,
 			TerminalEvidenceBehavior: "Accepted CellSpec history; deterministic conflicts terminate with terminal evidence, exhaustion warns on the final delivery.",
 		},
 		{
@@ -386,14 +387,14 @@ func createDurableStreams() []DurableStreamPlan {
 			Subjects: []string{
 				NatsSubjectTaxonomy.RegionalOperationFamilyTemplate(),
 			},
-			Domain:        DurableWorkDomainRegionalCell,
-			SemanticClass: MessagingSemanticClassAuthoritativeJournal,
-			Replicas:      3,
-			Retention:     DurableStreamRetentionLimits,
-			MaximumAge:    30 * 24 * time.Hour,
-			MaximumBytes:  1024 * 1024 * 1024,
-			Discard:       DurableStreamDiscardOld,
-			DuplicateWindow: cell,
+			Domain:                   DurableWorkDomainRegionalCell,
+			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
+			Replicas:                 3,
+			Retention:                DurableStreamRetentionLimits,
+			MaximumAge:               30 * 24 * time.Hour,
+			MaximumBytes:             1024 * 1024 * 1024,
+			Discard:                  DurableStreamDiscardOld,
+			DuplicateWindow:          cell,
 			TerminalEvidenceBehavior: "Authoritative regional operation history; KV CAS plus operation proofs fence every append.",
 		},
 		{
@@ -401,14 +402,14 @@ func createDurableStreams() []DurableStreamPlan {
 			Subjects: []string{
 				NatsSubjectTaxonomy.RegionalObservationFamilyTemplate(),
 			},
-			Domain:        DurableWorkDomainRegionalCell,
-			SemanticClass: MessagingSemanticClassReplayable,
-			Replicas:      3,
-			Retention:     DurableStreamRetentionLimits,
-			MaximumAge:    30 * 24 * time.Hour,
-			MaximumBytes:  256 * 1024 * 1024,
-			Discard:       DurableStreamDiscardOld,
-			DuplicateWindow: cell,
+			Domain:                   DurableWorkDomainRegionalCell,
+			SemanticClass:            MessagingSemanticClassReplayable,
+			Replicas:                 3,
+			Retention:                DurableStreamRetentionLimits,
+			MaximumAge:               30 * 24 * time.Hour,
+			MaximumBytes:             256 * 1024 * 1024,
+			Discard:                  DurableStreamDiscardOld,
+			DuplicateWindow:          cell,
 			TerminalEvidenceBehavior: "Bounded replayable runtime events; consumers reconcile from journals, so loss or replay is safe.",
 		},
 		{
@@ -416,14 +417,14 @@ func createDurableStreams() []DurableStreamPlan {
 			Subjects: []string{
 				NatsSubjectTaxonomy.GlobalRoot() + ".desired.>",
 			},
-			Domain:        DurableWorkDomainGlobalControl,
-			SemanticClass: MessagingSemanticClassAuthoritativeJournal,
-			Replicas:      3,
-			Retention:     DurableStreamRetentionLimits,
-			MaximumAge:    30 * 24 * time.Hour,
-			MaximumBytes:  256 * 1024 * 1024,
-			Discard:       DurableStreamDiscardOld,
-			DuplicateWindow: cell,
+			Domain:                   DurableWorkDomainGlobalControl,
+			SemanticClass:            MessagingSemanticClassAuthoritativeJournal,
+			Replicas:                 3,
+			Retention:                DurableStreamRetentionLimits,
+			MaximumAge:               30 * 24 * time.Hour,
+			MaximumBytes:             256 * 1024 * 1024,
+			Discard:                  DurableStreamDiscardOld,
+			DuplicateWindow:          cell,
 			TerminalEvidenceBehavior: "Accepted global revisions; deterministic conflicts terminate with terminal evidence.",
 		},
 		{
@@ -431,14 +432,14 @@ func createDurableStreams() []DurableStreamPlan {
 			Subjects: []string{
 				NatsSubjectTaxonomy.GlobalCiFamilyPattern(),
 			},
-			Domain:        DurableWorkDomainGlobalControl,
-			SemanticClass: MessagingSemanticClassWorkQueue,
-			Replicas:      3,
-			Retention:     DurableStreamRetentionLimits,
-			MaximumAge:    30 * 24 * time.Hour,
-			MaximumBytes:  1024 * 1024 * 1024,
-			Discard:       DurableStreamDiscardOld,
-			DuplicateWindow: global,
+			Domain:                   DurableWorkDomainGlobalControl,
+			SemanticClass:            MessagingSemanticClassWorkQueue,
+			Replicas:                 3,
+			Retention:                DurableStreamRetentionLimits,
+			MaximumAge:               30 * 24 * time.Hour,
+			MaximumBytes:             1024 * 1024 * 1024,
+			Discard:                  DurableStreamDiscardOld,
+			DuplicateWindow:          global,
 			TerminalEvidenceBehavior: "Normalized CI events and fenced runner commands; trigger conflicts terminate, runner identity conflicts terminate, exhaustion warns on the final delivery.",
 		},
 	}
@@ -457,99 +458,99 @@ func createDurableConsumers() []DurableConsumerPlan {
 	waitingFour := 4
 	return []DurableConsumerPlan{
 		{
-			Stream:        "CELL_EVENTS",
-			Consumer:      "runtime_startup",
-			FilterSubject: NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
-			Domain:        DurableWorkDomainRegionalCell,
-			Ownership:     DurableWorkOwnershipRegionalEquivalentWorkers,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 32,
-			MaximumBatch:  nil,
-			MaximumExpires: nil,
-			MaximumWaiting: &waitingSixteen,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "CELL_EVENTS",
+			Consumer:                 "runtime_startup",
+			FilterSubject:            NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
+			Domain:                   DurableWorkDomainRegionalCell,
+			Ownership:                DurableWorkOwnershipRegionalEquivalentWorkers,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        32,
+			MaximumBatch:             nil,
+			MaximumExpires:           nil,
+			MaximumWaiting:           &waitingSixteen,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: "Acknowledged startup events; a lost acknowledgement redelivers and the idempotent event id converges.",
 		},
 		{
-			Stream:        "CELL_SPEC",
-			Consumer:      "gitops_cell_spec_{instance}",
-			FilterSubject: NatsSubjectTaxonomy.RegionalCellSpecTemplate(),
-			Domain:        DurableWorkDomainRegionalCell,
-			Ownership:     DurableWorkOwnershipRegionalFencedAuthority,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 8,
-			MaximumBatch:  &batchOne,
-			MaximumExpires: &expiresThirty,
-			MaximumWaiting: &waitingEight,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "CELL_SPEC",
+			Consumer:                 "gitops_cell_spec_{instance}",
+			FilterSubject:            NatsSubjectTaxonomy.RegionalCellSpecTemplate(),
+			Domain:                   DurableWorkDomainRegionalCell,
+			Ownership:                DurableWorkOwnershipRegionalFencedAuthority,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        8,
+			MaximumBatch:             &batchOne,
+			MaximumExpires:           &expiresThirty,
+			MaximumWaiting:           &waitingEight,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: cellspecTerminal,
 		},
 		{
-			Stream:        "GLOBAL_SPEC",
-			Consumer:      "gitops_global_cell_spec_{cell}",
-			FilterSubject: NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".{cell}",
-			Domain:        DurableWorkDomainGlobalControl,
-			Ownership:     DurableWorkOwnershipGlobalFencedAuthority,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 8,
-			MaximumBatch:  &batchOne,
-			MaximumExpires: &expiresThirty,
-			MaximumWaiting: &waitingEight,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "GLOBAL_SPEC",
+			Consumer:                 "gitops_global_cell_spec_{cell}",
+			FilterSubject:            NatsSubjectTaxonomy.GlobalCellSpecPrefix() + ".{cell}",
+			Domain:                   DurableWorkDomainGlobalControl,
+			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        8,
+			MaximumBatch:             &batchOne,
+			MaximumExpires:           &expiresThirty,
+			MaximumWaiting:           &waitingEight,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: cellspecTerminal,
 		},
 		{
-			Stream:        "GLOBAL_CI",
-			Consumer:      "global_ci_trigger",
-			FilterSubject: NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
-			Domain:        DurableWorkDomainGlobalControl,
-			Ownership:     DurableWorkOwnershipGlobalFencedAuthority,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 32,
-			MaximumBatch:  nil,
-			MaximumExpires: nil,
-			MaximumWaiting: &waitingSixteen,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "GLOBAL_CI",
+			Consumer:                 "global_ci_trigger",
+			FilterSubject:            NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
+			Domain:                   DurableWorkDomainGlobalControl,
+			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        32,
+			MaximumBatch:             nil,
+			MaximumExpires:           nil,
+			MaximumWaiting:           &waitingSixteen,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: triggerTerminal,
 		},
 		{
-			Stream:        "GLOBAL_CI",
-			Consumer:      "global_ci_runtime_proof",
-			FilterSubject: NatsSubjectTaxonomy.CiRuntimeProofSubject(),
-			Domain:        DurableWorkDomainGlobalControl,
-			Ownership:     DurableWorkOwnershipGlobalFencedAuthority,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 32,
-			MaximumBatch:  &batchOne,
-			MaximumExpires: &expiresThirty,
-			MaximumWaiting: &waitingSixteen,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "GLOBAL_CI",
+			Consumer:                 "global_ci_runtime_proof",
+			FilterSubject:            NatsSubjectTaxonomy.CiRuntimeProofSubject(),
+			Domain:                   DurableWorkDomainGlobalControl,
+			Ownership:                DurableWorkOwnershipGlobalFencedAuthority,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        32,
+			MaximumBatch:             &batchOne,
+			MaximumExpires:           &expiresThirty,
+			MaximumWaiting:           &waitingSixteen,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: "Leader-verified observations double-ack after the durable pointer wins; deterministic failures terminate loudly.",
 		},
 		{
-			Stream:        "GLOBAL_CI",
-			Consumer:      "ci_runner_{zone}_{runner}",
-			FilterSubject: NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".{zone}.{runner}",
-			Domain:        DurableWorkDomainGlobalControl,
-			Ownership:     DurableWorkOwnershipReconciledRunnerIdentity,
-			Acknowledgement: DurableAcknowledgementExplicit,
-			MaximumDeliveries: BoundedRedeliveryPolicyLanded.MaximumDeliveries,
-			BackoffLadder:  ladder,
-			MaximumAckPending: 1,
-			MaximumBatch:  &batchOne,
-			MaximumExpires: &expiresThirty,
-			MaximumWaiting: &waitingFour,
-			FlowControlBasis: pullFlowControlBasis,
+			Stream:                   "GLOBAL_CI",
+			Consumer:                 "ci_runner_{zone}_{runner}",
+			FilterSubject:            NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".{zone}.{runner}",
+			Domain:                   DurableWorkDomainGlobalControl,
+			Ownership:                DurableWorkOwnershipReconciledRunnerIdentity,
+			Acknowledgement:          DurableAcknowledgementExplicit,
+			MaximumDeliveries:        BoundedRedeliveryPolicyLanded.MaximumDeliveries,
+			BackoffLadder:            ladder,
+			MaximumAckPending:        1,
+			MaximumBatch:             &batchOne,
+			MaximumExpires:           &expiresThirty,
+			MaximumWaiting:           &waitingFour,
+			FlowControlBasis:         pullFlowControlBasis,
 			TerminalEvidenceBehavior: "Fenced per-runner inbox (MaxAckPending 1); a message-id/payload identity conflict AckTerminates loudly; progress acks keep long executions leased.",
 		},
 	}
@@ -558,18 +559,18 @@ func createDurableConsumers() []DurableConsumerPlan {
 func createQueueGroups() []QueueGroupPlan {
 	return []QueueGroupPlan{
 		{
-			Group:  "orchestrator_{cell}",
-			Domain: DurableWorkDomainRegionalCell,
-			Ownership: DurableWorkOwnershipRegionalEquivalentWorkers,
+			Group:            "orchestrator_{cell}",
+			Domain:           DurableWorkDomainRegionalCell,
+			Ownership:        DurableWorkOwnershipRegionalEquivalentWorkers,
 			DistributionRule: "Equivalent-worker regional service endpoints; any member may answer a health, status, or members query.",
-			FencingBasis: "No authoritative write rides the group; answers are equivalent and cell-scoped subjects keep membership regional.",
+			FencingBasis:     "No authoritative write rides the group; answers are equivalent and cell-scoped subjects keep membership regional.",
 		},
 		{
-			Group:  "terrascale_orchestrator_journal_writer_{cell}",
-			Domain: DurableWorkDomainRegionalCell,
-			Ownership: DurableWorkOwnershipRegionalEquivalentWorkers,
+			Group:            "terrascale_orchestrator_journal_writer_{cell}",
+			Domain:           DurableWorkDomainRegionalCell,
+			Ownership:        DurableWorkOwnershipRegionalEquivalentWorkers,
 			DistributionRule: "Equivalent-worker journal writer fan-in for one regional cell only.",
-			FencingBasis: "Every authoritative journal append is fenced by the regional lease epoch and single-use operation proofs before and after the write.",
+			FencingBasis:     "Every authoritative journal append is fenced by the regional lease epoch and single-use operation proofs before and after the write.",
 		},
 	}
 }

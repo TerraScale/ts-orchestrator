@@ -18,16 +18,16 @@ import (
 type NatsControlAccountKind int
 
 const (
-	NatsControlAccountKindUnspecified NatsControlAccountKind = 0
+	NatsControlAccountKindUnspecified                  NatsControlAccountKind = 0
 	NatsControlAccountKindInfrastructureAdministration NatsControlAccountKind = 1
-	NatsControlAccountKindGlobalAuthority NatsControlAccountKind = 2
-	NatsControlAccountKindGlobalDirectoryReadService NatsControlAccountKind = 3
-	NatsControlAccountKindRegionalController NatsControlAccountKind = 4
-	NatsControlAccountKindHostAgent NatsControlAccountKind = 5
-	NatsControlAccountKindCiCoordinator NatsControlAccountKind = 6
-	NatsControlAccountKindCiIsolatedRunner NatsControlAccountKind = 7
-	NatsControlAccountKindReadOnlyMonitoring NatsControlAccountKind = 8
-	NatsControlAccountKindBreakGlassRecovery NatsControlAccountKind = 9
+	NatsControlAccountKindGlobalAuthority              NatsControlAccountKind = 2
+	NatsControlAccountKindGlobalDirectoryReadService   NatsControlAccountKind = 3
+	NatsControlAccountKindRegionalController           NatsControlAccountKind = 4
+	NatsControlAccountKindHostAgent                    NatsControlAccountKind = 5
+	NatsControlAccountKindCiCoordinator                NatsControlAccountKind = 6
+	NatsControlAccountKindCiIsolatedRunner             NatsControlAccountKind = 7
+	NatsControlAccountKindReadOnlyMonitoring           NatsControlAccountKind = 8
+	NatsControlAccountKindBreakGlassRecovery           NatsControlAccountKind = 9
 )
 
 func (k NatsControlAccountKind) String() string {
@@ -237,7 +237,7 @@ func (natsControlAccountModel) CompletenessViolations() []string {
 		for _, template := range templates {
 			carriesRegion := strings.Contains(template, NatsSubjectTaxonomy.RegionPlaceholderToken())
 			carriesAgentHash := strings.Contains(template, NatsSubjectTaxonomy.AgentHashPlaceholderToken())
-			materialized := materializeGrantTemplate(template, sampleRegionToken, sampleAgentHashToken())
+			materialized := materializeGrantTemplate(template, sampleRegionToken, sampleAgentHashToken)
 
 			if grants.PlatformOnly {
 				if !isPlatformPattern(materialized) {

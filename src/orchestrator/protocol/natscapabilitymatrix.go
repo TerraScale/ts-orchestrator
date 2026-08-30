@@ -9,29 +9,29 @@ import "strings"
 type NatsCapability int
 
 const (
-	NatsCapabilityUnspecified NatsCapability = 0
-	NatsCapabilityCorePubSub NatsCapability = 1
-	NatsCapabilityRequestReply NatsCapability = 2
+	NatsCapabilityUnspecified          NatsCapability = 0
+	NatsCapabilityCorePubSub           NatsCapability = 1
+	NatsCapabilityRequestReply         NatsCapability = 2
 	NatsCapabilityServicesAndDiscovery NatsCapability = 3
-	NatsCapabilityQueueGroups NatsCapability = 4
-	NatsCapabilityHeaders NatsCapability = 5
-	NatsCapabilityMessageIds NatsCapability = 6
-	NatsCapabilityJetStreamStreams NatsCapability = 7
-	NatsCapabilityDurableConsumers NatsCapability = 8
-	NatsCapabilityAcknowledgement NatsCapability = 9
+	NatsCapabilityQueueGroups          NatsCapability = 4
+	NatsCapabilityHeaders              NatsCapability = 5
+	NatsCapabilityMessageIds           NatsCapability = 6
+	NatsCapabilityJetStreamStreams     NatsCapability = 7
+	NatsCapabilityDurableConsumers     NatsCapability = 8
+	NatsCapabilityAcknowledgement      NatsCapability = 9
 	NatsCapabilityRedeliveryAndBackoff NatsCapability = 10
-	NatsCapabilityFlowControl NatsCapability = 11
-	NatsCapabilityKeyValueCasAndWatch NatsCapability = 12
-	NatsCapabilityObjectStore NatsCapability = 13
-	NatsCapabilityAccounts NatsCapability = 14
-	NatsCapabilityJwts NatsCapability = 15
-	NatsCapabilityNKeys NatsCapability = 16
-	NatsCapabilityMtls NatsCapability = 17
-	NatsCapabilityImportsAndExports NatsCapability = 18
-	NatsCapabilityGateways NatsCapability = 19
-	NatsCapabilityAdvisories NatsCapability = 20
-	NatsCapabilitySystemMonitoring NatsCapability = 21
-	NatsCapabilitySnapshots NatsCapability = 22
+	NatsCapabilityFlowControl          NatsCapability = 11
+	NatsCapabilityKeyValueCasAndWatch  NatsCapability = 12
+	NatsCapabilityObjectStore          NatsCapability = 13
+	NatsCapabilityAccounts             NatsCapability = 14
+	NatsCapabilityJwts                 NatsCapability = 15
+	NatsCapabilityNKeys                NatsCapability = 16
+	NatsCapabilityMtls                 NatsCapability = 17
+	NatsCapabilityImportsAndExports    NatsCapability = 18
+	NatsCapabilityGateways             NatsCapability = 19
+	NatsCapabilityAdvisories           NatsCapability = 20
+	NatsCapabilitySystemMonitoring     NatsCapability = 21
+	NatsCapabilitySnapshots            NatsCapability = 22
 	NatsCapabilityRollingCompatibility NatsCapability = 23
 )
 
@@ -121,31 +121,31 @@ func (d NatsCapabilityDisposition) String() string {
 type NatsCapabilityOwner int
 
 const (
-	NatsCapabilityOwnerUnspecified NatsCapabilityOwner = 0
-	NatsCapabilityOwnerRegionalControlRuntime NatsCapabilityOwner = 1
-	NatsCapabilityOwnerGlobalAuthorityRuntime NatsCapabilityOwner = 2
-	NatsCapabilityOwnerGlobalDirectoryRuntime NatsCapabilityOwner = 3
-	NatsCapabilityOwnerMessagingContracts NatsCapabilityOwner = 4
-	NatsCapabilityOwnerDeliveryContracts NatsCapabilityOwner = 5
-	NatsCapabilityOwnerCiRuntime NatsCapabilityOwner = 6
-	NatsCapabilityOwnerSecurityAndIdentity NatsCapabilityOwner = 7
+	NatsCapabilityOwnerUnspecified             NatsCapabilityOwner = 0
+	NatsCapabilityOwnerRegionalControlRuntime  NatsCapabilityOwner = 1
+	NatsCapabilityOwnerGlobalAuthorityRuntime  NatsCapabilityOwner = 2
+	NatsCapabilityOwnerGlobalDirectoryRuntime  NatsCapabilityOwner = 3
+	NatsCapabilityOwnerMessagingContracts      NatsCapabilityOwner = 4
+	NatsCapabilityOwnerDeliveryContracts       NatsCapabilityOwner = 5
+	NatsCapabilityOwnerCiRuntime               NatsCapabilityOwner = 6
+	NatsCapabilityOwnerSecurityAndIdentity     NatsCapabilityOwner = 7
 	NatsCapabilityOwnerInfrastructureBootstrap NatsCapabilityOwner = 8
-	NatsCapabilityOwnerObservability NatsCapabilityOwner = 9
-	NatsCapabilityOwnerStorageAndSnapshots NatsCapabilityOwner = 10
+	NatsCapabilityOwnerObservability           NatsCapabilityOwner = 9
+	NatsCapabilityOwnerStorageAndSnapshots     NatsCapabilityOwner = 10
 )
 
 // NatsDataClass mirrors the NatsDataClass enum.
 type NatsDataClass int
 
 const (
-	NatsDataClassUnspecified NatsDataClass = 0
-	NatsDataClassControlCommand NatsDataClass = 1
-	NatsDataClassAuthoritativeState NatsDataClass = 2
-	NatsDataClassCoordinationRecord NatsDataClass = 3
-	NatsDataClassProjectionSnapshot NatsDataClass = 4
-	NatsDataClassEvidenceArtifact NatsDataClass = 5
+	NatsDataClassUnspecified          NatsDataClass = 0
+	NatsDataClassControlCommand       NatsDataClass = 1
+	NatsDataClassAuthoritativeState   NatsDataClass = 2
+	NatsDataClassCoordinationRecord   NatsDataClass = 3
+	NatsDataClassProjectionSnapshot   NatsDataClass = 4
+	NatsDataClassEvidenceArtifact     NatsDataClass = 5
 	NatsDataClassOperationalTelemetry NatsDataClass = 6
-	NatsDataClassOperatorQuery NatsDataClass = 7
+	NatsDataClassOperatorQuery        NatsDataClass = 7
 )
 
 // NatsDurabilityClass mirrors the NatsDurabilityClass enum.
@@ -185,17 +185,17 @@ const (
 // evidence. Deferred entries carry a revisit trigger; rejected entries carry
 // an exclusion rationale.
 type NatsCapabilityEntry struct {
-	Capability                    NatsCapability
-	Disposition                   NatsCapabilityDisposition
-	Owner                         NatsCapabilityOwner
-	DataClass                     NatsDataClass
-	Durability                    NatsDurabilityClass
-	Ordering                      NatsOrderingClass
-	SecurityBoundary              string
-	FailureMode                   string
-	ObservabilityRequirement      string
+	Capability                         NatsCapability
+	Disposition                        NatsCapabilityDisposition
+	Owner                              NatsCapabilityOwner
+	DataClass                          NatsDataClass
+	Durability                         NatsDurabilityClass
+	Ordering                           NatsOrderingClass
+	SecurityBoundary                   string
+	FailureMode                        string
+	ObservabilityRequirement           string
 	RevisitTriggerOrRejectionRationale string
-	LandedEvidence                string
+	LandedEvidence                     string
 }
 
 // IsWellFormed mirrors the internal rule.
@@ -351,9 +351,9 @@ func deferredNatsCapability(
 	revisitTrigger string,
 ) NatsCapabilityEntry {
 	return NatsCapabilityEntry{
-		Capability:                        capability,
-		Disposition:                       NatsCapabilityDispositionDefer,
-		Owner:                             owner,
+		Capability:                         capability,
+		Disposition:                        NatsCapabilityDispositionDefer,
+		Owner:                              owner,
 		RevisitTriggerOrRejectionRationale: revisitTrigger,
 	}
 }
@@ -364,9 +364,9 @@ func rejectedNatsCapability(
 	rationale string,
 ) NatsCapabilityEntry {
 	return NatsCapabilityEntry{
-		Capability:                        capability,
-		Disposition:                       NatsCapabilityDispositionReject,
-		Owner:                             owner,
+		Capability:                         capability,
+		Disposition:                        NatsCapabilityDispositionReject,
+		Owner:                              owner,
 		RevisitTriggerOrRejectionRationale: rationale,
 	}
 }

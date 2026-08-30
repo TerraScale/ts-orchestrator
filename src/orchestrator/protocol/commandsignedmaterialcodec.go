@@ -76,7 +76,7 @@ func (commandSignedMaterialCodec) Encode(material *CommandSignedMaterial) ([]byt
 	writer.writeInt64(dotNetOffsetTicks(material.ExpiresAt))
 	writer.writeInt64(material.Attempt.Value)
 	writer.writeBytes(material.Payload.Bytes())
-	writer.writeBytes(material.PayloadDigest.Bytes)
+	writer.writeBytes(material.PayloadDigest.Bytes())
 	if writer.written > maximumEncodedBytes {
 		return nil, invalidData("The canonical command signing material exceeded its bound.")
 	}
@@ -112,7 +112,7 @@ func validateCommandSignedMaterial(material *CommandSignedMaterial) error {
 
 // bigEndianWriter mirrors ArrayBufferWriter<byte> plus the Write helpers.
 type bigEndianWriter struct {
-	buffer []byte
+	buffer  []byte
 	written int
 }
 

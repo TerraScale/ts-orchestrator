@@ -63,9 +63,9 @@ func (r *SemanticClassRule) Matches(subject *ConcreteSubject) bool {
 // StoreClassRule classifies one JetStream KV bucket or Object Store record by
 // bucket identity.
 type StoreClassRule struct {
-	StoreIdentity  string
-	SemanticClass  MessagingSemanticClass
-	LossMeaning    string
+	StoreIdentity string
+	SemanticClass MessagingSemanticClass
+	LossMeaning   string
 }
 
 // MessagingSemanticClasses mirrors the C# static class: the declarative

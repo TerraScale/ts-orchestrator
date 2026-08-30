@@ -33,22 +33,22 @@ type ICommandSignatureVerifier interface {
 type CommandValidationError int
 
 const (
-	CommandValidationErrorUninitialized               CommandValidationError = 0
-	CommandValidationErrorNone                        CommandValidationError = 1
-	CommandValidationErrorInvalidValidationContext    CommandValidationError = 2
-	CommandValidationErrorMalformedEnvelope           CommandValidationError = 3
-	CommandValidationErrorUnsupportedProtocolVersion  CommandValidationError = 4
-	CommandValidationErrorInvalidValidityWindow       CommandValidationError = 5
-	CommandValidationErrorNotYetValid                 CommandValidationError = 6
-	CommandValidationErrorExpired                     CommandValidationError = 7
-	CommandValidationErrorWrongCell                   CommandValidationError = 8
-	CommandValidationErrorWrongAggregateIdentity      CommandValidationError = 9
-	CommandValidationErrorStaleGeneration             CommandValidationError = 10
-	CommandValidationErrorStaleWriterEpoch            CommandValidationError = 11
-	CommandValidationErrorPayloadDigestMismatch       CommandValidationError = 12
+	CommandValidationErrorUninitialized                   CommandValidationError = 0
+	CommandValidationErrorNone                            CommandValidationError = 1
+	CommandValidationErrorInvalidValidationContext        CommandValidationError = 2
+	CommandValidationErrorMalformedEnvelope               CommandValidationError = 3
+	CommandValidationErrorUnsupportedProtocolVersion      CommandValidationError = 4
+	CommandValidationErrorInvalidValidityWindow           CommandValidationError = 5
+	CommandValidationErrorNotYetValid                     CommandValidationError = 6
+	CommandValidationErrorExpired                         CommandValidationError = 7
+	CommandValidationErrorWrongCell                       CommandValidationError = 8
+	CommandValidationErrorWrongAggregateIdentity          CommandValidationError = 9
+	CommandValidationErrorStaleGeneration                 CommandValidationError = 10
+	CommandValidationErrorStaleWriterEpoch                CommandValidationError = 11
+	CommandValidationErrorPayloadDigestMismatch           CommandValidationError = 12
 	CommandValidationErrorPayloadDigestVerificationFailed CommandValidationError = 13
-	CommandValidationErrorInvalidSignature            CommandValidationError = 14
-	CommandValidationErrorSignatureVerificationFailed CommandValidationError = 15
+	CommandValidationErrorInvalidSignature                CommandValidationError = 14
+	CommandValidationErrorSignatureVerificationFailed     CommandValidationError = 15
 )
 
 func (e CommandValidationError) String() string {
@@ -206,14 +206,14 @@ func (a CommandAcceptance) String() string {
 
 // CommandValidationContext is the frozen admission context of one validator.
 type CommandValidationContext struct {
-	ExpectedCell              contracts.CellId
-	ExpectedAggregateId       contracts.AggregateId
-	MinimumDesiredGeneration  DesiredGeneration
-	MinimumWriterEpoch        WriterEpoch
-	acceptedProtocolVersions  map[ProtocolRevision]struct{}
-	AllowedClockSkew          time.Duration
-	PayloadDigestVerifier     IPayloadDigestVerifier
-	SignatureVerifier         ICommandSignatureVerifier
+	ExpectedCell             contracts.CellId
+	ExpectedAggregateId      contracts.AggregateId
+	MinimumDesiredGeneration DesiredGeneration
+	MinimumWriterEpoch       WriterEpoch
+	acceptedProtocolVersions map[ProtocolRevision]struct{}
+	AllowedClockSkew         time.Duration
+	PayloadDigestVerifier    IPayloadDigestVerifier
+	SignatureVerifier        ICommandSignatureVerifier
 }
 
 // NewCommandValidationContext mirrors the C# constructor; it defensively

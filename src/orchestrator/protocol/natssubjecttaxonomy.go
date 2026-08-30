@@ -49,7 +49,9 @@ func (natsSubjectTaxonomy) AgentHashPlaceholderToken() string { return "<agent-h
 
 // GlobalRoot mirrors NatsSubjectTaxonomy.GlobalRoot: the global-authority
 // namespace root (GRU-owned global journals, releases, and directory).
-func (natsSubjectTaxonomy) GlobalRoot() string { return NatsSubjectTaxonomy.Root() + "." + NatsSubjectTaxonomy.GlobalScopeToken() }
+func (natsSubjectTaxonomy) GlobalRoot() string {
+	return NatsSubjectTaxonomy.Root() + "." + NatsSubjectTaxonomy.GlobalScopeToken()
+}
 
 // GlobalDirectoryQuerySubject mirrors the directory query service subject
 // served by the GRU directory-service identity.
@@ -1020,17 +1022,17 @@ func createGrammarLimits() *SubjectGrammarLimits {
 type NatsSubjectNamespace int
 
 const (
-	NatsSubjectNamespaceUnspecified NatsSubjectNamespace = 0
-	NatsSubjectNamespaceGlobalAuthority NatsSubjectNamespace = 1
-	NatsSubjectNamespaceGlobalDirectory NatsSubjectNamespace = 2
-	NatsSubjectNamespaceRegionalControl NatsSubjectNamespace = 3
-	NatsSubjectNamespaceAgent NatsSubjectNamespace = 4
+	NatsSubjectNamespaceUnspecified           NatsSubjectNamespace = 0
+	NatsSubjectNamespaceGlobalAuthority       NatsSubjectNamespace = 1
+	NatsSubjectNamespaceGlobalDirectory       NatsSubjectNamespace = 2
+	NatsSubjectNamespaceRegionalControl       NatsSubjectNamespace = 3
+	NatsSubjectNamespaceAgent                 NatsSubjectNamespace = 4
 	NatsSubjectNamespaceContinuousIntegration NatsSubjectNamespace = 5
-	NatsSubjectNamespaceOperations NatsSubjectNamespace = 6
-	NatsSubjectNamespaceAudit NatsSubjectNamespace = 7
-	NatsSubjectNamespaceProductPlane NatsSubjectNamespace = 8
-	NatsSubjectNamespacePlatformReserved NatsSubjectNamespace = 9
-	NatsSubjectNamespaceUnknown NatsSubjectNamespace = 10
+	NatsSubjectNamespaceOperations            NatsSubjectNamespace = 6
+	NatsSubjectNamespaceAudit                 NatsSubjectNamespace = 7
+	NatsSubjectNamespaceProductPlane          NatsSubjectNamespace = 8
+	NatsSubjectNamespacePlatformReserved      NatsSubjectNamespace = 9
+	NatsSubjectNamespaceUnknown               NatsSubjectNamespace = 10
 )
 
 func (ns NatsSubjectNamespace) String() string {
@@ -1065,16 +1067,16 @@ func (ns NatsSubjectNamespace) String() string {
 type NatsSubjectPermissionError int
 
 const (
-	NatsSubjectPermissionErrorNone NatsSubjectPermissionError = 0
-	NatsSubjectPermissionErrorMalformedPattern NatsSubjectPermissionError = 1
-	NatsSubjectPermissionErrorOutsideControlRoot NatsSubjectPermissionError = 2
-	NatsSubjectPermissionErrorSupersededRoot NatsSubjectPermissionError = 3
-	NatsSubjectPermissionErrorWildcardInScopeToken NatsSubjectPermissionError = 4
+	NatsSubjectPermissionErrorNone                  NatsSubjectPermissionError = 0
+	NatsSubjectPermissionErrorMalformedPattern      NatsSubjectPermissionError = 1
+	NatsSubjectPermissionErrorOutsideControlRoot    NatsSubjectPermissionError = 2
+	NatsSubjectPermissionErrorSupersededRoot        NatsSubjectPermissionError = 3
+	NatsSubjectPermissionErrorWildcardInScopeToken  NatsSubjectPermissionError = 4
 	NatsSubjectPermissionErrorWildcardInFamilyToken NatsSubjectPermissionError = 5
-	NatsSubjectPermissionErrorInvalidRegionToken NatsSubjectPermissionError = 6
-	NatsSubjectPermissionErrorUnknownFamily NatsSubjectPermissionError = 7
+	NatsSubjectPermissionErrorInvalidRegionToken    NatsSubjectPermissionError = 6
+	NatsSubjectPermissionErrorUnknownFamily         NatsSubjectPermissionError = 7
 	NatsSubjectPermissionErrorInvalidAgentHashToken NatsSubjectPermissionError = 8
-	NatsSubjectPermissionErrorPlatformReserved NatsSubjectPermissionError = 9
+	NatsSubjectPermissionErrorPlatformReserved      NatsSubjectPermissionError = 9
 )
 
 func (e NatsSubjectPermissionError) String() string {
@@ -1109,14 +1111,14 @@ func (e NatsSubjectPermissionError) String() string {
 type NatsSubjectAdmissionError int
 
 const (
-	NatsSubjectAdmissionErrorNone NatsSubjectAdmissionError = 0
-	NatsSubjectAdmissionErrorMalformedSubject NatsSubjectAdmissionError = 1
-	NatsSubjectAdmissionErrorOutsideControlRoot NatsSubjectAdmissionError = 2
-	NatsSubjectAdmissionErrorSupersededRoot NatsSubjectAdmissionError = 3
-	NatsSubjectAdmissionErrorUnknownNamespace NatsSubjectAdmissionError = 4
+	NatsSubjectAdmissionErrorNone                  NatsSubjectAdmissionError = 0
+	NatsSubjectAdmissionErrorMalformedSubject      NatsSubjectAdmissionError = 1
+	NatsSubjectAdmissionErrorOutsideControlRoot    NatsSubjectAdmissionError = 2
+	NatsSubjectAdmissionErrorSupersededRoot        NatsSubjectAdmissionError = 3
+	NatsSubjectAdmissionErrorUnknownNamespace      NatsSubjectAdmissionError = 4
 	NatsSubjectAdmissionErrorCustomerTextInSubject NatsSubjectAdmissionError = 5
 	NatsSubjectAdmissionErrorInvalidAgentHashToken NatsSubjectAdmissionError = 6
-	NatsSubjectAdmissionErrorPlatformReserved NatsSubjectAdmissionError = 7
+	NatsSubjectAdmissionErrorPlatformReserved      NatsSubjectAdmissionError = 7
 )
 
 func (e NatsSubjectAdmissionError) String() string {

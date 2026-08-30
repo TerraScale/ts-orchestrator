@@ -171,16 +171,16 @@ func (s MessagingTargetScope) IsWellFormed() bool {
 // messaging-correlation, source/target, trace, payload-type, and observation
 // metadata.
 type MessagingEnvelope struct {
-	SchemaVersion  MessagingSchemaVersion
-	MessageId      MessageIdentityToken
-	CorrelationId  *MessageIdentityToken
-	CausationId    *MessageIdentityToken
-	Source         MessagingSource
-	Target         MessagingTargetScope
-	PayloadType    string
-	Command        *CommandEnvelope
-	TraceContext   *MessagingTraceContext
-	ObservedAt     time.Time
+	SchemaVersion MessagingSchemaVersion
+	MessageId     MessageIdentityToken
+	CorrelationId *MessageIdentityToken
+	CausationId   *MessageIdentityToken
+	Source        MessagingSource
+	Target        MessagingTargetScope
+	PayloadType   string
+	Command       *CommandEnvelope
+	TraceContext  *MessagingTraceContext
+	ObservedAt    time.Time
 }
 
 // String mirrors the C# ToString: the message id is redacted.
@@ -195,19 +195,19 @@ func (e MessagingEnvelope) String() string {
 type MessagingEnvelopeError int
 
 const (
-	MessagingEnvelopeErrorNone MessagingEnvelopeError = 0
-	MessagingEnvelopeErrorNullEnvelope MessagingEnvelopeError = 1
-	MessagingEnvelopeErrorUnknownMajorVersion MessagingEnvelopeError = 2
-	MessagingEnvelopeErrorMalformedEnvelope MessagingEnvelopeError = 3
-	MessagingEnvelopeErrorMalformedSubject MessagingEnvelopeError = 4
+	MessagingEnvelopeErrorNone                         MessagingEnvelopeError = 0
+	MessagingEnvelopeErrorNullEnvelope                 MessagingEnvelopeError = 1
+	MessagingEnvelopeErrorUnknownMajorVersion          MessagingEnvelopeError = 2
+	MessagingEnvelopeErrorMalformedEnvelope            MessagingEnvelopeError = 3
+	MessagingEnvelopeErrorMalformedSubject             MessagingEnvelopeError = 4
 	MessagingEnvelopeErrorSubjectOutsideClosedTaxonomy MessagingEnvelopeError = 5
 	// MessagingEnvelopeErrorDeclaredNamespaceMismatch reports that the declared
 	// target namespace disagrees with the subject's derived classification.
 	MessagingEnvelopeErrorDeclaredNamespaceMismatch MessagingEnvelopeError = 6
-	MessagingEnvelopeErrorSubjectCellMismatch MessagingEnvelopeError = 7
-	MessagingEnvelopeErrorSourceCellMismatch MessagingEnvelopeError = 8
-	MessagingEnvelopeErrorPayloadTypeNotPermitted MessagingEnvelopeError = 9
-	MessagingEnvelopeErrorInvalidTraceContext MessagingEnvelopeError = 10
+	MessagingEnvelopeErrorSubjectCellMismatch       MessagingEnvelopeError = 7
+	MessagingEnvelopeErrorSourceCellMismatch        MessagingEnvelopeError = 8
+	MessagingEnvelopeErrorPayloadTypeNotPermitted   MessagingEnvelopeError = 9
+	MessagingEnvelopeErrorInvalidTraceContext       MessagingEnvelopeError = 10
 	// MessagingEnvelopeErrorCommandRejected reports that the signed command
 	// contract rejected the envelope; CommandError carries the exact reason.
 	MessagingEnvelopeErrorCommandRejected MessagingEnvelopeError = 11
@@ -215,9 +215,9 @@ const (
 
 // MessagingEnvelopeResult mirrors the readonly record struct of the same name.
 type MessagingEnvelopeResult struct {
-	Error         MessagingEnvelopeError
-	CommandError  CommandValidationError
-	Envelope      *MessagingEnvelope
+	Error        MessagingEnvelopeError
+	CommandError CommandValidationError
+	Envelope     *MessagingEnvelope
 }
 
 // IsAccepted reports whether the envelope was admitted.

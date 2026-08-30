@@ -66,14 +66,14 @@ func (f ProtocolSubjectFamily) IsWellFormed() bool {
 // <region> and <agent-hash> when a scope is instantiated. BreakGlass kinds
 // hold no standing grants at all.
 type ProtocolAccountKindGrants struct {
-	Kind           string
-	RegionScoped   bool
+	Kind            string
+	RegionScoped    bool
 	AgentHashScoped bool
-	PlatformOnly   bool
-	ReadOnly       bool
-	BreakGlass     bool
-	Publish        []string
-	Subscribe      []string
+	PlatformOnly    bool
+	ReadOnly        bool
+	BreakGlass      bool
+	Publish         []string
+	Subscribe       []string
 }
 
 // IsWellFormed mirrors the internal grants well-formedness rule.
@@ -136,20 +136,20 @@ func isUnicodeWhitespace(r rune) bool {
 // InvalidOperationException thrown out of the lazy loader), never a silent
 // fallback to compiled defaults.
 type ProtocolManifest struct {
-	Name                string
-	Version             string
-	Root                string
-	SupersededRoots     []string
+	Name                 string
+	Version              string
+	Root                 string
+	SupersededRoots      []string
 	ReservedRegionTokens []string
-	SubjectFamilies     []ProtocolSubjectFamily
-	AccountKinds        []ProtocolAccountKindGrants
+	SubjectFamilies      []ProtocolSubjectFamily
+	AccountKinds         []ProtocolAccountKindGrants
 }
 
 // ManifestResourceName mirrors the C# const naming the embedded resource.
 const ManifestResourceName = "TerraScale.Orchestrator.Protocol.protocol-manifest.json"
 
 const (
-	maximumManifestBytes = 1024 * 1024
+	maximumManifestBytes   = 1024 * 1024
 	maximumSubjectFamilies = 64
 	maximumAccountKinds    = 32
 )
@@ -216,8 +216,8 @@ func protocolManifestFromDto(dto *protocolManifestDto) *ProtocolManifest {
 
 	families := make([]ProtocolSubjectFamily, len(dto.SubjectFamilies))
 	familyKeys := map[ProtocolSubjectFamilyScope]map[string]struct{}{
-		ProtocolSubjectFamilyScopeGlobal:   {},
-		ProtocolSubjectFamilyScopeRegional: {},
+		ProtocolSubjectFamilyScopeGlobal:      {},
+		ProtocolSubjectFamilyScopeRegional:    {},
 		ProtocolSubjectFamilyScopeUnspecified: {},
 	}
 	familyPatterns := map[string]struct{}{}
@@ -355,13 +355,13 @@ func derefStringSlice(values []string) []string {
 // The wire DTOs mirror the C# DTO shapes: camelCase property names and
 // nullable strings/lists (System.Text.Json source generation, default options).
 type protocolManifestDto struct {
-	Name            *string                  `json:"name"`
-	Version         *string                  `json:"version"`
-	Root            *string                  `json:"root"`
-	SupersededRoots []string                 `json:"supersededRoots"`
-	RegionToken     *protocolRegionTokenDto  `json:"regionToken"`
+	Name            *string                    `json:"name"`
+	Version         *string                    `json:"version"`
+	Root            *string                    `json:"root"`
+	SupersededRoots []string                   `json:"supersededRoots"`
+	RegionToken     *protocolRegionTokenDto    `json:"regionToken"`
 	SubjectFamilies []protocolSubjectFamilyDto `json:"subjectFamilies"`
-	AccountKinds    []protocolAccountKindDto `json:"accountKinds"`
+	AccountKinds    []protocolAccountKindDto   `json:"accountKinds"`
 }
 
 type protocolRegionTokenDto struct {

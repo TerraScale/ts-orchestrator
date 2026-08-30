@@ -5,9 +5,9 @@ package protocol
 // length, token count, token length, and permission-pattern count. The zero
 // value is not a valid policy.
 type SubjectGrammarLimits struct {
-	MaximumSubjectLength         int
-	MaximumTokenCount            int
-	MaximumTokenLength           int
+	MaximumSubjectLength          int
+	MaximumTokenCount             int
+	MaximumTokenLength            int
 	MaximumPermissionPatternCount int
 }
 

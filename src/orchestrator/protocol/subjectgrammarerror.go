@@ -11,19 +11,19 @@ import (
 type SubjectGrammarError int
 
 const (
-	SubjectGrammarErrorNone SubjectGrammarError = 0
-	SubjectGrammarErrorInvalidLimits SubjectGrammarError = 1
-	SubjectGrammarErrorEmpty SubjectGrammarError = 2
-	SubjectGrammarErrorSubjectTooLong SubjectGrammarError = 3
-	SubjectGrammarErrorTooManyTokens SubjectGrammarError = 4
-	SubjectGrammarErrorEmptyToken SubjectGrammarError = 5
-	SubjectGrammarErrorTokenTooLong SubjectGrammarError = 6
-	SubjectGrammarErrorWhitespaceNotAllowed SubjectGrammarError = 7
-	SubjectGrammarErrorControlCharacterNotAllowed SubjectGrammarError = 8
+	SubjectGrammarErrorNone                         SubjectGrammarError = 0
+	SubjectGrammarErrorInvalidLimits                SubjectGrammarError = 1
+	SubjectGrammarErrorEmpty                        SubjectGrammarError = 2
+	SubjectGrammarErrorSubjectTooLong               SubjectGrammarError = 3
+	SubjectGrammarErrorTooManyTokens                SubjectGrammarError = 4
+	SubjectGrammarErrorEmptyToken                   SubjectGrammarError = 5
+	SubjectGrammarErrorTokenTooLong                 SubjectGrammarError = 6
+	SubjectGrammarErrorWhitespaceNotAllowed         SubjectGrammarError = 7
+	SubjectGrammarErrorControlCharacterNotAllowed   SubjectGrammarError = 8
 	SubjectGrammarErrorInvalidUnicodeScalarSequence SubjectGrammarError = 9
-	SubjectGrammarErrorWildcardNotAllowed SubjectGrammarError = 10
-	SubjectGrammarErrorInvalidWildcard SubjectGrammarError = 11
-	SubjectGrammarErrorTerminalWildcardMustBeFinal SubjectGrammarError = 12
+	SubjectGrammarErrorWildcardNotAllowed           SubjectGrammarError = 10
+	SubjectGrammarErrorInvalidWildcard              SubjectGrammarError = 11
+	SubjectGrammarErrorTerminalWildcardMustBeFinal  SubjectGrammarError = 12
 )
 
 func (e SubjectGrammarError) String() string {

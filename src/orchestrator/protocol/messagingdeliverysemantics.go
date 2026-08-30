@@ -14,9 +14,9 @@ import (
 // and authority loss after acceptance withholds the ack so the next epoch
 // holder re-derives the outcome.
 type DurableEffectAcknowledgementPolicy struct {
-	RequiresDoubleAck      bool
-	ProgressHeartbeat      *time.Duration
-	DurableEffectEvidence  string
+	RequiresDoubleAck     bool
+	ProgressHeartbeat     *time.Duration
+	DurableEffectEvidence string
 }
 
 // DurableEffectAcknowledgementPolicyLanded mirrors DurableEffectAcknowledgementPolicy.Landed.
@@ -47,9 +47,9 @@ func (p DurableEffectAcknowledgementPolicy) IsWellFormed() bool {
 // per-consumer flow control may tighten it further (the fenced CI runner
 // inbox pins 1) but never loosens the redelivery contract.
 type BoundedRedeliveryPolicy struct {
-	MaximumDeliveries              int
-	BackoffLadder                  []time.Duration
-	MaximumAckPending              int
+	MaximumDeliveries                  int
+	BackoffLadder                      []time.Duration
+	MaximumAckPending                  int
 	ExhaustionRequiresTerminalEvidence bool
 }
 
@@ -62,7 +62,7 @@ var BoundedRedeliveryPolicyLanded = BoundedRedeliveryPolicy{
 		15 * time.Second,
 		30 * time.Second,
 	},
-	MaximumAckPending:              8,
+	MaximumAckPending:                  8,
 	ExhaustionRequiresTerminalEvidence: true,
 }
 
@@ -125,12 +125,12 @@ const (
 type PoisonTerminalReason int
 
 const (
-	PoisonTerminalReasonUnspecified PoisonTerminalReason = 0
-	PoisonTerminalReasonDeterministicIdentityConflict PoisonTerminalReason = 1
-	PoisonTerminalReasonMalformedEnvelope PoisonTerminalReason = 2
+	PoisonTerminalReasonUnspecified                            PoisonTerminalReason = 0
+	PoisonTerminalReasonDeterministicIdentityConflict          PoisonTerminalReason = 1
+	PoisonTerminalReasonMalformedEnvelope                      PoisonTerminalReason = 2
 	PoisonTerminalReasonDuplicateOperationWithDifferentPayload PoisonTerminalReason = 3
-	PoisonTerminalReasonDeliveryBudgetExhausted PoisonTerminalReason = 4
-	PoisonTerminalReasonJournalRetentionOverflow PoisonTerminalReason = 5
+	PoisonTerminalReasonDeliveryBudgetExhausted                PoisonTerminalReason = 4
+	PoisonTerminalReasonJournalRetentionOverflow               PoisonTerminalReason = 5
 )
 
 // PoisonDecision mirrors the nested PoisonDecision record.
@@ -431,11 +431,11 @@ func (duplicateWindowDelivery) Decide(decision DuplicateWindowDecision) Duplicat
 // RegionalAuthorityCoordinator lease document: epoch from KV CAS, lease
 // expiry, and the KV revision of the accepted authority generation.
 type AuthorityLeaseClaim struct {
-	Epoch           int64
-	KvRevision      int64
-	LeaseExpiresAt  time.Time
-	AuthorityId     string
-	CandidateId     string
+	Epoch          int64
+	KvRevision     int64
+	LeaseExpiresAt time.Time
+	AuthorityId    string
+	CandidateId    string
 }
 
 // IsLive mirrors IsLive.
