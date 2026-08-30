@@ -13,7 +13,7 @@ import (
 
 // HostCommandResult is one captured host command execution.
 type HostCommandResult struct {
-	ExitCode      int
+	ExitCode       int
 	StandardOutput string
 	StandardError  string
 }

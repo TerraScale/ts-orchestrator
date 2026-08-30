@@ -81,12 +81,12 @@ func mcpReject(code McpAdmissionCode, field string, detail string) McpAdmissionD
 // mcpWorkloadManifestDocument is the strict wire shape of one manifest
 // document: nullable members mirror the C# nullability with pointers.
 type mcpWorkloadManifestDocument struct {
-	SchemaVersion    *mcpDocumentInt    `json:"schemaVersion"`
+	SchemaVersion    *mcpDocumentInt      `json:"schemaVersion"`
 	Artifact         *mcpArtifactDocument `json:"artifact"`
-	HttpListenerPort *mcpDocumentInt    `json:"httpListenerPort"`
-	Configuration    map[string]*string `json:"configuration"`
-	SecretReferences []*string          `json:"secretReferences"`
-	Probes           []*string          `json:"probes"`
+	HttpListenerPort *mcpDocumentInt      `json:"httpListenerPort"`
+	Configuration    map[string]*string   `json:"configuration"`
+	SecretReferences []*string            `json:"secretReferences"`
+	Probes           []*string            `json:"probes"`
 }
 
 type mcpArtifactDocument struct {
@@ -128,11 +128,11 @@ func (d *mcpDocumentInt) UnmarshalJSON(data []byte) error {
 
 // McpWorkloadAdmission constants.
 const (
-	McpWorkloadAdmissionCurrentSchemaVersion          = 1
-	McpWorkloadAdmissionMaximumDocumentCharacters     = 65_536
-	McpWorkloadAdmissionMaximumConfigurationKeys      = 16
+	McpWorkloadAdmissionCurrentSchemaVersion            = 1
+	McpWorkloadAdmissionMaximumDocumentCharacters       = 65_536
+	McpWorkloadAdmissionMaximumConfigurationKeys        = 16
 	McpWorkloadAdmissionMaximumConfigurationValueLength = 256
-	McpWorkloadAdmissionMaximumSecretReferences       = 4
+	McpWorkloadAdmissionMaximumSecretReferences         = 4
 )
 
 var mcpAllowedRootFields = map[string]bool{
@@ -181,9 +181,12 @@ func (mcpWorkloadAdmission) AdmitDocument(document string, qualification *McpHtt
 		return mcpReject(McpAdmissionCodeDocumentInvalid, "document",
 			"The manifest document is not valid JSON.")
 	}
+	if trimmed := strings.TrimSpace(document); trimmed == "" || trimmed[0] != '{' {
+		return mcpReject(McpAdmissionCodeDocumentInvalid, "document",
+			"The manifest document must be a single JSON object.")
+	}
 	decoder := json.NewDecoder(strings.NewReader(document))
 	decoder.UseNumber()
-	decoder.More()
 	violation, err := mcpScanElement(decoder, "", "")
 	if err != nil {
 		return mcpReject(McpAdmissionCodeDocumentInvalid, "document",

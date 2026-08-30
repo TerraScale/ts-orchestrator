@@ -1,8 +1,6 @@
 // This file ports Security/SystemProjectBootstrap/BootstrapGrantVerifier.cs.
 package security
 
-import "time"
-
 // BootstrapGrantVerifier ports the static BootstrapGrantVerifier class; call it
 // as security.BootstrapGrantVerifier.Verify(input) to mirror the C# call site.
 var BootstrapGrantVerifier bootstrapGrantVerifier

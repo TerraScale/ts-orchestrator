@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	goruntime "runtime"
 )
 
 const infisicalForbiddenFileMode = 0o077
@@ -170,7 +172,7 @@ func infisicalReadSecret(value string) (string, error) {
 }
 
 func infisicalWriteSecret(value string, secret string) error {
-	if os.GOOS != "linux" {
+	if goruntime.GOOS != "linux" {
 		return &PlatformNotSupportedError{
 			Message: "Infisical secret files require Linux file permissions.",
 		}
@@ -218,7 +220,7 @@ func infisicalWriteSecret(value string, secret string) error {
 }
 
 func infisicalRequirePrivateFile(value string, mustExist bool) (string, error) {
-	if os.GOOS != "linux" {
+	if goruntime.GOOS != "linux" {
 		return "", &PlatformNotSupportedError{
 			Message: "Infisical secret files require Linux file permissions.",
 		}

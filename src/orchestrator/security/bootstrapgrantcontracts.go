@@ -444,7 +444,7 @@ func NewBootstrapGrant(
 
 // BootstrapGrantSignatureEvidence carries the verified signature status.
 type BootstrapGrantSignatureEvidence struct {
-	Status      BootstrapGrantSignatureStatus
+	Status       BootstrapGrantSignatureStatus
 	VerifiedWith *BootstrapTrustBundleKey
 }
 
@@ -469,14 +469,14 @@ type BootstrapGrantReplayConsumer interface {
 
 // BootstrapGrantVerificationContext pins every expected value of one verify.
 type BootstrapGrantVerificationContext struct {
-	RequestedOperation           BootstrapOperation
-	ExpectedAudience             BootstrapAudience
+	RequestedOperation            BootstrapOperation
+	ExpectedAudience              BootstrapAudience
 	ExpectedCertificateThumbprint BootstrapCertificateThumbprint
-	ExpectedTarget               BootstrapSystemProjectIdentity
-	SystemProjectAllowlist       *BootstrapSystemProjectAllowlist
-	TrustBundle                  BootstrapTrustBundleRotation
-	Now                          time.Time
-	MaximumLifetime              time.Duration
+	ExpectedTarget                BootstrapSystemProjectIdentity
+	SystemProjectAllowlist        *BootstrapSystemProjectAllowlist
+	TrustBundle                   BootstrapTrustBundleRotation
+	Now                           time.Time
+	MaximumLifetime               time.Duration
 }
 
 // NewBootstrapGrantVerificationContext validates the context.
@@ -513,10 +513,10 @@ func NewBootstrapGrantVerificationContext(
 
 // BootstrapGrantVerificationInput bundles one verification request.
 type BootstrapGrantVerificationInput struct {
-	Grant            BootstrapGrant
-	Context          BootstrapGrantVerificationContext
+	Grant             BootstrapGrant
+	Context           BootstrapGrantVerificationContext
 	SignatureEvidence *BootstrapGrantSignatureEvidence
-	ReplayConsumer   BootstrapGrantReplayConsumer
+	ReplayConsumer    BootstrapGrantReplayConsumer
 }
 
 // NewBootstrapGrantVerificationInput validates the required inputs.
@@ -536,17 +536,17 @@ func NewBootstrapGrantVerificationInput(
 
 // BootstrapGrantAuditFacts is the redacted audit projection of one verify.
 type BootstrapGrantAuditFacts struct {
-	Code                 BootstrapGrantDecisionCode
-	Operation            *BootstrapOperation
-	TrustBundleKeyId     *string
-	TrustBundleVersion   *uint64
-	TargetAllowlisted    bool
+	Code                  BootstrapGrantDecisionCode
+	Operation             *BootstrapOperation
+	TrustBundleKeyId      *string
+	TrustBundleVersion    *uint64
+	TargetAllowlisted     bool
 	CustomerProjectDenied bool
-	AudienceMatched      bool
-	CertificateMatched   bool
-	TimeWindowValid      bool
-	SignatureStatus      BootstrapGrantSignatureStatus
-	ReplayOutcome        BootstrapReplayAuditOutcome
+	AudienceMatched       bool
+	CertificateMatched    bool
+	TimeWindowValid       bool
+	SignatureStatus       BootstrapGrantSignatureStatus
+	ReplayOutcome         BootstrapReplayAuditOutcome
 }
 
 func newBootstrapGrantAuditFacts(

@@ -77,14 +77,14 @@ func schedulerInputSnapshotCopy[T any](source []T, maximum int, parameterName, i
 // Callers are responsible for using the same unit for available and requested
 // values in each dimension.
 type ResourceVector struct {
-	Cpu            int64
-	Memory         int64
-	BlockIo        int64
-	EphemeralDisk  int64
-	Bandwidth      int64
-	Pids           int64
+	Cpu             int64
+	Memory          int64
+	BlockIo         int64
+	EphemeralDisk   int64
+	Bandwidth       int64
+	Pids            int64
 	FileDescriptors int64
-	HugePages      int64
+	HugePages       int64
 }
 
 // ResourceVectorZero mirrors ResourceVector.Zero.
@@ -145,7 +145,6 @@ func (v ResourceVector) AddChecked(other ResourceVector) (ResourceVector, error)
 	var dims [8]int64
 	values := [...]int64{v.Cpu, v.Memory, v.BlockIo, v.EphemeralDisk, v.Bandwidth, v.Pids, v.FileDescriptors, v.HugePages}
 	others := [...]int64{other.Cpu, other.Memory, other.BlockIo, other.EphemeralDisk, other.Bandwidth, other.Pids, other.FileDescriptors, other.HugePages}
-	names := [...]string{"cpu", "memory", "blockIo", "ephemeralDisk", "bandwidth", "pids", "fileDescriptors", "hugePages"}
 	for index := range values {
 		sum, err := checkedAdd(values[index], others[index])
 		if err != nil {
@@ -372,6 +371,14 @@ func NewLeastWastePolicy(dimensions []ScoreDimension) (*LeastWastePolicy, error)
 			Message: "Every resource dimension must appear exactly once.",
 		}
 	}
+	for _, dimension := range AllResourceDimensions {
+		if !seen[dimension] {
+			return nil, &ArgumentError{
+				Param:   "dimensions",
+				Message: "Every resource dimension must appear exactly once.",
+			}
+		}
+	}
 	if !positive {
 		return nil, &ArgumentError{
 			Param:   "dimensions",
@@ -471,17 +478,17 @@ func NewNodeCandidate(
 
 // WorkloadRequest describes the workload asking for placement.
 type WorkloadRequest struct {
-	Id                     string
-	Architecture           string
-	Resources              ResourceVector
-	RequiredPorts          map[int]struct{}
-	RequiredNodeClass      *string
-	RequiredLabels         map[string]string
-	RequiredTrustZones     map[string]struct{}
-	RequiredNetworkZones   map[string]struct{}
-	RequiredSecretZones    map[string]struct{}
-	AllowedFailureDomains  map[string]struct{}
-	RequiredAffinityFacts  map[string]struct{}
+	Id                      string
+	Architecture            string
+	Resources               ResourceVector
+	RequiredPorts           map[int]struct{}
+	RequiredNodeClass       *string
+	RequiredLabels          map[string]string
+	RequiredTrustZones      map[string]struct{}
+	RequiredNetworkZones    map[string]struct{}
+	RequiredSecretZones     map[string]struct{}
+	AllowedFailureDomains   map[string]struct{}
+	RequiredAffinityFacts   map[string]struct{}
 	ProhibitedAffinityFacts map[string]struct{}
 }
 
@@ -548,17 +555,17 @@ func NewWorkloadRequest(
 		return nil, err
 	}
 	return &WorkloadRequest{
-		Id:                     id,
-		Architecture:           architecture,
-		Resources:              resources,
-		RequiredPorts:          ports,
-		RequiredNodeClass:      nodeClass,
-		RequiredLabels:         labelSnapshot,
-		RequiredTrustZones:     trust,
-		RequiredNetworkZones:   network,
-		RequiredSecretZones:    secret,
-		AllowedFailureDomains:  allowed,
-		RequiredAffinityFacts:  requiredAffinity,
+		Id:                      id,
+		Architecture:            architecture,
+		Resources:               resources,
+		RequiredPorts:           ports,
+		RequiredNodeClass:       nodeClass,
+		RequiredLabels:          labelSnapshot,
+		RequiredTrustZones:      trust,
+		RequiredNetworkZones:    network,
+		RequiredSecretZones:     secret,
+		AllowedFailureDomains:   allowed,
+		RequiredAffinityFacts:   requiredAffinity,
 		ProhibitedAffinityFacts: prohibitedAffinity,
 	}, nil
 }
@@ -628,7 +635,7 @@ func (o CheckOutcome) String() string {
 
 // PlacementReason is one typed trace row.
 type PlacementReason struct {
-	Check  PlacementCheck
+	Check   PlacementCheck
 	Outcome CheckOutcome
 	Detail  string
 }
@@ -664,9 +671,9 @@ type ScheduleResult interface {
 
 // PlacementSelected is the schedulable outcome.
 type PlacementSelected struct {
-	WorkloadId         string
+	WorkloadId          string
 	SelectedCandidateId string
-	Candidates         []CandidateTrace
+	Candidates          []CandidateTrace
 }
 
 func (PlacementSelected) isScheduleResult() {}

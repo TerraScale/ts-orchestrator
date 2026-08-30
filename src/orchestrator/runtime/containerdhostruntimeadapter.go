@@ -31,13 +31,13 @@ func (s ContainerdAllocationState) String() string {
 
 // ContainerdAllocationObservation is one read-only containerd observation.
 type ContainerdAllocationObservation struct {
-	ContainerId    string
-	State          ContainerdAllocationState
-	ImageReference *string
-	Platform       *string
+	ContainerId     string
+	State           ContainerdAllocationState
+	ImageReference  *string
+	Platform        *string
 	PlanFingerprint *string
-	ProcessId      *int
-	Detail         string
+	ProcessId       *int
+	Detail          string
 }
 
 // ContainerdCreateRequest is the exact create call of the adapter.

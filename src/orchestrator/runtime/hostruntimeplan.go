@@ -108,22 +108,22 @@ type SystemdExecutionPlan struct {
 
 // OciSecurityPlan is the closed containerd security envelope.
 type OciSecurityPlan struct {
-	RunAsUser            uint32
-	RunAsGroup           uint32
-	NoNewPrivileges      bool
+	RunAsUser              uint32
+	RunAsGroup             uint32
+	NoNewPrivileges        bool
 	ReadOnlyRootFileSystem bool
-	DroppedCapabilities []string
-	SeccompProfile       string
-	CgroupParent         string
+	DroppedCapabilities    []string
+	SeccompProfile         string
+	CgroupParent           string
 }
 
 // OciExecutionPlan is the catalog-derived OCI execution plan.
 type OciExecutionPlan struct {
-	ContainerId   string
+	ContainerId    string
 	ImageReference string
-	Platform      string
-	Security      OciSecurityPlan
-	Resources     RuntimeResourceLimits
+	Platform       string
+	Security       OciSecurityPlan
+	Resources      RuntimeResourceLimits
 }
 
 // HostRuntimePlan is the canonical runtime plan of one allocation.

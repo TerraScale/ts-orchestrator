@@ -3,7 +3,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
@@ -16,11 +15,11 @@ func isLinuxHost() bool { return goruntime.GOOS == "linux" }
 // before a native systemd executor is constructed. A host is admitted only when
 // every value is true.
 type SystemdHostProbeResult struct {
-	IsLinux        bool
-	IsSystemdPid1  bool
-	HasCgroupV2    bool
-	HasSystemctl   bool
-	HasSystemdRun  bool
+	IsLinux       bool
+	IsSystemdPid1 bool
+	HasCgroupV2   bool
+	HasSystemctl  bool
+	HasSystemdRun bool
 }
 
 // IsAdmitted reports whether every admission evidence bit is set.
@@ -35,10 +34,10 @@ type SystemdHostProbe interface {
 
 // Fixed admission paths probed by the production Linux probe.
 const (
-	LinuxSystemdHostProbeSystemdPid1CommPath   = "/proc/1/comm"
+	LinuxSystemdHostProbeSystemdPid1CommPath     = "/proc/1/comm"
 	LinuxSystemdHostProbeCgroupV2ControllersPath = "/sys/fs/cgroup/cgroup.controllers"
-	LinuxSystemdHostProbeSystemctlPath         = "/usr/bin/systemctl"
-	LinuxSystemdHostProbeSystemdRunPath        = "/usr/bin/systemd-run"
+	LinuxSystemdHostProbeSystemctlPath           = "/usr/bin/systemctl"
+	LinuxSystemdHostProbeSystemdRunPath          = "/usr/bin/systemd-run"
 )
 
 // LinuxSystemdHostProbe is the production host probe. It reads kernel/proc
@@ -98,7 +97,7 @@ func linuxSystemdHostProbeIsExecutableRegularFile(path string) bool {
 // operation-journal/idempotency/recovery semantics, parse CLI input, or expose
 // a production mutation route on its own.
 type NativeSystemdRuntimeAdmission struct {
-	plan   HostRuntimePlan
+	plan    HostRuntimePlan
 	adapter *SystemdHostRuntimeAdapter
 }
 
@@ -123,8 +122,21 @@ func NewNativeSystemdRuntimeAdmissionWithRunner(
 		return nil, &ArgumentError{Param: "hostProbe"}
 	}
 
-	hostEvidence, probeErr := hostProbe.Probe()
-	if probeErr != nil {
+	var probeFailed bool
+	hostEvidence := func() SystemdHostProbeResult {
+		var evidence SystemdHostProbeResult
+		func() {
+			// The C# seam wraps any probe failure as a host-admission failure.
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					probeFailed = true
+				}
+			}()
+			evidence = hostProbe.Probe()
+		}()
+		return evidence
+	}()
+	if probeFailed {
 		return nil, &InvalidOperationError{
 			Message: "Native systemd host admission could not be established.",
 		}

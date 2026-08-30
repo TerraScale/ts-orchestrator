@@ -18,6 +18,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	goruntime "runtime"
 )
 
 // infisicalMarshalJSON encodes a wire body without HTML escaping (the migration
@@ -37,11 +39,11 @@ const infisicalMaximumResponseBytes = 8 * 1024 * 1024
 
 // InfisicalConfiguration is the resolved, validated Universal Auth identity.
 type InfisicalConfiguration struct {
-	Server          string
-	VaultProject    string
-	Environment     string
-	SecretPath      string
-	ClientIdFile    string
+	Server           string
+	VaultProject     string
+	Environment      string
+	SecretPath       string
+	ClientIdFile     string
 	ClientSecretFile string
 	OrganizationSlug *string
 }
@@ -227,7 +229,7 @@ func infisicalRequireText(value string, maximum int, name string, allowSlash boo
 }
 
 func infisicalResolveCredentialFile(value string, name string) (string, error) {
-	if os.GOOS != "linux" {
+	if goruntime.GOOS != "linux" {
 		return "", &PlatformNotSupportedError{
 			Message: "Infisical credential files require Linux file permissions.",
 		}
@@ -327,11 +329,11 @@ type InfisicalSecretMetadata struct {
 // InfisicalSecretStore is the direct Universal Auth and v4 Secrets API adapter.
 // Secret values never appear in its errors.
 type InfisicalSecretStore struct {
-	configuration *InfisicalConfiguration
-	client        *http.Client
+	configuration  *InfisicalConfiguration
+	client         *http.Client
 	authentication chan struct{}
-	accessToken   *string
-	disposed      bool
+	accessToken    *string
+	disposed       bool
 }
 
 // InfisicalSecretStoreCreate builds the production store.
@@ -500,7 +502,7 @@ func (s *InfisicalSecretStore) listDocuments(ctx context.Context, viewValues boo
 		if _, seen := values[valid.SecretKey]; !seen {
 			order = append(order, valid.SecretKey)
 		}
-		values[valid.SecretKey] = valid
+		values[valid.SecretKey] = *valid
 	}
 	for _, imported := range response.Imports {
 		for index := range imported.Secrets {
@@ -515,7 +517,7 @@ func (s *InfisicalSecretStore) listDocuments(ctx context.Context, viewValues boo
 			if _, seen := values[valid.SecretKey]; !seen {
 				order = append(order, valid.SecretKey)
 			}
-			values[valid.SecretKey] = valid
+			values[valid.SecretKey] = *valid
 		}
 	}
 	documents := make([]secretDocument, 0, len(order))
@@ -734,15 +736,15 @@ func (s *InfisicalSecretStore) Close() {
 }
 
 type loginRequest struct {
-	ClientId        string  `json:"clientId"`
-	ClientSecret    string  `json:"clientSecret"`
+	ClientId         string  `json:"clientId"`
+	ClientSecret     string  `json:"clientSecret"`
 	OrganizationSlug *string `json:"organizationSlug,omitempty"`
 }
 
 type loginResponse struct {
-	AccessToken      string `json:"accessToken"`
-	ExpiresIn        int    `json:"expiresIn"`
-	AccessTokenMaxTtl int   `json:"accessTokenMaxTtl"`
+	AccessToken       string `json:"accessToken"`
+	ExpiresIn         int    `json:"expiresIn"`
+	AccessTokenMaxTtl int    `json:"accessTokenMaxTtl"`
 }
 
 type secretWriteRequest struct {
@@ -766,7 +768,7 @@ type secretResponse struct {
 
 type secretListResponse struct {
 	Secrets []secretDocument `json:"secrets"`
-	Imports []secretImport  `json:"imports"`
+	Imports []secretImport   `json:"imports"`
 }
 
 type secretImport struct {
@@ -802,7 +804,7 @@ func InfisicalSecretEnvironmentLoad(ctx context.Context, configuration *Infisica
 // InfisicalSecretEnvironmentLoadFromStore loads the environment through an
 // existing store.
 func InfisicalSecretEnvironmentLoadFromStore(ctx context.Context, store *InfisicalSecretStore) (*InfisicalSecretEnvironment, error) {
-	if os.GOOS != "linux" {
+	if goruntime.GOOS != "linux" {
 		return nil, &PlatformNotSupportedError{
 			Message: "Infisical secret files require Linux file permissions.",
 		}
@@ -876,7 +878,7 @@ func infisicalIsFileSetting(key string) bool {
 }
 
 func infisicalCreateDirectory() (string, error) {
-	if os.GOOS != "linux" {
+	if goruntime.GOOS != "linux" {
 		return "", &PlatformNotSupportedError{
 			Message: "Infisical secret files require Linux file permissions.",
 		}

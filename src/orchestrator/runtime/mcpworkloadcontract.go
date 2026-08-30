@@ -64,11 +64,11 @@ func (k McpRouteKind) String() string {
 // credentials, and internal diagnostics have no field to live in, so no mapping
 // produced from this type can expose them.
 type McpPublicRouteView struct {
-	Kind              McpRouteKind
-	Host              string
-	Path              string
-	HttpsRequired     bool
-	PubliclyRoutable  bool
+	Kind             McpRouteKind
+	Host             string
+	Path             string
+	HttpsRequired    bool
+	PubliclyRoutable bool
 }
 
 // MarshalJSON mirrors the C# JsonPropertyName wire names, with the kind
@@ -87,12 +87,12 @@ func mcpIsPubliclyRoutable(kind McpRouteKind) bool {
 // endpoint, the protected-resource metadata route, and the two health routes,
 // all on the canonical HTTPS host.
 var McpRouteContract = struct {
-	McpEndpoint              McpPublicRouteView
+	McpEndpoint               McpPublicRouteView
 	ProtectedResourceMetadata McpPublicRouteView
-	Liveness                 McpPublicRouteView
-	Readiness                McpPublicRouteView
-	All                      []McpPublicRouteView
-	AdmittedProbePaths       []string
+	Liveness                  McpPublicRouteView
+	Readiness                 McpPublicRouteView
+	All                       []McpPublicRouteView
+	AdmittedProbePaths        []string
 }{
 	McpEndpoint: McpPublicRouteView{
 		Kind:             McpRouteKindMcpEndpoint,
@@ -176,7 +176,7 @@ var McpConfigurationKeys = struct {
 
 // McpSecretReference constants.
 const (
-	McpSecretReferenceScheme            = "vault"
+	McpSecretReferenceScheme             = "vault"
 	McpSecretReferenceAdmittedPathPrefix = "terrascale/mcp/"
 	McpSecretReferenceMaximumLength      = 128
 )
@@ -298,7 +298,7 @@ func NewMcpQualifiedHttpArtifact(digest string, architecture HostArchitecture) (
 // exact digests. Digests enter this set only from accepted qualification
 // evidence, never from a delivery request.
 type McpHttpArtifactQualification struct {
-	artifacts []McpQualifiedHttpArtifact
+	artifacts             []McpQualifiedHttpArtifact
 	digestsByArchitecture map[HostArchitecture][]string
 }
 
@@ -352,11 +352,11 @@ func (q *McpHttpArtifactQualification) AdmitsArchitecture(architecture HostArchi
 // McpIngressEvidence is the live evidence an open MCP ingress requires.
 // Absence of any item keeps ingress closed.
 type McpIngressEvidence struct {
-	AuthenticationVerified bool
-	ScopeDenialVerified    bool
+	AuthenticationVerified  bool
+	ScopeDenialVerified     bool
 	TenantIsolationVerified bool
-	HealthVerified         bool
-	RollbackVerified       bool
+	HealthVerified          bool
+	RollbackVerified        bool
 }
 
 // IsComplete reports whether every evidence bit is set.
@@ -452,10 +452,10 @@ const McpStdioDistributionChannelChannelName = "stdio"
 
 // McpRouteWithdrawal is the typed result of an emergency MCP route withdrawal.
 type McpRouteWithdrawal struct {
-	ClosedRoutes                 []string
-	UntouchedRoutes              []string
+	ClosedRoutes                  []string
+	UntouchedRoutes               []string
 	UntouchedDistributionChannels []string
-	RemainingRoutes              McpProductRouteTable
+	RemainingRoutes               McpProductRouteTable
 }
 
 // McpEmergencyRouteControl performs the emergency withdrawal of the MCP route.
@@ -480,9 +480,9 @@ func (mcpEmergencyRouteControl) Withdraw(table McpProductRouteTable) McpRouteWit
 		}
 	}
 	return McpRouteWithdrawal{
-		ClosedRoutes:                 closed,
-		UntouchedRoutes:              untouched,
+		ClosedRoutes:                  closed,
+		UntouchedRoutes:               untouched,
 		UntouchedDistributionChannels: []string{McpStdioDistributionChannelChannelName},
-		RemainingRoutes:              McpProductRouteTable{Routes: remaining},
+		RemainingRoutes:               McpProductRouteTable{Routes: remaining},
 	}
 }

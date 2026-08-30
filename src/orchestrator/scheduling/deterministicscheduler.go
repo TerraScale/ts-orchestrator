@@ -198,7 +198,7 @@ func evaluateWorkload(workload *WorkloadRequest, candidate *NodeCandidate, polic
 		// overflow cannot occur for admitted inputs, but fail closed regardless.
 		reasons = append(reasons, PlacementReason{
 			Check:   PlacementCheckScore,
-			Outcome: CheckOutcome.NotApplicable,
+			Outcome: CheckOutcomeNotApplicable,
 			Detail:  "Hard constraints rejected the candidate.",
 		})
 		return scheduleEvaluation{candidate: candidate, score: nil, reasons: reasons}

@@ -293,11 +293,11 @@ type AvailabilityChange interface {
 
 // PlaceReplicaChange places one new replica.
 type PlaceReplicaChange struct {
-	ReplicaId            ReplicaId
-	TargetNodeId         AvailabilityNodeId
+	ReplicaId             ReplicaId
+	TargetNodeId          AvailabilityNodeId
 	TargetFailureDomainId FailureDomainId
-	RequestedResources   ResourceVector
-	AvailableResources   ResourceVector
+	RequestedResources    ResourceVector
+	AvailableResources    ResourceVector
 }
 
 func (PlaceReplicaChange) isAvailabilityChange() {}
@@ -343,6 +343,9 @@ func NewAvailabilityEvaluationRequest(
 	}
 	if !observationCompleteness.defined() {
 		return nil, &ArgumentOutOfRangeError{Param: "observationCompleteness"}
+	}
+	if observations == nil {
+		return nil, &ArgumentError{Param: "observations"}
 	}
 	snapshot, err := schedulerInputSnapshotCopy(
 		observations,
