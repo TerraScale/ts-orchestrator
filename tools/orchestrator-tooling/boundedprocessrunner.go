@@ -69,8 +69,9 @@ func (boundedProcessRunner) Run(
 	var peakMemoryBytes int64
 	peakProcessCount := 0
 	violation := ""
-	waiting := true
-	for waiting && violation == "" {
+	var waitErr error
+	exited := false
+	for !exited && violation == "" {
 		sample := sampleTree(processId)
 		if sample.MemoryBytes > peakMemoryBytes {
 			peakMemoryBytes = sample.MemoryBytes
@@ -91,8 +92,8 @@ func (boundedProcessRunner) Run(
 			break
 		}
 		select {
-		case <-done:
-			waiting = false
+		case waitErr = <-done:
+			exited = true
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -107,7 +108,9 @@ func (boundedProcessRunner) Run(
 	if violation != "" {
 		killProcessTree(processId)
 	}
-	waitErr := <-done
+	if !exited {
+		waitErr = <-done
+	}
 	if violation != "" {
 		return ObservedProcessResult{}, newToolValidationException([]string{fileName + " " + violation})
 	}
