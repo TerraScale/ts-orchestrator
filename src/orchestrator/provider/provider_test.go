@@ -94,3 +94,27 @@ func TestConcurrentDeterministicReconciliationIsRaceSafe(t *testing.T) {
 		t.Fatal("provider nil")
 	}
 }
+
+func TestOciCreateNodeProviderRejectsNilAndIncompleteDependencies(t *testing.T) {
+	var nilProvider *OciCreateNodeProvider
+	if _, err := nilProvider.CreateNode(context.Background(), CreateNodeProviderRequest{}); err == nil {
+		t.Fatal("nil OCI provider must be rejected")
+	}
+	if _, err := nilProvider.ReconcileCreateNode(context.Background(), CreateNodeProviderRequest{}); err == nil {
+		t.Fatal("nil OCI provider must be rejected during reconciliation")
+	}
+
+	provider := &OciCreateNodeProvider{Enabled: true}
+	if _, err := provider.CreateNode(context.Background(), CreateNodeProviderRequest{}); err == nil {
+		t.Fatal("OCI create must reject incomplete dependencies")
+	}
+	if _, err := provider.ReconcileCreateNode(context.Background(), CreateNodeProviderRequest{}); err == nil {
+		t.Fatal("OCI reconciliation must reject incomplete dependencies")
+	}
+	if VerifyRecoveryLookupAuthority(CreateNodeRecoveryLookupAuthority{}, nil, CreateNodeReceiptBinding{}, time.Now()) {
+		t.Fatal("recovery verification must reject a nil key resolver")
+	}
+	if VerifyInvocationCapability(CreateNodeAuthoritativeInvocationCapability{}, nil, CreateNodeReceiptBinding{}, time.Now()) {
+		t.Fatal("invocation verification must reject a nil key resolver")
+	}
+}

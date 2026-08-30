@@ -75,7 +75,10 @@ func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 	if wire.Resources == nil {
 		return &InvalidDataError{Message: "The runtime plan payload must carry resources."}
 	}
-	resources := wire.Resources.limits()
+	resources, err := wire.Resources.limits()
+	if err != nil {
+		return err
+	}
 
 	var systemd *SystemdExecutionPlan
 	if wire.Systemd != nil && !wire.isNullPlan(*wire.Systemd) {
@@ -83,7 +86,11 @@ func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 		if err := decodeStrictPlanJSON(*wire.Systemd, &planWire); err != nil {
 			return err
 		}
-		systemd = planWire.plan()
+		var planErr error
+		systemd, planErr = planWire.plan()
+		if planErr != nil {
+			return planErr
+		}
 	}
 	var oci *OciExecutionPlan
 	if wire.Oci != nil && !wire.isNullPlan(*wire.Oci) {
@@ -91,9 +98,16 @@ func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 		if err := decodeStrictPlanJSON(*wire.Oci, &planWire); err != nil {
 			return err
 		}
-		oci = planWire.plan()
+		var planErr error
+		oci, planErr = planWire.plan()
+		if planErr != nil {
+			return planErr
+		}
 	}
 	if err := requirePlanDriverShape(driver, systemd, oci); err != nil {
+		return err
+	}
+	if _, err := NewHostRuntimePlan(role, driver, allocationId, digest, architecture, &resources); err != nil {
 		return err
 	}
 
@@ -114,15 +128,15 @@ func (p *HostRuntimePlan) UnmarshalJSON(data []byte) error {
 // hostRuntimePlanWire is the strict wire shape of one serialized plan. Every
 // field is a pointer so an absent field is distinguishable from a zero value.
 type hostRuntimePlanWire struct {
-	SchemaVersion  *int                          `json:"schemaVersion"`
-	Role           *string                       `json:"role"`
-	Driver         *string                       `json:"driver"`
-	AllocationId   *wireTokenValue               `json:"allocationId"`
-	ArtifactDigest *wireTokenValue               `json:"artifactDigest"`
-	Architecture   *string                       `json:"architecture"`
-	Resources      *runtimeResourceLimitsWire    `json:"resources"`
-	Systemd        *json.RawMessage              `json:"systemd"`
-	Oci            *json.RawMessage              `json:"oci"`
+	SchemaVersion  *int                       `json:"schemaVersion"`
+	Role           *string                    `json:"role"`
+	Driver         *string                    `json:"driver"`
+	AllocationId   *wireTokenValue            `json:"allocationId"`
+	ArtifactDigest *wireTokenValue            `json:"artifactDigest"`
+	Architecture   *string                    `json:"architecture"`
+	Resources      *runtimeResourceLimitsWire `json:"resources"`
+	Systemd        *json.RawMessage           `json:"systemd"`
+	Oci            *json.RawMessage           `json:"oci"`
 }
 
 // wireTokenValue is the {value:...} spelling of the plan token objects.
@@ -135,40 +149,28 @@ type wireTokenValue struct {
 // serializer always emits them, and are then recomputed from MemoryMaxBytes
 // exactly as the source of truth does.
 type runtimeResourceLimitsWire struct {
-	MemoryMaxBytes    *int64 `json:"memoryMaxBytes"`
-	TasksMax          *int   `json:"tasksMax"`
-	CpuQuotaPercent   *int   `json:"cpuQuotaPercent"`
-	CpuWeight         *int   `json:"cpuWeight"`
-	IoWeight          *int   `json:"ioWeight"`
-	Nice              *int   `json:"nice"`
-	MemoryHighBytes   *int64 `json:"memoryHighBytes"`
-	MemorySwapMaxByte *int64 `json:"memorySwapMaxBytes"`
+	MemoryMaxBytes     *int64 `json:"memoryMaxBytes"`
+	TasksMax           *int   `json:"tasksMax"`
+	CpuQuotaPercent    *int   `json:"cpuQuotaPercent"`
+	CpuWeight          *int   `json:"cpuWeight"`
+	IoWeight           *int   `json:"ioWeight"`
+	Nice               *int   `json:"nice"`
+	MemoryHighBytes    *int64 `json:"memoryHighBytes"`
+	MemorySwapMaxBytes *int64 `json:"memorySwapMaxBytes"`
 }
 
-func (w *runtimeResourceLimitsWire) limits() RuntimeResourceLimits {
-	limits := RuntimeResourceLimits{}
-	if w == nil {
-		return limits
+func (w *runtimeResourceLimitsWire) limits() (RuntimeResourceLimits, error) {
+	if w == nil || w.MemoryMaxBytes == nil || w.TasksMax == nil || w.CpuQuotaPercent == nil ||
+		w.CpuWeight == nil || w.IoWeight == nil || w.Nice == nil || w.MemoryHighBytes == nil ||
+		w.MemorySwapMaxBytes == nil {
+		return RuntimeResourceLimits{}, &InvalidDataError{Message: "The runtime resource limits payload is incomplete."}
 	}
-	if w.MemoryMaxBytes != nil {
-		limits.MemoryMaxBytes = *w.MemoryMaxBytes
+	limits := RuntimeResourceLimits{MemoryMaxBytes: *w.MemoryMaxBytes, TasksMax: *w.TasksMax,
+		CpuQuotaPercent: *w.CpuQuotaPercent, CpuWeight: *w.CpuWeight, IoWeight: *w.IoWeight, Nice: *w.Nice}
+	if *w.MemoryHighBytes != limits.MemoryHighBytes() || *w.MemorySwapMaxBytes != limits.MemorySwapMaxBytes() {
+		return RuntimeResourceLimits{}, &InvalidDataError{Message: "The runtime resource watermark fields are inconsistent."}
 	}
-	if w.TasksMax != nil {
-		limits.TasksMax = *w.TasksMax
-	}
-	if w.CpuQuotaPercent != nil {
-		limits.CpuQuotaPercent = *w.CpuQuotaPercent
-	}
-	if w.CpuWeight != nil {
-		limits.CpuWeight = *w.CpuWeight
-	}
-	if w.IoWeight != nil {
-		limits.IoWeight = *w.IoWeight
-	}
-	if w.Nice != nil {
-		limits.Nice = *w.Nice
-	}
-	return limits
+	return limits, nil
 }
 
 // systemdExecutionPlanWire mirrors the marshaled systemd execution plan.
@@ -179,21 +181,11 @@ type systemdExecutionPlanWire struct {
 	Properties *[]string `json:"properties"`
 }
 
-func (w *systemdExecutionPlanWire) plan() *SystemdExecutionPlan {
-	plan := &SystemdExecutionPlan{}
-	if w.UnitName != nil {
-		plan.UnitName = *w.UnitName
+func (w *systemdExecutionPlanWire) plan() (*SystemdExecutionPlan, error) {
+	if w == nil || w.UnitName == nil || w.Executable == nil || w.Arguments == nil || w.Properties == nil {
+		return nil, &InvalidDataError{Message: "The systemd execution plan payload is incomplete."}
 	}
-	if w.Executable != nil {
-		plan.Executable = *w.Executable
-	}
-	if w.Arguments != nil {
-		plan.Arguments = *w.Arguments
-	}
-	if w.Properties != nil {
-		plan.Properties = *w.Properties
-	}
-	return plan
+	return &SystemdExecutionPlan{UnitName: *w.UnitName, Executable: *w.Executable, Arguments: *w.Arguments, Properties: *w.Properties}, nil
 }
 
 // ociExecutionPlanWire mirrors the marshaled OCI execution plan.
@@ -205,61 +197,40 @@ type ociExecutionPlanWire struct {
 	Resources      *runtimeResourceLimitsWire `json:"resources"`
 }
 
-func (w *ociExecutionPlanWire) plan() *OciExecutionPlan {
-	plan := &OciExecutionPlan{}
-	if w.ContainerId != nil {
-		plan.ContainerId = *w.ContainerId
+func (w *ociExecutionPlanWire) plan() (*OciExecutionPlan, error) {
+	if w == nil || w.ContainerId == nil || w.ImageReference == nil || w.Platform == nil || w.Security == nil || w.Resources == nil {
+		return nil, &InvalidDataError{Message: "The OCI execution plan payload is incomplete."}
 	}
-	if w.ImageReference != nil {
-		plan.ImageReference = *w.ImageReference
+	resources, err := w.Resources.limits()
+	if err != nil {
+		return nil, err
 	}
-	if w.Platform != nil {
-		plan.Platform = *w.Platform
+	security, err := w.Security.plan()
+	if err != nil {
+		return nil, err
 	}
-	if w.Security != nil {
-		plan.Security = w.Security.plan()
-	}
-	if w.Resources != nil {
-		plan.Resources = w.Resources.limits()
-	}
-	return plan
+	return &OciExecutionPlan{ContainerId: *w.ContainerId, ImageReference: *w.ImageReference, Platform: *w.Platform, Security: security, Resources: resources}, nil
 }
 
 // ociSecurityPlanWire mirrors the marshaled OCI security plan.
 type ociSecurityPlanWire struct {
-	RunAsUser              *uint32  `json:"runAsUser"`
-	RunAsGroup             *uint32  `json:"runAsGroup"`
-	NoNewPrivileges        *bool    `json:"noNewPrivileges"`
-	ReadOnlyRootFileSystem *bool    `json:"readOnlyRootFileSystem"`
+	RunAsUser              *uint32   `json:"runAsUser"`
+	RunAsGroup             *uint32   `json:"runAsGroup"`
+	NoNewPrivileges        *bool     `json:"noNewPrivileges"`
+	ReadOnlyRootFileSystem *bool     `json:"readOnlyRootFileSystem"`
 	DroppedCapabilities    *[]string `json:"droppedCapabilities"`
-	SeccompProfile         *string  `json:"seccompProfile"`
-	CgroupParent           *string  `json:"cgroupParent"`
+	SeccompProfile         *string   `json:"seccompProfile"`
+	CgroupParent           *string   `json:"cgroupParent"`
 }
 
-func (w *ociSecurityPlanWire) plan() OciSecurityPlan {
-	plan := OciSecurityPlan{}
-	if w.RunAsUser != nil {
-		plan.RunAsUser = *w.RunAsUser
+func (w *ociSecurityPlanWire) plan() (OciSecurityPlan, error) {
+	if w == nil || w.RunAsUser == nil || w.RunAsGroup == nil || w.NoNewPrivileges == nil ||
+		w.ReadOnlyRootFileSystem == nil || w.DroppedCapabilities == nil || w.SeccompProfile == nil || w.CgroupParent == nil {
+		return OciSecurityPlan{}, &InvalidDataError{Message: "The OCI security plan payload is incomplete."}
 	}
-	if w.RunAsGroup != nil {
-		plan.RunAsGroup = *w.RunAsGroup
-	}
-	if w.NoNewPrivileges != nil {
-		plan.NoNewPrivileges = *w.NoNewPrivileges
-	}
-	if w.ReadOnlyRootFileSystem != nil {
-		plan.ReadOnlyRootFileSystem = *w.ReadOnlyRootFileSystem
-	}
-	if w.DroppedCapabilities != nil {
-		plan.DroppedCapabilities = *w.DroppedCapabilities
-	}
-	if w.SeccompProfile != nil {
-		plan.SeccompProfile = *w.SeccompProfile
-	}
-	if w.CgroupParent != nil {
-		plan.CgroupParent = *w.CgroupParent
-	}
-	return plan
+	return OciSecurityPlan{RunAsUser: *w.RunAsUser, RunAsGroup: *w.RunAsGroup, NoNewPrivileges: *w.NoNewPrivileges,
+		ReadOnlyRootFileSystem: *w.ReadOnlyRootFileSystem, DroppedCapabilities: *w.DroppedCapabilities,
+		SeccompProfile: *w.SeccompProfile, CgroupParent: *w.CgroupParent}, nil
 }
 
 // isNullPlan reports whether the optional plan member is present as an

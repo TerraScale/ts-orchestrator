@@ -175,11 +175,14 @@ type OciCreateNodeProvider struct {
 }
 
 func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
-	if !p.Enabled {
+	if p == nil || !p.Enabled {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode is disabled"}
 	}
-	if p.Client == nil || p.Journal == nil || p.Clock == nil {
+	if p.Client == nil || p.Journal == nil || p.Clock == nil || p.Keys == nil || p.InvocationKeys == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode dependencies are incomplete"}
+	}
+	if ctx == nil {
+		return CreateNodeProviderResponse{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := validateCreateRequest(r, p.Keys, p.Clock()); err != nil {
 		return CreateNodeProviderResponse{}, err
@@ -190,8 +193,14 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	return p.Client.CreateNode(ctx, r)
 }
 func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeReconciliation, error) {
-	if !p.Enabled {
+	if p == nil || !p.Enabled {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode is disabled"}
+	}
+	if p.Client == nil || p.Clock == nil || p.RecoveryKeys == nil {
+		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode dependencies are incomplete"}
+	}
+	if ctx == nil {
+		return CreateNodeReconciliation{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := validateRecovery(r, p.RecoveryKeys, p.Clock()); err != nil {
 		return CreateNodeReconciliation{}, err

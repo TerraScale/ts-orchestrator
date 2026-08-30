@@ -205,12 +205,15 @@ func (s *CreateNodeRecoveryLookupSigner) Sign(b CreateNodeReceiptBinding, issued
 	return a, nil
 }
 func VerifyRecoveryLookupAuthority(a CreateNodeRecoveryLookupAuthority, resolver ReceiptKeyResolver, b CreateNodeReceiptBinding, now time.Time) bool {
-	if a.Algorithm != ReceiptAlgorithm || a.Audience != "create-node-provider-lookup" || a.BindingDigest != b.Digest() || now.Before(a.IssuedAt) || !now.Before(a.ExpiresAt) || a.ExpiresAt.Sub(a.IssuedAt) > 7*24*time.Hour {
+	if resolver == nil || a.Algorithm != ReceiptAlgorithm || a.Audience != "create-node-provider-lookup" || a.BindingDigest != b.Digest() || now.Before(a.IssuedAt) || !now.Before(a.ExpiresAt) || a.ExpiresAt.Sub(a.IssuedAt) > 7*24*time.Hour {
 		return false
 	}
 	return verifyPayload(a.KeyId, a.Algorithm, a.payload(), a.Signature, resolver)
 }
 func verifyPayload(id, alg string, payload []byte, signature string, resolver ReceiptKeyResolver) bool {
+	if resolver == nil {
+		return false
+	}
 	keyBytes, ok := resolver.Resolve(id, alg)
 	if !ok {
 		return false
@@ -311,5 +314,5 @@ func (s *CreateNodeAuthoritativeInvocationCapabilitySigner) Sign(c CreateNodeAut
 	return c, nil
 }
 func VerifyInvocationCapability(c CreateNodeAuthoritativeInvocationCapability, resolver ReceiptKeyResolver, b CreateNodeReceiptBinding, now time.Time) bool {
-	return c.Algorithm == ReceiptAlgorithm && c.Audience == "create-node-authoritative-invocation" && c.OperationId == b.OperationId && c.BindingDigest == b.Digest() && c.JournalVersion > 0 && c.LeaseOwner != "" && c.LeaseToken != "" && c.Nonce != "" && c.LeaseExpiresAt.After(c.IssuedAt) && !now.Before(c.IssuedAt) && now.Before(c.LeaseExpiresAt) && now.Before(c.ExpiresAt) && c.ExpiresAt.Sub(c.IssuedAt) <= 10*time.Minute && verifyPayload(c.KeyId, c.Algorithm, c.payload(), c.Signature, resolver)
+	return resolver != nil && c.Algorithm == ReceiptAlgorithm && c.Audience == "create-node-authoritative-invocation" && c.OperationId == b.OperationId && c.BindingDigest == b.Digest() && c.JournalVersion > 0 && c.LeaseOwner != "" && c.LeaseToken != "" && c.Nonce != "" && c.LeaseExpiresAt.After(c.IssuedAt) && !now.Before(c.IssuedAt) && now.Before(c.LeaseExpiresAt) && now.Before(c.ExpiresAt) && c.ExpiresAt.Sub(c.IssuedAt) <= 10*time.Minute && verifyPayload(c.KeyId, c.Algorithm, c.payload(), c.Signature, resolver)
 }

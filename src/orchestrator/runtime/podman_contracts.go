@@ -152,6 +152,25 @@ func requirePodmanLabels(labels map[string]string) (map[string]string, error) {
 	return snapshot, nil
 }
 
+// requirePodmanFencingLabels keeps the process client from creating an
+// unowned container when a caller bypasses the adapter and constructs a run
+// request directly. The fingerprint is the canonical plan fence, not merely
+// an informational label.
+func requirePodmanFencingLabels(labels map[string]string) error {
+	allocation, ok := labels[PodmanLabelAllocation]
+	if !ok {
+		return &ArgumentError{Param: "labels", Message: "A podman allocation fencing label is required."}
+	}
+	if _, err := requirePodmanToken(allocation, "labels", "The podman allocation fencing label is invalid."); err != nil {
+		return err
+	}
+	fingerprint, ok := labels[PodmanLabelFingerprint]
+	if !ok || len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint || !isLowercaseHexDigest(fingerprint) {
+		return &ArgumentError{Param: "labels", Message: "A canonical podman plan fingerprint fencing label is required."}
+	}
+	return nil
+}
+
 // requirePodmanCgroupParent enforces a bounded slash-separated token path
 // under the user slice, for example terrascale/<allocation>.
 func requirePodmanCgroupParent(value, param string) (string, error) {
@@ -411,6 +430,9 @@ func NewPodmanRunRequest(
 	}
 	labelSnapshot, err := requirePodmanLabels(labels)
 	if err != nil {
+		return PodmanRunRequest{}, err
+	}
+	if err := requirePodmanFencingLabels(labelSnapshot); err != nil {
 		return PodmanRunRequest{}, err
 	}
 	return PodmanRunRequest{

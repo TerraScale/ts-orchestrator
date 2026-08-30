@@ -284,6 +284,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 		scaleUpConfirmTicks      int
 		scaleDownConfirmTicks    int
 		maxConcurrentProvisions  int
+		flapSuppressionTicks     int
 		expectParam              string
 	}{
 		{
@@ -295,6 +296,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 		},
 		{
 			name:                     "zero min nodes",
@@ -305,6 +307,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "minNodes",
 		},
 		{
@@ -316,6 +319,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "maxNodes",
 		},
 		{
@@ -327,6 +331,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "scaleUpHeadroomPercent",
 		},
 		{
@@ -338,6 +343,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "scaleDownHeadroomPercent",
 		},
 		{
@@ -349,6 +355,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      0,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "scaleUpConfirmTicks",
 		},
 		{
@@ -360,6 +367,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    0,
 			maxConcurrentProvisions:  2,
+			flapSuppressionTicks: 4,
 			expectParam:              "scaleDownConfirmTicks",
 		},
 		{
@@ -371,6 +379,7 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  0,
+			flapSuppressionTicks: 4,
 			expectParam:              "maxConcurrentProvisions",
 		},
 		{
@@ -382,7 +391,20 @@ func TestNewAutoscalerConfig(t *testing.T) {
 			scaleUpConfirmTicks:      3,
 			scaleDownConfirmTicks:    5,
 			maxConcurrentProvisions:  65,
+			flapSuppressionTicks:     4,
 			expectParam:              "maxConcurrentProvisions",
+		},
+		{
+			name:                     "negative flap suppression ticks",
+			minNodes:                 3,
+			maxNodes:                 12,
+			scaleUpHeadroomPercent:   20,
+			scaleDownHeadroomPercent: 30,
+			scaleUpConfirmTicks:      3,
+			scaleDownConfirmTicks:    5,
+			maxConcurrentProvisions:  2,
+			flapSuppressionTicks:     -1,
+			expectParam:              "flapSuppressionTicks",
 		},
 	}
 
@@ -395,7 +417,8 @@ func TestNewAutoscalerConfig(t *testing.T) {
 				test.scaleDownHeadroomPercent,
 				test.scaleUpConfirmTicks,
 				test.scaleDownConfirmTicks,
-				test.maxConcurrentProvisions)
+				test.maxConcurrentProvisions,
+				test.flapSuppressionTicks)
 			if test.expectParam != "" {
 				if err == nil {
 					t.Fatal("expected an error, got a valid config")
@@ -413,7 +436,8 @@ func TestNewAutoscalerConfig(t *testing.T) {
 				config.ScaleDownHeadroomPercent != test.scaleDownHeadroomPercent ||
 				config.ScaleUpConfirmTicks != test.scaleUpConfirmTicks ||
 				config.ScaleDownConfirmTicks != test.scaleDownConfirmTicks ||
-				config.MaxConcurrentProvisions != test.maxConcurrentProvisions {
+				config.MaxConcurrentProvisions != test.maxConcurrentProvisions ||
+				config.FlapSuppressionTicks != test.flapSuppressionTicks {
 				t.Fatalf("config = %+v", config)
 			}
 		})

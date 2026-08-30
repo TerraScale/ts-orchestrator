@@ -260,12 +260,18 @@ type AutoscalerConfig struct {
 	ScaleUpConfirmTicks      int
 	ScaleDownConfirmTicks    int
 	MaxConcurrentProvisions  int
+	// FlapSuppressionTicks is the anti-flap window of the autoscaler: a node
+	// id the autoscaler retired is remembered for this many ticks, and while
+	// any retirement is remembered no new node is provisioned, so the fleet
+	// cannot retire capacity and immediately re-provision around the same
+	// shortfall. Zero disables the window.
+	FlapSuppressionTicks int
 }
 
 // NewAutoscalerConfig validates the scaling policy: MinNodes is at least one,
 // MaxNodes is not below MinNodes, headroom percentages are inside (0, 100),
-// confirmation ticks are at least one, and the provision concurrency is
-// between one and the closed bound.
+// confirmation ticks are at least one, the provision concurrency is between
+// one and the closed bound, and the flap suppression window is non-negative.
 func NewAutoscalerConfig(
 	minNodes int,
 	maxNodes int,
@@ -274,6 +280,7 @@ func NewAutoscalerConfig(
 	scaleUpConfirmTicks int,
 	scaleDownConfirmTicks int,
 	maxConcurrentProvisions int,
+	flapSuppressionTicks int,
 ) (AutoscalerConfig, error) {
 	if minNodes < 1 {
 		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
@@ -318,6 +325,12 @@ func NewAutoscalerConfig(
 				autoscalingMaximumConcurrentProvisions),
 		}
 	}
+	if flapSuppressionTicks < 0 {
+		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+			Param:   "flapSuppressionTicks",
+			Message: "Flap suppression ticks must be non-negative.",
+		}
+	}
 	return AutoscalerConfig{
 		MinNodes:                 minNodes,
 		MaxNodes:                 maxNodes,
@@ -326,6 +339,7 @@ func NewAutoscalerConfig(
 		ScaleUpConfirmTicks:      scaleUpConfirmTicks,
 		ScaleDownConfirmTicks:    scaleDownConfirmTicks,
 		MaxConcurrentProvisions:  maxConcurrentProvisions,
+		FlapSuppressionTicks:     flapSuppressionTicks,
 	}, nil
 }
 
