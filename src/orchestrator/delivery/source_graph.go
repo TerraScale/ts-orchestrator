@@ -113,19 +113,25 @@ func (g *RepositorySourceGraph) ReadArchive(ctx context.Context, rev ResolvedRev
 }
 func parseDescriptor(content []byte) (string, []string, error) {
 	var d struct {
+		SchemaVersion          int    `json:"schemaVersion"`
 		Repository             string `json:"repository"`
 		RepositoryDependencies []struct {
 			Repository string `json:"repository"`
 		} `json:"repositoryDependencies"`
 	}
-	if e := json.Unmarshal(content, &d); e != nil || !ValidRepository(d.Repository) {
+	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) || json.Unmarshal(content, &d) != nil || d.SchemaVersion != 1 || !ValidRepository(d.Repository) {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
 	deps := make([]string, 0, len(d.RepositoryDependencies))
+	seen := map[string]struct{}{}
 	for _, dep := range d.RepositoryDependencies {
 		if !ValidRepository(dep.Repository) {
 			return "", nil, errors.New("invalid CI dependency")
 		}
+		if _, exists := seen[dep.Repository]; exists {
+			return "", nil, errors.New("duplicate CI dependency")
+		}
+		seen[dep.Repository] = struct{}{}
 		deps = append(deps, dep.Repository)
 	}
 	return d.Repository, deps, nil

@@ -159,6 +159,8 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 	if p == nil || p.Ledger == nil || p.Authority == nil || event == nil {
 		return DeliveryReceipt{}, errors.New("delivery processor dependencies are missing")
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if !ValidRepository(event.Repository) || event.PayloadSHA256 == "" || event.DeliveryID == "" {
 		return DeliveryReceipt{}, errors.New("delivery event identity is incomplete")
 	}
@@ -191,6 +193,9 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 	if trigger.Disposition == TriggerDispatch {
 		if p.Graph == nil || p.Handoff == nil {
 			return DeliveryReceipt{}, errors.New("dispatch requires source graph and handoff")
+		}
+		if event.SourceRepository != event.Repository {
+			return DeliveryReceipt{}, errors.New("dispatch source repository is outside graph root")
 		}
 		var snapshot SourceSnapshot
 		var err error
@@ -421,6 +426,11 @@ func validateSnapshot(graph *RepositorySourceGraph, event *WebhookEnvelope, snap
 		return errors.New("source graph snapshot is incomplete")
 	}
 	seen := map[string]struct{}{}
+	for _, observation := range snapshot.Observations {
+		if !observation.Protected || observation.Branch != "develop" && observation.Branch != "main" || !ValidRepository(observation.Revision.Repository) || graph.Sources[observation.Revision.Repository] == nil || !objectID(observation.Revision.Commit) || allZero(observation.Revision.Commit) || !objectID(observation.Revision.Tree) || allZero(observation.Revision.Tree) {
+			return errors.New("source graph observation is unsafe")
+		}
+	}
 	for i, rev := range snapshot.Sources {
 		if !ValidRepository(rev.Repository) || graph.Sources[rev.Repository] == nil || !objectID(rev.Commit) || allZero(rev.Commit) || !objectID(rev.Tree) || allZero(rev.Tree) {
 			return errors.New("source graph revision is invalid")

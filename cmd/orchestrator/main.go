@@ -669,3 +669,419 @@ func writeCatalog(output io.Writer) error {
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(document)
 }
+
+// autoscalerRoleSettings is the validated explicit configuration of the
+// autoscaler role, resolved from the documented environment flags.
+type autoscalerRoleSettings struct {
+	NatsUrl          string
+	TickInterval     time.Duration
+	Policy           autoscaling.AutoscalerConfig
+	AgentBinaryPath  string
+	RunAsUid         uint32
+	DrainMaxLagBytes int64
+}
+
+// autoscalerRequiredEnvironment reads one required configuration value.
+func autoscalerRequiredEnvironment(lookup envLookup, name string) (string, error) {
+	value, present := lookup(name)
+	if !present || strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("autoscaler: %s is required", name)
+	}
+	return value, nil
+}
+
+// autoscalerRequiredInt reads one required integer configuration value.
+func autoscalerRequiredInt(lookup envLookup, name string) (int, error) {
+	value, err := autoscalerRequiredEnvironment(lookup, name)
+	if err != nil {
+		return 0, err
+	}
+	parsed, parseErr := strconv.Atoi(value)
+	if parseErr != nil {
+		return 0, fmt.Errorf("autoscaler: %s must be an integer", name)
+	}
+	return parsed, nil
+}
+
+// autoscalerRoleConfiguration resolves and validates every autoscaler flag
+// through the injected environment lookup: the regional NATS URL, the tick
+// interval (defaulting to the documented cadence), the eight policy knobs of
+// the scaling config, the node-agent binary path and unprivileged run uid of
+// the local process provisioner, and the drain lag bound of the stateful
+// replica evaluator. Nothing is defaulted silently except the tick interval.
+func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, error) {
+	natsUrl, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_URL")
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	if strings.HasPrefix(natsUrl, "-") || strings.ContainsAny(natsUrl, " \t\n") {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_URL must be whitespace-free and flag-safe")
+	}
+	tickInterval := autoscalerDefaultTickInterval
+	if value, present := lookup(autoscalerTickIntervalEnvironment); present {
+		parsed, parseErr := time.ParseDuration(value)
+		if parseErr != nil || parsed <= 0 {
+			return autoscalerRoleSettings{}, fmt.Errorf(
+				"autoscaler: %s must be a positive duration", autoscalerTickIntervalEnvironment)
+		}
+		tickInterval = parsed
+	}
+	minNodes, err := autoscalerRequiredInt(lookup, autoscalerMinNodesEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	maxNodes, err := autoscalerRequiredInt(lookup, autoscalerMaxNodesEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	scaleUpHeadroom, err := autoscalerRequiredInt(lookup, autoscalerScaleUpHeadroomEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	scaleDownHeadroom, err := autoscalerRequiredInt(lookup, autoscalerScaleDownHeadroomEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	scaleUpTicks, err := autoscalerRequiredInt(lookup, autoscalerScaleUpTicksEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	scaleDownTicks, err := autoscalerRequiredInt(lookup, autoscalerScaleDownTicksEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	concurrency, err := autoscalerRequiredInt(lookup, autoscalerConcurrencyEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	flapTicks, err := autoscalerRequiredInt(lookup, autoscalerFlapTicksEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	policy, err := autoscaling.NewAutoscalerConfig(
+		minNodes, maxNodes, scaleUpHeadroom, scaleDownHeadroom,
+		scaleUpTicks, scaleDownTicks, concurrency, flapTicks)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	agentBinary, err := autoscalerRequiredEnvironment(lookup, autoscalerAgentBinaryEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	if len(agentBinary) > 4096 || !strings.HasPrefix(agentBinary, "/") || strings.Contains(agentBinary, "/../") {
+		return autoscalerRoleSettings{}, fmt.Errorf(
+			"autoscaler: %s must be a bounded absolute path", autoscalerAgentBinaryEnvironment)
+	}
+	runAsUidValue, err := autoscalerRequiredEnvironment(lookup, autoscalerRunAsUidEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	runAsUidParsed, parseErr := strconv.ParseUint(runAsUidValue, 10, 32)
+	if parseErr != nil || runAsUidParsed == 0 {
+		return autoscalerRoleSettings{}, fmt.Errorf(
+			"autoscaler: %s must be a nonzero numeric uid", autoscalerRunAsUidEnvironment)
+	}
+	drainLagValue, err := autoscalerRequiredEnvironment(lookup, autoscalerDrainLagEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	drainLag, parseErr := strconv.ParseInt(drainLagValue, 10, 64)
+	if parseErr != nil || drainLag < 1 {
+		return autoscalerRoleSettings{}, fmt.Errorf(
+			"autoscaler: %s must be a positive byte count", autoscalerDrainLagEnvironment)
+	}
+	return autoscalerRoleSettings{
+		NatsUrl:          natsUrl,
+		TickInterval:     tickInterval,
+		Policy:           policy,
+		AgentBinaryPath:  agentBinary,
+		RunAsUid:         uint32(runAsUidParsed),
+		DrainMaxLagBytes: drainLag,
+	}, nil
+}
+
+// autoscalerNodeEntry is the autoscaler's tracked view of one node: its
+// lifecycle state, its latest heartbeat metric sample, and when that
+// heartbeat arrived.
+type autoscalerNodeEntry struct {
+	nodeId        string
+	state         autoscaling.NodeState
+	metrics       hostagent.NodeMetricsSample
+	lastHeartbeat time.Time
+}
+
+// autoscalerRole is the control-plane runtime of the autoscaler command: it
+// collects node heartbeats from the regional NATS, ticks the deterministic
+// autoscaling engine every interval, and executes the emitted actions through
+// the local process provisioner and the node subjects. It also implements the
+// engine's drain safety seam by adapting the stateful replica evaluator with
+// the peer candidates observed on every other node.
+type autoscalerRole struct {
+	settings      autoscalerRoleSettings
+	connection    *nats.Conn
+	provisioner   autoscaling.NodeProvisioner
+	replicaDrains *stateful.ReplicaDrainSafetyEvaluator
+	engine        *autoscaling.Autoscaler
+	mutex         sync.Mutex
+	nodes         map[string]*autoscalerNodeEntry
+}
+
+// EvaluateDrainSafety adapts the engine's drain seam onto the stateful
+// replica evaluator: the candidate node is evaluated against the replicas
+// tracked on every other non-retired node.
+func (r *autoscalerRole) EvaluateDrainSafety(
+	ctx context.Context,
+	candidate stateful.NodeDrainCandidate,
+) (stateful.DrainDecision, error) {
+	if ctx == nil {
+		return stateful.DrainDecision{}, errors.New("autoscaler: the drain safety context must not be nil")
+	}
+	if r == nil || r.replicaDrains == nil {
+		return stateful.DrainDecision{}, errors.New("autoscaler: the replica drain evaluator is unavailable")
+	}
+	return r.replicaDrains.EvaluateDrainSafety(candidate, r.peerCandidates(candidate.NodeId))
+}
+
+// peerCandidates returns the drain candidates of every other tracked node.
+// Heartbeat metric samples name no replicas, so the peer candidates carry
+// empty replica lists: a node observed to host replicas through a future
+// replica-health source blocks its own drain fail-closed, never silently.
+func (r *autoscalerRole) peerCandidates(excluded string) []stateful.NodeDrainCandidate {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	peers := make([]stateful.NodeDrainCandidate, 0, len(r.nodes))
+	for nodeId, entry := range r.nodes {
+		if nodeId == excluded || entry.state == autoscaling.NodeStateRetired {
+			continue
+		}
+		peer, err := stateful.NewNodeDrainCandidate(nodeId, nil)
+		if err != nil {
+			// Unreachable for a heartbeat-validated node token; skip.
+			continue
+		}
+		peers = append(peers, peer)
+	}
+	sort.Slice(peers, func(left, right int) bool {
+		return peers[left].NodeId < peers[right].NodeId
+	})
+	return peers
+}
+
+// handleHeartbeat folds one published node heartbeat into the node table. A
+// malformed heartbeat is dropped rather than trusted, and a retired node
+// stays retired.
+func (r *autoscalerRole) handleHeartbeat(message *nats.Msg) {
+	var heartbeat hostagent.NodeHeartbeat
+	if err := json.Unmarshal(message.Data, &heartbeat); err != nil {
+		return
+	}
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	entry, present := r.nodes[heartbeat.NodeId.Value]
+	if present && entry.state == autoscaling.NodeStateRetired {
+		return
+	}
+	if !present {
+		entry = &autoscalerNodeEntry{
+			nodeId: heartbeat.NodeId.Value,
+			state:  autoscaling.NodeStateReady,
+		}
+		r.nodes[heartbeat.NodeId.Value] = entry
+	}
+	entry.metrics = heartbeat.Metrics
+	entry.lastHeartbeat = time.Now()
+}
+
+// setState records one lifecycle transition of a tracked node, creating the
+// entry when the node has not heartbeated yet.
+func (r *autoscalerRole) setState(nodeId string, state autoscaling.NodeState) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	entry, present := r.nodes[nodeId]
+	if !present {
+		r.nodes[nodeId] = &autoscalerNodeEntry{nodeId: nodeId, state: state, lastHeartbeat: time.Now()}
+		return
+	}
+	entry.state = state
+}
+
+// snapshot derives the validated cluster observation of one tick from the
+// node table: a node counts while its last heartbeat is fresh inside the
+// staleness window. Heartbeats carry no replica health and no unsatisfied
+// demand, so StatefulReplicas is empty and the demand set is empty; the
+// scheduler integration that feeds both is the follow-up lane.
+func (r *autoscalerRole) snapshot(now time.Time) autoscaling.AutoscalerSnapshot {
+	staleness := autoscalerHeartbeatStaleTicks * r.settings.TickInterval
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	nodes := make([]autoscaling.NodeObservation, 0, len(r.nodes))
+	for _, entry := range r.nodes {
+		if now.Sub(entry.lastHeartbeat) > staleness {
+			continue
+		}
+		capacity, capacityErr := autoscaling.NewNodeResources(
+			entry.metrics.MemoryTotalBytes, entry.metrics.CpuQuotaPercent, entry.metrics.TasksMax)
+		usage, usageErr := autoscaling.NewNodeResources(
+			entry.metrics.MemoryUsedBytes, entry.metrics.CpuUsedPercent, entry.metrics.TasksRunning)
+		if capacityErr != nil || usageErr != nil {
+			// Unreachable for a heartbeat-validated metric sample; skip.
+			continue
+		}
+		observation, err := autoscaling.NewNodeObservation(
+			entry.nodeId, entry.state, capacity, usage,
+			entry.metrics.PendingAllocations, nil)
+		if err != nil {
+			continue
+		}
+		nodes = append(nodes, observation)
+	}
+	return autoscaling.AutoscalerSnapshot{Nodes: nodes}
+}
+
+// apply executes one autoscaler action. Every application is fail-closed: a
+// failed provision, cordon, or retire surfaces to the run loop and stops the
+// role instead of being retried blind.
+func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.AutoscalerAction) error {
+	switch action.Kind() {
+	case autoscaling.AutoscalerActionProvisionNode:
+		return r.provisioner.Provision(ctx, action.ProvisionRequest())
+	case autoscaling.AutoscalerActionCordonNode:
+		if err := r.cordonNode(action.NodeId()); err != nil {
+			return err
+		}
+		r.setState(action.NodeId(), autoscaling.NodeStateCordoned)
+		return nil
+	case autoscaling.AutoscalerActionDrainNode:
+		// The drain sequence parks the node in Draining: its allocations stop
+		// through the scheduler's relocation and the retire gate observes the
+		// quiet node on later ticks.
+		r.setState(action.NodeId(), autoscaling.NodeStateDraining)
+		return nil
+	case autoscaling.AutoscalerActionRetireNode:
+		if err := r.provisioner.Retire(ctx, action.NodeId()); err != nil {
+			return err
+		}
+		r.setState(action.NodeId(), autoscaling.NodeStateRetired)
+		return nil
+	default:
+		return fmt.Errorf("autoscaler: the action kind %s is not executed by this role", action.Kind())
+	}
+}
+
+// cordonNode delivers one cordon command to the node agent over the regional
+// NATS and requires the agent's acknowledgment before the state transition.
+func (r *autoscalerRole) cordonNode(nodeId string) error {
+	command, err := hostagent.NewCordonCommand("autoscaler-cordon-"+nodeId, true)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return err
+	}
+	identity, err := hostagent.NewNodeId(nodeId)
+	if err != nil {
+		return err
+	}
+	subject, err := hostagent.NodeCordonSubject(identity)
+	if err != nil {
+		return err
+	}
+	reply, err := r.connection.Request(subject, payload, autoscalerCordonTimeout)
+	if err != nil {
+		return fmt.Errorf("autoscaler: the cordon of node %s failed: %s", nodeId, err.Error())
+	}
+	var acknowledgment hostagent.CordonAcknowledgment
+	if err := json.Unmarshal(reply.Data, &acknowledgment); err != nil {
+		return fmt.Errorf("autoscaler: the cordon of node %s returned a malformed acknowledgment", nodeId)
+	}
+	if !acknowledgment.Cordoned || acknowledgment.NodeId != nodeId {
+		return fmt.Errorf("autoscaler: node %s did not acknowledge its cordon", nodeId)
+	}
+	return nil
+}
+
+// tick runs one autoscaler tick over the current snapshot and applies every
+// emitted action in the tick's canonical order.
+func (r *autoscalerRole) tick(ctx context.Context, now time.Time) error {
+	actions, err := r.engine.Tick(ctx, r.snapshot(now))
+	if err != nil {
+		return err
+	}
+	for _, action := range actions {
+		if err := r.apply(ctx, action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startAutoscalerRole composes and runs the autoscaler against the regional
+// NATS until the context is cancelled: it subscribes to every node heartbeat,
+// builds the deterministic engine with the stateful drain gate and the local
+// process provisioner, and executes one tick per interval. A tick or action
+// failure stops the role fail-closed.
+func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) error {
+	if ctx == nil {
+		return errors.New("autoscaler: the role context must not be nil")
+	}
+	connection, err := nats.Connect(settings.NatsUrl,
+		nats.Timeout(5*time.Second),
+		nats.MaxReconnects(-1))
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+	role := &autoscalerRole{
+		settings:   settings,
+		connection: connection,
+		nodes:      make(map[string]*autoscalerNodeEntry),
+	}
+	drainPolicy, err := stateful.NewDrainPolicy(settings.DrainMaxLagBytes)
+	if err != nil {
+		return err
+	}
+	role.replicaDrains, err = stateful.NewReplicaDrainSafetyEvaluator(drainPolicy)
+	if err != nil {
+		return err
+	}
+	spawner, err := autoscaling.NewCommandProcessSpawner(10 * time.Second)
+	if err != nil {
+		return err
+	}
+	provisionerConfig, err := autoscaling.NewLocalProcessProvisionerConfig(
+		settings.AgentBinaryPath, settings.NatsUrl, nil, settings.RunAsUid)
+	if err != nil {
+		return err
+	}
+	role.provisioner, err = autoscaling.NewLocalProcessNodeProvisioner(provisionerConfig, spawner)
+	if err != nil {
+		return err
+	}
+	role.engine, err = autoscaling.NewAutoscaler(settings.Policy, role)
+	if err != nil {
+		return err
+	}
+	subscription, err := connection.Subscribe(
+		hostagent.NatsSubjectNodePrefix+".*."+hostagent.NatsSubjectLeafHeartbeat,
+		role.handleHeartbeat)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = subscription.Unsubscribe() }()
+	if err := connection.Flush(); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(settings.TickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case now := <-ticker.C:
+			if err := role.tick(ctx, now); err != nil {
+				return err
+			}
+		}
+	}
+}

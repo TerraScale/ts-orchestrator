@@ -13,6 +13,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -192,6 +193,7 @@ type NatsCommandIngress struct {
 	startOnce    sync.Once
 	startErr     error
 	complete     chan struct{}
+	closed       atomic.Bool
 	closeErr     error
 }
 
@@ -309,6 +311,9 @@ func (i *NatsCommandIngress) Start(ctx context.Context) error {
 	if i == nil || i.connection == nil || i.boundary == nil {
 		return errors.New("command ingress is unavailable")
 	}
+	if i.closed.Load() {
+		return errors.New("command ingress is closed")
+	}
 	i.startOnce.Do(func() {
 		if ctx == nil {
 			i.startErr = errors.New("a command ingress context is required")
@@ -323,6 +328,12 @@ func (i *NatsCommandIngress) Start(ctx context.Context) error {
 		if err != nil {
 			i.cancel()
 			i.startErr = errors.New("command ingress subscription could not be started")
+			return
+		}
+		if err := i.connection.Flush(); err != nil {
+			_ = subscription.Unsubscribe()
+			i.cancel()
+			i.startErr = errors.New("command ingress subscription could not be confirmed")
 			return
 		}
 		i.subscription = subscription
@@ -432,6 +443,7 @@ func (i *NatsCommandIngress) Close() error {
 		return nil
 	}
 	i.closeOnce.Do(func() {
+		i.closed.Store(true)
 		if i.cancel != nil {
 			i.cancel()
 		}

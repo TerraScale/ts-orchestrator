@@ -324,8 +324,12 @@ func validateCreateRequestShape(r CreateNodeProviderRequest) error {
 	if r.Context.Action != ActionCreateNode || r.Context.ResourceKind != ResourceNode || !isOCID(r.Context.CompartmentId.Value, "compartment") || r.Context.Target == nil {
 		return &ArgumentError{Message: "OCI node create request is invalid"}
 	}
-	if _, ok := r.Context.Target.(IdempotentProviderCreate); !ok {
+	target, ok := r.Context.Target.(IdempotentProviderCreate)
+	if !ok || target.Key.Value == "" || target.Key.Value != r.Binding.CreateKey || r.Context.OperationId.Value == "" || r.Context.IdempotencyKey.Value == "" || r.Context.CompartmentId.Value != r.Binding.CompartmentId {
 		return &ArgumentError{Message: "OCI node create request has no create key"}
+	}
+	if _, err := canonicalToken(target.Key.Value, "createKey"); err != nil {
+		return err
 	}
 	return nil
 }

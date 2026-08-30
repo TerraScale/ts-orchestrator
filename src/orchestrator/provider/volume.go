@@ -315,7 +315,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		}
 		if t.Signer != nil {
 			if err := t.Signer.Sign(req); err != nil {
-				return nil, err
+				return nil, redactOCIError(err, "OCI request signing failed")
 			}
 		}
 		resp, err := t.Client.Do(req)
@@ -335,7 +335,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 			return nil, ctx.Err()
 		}
 		if n+1 == attempts {
-			return nil, err
+			return nil, redactOCIError(err, "OCI request transport failed")
 		}
 		select {
 		case <-ctx.Done():
@@ -345,6 +345,17 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 	}
 	return nil, context.DeadlineExceeded
 }
+
+func redactOCIError(err error, fallback string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return &InvalidOperationError{Message: fallback}
+}
+
 func ReadBoundedBody(resp *http.Response, max int64) ([]byte, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, &InvalidDataError{Message: "OCI response body is empty"}

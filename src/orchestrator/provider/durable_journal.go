@@ -11,7 +11,7 @@ import (
 
 // OwnershipCASStore is the persistence seam for the ownership journal. A
 // revision of zero means that the key does not exist. Implementations must
-// return ErrOwnershipCASConflict when the expected revision is stale.
+// return OwnershipCASConflict when the expected revision is stale.
 type OwnershipCASStore interface {
 	Get(context.Context, string) ([]byte, uint64, error)
 	CompareAndSwap(context.Context, string, uint64, []byte) error

@@ -274,7 +274,7 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 	var graph *RepositorySourceGraph
 	var processor *DeliveryProcessor
 	if cfg.Source.Server != nil || len(cfg.Graph.Repositories) > 0 {
-		if cfg.Source.Server == nil || !ValidRepository(cfg.Source.Repository) || len(cfg.Graph.Repositories) == 0 || len(cfg.Graph.Repositories) > MaximumGraphRepositories {
+		if cfg.Source.Server == nil || !ValidRepository(cfg.Source.Repository) || cfg.Webhook.Repository != cfg.Source.Repository || len(cfg.Graph.Repositories) == 0 || len(cfg.Graph.Repositories) > MaximumGraphRepositories {
 			return nil, errors.New("delivery source graph configuration is incomplete")
 		}
 		if cfg.Authority == nil || handoff == nil {
