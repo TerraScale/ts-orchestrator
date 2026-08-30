@@ -245,6 +245,12 @@ func (a *Autoscaler) planRetireActions(snapshot AutoscalerSnapshot) []Autoscaler
 		if node.NodeState != NodeStateDraining {
 			continue
 		}
+		if _, alreadyRetired := a.recentlyRetiredNode[node.NodeId]; alreadyRetired {
+			// The snapshot may continue to report a draining node until the
+			// control-plane mutation is observed. Do not emit duplicate retire
+			// actions while that first mutation is still in flight.
+			continue
+		}
 		if node.Usage.Tasks > 0 || node.PendingAllocations > 0 {
 			continue
 		}
@@ -273,7 +279,7 @@ func (a *Autoscaler) planScaleDown(
 	if a.scaleDownIdleTicks < a.config.ScaleDownConfirmTicks {
 		return nil
 	}
-	if drainInFlight(snapshot) || len(a.cordonedInFlight) > 0 {
+	if a.drainInFlight(snapshot) || len(a.cordonedInFlight) > 0 {
 		return nil
 	}
 	fleetSize := activeFleetSize(snapshot) + len(a.inFlightProvisions)
@@ -352,9 +358,15 @@ func (a *Autoscaler) planScaleUp(
 		return nil
 	}
 	actions := make([]AutoscalerAction, 0, allowed)
+	reservedIds := make(map[string]struct{}, len(snapshot.Nodes)+len(a.inFlightProvisions))
+	for _, node := range snapshot.Nodes {
+		reservedIds[node.NodeId] = struct{}{}
+	}
+	for nodeId := range a.inFlightProvisions {
+		reservedIds[nodeId] = struct{}{}
+	}
 	for count := 0; count < allowed; count++ {
-		a.provisionSequence++
-		nodeId := fmt.Sprintf("as-node-%d", a.provisionSequence)
+		nodeId := a.nextProvisionNodeId(reservedIds)
 		request, err := NewNodeProvisionRequest(nodeId, AutoscalerNodeClass, sizing, a.scaleUpReason())
 		if err != nil {
 			// Unreachable: the sizing envelope is validated and the ids and
@@ -365,11 +377,25 @@ func (a *Autoscaler) planScaleUp(
 		if err != nil {
 			return nil
 		}
+		reservedIds[nodeId] = struct{}{}
 		a.inFlightProvisions[nodeId] = inFlightProvision{resources: sizing, tick: a.tick}
 		actions = append(actions, action)
 	}
 	a.scaleUpBreachTicks = 0
 	return actions
+}
+
+// nextProvisionNodeId advances the provision sequence to the next
+// deterministic node id the cluster does not use yet, so a fleet that already
+// contains an as-node-* id never receives a colliding provision.
+func (a *Autoscaler) nextProvisionNodeId(reserved map[string]struct{}) string {
+	for {
+		a.provisionSequence++
+		nodeId := fmt.Sprintf("as-node-%d", a.provisionSequence)
+		if _, taken := reserved[nodeId]; !taken {
+			return nodeId
+		}
+	}
 }
 
 // scaleUpReason is the deterministic, bounded provision reason of this lane.
@@ -510,9 +536,14 @@ func provisioningNodeCount(snapshot AutoscalerSnapshot) int {
 }
 
 // drainInFlight reports whether any node is Cordoned or Draining: this lane
-// drains one node at a time so the fleet never drains in waves.
-func drainInFlight(snapshot AutoscalerSnapshot) bool {
+// drains one node at a time so the fleet never drains in waves. A node for
+// which a retire action was already emitted is no longer an in-flight drain,
+// even if its stale pre-retirement state remains in the next snapshot.
+func (a *Autoscaler) drainInFlight(snapshot AutoscalerSnapshot) bool {
 	for _, node := range snapshot.Nodes {
+		if _, alreadyRetired := a.recentlyRetiredNode[node.NodeId]; alreadyRetired {
+			continue
+		}
 		if node.NodeState == NodeStateCordoned || node.NodeState == NodeStateDraining {
 			return true
 		}

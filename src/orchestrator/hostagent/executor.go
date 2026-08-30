@@ -117,12 +117,13 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
-		return newConvergeReceipt(command.CommandId, false,
-			"The plan payload is not a canonical runtime plan: "+err.Error(), "")
+		return convergeReply(command, false,
+			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
 	if e.Cordoned() {
-		return newConvergeReceipt(command.CommandId, false,
-			fmt.Sprintf("Node %s is cordoned and refuses new work.", e.nodeId.Value), decoded.fingerprint)
+		return convergeReply(command, false,
+			fmt.Sprintf("Node %s is cordoned and refuses new work.", e.nodeId.Value),
+			decoded.fingerprint, nil)
 	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
@@ -135,13 +136,13 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 	}
 	if err != nil {
 		e.recordState(decoded, "ConvergeFailed", false, false)
-		return newConvergeReceipt(command.CommandId, false, err.Error(), decoded.fingerprint)
+		return convergeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	e.recordState(decoded, "Converged", false, true)
-	return newConvergeReceipt(command.CommandId, true,
+	return convergeReply(command, true,
 		fmt.Sprintf("Allocation %s converged through the %s driver.",
 			decoded.plan.AllocationId.Value, decoded.plan.Driver),
-		decoded.fingerprint)
+		decoded.fingerprint, nil)
 }
 
 // Observe decodes one serialized canonical plan and returns its fenced
@@ -153,18 +154,18 @@ func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandR
 	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
-		return newObserveReceipt(command.CommandId, false,
-			"The plan payload is not a canonical runtime plan: "+err.Error(), "")
+		return observeReply(command, false,
+			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
 	observation, err := e.observeDecoded(ctx, decoded)
 	if err != nil {
 		e.recordState(decoded, "ObserveFailed", false, false)
-		return newObserveReceipt(command.CommandId, false, err.Error(), decoded.fingerprint)
+		return observeReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	e.recordObserved(decoded, observation)
-	return newObserveReceipt(command.CommandId, true,
+	return observeReply(command, true,
 		fmt.Sprintf("Allocation %s is %s.", decoded.plan.AllocationId.Value, observation.state),
-		decoded.fingerprint)
+		decoded.fingerprint, nil)
 }
 
 // Stop decodes one serialized canonical plan and stops its allocation.
@@ -176,8 +177,8 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
-		return newStopReceipt(command.CommandId, false,
-			"The plan payload is not a canonical runtime plan: "+err.Error(), "")
+		return stopReply(command, false,
+			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
@@ -190,11 +191,11 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 	}
 	if err != nil {
 		e.recordState(decoded, "StopFailed", false, false)
-		return newStopReceipt(command.CommandId, false, err.Error(), decoded.fingerprint)
+		return stopReply(command, false, err.Error(), decoded.fingerprint, err)
 	}
 	e.recordState(decoded, "Stopped", false, false)
-	return newStopReceipt(command.CommandId, true,
-		fmt.Sprintf("Allocation %s stopped.", decoded.plan.AllocationId.Value), decoded.fingerprint)
+	return stopReply(command, true,
+		fmt.Sprintf("Allocation %s stopped.", decoded.plan.AllocationId.Value), decoded.fingerprint, nil)
 }
 
 // Delete decodes one serialized canonical plan and removes its allocation.

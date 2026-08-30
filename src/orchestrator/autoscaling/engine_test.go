@@ -202,7 +202,7 @@ func TestTickScaleUpProvisionsAfterConsecutiveBreachTicks(t *testing.T) {
 	config := mustConfig(t, 1, 8, 20, 30, 2, 50, 4, 3)
 	loaded := mustNode(t, "gru-node-1", NodeStateReady, engineTestCapacity,
 		NodeResources{MemoryBytes: 700, CpuPercent: 70, Tasks: 70}, 0)
- peer := mustNode(t, "gru-node-2", NodeStateReady, engineTestCapacity,
+	peer := mustNode(t, "gru-node-2", NodeStateReady, engineTestCapacity,
 		NodeResources{MemoryBytes: 700, CpuPercent: 70, Tasks: 70}, 0)
 	large := mustDemand(t, "terrabase-gru", "terrabase", true,
 		NodeResources{MemoryBytes: 400, CpuPercent: 40, Tasks: 40})
@@ -560,7 +560,7 @@ func TestTickRetireThenImmediateBreachHonorsTheFlapSuppressionWindow(t *testing.
 }
 
 func TestTickDecisionsAreDeterministicUnderPermutedNodeInput(t *testing.T) {
-	config := mustConfig(t, 3, 8, 20, 30, 1, 1, 4, 3)
+	config := mustConfig(t, 2, 8, 20, 30, 1, 1, 4, 3)
 	draining := mustNode(t, "gru-node-9", NodeStateDraining, engineTestCapacity, NodeResources{}, 0)
 	nodes := []NodeObservation{
 		mustNode(t, "gru-node-1", NodeStateReady, engineTestCapacity,
@@ -570,19 +570,37 @@ func TestTickDecisionsAreDeterministicUnderPermutedNodeInput(t *testing.T) {
 		mustNode(t, "gru-node-3", NodeStateReady, engineTestCapacity,
 			NodeResources{MemoryBytes: 200, CpuPercent: 20, Tasks: 20}, 0),
 	}
+	cordoned := mustNode(t, "gru-node-1", NodeStateCordoned, engineTestCapacity,
+		NodeResources{MemoryBytes: 100, CpuPercent: 10, Tasks: 10}, 0)
 	demand := []AllocationDemand{
 		mustDemand(t, "terrabase-gru", "terrabase", true,
 			NodeResources{MemoryBytes: 400, CpuPercent: 40, Tasks: 40}),
 	}
 
+	// The script walks one full lifecycle: a drained node awaits retirement,
+	// sustained headroom drains the idlest node, and the cordoned node holds
+	// the fleet at one drain at a time. Node input order alternates between
+	// declared and reversed, and the decision stream must not notice.
+	script := func(tick int) []NodeObservation {
+		ordered := append([]NodeObservation{}, nodes...)
+		if tick == 0 {
+			return append([]NodeObservation{draining}, ordered...)
+		}
+		if tick == 2 || tick == 3 {
+			ordered[0] = cordoned
+		}
+		if tick%2 == 1 {
+			return []NodeObservation{ordered[2], ordered[1], ordered[0]}
+		}
+		return ordered
+	}
+
 	run := func() string {
 		autoscaler := mustAutoscaler(t, config, allowAllDrains())
 		var builder strings.Builder
-		first := append([]NodeObservation{draining}, nodes...)
-		reversed := append([]NodeObservation{draining}, nodes[2], nodes[1], nodes[0])
-		for _, tickNodes := range [][]NodeObservation{first, reversed, first, reversed} {
+		for tick := 0; tick < 4; tick++ {
 			fmt.Fprintf(&builder, "%s\n", actionSignature(mustTick(t, autoscaler,
-				AutoscalerSnapshot{Nodes: tickNodes, Demand: demand})))
+				AutoscalerSnapshot{Nodes: script(tick), Demand: demand})))
 		}
 		return builder.String()
 	}
@@ -597,5 +615,24 @@ func TestTickDecisionsAreDeterministicUnderPermutedNodeInput(t *testing.T) {
 	if !strings.Contains(reference, "RetireNode|gru-node-9;") ||
 		!strings.Contains(reference, "CordonNode|gru-node-1;DrainNode|gru-node-1;") {
 		t.Fatalf("the permuted sequence must still retire and drain, got:\n%s", reference)
+	}
+}
+
+func TestTickScaleUpSkipsNodeIdsTheClusterAlreadyUses(t *testing.T) {
+	loaded := mustNode(t, "as-node-1", NodeStateReady, engineTestCapacity,
+		NodeResources{MemoryBytes: 950, CpuPercent: 95, Tasks: 95}, 0)
+	autoscaler := mustAutoscaler(t,
+		mustConfig(t, 1, 8, 20, 30, 1, 50, 4, 3), allowAllDrains())
+
+	actions := mustTick(t, autoscaler, AutoscalerSnapshot{
+		Nodes: []NodeObservation{loaded},
+		Demand: []AllocationDemand{mustDemand(t, "terrabase-gru", "terrabase", true,
+			NodeResources{MemoryBytes: 100, CpuPercent: 10, Tasks: 10})},
+	})
+	if len(actions) != 1 || actions[0].Kind() != AutoscalerActionProvisionNode {
+		t.Fatalf("actions = %v", actionSignature(actions))
+	}
+	if nodeId := actions[0].ProvisionRequest().NodeId; nodeId != "as-node-2" {
+		t.Fatalf("node id = %q, want the first unused sequence id", nodeId)
 	}
 }
