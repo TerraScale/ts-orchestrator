@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
@@ -280,10 +281,14 @@ func scanAutoscalerJSONValue(decoder *json.Decoder) (bool, error) {
 			if !ok {
 				return false, fmt.Errorf("invalid JSON object key")
 			}
-			if _, exists := seen[name]; exists {
+			// encoding/json matches struct fields case-insensitively. Treat
+			// differently-cased spellings as the same key here so a payload
+			// cannot smuggle an ambiguous last-key-wins duplicate.
+			canonicalName := strings.ToLower(name)
+			if _, exists := seen[canonicalName]; exists {
 				return true, nil
 			}
-			seen[name] = struct{}{}
+			seen[canonicalName] = struct{}{}
 			duplicate, err := scanAutoscalerJSONValue(decoder)
 			if err != nil || duplicate {
 				return duplicate, err

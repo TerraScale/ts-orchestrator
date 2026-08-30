@@ -28,6 +28,9 @@ func TestParseTsNodeArgumentsAppliesDefaults(t *testing.T) {
 	if configuration.XdgRuntimeDir != "/run/user/1000" {
 		t.Fatalf("xdg runtime dir default = %q", configuration.XdgRuntimeDir)
 	}
+	if configuration.SeccompProfilePath != tsNodeDefaultSeccompProfile {
+		t.Fatalf("seccomp profile default = %q", configuration.SeccompProfilePath)
+	}
 	if configuration.RunAsUid != 1000 {
 		t.Fatalf("run uid default = %d", configuration.RunAsUid)
 	}
@@ -51,6 +54,7 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 		"--cpu-quota-percent", "400",
 		"--podman-binary", "/opt/podman/bin/podman",
 		"--xdg-runtime-dir", "/run/user/1001",
+		"--seccomp-profile", "/etc/terrascale/seccomp/custom-v1.json",
 		"--connect-timeout", "2s",
 		"--node-class", "greenfield-tiny",
 		"--run-as-uid", "1001",
@@ -64,6 +68,7 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 		configuration.NatsUrl != "nats://regional:4222" ||
 		configuration.PodmanBinaryPath != "/opt/podman/bin/podman" ||
 		configuration.XdgRuntimeDir != "/run/user/1001" ||
+		configuration.SeccompProfilePath != "/etc/terrascale/seccomp/custom-v1.json" ||
 		configuration.RunAsUid != 1001 ||
 		configuration.HeartbeatInterval != 250*time.Millisecond ||
 		configuration.ConnectTimeout != 2*time.Second ||
@@ -156,6 +161,12 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 			want: "--logical-cpu-count must be a positive integer",
 		},
 		{
+			name: "relative seccomp profile path",
+			args: []string{"--node-id", "gru-node-1", "--nats-url", "nats://x",
+				"--seccomp-profile", "seccomp.json"},
+			want: "--seccomp-profile must be a bounded absolute path",
+		},
+		{
 			name: "unknown flag",
 			args: []string{"--node-id", "gru-node-1", "--nats-url", "nats://x", "--root", "yes"},
 			want: "the flag --root is not supported",
@@ -201,51 +212,54 @@ func TestParseTsNodeArgumentsFailsClosedUnderUidZero(t *testing.T) {
 
 func TestComposeTsNodeAgentValidatesRootlessContext(t *testing.T) {
 	_, err := composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:            "gru-node-1",
-		NodeClass:         "greenfield",
-		NatsUrl:           "nats://127.0.0.1:4222",
-		PodmanBinaryPath:  "podman",
-		XdgRuntimeDir:     "/run/user/1000",
-		RunAsUid:          1000,
-		HeartbeatInterval: time.Second,
-		ConnectTimeout:    time.Second,
-		CpuQuotaPercent:   100,
-		TasksMax:          128,
-		LogicalCpuCount:   1,
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "nats://127.0.0.1:4222",
+		PodmanBinaryPath:   "podman",
+		XdgRuntimeDir:      "/run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "rootless podman context is invalid") {
 		t.Fatalf("relative podman path was accepted: %v", err)
 	}
 
 	_, err = composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:            "gru-node-1",
-		NodeClass:         "greenfield",
-		NatsUrl:           "nats://127.0.0.1:4222",
-		PodmanBinaryPath:  "/usr/bin/podman",
-		XdgRuntimeDir:     "run/user/1000",
-		RunAsUid:          1000,
-		HeartbeatInterval: time.Second,
-		ConnectTimeout:    time.Second,
-		CpuQuotaPercent:   100,
-		TasksMax:          128,
-		LogicalCpuCount:   1,
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "nats://127.0.0.1:4222",
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "rootless podman context is invalid") {
 		t.Fatalf("relative xdg runtime dir was accepted: %v", err)
 	}
 
 	agent, err := composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:            "gru-node-1",
-		NodeClass:         "greenfield",
-		NatsUrl:           "nats://127.0.0.1:4222",
-		PodmanBinaryPath:  "/usr/bin/podman",
-		XdgRuntimeDir:     "/run/user/1000",
-		RunAsUid:          1000,
-		HeartbeatInterval: time.Second,
-		ConnectTimeout:    time.Second,
-		CpuQuotaPercent:   100,
-		TasksMax:          128,
-		LogicalCpuCount:   1,
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "nats://127.0.0.1:4222",
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "/run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
 	if err != nil {
 		t.Fatalf("valid configuration failed to compose: %v", err)

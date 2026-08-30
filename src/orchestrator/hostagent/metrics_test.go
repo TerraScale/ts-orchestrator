@@ -34,6 +34,17 @@ type fakePendingCounter struct {
 
 func (f fakePendingCounter) PendingAllocations() int { return f.pending }
 
+// fakeAllocationCounter serves fixed pending and running counts, the executor
+// surface the heartbeat relays in production.
+type fakeAllocationCounter struct {
+	pending int
+	running int
+}
+
+func (f fakeAllocationCounter) PendingAllocations() int { return f.pending }
+
+func (f fakeAllocationCounter) RunningAllocations() int { return f.running }
+
 const metricsMeminfo = "MemTotal:       16326460 kB\n" +
 	"MemFree:          524288 kB\n" +
 	"MemAvailable:   12163448 kB\n" +
@@ -94,6 +105,61 @@ func TestSystemMetricsSourceClampsSaturatedDimensions(t *testing.T) {
 	}
 	if sample.PendingAllocations != 0 {
 		t.Fatalf("a nil counter reports zero pending, got %d", sample.PendingAllocations)
+	}
+}
+
+// TestSystemMetricsSourcePrefersTheRunningAllocationGauge proves the
+// heartbeat's task gauge comes from the executor's tracked allocations, not
+// from the kernel's host-wide running-entity count: a shared host always has
+// runnable entities even when the node hosts none, and the autoscaler's
+// retire gate reads the gauge as the node's own running allocations.
+func TestSystemMetricsSourcePrefersTheRunningAllocationGauge(t *testing.T) {
+	source, err := NewSystemMetricsSource(SystemMetricsSourceConfig{
+		ProcReader: &fakeProcReader{
+			files: map[string]string{procMeminfoPath: metricsMeminfo, procLoadavgPath: metricsLoadavg},
+		},
+		CpuQuotaPercent: 800,
+		TasksMax:        2048,
+		LogicalCpuCount: 8,
+		Pending:         fakeAllocationCounter{pending: 2, running: 1},
+		Running:         fakeAllocationCounter{pending: 2, running: 1},
+	})
+	if err != nil {
+		t.Fatalf("source: %v", err)
+	}
+
+	sample, err := source.Sample(context.Background())
+	if err != nil {
+		t.Fatalf("sample: %v", err)
+	}
+	if sample.TasksRunning != 1 {
+		t.Fatalf("tasks running = %d; want the executor gauge (1), not the loadavg entities (3)",
+			sample.TasksRunning)
+	}
+	if sample.PendingAllocations != 2 {
+		t.Fatalf("pending = %d", sample.PendingAllocations)
+	}
+
+	// A saturated executor gauge clamps to the task ceiling, exactly like the
+	// loadavg-derived count.
+	saturated, err := NewSystemMetricsSource(SystemMetricsSourceConfig{
+		ProcReader: &fakeProcReader{
+			files: map[string]string{procMeminfoPath: metricsMeminfo, procLoadavgPath: metricsLoadavg},
+		},
+		CpuQuotaPercent: 800,
+		TasksMax:        128,
+		LogicalCpuCount: 8,
+		Running:         fakeAllocationCounter{running: 9999},
+	})
+	if err != nil {
+		t.Fatalf("saturated source: %v", err)
+	}
+	saturatedSample, err := saturated.Sample(context.Background())
+	if err != nil {
+		t.Fatalf("saturated sample: %v", err)
+	}
+	if saturatedSample.TasksRunning != 128 {
+		t.Fatalf("a saturated gauge must report the ceiling, got %d", saturatedSample.TasksRunning)
 	}
 }
 

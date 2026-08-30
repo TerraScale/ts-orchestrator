@@ -169,20 +169,6 @@ func (c *fakeE2EPodmanClient) EnsureVolume(ctx context.Context, name string) err
 	return nil
 }
 
-// runningCount reports how many tracked containers are running; it is the
-// metric source's task gauge.
-func (c *fakeE2EPodmanClient) runningCount() int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	count := 0
-	for _, container := range c.containers {
-		if container.running {
-			count++
-		}
-	}
-	return count
-}
-
 // recordedCalls snapshots the call log in order.
 func (c *fakeE2EPodmanClient) recordedCalls() []string {
 	c.mutex.Lock()
@@ -197,24 +183,73 @@ func (c *fakeE2EPodmanClient) createdRequest(index int) runtime.PodmanRunRequest
 	return c.createdRequests[index]
 }
 
-// e2eMetricsSource is the controlled heartbeat metrics source of the node
-// agent: memory and CPU stay low (the workload runs idle) while the running
-// task gauge mirrors the fake podman container table exactly, so the
-// autoscaler's retire gate observes the allocation count.
-type e2eMetricsSource struct {
-	podman *fakeE2EPodmanClient
+// e2eProcReader serves the fixed /proc payloads of the node's heartbeat
+// metrics source: the memory envelope and load of the seeded node sample.
+// Only the two exact paths the system metrics source reads are answered.
+type e2eProcReader struct{}
+
+// ReadFile answers the meminfo and loadavg payloads of the seeded sample.
+func (e2eProcReader) ReadFile(path string) ([]byte, error) {
+	switch path {
+	case "/proc/meminfo":
+		// The seeded envelope: 1 GiB total with 100 MiB used.
+		totalKb := e2eNodeMemoryTotalBytes / 1024
+		availableKb := totalKb - e2eNodeMemoryUsedBytes/1024
+		return []byte(fmt.Sprintf("MemTotal:       %d kB\nMemAvailable:    %d kB\n",
+			totalKb, availableKb)), nil
+	case "/proc/loadavg":
+		// A one-minute load of 0.05 over one logical CPU is 5 used percent;
+		// the three running kernel entities are deliberately nonzero, because
+		// the heartbeat gauge must come from the executor, not from loadavg.
+		return []byte("0.05 0.05 0.05 3/941 24567\n"), nil
+	default:
+		return nil, fmt.Errorf("e2e: the proc path %q is not read by this proof", path)
+	}
 }
 
-// Sample maps the fake container table into one validated metric sample.
-func (s *e2eMetricsSource) Sample(ctx context.Context) (hostagent.NodeMetricsSample, error) {
-	return hostagent.NewNodeMetricsSample(
-		e2eNodeMemoryTotalBytes,
-		e2eNodeMemoryUsedBytes,
-		e2eNodeCpuQuotaPercent,
-		e2eNodeCpuUsedPercent,
-		e2eNodeTasksMax,
-		s.podman.runningCount(),
-		0)
+// e2eExecutorRelay forwards the heartbeat's pending and running allocation
+// gauges to the agent's own workload executor once that executor exists,
+// mirroring the production ts-node composition: the agent composes its
+// executor internally, so the metrics source is bound first and pointed at
+// the executor immediately after the agent is built.
+type e2eExecutorRelay struct {
+	mutex   sync.Mutex
+	counter interface {
+		hostagent.PendingAllocationCounter
+		hostagent.RunningAllocationCounter
+	}
+}
+
+// bind attaches the executor the relay reports the allocation gauges for.
+func (r *e2eExecutorRelay) bind(counter interface {
+	hostagent.PendingAllocationCounter
+	hostagent.RunningAllocationCounter
+}) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.counter = counter
+}
+
+// PendingAllocations reports the executor's pending count, or zero before the
+// executor is bound.
+func (r *e2eExecutorRelay) PendingAllocations() int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.counter == nil {
+		return 0
+	}
+	return r.counter.PendingAllocations()
+}
+
+// RunningAllocations reports the executor's running count, or zero before the
+// executor is bound.
+func (r *e2eExecutorRelay) RunningAllocations() int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.counter == nil {
+		return 0
+	}
+	return r.counter.RunningAllocations()
 }
 
 // e2eUnusedNativeAdapter records every call: the native systemd driver is
@@ -502,7 +537,18 @@ func TestPodmanAutoscaleLaneEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agent connection seam: %v", err)
 	}
-	metrics := &e2eMetricsSource{podman: fakePodman}
+	gaugeRelay := &e2eExecutorRelay{}
+	metrics, err := hostagent.NewSystemMetricsSource(hostagent.SystemMetricsSourceConfig{
+		ProcReader:      e2eProcReader{},
+		CpuQuotaPercent: e2eNodeCpuQuotaPercent,
+		TasksMax:        e2eNodeTasksMax,
+		LogicalCpuCount: 1,
+		Pending:         gaugeRelay,
+		Running:         gaugeRelay,
+	})
+	if err != nil {
+		t.Fatalf("metrics source: %v", err)
+	}
 	agent, err := hostagent.NewHostAgent(hostagent.HostAgentConfig{
 		NodeId:            nodeId,
 		Connection:        wiredConnection,
@@ -515,6 +561,7 @@ func TestPodmanAutoscaleLaneEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("host agent: %v", err)
 	}
+	gaugeRelay.bind(agent.Executor())
 	agentContext, cancelAgent := context.WithCancel(context.Background())
 	t.Cleanup(func() {
 		cancelAgent()

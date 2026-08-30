@@ -59,8 +59,8 @@ const (
 	// autoscalerDrainStatusTimeout bounds the drain-status request the retire
 	// gate sends: the reply observes every allocation the node still serves,
 	// so it needs a wider bound than a single cordon acknowledgment.
-	autoscalerDrainStatusTimeout = 10 * time.Second
-	autoscalerHeartbeatClockSkew = 2 * time.Minute
+	autoscalerDrainStatusTimeout  = 10 * time.Second
+	autoscalerHeartbeatClockSkew  = 2 * time.Minute
 	autoscalerMaximumTrackedNodes = 1024
 	// autoscalerHeartbeatStaleTicks bounds how many tick intervals a node's
 	// last heartbeat may age before the autoscaler stops counting the node in
@@ -1120,7 +1120,16 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 		if r.provisioner == nil {
 			return errors.New("autoscaler: the node provisioner is unavailable")
 		}
-		return r.provisioner.Provision(ctx, action.ProvisionRequest())
+		if err := r.provisioner.Provision(ctx, action.ProvisionRequest()); err != nil {
+			// The provisioner explicitly reported the failure: release the
+			// engine's remembered reservation so it stops counting against the
+			// provisioning capacity, then surface the failure fail-closed.
+			if r.engine != nil {
+				_ = r.engine.RefuteProvision(action.ProvisionRequest().NodeId)
+			}
+			return err
+		}
+		return nil
 	case autoscaling.AutoscalerActionCordonNode:
 		if r.connection == nil {
 			return errors.New("autoscaler: the NATS connection is unavailable")
@@ -1140,6 +1149,9 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 		if r.provisioner == nil {
 			return errors.New("autoscaler: the node provisioner is unavailable")
 		}
+		if err := r.requireDrained(action.NodeId()); err != nil {
+			return err
+		}
 		if err := r.provisioner.Retire(ctx, action.NodeId()); err != nil {
 			return err
 		}
@@ -1150,13 +1162,65 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 	}
 }
 
+// autoscalerCommandId derives the bounded command token of one autoscaler
+// message from its prefix and target node: the node id is folded into a
+// sixteen-character digest, so even a node id at the 63-character token bound
+// cannot push the command id past the length bound NewCordonCommand and
+// NewNodeStatusRequest enforce.
+func autoscalerCommandId(prefix string, nodeId string) string {
+	digest := sha256.Sum256([]byte(nodeId))
+	return prefix + hex.EncodeToString(digest[:8])
+}
+
+// requireDrained proves through the node's own drain-status subject that the
+// node is cordoned and fully drained before it may be retired. The heartbeat
+// gauge alone is node-local evidence; the drain-status report is the
+// node-scoped observation of every allocation the agent still tracks, so
+// retiring a node whose containers still run - which would strand them on a
+// retired node - is not expressible. An unreachable or malformed answer fails
+// closed.
+func (r *autoscalerRole) requireDrained(nodeId string) error {
+	if r == nil || r.connection == nil {
+		return errors.New("autoscaler: the NATS connection is unavailable")
+	}
+	request, err := hostagent.NewNodeStatusRequest(autoscalerCommandId("autoscaler-drain-status-", nodeId))
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	identity, err := hostagent.NewNodeId(nodeId)
+	if err != nil {
+		return err
+	}
+	subject, err := hostagent.NodeDrainStatusSubject(identity)
+	if err != nil {
+		return err
+	}
+	reply, err := r.connection.Request(subject, payload, autoscalerDrainStatusTimeout)
+	if err != nil {
+		return fmt.Errorf("autoscaler: the drain status of node %s could not be observed: %s",
+			nodeId, err.Error())
+	}
+	var report hostagent.DrainStatusReport
+	if err := json.Unmarshal(reply.Data, &report); err != nil {
+		return fmt.Errorf("autoscaler: node %s returned a malformed drain-status report", nodeId)
+	}
+	if report.CommandId != request.CommandId || report.NodeId != nodeId || !report.Cordoned || !report.Drained {
+		return fmt.Errorf("autoscaler: node %s is not drained and must not be retired", nodeId)
+	}
+	return nil
+}
+
 // cordonNode delivers one cordon command to the node agent over the regional
 // NATS and requires the agent's acknowledgment before the state transition.
 func (r *autoscalerRole) cordonNode(nodeId string) error {
 	if r == nil || r.connection == nil {
 		return errors.New("autoscaler: the NATS connection is unavailable")
 	}
-	command, err := hostagent.NewCordonCommand("autoscaler-cordon-"+nodeId, true)
+	command, err := hostagent.NewCordonCommand(autoscalerCommandId("autoscaler-cordon-", nodeId), true)
 	if err != nil {
 		return err
 	}
@@ -1180,17 +1244,60 @@ func (r *autoscalerRole) cordonNode(nodeId string) error {
 	if err := json.Unmarshal(reply.Data, &acknowledgment); err != nil {
 		return fmt.Errorf("autoscaler: the cordon of node %s returned a malformed acknowledgment", nodeId)
 	}
-	if !acknowledgment.Cordoned || acknowledgment.NodeId != nodeId {
+	if acknowledgment.CommandId != command.CommandId || !acknowledgment.Cordoned || acknowledgment.NodeId != nodeId {
 		return fmt.Errorf("autoscaler: node %s did not acknowledge its cordon", nodeId)
 	}
 	return nil
 }
 
+// reassertCordons re-delivers the cordon command to every node the control
+// plane believes is Cordoned or Draining. The agent keeps its cordon flag in
+// memory only, so an agent restart would otherwise silently un-cordon a
+// draining node and let it accept new Converge work; cordon is idempotent and
+// acknowledged, so asserting it on every tick is safe.
+func (r *autoscalerRole) reassertCordons() error {
+	if r == nil {
+		return errors.New("autoscaler: the role is unavailable")
+	}
+	r.mutex.Lock()
+	targets := make([]string, 0, len(r.nodes))
+	for nodeId, entry := range r.nodes {
+		if entry.state == autoscaling.NodeStateCordoned || entry.state == autoscaling.NodeStateDraining {
+			targets = append(targets, nodeId)
+		}
+	}
+	r.mutex.Unlock()
+	if len(targets) == 0 {
+		return nil
+	}
+	if r.connection == nil {
+		return errors.New("autoscaler: the NATS connection is unavailable")
+	}
+	sort.Strings(targets)
+	for _, nodeId := range targets {
+		if err := r.cordonNode(nodeId); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // tick runs one autoscaler tick over the current snapshot and applies every
-// emitted action in the tick's canonical order.
+// emitted action in the tick's canonical order. Cordoned and draining nodes
+// have their cordon re-asserted first, so a restarted agent cannot silently
+// slip back into accepting work.
 func (r *autoscalerRole) tick(ctx context.Context, now time.Time) error {
 	if r == nil || r.engine == nil {
 		return errors.New("autoscaler: the engine is unavailable")
+	}
+	if ctx == nil {
+		return errors.New("autoscaler: the tick context must not be nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := r.reassertCordons(); err != nil {
+		return err
 	}
 	actions, err := r.engine.Tick(ctx, r.snapshot(now))
 	if err != nil {

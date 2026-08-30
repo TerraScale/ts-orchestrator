@@ -55,17 +55,18 @@ func isTsNodeSpaceRune(r rune) bool { return r <= ' ' || r == 0x7f }
 // tsNodeConfiguration is the fully explicit runtime configuration of one node
 // host agent after flag parsing.
 type tsNodeConfiguration struct {
-	NodeId            string
-	NodeClass         string
-	NatsUrl           string
-	PodmanBinaryPath  string
-	XdgRuntimeDir     string
-	RunAsUid          uint32
-	HeartbeatInterval time.Duration
-	ConnectTimeout    time.Duration
-	CpuQuotaPercent   int
-	TasksMax          int
-	LogicalCpuCount   int
+	NodeId             string
+	NodeClass          string
+	NatsUrl            string
+	PodmanBinaryPath   string
+	XdgRuntimeDir      string
+	SeccompProfilePath string
+	RunAsUid           uint32
+	HeartbeatInterval  time.Duration
+	ConnectTimeout     time.Duration
+	CpuQuotaPercent    int
+	TasksMax           int
+	LogicalCpuCount    int
 }
 
 // parseTsNodeArguments validates the explicit flag vector of the node agent
@@ -99,8 +100,8 @@ func parseTsNodeArguments(
 	for name := range flags {
 		switch name {
 		case "--node-id", "--node-class", "--nats-url", "--podman-binary", "--xdg-runtime-dir",
-			"--run-as-uid", "--heartbeat-interval", "--connect-timeout", "--cpu-quota-percent",
-			"--tasks-max", "--logical-cpu-count":
+			"--seccomp-profile", "--run-as-uid", "--heartbeat-interval", "--connect-timeout",
+			"--cpu-quota-percent", "--tasks-max", "--logical-cpu-count":
 		default:
 			return tsNodeConfiguration{}, fmt.Errorf(
 				"ts-node: the flag %s is not supported", name)
@@ -157,6 +158,15 @@ func parseTsNodeArguments(
 	if value, present := flags["--xdg-runtime-dir"]; present {
 		xdgRuntimeDir = value
 	}
+	seccompProfile := tsNodeDefaultSeccompProfile
+	if value, present := flags["--seccomp-profile"]; present {
+		seccompProfile = value
+	}
+	if len(seccompProfile) > 4096 || !strings.HasPrefix(seccompProfile, "/") ||
+		strings.Contains(seccompProfile, "/../") {
+		return tsNodeConfiguration{}, errors.New(
+			"ts-node: --seccomp-profile must be a bounded absolute path")
+	}
 
 	heartbeatInterval := tsNodeDefaultHeartbeatPeriod
 	if value, present := flags["--heartbeat-interval"]; present {
@@ -206,17 +216,18 @@ func parseTsNodeArguments(
 	}
 
 	return tsNodeConfiguration{
-		NodeId:            nodeId,
-		NodeClass:         nodeClass,
-		NatsUrl:           natsUrl,
-		PodmanBinaryPath:  podmanBinary,
-		XdgRuntimeDir:     xdgRuntimeDir,
-		RunAsUid:          runAsUid,
-		HeartbeatInterval: heartbeatInterval,
-		ConnectTimeout:    connectTimeout,
-		CpuQuotaPercent:   cpuQuotaPercent,
-		TasksMax:          tasksMax,
-		LogicalCpuCount:   logicalCpuCount,
+		NodeId:             nodeId,
+		NodeClass:          nodeClass,
+		NatsUrl:            natsUrl,
+		PodmanBinaryPath:   podmanBinary,
+		XdgRuntimeDir:      xdgRuntimeDir,
+		SeccompProfilePath: seccompProfile,
+		RunAsUid:           runAsUid,
+		HeartbeatInterval:  heartbeatInterval,
+		ConnectTimeout:     connectTimeout,
+		CpuQuotaPercent:    cpuQuotaPercent,
+		TasksMax:           tasksMax,
+		LogicalCpuCount:    logicalCpuCount,
 	}, nil
 }
 
@@ -266,17 +277,19 @@ func (r *tsNodePendingRelay) RunningAllocations() int {
 
 // composeTsNodeAgent composes the node agent from one validated
 // configuration: the rootless podman context is revalidated through
-// NewRootlessPodmanContext (fail-closed on uid 0 and relative paths), the
-// process podman client drives the rootless podman adapter, the systemd
-// adapter runs in user-manager mode so native plans become user units, and
-// the system metrics source feeds the heartbeat from /proc. The stateful
+// NewRootlessPodmanContext (fail-closed on uid 0, relative paths, and a
+// missing seccomp profile path), the process podman client drives the
+// rootless podman adapter and loads the seccomp document named by the
+// context, the systemd adapter runs in user-manager mode so native plans
+// become user units, and the system metrics source feeds the heartbeat from
+// /proc with the running-task gauge relayed from the executor. The stateful
 // volume mounts of the podman adapter are empty in this slice: the per-role
 // volume bindings of the stateful catalog are not carried on the wire plan
 // yet.
 func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent, error) {
 	rootless, err := hostruntime.NewRootlessPodmanContext(
 		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
-		tsNodeDefaultSeccompProfile, configuration.RunAsUid)
+		configuration.SeccompProfilePath, configuration.RunAsUid)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
 	}
