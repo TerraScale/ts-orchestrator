@@ -10,6 +10,7 @@ using System.Text.Json;
 using TerraScale.Orchestrator.Operations;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Delivery.DeployHandoffV2;
 using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -25,6 +26,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly INatsObjStore? bundles;
     private readonly NatsTopology topology;
     private readonly DirectDeliveryService? directDelivery;
+    private readonly CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission;
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
 
     private NatsRuntime(
@@ -37,6 +39,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsObjStore? bundles,
         NatsTopology topology,
         DirectDeliveryService? directDelivery,
+        CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
         ServiceEndpointInstrumentation serviceInstrumentation)
     {
         this.client = client;
@@ -48,6 +51,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.bundles = bundles;
         this.topology = topology;
         this.directDelivery = directDelivery;
+        this.candidateHandoffV2Admission = candidateHandoffV2Admission;
         this.serviceInstrumentation = serviceInstrumentation;
     }
 
@@ -57,6 +61,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
     internal string Cell => topology.Cell;
     internal DirectDeliveryService? DirectDelivery => directDelivery;
+    internal CandidateEvidenceHandoffV2AdmissionRuntime? CandidateHandoffV2Admission => candidateHandoffV2Admission;
 
     private volatile Observability.OrchestratorTelemetry? serviceTelemetry;
 
@@ -133,7 +138,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         Protocol.ICommandSignatureVerifier? commandSignatureVerifier = null,
         bool registersDirectDeliveryEndpoint = true,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
-        Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null)
+        Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null,
+        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -229,9 +235,11 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken);
 
             DirectDeliveryService? directDelivery = null;
+            CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission = null;
             if (state.Delivery is not null)
             {
                 var ledger = new NatsForgejoDeliveryLedger(state.Delivery);
+                var artifactSignatureVerifier = ciArtifactSignatures as IRepositoryCiArtifactSignatureVerifier;
                 // Composition fails closed here without the evidence verifier or the
                 // configured admitted-target allow-list, mirroring the signed-command rule.
                 // The evidence verifier is the CI artifact role's trust root, supplied
@@ -247,7 +255,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                             current.Epoch == request.WriterEpoch;
                     },
                     admittedDeliveryTargets,
-                    ciArtifactSignatures as IRepositoryCiArtifactSignatureVerifier);
+                    artifactSignatureVerifier);
                 directDelivery = new DirectDeliveryService(
                     adapters.Authorizer,
                     adapters.Provenance,
@@ -262,6 +270,10 @@ public sealed class NatsRuntime : IAsyncDisposable
                             current.KvRevision == request.AuthorityGeneration &&
                             current.Epoch == request.WriterEpoch;
                     });
+                candidateHandoffV2Admission = CandidateEvidenceHandoffV2AdmissionRuntime.ComposeProduction(
+                    ledger,
+                    artifactSignatureVerifier!,
+                    candidateHandoffV2Policies ?? CandidateEvidenceHandoffV2AdmissionPolicyCatalog.Empty);
             }
 
             var services = client.CreateServicesContext();
@@ -318,13 +330,14 @@ public sealed class NatsRuntime : IAsyncDisposable
                             NatsServiceEndpointName.DirectDelivery,
                             message,
                             async () =>
-                            {                                // Exactly two payload kinds are admitted behind the one signed seam:
-                                // the canonical DeliveryRequest and the Deploy handoff manifest. The
-                                // runtime binds a handoff execution to the live authority lease it
-                                // owns; a direct request carries and is fenced by its own claims.
+                            {
+                                // Three payload kinds share the signed seam. Direct requests and v1
+                                // mappings can execute with Orchestrator authority. V2 candidate
+                                // evidence stops after admission and keeps every authority field zero.
                                 var lease = authority.Snapshot;
+                                var payload = Encoding.UTF8.GetBytes(message.Data ?? string.Empty);
                                 var admission = DirectDeliveryCommandIngress.Decode(
-                                    Encoding.UTF8.GetBytes(message.Data ?? string.Empty),
+                                    payload,
                                     Flatten(message.Headers),
                                     options.Cell,
                                     DateTimeOffset.UtcNow,
@@ -332,20 +345,40 @@ public sealed class NatsRuntime : IAsyncDisposable
                                     commandSignatureVerifier,
                                     lease.KvRevision,
                                     lease.Epoch);
-                                var receipt = admission.Kind switch
+                                var response = admission.Kind switch
                                 {
                                     DirectDeliveryCommandPayloadKind.DeliveryRequest when admission.Request is { } request =>
-                                        await directDelivery.DeliverAsync(request, cancellationToken)
-                                            .ConfigureAwait(false),
+                                        DeliveryWireCodec.SerializeReceipt(
+                                            await directDelivery.DeliverAsync(request, cancellationToken)
+                                                .ConfigureAwait(false)),
                                     DirectDeliveryCommandPayloadKind.DeployHandoffManifest when admission.Handoff is
-                                        { IsAdmittedForTargetMutation: true } mapping =>
-                                        await handoffDelivery.DeliverMappedAsync(
-                                            mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
-                                            .ConfigureAwait(false),
-                                    _ => DirectDeliveryCommandIngress.RefusalReceipt(admission),
+                                    { IsAdmittedForTargetMutation: true } mapping =>
+                                        DeliveryWireCodec.SerializeReceipt(
+                                            await handoffDelivery.DeliverMappedAsync(
+                                                mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
+                                                .ConfigureAwait(false)),
+                                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 when
+                                        admission.CandidateEvidence is { } identity &&
+                                        admission.Error != DirectDeliveryCommandWireError.None =>
+                                        CandidateEvidenceHandoffV2AdmissionRuntime.SerializeReceipt(
+                                            CandidateEvidenceHandoffV2AdmissionRuntime.RefusedBeforeAdmission(
+                                                identity,
+                                                new(
+                                                    "handoff_v2_outer_envelope_denied",
+                                                    "The signed command envelope for candidate admission was rejected.",
+                                                    "Use the admitted command identity, cell, operation, and validity window."))),
+                                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 when
+                                        admission.IsAdmissionOnly && candidateHandoffV2Admission is not null =>
+                                        CandidateEvidenceHandoffV2AdmissionRuntime.SerializeReceipt(
+                                            await candidateHandoffV2Admission.AdmitAsync(
+                                                payload,
+                                                DateTimeOffset.UtcNow,
+                                                cancellationToken).ConfigureAwait(false)),
+                                    _ => DeliveryWireCodec.SerializeReceipt(
+                                        DirectDeliveryCommandIngress.RefusalReceipt(admission)),
                                 };
                                 await message.ReplyAsync(
-                                    DeliveryWireCodec.SerializeReceipt(receipt),
+                                    response,
                                     cancellationToken: cancellationToken).ConfigureAwait(false);
                             }),
                         name: "direct_delivery",
@@ -353,6 +386,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                         metadata: new Dictionary<string, string>
                         {
                             ["protocol"] = DeliveryRequest.CurrentSchemaVersion.ToString(),
+                            ["candidateEvidenceAdmission"] = CandidateEvidenceHandoffV2Contract.SchemaVersion.ToString(),
                             ["mutation"] = "direct",
                             ["admission"] = "signed-envelope",
                         },
@@ -469,6 +503,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 state.Bundles,
                 topology,
                 directDelivery,
+                candidateHandoffV2Admission,
                 endpointInstrumentation);
         }
         catch
@@ -827,8 +862,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         var flattened = new List<KeyValuePair<string, string>>();
         if (headers is null) return flattened;
         foreach (var (key, values) in headers)
-        foreach (var value in values)
-            flattened.Add(new KeyValuePair<string, string>(key, value ?? string.Empty));
+            foreach (var value in values)
+                flattened.Add(new KeyValuePair<string, string>(key, value ?? string.Empty));
         return flattened;
     }
 

@@ -34,7 +34,7 @@ public static class DatabasePlacementEvaluator
         {
             if (group.Count() != 1)
             {
-                errors.Add(new(DatabasePlacementErrorCode.CatalogDuplicateRegion, new RegionId(group.Key)));
+                errors.Add(new(DatabasePlacementErrorCode.CatalogDuplicateRegion, group.First().Region));
                 continue;
             }
 
@@ -51,7 +51,7 @@ public static class DatabasePlacementEvaluator
 
         foreach (var region in activeRegions.OrderBy(Key, StringComparer.Ordinal))
         {
-            if (string.IsNullOrWhiteSpace(region.Value))
+            if (!region.IsValid)
                 errors.Add(new(DatabasePlacementErrorCode.ActiveRegionIdMissing, region));
         }
 
@@ -63,7 +63,7 @@ public static class DatabasePlacementEvaluator
         }
 
         var uniqueRegions = activeKeys.Distinct(StringComparer.Ordinal).Count() == activeRegions.Count &&
-            activeRegions.All(static region => !string.IsNullOrWhiteSpace(region.Value));
+            activeRegions.All(static region => region.IsValid);
         var catalogQualified = true;
         foreach (var region in activeRegions.OrderBy(Key, StringComparer.Ordinal))
         {
@@ -136,7 +136,7 @@ public static class DatabasePlacementEvaluator
                 if (group.Count() > 1)
                 {
                     errors.Add(new(DatabasePlacementErrorCode.DuplicatePartitionRegion,
-                        new RegionId(group.Key),
+                        group.First().Region,
                         partition.Partition));
                     regionsComplete = false;
                 }
@@ -185,7 +185,7 @@ public static class DatabasePlacementEvaluator
     private static void EvaluateSeats(
         PartitionRegionPlacement placement,
         PartitionId partition,
-        RegionId region,
+        RegionCode region,
         ICollection<DatabasePlacementError> errors,
         ref bool replicasExact,
         ref bool domainsIndependent)
@@ -354,11 +354,11 @@ public static class DatabasePlacementEvaluator
         return new DatabasePlacementDecision(orderedErrors, facts, builder.ToString());
     }
 
-    private static string Key(RegionId id) => Key(id.Value);
+    private static string Key(RegionCode id) => id.Value;
     private static string Key(PartitionId id) => Key(id.Value);
     private static string Key(MemberId id) => Key(id.Value);
     private static string Key(FailureDomainId id) => Key(id.Value);
-    private static string Key(RegionId? id) => id.HasValue ? Key(id.Value) : string.Empty;
+    private static string Key(RegionCode? id) => id.HasValue ? Key(id.Value) : string.Empty;
     private static string Key(PartitionId? id) => id.HasValue ? Key(id.Value) : string.Empty;
     private static string Key(MemberId? id) => id.HasValue ? Key(id.Value) : string.Empty;
     private static string Key(string? value) => value?.Trim().ToUpperInvariant() ?? string.Empty;

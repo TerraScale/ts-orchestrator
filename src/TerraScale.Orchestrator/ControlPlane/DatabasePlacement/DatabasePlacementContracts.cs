@@ -12,14 +12,60 @@ public static class DatabasePlacementPolicy
     public static RegionCatalog InitialCatalog { get; } = RegionCatalog.CreateInitial();
 }
 
-public readonly record struct RegionId(string Value);
+/// <summary>
+/// Canonical TerraScale Region identity. Internal placement state carries exactly three
+/// uppercase ASCII airport letters and never normalizes aliases or lowercase input.
+/// Infrastructure adapters must explicitly map this value to provider Region names or to
+/// stable lowercase NATS subject tokens; those identifiers are not RegionCode values.
+/// </summary>
+public readonly record struct RegionCode
+{
+    public const int Length = 3;
+
+    private readonly string? value;
+
+    private RegionCode(string value) => this.value = value;
+
+    public static RegionCode Gru { get; } = new("GRU");
+    public static RegionCode Sfo { get; } = new("SFO");
+    public static RegionCode Fra { get; } = new("FRA");
+
+    public string Value => value ?? string.Empty;
+
+    public bool IsValid => IsCanonical(value);
+
+    public static bool TryCreate(string? value, out RegionCode result)
+    {
+        if (!IsCanonical(value))
+        {
+            result = default;
+            return false;
+        }
+
+        result = new RegionCode(value!);
+        return true;
+    }
+
+    public static RegionCode FromValue(string value) =>
+        TryCreate(value, out var result)
+            ? result
+            : throw new ArgumentException(
+                "A RegionCode must contain exactly three uppercase ASCII letters.", nameof(value));
+
+    public override string ToString() => Value;
+
+    private static bool IsCanonical(string? candidate) =>
+        candidate is { Length: Length } &&
+        candidate.All(static character => character is >= 'A' and <= 'Z');
+}
+
 public readonly record struct PartitionId(string Value);
 public readonly record struct MemberId(string Value);
 public readonly record struct FailureDomainId(string Value);
 public readonly record struct BackupId(string Value);
 
 public sealed record RegionCatalogEntry(
-    RegionId Region,
+    RegionCode Region,
     bool Available,
     bool Permitted,
     bool ResidencyAllowed);
@@ -35,15 +81,15 @@ public sealed class RegionCatalog
     public IReadOnlyList<RegionCatalogEntry?> Regions => _regions;
 
     internal static RegionCatalog CreateInitial() => new([
-        new RegionCatalogEntry(new RegionId("gru"), true, true, true),
-        new RegionCatalogEntry(new RegionId("sfo"), true, true, true),
-        new RegionCatalogEntry(new RegionId("fra"), true, true, true),
+        new RegionCatalogEntry(RegionCode.Gru, true, true, true),
+        new RegionCatalogEntry(RegionCode.Sfo, true, true, true),
+        new RegionCatalogEntry(RegionCode.Fra, true, true, true),
     ]);
 }
 
 public sealed record ActiveMemberSeat(
     MemberId Member,
-    RegionId Region,
+    RegionCode Region,
     PartitionId Partition,
     FailureDomainId FailureDomain,
     bool IsActive = true);
@@ -52,13 +98,13 @@ public sealed class PartitionRegionPlacement
 {
     private readonly ImmutableArray<ActiveMemberSeat?> _seats;
 
-    public PartitionRegionPlacement(RegionId region, IEnumerable<ActiveMemberSeat?>? seats)
+    public PartitionRegionPlacement(RegionCode region, IEnumerable<ActiveMemberSeat?>? seats)
     {
         Region = region;
         _seats = seats?.ToImmutableArray() ?? ImmutableArray<ActiveMemberSeat?>.Empty;
     }
 
-    public RegionId Region { get; }
+    public RegionCode Region { get; }
     public IReadOnlyList<ActiveMemberSeat?> Seats => _seats;
 }
 
@@ -84,7 +130,7 @@ public enum BackupPromotionPolicy
 
 public sealed record BackupPlacement(
     BackupId Backup,
-    RegionId Region,
+    RegionCode Region,
     bool IsReadOnly = true,
     bool IsImmutable = true,
     bool IsVoting = false,
@@ -93,20 +139,20 @@ public sealed record BackupPlacement(
 /// <summary>An immutable customer placement intent; null Backup means no backup is requested.</summary>
 public sealed class DatabasePlacementRequest
 {
-    private readonly ImmutableArray<RegionId> _activeRegions;
+    private readonly ImmutableArray<RegionCode> _activeRegions;
     private readonly ImmutableArray<LogicalPartitionPlacement?> _partitions;
 
     public DatabasePlacementRequest(
-        IEnumerable<RegionId>? activeRegions,
+        IEnumerable<RegionCode>? activeRegions,
         IEnumerable<LogicalPartitionPlacement?>? partitions,
         BackupPlacement? backup = null)
     {
-        _activeRegions = activeRegions?.ToImmutableArray() ?? ImmutableArray<RegionId>.Empty;
+        _activeRegions = activeRegions?.ToImmutableArray() ?? ImmutableArray<RegionCode>.Empty;
         _partitions = partitions?.ToImmutableArray() ?? ImmutableArray<LogicalPartitionPlacement?>.Empty;
         Backup = backup;
     }
 
-    public IReadOnlyList<RegionId> ActiveRegions => _activeRegions;
+    public IReadOnlyList<RegionCode> ActiveRegions => _activeRegions;
     public IReadOnlyList<LogicalPartitionPlacement?> Partitions => _partitions;
     public BackupPlacement? Backup { get; }
 }
@@ -150,7 +196,7 @@ public enum DatabasePlacementErrorCode
 
 public sealed record DatabasePlacementError(
     DatabasePlacementErrorCode Code,
-    RegionId? Region = null,
+    RegionCode? Region = null,
     PartitionId? Partition = null,
     MemberId? Member = null,
     string? Detail = null);

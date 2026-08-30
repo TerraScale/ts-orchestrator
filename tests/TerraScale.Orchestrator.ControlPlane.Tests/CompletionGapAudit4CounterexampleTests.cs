@@ -91,7 +91,7 @@ public sealed class CompletionGapAudit4CounterexampleTests
         var baselineSubject = ConstructSubject(TerraBaseTopologyPlanKind.Add, baseline);
         var scopeMutations = new[]
         {
-            scope with { Cell = TerraBaseTestData.Cell("sfo") },
+            scope with { Region = TerraBaseTestData.Region("SFO") },
             scope with { Database = TerraBaseTestData.Db("db-b") },
             scope with { Member = TerraBaseTestData.Member("member-b") },
             scope with { Node = TerraBaseTestData.Node("node-b") },

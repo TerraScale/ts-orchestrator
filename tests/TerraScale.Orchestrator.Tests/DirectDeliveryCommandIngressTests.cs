@@ -4,12 +4,13 @@ using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Delivery.DeployHandoff;
+using TerraScale.Orchestrator.Delivery.DeployHandoffV2;
 using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Tests;
 
 /// <summary>
-/// The signed payload-kind ingress behind the direct-delivery mutation endpoint: exactly two
+/// The signed payload-kind ingress behind the direct-delivery mutation endpoint: exactly three
 /// canonical payload shapes are admitted behind one signed seam, a signed handoff manifest
 /// executes as ONE canonical journaled DeliveryRequest bound to the live authority lease, and
 /// tampered, unsigned, non-canonical, or mapper-rejected input fails closed with a typed refusal.
@@ -83,6 +84,31 @@ public sealed class DirectDeliveryCommandIngressTests
     }
 
     [Test]
+    public async Task SignedV2EvidenceRoutesOnlyToAdmissionAndOuterSignatureFailureIsTyped()
+    {
+        using var identity = EcdsaIdentity.Create();
+        var payload = CandidateEvidenceHandoffV2VerifierTests.CorpusBytes();
+        var signed = SignBytes(payload, "candidate-op-1", identity);
+
+        var admitted = Decode(signed.Payload, signed.Headers, identity, expectedGeneration: 9, expectedEpoch: 4);
+        var badHeaders = new Dictionary<string, string>(signed.Headers, StringComparer.Ordinal)
+        {
+            ["Signature"] = Convert.ToBase64String(SHA256.HashData(Guid.NewGuid().ToByteArray())),
+        };
+        var denied = Decode(payload, badHeaders, identity, expectedGeneration: 9, expectedEpoch: 4);
+
+        await Assert.That(admitted.Kind).IsEqualTo(DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2);
+        await Assert.That(admitted.IsAdmissionOnly).IsTrue();
+        await Assert.That(admitted.IsExecutable).IsFalse();
+        await Assert.That(admitted.CandidateEvidence!.OperationId).IsEqualTo("candidate-op-1");
+        await Assert.That(admitted.CandidateEvidence.ArtifactDigest)
+            .IsEqualTo(CandidateEvidenceHandoffV2VerifierTests.Envelope().Payload.Artifact.Digest);
+        await Assert.That(denied.Kind).IsEqualTo(DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2);
+        await Assert.That(denied.IsAdmissionOnly).IsFalse();
+        await Assert.That(denied.Error).IsEqualTo(DirectDeliveryCommandWireError.ValidationRejected);
+    }
+
+    [Test]
     public async Task A_tampered_payload_is_refused_before_any_dispatch()
     {
         using var identity = EcdsaIdentity.Create();
@@ -146,7 +172,7 @@ public sealed class DirectDeliveryCommandIngressTests
     public async Task A_mapper_rejected_manifest_produces_a_refusal_naming_the_handoff_error()
     {
         using var identity = EcdsaIdentity.Create();
-        var secret = CanonicalManifest("operation-secret") .Replace(
+        var secret = CanonicalManifest("operation-secret").Replace(
             "\"reason\":\"direct customer change\"",
             "\"reason\":\"password: hunter2\"");
         var (payload, headers) = Sign(secret, identity);

@@ -6,7 +6,7 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class CandidateEvidenceHandoffV2ContractDriftTests
 {
-    private const string CorpusSha256 = "3470dc4a72474def7c04bb65ffe625047fe56d82e08cc2e97a76e21f9f63b702";
+    private const string CorpusSha256 = "7296415226db0919d1bac3bdfc287dbdede74bacd1a4342944cecda52220137c";
 
     [Test]
     public async Task CorpusIsBytePinnedAndMatchesDeployWhenTheSiblingRepositoryExists()

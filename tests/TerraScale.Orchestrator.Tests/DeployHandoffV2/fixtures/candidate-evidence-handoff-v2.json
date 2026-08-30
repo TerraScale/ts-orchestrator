@@ -41,7 +41,7 @@
     "migrationDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
     "supplyChain": {
       "receiptDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-      "receiptSchemaVersion": 1,
+      "receiptSchemaVersion": 2,
       "status": "passed",
       "artifactDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "sbomDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
@@ -65,6 +65,18 @@
       "scanGeneratedAt": "2026-08-30T11:30:00+00:00",
       "vulnerabilityCount": 0,
       "licenseCount": 24
+    },
+    "firstPartyLicense": {
+      "schemaVersion": 1,
+      "status": "resolved",
+      "scope": "all-first-party-components",
+      "repository": "TerraScale/TerraScale.Orchestrator",
+      "sourceTreeDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "componentInventoryDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "privateComponentCoverage": "complete",
+      "dispositionDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "evidenceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "decidedAt": "2026-08-30T11:50:00+00:00"
     },
     "tests": [
       {

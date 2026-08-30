@@ -130,9 +130,9 @@ public sealed class NatsSubjectTaxonomyTests
     }
 
     [Test]
-    public async Task Region_codes_and_subject_tokens_are_bijective()
+    public async Task Registered_region_codes_and_subject_tokens_are_bijective_and_exact()
     {
-        foreach (var (code, token) in new[] { ("GRU", "gru"), ("SFO", "sfo"), ("FRA", "fra"), ("US1", "us1") })
+        foreach (var (code, token) in new[] { ("GRU", "gru"), ("SFO", "sfo"), ("FRA", "fra") })
         {
             await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken(code, out var mapped)).IsTrue();
             await Assert.That(mapped).IsEqualTo(token);
@@ -142,14 +142,32 @@ public sealed class NatsSubjectTaxonomyTests
             await Assert.That(NatsSubjectTaxonomy.RegionCodeFromSubjectToken(token)).IsEqualTo(code);
         }
 
-        await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken("Gru", out _)).IsFalse();
-        await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken("gru", out _)).IsFalse();
-        await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken("GRÜ", out _)).IsFalse();
-        await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken("GLOBAL", out _)).IsFalse();
-        await Assert.That(NatsSubjectTaxonomy.TryMapSubjectTokenToRegionCode("global", out _)).IsFalse();
-        await Assert.That(NatsSubjectTaxonomy.TryMapSubjectTokenToRegionCode("GRU", out _)).IsFalse();
-        await Assert.That(() => NatsSubjectTaxonomy.SubjectTokenForRegion("Grü")).Throws<ArgumentException>();
+        foreach (var value in new string?[]
+                 {
+                     null, "", "gru", "Gru", " GRU", "GRU ", "GR", "GRUU", "IAD", "US1", "G-U", "G.U",
+                     "GRÜ", "GLOBAL", "G\0U",
+                 })
+        {
+            await Assert.That(NatsSubjectTaxonomy.TryMapRegionCodeToSubjectToken(value, out var refused)).IsFalse();
+            await Assert.That(refused).IsEqualTo("");
+        }
+
+        foreach (var value in new string?[]
+                 {
+                     null, "", "GRU", "Gru", " gru", "gru ", "gr", "gruu", "iad", "us1", "g-u", "g.u",
+                     "grü", "global", "g\0u",
+                 })
+        {
+            await Assert.That(NatsSubjectTaxonomy.TryMapSubjectTokenToRegionCode(value, out var refused)).IsFalse();
+            await Assert.That(refused).IsEqualTo("");
+        }
+
+        await Assert.That(() => NatsSubjectTaxonomy.SubjectTokenForRegion("IAD")).Throws<ArgumentException>();
         await Assert.That(() => NatsSubjectTaxonomy.RegionCodeFromSubjectToken("global")).Throws<ArgumentException>();
+        await Assert.That(() => NatsSubjectTaxonomy.RegionalRootForRegionCode("US1")).Throws<ArgumentException>();
+
+        // Raw subject-token APIs preserve established NATS identifiers. They do not admit RegionCode values.
+        await Assert.That(NatsSubjectTaxonomy.RegionalRoot("us1")).IsEqualTo("ts.orch.v2.us1");
         await Assert.That(() => NatsSubjectTaxonomy.RegionalRoot("global")).Throws<ArgumentException>();
         await Assert.That(() => NatsSubjectTaxonomy.GlobalCellSpecSubject("global")).Throws<ArgumentException>();
     }

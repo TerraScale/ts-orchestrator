@@ -277,7 +277,7 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
 
     private static TerraBaseEvidenceScope WrongScope(TerraBaseEvidenceScope value, int dimension, int index) => dimension switch
     {
-        0 => value with { Cell = Cell($"wrong-cell-{index}") },
+        0 => value with { Region = Region("SFO") },
         1 => value with { Database = Database($"wrong-db-{index}") },
         2 => value with { Member = Member($"wrong-member-{index}") },
         3 => value with { Node = Node($"wrong-node-{index}") },
@@ -302,7 +302,7 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
         TerraBaseProof.Proven, 8);
 
     private static TerraBaseBackupSegment Segment(TerraBaseEvidenceScope scope, ulong sequence, bool full,
-        ulong? parent = null) => new(new(scope.Cell, scope.Database, scope.DatabaseGeneration, scope.TopologyGeneration),
+        ulong? parent = null) => new(new(scope.Region, scope.Database, scope.DatabaseGeneration, scope.TopologyGeneration),
         BackupId($"b-{sequence}"), O(sequence), parent is null ? null : O(parent.Value), full,
         Digest($"digest-{sequence}"), Object($"object-{sequence}"), Key($"key-{sequence}"));
 
@@ -325,19 +325,19 @@ public sealed class DeliveryTerraBasePolicyCompletenessPropertyTests
         $"{BackupSubjectText(value.Subject)}:{value.Backup.Value}:{value.Sequence}:{Nullable(value.ParentSequence)}:{value.IsFull}:{value.Digest.Value}:{value.Object.Value}:{value.EncryptionKey.Value}";
     private static string BackupSubjectText(TerraBaseBackupSegment value) => BackupSubjectText(value.Subject);
     private static string BackupSubjectText(TerraBaseEvidenceScope value) =>
-        $"{value.Cell.Value}/{value.Database.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}";
+        $"{value.Region.Value}/{value.Database.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}";
     private static string BackupSubjectText(TerraBaseBackupSubject value) =>
-        $"{value.Cell.Value}/{value.Database.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}";
+        $"{value.Region.Value}/{value.Database.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}";
     private static string Nullable(TerraBaseOrdinal? value) => value?.ToString() ?? "null";
     private static string Trace(TerraBaseEvidenceScope scope, TerraBaseOrdinal position, TerraBaseOrdinal generation) =>
         $"trace:{ScopeText(scope)}:{position}:{generation}";
     private static string ScopeText(TerraBaseEvidenceScope value) =>
-        $"{value.Cell.Value}/{value.Database.Value}/{value.Member.Value}/{value.Node.Value}/{value.RetainedVolume.Value}/{value.Fence.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}/{value.AuthorityEpoch}/{value.Operation.Value}";
+        $"{value.Region.Value}/{value.Database.Value}/{value.Member.Value}/{value.Node.Value}/{value.RetainedVolume.Value}/{value.Fence.Value}/{value.DatabaseGeneration}/{value.TopologyGeneration}/{value.AuthorityEpoch}/{value.Operation.Value}";
 
-    private static TerraBaseEvidenceScope Scope(int index, ulong generation) => new(Cell($"cell-{index}"),
+    private static TerraBaseEvidenceScope Scope(int index, ulong generation) => new(Region(),
         Database($"db-{index}"), Member($"member-{index}"), Node($"node-{index}"), Volume($"volume-{index}"),
         Fence($"fence-{index}"), O(generation), O(generation + 1), O(generation + 2), Operation($"op-{index}"));
-    private static TerraBaseCellId Cell(string value) { TerraBaseCellId.TryCreate(value, 96, out var result); return result!; }
+    private static TerraBaseRegionCode Region(string value = "GRU") { TerraBaseRegionCode.TryCreate(value, out var result); return result!; }
     private static TerraBaseDatabaseId Database(string value) { TerraBaseDatabaseId.TryCreate(value, 96, out var result); return result!; }
     private static TerraBaseMemberId Member(string value) { TerraBaseMemberId.TryCreate(value, 96, out var result); return result!; }
     private static TerraBaseNodeId Node(string value) { TerraBaseNodeId.TryCreate(value, 96, out var result); return result!; }

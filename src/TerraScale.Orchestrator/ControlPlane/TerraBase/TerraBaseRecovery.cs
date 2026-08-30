@@ -1,6 +1,6 @@
 namespace TerraScale.Orchestrator.ControlPlane.TerraBase;
 
-public sealed record TerraBaseBackupSubject(TerraBaseCellId Cell, TerraBaseDatabaseId Database,
+public sealed record TerraBaseBackupSubject(TerraBaseRegionCode Region, TerraBaseDatabaseId Database,
     TerraBaseOrdinal DatabaseGeneration, TerraBaseOrdinal TopologyGeneration);
 public sealed record TerraBaseBackupSegment(TerraBaseBackupSubject Subject, TerraBaseBackupId Backup,
     TerraBaseOrdinal Sequence, TerraBaseOrdinal? ParentSequence, bool IsFull, TerraBaseDigestRef Digest,
@@ -95,14 +95,14 @@ public static class TerraBaseBackupPlanner
     {
         ordered = [];
         if (evidence is null || !evidence.IsValid) return TerraBaseCode.WrongEvidenceScope;
-        if (exactOperation ? evidence.Scope != expected : evidence.Scope.Cell != expected.Cell || evidence.Scope.Database != expected.Database
+        if (exactOperation ? evidence.Scope != expected : evidence.Scope.Region != expected.Region || evidence.Scope.Database != expected.Database
             || evidence.Scope.DatabaseGeneration != expected.DatabaseGeneration || evidence.Scope.TopologyGeneration != expected.TopologyGeneration)
             return TerraBaseCode.WrongEvidenceScope;
         if (!TerraBaseEnumRules.Defined(evidence.ApplicationConsistent) || !TerraBaseEnumRules.Defined(evidence.DigestVerified)
             || !TerraBaseEnumRules.Defined(evidence.ObjectVerified)) return TerraBaseCode.InvalidInput;
         if (evidence.ApplicationConsistent != TerraBaseProof.Proven) return TerraBaseCode.ApplicationConsistencyRequired;
         if (evidence.DigestVerified != TerraBaseProof.Proven || evidence.ObjectVerified != TerraBaseProof.Proven) return TerraBaseCode.DigestProofMissing;
-        var subject = new TerraBaseBackupSubject(expected.Cell, expected.Database, expected.DatabaseGeneration, expected.TopologyGeneration);
+        var subject = new TerraBaseBackupSubject(expected.Region, expected.Database, expected.DatabaseGeneration, expected.TopologyGeneration);
         ordered = evidence.Segments.OrderBy(x => x.Sequence.Value).ToArray();
         if (ordered.Any(x => x.Subject is null || x.Subject != subject || x.Backup is null || !x.Sequence.IsValid
             || (x.ParentSequence is not null && !x.ParentSequence.Value.IsValid) || x.Digest is null || x.Object is null || x.EncryptionKey is null))

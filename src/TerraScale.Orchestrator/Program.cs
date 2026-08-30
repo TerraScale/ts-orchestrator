@@ -1,6 +1,7 @@
 using NATS.Client.Core;
 using TerraScale.Orchestrator;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Delivery.DeployHandoffV2;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using TerraScale.Orchestrator.Operations;
@@ -65,6 +66,10 @@ try
     if (!string.IsNullOrWhiteSpace(admittedDeliveryTargetEntries))
         admittedDeliveryTargets = TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets.Parse(
             admittedDeliveryTargetEntries.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    var candidateHandoffV2Policies = options.Command is OrchestratorCommand.Run or OrchestratorCommand.Check
+        ? CandidateEvidenceHandoffV2AdmissionPolicyCatalog.Load(
+            ResolvedEnvironment("TS_ORCH_CANDIDATE_HANDOFF_V2_POLICY_FILE"))
+        : CandidateEvidenceHandoffV2AdmissionPolicyCatalog.Empty;
     if (options.Command is OrchestratorCommand.Catalog)
     {
         var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -118,7 +123,8 @@ try
             commandIdentity?.Verifier,
             startupPlan.RegistersDirectDeliveryEndpoint,
             admittedDeliveryTargets,
-            ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier);
+            ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
+            candidateHandoffV2Policies);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
@@ -175,7 +181,8 @@ try
                     commandIdentity?.Signer,
                     verifier is not null,
                     ciConsumptionEnabled: startupPlan.StartsCiConsumption,
-                    admittedDeliveryTargets: admittedDeliveryTargets);
+                    admittedDeliveryTargets: admittedDeliveryTargets,
+                    candidateHandoffV2Policies: candidateHandoffV2Policies);
                 if (globalRuntime is not null && options.Command is OrchestratorCommand.Run &&
                     NativeGitOpsRuntime.IsEnabled(
                         globalNatsConfigured: GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(options.Cell),

@@ -6,6 +6,7 @@ using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Delivery.DeployHandoffV2;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -20,6 +21,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     private readonly GlobalNatsTopology topology;
     private readonly string cell;
     private readonly DirectDeliveryService directDelivery;
+    private readonly CandidateEvidenceHandoffV2AdmissionRuntime candidateHandoffV2Admission;
 
     private GlobalNatsRuntime(
         NatsClient client,
@@ -38,7 +40,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INatsJSConsumer? cellSpecConsumer,
         GlobalNatsTopology topology,
         string cell,
-        DirectDeliveryService directDelivery)
+        DirectDeliveryService directDelivery,
+        CandidateEvidenceHandoffV2AdmissionRuntime candidateHandoffV2Admission)
     {
         this.client = client;
         this.authority = authority;
@@ -57,6 +60,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         this.topology = topology;
         this.cell = cell;
         this.directDelivery = directDelivery;
+        this.candidateHandoffV2Admission = candidateHandoffV2Admission;
     }
 
     public Task Completion => Task.WhenAny(
@@ -73,6 +77,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
     internal NativeGitOpsGlobalHandoffRuntime? NativeGitOpsHandoffs { get; }
     public RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal DirectDeliveryService DirectDelivery => directDelivery;
+    internal CandidateEvidenceHandoffV2AdmissionRuntime CandidateHandoffV2Admission => candidateHandoffV2Admission;
     internal NativeGitOpsGlobalCellNatsConsumer CreateNativeGitOpsConsumer(
         NativeGitOpsCellPublisher regionalPublisher,
         string expectedCell)
@@ -100,7 +105,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
+        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null) =>
         StartAsync(
             GlobalAuthorityNatsConfiguration.From(configuration, cell),
             instance,
@@ -117,7 +123,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            admittedDeliveryTargets);
+            admittedDeliveryTargets,
+            candidateHandoffV2Policies);
 
     internal static Task<GlobalNatsRuntime> StartAsync(
         GlobalAuthorityNatsConfiguration configuration,
@@ -135,7 +142,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null) =>
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
+        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null) =>
         StartCoreAsync(
             configuration,
             instance,
@@ -152,7 +160,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
             nativeGitOpsSigner,
             nativeGitOpsConsumerEnabled,
             ciConsumptionEnabled,
-            admittedDeliveryTargets);
+            admittedDeliveryTargets,
+            candidateHandoffV2Policies);
 
     private static async Task<GlobalNatsRuntime> StartCoreAsync(
         GlobalAuthorityNatsConfiguration configuration,
@@ -170,7 +179,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
         INativeGitOpsCellSpecSigner? nativeGitOpsSigner = null,
         bool nativeGitOpsConsumerEnabled = false,
         bool ciConsumptionEnabled = true,
-        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null)
+        DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
+        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null)
     {
         if (!GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(cell))
             throw new ArgumentException(
@@ -250,6 +260,10 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                         current.KvRevision == request.AuthorityGeneration &&
                         current.Epoch == request.WriterEpoch;
                 });
+            var candidateHandoffV2Admission = CandidateEvidenceHandoffV2AdmissionRuntime.ComposeProduction(
+                ledger,
+                ciArtifactSignatures!,
+                candidateHandoffV2Policies ?? CandidateEvidenceHandoffV2AdmissionPolicyCatalog.Empty);
             var triggerJournal = new ForgejoCiTriggerJournal(ledger);
             var pipelines = new RepositoryCiPipelineJournal(ledger, objects);
             var jobs = new RepositoryCiJobJournal(ledger);
@@ -451,7 +465,8 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 state.CellSpecConsumer,
                 topology,
                 cell,
-                directDelivery);
+                directDelivery,
+                candidateHandoffV2Admission);
         }
         catch
         {

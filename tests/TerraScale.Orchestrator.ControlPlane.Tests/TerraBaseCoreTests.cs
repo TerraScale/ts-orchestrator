@@ -123,7 +123,7 @@ public sealed class TerraBaseCoreTests
         await Assert.That(accepted.Action).IsEqualTo(TerraBaseAction.Verify);
         await Assert.That(accepted.IsMutationAuthorized).IsFalse();
         await Assert.That(RequireSubject<TerraBaseBackupChainIntentSubject>(accepted).Segments.Count).IsEqualTo(2);
-        var wrongSubject=new TerraBaseBackupSubject(s.Cell,s.Database,TerraBaseTestData.O(5),s.TopologyGeneration);
+        var wrongSubject=new TerraBaseBackupSubject(s.Region,s.Database,TerraBaseTestData.O(5),s.TopologyGeneration);
         await Assert.That(TerraBaseBackupPlanner.Accept(s,E([TerraBaseTestData.Segment(1,true,subject:wrongSubject)])).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
         await Assert.That(TerraBaseBackupPlanner.Accept(s,E([TerraBaseTestData.Segment(1,true)],scope:s with{Operation=TerraBaseTestData.Op("other")})).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);
         await Assert.That(TerraBaseBackupPlanner.Accept(s,E([TerraBaseTestData.Segment(1,true) with{Backup=null!}])).Code).IsEqualTo(TerraBaseCode.WrongEvidenceScope);

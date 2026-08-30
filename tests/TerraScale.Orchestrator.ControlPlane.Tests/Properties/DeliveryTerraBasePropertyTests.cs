@@ -320,12 +320,12 @@ public sealed class DeliveryTerraBasePropertyTests
             new($"signature-verification-{source.Generation}"), dependencies, signatureValid, true, true);
     private static JobRequest Job() => new(new("pipeline"), new("job"), JobKind.TrustedBuild, new("tree"), 1, 1, 3,
         new("key"), [TrustZone.TrustedBuild], [RunnerCapability.Compile], 1, 10, false);
-    private static TerraBaseEvidenceScope Scope(int index, ulong generation) => new(TerraBaseTestData.Cell($"cell-{index}"),
+    private static TerraBaseEvidenceScope Scope(int index, ulong generation) => new(TerraBaseTestData.Region(),
         TerraBaseTestData.Db($"db-{index}"), TerraBaseTestData.Member($"member-{index}"), TerraBaseTestData.Node($"node-{index}"),
         TerraBaseTestData.Volume($"volume-{index}"), TerraBaseTestData.Fence($"fence-{index}"), TerraBaseTestData.O(generation),
         TerraBaseTestData.O(generation + 1), TerraBaseTestData.O(generation + 2), TerraBaseTestData.Op($"op-{index}"));
     private static TerraBaseBackupSegment Segment(TerraBaseEvidenceScope scope, ulong sequence, bool full, ulong? parent = null) =>
-        new(new(scope.Cell, scope.Database, scope.DatabaseGeneration, scope.TopologyGeneration), TerraBaseTestData.Backup($"b-{sequence}"),
+        new(new(scope.Region, scope.Database, scope.DatabaseGeneration, scope.TopologyGeneration), TerraBaseTestData.Backup($"b-{sequence}"),
             TerraBaseTestData.O(sequence), parent is null ? null : TerraBaseTestData.O(parent.Value), full,
             TerraBaseTestData.Digest($"digest-{sequence}"), TerraBaseTestData.Object($"object-{sequence}"), TerraBaseTestData.Key($"key-{sequence}"));
     private static string DeliveryOutcome(DeliveryDecision decision) => decision.Errors.Count > 0 ? decision.Errors[0].Code.ToString() :

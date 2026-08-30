@@ -9,6 +9,7 @@ internal static class CandidateEvidenceHandoffV2Contract
     internal const string MediaType = "application/vnd.terrascale.candidate-evidence-handoff.v2+json";
     internal const string SigningDomain = "terrascale.deploy/candidate-evidence-handoff/v2";
     internal const string SigningAlgorithm = "ecdsa-p256-sha256";
+    internal const string AdmissionReceiptMediaType = "application/vnd.terrascale.candidate-evidence-admission-receipt.v2+json";
     internal const int MaximumDocumentBytes = 256 * 1024;
     internal const int MaximumDepth = 16;
     internal const int MaximumTextLength = 256;
@@ -37,6 +38,7 @@ internal sealed record CandidateEvidenceHandoffV2Payload(
     [property: JsonPropertyName("migrationDigest")] string? MigrationDigest,
     [property: JsonPropertyName("supplyChain")] CandidateHandoffV2SupplyChainEvidence SupplyChain,
     [property: JsonPropertyName("security")] CandidateHandoffV2SecurityEvidence Security,
+    [property: JsonPropertyName("firstPartyLicense")] CandidateHandoffV2FirstPartyLicenseEvidence FirstPartyLicense,
     [property: JsonPropertyName("tests")] IReadOnlyList<CandidateHandoffV2TestEvidence> Tests,
     [property: JsonPropertyName("approvals")] IReadOnlyList<CandidateHandoffV2ApprovalEvidence> Approvals,
     [property: JsonPropertyName("target")] CandidateHandoffV2Target Target,
@@ -109,6 +111,19 @@ internal sealed record CandidateHandoffV2SecurityEvidence(
     [property: JsonPropertyName("vulnerabilityCount")] int VulnerabilityCount,
     [property: JsonPropertyName("licenseCount")] int LicenseCount);
 
+/// <summary>Opaque first-party disposition evidence. It carries no license terms or rollout authority.</summary>
+internal sealed record CandidateHandoffV2FirstPartyLicenseEvidence(
+    [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("scope")] string Scope,
+    [property: JsonPropertyName("repository")] string Repository,
+    [property: JsonPropertyName("sourceTreeDigest")] string SourceTreeDigest,
+    [property: JsonPropertyName("componentInventoryDigest")] string ComponentInventoryDigest,
+    [property: JsonPropertyName("privateComponentCoverage")] string PrivateComponentCoverage,
+    [property: JsonPropertyName("dispositionDigest")] string DispositionDigest,
+    [property: JsonPropertyName("evidenceDigest")] string EvidenceDigest,
+    [property: JsonPropertyName("decidedAt")] DateTimeOffset DecidedAt);
+
 internal sealed record CandidateHandoffV2TestEvidence(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("status")] string Status,
@@ -165,14 +180,27 @@ internal sealed record CandidateHandoffV2Signature(
     [property: JsonPropertyName("identity")] string Identity,
     [property: JsonPropertyName("value")] string Value);
 
-internal sealed record CandidateHandoffV2LeaseExpectation(string LeaseId, string EvidenceDigest);
+internal sealed record CandidateHandoffV2LeaseExpectation(
+    [property: JsonPropertyName("leaseId")] string LeaseId,
+    [property: JsonPropertyName("evidenceDigest")] string EvidenceDigest);
+
+internal sealed record CandidateHandoffV2FirstPartyLicenseExpectation(
+    [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("scope")] string Scope,
+    [property: JsonPropertyName("componentInventoryDigest")] string ComponentInventoryDigest,
+    [property: JsonPropertyName("privateComponentCoverage")] string PrivateComponentCoverage,
+    [property: JsonPropertyName("dispositionDigest")] string DispositionDigest,
+    [property: JsonPropertyName("evidenceDigest")] string EvidenceDigest);
 
 /// <summary>All current observations required by the pure verifier. Callers cannot omit an authority binding.</summary>
 internal sealed record CandidateEvidenceHandoffV2AdmissionPolicy(
     DateTimeOffset Now,
     string ExpectedOperationId,
     string ExpectedAudience,
+    string ExpectedSigningIdentity,
     CandidateHandoffV2DeployCli ExpectedDeployCli,
+    IReadOnlyList<CandidateHandoffV2DependencyLock> ExpectedDependencyLocks,
     CandidateHandoffV2Artifact ExpectedArtifact,
     string ExpectedConfigurationDigest,
     string? ExpectedMigrationDigest,
@@ -180,12 +208,14 @@ internal sealed record CandidateEvidenceHandoffV2AdmissionPolicy(
     CandidateHandoffV2LeaseExpectation ExpectedLease,
     CandidateHandoffV2Rollback ExpectedRollback,
     string ExpectedSupplyChainReceiptDigest,
+    CandidateHandoffV2FirstPartyLicenseExpectation ExpectedFirstPartyLicense,
     IReadOnlyDictionary<string, string> ExpectedApprovalDigests,
     IReadOnlySet<string> RequiredTests,
     TimeSpan MaximumEnvelopeAge,
     TimeSpan MaximumCleanWorktreeProofAge,
     TimeSpan MaximumTestAge,
-    TimeSpan MaximumSecurityAge);
+    TimeSpan MaximumSecurityAge,
+    TimeSpan MaximumFirstPartyLicenseAge);
 
 internal enum CandidateEvidenceHandoffV2Decision
 {
@@ -194,6 +224,20 @@ internal enum CandidateEvidenceHandoffV2Decision
 }
 
 internal sealed record CandidateEvidenceHandoffV2Error(string Code, string Message, string Remediation);
+
+internal sealed record CandidateEvidenceHandoffV2RoutingIdentity(string OperationId, string ArtifactDigest);
+
+/// <summary>An admission-only response. Zero authority fields prove this receipt cannot execute a rollout.</summary>
+internal sealed record CandidateEvidenceHandoffV2AdmissionReceipt(
+    [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
+    [property: JsonPropertyName("mediaType")] string MediaType,
+    [property: JsonPropertyName("operationId")] string OperationId,
+    [property: JsonPropertyName("artifactDigest")] string ArtifactDigest,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("authorityGeneration")] long AuthorityGeneration,
+    [property: JsonPropertyName("writerEpoch")] long WriterEpoch,
+    [property: JsonPropertyName("attempt")] int Attempt,
+    [property: JsonPropertyName("error")] CandidateEvidenceHandoffV2Error? Error);
 
 /// <summary>
 /// Verified evidence mapped to the existing direct-delivery request. Approval and lease fields
@@ -205,6 +249,7 @@ internal sealed record CandidateEvidenceHandoffV2Admission(
     CandidateHandoffV2Rollback Rollback,
     CandidateHandoffV2SupplyChainEvidence SupplyChain,
     CandidateHandoffV2SecurityEvidence Security,
+    CandidateHandoffV2FirstPartyLicenseEvidence FirstPartyLicense,
     IReadOnlyList<CandidateHandoffV2ApprovalEvidence> ApprovalEvidence,
     CandidateHandoffV2LeaseEvidence LeaseEvidence);
 

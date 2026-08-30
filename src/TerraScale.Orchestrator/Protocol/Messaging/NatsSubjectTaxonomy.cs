@@ -217,50 +217,35 @@ public static class NatsSubjectTaxonomy
     }
 
     /// <summary>
-    /// Maps one canonical uppercase <c>RegionCode</c> to its strict lowercase subject token. The
-    /// mapping is bijective: payloads keep the uppercase code while subjects use the token.
+    /// Maps one registered canonical uppercase <c>RegionCode</c> to its strict lowercase subject
+    /// token. The mapping is bijective: payloads keep the uppercase code while subjects use the
+    /// token.
     /// </summary>
     public static bool TryMapRegionCodeToSubjectToken(string? regionCode, out string subjectToken)
     {
-        subjectToken = "";
-        if (regionCode is not { Length: >= 1 and <= 63 } ||
-            !regionCode.All(static character => character is >= 'A' and <= 'Z' or >= '0' and <= '9' or '-') ||
-            regionCode[0] == '-' || regionCode[^1] == '-' ||
-            string.Equals(regionCode, GlobalScopeToken, StringComparison.OrdinalIgnoreCase))
+        subjectToken = regionCode switch
         {
-            return false;
-        }
+            "GRU" => "gru",
+            "SFO" => "sfo",
+            "FRA" => "fra",
+            _ => "",
+        };
 
-        var token = regionCode.ToLowerInvariant();
-        if (!CellTokenRule.IsValid(token) || !string.Equals(token.ToUpperInvariant(), regionCode, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        subjectToken = token;
-        return true;
+        return subjectToken.Length > 0;
     }
 
-    /// <summary>Maps one strict lowercase subject token back to its canonical uppercase <c>RegionCode</c>.</summary>
+    /// <summary>Maps one registered strict lowercase subject token back to its canonical uppercase <c>RegionCode</c>.</summary>
     public static bool TryMapSubjectTokenToRegionCode(string? subjectToken, out string regionCode)
     {
-        regionCode = "";
-        if (subjectToken is null ||
-            !CellTokenRule.IsValid(subjectToken) ||
-            string.Equals(subjectToken, GlobalScopeToken, StringComparison.Ordinal))
+        regionCode = subjectToken switch
         {
-            return false;
-        }
+            "gru" => "GRU",
+            "sfo" => "SFO",
+            "fra" => "FRA",
+            _ => "",
+        };
 
-        var code = subjectToken.ToUpperInvariant();
-        if (!TryMapRegionCodeToSubjectToken(code, out var roundTrip) ||
-            !string.Equals(roundTrip, subjectToken, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        regionCode = code;
-        return true;
+        return regionCode.Length > 0;
     }
 
     /// <summary>The strict lowercase subject token of one canonical uppercase <c>RegionCode</c>.</summary>
@@ -268,7 +253,7 @@ public static class NatsSubjectTaxonomy
         TryMapRegionCodeToSubjectToken(regionCode, out var token)
             ? token
             : throw new ArgumentException(
-                "The RegionCode is not the canonical uppercase form of a strict lowercase subject token.",
+                "The RegionCode is not a registered canonical uppercase Region.",
                 nameof(regionCode));
 
     /// <summary>The canonical uppercase <c>RegionCode</c> of one strict lowercase subject token.</summary>
@@ -276,7 +261,7 @@ public static class NatsSubjectTaxonomy
         TryMapSubjectTokenToRegionCode(subjectToken, out var code)
             ? code
             : throw new ArgumentException(
-                "The subject token is not a strict lowercase Region token.", nameof(subjectToken));
+                "The subject token does not map to a registered canonical Region.", nameof(subjectToken));
 
     /// <summary>Durable globally signed CellSpec subject for one Region.</summary>
     public static string GlobalCellSpecSubject(string cell) =>

@@ -54,6 +54,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
                     payload.Rollback,
                     payload.SupplyChain,
                     payload.Security,
+                    payload.FirstPartyLicense,
                     payload.Approvals.ToArray(),
                     payload.Lease),
                 null);
@@ -91,14 +92,48 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
 
     internal static bool TryReadArtifactDigest(ReadOnlyMemory<byte> document, [NotNullWhen(true)] out string? digest)
     {
+        if (TryReadRoutingIdentity(document, out var identity))
+        {
+            digest = identity.ArtifactDigest;
+            return true;
+        }
+        digest = null;
+        return false;
+    }
+
+    internal static bool TryReadRoutingIdentity(
+        ReadOnlyMemory<byte> document,
+        [NotNullWhen(true)] out CandidateEvidenceHandoffV2RoutingIdentity? identity)
+    {
         try
         {
-            digest = Parse(document).Payload?.Artifact?.Digest;
-            return IsDigest(digest);
+            var payload = Parse(document).Payload;
+            var operationId = payload?.OperationId;
+            var artifactDigest = payload?.Artifact?.Digest;
+            if (!IsIdentity(operationId, 128) || !IsDigest(artifactDigest))
+            {
+                identity = null;
+                return false;
+            }
+            identity = new(operationId!, artifactDigest!);
+            return true;
         }
         catch (Exception exception) when (exception is CandidateHandoffV2Rejection or JsonException or ArgumentException)
         {
-            digest = null;
+            identity = null;
+            return false;
+        }
+    }
+
+    internal static bool IsAdmissionPolicyValid(CandidateEvidenceHandoffV2AdmissionPolicy policy)
+    {
+        try
+        {
+            ValidatePolicy(policy);
+            return true;
+        }
+        catch (CandidateHandoffV2Rejection)
+        {
             return false;
         }
     }
@@ -161,6 +196,8 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         if (signature.Algorithm != CandidateEvidenceHandoffV2Contract.SigningAlgorithm || !IsIdentity(signature.Identity, 512) ||
             string.IsNullOrEmpty(signature.Value) || signature.Value.Length > CandidateEvidenceHandoffV2Contract.MaximumSignatureBytes * 2)
             Reject("handoff_v2_signature_invalid", "The handoff signature identity, algorithm, or value is invalid.", "Use the admitted P-256 workload-bound signing identity.");
+        if (signature.Identity != policy.ExpectedSigningIdentity)
+            Reject("handoff_v2_signer_mismatch", "The handoff signing identity is not admitted for this workload policy.", "Use the exact workload-bound signing identity recorded by Orchestrator admission policy.");
         byte[] signatureBytes;
         try
         {
@@ -193,7 +230,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             source.CleanWorktree is null)
             Reject("handoff_v2_source_invalid", "The source or clean-worktree evidence is incomplete.", "Bind the exact repository, commit, tree, and clean-worktree proof.");
         SecretFree(source.Repository, "source.repository");
-        ValidateCleanWorktree(source);
+        ValidateCleanWorktree(source, payload.IssuedAt);
 
         var cli = payload.DeployCli;
         if (cli is null || cli.Package != "TerraScale.Deploy.Cli" || !VersionPattern().IsMatch(cli.Version ?? string.Empty) ||
@@ -205,9 +242,9 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             Reject("handoff_v2_configuration_invalid", "The configuration or migration digest is malformed.", "Use exact lowercase sha256 identities.");
         ValidateTarget(payload.Target);
         ValidateSupplyChain(payload);
-        ValidateTests(payload.Tests, payload.Artifact.Digest);
-        ValidateApprovals(payload.Approvals);
-        ValidateLease(payload.Lease, payload.Target);
+        ValidateTests(payload.Tests, payload.Artifact.Digest, payload.IssuedAt);
+        ValidateApprovals(payload.Approvals, payload.IssuedAt);
+        ValidateLease(payload.Lease, payload.Target, payload.IssuedAt);
         ValidateRollback(payload.Rollback, payload.Artifact);
         ValidateGaps(payload.KnownGaps);
         RequireIdentity(payload.RequestedBy, CandidateEvidenceHandoffV2Contract.MaximumTextLength, "requestedBy");
@@ -222,11 +259,13 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             Reject("handoff_v2_time_invalid", "The handoff timestamps are invalid or exceed 30 minutes.", "Use UTC timestamps with a short positive lifetime.");
     }
 
-    private static void ValidateCleanWorktree(CandidateHandoffV2Source source)
+    private static void ValidateCleanWorktree(
+        CandidateHandoffV2Source source,
+        DateTimeOffset issuedAt)
     {
         var proof = source.CleanWorktree;
         if (proof.SchemaVersion != 1 || proof.Status != "clean" || proof.StatusDigest != Sha256(ReadOnlySpan<byte>.Empty) ||
-            !IsDigest(proof.ProofDigest) || !Utc(proof.CheckedAt) ||
+            !IsDigest(proof.ProofDigest) || !Utc(proof.CheckedAt) || proof.CheckedAt > issuedAt ||
             proof.ProofDigest != CleanWorktreeProofDigest(source, proof.StatusDigest, proof.CheckedAt))
             Reject("handoff_v2_clean_worktree_invalid", "The clean-worktree proof is malformed or does not bind the source.", "Regenerate it from the exact clean checkout.");
     }
@@ -270,7 +309,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
     {
         var supply = payload.SupplyChain;
         var security = payload.Security;
-        if (supply is null || supply.ReceiptSchemaVersion != 1 || supply.Status != "passed" || !IsDigest(supply.ReceiptDigest) ||
+        if (supply is null || supply.ReceiptSchemaVersion != 2 || supply.Status != "passed" || !IsDigest(supply.ReceiptDigest) ||
             !IsDigest(supply.ArtifactDigest) || !IsDigest(supply.SbomDigest) || !IsDigest(supply.ProvenanceDigest) ||
             !IsDigest(supply.PolicyDigest) || !IsDigest(supply.ScanDigest) || !IsDigest(supply.TrustPolicyDigest) ||
             !IsDigest(supply.SignatureDigest) || supply.ArtifactDigest != payload.Artifact.Digest ||
@@ -279,11 +318,50 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             supply.SignaturePolicyVersion <= 0 || supply.SignatureThreshold <= 0 || supply.VerifiedSignatures < supply.SignatureThreshold)
             Reject("handoff_v2_supply_chain_invalid", "The SupplyChainReceipt evidence is incomplete, failed, or bound to another candidate scope.", "Use the exact passed receipt for this artifact and audience.");
         if (security is null || security.Status != "passed" || security.PolicyDigest != supply.PolicyDigest ||
-            security.ScanDigest != supply.ScanDigest || !Utc(security.ScanGeneratedAt) || security.VulnerabilityCount < 0 || security.LicenseCount < 0)
+            security.ScanDigest != supply.ScanDigest || !Utc(security.ScanGeneratedAt) ||
+            security.ScanGeneratedAt > payload.IssuedAt || security.VulnerabilityCount < 0 || security.LicenseCount < 0)
             Reject("handoff_v2_security_invalid", "Security results are failed, malformed, or mismatched with the SupplyChainReceipt.", "Use the passed policy and scan results from the exact receipt.");
+        ValidateFirstPartyLicense(payload.FirstPartyLicense, payload.Source, payload.IssuedAt);
+        ValidateFirstPartyLicenseIsDistinct(payload.FirstPartyLicense, supply);
     }
 
-    private static void ValidateTests(IReadOnlyList<CandidateHandoffV2TestEvidence>? tests, string artifactDigest)
+    private static void ValidateFirstPartyLicense(
+        CandidateHandoffV2FirstPartyLicenseEvidence? evidence,
+        CandidateHandoffV2Source source,
+        DateTimeOffset issuedAt)
+    {
+        if (evidence is null || evidence.SchemaVersion != 1 || evidence.Status != "resolved" ||
+            evidence.Scope != "all-first-party-components" || evidence.Repository != source.Repository ||
+            evidence.SourceTreeDigest != source.TreeDigest || !IsDigest(evidence.ComponentInventoryDigest) ||
+            evidence.PrivateComponentCoverage != "complete" || !IsDigest(evidence.DispositionDigest) ||
+            !IsDigest(evidence.EvidenceDigest) || !Utc(evidence.DecidedAt) ||
+            evidence.DecidedAt == default || evidence.DecidedAt > issuedAt)
+            Reject(
+                "handoff_v2_first_party_license_invalid",
+                "First-party license evidence is missing, unresolved, incomplete, stale, or bound to another source tree.",
+                "Use the exact resolved owner evidence covering every first-party component, including private components.");
+    }
+
+    private static void ValidateFirstPartyLicenseIsDistinct(
+        CandidateHandoffV2FirstPartyLicenseEvidence evidence,
+        CandidateHandoffV2SupplyChainEvidence supply)
+    {
+        if (evidence.EvidenceDigest == supply.SbomDigest ||
+            evidence.EvidenceDigest == supply.ProvenanceDigest ||
+            evidence.EvidenceDigest == supply.PolicyDigest ||
+            evidence.EvidenceDigest == supply.ScanDigest ||
+            evidence.EvidenceDigest == supply.TrustPolicyDigest ||
+            evidence.EvidenceDigest == supply.SignatureDigest)
+            Reject(
+                "handoff_v2_first_party_license_not_distinct",
+                "Generic SBOM, scanner, policy, provenance, or signature evidence was substituted for the first-party disposition proof.",
+                "Bind a separate owner-recorded first-party disposition proof and its exact digest.");
+    }
+
+    private static void ValidateTests(
+        IReadOnlyList<CandidateHandoffV2TestEvidence>? tests,
+        string artifactDigest,
+        DateTimeOffset issuedAt)
     {
         if (tests is null || tests.Count is < 1 or > CandidateEvidenceHandoffV2Contract.MaximumTests)
             Reject("handoff_v2_tests_missing", "Candidate-bound test evidence is missing or oversized.", "Include every required test result.");
@@ -293,7 +371,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             if (test is null || !IsIdentity(test.Name, CandidateEvidenceHandoffV2Contract.MaximumTextLength) ||
                 test.Status is not ("passed" or "failed" or "skipped") || !names.Add(test.Name) ||
                 test.ArtifactDigest != artifactDigest || !IsDigest(test.EvidenceDigest) || !Utc(test.StartedAt) ||
-                !Utc(test.CompletedAt) || test.CompletedAt < test.StartedAt)
+                !Utc(test.CompletedAt) || test.CompletedAt < test.StartedAt || test.CompletedAt > issuedAt)
                 Reject("handoff_v2_test_invalid", "Test evidence is malformed, duplicated, or bound to another artifact.", "Use exact bounded candidate results.");
             if (test.Required && test.Status != "passed")
                 Reject("handoff_v2_required_test_not_passed", "A required candidate test failed or was skipped.", "Pass every required test on the exact candidate.");
@@ -301,7 +379,9 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         }
     }
 
-    private static void ValidateApprovals(IReadOnlyList<CandidateHandoffV2ApprovalEvidence>? approvals)
+    private static void ValidateApprovals(
+        IReadOnlyList<CandidateHandoffV2ApprovalEvidence>? approvals,
+        DateTimeOffset issuedAt)
     {
         if (approvals is null || approvals.Count is < 1 or > CandidateEvidenceHandoffV2Contract.MaximumApprovals)
             Reject("handoff_v2_approvals_missing", "Approval evidence digests are missing or oversized.", "Include reviewed redacted approval evidence only.");
@@ -311,18 +391,23 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         {
             if (approval is null || !IsIdentity(approval.Id, 128) || !IsIdentity(approval.Scope, 128) || approval.Decision != "approved" ||
                 !IsDigest(approval.EvidenceDigest) || !IsDigest(approval.ApproverIdentityDigest) ||
-                !ids.Add(approval.Id) || !digests.Add(approval.EvidenceDigest) || !Utc(approval.DecidedAt) || !Utc(approval.ExpiresAt))
+                !ids.Add(approval.Id) || !digests.Add(approval.EvidenceDigest) || !Utc(approval.DecidedAt) ||
+                !Utc(approval.ExpiresAt) || approval.DecidedAt > issuedAt || approval.ExpiresAt < issuedAt)
                 Reject("handoff_v2_approval_invalid", "Approval evidence is malformed, duplicated, or not approved.", "Use distinct current evidence digests for the exact candidate.");
             SecretFree(approval.Id, "approvals.id");
             SecretFree(approval.Scope, "approvals.scope");
         }
     }
 
-    private static void ValidateLease(CandidateHandoffV2LeaseEvidence? lease, CandidateHandoffV2Target target)
+    private static void ValidateLease(
+        CandidateHandoffV2LeaseEvidence? lease,
+        CandidateHandoffV2Target target,
+        DateTimeOffset issuedAt)
     {
         if (lease is null || !IsIdentity(lease.LeaseId, 128) || lease.Action != "candidate-handoff" || lease.Status != "active" ||
             !IsDigest(lease.ScopeDigest) || !IsDigest(lease.EvidenceDigest) || !IsDigest(lease.HolderIdentityDigest) ||
-            !Utc(lease.AcquiredAt) || !Utc(lease.ExpiresAt) || lease.ScopeDigest != LeaseScopeDigest(target, lease.Action))
+            !Utc(lease.AcquiredAt) || !Utc(lease.ExpiresAt) || lease.AcquiredAt > issuedAt ||
+            lease.ExpiresAt < issuedAt || lease.ScopeDigest != LeaseScopeDigest(target, lease.Action))
             Reject("handoff_v2_lease_invalid", "The target-scoped handoff lease is malformed or mismatched.", "Bind the exact active candidate-handoff lease evidence.");
         SecretFree(lease.LeaseId, "lease.leaseId");
     }
@@ -371,6 +456,9 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             Reject("handoff_v2_clean_worktree_stale", "The clean-worktree proof is stale.", "Reinspect the unchanged exact checkout and resign.");
         if (payload.Security.ScanGeneratedAt > now || now - payload.Security.ScanGeneratedAt > policy.MaximumSecurityAge)
             Reject("handoff_v2_security_stale", "The security result is stale.", "Rerun security verification on the exact candidate.");
+        if (payload.FirstPartyLicense.DecidedAt > now ||
+            now - payload.FirstPartyLicense.DecidedAt > policy.MaximumFirstPartyLicenseAge)
+            Reject("handoff_v2_first_party_license_stale", "The first-party license disposition is stale or from the future.", "Obtain a current resolved disposition for the unchanged source tree.");
         foreach (var test in payload.Tests)
             if (test.CompletedAt > now || now - test.CompletedAt > policy.MaximumTestAge)
                 Reject("handoff_v2_test_stale", "A candidate test result is stale.", "Rerun the required test on the exact candidate.");
@@ -397,6 +485,8 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             Reject("handoff_v2_audience_mismatch", "The handoff audience does not match Orchestrator admission.", "Sign the exact candidate for the admitted Orchestrator audience.");
         if (payload.DeployCli != policy.ExpectedDeployCli)
             Reject("handoff_v2_cli_mismatch", "The Deploy CLI identity does not match the pinned admission identity.", "Use the exact pinned CLI package and executable.");
+        if (!SameDependencyLocks(payload.DependencyLocks, policy.ExpectedDependencyLocks))
+            Reject("handoff_v2_dependency_locks_mismatch", "Dependency-lock evidence does not match the exact admitted lock set.", "Use every expected lock path, kind, and digest with no additions or substitutions.");
         if (payload.Artifact != policy.ExpectedArtifact)
             Reject("handoff_v2_artifact_mismatch", "The artifact or OCI/config identity does not match admission observations.", "Use the exact immutable registry observation.");
         if (payload.ConfigurationDigest != policy.ExpectedConfigurationDigest || payload.MigrationDigest != policy.ExpectedMigrationDigest)
@@ -409,6 +499,8 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
             Reject("handoff_v2_rollback_mismatch", "The rollback identity does not match the retained qualified observation.", "Bind the exact current rollback bytes and configuration.");
         if (payload.SupplyChain.ReceiptDigest != policy.ExpectedSupplyChainReceiptDigest)
             Reject("handoff_v2_supply_chain_mismatch", "The SupplyChainReceipt digest does not match admission evidence.", "Use the exact passed receipt bytes recorded for this candidate.");
+        if (!SameFirstPartyLicense(payload.FirstPartyLicense, policy.ExpectedFirstPartyLicense))
+            Reject("handoff_v2_first_party_license_mismatch", "First-party license evidence does not match the admitted disposition digests and coverage.", "Use the exact separately authorized first-party license evidence.");
         if (payload.Approvals.Count != policy.ExpectedApprovalDigests.Count ||
             payload.Approvals.Any(approval => !policy.ExpectedApprovalDigests.TryGetValue(approval.Id, out var digest) || digest != approval.EvidenceDigest))
             Reject("handoff_v2_approval_mismatch", "Approval evidence digests do not match the reviewed admission set.", "Use every exact reviewed approval digest and no substitute.");
@@ -421,14 +513,20 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
     {
         if (!Utc(policy.Now) || !IsIdentity(policy.ExpectedOperationId, 128) ||
             !IsIdentity(policy.ExpectedAudience, CandidateEvidenceHandoffV2Contract.MaximumTextLength) ||
-            policy.ExpectedDeployCli is null || policy.ExpectedArtifact is null || policy.ExpectedTarget is null ||
-            policy.ExpectedLease is null || policy.ExpectedRollback is null || !IsDigest(policy.ExpectedConfigurationDigest) ||
+            !IsIdentity(policy.ExpectedSigningIdentity, 512) || !ValidExpectedDeployCli(policy.ExpectedDeployCli) ||
+            !ValidExpectedDependencyLocks(policy.ExpectedDependencyLocks) ||
+            !ValidExpectedArtifact(policy.ExpectedArtifact) || !ValidExpectedTarget(policy.ExpectedTarget) ||
+            !ValidExpectedLease(policy.ExpectedLease) ||
+            !ValidExpectedRollback(policy.ExpectedRollback, policy.ExpectedArtifact) ||
+            !IsDigest(policy.ExpectedConfigurationDigest) ||
             policy.ExpectedMigrationDigest is not null && !IsDigest(policy.ExpectedMigrationDigest) ||
-            !IsDigest(policy.ExpectedSupplyChainReceiptDigest) || policy.ExpectedApprovalDigests is null ||
-            policy.ExpectedApprovalDigests.Count is < 1 or > CandidateEvidenceHandoffV2Contract.MaximumApprovals ||
-            policy.RequiredTests is null || policy.RequiredTests.Count is < 1 or > CandidateEvidenceHandoffV2Contract.MaximumTests ||
+            !IsDigest(policy.ExpectedSupplyChainReceiptDigest) ||
+            !ValidExpectedFirstPartyLicense(policy.ExpectedFirstPartyLicense) ||
+            !ValidExpectedApprovalDigests(policy.ExpectedApprovalDigests) ||
+            !ValidRequiredTests(policy.RequiredTests) ||
             !Positive(policy.MaximumEnvelopeAge) || !Positive(policy.MaximumCleanWorktreeProofAge) ||
-            !Positive(policy.MaximumTestAge) || !Positive(policy.MaximumSecurityAge))
+            !Positive(policy.MaximumTestAge) || !Positive(policy.MaximumSecurityAge) ||
+            !Positive(policy.MaximumFirstPartyLicenseAge))
             Reject("handoff_v2_policy_invalid", "The Orchestrator admission policy is incomplete or invalid.", "Supply every exact current admission observation and positive freshness limit.");
     }
 
@@ -456,6 +554,86 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         actual.Service == expected.Service && actual.Environment == expected.Environment &&
         actual.Regions.SequenceEqual(expected.Regions, StringComparer.Ordinal);
 
+    private static bool SameFirstPartyLicense(
+        CandidateHandoffV2FirstPartyLicenseEvidence actual,
+        CandidateHandoffV2FirstPartyLicenseExpectation expected) =>
+        actual.SchemaVersion == expected.SchemaVersion && actual.Status == expected.Status &&
+        actual.Scope == expected.Scope && actual.ComponentInventoryDigest == expected.ComponentInventoryDigest &&
+        actual.PrivateComponentCoverage == expected.PrivateComponentCoverage &&
+        actual.DispositionDigest == expected.DispositionDigest && actual.EvidenceDigest == expected.EvidenceDigest;
+
+    private static bool SameDependencyLocks(
+        IReadOnlyList<CandidateHandoffV2DependencyLock> actual,
+        IReadOnlyList<CandidateHandoffV2DependencyLock> expected)
+    {
+        if (actual.Count != expected.Count)
+            return false;
+        var admitted = expected.ToDictionary(static value => value.Path, StringComparer.Ordinal);
+        return actual.All(value => admitted.TryGetValue(value.Path, out var item) && item == value);
+    }
+
+    private static bool ValidExpectedDependencyLocks(IReadOnlyList<CandidateHandoffV2DependencyLock>? locks)
+    {
+        if (locks is null || locks.Count is < 1 or > CandidateEvidenceHandoffV2Contract.MaximumLocks)
+            return false;
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        return locks.All(item => item is not null && IsRelativePath(item.Path) &&
+            item.Kind is "nuget" or "cargo" or "npm" or "pnpm" or "yarn" or "bun" &&
+            IsDigest(item.Digest) && paths.Add(item.Path));
+    }
+
+    private static bool ValidExpectedDeployCli(CandidateHandoffV2DeployCli? cli) =>
+        cli is not null && cli.Package == "TerraScale.Deploy.Cli" &&
+        VersionPattern().IsMatch(cli.Version ?? string.Empty) &&
+        IsDigest(cli.PackageDigest) && IsDigest(cli.ExecutableDigest);
+
+    private static bool ValidExpectedArtifact(CandidateHandoffV2Artifact? artifact) =>
+        artifact is not null && IsDigest(artifact.Digest) && IsDigest(artifact.ManifestDigest) &&
+        IsDigest(artifact.OciConfigDigest) && artifact.Kind is "service" or "package" or "site" &&
+        artifact.Architecture is "linux/amd64" or "linux/arm64" or "multi" &&
+        IsOciRepository(artifact.Repository) && artifact.Reference == artifact.Repository + "@" + artifact.Digest;
+
+    private static bool ValidExpectedTarget(CandidateHandoffV2Target? target) =>
+        target is not null && IsIdentity(target.Service, CandidateEvidenceHandoffV2Contract.MaximumTextLength) &&
+        target.Environment is "local" or "development" or "production" && target.Regions is not null &&
+        target.Regions.Count is >= 1 and <= CandidateEvidenceHandoffV2Contract.MaximumRegions &&
+        target.Regions.All(region => RegionPattern().IsMatch(region ?? string.Empty)) &&
+        target.Regions.Distinct(StringComparer.Ordinal).Count() == target.Regions.Count;
+
+    private static bool ValidExpectedLease(CandidateHandoffV2LeaseExpectation? lease) =>
+        lease is not null && IsIdentity(lease.LeaseId, 128) && IsDigest(lease.EvidenceDigest);
+
+    private static bool ValidExpectedFirstPartyLicense(CandidateHandoffV2FirstPartyLicenseExpectation? evidence) =>
+        evidence is not null && evidence.SchemaVersion == 1 && evidence.Status == "resolved" &&
+        evidence.Scope == "all-first-party-components" && IsDigest(evidence.ComponentInventoryDigest) &&
+        evidence.PrivateComponentCoverage == "complete" && IsDigest(evidence.DispositionDigest) &&
+        IsDigest(evidence.EvidenceDigest);
+
+    private static bool ValidExpectedRollback(
+        CandidateHandoffV2Rollback? rollback,
+        CandidateHandoffV2Artifact? artifact) =>
+        rollback is not null && artifact is not null &&
+        ValidExpectedArtifact(new(
+            rollback.ArtifactDigest,
+            rollback.ManifestDigest,
+            rollback.OciConfigDigest,
+            rollback.Kind,
+            rollback.Architecture,
+            rollback.Repository,
+            rollback.Reference)) &&
+        IsDigest(rollback.ConfigurationDigest) && rollback.ArtifactDigest != artifact.Digest &&
+        rollback.Kind == artifact.Kind && rollback.Architecture == artifact.Architecture &&
+        rollback.Repository == artifact.Repository;
+
+    private static bool ValidExpectedApprovalDigests(IReadOnlyDictionary<string, string>? approvals) =>
+        approvals is not null &&
+        approvals.Count is >= 1 and <= CandidateEvidenceHandoffV2Contract.MaximumApprovals &&
+        approvals.All(static item => IsIdentity(item.Key, 128) && IsDigest(item.Value));
+
+    private static bool ValidRequiredTests(IReadOnlySet<string>? tests) =>
+        tests is not null && tests.Count is >= 1 and <= CandidateEvidenceHandoffV2Contract.MaximumTests &&
+        tests.All(test => IsIdentity(test, CandidateEvidenceHandoffV2Contract.MaximumTextLength));
+
     private static string Sha256(ReadOnlySpan<byte> value) => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(value));
 
     private static bool IsDigest(string? value) => DigestPattern().IsMatch(value ?? string.Empty);
@@ -475,6 +653,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         if (!IsText(value, CandidateEvidenceHandoffV2Contract.MaximumTextLength) || value is not { } path)
             return false;
         return !Path.IsPathRooted(path) && path != "." &&
+            !path.Contains('\\') && !path.Contains(':') &&
             !path.Split('/', StringSplitOptions.None).Any(part => part is "" or "." or "..");
     }
 
@@ -505,6 +684,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
     private static JsonSerializerOptions CreateOptions() => new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,
+        PropertyNameCaseInsensitive = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         MaxDepth = CandidateEvidenceHandoffV2Contract.MaximumDepth,

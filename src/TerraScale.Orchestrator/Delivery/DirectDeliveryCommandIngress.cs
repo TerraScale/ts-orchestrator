@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery.DeployHandoff;
+using TerraScale.Orchestrator.Delivery.DeployHandoffV2;
 using TerraScale.Orchestrator.Protocol;
 
 namespace TerraScale.Orchestrator.Delivery;
@@ -14,6 +15,8 @@ internal enum DirectDeliveryCommandPayloadKind
     DeliveryRequest = 1,
     /// <summary>The Deploy-to-Orchestrator handoff manifest (mapping v1).</summary>
     DeployHandoffManifest = 2,
+    /// <summary>The admission-only Deploy candidate evidence handoff (v2).</summary>
+    CandidateEvidenceHandoffV2 = 3,
 }
 
 /// <summary>
@@ -27,18 +30,23 @@ internal sealed record DirectDeliveryCommandAdmission(
     DeployHandoffMappingResult? Handoff,
     DirectDeliveryCommandWireError Error,
     CommandValidationError ValidationError,
-    int Attempt = 0)
+    int Attempt = 0,
+    CandidateEvidenceHandoffV2RoutingIdentity? CandidateEvidence = null)
 {
     internal bool IsExecutable =>
         Kind == DirectDeliveryCommandPayloadKind.DeliveryRequest && Request is not null ||
         Kind == DirectDeliveryCommandPayloadKind.DeployHandoffManifest &&
             Handoff is { IsAdmittedForTargetMutation: true };
+
+    internal bool IsAdmissionOnly =>
+        Kind == DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 &&
+        CandidateEvidence is not null && Error == DirectDeliveryCommandWireError.None;
 }
 
 /// <summary>
 /// The payload-kind discriminator behind the signed direct-delivery mutation endpoint. Exactly
-/// two payload shapes are admitted — the canonical DeliveryRequest and the Deploy handoff
-/// manifest — and both sign through the same envelope material. Everything else, including a
+/// three payload shapes are admitted: the canonical DeliveryRequest, the Deploy handoff
+/// manifest, and admission-only candidate evidence v2. All sign through the same envelope material. Everything else, including a
 /// manifest whose operation identity differs from its envelope, fails closed before dispatch.
 /// </summary>
 internal static class DirectDeliveryCommandIngress
@@ -98,6 +106,30 @@ internal static class DirectDeliveryCommandIngress
                 DirectDeliveryCommandWireError.None,
                 CommandValidationError.None,
                 envelope.Attempt);
+        }
+
+        if (CandidateEvidenceHandoffV2Verifier.TryReadRoutingIdentity(payload, out var candidateEvidence))
+        {
+            var envelope = DirectDeliveryCommandWire.ValidateSignedEnvelope(
+                payload, headers, expectedCell, now, allowedClockSkew, signatureVerifier, null, null,
+                candidateEvidence.OperationId);
+            if (envelope.Error != DirectDeliveryCommandWireError.None)
+                return new(
+                    DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2,
+                    null,
+                    null,
+                    envelope.Error,
+                    envelope.ValidationError,
+                    envelope.Attempt,
+                    candidateEvidence);
+            return new(
+                DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2,
+                null,
+                null,
+                DirectDeliveryCommandWireError.None,
+                CommandValidationError.None,
+                envelope.Attempt,
+                candidateEvidence);
         }
 
         return Refused(

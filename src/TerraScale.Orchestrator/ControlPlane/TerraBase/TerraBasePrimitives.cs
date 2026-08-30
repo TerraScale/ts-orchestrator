@@ -59,18 +59,25 @@ internal static class TerraBaseEnumRules
 }
 
 public abstract record TerraBaseIdentity(string Value) { public override string ToString() => Value; }
-public sealed record TerraBaseCellId : TerraBaseIdentity
+
+/// <summary>
+/// A registered TerraScale Region used by TerraBase decision evidence. This identity accepts only
+/// exact uppercase <c>GRU</c>, <c>SFO</c>, or <c>FRA</c> values. NATS subject tokens and provider
+/// Region names require explicit adapter mappings and are not TerraBaseRegionCode values.
+/// </summary>
+public sealed record TerraBaseRegionCode : TerraBaseIdentity
 {
-    private TerraBaseCellId(string value) : base(value) { }
-    public static bool TryCreate(string? value, int maximum, [NotNullWhen(true)] out TerraBaseCellId? result)
+    private TerraBaseRegionCode(string value) : base(value) { }
+
+    public static bool TryCreate(string? value, [NotNullWhen(true)] out TerraBaseRegionCode? result)
     {
-        if (value is null || !TerraBaseValueRules.Valid(value, maximum))
+        if (value is not ("GRU" or "SFO" or "FRA"))
         {
             result = null;
             return false;
         }
 
-        result = new TerraBaseCellId(value);
+        result = new TerraBaseRegionCode(value);
         return true;
     }
 }
@@ -293,11 +300,11 @@ public enum TerraBaseAction { Uninitialized = 0, Observe, Add, CatchUp, Transfer
 public enum TerraBaseTarget { None = 0, Member, Topology, Volume, BackupChain, RestoreCandidate, Release, Application }
 public enum TerraBaseCode { Uninitialized = 0, NextStep, Completed, InvalidInput, WrongEvidenceScope, PermanentMember, ConflictingTopologyMutation, SplitWriter, ProofMissing, ReplicationUnsafe, CompatibilityRequired, RollbackMaterialRequired, ChainGap, DigestProofMissing, ApplicationConsistencyRequired, AntiRollback, SideBySideRequired, PromotionProofMissing, RolledBack }
 
-public sealed record TerraBaseEvidenceScope(TerraBaseCellId Cell, TerraBaseDatabaseId Database, TerraBaseMemberId Member,
+public sealed record TerraBaseEvidenceScope(TerraBaseRegionCode Region, TerraBaseDatabaseId Database, TerraBaseMemberId Member,
     TerraBaseNodeId Node, TerraBaseVolumeId RetainedVolume, TerraBaseFenceId Fence, TerraBaseOrdinal DatabaseGeneration,
     TerraBaseOrdinal TopologyGeneration, TerraBaseOrdinal AuthorityEpoch, TerraBaseOperationId Operation)
 {
-    internal bool Valid => Cell is not null && Database is not null && Member is not null && Node is not null && RetainedVolume is not null
+    internal bool Valid => Region is not null && Database is not null && Member is not null && Node is not null && RetainedVolume is not null
         && Fence is not null && DatabaseGeneration.IsValid && TopologyGeneration.IsValid && AuthorityEpoch.IsValid && Operation is not null;
     public override string ToString() => "<terrabase-evidence-scope>";
 }

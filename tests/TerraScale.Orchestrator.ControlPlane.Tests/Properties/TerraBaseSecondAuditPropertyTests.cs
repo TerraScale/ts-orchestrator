@@ -233,7 +233,7 @@ public sealed class TerraBaseSecondAuditPropertyTests
     }
 
     private static TerraBaseEvidenceScope Scope(int index) => new(
-        TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Cell($"cell-{index}"),
+        TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Region(),
         TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Db($"db-{index}"),
         TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Member($"member-{index}"),
         TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Node($"node-{index}"),
@@ -246,7 +246,7 @@ public sealed class TerraBaseSecondAuditPropertyTests
 
     private static TerraBaseBackupEvidence Chain(TerraBaseEvidenceScope scope)
     {
-        var subject = new TerraBaseBackupSubject(scope.Cell, scope.Database, scope.DatabaseGeneration,
+        var subject = new TerraBaseBackupSubject(scope.Region, scope.Database, scope.DatabaseGeneration,
             scope.TopologyGeneration);
         TerraBaseBackupSegment Segment(ulong sequence, bool full, ulong? parent = null) => new(subject,
             TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Backup($"b{sequence}"),
@@ -262,7 +262,7 @@ public sealed class TerraBaseSecondAuditPropertyTests
     private static TerraBaseEvidenceScope Changed(TerraBaseEvidenceScope value, int dimension,
         bool malformed, int index) => dimension switch
     {
-        0 => value with { Cell = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Cell($"other-cell-{index}") },
+        0 => value with { Region = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Region("SFO") },
         1 => value with { Database = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Db($"other-db-{index}") },
         2 => value with { Member = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Member($"other-member-{index}") },
         3 => value with { Node = malformed ? null! : TerraScale.Orchestrator.ControlPlane.Tests.TerraBaseTestData.Node($"other-node-{index}") },

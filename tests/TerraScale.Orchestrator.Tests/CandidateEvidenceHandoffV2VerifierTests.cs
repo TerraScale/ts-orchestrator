@@ -25,6 +25,8 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             .IsEqualTo(envelope.Payload.Approvals[0].EvidenceDigest);
         await Assert.That(result.Admission.LeaseEvidence.EvidenceDigest)
             .IsEqualTo(envelope.Payload.Lease.EvidenceDigest);
+        await Assert.That(result.Admission.FirstPartyLicense)
+            .IsEqualTo(envelope.Payload.FirstPartyLicense);
     }
 
     [Test]
@@ -37,7 +39,7 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             envelope.Signature.Identity).ToArray();
 
         await Assert.That(Convert.ToHexStringLower(SHA256.HashData(material)))
-            .IsEqualTo("ec544be2f4cd1d71ece4d83af4966bb505f41acd852788897fa2e81970661412");
+            .IsEqualTo("9c2dce7f498dfa9647f1e2f6aa2ab9acebfef3807952d1ed5b54147103090a45");
         await Assert.That(Encoding.UTF8.GetString(material)).StartsWith(
             "{\"domain\":\"terrascale.deploy/candidate-evidence-handoff/v2\",\"schemaVersion\":2");
     }
@@ -54,6 +56,12 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             new FixedSignatureVerifier(false));
         var audience = Verify(
             envelope with { Payload = envelope.Payload with { Audience = "different-orchestrator", SupplyChain = envelope.Payload.SupplyChain with { Audience = "different-orchestrator" } } });
+        var crossWorkloadSigner = CandidateEvidenceHandoffV2Verifier.Verify(
+            Bytes(envelope),
+            Policy(envelope) with { ExpectedSigningIdentity = "ecdsa-p256-sha256-" + new string('0', 64) },
+            Durable(envelope),
+            true,
+            new FixedSignatureVerifier(true));
         var unsignedAuthority = CandidateEvidenceHandoffV2Verifier.Verify(
             Bytes(envelope),
             Policy(envelope),
@@ -69,6 +77,7 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
 
         await Assert.That(signature.Error!.Code).IsEqualTo("handoff_v2_signature_mismatch");
         await Assert.That(audience.Error!.Code).IsEqualTo("handoff_v2_audience_mismatch");
+        await Assert.That(crossWorkloadSigner.Error!.Code).IsEqualTo("handoff_v2_signer_mismatch");
         await Assert.That(unsignedAuthority.Error!.Code).IsEqualTo("handoff_v2_durable_evidence_mismatch");
         await Assert.That(wrongSource.Error!.Code).IsEqualTo("handoff_v2_durable_evidence_mismatch");
         await Assert.That(signature.Admission).IsNull();
@@ -86,9 +95,12 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             (baseline with { Payload = baseline.Payload with { KnownGaps = [new("DEP-P0-BLOCKED", "high", true, Digest('1'))] } }, Policy(baseline), "handoff_v2_blocking_gap"),
             (baseline with { Payload = baseline.Payload with { Reason = "password=unredacted" } }, Policy(baseline), "handoff_v2_unredacted"),
             (baseline with { Payload = baseline.Payload with { DependencyLocks = [baseline.Payload.DependencyLocks[0], baseline.Payload.DependencyLocks[0]] } }, Policy(baseline), "handoff_v2_locks_invalid"),
+            (baseline with { Payload = baseline.Payload with { DependencyLocks = [baseline.Payload.DependencyLocks[0] with { Path = "nested\\..\\packages.lock.json" }] } }, Policy(baseline), "handoff_v2_locks_invalid"),
             (baseline, Policy(baseline) with { Now = DateTimeOffset.Parse("2026-08-30T12:16:00+00:00") }, "handoff_v2_stale"),
             (baseline, Policy(baseline) with { ExpectedOperationId = "another-operation" }, "handoff_v2_operation_mismatch"),
+            (baseline, Policy(baseline) with { ExpectedDependencyLocks = [baseline.Payload.DependencyLocks[0] with { Digest = Digest('0') }] }, "handoff_v2_dependency_locks_mismatch"),
             (baseline, Policy(baseline) with { ExpectedSupplyChainReceiptDigest = Digest('0') }, "handoff_v2_supply_chain_mismatch"),
+            (baseline, Policy(baseline) with { ExpectedFirstPartyLicense = Policy(baseline).ExpectedFirstPartyLicense with { EvidenceDigest = Digest('1') } }, "handoff_v2_first_party_license_mismatch"),
             (baseline, Policy(baseline) with { ExpectedApprovalDigests = new Dictionary<string, string> { ["code-review"] = Digest('0') } }, "handoff_v2_approval_mismatch"),
             (baseline, Policy(baseline) with { ExpectedLease = new("another-lease", baseline.Payload.Lease.EvidenceDigest) }, "handoff_v2_lease_mismatch"),
             (baseline, Policy(baseline) with { RequiredTests = new HashSet<string>(["another-suite"], StringComparer.Ordinal) }, "handoff_v2_required_tests_mismatch"),
@@ -121,9 +133,17 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             "\"operationId\": \"candidate-op-1\"",
             "\"operationId\": \"candidate-op-1\", \"operationId\": \"candidate-op-2\"",
             StringComparison.Ordinal));
+        var mixedCaseDuplicate = Encoding.UTF8.GetBytes(raw.Replace(
+            "\"operationId\": \"candidate-op-1\"",
+            "\"operationId\": \"candidate-op-1\", \"OperationId\": \"candidate-op-2\"",
+            StringComparison.Ordinal));
+        var nonCanonicalCase = Encoding.UTF8.GetBytes(raw.Replace(
+            "\"operationId\": \"candidate-op-1\"",
+            "\"OperationId\": \"candidate-op-1\"",
+            StringComparison.Ordinal));
         var oversized = new byte[CandidateEvidenceHandoffV2Contract.MaximumDocumentBytes + 1];
 
-        foreach (var document in new[] { unknown, duplicate, oversized })
+        foreach (var document in new[] { unknown, duplicate, mixedCaseDuplicate, nonCanonicalCase, oversized })
         {
             var result = CandidateEvidenceHandoffV2Verifier.Verify(
                 document,
@@ -134,6 +154,47 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             await Assert.That(result.Decision).IsEqualTo(CandidateEvidenceHandoffV2Decision.Rejected);
             await Assert.That(result.Admission).IsNull();
             await Assert.That(result.Error!.Code).IsEqualTo("handoff_v2_document_invalid");
+        }
+    }
+
+    [Test]
+    public async Task EvidenceCreatedAfterIssuedAtFailsBeforeFreshnessEvaluation()
+    {
+        var baseline = Envelope();
+        var issuedAt = baseline.Payload.IssuedAt;
+        var cleanCheckedAt = issuedAt.AddSeconds(1);
+        var cleanWorktree = baseline.Payload.Source.CleanWorktree with
+        {
+            CheckedAt = cleanCheckedAt,
+            ProofDigest = CandidateEvidenceHandoffV2Verifier.CleanWorktreeProofDigest(
+                baseline.Payload.Source,
+                baseline.Payload.Source.CleanWorktree.StatusDigest,
+                cleanCheckedAt),
+        };
+        var cases = new (CandidateEvidenceHandoffV2Envelope Envelope, string Code)[]
+        {
+            (baseline with
+            {
+                Payload = baseline.Payload with
+                {
+                    Source = baseline.Payload.Source with { CleanWorktree = cleanWorktree },
+                },
+            }, "handoff_v2_clean_worktree_invalid"),
+            (baseline with { Payload = baseline.Payload with { Security = baseline.Payload.Security with { ScanGeneratedAt = issuedAt.AddSeconds(1) } } }, "handoff_v2_security_invalid"),
+            (baseline with { Payload = baseline.Payload with { Tests = [baseline.Payload.Tests[0] with { CompletedAt = issuedAt.AddSeconds(1) }] } }, "handoff_v2_test_invalid"),
+            (baseline with { Payload = baseline.Payload with { Approvals = [baseline.Payload.Approvals[0] with { DecidedAt = issuedAt.AddSeconds(1) }] } }, "handoff_v2_approval_invalid"),
+            (baseline with { Payload = baseline.Payload with { Lease = baseline.Payload.Lease with { AcquiredAt = issuedAt.AddSeconds(1) } } }, "handoff_v2_lease_invalid"),
+        };
+
+        foreach (var item in cases)
+        {
+            var result = CandidateEvidenceHandoffV2Verifier.Verify(
+                Bytes(item.Envelope),
+                Policy(baseline),
+                Durable(baseline),
+                true,
+                new FixedSignatureVerifier(true));
+            await Assert.That(result.Error!.Code).IsEqualTo(item.Code);
         }
     }
 
@@ -174,7 +235,9 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
         DateTimeOffset.Parse("2026-08-30T12:05:00+00:00"),
         envelope.Payload.OperationId,
         "terrascale-orchestrator",
+        envelope.Signature.Identity,
         envelope.Payload.DeployCli,
+        envelope.Payload.DependencyLocks,
         envelope.Payload.Artifact,
         envelope.Payload.ConfigurationDigest,
         envelope.Payload.MigrationDigest,
@@ -182,10 +245,19 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
         new(envelope.Payload.Lease.LeaseId, envelope.Payload.Lease.EvidenceDigest),
         envelope.Payload.Rollback,
         envelope.Payload.SupplyChain.ReceiptDigest,
+        new(
+            envelope.Payload.FirstPartyLicense.SchemaVersion,
+            envelope.Payload.FirstPartyLicense.Status,
+            envelope.Payload.FirstPartyLicense.Scope,
+            envelope.Payload.FirstPartyLicense.ComponentInventoryDigest,
+            envelope.Payload.FirstPartyLicense.PrivateComponentCoverage,
+            envelope.Payload.FirstPartyLicense.DispositionDigest,
+            envelope.Payload.FirstPartyLicense.EvidenceDigest),
         envelope.Payload.Approvals.ToDictionary(static value => value.Id, static value => value.EvidenceDigest, StringComparer.Ordinal),
         envelope.Payload.Tests.Where(static value => value.Required).Select(static value => value.Name).ToHashSet(StringComparer.Ordinal),
         TimeSpan.FromMinutes(10),
         TimeSpan.FromMinutes(10),
+        TimeSpan.FromHours(1),
         TimeSpan.FromHours(1),
         TimeSpan.FromHours(1));
 

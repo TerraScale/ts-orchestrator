@@ -10,7 +10,7 @@ public sealed class TerraBaseSecondAuditRegressionTests
         var valid = TerraBaseTestData.Scope();
         var invalidScopes = new[]
         {
-            valid with { Cell = null! },
+            valid with { Region = null! },
             valid with { Database = null! },
             valid with { Member = null! },
             valid with { Node = null! },
