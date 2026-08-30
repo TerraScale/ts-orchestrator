@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"reflect"
@@ -670,6 +671,7 @@ func writeCatalog(output io.Writer) error {
 		"TS_ORCH_GLOBAL_DIRECTORY_NATS_URL", "TS_ORCH_GLOBAL_DIRECTORY_NATS_NKEY_FILE", "TS_ORCH_GLOBAL_DIRECTORY_NATS_CREDENTIALS_FILE", "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CA_FILE", "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_CERT_FILE", "TS_ORCH_GLOBAL_DIRECTORY_NATS_TLS_KEY_FILE", "TS_ORCH_GLOBAL_DIRECTORY_ENDPOINTS",
 		"TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_NKEY_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_CREDENTIALS_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CA_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_CERT_FILE", "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_TLS_KEY_FILE",
 		"TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE", "TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY",
+		"TS_ORCH_COMMAND_SIGNING_KEY_FILE", "TS_ORCH_COMMAND_TRUST_KEY_FILES", "TS_ORCH_COMMAND_AGGREGATE_ID",
 		"TS_ORCH_INFRA_NATS_NKEY_FILE", "TS_ORCH_INFRA_NATS_TLS_CA_FILE", "TS_ORCH_INFRA_NATS_TLS_CERT_FILE", "TS_ORCH_INFRA_NATS_TLS_KEY_FILE",
 		"TS_ORCH_JOURNAL_NATS_NKEY_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CA_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE", "TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE", "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE", "TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE", "TS_ORCH_JOURNAL_CONTROLLER_NKEYS",
 		natsServerConfigEnvironment, natsServerReadinessEnvironment,
@@ -691,6 +693,8 @@ func writeCatalog(output io.Writer) error {
 // autoscaler role, resolved from the documented environment flags.
 type autoscalerRoleSettings struct {
 	NatsUrl          string
+	NatsNKeyFile     string
+	NatsTls          *control.NatsTlsFiles
 	TickInterval     time.Duration
 	Policy           autoscaling.AutoscalerConfig
 	AgentBinaryPath  string
@@ -736,6 +740,34 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 	}
 	if strings.HasPrefix(natsUrl, "-") || strings.ContainsAny(natsUrl, " \t\n") {
 		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_URL must be whitespace-free and flag-safe")
+	}
+	parsedNatsURL, parseErr := url.Parse(natsUrl)
+	if parseErr != nil || !parsedNatsURL.IsAbs() || parsedNatsURL.Scheme != "tls" || parsedNatsURL.Host == "" || parsedNatsURL.User != nil || parsedNatsURL.RawQuery != "" || parsedNatsURL.Fragment != "" {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_URL must be an absolute tls:// URL")
+	}
+	nkeyValue, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_NKEY_FILE")
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	nkeyPath, err := control.NatsCredentialFile.Resolve(nkeyValue, "TS_ORCH_NATS_NKEY_FILE")
+	if err != nil || nkeyPath == "" {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_NKEY_FILE is invalid")
+	}
+	tlsCA, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_TLS_CA_FILE")
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	tlsCert, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_TLS_CERT_FILE")
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	tlsKey, err := autoscalerRequiredEnvironment(lookup, "TS_ORCH_NATS_TLS_KEY_FILE")
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	tlsFiles, err := control.NatsTlsFilesResolve(tlsCA, tlsCert, tlsKey, "TS_ORCH_NATS_TLS")
+	if err != nil || tlsFiles == nil {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_TLS credentials are invalid")
 	}
 	tickInterval := autoscalerDefaultTickInterval
 	if value, present := lookup(autoscalerTickIntervalEnvironment); present {
@@ -812,6 +844,8 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 	}
 	return autoscalerRoleSettings{
 		NatsUrl:          natsUrl,
+		NatsNKeyFile:     nkeyPath,
+		NatsTls:          tlsFiles,
 		TickInterval:     tickInterval,
 		Policy:           policy,
 		AgentBinaryPath:  agentBinary,
@@ -1320,9 +1354,14 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	if ctx == nil {
 		return errors.New("autoscaler: the role context must not be nil")
 	}
-	connection, err := nats.Connect(settings.NatsUrl,
-		nats.Timeout(5*time.Second),
-		nats.MaxReconnects(-1))
+	authentication, err := control.NatsAuthenticationFilesFromNKeyFile(settings.NatsNKeyFile)
+	if err != nil {
+		return errors.New("autoscaler: NATS authentication is unavailable")
+	}
+	connection, err := control.NatsConnect(ctx, control.NatsConnectionConfiguration{
+		URL: settings.NatsUrl, Authentication: authentication, TLS: settings.NatsTls,
+		Timeout: 5 * time.Second, MaxReconnects: -1,
+	})
 	if err != nil {
 		return err
 	}

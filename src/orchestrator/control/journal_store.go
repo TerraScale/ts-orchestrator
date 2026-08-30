@@ -387,7 +387,7 @@ func (natsOperationJournalStore) ValidatePlainTopologyKeyValueConfiguration(
 	configuration jetstream.KeyValueConfig,
 ) error {
 	if configuration.Bucket != "ORCH_LEADERS" && configuration.Bucket != "ORCH_RUNTIME" &&
-		configuration.Bucket != "ORCH_DELIVERY" ||
+		configuration.Bucket != "ORCH_DELIVERY" && configuration.Bucket != "ORCH_COMMAND_REPLAY" ||
 		configuration.RePublish != nil || configuration.Placement != nil ||
 		configuration.Mirror != nil || len(configuration.Sources) > 0 ||
 		len(configuration.Metadata) > 0 {

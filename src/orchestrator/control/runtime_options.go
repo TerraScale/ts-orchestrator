@@ -55,8 +55,9 @@ func (o *OrchestratorOptions) String() string {
 	if o == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("OrchestratorOptions{command=%s, cell=%q, nats_url=%q, replicas=%d, instance=%q, ci_runner_identity=%t}",
-		o.Command.String(), o.Cell, redactedNatsURL(o.NatsURL), o.Replicas, o.Instance, o.CiRunnerNatsIdentity != nil)
+	return fmt.Sprintf("OrchestratorOptions{command=%s, cell=%q, nats_url=%q, replicas=%d, instance=%q, ci_runner_identity=%t, command_identity=%t}",
+		o.Command.String(), o.Cell, redactedNatsURL(o.NatsURL), o.Replicas, o.Instance,
+		o.CiRunnerNatsIdentity != nil, o.CommandIdentity != nil)
 }
 
 func redactedNatsURL(raw string) string {

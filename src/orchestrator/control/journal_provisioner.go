@@ -162,6 +162,10 @@ func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
 		return err
 	}
 
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.CommandReplay()); err != nil {
+		return err
+	}
+
 	bundles, err := natsOperationJournalOpenOrCreateObjectStore(ctx, js, topology.Bundles())
 	if err != nil {
 		return err

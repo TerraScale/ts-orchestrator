@@ -82,6 +82,37 @@ type CreateNodeProvider interface {
 	ReconcileCreateNode(context.Context, CreateNodeProviderRequest) (CreateNodeReconciliation, error)
 }
 
+// OciNodeLaunchSpec is the provider-bound result of resolving an admitted
+// template and placement. No environment, credential, or implicit default is
+// consulted by the provider; all launch material must be injected here.
+type OciNodeLaunchSpec struct {
+	CompartmentId, AvailabilityDomain, FaultDomain, SubnetId, ImageId string
+	Shape                                                             string
+	NetworkSecurityGroupIds                                           []string
+	Ocpus, MemoryGB                                                   float64
+	BootstrapBase64                                                   string
+}
+
+// OciNodeLaunchResolver is the explicit seam between opaque domain template /
+// placement identities and OCI launch details.
+type OciNodeLaunchResolver interface {
+	Resolve(context.Context, ProviderTemplateId, ProviderPlacementId, ProviderBootstrapEnvelopeDigest) (OciNodeLaunchSpec, error)
+}
+
+type OciNodeLaunchResolverFunc func(context.Context, ProviderTemplateId, ProviderPlacementId, ProviderBootstrapEnvelopeDigest) (OciNodeLaunchSpec, error)
+
+func (f OciNodeLaunchResolverFunc) Resolve(ctx context.Context, template ProviderTemplateId, placement ProviderPlacementId, digest ProviderBootstrapEnvelopeDigest) (OciNodeLaunchSpec, error) {
+	if f == nil {
+		return OciNodeLaunchSpec{}, &InvalidOperationError{Message: "OCI node launch resolver is unavailable"}
+	}
+	return f(ctx, template, placement, digest)
+}
+
+// Compatibility aliases keep the provider-neutral wording available to
+// integrations that call the resolved object a launch configuration.
+type OciNodeLaunchConfiguration = OciNodeLaunchSpec
+type OciNodeLaunchConfigurationResolver = OciNodeLaunchResolver
+
 // CreateNodeJournal is the narrow durability seam needed by an external
 // mutation provider. Implementations must atomically consume a capability.
 type CreateNodeJournal interface {
@@ -188,6 +219,8 @@ type OciCreateNodeProvider struct {
 	Keys, RecoveryKeys, InvocationKeys ReceiptKeyResolver
 	Journal                            CreateNodeJournal
 	Clock                              func() time.Time
+	LaunchResolver                     OciNodeLaunchResolver
+	Ownership                          DurableOwnershipEvidence
 }
 
 func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
@@ -199,7 +232,7 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	}
 	client := p.Client
 	if client == nil && p.OCI != nil {
-		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner}
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, Ownership: p.Ownership}
 	}
 	if client == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
@@ -230,7 +263,7 @@ func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r Creat
 	}
 	client := p.Client
 	if client == nil && p.OCI != nil {
-		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner}
+		client = &OCIComputeNodeClient{OCI: p.OCI, ProofSigner: p.ProofSigner, LaunchResolver: p.LaunchResolver, Ownership: p.Ownership}
 	}
 	if client == nil {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}

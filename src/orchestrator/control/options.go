@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/security"
 )
 
 // OrchestratorCommand is the closed command vocabulary accepted by the
@@ -59,6 +61,11 @@ type OrchestratorOptions struct {
 	InfrastructureNatsNKeyFile *string
 	InfrastructureNatsTls      *NatsTlsFiles
 	AuthoritativeJournal       *NatsAuthoritativeJournalConfiguration
+	// CommandIdentity is the controller's explicit trust configuration for
+	// signed regional commands. It is required by the production run role.
+	CommandIdentity    *security.CommandIdentityConfiguration
+	CommandAggregateID string
+	CommandDispatcher  CommandIngressDispatcher
 }
 
 // EnvironmentLookup is deliberately injected so parsing never reads process
@@ -144,6 +151,9 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 
 	ciRunnerSigningKey := lookup("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_SIGNING_KEY_FILE")
 	ciRunnerAccountPublicKey := lookup("TS_ORCH_CI_RUNNER_NATS_ACCOUNT_PUBLIC_KEY")
+	commandSigningKey := lookup("TS_ORCH_COMMAND_SIGNING_KEY_FILE")
+	commandTrustKeys := lookup("TS_ORCH_COMMAND_TRUST_KEY_FILES")
+	commandAggregate := defaultValue("TS_ORCH_COMMAND_AGGREGATE_ID", "delivery")
 
 	if err := rejectUnownedCredentials(command, orchestratorCredentialFamilies{
 		controller: []string{
@@ -155,6 +165,7 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		infrastructure: []string{infrastructureNKey, infrastructureCA, infrastructureCert, infrastructureKey},
 		journal:        []string{journalNKey, journalCA, journalCert, journalKey, journalAuthority, journalReply, journalControllers},
 		ciRunner:       []string{ciRunnerSigningKey, ciRunnerAccountPublicKey},
+		command:        []string{commandSigningKey, commandTrustKeys},
 	}); err != nil {
 		return nil, err
 	}
@@ -172,6 +183,9 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 	}
 	if !isOrchestratorSubjectToken(instance) {
 		return nil, errors.New("TS_ORCH_INSTANCE must contain only lowercase letters, digits, or hyphens.")
+	}
+	if !isOrchestratorSubjectToken(commandAggregate) {
+		return nil, errors.New("TS_ORCH_COMMAND_AGGREGATE_ID must contain only lowercase letters, digits, or hyphens.")
 	}
 
 	var controllerNKeyPath *string
@@ -261,6 +275,17 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		}
 	}
 
+	var commandIdentity *security.CommandIdentityConfiguration
+	if command == OrchestratorCommandRun || command == OrchestratorCommandCheck {
+		commandIdentity, err = security.CommandIdentityConfigurationResolve(commandSigningKey, commandTrustKeys)
+		if err != nil {
+			return nil, fmt.Errorf("command identity is invalid: %w", err)
+		}
+		if command == OrchestratorCommandRun && (commandIdentity == nil || commandIdentity.SigningKeyFile == "" || len(commandIdentity.TrustKeyFiles) == 0) {
+			return nil, errors.New("The run command requires command signing and trust key credentials.")
+		}
+	}
+
 	var journal *NatsAuthoritativeJournalConfiguration
 	if command == OrchestratorCommandJournalWriter {
 		journal, err = NatsAuthoritativeJournalConfigurationResolve(journalNKey, journalCA, journalCert, journalKey, journalAuthority, journalReply, journalControllers)
@@ -287,6 +312,8 @@ func NewOrchestratorOptions(args []string, environment EnvironmentLookup) (*Orch
 		InfrastructureNatsNKeyFile: infrastructureNKeyPath,
 		InfrastructureNatsTls:      infrastructureTLS,
 		AuthoritativeJournal:       journal,
+		CommandIdentity:            commandIdentity,
+		CommandAggregateID:         commandAggregate,
 	}, nil
 }
 
@@ -341,6 +368,7 @@ type orchestratorCredentialFamilies struct {
 	infrastructure []string
 	journal        []string
 	ciRunner       []string
+	command        []string
 }
 
 func rejectUnownedCredentials(command OrchestratorCommand, families orchestratorCredentialFamilies) error {
@@ -355,6 +383,9 @@ func rejectUnownedCredentials(command OrchestratorCommand, families orchestrator
 	}
 	if anyOptionSupplied(families.ciRunner) && command != OrchestratorCommandRun && command != OrchestratorCommandCheck {
 		return fmt.Errorf("The %s role must not receive CI runner NATS identity credentials.", command.String())
+	}
+	if anyOptionSupplied(families.command) && command != OrchestratorCommandRun && command != OrchestratorCommandCheck {
+		return fmt.Errorf("The %s role must not receive command identity credentials.", command.String())
 	}
 	return nil
 }

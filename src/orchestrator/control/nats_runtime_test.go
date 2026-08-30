@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,18 @@ func TestNatsRuntimeValidationRejectsPartialControllerCredentialsAndCancellation
 	options.NatsNKeyFile = nil
 	if err := NatsRuntimeCheck(ctx, options); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation, got %v", err)
+	}
+}
+
+func TestNatsRuntimeValidationRequiresProductionCommandAdmission(t *testing.T) {
+	options := &OrchestratorOptions{
+		Command: OrchestratorCommandRun, Cell: "gru", NatsURL: "tls://127.0.0.1:4222",
+		Replicas: 1, Instance: "one", NatsNKeyFile: stringPtrForRuntimeTest("seed"),
+		NatsTls: &NatsTlsFiles{CaFile: "ca", CertificateFile: "cert", KeyFile: "key"},
+	}
+	err := validateNatsRuntimeInputs(context.Background(), options, OrchestratorCommandRun)
+	if err == nil || !strings.Contains(err.Error(), "command signing and trust") {
+		t.Fatalf("missing command admission credentials were accepted: %v", err)
 	}
 }
 

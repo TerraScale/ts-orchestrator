@@ -66,6 +66,7 @@ type allocationRecord struct {
 	state       string
 	running     bool
 	generation  uint64
+	busy        bool
 }
 
 // allocationReservation identifies a capacity reservation made before an
@@ -516,6 +517,7 @@ func (e *WorkloadExecutor) recordState(decoded decodedWorkloadPlan, state string
 		state:       state,
 		running:     running,
 		generation:  previous.generation,
+		busy:        false,
 	}
 	return nil
 }
@@ -547,6 +549,7 @@ func (e *WorkloadExecutor) recordObserved(decoded decodedWorkloadPlan, observati
 		state:       observation.state,
 		running:     observation.running,
 		generation:  previous.generation,
+		busy:        false,
 	}
 	return nil
 }
@@ -566,10 +569,21 @@ func (e *WorkloadExecutor) reserveAllocation(decoded decodedWorkloadPlan, state 
 	defer e.mutex.Unlock()
 	allocationId := decoded.plan.AllocationId.Value
 	if previous, present := e.records[allocationId]; present {
+		if previous.busy {
+			return allocationReservation{}, &InvalidOperationError{Message: fmt.Sprintf(
+				"An operation is already in progress for allocation %s.", allocationId)}
+		}
+		e.nextGeneration++
+		previous.plan = decoded.plan
+		previous.fingerprint = decoded.fingerprint
+		previous.state = state
+		previous.generation = e.nextGeneration
+		previous.busy = true
+		e.records[allocationId] = previous
 		return allocationReservation{
 			allocationId: allocationId,
-			generation:   previous.generation,
-			state:        previous.state,
+			generation:   e.nextGeneration,
+			state:        state,
 		}, nil
 	}
 	if len(e.records) >= e.maximumTrackedAllocationsLocked() {
@@ -581,6 +595,7 @@ func (e *WorkloadExecutor) reserveAllocation(decoded decodedWorkloadPlan, state 
 		fingerprint: decoded.fingerprint,
 		state:       state,
 		generation:  e.nextGeneration,
+		busy:        true,
 	}
 	return allocationReservation{
 		allocationId: allocationId,

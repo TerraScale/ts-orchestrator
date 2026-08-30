@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,25 +18,30 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/contracts"
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 const (
-	natsRuntimeConnectTimeout = 15 * time.Second
-	natsRuntimeCheckTimeout   = 15 * time.Second
-	natsRuntimeProofTimeout   = 5 * time.Second
+	natsRuntimeConnectTimeout        = 15 * time.Second
+	natsRuntimeCheckTimeout          = 15 * time.Second
+	natsRuntimeProofTimeout          = 5 * time.Second
+	natsRuntimeCommandValidityWindow = 10 * time.Minute
 )
 
 // NatsRuntime is the regional controller composition. Topology is read-only
 // here: infrastructure provisions it, while the controller opens and checks
 // every resource before it starts serving or claiming membership.
 type NatsRuntime struct {
-	client      *nats.Conn
-	topology    *NatsTopology
-	service     *natsSvcServer
-	serviceInfo *nats.Subscription
-	authority   *RegionalAuthorityCoordinator
-	membership  *RegionalRuntimeMembership
-	stats       *NatsServiceEndpointStats
+	client         *nats.Conn
+	topology       *NatsTopology
+	service        *natsSvcServer
+	serviceInfo    *nats.Subscription
+	authority      *RegionalAuthorityCoordinator
+	membership     *RegionalRuntimeMembership
+	stats          *NatsServiceEndpointStats
+	commandIngress *NatsCommandIngress
 
 	lifetimeCtx    context.Context
 	cancel         context.CancelFunc
@@ -47,15 +53,16 @@ type NatsRuntime struct {
 }
 
 type natsRuntimeState struct {
-	leaders    jetstream.KeyValue
-	runtime    jetstream.KeyValue
-	delivery   jetstream.KeyValue
-	operations jetstream.KeyValue
-	proofs     jetstream.KeyValue
-	bundles    jetstream.ObjectStore
-	protocol   jetstream.ObjectStore
-	startup    jetstream.Consumer
-	cellSpec   jetstream.Consumer
+	leaders       jetstream.KeyValue
+	runtime       jetstream.KeyValue
+	delivery      jetstream.KeyValue
+	operations    jetstream.KeyValue
+	proofs        jetstream.KeyValue
+	bundles       jetstream.ObjectStore
+	protocol      jetstream.ObjectStore
+	startup       jetstream.Consumer
+	cellSpec      jetstream.Consumer
+	commandReplay jetstream.KeyValue
 }
 
 // NatsRuntimeStartAsync composes a regional run runtime. Check is deliberately
@@ -120,6 +127,10 @@ func NatsRuntimeStartAsync(ctx context.Context, options *OrchestratorOptions) (*
 		client: client, topology: topology, authority: authority, membership: membership,
 		stats: NewNatsServiceEndpointStats(), lifetimeCtx: lifetimeCtx, cancel: cancel,
 		completion: make(chan struct{}),
+	}
+	if err := runtime.startCommandIngress(options, state.commandReplay); err != nil {
+		_ = runtime.Close()
+		return nil, err
 	}
 	if err := runtime.startService(); err != nil {
 		_ = runtime.Close()
@@ -209,6 +220,12 @@ func validateNatsRuntimeInputs(ctx context.Context, options *OrchestratorOptions
 	if command == OrchestratorCommandRun {
 		if options.NatsNKeyFile == nil || options.NatsTls == nil || !strings.HasPrefix(options.NatsURL, "tls://") {
 			return errors.New("The run command requires a tls:// regional control NATS URL, a private NKey seed, and complete mTLS credentials.")
+		}
+		if options.CommandIdentity == nil || options.CommandIdentity.SigningKeyFile == "" || len(options.CommandIdentity.TrustKeyFiles) == 0 {
+			return errors.New("The run command requires command signing and trust key credentials.")
+		}
+		if options.CommandDispatcher == nil {
+			return errors.New("The run command requires a signed command dispatcher.")
 		}
 	}
 	if options.NatsNKeyFile != nil {
@@ -305,6 +322,10 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 	if err != nil {
 		return nil, err
 	}
+	commandReplay, err := openPlain(topology.CommandReplay())
+	if err != nil {
+		return nil, err
+	}
 	operations, err := NatsOperationJournalStore.OpenAsync(ctx, js, topology.Operations(), client)
 	if err != nil {
 		return nil, err
@@ -375,7 +396,7 @@ func natsRuntimeOpenAndValidate(ctx context.Context, client *nats.Conn, topology
 	}
 	return &natsRuntimeState{leaders: leaders, runtime: runtimeStore, delivery: delivery,
 		operations: operations, proofs: proofs, bundles: bundles, protocol: protocolStore,
-		startup: startup, cellSpec: cellSpec}, nil
+		startup: startup, cellSpec: cellSpec, commandReplay: commandReplay}, nil
 }
 
 func natsRuntimeVerifyProtocol(ctx context.Context, store jetstream.ObjectStore, topology *NatsTopology) error {
@@ -386,6 +407,75 @@ func natsRuntimeVerifyProtocol(ctx context.Context, store jetstream.ObjectStore,
 	if !bytes.Equal(stored, NatsProtocolPackageBytes) {
 		return errors.New("NATS protocol package failed its integrity check.")
 	}
+	return nil
+}
+
+// sha256CommandPayloadDigestVerifier is the production protocol digest
+// verifier. It is local to control composition so the runtime cannot be
+// started with a permissive test implementation.
+type sha256CommandPayloadDigestVerifier struct{}
+
+func (sha256CommandPayloadDigestVerifier) Verify(payload protocol.OpaquePayload, expected protocol.PayloadDigest) protocol.VerificationOutcome {
+	digest := sha256.Sum256(payload.Bytes())
+	actual, ok := protocol.PayloadDigestTryCopyFrom(digest[:])
+	if !ok || !expected.Equal(actual) {
+		return protocol.VerificationOutcomeInvalid
+	}
+	return protocol.VerificationOutcomeValid
+}
+
+func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, replayStore jetstream.KeyValue) error {
+	if r == nil || r.client == nil || r.topology == nil {
+		return errors.New("command ingress runtime composition is incomplete")
+	}
+	if options == nil || options.CommandIdentity == nil || options.CommandIdentity.SigningKeyFile == "" || len(options.CommandIdentity.TrustKeyFiles) == 0 {
+		return errors.New("signed command ingress identity is missing")
+	}
+	if options.CommandDispatcher == nil {
+		return errors.New("signed command ingress dispatcher is missing")
+	}
+	if replayStore == nil {
+		return errors.New("signed command ingress replay store is missing")
+	}
+	cell, ok := contracts.CellIdTryCreate(r.topology.Cell)
+	if !ok {
+		return errors.New("signed command ingress cell is invalid")
+	}
+	aggregateValue := options.CommandAggregateID
+	if strings.TrimSpace(aggregateValue) == "" {
+		aggregateValue = "delivery"
+	}
+	aggregate, ok := contracts.AggregateIdTryCreate(aggregateValue)
+	if !ok {
+		return errors.New("signed command ingress aggregate is invalid")
+	}
+	generation, _ := protocol.DesiredGenerationTryCreate(1)
+	epoch, _ := protocol.WriterEpochTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	subject, err := r.topology.DirectDeliverySubject()
+	if err != nil {
+		return errors.New("signed command ingress subject is invalid")
+	}
+	replay, err := NewNatsCommandReplayStore(replayStore)
+	if err != nil {
+		return err
+	}
+	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
+		Connection: r.client, Subject: subject, Identity: options.CommandIdentity,
+		Replay: replay, MultiInstance: true, ExpectedCell: cell,
+		ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation,
+		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
+		AllowedClockSkew: 2 * time.Minute, MaximumValidityWindow: natsRuntimeCommandValidityWindow,
+		PayloadDigestVerifier: sha256CommandPayloadDigestVerifier{}, Dispatch: options.CommandDispatcher,
+	})
+	if err != nil {
+		return errors.New("signed command ingress could not be composed")
+	}
+	if err := ingress.Start(r.lifetimeCtx); err != nil {
+		_ = ingress.Close()
+		return err
+	}
+	r.commandIngress = ingress
 	return nil
 }
 
@@ -567,6 +657,11 @@ func (r *NatsRuntime) Close() error {
 		if r.cancel != nil {
 			r.cancel()
 		}
+		if r.commandIngress != nil {
+			if err := r.commandIngress.Close(); err != nil {
+				r.closeErr = err
+			}
+		}
 		if r.serviceInfo != nil {
 			_ = r.serviceInfo.Drain()
 		}
@@ -574,7 +669,7 @@ func (r *NatsRuntime) Close() error {
 			r.service.Stop()
 		}
 		if r.membership != nil {
-			if err := r.membership.Dispose(); err != nil {
+			if err := r.membership.Dispose(); err != nil && r.closeErr == nil {
 				r.closeErr = err
 			}
 		}

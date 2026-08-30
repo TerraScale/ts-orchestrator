@@ -147,6 +147,55 @@ func TestNatsCommandIngressRejectsMemoryReplayForMultiInstance(t *testing.T) {
 	}
 }
 
+func TestNatsCommandIngressStartsAndStopsExactSubscription(t *testing.T) {
+	connection := startIngressTestNATS(t)
+	replay, err := security.NewMemoryCommandReplayStore(4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := security.NewCommandSecurityBoundary(ingressAlwaysValidVerifier{}, replay, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell, _ := contracts.CellIdTryCreate("sfo")
+	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
+	generation, _ := protocol.DesiredGenerationTryCreate(1)
+	epoch, _ := protocol.WriterEpochTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	started := make(chan struct{}, 1)
+	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
+		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
+		ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation,
+		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
+		PayloadDigestVerifier: ingressDigestVerifier{}, Dispatch: func(context.Context, protocol.CommandEnvelope) error {
+			started <- struct{}{}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ingress.Completion():
+	case <-time.After(time.Second):
+		t.Fatal("ingress completion did not close")
+	}
+	select {
+	case <-started:
+		t.Fatal("lifecycle test unexpectedly dispatched a command")
+	default:
+	}
+}
+
 type ingressAlwaysValidVerifier struct{}
 
 func (ingressAlwaysValidVerifier) Verify(protocol.CommandSignedMaterial, protocol.OpaqueSignature) protocol.VerificationOutcome {

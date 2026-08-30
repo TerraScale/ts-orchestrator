@@ -61,6 +61,16 @@ func TestAutoscalerRoleBindsHeartbeatsToSubjectAndRejectsReplay(t *testing.T) {
 	}
 }
 
+func TestAutoscalerRoleConfigurationRequiresAuthenticatedTLSNATS(t *testing.T) {
+	values := map[string]string{"TS_ORCH_NATS_URL": "tls://127.0.0.1:4222"}
+	if _, err := autoscalerRoleConfiguration(func(name string) (string, bool) {
+		value, ok := values[name]
+		return value, ok
+	}); err == nil || !strings.Contains(err.Error(), "TS_ORCH_NATS_NKEY_FILE") {
+		t.Fatalf("autoscaler accepted missing NKey credentials: %v", err)
+	}
+}
+
 func TestAutoscalerRoleDefersDrainWithoutReplicaPlacementState(t *testing.T) {
 	policy, err := stateful.NewDrainPolicy(1)
 	if err != nil {

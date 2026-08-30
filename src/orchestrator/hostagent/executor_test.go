@@ -586,6 +586,47 @@ func TestConvergeReservesCapacityBeforeConcurrentAdapterCalls(t *testing.T) {
 	}
 }
 
+func TestConvergeRejectsOverlappingOperationForSameAllocation(t *testing.T) {
+	adapter := &concurrentNativeAdapter{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	executor := newExecutorForTest(t, adapter, &fakeContainerAdapter{})
+	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+		runtime.RuntimeDriverNativeSystemd, "same-allocation")
+	firstCommand := executorTestCommand(t, plan, "cmd-overlap-first")
+	secondCommand := executorTestCommand(t, plan, "cmd-overlap-second")
+
+	type result struct {
+		receipt ConvergeReceipt
+		err     error
+	}
+	firstResult := make(chan result, 1)
+	go func() {
+		receipt, err := executor.Converge(context.Background(), firstCommand)
+		firstResult <- result{receipt: receipt, err: err}
+	}()
+	select {
+	case <-adapter.entered:
+	case <-time.After(time.Second):
+		t.Fatal("the first adapter call did not start")
+	}
+
+	secondReceipt, secondErr := executor.Converge(context.Background(), secondCommand)
+	if secondErr == nil || secondReceipt.Accepted {
+		t.Fatalf("overlapping converge was accepted: receipt=%+v err=%v", secondReceipt, secondErr)
+	}
+	if got := adapter.convergeCalls.Load(); got != 1 {
+		t.Fatalf("adapter converge calls while first is active = %d, want 1", got)
+	}
+
+	close(adapter.release)
+	first := <-firstResult
+	if first.err != nil || !first.receipt.Accepted {
+		t.Fatalf("first converge failed: receipt=%+v err=%v", first.receipt, first.err)
+	}
+}
+
 func TestExistingAllocationOperatesAtCapacityAndDeleteReleasesSlot(t *testing.T) {
 	container := &fakeContainerAdapter{}
 	executor := newExecutorForTest(t, &fakeNativeAdapter{}, container)

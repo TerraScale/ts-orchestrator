@@ -20,6 +20,36 @@ type OwnershipJournal interface {
 	Lookup(context.Context, ProviderResourceId) (ProviderOwnershipRecord, bool, error)
 }
 
+// DurableOwnershipJournal is the stronger boundary required before a
+// provider lifecycle decision may use an existing resource identity. A
+// process-local journal is useful for tests, but cannot authorize adoption or
+// destructive work after a crash or leadership change.
+type DurableOwnershipEvidence interface {
+	OwnershipJournal
+	AuthoritativeDurable() bool
+}
+
+// AuthorizeWithOwnership loads the target's ownership from the durable
+// journal immediately before authorization. Tags and caller-supplied records
+// are treated only as consistency evidence; they cannot establish ownership.
+func AuthorizeWithOwnership(ctx context.Context, request ProviderAuthorizationRequest, journal DurableOwnershipEvidence) ProviderAuthorizationDecision {
+	if ctx == nil || journal == nil || !journal.AuthoritativeDurable() {
+		return ProviderAuthorizationDecision{Trace: []ProviderDecisionReason{{Code: DecisionOwnershipMatches, Outcome: DecisionRejected}}}
+	}
+	target, existing := request.Context.Target.(ExistingProviderResource)
+	if existing {
+		if err := ctx.Err(); err != nil {
+			return ProviderAuthorizationDecision{Trace: []ProviderDecisionReason{{Code: DecisionOwnershipMatches, Outcome: DecisionHeld}}}
+		}
+		record, ok, err := journal.Lookup(ctx, target.Id)
+		if err != nil || !ok {
+			return ProviderAuthorizationDecision{Trace: []ProviderDecisionReason{{Code: DecisionOwnershipMatches, Outcome: DecisionHeld}}}
+		}
+		request.OwnershipRecords = []ProviderOwnershipRecord{record}
+	}
+	return Authorize(request)
+}
+
 // MemoryOwnershipJournal is a bounded, concurrency-safe implementation useful
 // for tests and process-local composition. Durable deployments should provide
 // their own journal implementation.

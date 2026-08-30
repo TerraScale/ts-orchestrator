@@ -145,6 +145,21 @@ func (t *NatsTopology) Delivery() jetstream.KeyValueConfig {
 	}
 }
 
+// CommandReplay is the bounded, replicated replay claim store used by the
+// signed command ingress. Expired claims are removed by JetStream rather than
+// retained forever in the delivery journal.
+func (t *NatsTopology) CommandReplay() jetstream.KeyValueConfig {
+	return jetstream.KeyValueConfig{
+		Bucket:       "ORCH_COMMAND_REPLAY",
+		Description:  "Expiry-bounded signed command replay claims for " + t.Cell,
+		History:      1,
+		TTL:          15 * time.Minute,
+		MaxValueSize: 256,
+		MaxBytes:     16 * 1024 * 1024,
+		Replicas:     t.Replicas,
+	}
+}
+
 // Operations mirrors NatsTopology.Operations. This authoritative journal is
 // provisioned only by the infrastructure identity; controller TS_ORCH_REPLICAS
 // must never reconfigure it.

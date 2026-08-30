@@ -171,31 +171,36 @@ type NatsCommandIngressConfiguration struct {
 	MinimumWriterEpoch       protocol.WriterEpoch
 	AcceptedProtocolVersions []protocol.ProtocolRevision
 	AllowedClockSkew         time.Duration
-	PayloadDigestVerifier    protocol.IPayloadDigestVerifier
-	Now                      func() time.Time
-	Dispatch                 CommandIngressDispatcher
+	// MaximumValidityWindow bounds how long an admitted command may remain
+	// usable. Zero preserves the library's caller-owned policy; production
+	// composition supplies a positive bound tied to replay retention.
+	MaximumValidityWindow time.Duration
+	PayloadDigestVerifier protocol.IPayloadDigestVerifier
+	Now                   func() time.Time
+	Dispatch              CommandIngressDispatcher
 }
 
 // NatsCommandIngress owns one exact-subject subscriber and its identity
 // runtime. It has no lifecycle executor of its own.
 type NatsCommandIngress struct {
-	connection   *nats.Conn
-	subjectValue string
-	subscription *nats.Subscription
-	lifetime     context.Context
-	cancel       context.CancelFunc
-	identity     *security.CommandIdentityRuntime
-	boundary     *security.CommandSecurityBoundary
-	validation   *protocol.CommandValidationContext
-	dispatch     CommandIngressDispatcher
-	now          func() time.Time
-	closeOnce    sync.Once
-	startOnce    sync.Once
-	lifecycleMu  sync.Mutex
-	startErr     error
-	complete     chan struct{}
-	closed       atomic.Bool
-	closeErr     error
+	connection            *nats.Conn
+	subjectValue          string
+	subscription          *nats.Subscription
+	lifetime              context.Context
+	cancel                context.CancelFunc
+	identity              *security.CommandIdentityRuntime
+	boundary              *security.CommandSecurityBoundary
+	validation            *protocol.CommandValidationContext
+	dispatch              CommandIngressDispatcher
+	now                   func() time.Time
+	maximumValidityWindow time.Duration
+	closeOnce             sync.Once
+	startOnce             sync.Once
+	lifecycleMu           sync.Mutex
+	startErr              error
+	complete              chan struct{}
+	closed                atomic.Bool
+	closeErr              error
 }
 
 // NewNatsCommandIngress validates configuration and creates the admission
@@ -216,6 +221,9 @@ func NewNatsCommandIngress(configuration NatsCommandIngressConfiguration) (*Nats
 	}
 	if configuration.AllowedClockSkew < 0 {
 		return nil, errors.New("command ingress clock skew is invalid")
+	}
+	if configuration.MaximumValidityWindow < 0 {
+		return nil, errors.New("command ingress validity window is invalid")
 	}
 	if configuration.MultiInstance && configuration.Replay == nil {
 		return nil, errors.New("multi-instance command ingress requires an injected durable replay store")
@@ -286,7 +294,8 @@ func NewNatsCommandIngress(configuration NatsCommandIngressConfiguration) (*Nats
 	}
 	return &NatsCommandIngress{connection: configuration.Connection, identity: identityRuntime,
 		boundary: boundary, validation: validation, dispatch: configuration.Dispatch, now: now,
-		subjectValue: configuration.Subject, complete: make(chan struct{})}, nil
+		maximumValidityWindow: configuration.MaximumValidityWindow,
+		subjectValue:          configuration.Subject, complete: make(chan struct{})}, nil
 }
 
 func commandIngressSubjectIsExact(subject, cell string) bool {
@@ -393,6 +402,9 @@ func (i *NatsCommandIngress) Handle(ctx context.Context, data []byte) (CommandIn
 	validated := protocol.CommandEnvelopeValidator.Validate(&envelope, i.validation, now)
 	if !validated.IsValid() {
 		return CommandIngressDecision{Code: CommandIngressCodeRejected, ValidationError: validated.Error}, nil
+	}
+	if i.validation != nil && i.maximumValidityWindow > 0 && envelope.ExpiresAt.Sub(envelope.IssuedAt) > i.maximumValidityWindow {
+		return CommandIngressDecision{Code: CommandIngressCodeRejected, ValidationError: protocol.CommandValidationErrorInvalidValidityWindow}, nil
 	}
 	outcome, err := i.boundary.VerifyAndConsumeContext(ctx, envelope.SignedMaterial, envelope.Signature, now)
 	if err != nil {
