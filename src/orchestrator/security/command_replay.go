@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -188,8 +189,25 @@ func NewCommandSecurityBoundary(verifier protocol.ICommandSignatureVerifier, rep
 // then the atomic replay claim in that order. Signature failures never consume
 // replay capacity.
 func (b *CommandSecurityBoundary) VerifyAndConsume(material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (CommandSecurityOutcome, error) {
+	return b.verifyAndConsume(context.Background(), material, signature, now)
+}
+
+// VerifyAndConsumeContext is the cancellation-aware form used by runtimes
+// whose admission request has a bounded lifecycle. Cancellation is checked
+// before cryptographic work and again before the replay claim.
+func (b *CommandSecurityBoundary) VerifyAndConsumeContext(ctx context.Context, material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (CommandSecurityOutcome, error) {
+	if ctx == nil {
+		return CommandSecurityInvalidMaterial, errors.New("command security context is required")
+	}
+	return b.verifyAndConsume(ctx, material, signature, now)
+}
+
+func (b *CommandSecurityBoundary) verifyAndConsume(ctx context.Context, material protocol.CommandSignedMaterial, signature protocol.OpaqueSignature, now time.Time) (CommandSecurityOutcome, error) {
 	if b == nil || b.verifier == nil || b.replay == nil {
 		return CommandSecurityInvalidMaterial, errors.New("command security boundary is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return CommandSecurityInvalidMaterial, err
 	}
 	if _, err := protocol.CommandSignedMaterialCodec.Hash(&material); err != nil {
 		return CommandSecurityInvalidMaterial, nil
@@ -211,6 +229,9 @@ func (b *CommandSecurityBoundary) VerifyAndConsume(material protocol.CommandSign
 		}
 	} else if b.verifier.Verify(material, signature) != protocol.VerificationOutcomeValid {
 		return CommandSecurityInvalidSignature, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return CommandSecurityInvalidMaterial, err
 	}
 	key, err := CommandReplayKeyFor(material)
 	if err != nil {
@@ -236,4 +257,3 @@ func (b *CommandSecurityBoundary) String() string {
 	}
 	return "<command-security-boundary>"
 }
-

@@ -67,10 +67,10 @@ type CommandSignatureVerifier struct {
 }
 
 type commandTrustedKey struct {
-	publicKey  *ecdsa.PublicKey
-	notBefore  time.Time
-	notAfter   time.Time
-	revokedAt  *time.Time
+	publicKey *ecdsa.PublicKey
+	notBefore time.Time
+	notAfter  time.Time
+	revokedAt *time.Time
 }
 
 // NewCommandSignatureVerifier validates and freezes a bounded public trust
@@ -214,6 +214,32 @@ func CommandSignatureIdentity(keyID string) string {
 	return CommandSignatureAlgorithm + "-" + keyID
 }
 
+// EncodeCommandSignature creates the canonical detached-signature envelope
+// from a lowercase SPKI key fingerprint. It is useful to KMS-backed signers
+// that do not retain a private key in this process.
+func EncodeCommandSignature(keyID string, signature []byte) (protocol.OpaqueSignature, error) {
+	if validateCommandKeyID(keyID) != nil {
+		return protocol.OpaqueSignature{}, errors.New("the command signature key ID is invalid")
+	}
+	var id [sha256.Size]byte
+	decoded, err := hex.DecodeString(keyID)
+	if err != nil || len(decoded) != len(id) {
+		return protocol.OpaqueSignature{}, errors.New("the command signature key ID is invalid")
+	}
+	copy(id[:], decoded)
+	return encodeCommandSignature(id, signature)
+}
+
+// DecodeCommandSignature exposes only bounded metadata and a copied DER
+// signature; it never returns public/private key material or signed material.
+func DecodeCommandSignature(value protocol.OpaqueSignature) (keyID string, algorithm string, signature []byte, ok bool) {
+	id, sig, valid := decodeCommandSignature(value.Bytes())
+	if !valid {
+		return "", "", nil, false
+	}
+	return hex.EncodeToString(id[:]), CommandSignatureAlgorithm, append([]byte(nil), sig...), true
+}
+
 func commandKeyValidAt(key *commandTrustedKey, now time.Time) bool {
 	now = now.UTC()
 	if !key.notBefore.IsZero() && now.Before(key.notBefore) {
@@ -322,6 +348,14 @@ type CommandSignatureSigner struct {
 	sync sync.Mutex
 }
 
+// Migration-friendly names matching the former Delivery implementation.
+type EcdsaCommandSignatureVerifier = CommandSignatureVerifier
+type EcdsaCommandSigner = CommandSignatureSigner
+
+func LoadEcdsaCommandSignerPEM(path string) (*CommandSignatureSigner, error) {
+	return LoadCommandSignatureSignerPEM(path)
+}
+
 // LoadCommandSignatureSignerPEM loads a PKCS#8 or SEC1 P-256 private key.
 func LoadCommandSignatureSignerPEM(path string) (*CommandSignatureSigner, error) {
 	data, err := readBoundedPrivatePEM(path)
@@ -374,7 +408,12 @@ func (s *CommandSignatureSigner) Sign(material protocol.CommandSignedMaterial) (
 		return protocol.OpaqueSignature{}, err
 	}
 	s.sync.Lock()
-	value, err := ecdsa.SignASN1(rand.Reader, s.key, digest[:])
+	key := s.key
+	if key == nil {
+		s.sync.Unlock()
+		return protocol.OpaqueSignature{}, errors.New("the command signer is unavailable")
+	}
+	value, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
 	s.sync.Unlock()
 	if err != nil {
 		return protocol.OpaqueSignature{}, errors.New("the command signature could not be produced")
