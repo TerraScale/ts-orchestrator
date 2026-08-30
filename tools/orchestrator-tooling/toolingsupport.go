@@ -443,7 +443,7 @@ func (toolingSupport) RunProcess(fileName string, arguments []string, workingDir
 	case waitErr := <-done:
 		return ProcessResult{ExitCode: exitCodeOf(waitErr), StandardOutput: stdout.String(), StandardError: stderr.String()}, nil
 	case <-time.After(time.Duration(timeoutMilliseconds) * time.Millisecond):
-		killProcessTree(process.Process.Pid)
+		killProcessTree(process.Pid)
 		<-done
 		return ProcessResult{}, fmt.Errorf("%s exceeded %d ms", fileName, timeoutMilliseconds)
 	}

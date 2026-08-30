@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf16"
 )
 
@@ -18,6 +19,60 @@ func invalidArgument(message string) error {
 
 func argumentNil(name string) error {
 	return errors.New("Value cannot be null. (Parameter '" + name + "')")
+}
+
+const int64max = int64(^uint64(0) >> 1)
+
+// isNullOrWhiteSpace mirrors string.IsNullOrWhiteSpace.
+func isNullOrWhiteSpace(value string) bool {
+	if value == "" {
+		return true
+	}
+	for _, r := range value {
+		if !isSpaceRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isSpaceRune(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '\v', '\f', '\r', 0x85, 0xA0:
+		return true
+	}
+	return unicode.IsSpace(r)
+}
+
+// derefString mirrors `value ?? null` for nullable strings.
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func derefBool(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+// checkedAddInt64 mirrors C# checked arithmetic.
+func checkedAddInt64(left, right int64) (int64, bool) {
+	sum := left + right
+	if (right > 0 && sum < left) || (right < 0 && sum > left) {
+		return 0, false
+	}
+	return sum, true
 }
 
 // Shared primitive encodings for the control-plane journal digest
@@ -94,7 +149,7 @@ func (w *digestWriter) WriteNull() {
 
 func (w *digestWriter) WriteString(value string) {
 	w.builder.WriteByte('S')
-	w.builder.WriteString(itoaCompact(digestUtf16Length(value)))
+	w.builder.WriteString(itoaCompact(int64(digestUtf16Length(value))))
 	w.builder.WriteByte(':')
 	w.builder.WriteString(value)
 	w.builder.WriteByte(';')

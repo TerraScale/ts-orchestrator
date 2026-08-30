@@ -146,10 +146,10 @@ func (e AuthorityError) Equal(other AuthorityError) bool {
 }
 
 type AuthorityLease struct {
-	CandidateId   string
-	LeaseId       string
+	CandidateId    string
+	LeaseId        string
 	ServerIssuedAt time.Time
-	Duration      time.Duration
+	Duration       time.Duration
 }
 
 // Equal mirrors C# record value equality for leases (instants compare by UTC
@@ -162,11 +162,11 @@ func (l AuthorityLease) Equal(other AuthorityLease) bool {
 }
 
 type AuthorityObservation struct {
-	AuthorityId    string
-	KvRevision     int64
-	Epoch          int64
-	ObservationId  string
-	Lease          *AuthorityLease
+	AuthorityId   string
+	KvRevision    int64
+	Epoch         int64
+	ObservationId string
+	Lease         *AuthorityLease
 }
 
 // Equal mirrors C# record value equality (deep, lease included).
@@ -185,10 +185,10 @@ func (o AuthorityObservation) Equal(other AuthorityObservation) bool {
 }
 
 type AuthorityHealth struct {
-	ServerTime        time.Time
-	MonotonicElapsed  time.Duration
-	PartitionCertain  bool
-	ClockCertain      bool
+	ServerTime       time.Time
+	MonotonicElapsed time.Duration
+	PartitionCertain bool
+	ClockCertain     bool
 }
 
 // AuthorityCommand is the Go form of the abstract AuthorityCommand record.
@@ -395,21 +395,21 @@ func NewCompareAndDeleteLeaseIntent(authorityId, requestId string, expectedRevis
 
 type ReadAuthorityIntent struct {
 	AuthorityIntentBase
-	CandidateId                    string
-	ResumeStatus                   AuthorityStatus
-	ExpectedHighestEpoch           int64
-	ExpectedHighestKvRevision      int64
-	ExpectedConfirmedObservation   *AuthorityObservation
+	CandidateId                  string
+	ResumeStatus                 AuthorityStatus
+	ExpectedHighestEpoch         int64
+	ExpectedHighestKvRevision    int64
+	ExpectedConfirmedObservation *AuthorityObservation
 }
 
 func NewReadAuthorityIntent(request *RequestAuthorityRead, state *AuthorityState, resumeStatus AuthorityStatus) *ReadAuthorityIntent {
 	return &ReadAuthorityIntent{
-		AuthorityIntentBase:           AuthorityIntentBase{AuthorityId: request.AuthorityId, RequestId: request.RequestId},
-		CandidateId:                   request.CandidateId,
-		ResumeStatus:                  resumeStatus,
-		ExpectedHighestEpoch:          state.HighestEpoch,
-		ExpectedHighestKvRevision:     state.HighestKvRevision,
-		ExpectedConfirmedObservation:  state.Confirmed,
+		AuthorityIntentBase:          AuthorityIntentBase{AuthorityId: request.AuthorityId, RequestId: request.RequestId},
+		CandidateId:                  request.CandidateId,
+		ResumeStatus:                 resumeStatus,
+		ExpectedHighestEpoch:         state.HighestEpoch,
+		ExpectedHighestKvRevision:    state.HighestKvRevision,
+		ExpectedConfirmedObservation: state.Confirmed,
 	}
 }
 
@@ -586,6 +586,20 @@ var AuthorityStateEmpty = &AuthorityState{
 func stringPointer(value string) *string { return &value }
 
 func statusPointer(value AuthorityStatus) *AuthorityStatus { return &value }
+
+func authorityObservationEpochOrZero(observation *AuthorityObservation) int64 {
+	if observation == nil {
+		return 0
+	}
+	return observation.Epoch
+}
+
+func authorityObservationKvRevisionOrZero(observation *AuthorityObservation) int64 {
+	if observation == nil {
+		return 0
+	}
+	return observation.KvRevision
+}
 
 type AuthorityDecision struct {
 	State          *AuthorityState
