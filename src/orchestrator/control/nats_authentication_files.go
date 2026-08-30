@@ -95,14 +95,19 @@ func NatsAuthenticationFilesFromCredentialsFile(credentialsFile, optionPrefix st
 	return resolved, nil
 }
 
-// NatsAuthenticationFilesFromNKeyFile mirrors the C# FromNKeyFile: it keeps
-// the public key equal to the file path, exactly as the C# did.
+// NatsAuthenticationFilesFromNKeyFile mirrors the C# FromNKeyFile while
+// exposing the NKey identity derived from the seed, rather than the path.
 func NatsAuthenticationFilesFromNKeyFile(nkeyFile string) (*NatsAuthenticationFiles, error) {
 	if strings.TrimSpace(nkeyFile) == "" {
 		return nil, errors.New("The NKey file path is required.")
 	}
 
-	return &NatsAuthenticationFiles{NKeyFile: &nkeyFile, PublicKey: nkeyFile}, nil
+	publicKey, err := NatsCredentialFile.PublicKey(nkeyFile)
+	if err != nil {
+		return nil, errors.New("The NKey file does not contain a valid NKey seed.")
+	}
+
+	return &NatsAuthenticationFiles{NKeyFile: &nkeyFile, PublicKey: publicKey}, nil
 }
 
 // Options mirrors the C# Options property: the nats.go connection options the
@@ -155,6 +160,9 @@ func natsAuthenticationResolvePrivateFile(value, optionName string) (string, err
 	path, err := filepath.Abs(value)
 	if err != nil {
 		return "", fmt.Errorf("%s must identify a bounded existing NATS credentials file.", optionName)
+	}
+	if err := messagingRejectSymlinkPath(path); err != nil {
+		return "", fmt.Errorf("%s must not contain symbolic links.", optionName)
 	}
 
 	info, err := os.Stat(path)

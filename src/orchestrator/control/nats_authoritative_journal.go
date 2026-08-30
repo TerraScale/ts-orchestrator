@@ -8,12 +8,15 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/nats-io/nkeys"
+	"golang.org/x/sys/unix"
 )
 
 // NatsAuthoritativeJournalConfiguration mirrors the C# record: the separate
@@ -76,25 +79,14 @@ func NatsAuthoritativeJournalConfigurationResolve(
 		return nil, errors.New("TS_ORCH_JOURNAL_NATS_TLS credentials are missing.")
 	}
 
-	path, err := filepath.Abs(authorityPublicKeyFile)
+	_, pemBytes, err := natsJournalReadFile(authorityPublicKeyFile, 8192, true)
 	if err != nil {
 		return nil, errors.New(
-			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE must identify a bounded authority public key file.")
+			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE must identify a bounded owner-private regular file.")
 	}
+	defer clear(pemBytes)
 
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() < 1 || info.Size() > 8192 {
-		return nil, errors.New(
-			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE must identify a bounded authority public key file.")
-	}
-
-	pemBytes, err := os.ReadFile(path)
-	if err != nil {
-		return nil, errors.New(
-			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE is not a valid ECDSA public key.")
-	}
-
-	if !strings.Contains(string(pemBytes), "-----BEGIN PUBLIC KEY-----") {
+	if !bytes.Contains(pemBytes, []byte("-----BEGIN PUBLIC KEY-----")) {
 		return nil, errors.New(
 			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE is not a valid ECDSA public key.")
 	}
@@ -116,21 +108,16 @@ func NatsAuthoritativeJournalConfigurationResolve(
 			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE is not a valid ECDSA public key.")
 	}
 
-	replyPath, err := natsJournalResolveReplySigningKey(replySigningKeyFile)
+	replyPath, replyPem, err := natsJournalResolveReplySigningKeyData(replySigningKeyFile)
 	if err != nil {
 		return nil, err
 	}
-
-	replyPem, err := os.ReadFile(replyPath)
-	if err != nil {
-		return nil, errors.New(
-			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE is not a valid ECDSA public key.")
-	}
+	defer clear(replyPem)
 
 	replyKey, err := natsJournalPemPrivateKey(replyPem)
 	if err != nil {
 		return nil, errors.New(
-			"TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE is not a valid ECDSA public key.")
+			"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must contain a private key.")
 	}
 
 	if replyKey.Curve.Params().Name != elliptic.P256().Params().Name {
@@ -254,28 +241,105 @@ func natsJournalParseControllerIdentities(value string) (map[string]struct{}, er
 }
 
 func natsJournalResolveReplySigningKey(value string) (string, error) {
-	path, err := filepath.Abs(value)
+	path, _, err := natsJournalResolveReplySigningKeyData(value)
+	return path, err
+}
+
+func natsJournalResolveReplySigningKeyData(value string) (string, []byte, error) {
+	path, data, err := natsJournalReadFile(value, 8192, true)
 	if err != nil {
-		return "", errors.New(
-			"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must identify a bounded owner-private key file.")
+		return "", nil, errors.New(
+			"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must identify a bounded owner-private regular file.")
 	}
 
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || info.Size() < 1 || info.Size() > 8192 {
-		return "", errors.New(
-			"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must identify a bounded owner-private key file.")
+	if !bytes.Contains(data, []byte("-----BEGIN PRIVATE KEY-----")) {
+		clear(data)
+		return "", nil, errors.New("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must contain a private key.")
 	}
 
-	mode, err := messagingUnixFileMode(path)
-	if err != nil || mode&(messagingGroupAny|messagingOtherAny) != 0 {
-		return "", errors.New(
-			"TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must identify a bounded owner-private key file.")
+	return path, data, nil
+}
+
+// natsJournalReadFile resolves and reads one bounded owner-private regular
+// file without following symlinks. The final descriptor is checked against
+// the initial lstat identity before any bytes are read, so replacement races
+// cannot redirect parsing to an unvalidated file. Errors intentionally contain
+// no file contents.
+func natsJournalReadFile(value string, maximum int64, requirePrivate bool) (string, []byte, error) {
+	path, err := filepath.Abs(value)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return "", nil, errors.New("invalid credential file path")
+	}
+	path = filepath.Clean(path)
+
+	initial, err := os.Lstat(path)
+	if err != nil || initial.Mode()&os.ModeSymlink != 0 || !initial.Mode().IsRegular() ||
+		initial.Size() < 1 || initial.Size() > maximum {
+		return "", nil, errors.New("invalid credential file")
+	}
+	if requirePrivate && uint32(initial.Mode().Perm())&(messagingGroupAny|messagingOtherAny) != 0 {
+		return "", nil, errors.New("credential file is not owner-private")
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(data), "-----BEGIN PRIVATE KEY-----") {
-		return "", errors.New("TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE must contain a private key.")
+	file, err := natsJournalOpenNoFollow(path)
+	if err != nil {
+		return "", nil, errors.New("unable to open credential file")
+	}
+	defer file.Close()
+
+	current, err := file.Stat()
+	if err != nil || !current.Mode().IsRegular() || current.Mode()&os.ModeSymlink != 0 ||
+		current.Size() < 1 || current.Size() > maximum ||
+		!natsJournalSameFileIdentity(initial, current) {
+		return "", nil, errors.New("credential file changed while opening")
+	}
+	if requirePrivate && uint32(current.Mode().Perm())&(messagingGroupAny|messagingOtherAny) != 0 {
+		return "", nil, errors.New("credential file is not owner-private")
 	}
 
-	return path, nil
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || int64(len(data)) < 1 || int64(len(data)) > maximum {
+		clear(data)
+		return "", nil, errors.New("unable to read credential file")
+	}
+
+	return path, data, nil
+}
+
+func natsJournalSameFileIdentity(first, second os.FileInfo) bool {
+	firstStat, firstOK := first.Sys().(*syscall.Stat_t)
+	secondStat, secondOK := second.Sys().(*syscall.Stat_t)
+	return firstOK && secondOK && firstStat.Dev == secondStat.Dev && firstStat.Ino == secondStat.Ino
+}
+
+// natsJournalOpenNoFollow walks the already-cleaned absolute path one
+// component at a time with O_NOFOLLOW. This protects the component check from
+// a parent-directory symlink replacement between lstat and open.
+func natsJournalOpenNoFollow(path string) (*os.File, error) {
+	root, err := unix.Open(string(filepath.Separator), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	fd := root
+	components := strings.Split(strings.TrimPrefix(path, string(filepath.Separator)), string(filepath.Separator))
+	for index, component := range components {
+		if component == "" || component == "." || component == ".." {
+			unix.Close(fd)
+			return nil, errors.New("invalid journal identity file path")
+		}
+
+		flags := unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+		if index < len(components)-1 {
+			flags |= unix.O_DIRECTORY
+		}
+		next, openErr := unix.Openat(fd, component, flags, 0)
+		unix.Close(fd)
+		if openErr != nil {
+			return nil, openErr
+		}
+		fd = next
+	}
+
+	return os.NewFile(uintptr(fd), path), nil
 }
