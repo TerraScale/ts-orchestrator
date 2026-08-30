@@ -419,9 +419,9 @@ func TestLocalProcessNodeProvisionerRefusesDuplicatesAndSpawnFailures(t *testing
 	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
 		t.Fatalf("a duplicate provision must be refused, got %v", err)
 	}
-	// Two spawn attempts happened: the failed one and the successful one; the
-	// duplicate provision never reached the spawner.
-	if len(spawner.spawned) != 2 {
+	// Only the successful provision reached the spawner after the baseline
+	// reset; the duplicate never spawned a second child.
+	if len(spawner.spawned) != 1 {
 		t.Fatalf("a duplicate provision must not spawn, calls = %d", len(spawner.spawned))
 	}
 }

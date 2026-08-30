@@ -208,16 +208,17 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 	}
 	decoded, err := decodeWorkloadPlan(command)
 	if err != nil {
-		return newDeleteReceipt(command.CommandId, false,
-			"The plan payload is not a canonical runtime plan: "+err.Error(), "")
+		return deleteReply(command, false,
+			"The plan payload is not a canonical runtime plan: "+err.Error(), "", err)
 	}
 	switch decoded.plan.Driver {
 	case runtime.RuntimeDriverOciContainer:
 		err = e.container.Delete(ctx, decoded.plan)
 		if err == nil {
 			e.forgetAllocation(decoded.plan.AllocationId.Value)
-			return newDeleteReceipt(command.CommandId, true,
-				fmt.Sprintf("Allocation %s deleted.", decoded.plan.AllocationId.Value), decoded.fingerprint)
+			return deleteReply(command, true,
+				fmt.Sprintf("Allocation %s deleted.", decoded.plan.AllocationId.Value),
+				decoded.fingerprint, nil)
 		}
 	case runtime.RuntimeDriverNativeSystemd:
 		err = e.systemd.Stop(ctx, decoded.plan)
@@ -230,9 +231,9 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 					runtime.SystemdAllocationStateStopped.String(),
 					runtime.SystemdAllocationStateFailed.String():
 					e.forgetAllocation(decoded.plan.AllocationId.Value)
-					return newDeleteReceipt(command.CommandId, true,
+					return deleteReply(command, true,
 						fmt.Sprintf("Allocation %s stopped and its transient unit collected.",
-							decoded.plan.AllocationId.Value), decoded.fingerprint)
+							decoded.plan.AllocationId.Value), decoded.fingerprint, nil)
 				default:
 					err = &InvalidOperationError{Message: fmt.Sprintf(
 						"Allocation %s is still %s after deletion.", decoded.plan.AllocationId.Value,
@@ -245,7 +246,7 @@ func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRe
 			"The runtime driver %s is not executed by this node.", decoded.plan.Driver)}
 	}
 	e.recordState(decoded, "DeleteFailed", false, false)
-	return newDeleteReceipt(command.CommandId, false, err.Error(), decoded.fingerprint)
+	return deleteReply(command, false, err.Error(), decoded.fingerprint, err)
 }
 
 // AllocationObservation is one normalized observation of an allocation the
@@ -449,24 +450,68 @@ func (e *WorkloadExecutor) snapshotRecords() []decodedWorkloadPlan {
 	return snapshot
 }
 
-// newConvergeReceipt builds one converge receipt with a log-safe detail.
-func newConvergeReceipt(commandId string, accepted bool, detail string, fingerprint string) (ConvergeReceipt, error) {
-	return NewConvergeReceipt(commandId, accepted, boundedReceiptDetail(detail), fingerprint)
+// convergeReply builds one converge receipt with a log-safe detail and returns
+// it together with its cause.
+func convergeReply(
+	command WorkloadCommandRequest,
+	accepted bool,
+	detail string,
+	fingerprint string,
+	cause error,
+) (ConvergeReceipt, error) {
+	receipt, err := NewConvergeReceipt(command.CommandId, accepted, boundedReceiptDetail(detail), fingerprint)
+	if err != nil {
+		return ConvergeReceipt{}, err
+	}
+	return receipt, cause
 }
 
-// newObserveReceipt builds one observe receipt with a log-safe detail.
-func newObserveReceipt(commandId string, accepted bool, detail string, fingerprint string) (ObserveReceipt, error) {
-	return NewObserveReceipt(commandId, accepted, boundedReceiptDetail(detail), fingerprint)
+// observeReply builds one observe receipt with a log-safe detail and returns it
+// together with its cause.
+func observeReply(
+	command WorkloadCommandRequest,
+	accepted bool,
+	detail string,
+	fingerprint string,
+	cause error,
+) (ObserveReceipt, error) {
+	receipt, err := NewObserveReceipt(command.CommandId, accepted, boundedReceiptDetail(detail), fingerprint)
+	if err != nil {
+		return ObserveReceipt{}, err
+	}
+	return receipt, cause
 }
 
-// newStopReceipt builds one stop receipt with a log-safe detail.
-func newStopReceipt(commandId string, accepted bool, detail string, fingerprint string) (StopReceipt, error) {
-	return NewStopReceipt(commandId, accepted, boundedReceiptDetail(detail), fingerprint)
+// stopReply builds one stop receipt with a log-safe detail and returns it
+// together with its cause.
+func stopReply(
+	command WorkloadCommandRequest,
+	accepted bool,
+	detail string,
+	fingerprint string,
+	cause error,
+) (StopReceipt, error) {
+	receipt, err := NewStopReceipt(command.CommandId, accepted, boundedReceiptDetail(detail), fingerprint)
+	if err != nil {
+		return StopReceipt{}, err
+	}
+	return receipt, cause
 }
 
-// newDeleteReceipt builds one delete receipt with a log-safe detail.
-func newDeleteReceipt(commandId string, accepted bool, detail string, fingerprint string) (DeleteReceipt, error) {
-	return NewDeleteReceipt(commandId, accepted, boundedReceiptDetail(detail), fingerprint)
+// deleteReply builds one delete receipt with a log-safe detail and returns it
+// together with its cause.
+func deleteReply(
+	command WorkloadCommandRequest,
+	accepted bool,
+	detail string,
+	fingerprint string,
+	cause error,
+) (DeleteReceipt, error) {
+	receipt, err := NewDeleteReceipt(command.CommandId, accepted, boundedReceiptDetail(detail), fingerprint)
+	if err != nil {
+		return DeleteReceipt{}, err
+	}
+	return receipt, cause
 }
 
 // boundedReceiptDetail sanitizes one detail string into the bounded,

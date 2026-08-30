@@ -187,9 +187,11 @@ func Start(ctx context.Context, cfg RuntimeConfig, deps RuntimeDependencies) (*R
 	if cfg.Source.Server != nil {
 		client, e := NewSourceClient(cfg.Source, cfg.HTTPClient)
 		if e != nil {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_ = r.server.Shutdown(shutdownCtx)
-			shutdownCancel()
+			if r.server != nil {
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = r.server.Shutdown(shutdownCtx)
+				shutdownCancel()
+			}
 			handler.Close()
 			return nil, e
 		}
