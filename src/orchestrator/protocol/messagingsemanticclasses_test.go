@@ -14,23 +14,31 @@ func TestEveryLandedSubjectShapeMapsToExactlyOneDeclaredSemanticClass(t *testing
 		subject string
 		want    MessagingSemanticClass
 	}{
-		{mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), MessagingSemanticClassAuthoritativeJournal},
-		{mustT(t, NatsSubjectTaxonomy.ControllerHealthSubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.ControllerInstanceHealthSubject("gru", "controller-1")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.ControllerStatusSubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.ControllerMembersSubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.DirectDeliverySubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.OperationJournalCreateSubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.OperationJournalReplySubject("gru", "UABC", strings.Repeat("a", 32))), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject("gru", "UABC", strings.Repeat("b", 32))), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read")), MessagingSemanticClassLossy},
-		{mustT(t, NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")), MessagingSemanticClassReplayable},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }), MessagingSemanticClassAuthoritativeJournal},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.ControllerHealthSubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) {
+			return NatsSubjectTaxonomy.ControllerInstanceHealthSubject("gru", "controller-1")
+		}), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.ControllerStatusSubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.ControllerMembersSubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.DirectDeliverySubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalUpdateSubject("gru") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) {
+			return NatsSubjectTaxonomy.OperationJournalReplySubject("gru", "UABC", strings.Repeat("a", 32))
+		}), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) {
+			return NatsSubjectTaxonomy.RuntimeLifecycleJournalReplySubject("gru", "UABC", strings.Repeat("b", 32))
+		}), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read") }), MessagingSemanticClassLossy},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }), MessagingSemanticClassReplayable},
 		{NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), MessagingSemanticClassLossy},
 		{NatsSubjectTaxonomy.CiForgejoTriggerSubject(), MessagingSemanticClassWorkQueue},
 		{NatsSubjectTaxonomy.CiRuntimeProofSubject(), MessagingSemanticClassReplayable},
-		{mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")), MessagingSemanticClassAuthoritativeJournal},
-		{mustT(t, NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start")), MessagingSemanticClassWorkQueue},
+		{mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }), MessagingSemanticClassAuthoritativeJournal},
+		{mustT(t, func() (string, error) {
+			return NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start")
+		}), MessagingSemanticClassWorkQueue},
 	}
 
 	for _, testCase := range cases {
@@ -62,13 +70,15 @@ func TestUnknownAndForeignSubjectsFailClosedInsteadOfGuessingAClass(t *testing.T
 
 func TestReservedNamespacesCarryTheirIntendedSemanticClass(t *testing.T) {
 	if agent, _, ok := MessagingSemanticClasses.TryClassifySubject(
-		mustT(t, NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start"))); !ok ||
+		mustT(t, func() (string, error) {
+			return NatsSubjectTaxonomy.HostAgentCommandSubject("gru", "host/gru/agent-07", "start")
+		})); !ok ||
 		agent != MessagingSemanticClassWorkQueue {
 		t.Fatalf("agent class = %v", agent)
 	}
 
 	if audit, _, ok := MessagingSemanticClasses.TryClassifySubject(
-		mustT(t, NatsSubjectTaxonomy.RegionalRoot("gru")) + ".audit.entry"); !ok ||
+		mustT(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".audit.entry"); !ok ||
 		audit != MessagingSemanticClassAuthoritativeJournal {
 		t.Fatalf("audit class = %v", audit)
 	}

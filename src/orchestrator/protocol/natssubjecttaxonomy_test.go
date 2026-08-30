@@ -69,10 +69,10 @@ func TestRehomedBridgeSubjectsLandInsideTheClosedV2Families(t *testing.T) {
 		value    string
 		expected NatsSubjectNamespace
 	}{
-		{must(t, NatsSubjectTaxonomy.OperationJournalCreateSubject("gru")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.ControllerInboxPrefix("gru", "UABC")), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.ControllerInboxPrefix("gru", "UABC") }), NatsSubjectNamespaceRegionalControl},
 	}
 
 	for _, subject := range subjects {
@@ -86,8 +86,9 @@ func TestRehomedBridgeSubjectsLandInsideTheClosedV2Families(t *testing.T) {
 	}
 }
 
-func must(t *testing.T, value string, err error) string {
+func must(t *testing.T, compose func() (string, error)) string {
 	t.Helper()
+	value, err := compose()
 	if err != nil {
 		t.Fatalf("subject composition failed: %v", err)
 	}
@@ -117,7 +118,7 @@ func TestHostAgentSubjectsUseTheFixedHashOfTheAdmittedIdentity(t *testing.T) {
 		t.Fatal("identities must hash to distinct tokens")
 	}
 
-	root := must(t, NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity))
+	root := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) })
 	if root != "ts.orch.v2.gru.agent."+token {
 		t.Fatalf("agent root = %q", root)
 	}
@@ -217,23 +218,23 @@ func TestClassificationSeparatesEveryNamespaceOfTheClosedTaxonomy(t *testing.T) 
 		subject string
 		want    NatsSubjectNamespace
 	}{
-		{must(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("gru")), NatsSubjectNamespaceGlobalAuthority},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") }), NatsSubjectNamespaceGlobalAuthority},
 		{NatsSubjectTaxonomy.GlobalRoot() + ".release.accepted.r7", NatsSubjectNamespaceGlobalAuthority},
 		{NatsSubjectTaxonomy.GlobalRoot() + ".query.health", NatsSubjectNamespaceGlobalAuthority},
 		{NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(), NatsSubjectNamespaceGlobalDirectory},
-		{must(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.ControllerStatusSubject("sfo")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.DirectDeliverySubject("fra")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RegionalRoot("gru")) + ".observation.host.pressure", NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.OperationJournalCreateSubject("gru")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read")), NatsSubjectNamespaceRegionalControl},
-		{must(t, NatsSubjectTaxonomy.RegionalRoot("gru")) + ".operation.created", NatsSubjectNamespaceOperations},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.ControllerStatusSubject("sfo") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.DirectDeliverySubject("fra") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".observation.host.pressure", NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject("gru", "read") }), NatsSubjectNamespaceRegionalControl},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".operation.created", NatsSubjectNamespaceOperations},
 		{NatsSubjectTaxonomy.CiForgejoTriggerSubject(), NatsSubjectNamespaceContinuousIntegration},
 		{NatsSubjectTaxonomy.CiRuntimeProofSubject(), NatsSubjectNamespaceContinuousIntegration},
 		{NatsSubjectTaxonomy.CiJobSubjectPrefix() + ".trusted-build.abcd", NatsSubjectNamespaceContinuousIntegration},
-		{must(t, NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity)), NatsSubjectNamespaceAgent},
-		{must(t, NatsSubjectTaxonomy.RegionalRoot("gru")) + ".audit.event.7", NatsSubjectNamespaceAudit},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) }), NatsSubjectNamespaceAgent},
+		{must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") }) + ".audit.event.7", NatsSubjectNamespaceAudit},
 		{"ts.product.v1.queue.default", NatsSubjectNamespaceProductPlane},
 		{"$JS.API.STREAM.INFO.CELL_SPEC", NatsSubjectNamespacePlatformReserved},
 		{"_INBOX.abcd.1234", NatsSubjectNamespacePlatformReserved},
@@ -349,7 +350,7 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 		}
 	}
 
-	agentToken := must(t, NatsSubjectTaxonomy.HostAgentSubjectToken(testAgentIdentity))
+	agentToken := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken(testAgentIdentity) })
 	for _, pattern := range []string{
 		"ts.orch.v2.gru.desired.>",
 		"ts.orch.v2.gru.command.>",
@@ -369,24 +370,28 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 
 	// A pinned regional permission never matches another Region's subjects.
 	pinned := testPattern(
-		must(t, NatsSubjectTaxonomy.RegionalFamilyPattern("gru", NatsSubjectTaxonomy.DesiredFamilySegment())),
+		must(t, func() (string, error) {
+			return NatsSubjectTaxonomy.RegionalFamilyPattern("gru", NatsSubjectTaxonomy.DesiredFamilySegment())
+		}),
 		NatsSubjectTaxonomy.GrammarLimits())
 	if pinned.Matches(testConcreteSubject("ts.orch.v2.sfo.desired.gitops", NatsSubjectTaxonomy.GrammarLimits())) {
 		t.Fatal("pinned GRU permission must not match SFO subjects")
 	}
 
 	if !pinned.Matches(testConcreteSubject(
-		must(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), NatsSubjectTaxonomy.GrammarLimits())) {
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }), NatsSubjectTaxonomy.GrammarLimits())) {
 		t.Fatal("pinned GRU permission must match GRU CellSpec subjects")
 	}
 }
 
 func TestCustomerProvidedTextNeverBecomesASubjectToken(t *testing.T) {
 	admitted := []string{
-		must(t, NatsSubjectTaxonomy.CellSpecSubject("gru")),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }),
 		NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
-		must(t, NatsSubjectTaxonomy.HostAgentCommandSubject("gru", testAgentIdentity, "start")),
-		must(t, NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")),
+		must(t, func() (string, error) {
+			return NatsSubjectTaxonomy.HostAgentCommandSubject("gru", testAgentIdentity, "start")
+		}),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }),
 	}
 
 	for _, subject := range admitted {
@@ -470,16 +475,18 @@ func TestNoV1PrefixedSubjectAppearsInAnyV2TaxonomySurface(t *testing.T) {
 
 	composed := []string{
 		NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
-		must(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }),
 		NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
 		NatsSubjectTaxonomy.CiRuntimeProofSubject(),
 		NatsSubjectTaxonomy.CiJobSubjectPrefix(),
-		must(t, NatsSubjectTaxonomy.CellSpecSubject("gru")),
-		must(t, NatsSubjectTaxonomy.DirectDeliverySubject("gru")),
-		must(t, NatsSubjectTaxonomy.OperationJournalCreateSubject("gru")),
-		must(t, NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1")),
-		must(t, NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity)),
-		must(t, NatsSubjectTaxonomy.RegionalFamilyPattern("fra", NatsSubjectTaxonomy.RegionalAuditPrefixSegment())),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.DirectDeliverySubject("gru") }),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }),
+		must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) }),
+		must(t, func() (string, error) {
+			return NatsSubjectTaxonomy.RegionalFamilyPattern("fra", NatsSubjectTaxonomy.RegionalAuditPrefixSegment())
+		}),
 		NatsSubjectTaxonomy.GlobalFamilyPattern(NatsSubjectTaxonomy.ReleaseFamilySegment()),
 	}
 
@@ -493,7 +500,7 @@ func TestNoV1PrefixedSubjectAppearsInAnyV2TaxonomySurface(t *testing.T) {
 		}
 	}
 
-	for _, prefix := range []string{NatsSubjectTaxonomy.GlobalRoot(), must(t, NatsSubjectTaxonomy.RegionalRoot("gru"))} {
+	for _, prefix := range []string{NatsSubjectTaxonomy.GlobalRoot(), must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") })} {
 		if !strings.HasPrefix(prefix, NatsSubjectTaxonomy.Root()+".") {
 			t.Fatalf("prefix %q must live under the v2 root", prefix)
 		}

@@ -69,8 +69,9 @@ func messagingTarget(namespace NatsSubjectNamespace, subject string, cell string
 	return scope
 }
 
-func mustT(t *testing.T, value string, err error) string {
+func mustT(t *testing.T, compose func() (string, error)) string {
 	t.Helper()
+	value, err := compose()
 	if err != nil {
 		t.Fatalf("subject composition failed: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) 
 		t.Fatalf("declared regional error = %v", declaredRegional.Error)
 	}
 
-	cellSpecGru := mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru"))
+	cellSpecGru := mustT(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") })
 	declaredGlobal := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalDirectory, cellSpecGru, "gru")
@@ -242,7 +243,7 @@ func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
 	mismatch := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
-				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")), "sfo")
+				mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }), "sfo")
 		}),
 		messagingContext())
 	if mismatch.Error != MessagingEnvelopeErrorSubjectCellMismatch {
@@ -252,7 +253,7 @@ func TestAGlobalPerCellSubjectIsValidatedAgainstItsCellScope(t *testing.T) {
 	matching := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
-				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("gru")), "gru")
+				mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") }), "gru")
 		}),
 		messagingContext())
 	if !matching.IsAccepted() {
@@ -264,7 +265,7 @@ func TestAGlobalPerCellSubjectCannotBypassCellValidationWhenTargetCellIsOmitted(
 	result := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceGlobalAuthority,
-				mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo")), "")
+				mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }), "")
 		}),
 		messagingContext())
 
@@ -274,11 +275,11 @@ func TestAGlobalPerCellSubjectCannotBypassCellValidationWhenTargetCellIsOmitted(
 }
 
 func TestCellScopeExtractionCoversRegionalAndGlobalPerCellShapesOnly(t *testing.T) {
-	if cell, ok := extractCellScope(mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru"))); !ok || cell != "gru" {
+	if cell, ok := extractCellScope(mustT(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") })); !ok || cell != "gru" {
 		t.Fatalf("regional cell scope = %q", cell)
 	}
 
-	if cell, ok := extractCellScope(mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo"))); !ok || cell != "sfo" {
+	if cell, ok := extractCellScope(mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") })); !ok || cell != "sfo" {
 		t.Fatalf("global per-cell scope = %q", cell)
 	}
 
@@ -288,7 +289,7 @@ func TestCellScopeExtractionCoversRegionalAndGlobalPerCellShapesOnly(t *testing.
 		NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
 		NatsSubjectTaxonomy.GlobalAcceptedReleasePrefix() + ".ledger",
 		NatsSubjectTaxonomy.SupersededRoot() + ".gru.desired.gitops",
-		mustT(t, NatsSubjectTaxonomy.GlobalCellSpecSubject("gru")) + ".extra",
+		mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") }) + ".extra",
 	} {
 		if cell, ok := extractCellScope(subject); ok {
 			t.Fatalf("subject %q must not carry a cell scope, got %q", subject, cell)
@@ -300,7 +301,7 @@ func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 	subjectNamesAnotherCell := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl,
-				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("sfo")), "sfo")
+				mustT(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("sfo") }), "sfo")
 		}),
 		messagingContext())
 	if subjectNamesAnotherCell.Error != MessagingEnvelopeErrorSubjectCellMismatch {
@@ -319,7 +320,7 @@ func TestSubjectSourceAndCommandMustAgreeOnTheCell(t *testing.T) {
 	targetNamesAnotherCell := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
 			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl,
-				mustT(t, NatsSubjectTaxonomy.CellSpecSubject("gru")), "sfo")
+				mustT(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }), "sfo")
 		}),
 		messagingContext())
 	if targetNamesAnotherCell.Error != MessagingEnvelopeErrorSubjectCellMismatch {

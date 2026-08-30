@@ -315,7 +315,7 @@ func TestAnUpgradeConvergesEveryDomainOntoTheNewQualifiedDigest(t *testing.T) {
 	if !equivalentSets(distinct(digests), []string{mcpUpgradedDigest}) {
 		t.Fatalf("unexpected digests %v", digests)
 	}
-	if !equivalentSets(changeKinds, []string{"Upgrade"}) {
+	if !equivalentSets(distinct(changeKinds), []string{"Upgrade"}) {
 		t.Fatalf("unexpected change kinds %v", changeKinds)
 	}
 	if len(plan.HealthyFailureDomains) != 0 {
@@ -354,7 +354,7 @@ func TestARollbackConvergesBackToThePreviousQualifiedDigest(t *testing.T) {
 	if !equivalentSets(distinct(digests), []string{mcpDeployedDigest}) {
 		t.Fatalf("unexpected digests %v", digests)
 	}
-	if !equivalentSets(changeKinds, []string{"Rollback"}) {
+	if !equivalentSets(distinct(changeKinds), []string{"Rollback"}) {
 		t.Fatalf("unexpected change kinds %v", changeKinds)
 	}
 }

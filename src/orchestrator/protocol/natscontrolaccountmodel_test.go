@@ -131,14 +131,16 @@ func controlSubjectCorpus(t *testing.T) []string {
 			"ts.orch.v2."+region+".audit.event.7",
 			"ts.orch.v2."+region+".observation.runtime.started.controller-1")
 
-		token := must(t, NatsSubjectTaxonomy.HostAgentSubjectToken("host/"+region+"/agent-07"))
+		token := must(t, func() (string, error) {
+			return NatsSubjectTaxonomy.HostAgentSubjectToken("host/" + region + "/agent-07")
+		})
 		corpus = append(corpus,
 			"ts.orch.v2."+region+".agent."+token+".command.start",
 			"ts.orch.v2."+region+".agent."+token+".observation.heartbeat",
 			"ts.orch.v2."+region+".agent."+token+".ack.42")
 	}
 
-	runnerToken := must(t, NatsSubjectTaxonomy.HostAgentSubjectToken("runner-7"))
+	runnerToken := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken("runner-7") })
 	return append(corpus,
 		"ts.orch.v2.global.desired.gitops.gru",
 		"ts.orch.v2.global.release.accepted.r7",
@@ -231,7 +233,7 @@ func TestRegionalScopesArePinnedToExactlyOneRegion(t *testing.T) {
 
 func TestHostAgentScopesUseTheFixedAgentHashNeverTheRawIdentity(t *testing.T) {
 	agent := mustScope(t, NatsControlAccountKindHostAgent, "gru", gruAgent)
-	token := must(t, NatsSubjectTaxonomy.HostAgentSubjectToken(gruAgent))
+	token := must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectToken(gruAgent) })
 
 	if agent.AgentHash != token || agent.RegionToken != "gru" {
 		t.Fatalf("agent scope pinning = %q / %q", agent.AgentHash, agent.RegionToken)
