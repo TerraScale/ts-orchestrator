@@ -329,10 +329,39 @@ func TestOCIRegistryAdapterBoundsRedirectsAndRedactsFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer reader.Close()
+				if name == "length" {
+					buffer := make([]byte, 3)
+					content := make([]byte, 0, len("expected"))
+					var readErr error
+					for readErr == nil {
+						n, err := reader.Read(buffer)
+						content = append(content, buffer[:n]...)
+						readErr = err
+					}
+					if string(content) != "expected" || len(content) != 8 {
+						t.Fatalf("length probe returned bytes outside declared content: %q", content)
+					}
+					var invalidData *InvalidDataError
+					if !errors.As(readErr, &invalidData) {
+						t.Fatalf("length probe error=%v", readErr)
+					}
+					n, err := reader.Read(buffer)
+					if n != 0 || !errors.Is(err, io.EOF) {
+						t.Fatalf("bounded reader after overrun returned n=%d err=%v", n, err)
+					}
+					return
+				}
 				if _, err := io.ReadAll(reader); err == nil {
-					t.Fatal("redirected blob stream accepted invalid content")
+					t.Fatal("redirected blob stream accepted invalid digest")
 				}
 			})
+		}
+	})
+
+	t.Run("exact 64 GiB bound", func(t *testing.T) {
+		size, err := registryBlobContentLength(testHTTPResponse(http.StatusOK, "", http.Header{"Content-Length": {"68719476736"}}))
+		if err != nil || size != 64<<30 {
+			t.Fatalf("exact registry blob size bound=%d err=%v", size, err)
 		}
 	})
 }

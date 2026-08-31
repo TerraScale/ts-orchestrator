@@ -584,13 +584,21 @@ func (r *digestVerifyingReadCloser) Read(buffer []byte) (int, error) {
 		}
 	}
 	n, err := r.source.Read(buffer)
+	if r.expectedSize >= 0 {
+		remaining := r.expectedSize - r.read
+		if int64(n) > remaining {
+			contentBytes := int(remaining)
+			if contentBytes > 0 {
+				r.read += int64(contentBytes)
+				_, _ = r.digest.Write(buffer[:contentBytes])
+			}
+			r.done = true
+			return contentBytes, &InvalidDataError{Message: "provider content length does not match"}
+		}
+	}
 	if n > 0 {
 		r.read += int64(n)
 		_, _ = r.digest.Write(buffer[:n])
-	}
-	if r.expectedSize >= 0 && r.read > r.expectedSize {
-		r.done = true
-		return n, &InvalidDataError{Message: "provider content length does not match"}
 	}
 	if err == io.EOF && !r.done {
 		r.done = true
