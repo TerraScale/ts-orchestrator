@@ -16,7 +16,7 @@ TerraScale needs Pulumi to establish durable cloud foundation without leaving Pu
 
 The specification already separates durable foundation from concrete regional resources. Pulumi creates and versions networking, IAM, root protection, image and launch templates, caps, bootstrap generations, initial seeds, initial dual-NATS stores, and the signed `BootstrapBundle`. After a deliberate handoff, the regional controller owns concrete nodes, workload backends, eligible attachments, and orchestrator-created volumes ([specification, lines 627-640](../../docs/architecture/orchestrator.md#L627-L640)). This is the boundary expressed by `REQ-O010` and `INV-014` ([requirement trace, lines 122 and 156](../../docs/architecture/orchestrator.md#L122-L156)).
 
-The historical estate is evidence only. Its Pulumi stack still contains OKE assumptions and concrete regional identifiers; `WRK-001` preserves the durable-foundation boundary while replacing OKE capacity, and `WRK-018` requires unknown resources to be quarantined rather than adopted or deleted (historical WRK-001 / WRK-018 in `docs/archive/docs-historical-full.tar.xz`).
+The historical estate is evidence only. Its Pulumi stack still contains OKE assumptions and concrete regional identifiers; `WRK-001` preserves the durable-foundation boundary while replacing OKE capacity, and `WRK-018` requires unknown resources to be quarantined rather than adopted or deleted. Git history retains those records.
 
 ## Proposed decision
 
@@ -75,7 +75,7 @@ Rejected. An undocumented order or manual runbook cannot prove agreement after a
 
 ## Unresolved inputs and evidence
 
-The readiness map labels this draft-ready but requires exact OCI IAM/tag schemas, a primary-source Pulumi retain/unmanage spike, and fresh-resource crash-recovery evidence; it also depends on ADRs 1, 20, and 24 ([readiness index, lines 47-57](readiness-index.yaml#L47-L57)). Acceptance remains blocked on:
+The former readiness map labels this draft-ready but requires exact OCI IAM/tag schemas, a primary-source Pulumi retain/unmanage spike, and fresh-resource crash-recovery evidence; it also depends on ADRs 1, 20, and 24. Acceptance remains blocked on:
 
 - the exact per-region compartment policy, dynamic-group/workload identity design, action and resource-type allowlists, and explicit deny/hold behavior;
 - the exact required/free-form tag namespace and immutable-versus-observed field rules;
@@ -83,10 +83,9 @@ The readiness map labels this draft-ready but requires exact OCI IAM/tag schemas
 - a complete resource-type handoff matrix, including which seed boot/NATS volumes transfer and which foundation resources never do;
 - owner questions that determine regional authority/topology, vault custody, elastic volume retention, and physical NATS isolation;
 - approved cost, storage performance, regional RPO/RTO, security, and survival-window targets;
-- repaired read-only OCI evidence. The current host preflight could not run an
-  OCI API request, and the archived API attempt failed authentication before
-  resource discovery. Neither record proves resource absence
-  ([OCI evidence manifest](../evidence/phase0/oci-residual-inventory.yaml)).
+- repaired read-only OCI evidence. The removed host preflight could not run an
+  OCI API request, and the older API attempt failed authentication before
+  resource discovery. Neither record proves resource absence.
 
 ## Required verification before acceptance
 
