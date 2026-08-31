@@ -10,9 +10,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 type JournalDisposition uint8
@@ -142,17 +145,47 @@ func (p NatsEventPublisher) Publish(ctx context.Context, e *WebhookEnvelope) err
 	}
 	subject := p.Subject
 	if subject == "" {
-		subject = "ts.orch.v2.global.release.ci.forgejo"
+		subject = protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject()
+	}
+	if subject != protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject() {
+		return errors.New("NATS publisher subject is outside the v2 Forgejo delivery contract")
 	}
 	stream := p.Stream
 	if stream == "" {
 		stream = "GLOBAL_CI"
 	}
-	body, err := json.Marshal(eventDocument{SchemaVersion: 1, DeliveryID: e.DeliveryID, Kind: e.Kind, Action: e.Action, Repository: e.Repository, SourceRepository: e.SourceRepository, BaseRevision: e.BaseRevision, Revision: e.Revision, SourceRef: e.SourceRef, TargetRef: e.TargetRef, PullRequestNumber: e.PullRequestNumber, IsDeletion: e.IsDeletion, PayloadSHA256: e.PayloadSHA256, DedupeKey: e.DedupeKey()})
+	payload := eventDocument{SchemaVersion: protocol.ProtocolVersion.Current(), DeliveryID: e.DeliveryID, Kind: e.Kind, Action: e.Action, Repository: e.Repository, SourceRepository: e.SourceRepository, BaseRevision: e.BaseRevision, Revision: e.Revision, SourceRef: e.SourceRef, TargetRef: e.TargetRef, PullRequestNumber: e.PullRequestNumber, IsDeletion: e.IsDeletion, PayloadSHA256: e.PayloadSHA256, DedupeKey: e.DedupeKey()}
+	messageId, ok := protocol.MessageIdentityTokenTryCreate(e.DeliveryID)
+	if !ok {
+		return errors.New("NATS publisher delivery identity is invalid")
+	}
+	correlationValue := hash(e.DedupeKey())
+	correlationId, ok := protocol.MessageIdentityTokenTryCreate(correlationValue)
+	if !ok {
+		return errors.New("NATS publisher correlation identity is invalid")
+	}
+	now := time.Now().UTC()
+	body, err := protocol.MarshalMessagingEnvelope(&protocol.MessagingEnvelope{
+		SchemaVersion: protocol.MessagingSchemaVersionCurrent,
+		MessageId:     messageId,
+		CorrelationId: &correlationId,
+		Source: protocol.MessagingSource{
+			Instance: "forgejo-webhook",
+			Session:  e.DeliveryID,
+			Cell:     "gru",
+			Cluster:  "orchestrator-control-global",
+		},
+		Target: protocol.MessagingTargetScope{
+			Namespace: protocol.NatsSubjectNamespaceContinuousIntegration,
+			Subject:   subject,
+		},
+		PayloadType: "forgejo-webhook",
+		ObservedAt:  now,
+	}, payload)
 	if err != nil {
 		return err
 	}
-	_, err = p.JS.PublishMsg(ctx, &nats.Msg{Subject: subject, Data: body, Header: nats.Header{"TS-Protocol-Version": []string{"1"}, "TS-Event-Id": []string{e.DedupeKey()}, "TS-Event-Kind": []string{kindString(e.Kind)}}}, jetstream.WithMsgID(e.DedupeKey()), jetstream.WithExpectStream(stream))
+	_, err = p.JS.PublishMsg(ctx, &nats.Msg{Subject: subject, Data: body}, jetstream.WithMsgID(e.DedupeKey()), jetstream.WithExpectStream(stream))
 	return err
 }
 
@@ -171,16 +204,6 @@ type eventDocument struct {
 	IsDeletion        bool        `json:"isDeletion"`
 	PayloadSHA256     string      `json:"payloadSha256"`
 	DedupeKey         string      `json:"dedupeKey"`
-}
-
-func kindString(k WebhookKind) string {
-	if k == WebhookPush {
-		return "Push"
-	}
-	if k == WebhookPullRequest {
-		return "PullRequest"
-	}
-	return "Unspecified"
 }
 
 type WebhookJournal struct {
@@ -212,7 +235,7 @@ func (j *WebhookJournal) Accept(ctx context.Context, e *WebhookEnvelope) (Journa
 	// webhook delivery under local concurrency.
 	j.acceptMu.Lock()
 	defer j.acceptMu.Unlock()
-	pending := journalDocument{SchemaVersion: 1, State: "pending", Envelope: *e, DeliveryKey: e.DeliveryKey(), DedupeKey: e.DedupeKey()}
+	pending := journalDocument{SchemaVersion: protocol.ProtocolVersion.Current(), State: "pending", Envelope: *e, DeliveryKey: e.DeliveryKey(), DedupeKey: e.DedupeKey()}
 	payload, err := j.ensure(ctx, "payload."+e.PayloadSHA256, pending)
 	if err != nil {
 		return JournalReceipt{}, err
@@ -353,7 +376,7 @@ func decodeJournal(b []byte) (journalDocument, error) {
 	if e := json.Unmarshal(b, &d); e != nil {
 		return d, fmt.Errorf("invalid webhook journal: %w", e)
 	}
-	if d.SchemaVersion != 1 || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.DeliveryKey != d.Envelope.DeliveryKey() || d.DedupeKey != d.Envelope.DedupeKey() {
+	if d.SchemaVersion != protocol.ProtocolVersion.Current() || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.DeliveryKey != d.Envelope.DeliveryKey() || d.DedupeKey != d.Envelope.DedupeKey() {
 		return d, errors.New("invalid webhook journal identity")
 	}
 	return d, nil

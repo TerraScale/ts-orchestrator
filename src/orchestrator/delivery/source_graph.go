@@ -1,9 +1,11 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"sort"
 )
 
@@ -113,19 +115,19 @@ func (g *RepositorySourceGraph) ReadArchive(ctx context.Context, rev ResolvedRev
 }
 func parseDescriptor(content []byte) (string, []string, error) {
 	var d struct {
-		SchemaVersion          int    `json:"schemaVersion"`
 		APIVersion             string `json:"apiVersion"`
 		Repository             string `json:"repository"`
 		RepositoryDependencies []struct {
 			Repository string `json:"repository"`
 		} `json:"repositoryDependencies"`
 	}
-	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) || json.Unmarshal(content, &d) != nil {
+	if len(content) == 0 || len(content) > MaximumSourceFileBytes || duplicateJSONProperties(content) {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
-	validVersion := (d.APIVersion == "" && d.SchemaVersion == 1) ||
-		(d.APIVersion == "terrascale.ci/v3" && d.SchemaVersion == 0)
-	if !validVersion || !ValidRepository(d.Repository) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&d) != nil || decoder.Decode(&struct{}{}) != io.EOF ||
+		d.APIVersion != "terrascale.ci/v3" || !ValidRepository(d.Repository) {
 		return "", nil, errors.New("invalid CI descriptor")
 	}
 	deps := make([]string, 0, len(d.RepositoryDependencies))

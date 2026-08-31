@@ -138,8 +138,9 @@ not permission to retain the old product architecture.
 
 Current facts:
 
-- `run` and `check` use the earlier NATS adapter and have not migrated to the
-  accepted `ts.orch.v2` global and regional domains;
+- `run` and `check` use the closed `ts.orch.v2` global and regional subjects;
+  signed commands, journal RPCs, query responses, startup observations, and
+  delivery events use their bounded v2 envelopes;
 - regional and global control journals, discovery, delivery, and native GitOps
   currently use typed NATS resources;
 - some typed policies and tests still model an R3 control journal and the old
@@ -159,7 +160,7 @@ Migration work must preserve durable control history and fail closed while it:
 3. changes TerraBase production placement to RF=2 per selected Region;
 4. removes UDS and HTTP engine paths in favor of QUIC TBEP with mutual TLS;
 5. removes the standalone Authentication, Payments, Platform, and MCP roles;
-6. migrates v1 NATS resources to the mandatory `ts.orch.v2` global and regional
+6. keeps NATS resources inside the mandatory `ts.orch.v2` global and regional
    control domains without putting NATS in TerraBase correctness; and
 7. preserves the completed removal of the production `Development/` namespace
    and proves that `dev` runtime modes, local product composition, development

@@ -37,7 +37,7 @@ func (s *pipelineSource) ReadFile(context.Context, string, string, int) (SourceF
 	s.mu.Lock()
 	s.files++
 	s.mu.Unlock()
-	content := []byte(`{"schemaVersion":1,"repository":"` + s.repository + `"}`)
+	content := []byte(`{"apiVersion":"terrascale.ci/v3","repository":"` + s.repository + `"}`)
 	return SourceFile{Repository: s.repository, Commit: s.commit, Path: CIDescriptorPath, Blob: strings.Repeat("b", 40), ContentSHA256: contentDigest(content), Content: content}, nil
 }
 func (s *pipelineSource) ReadArchive(context.Context, ResolvedRevision) (SourceArchive, error) {
