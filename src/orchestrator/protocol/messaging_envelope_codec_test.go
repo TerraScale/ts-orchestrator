@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,6 +16,10 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
 	messageId, _ := MessageIdentityTokenTryCreate("message-1")
 	correlationId, _ := MessageIdentityTokenTryCreate("correlation-1")
 	cell := "gru"
+	trace := &MessagingTraceContext{
+		TraceId: "0123456789abcdef0123456789abcdef",
+		SpanId:  "0123456789abcdef",
+	}
 	envelope := &MessagingEnvelope{
 		SchemaVersion: MessagingSchemaVersionCurrent,
 		MessageId:     messageId,
@@ -30,8 +35,9 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
 			Subject:   subject,
 			Cell:      &cell,
 		},
-		PayloadType: "runtime-startup-proof",
-		ObservedAt:  time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC),
+		PayloadType:  "runtime-startup-proof",
+		TraceContext: trace,
+		ObservedAt:   time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC),
 	}
 	payload := struct {
 		Nonce string `json:"nonce"`
@@ -52,7 +58,8 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
 		t.Fatal(err)
 	}
 	if decoded.SchemaVersion != MessagingSchemaVersionCurrent || decoded.Target.Subject != subject ||
-		decoded.MessageId != messageId || decoded.CorrelationId == nil || *decoded.CorrelationId != correlationId {
+		decoded.MessageId != messageId || decoded.CorrelationId == nil || *decoded.CorrelationId != correlationId ||
+		decoded.TraceContext == nil || *decoded.TraceContext != *trace {
 		t.Fatalf("decoded envelope = %#v", decoded)
 	}
 	var decodedPayload struct {
@@ -60,6 +67,34 @@ func TestMessagingEnvelopeCodecRoundTripsTheBoundV2Document(t *testing.T) {
 	}
 	if err := json.Unmarshal(rawPayload, &decodedPayload); err != nil || decodedPayload != payload {
 		t.Fatalf("decoded payload = %#v, err = %v", decodedPayload, err)
+	}
+}
+
+func TestMessagingEnvelopeCodecRejectsPayloadBeyondTheNestingBound(t *testing.T) {
+	subject := NatsSubjectTaxonomy.GlobalDirectoryQuerySubject()
+	messageId, _ := MessageIdentityTokenTryCreate("message-deep")
+	deepPayload := json.RawMessage(
+		strings.Repeat("[", messagingEnvelopeMaximumNestingDepth) + "0" +
+			strings.Repeat("]", messagingEnvelopeMaximumNestingDepth))
+
+	_, err := MarshalMessagingEnvelope(&MessagingEnvelope{
+		SchemaVersion: MessagingSchemaVersionCurrent,
+		MessageId:     messageId,
+		Source: MessagingSource{
+			Instance: "directory-service",
+			Session:  "session-deep",
+			Cell:     "gru",
+			Cluster:  "orchestrator-control-global",
+		},
+		Target: MessagingTargetScope{
+			Namespace: NatsSubjectNamespaceGlobalDirectory,
+			Subject:   subject,
+		},
+		PayloadType: "global-cell-directory-snapshot",
+		ObservedAt:  time.Now().UTC(),
+	}, deepPayload)
+	if err == nil {
+		t.Fatal("payload beyond the messaging envelope nesting bound was accepted")
 	}
 }
 

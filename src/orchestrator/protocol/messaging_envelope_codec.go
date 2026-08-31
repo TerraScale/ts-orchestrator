@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const MessagingEnvelopeMaximumBytes = 1 << 20
+const (
+	MessagingEnvelopeMaximumBytes        = 1 << 20
+	messagingEnvelopeMaximumNestingDepth = 64
+)
 
 type messagingSchemaVersionDocument struct {
 	Major int `json:"major"`
@@ -28,6 +31,11 @@ type messagingTargetDocument struct {
 	Cell      *string              `json:"cell,omitempty"`
 }
 
+type messagingTraceContextDocument struct {
+	TraceId string `json:"traceId"`
+	SpanId  string `json:"spanId"`
+}
+
 type messagingEnvelopeDocument struct {
 	ProtocolRoot  string                         `json:"protocolRoot"`
 	SchemaVersion messagingSchemaVersionDocument `json:"schemaVersion"`
@@ -37,6 +45,7 @@ type messagingEnvelopeDocument struct {
 	Source        messagingSourceDocument        `json:"source"`
 	Target        messagingTargetDocument        `json:"target"`
 	PayloadType   string                         `json:"payloadType"`
+	TraceContext  *messagingTraceContextDocument `json:"traceContext,omitempty"`
 	ObservedAt    time.Time                      `json:"observedAt"`
 	Payload       json.RawMessage                `json:"payload"`
 }
@@ -87,9 +96,16 @@ func MarshalMessagingEnvelope(envelope *MessagingEnvelope, payload any) ([]byte,
 	if envelope.CausationId != nil {
 		document.CausationId = &envelope.CausationId.Value
 	}
+	if envelope.TraceContext != nil {
+		document.TraceContext = &messagingTraceContextDocument{
+			TraceId: envelope.TraceContext.TraceId,
+			SpanId:  envelope.TraceContext.SpanId,
+		}
+	}
 
 	encoded, err := json.Marshal(document)
-	if err != nil || len(encoded) > MessagingEnvelopeMaximumBytes {
+	if err != nil || len(encoded) > MessagingEnvelopeMaximumBytes ||
+		messagingEnvelopeJSONViolatesWireBounds(encoded) {
 		return nil, errors.New("messaging envelope exceeds its wire bound")
 	}
 	return encoded, nil
@@ -99,7 +115,7 @@ func MarshalMessagingEnvelope(envelope *MessagingEnvelope, payload any) ([]byte,
 // newer or older majors, subject substitution, and unapproved payload types.
 func UnmarshalMessagingEnvelope(document []byte, subject string, permittedPayloadTypes map[string]struct{}) (*MessagingEnvelope, json.RawMessage, error) {
 	if len(document) == 0 || len(document) > MessagingEnvelopeMaximumBytes || len(permittedPayloadTypes) == 0 ||
-		messagingEnvelopeHasDuplicateJSONProperties(document) {
+		messagingEnvelopeJSONViolatesWireBounds(document) {
 		return nil, nil, errors.New("messaging envelope document is invalid")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(document))
@@ -156,6 +172,12 @@ func UnmarshalMessagingEnvelope(document []byte, subject string, permittedPayloa
 		PayloadType: decoded.PayloadType,
 		ObservedAt:  decoded.ObservedAt,
 	}
+	if decoded.TraceContext != nil {
+		envelope.TraceContext = &MessagingTraceContext{
+			TraceId: decoded.TraceContext.TraceId,
+			SpanId:  decoded.TraceContext.SpanId,
+		}
+	}
 	context := NewMessagingValidationContext(
 		map[int]struct{}{MessagingSchemaVersionCurrent.Major: {}}, permittedPayloadTypes, nil)
 	if envelope.SchemaVersion != MessagingSchemaVersionCurrent ||
@@ -173,20 +195,24 @@ func ensureMessagingEnvelopeEOF(decoder *json.Decoder) error {
 	return errors.New("trailing messaging envelope content")
 }
 
-func messagingEnvelopeHasDuplicateJSONProperties(document []byte) bool {
+func messagingEnvelopeJSONViolatesWireBounds(document []byte) bool {
 	decoder := json.NewDecoder(bytes.NewReader(document))
 	token, err := decoder.Token()
-	if err != nil || messagingEnvelopeJSONValueHasDuplicates(decoder, token) {
+	if err != nil || messagingEnvelopeJSONValueViolatesWireBounds(decoder, token, 0) {
 		return true
 	}
 	_, err = decoder.Token()
 	return err == nil
 }
 
-func messagingEnvelopeJSONValueHasDuplicates(decoder *json.Decoder, token json.Token) bool {
+func messagingEnvelopeJSONValueViolatesWireBounds(decoder *json.Decoder, token json.Token, depth int) bool {
 	delimiter, ok := token.(json.Delim)
 	if !ok {
 		return false
+	}
+	depth++
+	if depth > messagingEnvelopeMaximumNestingDepth {
+		return true
 	}
 	if delimiter == '[' {
 		for {
@@ -197,7 +223,7 @@ func messagingEnvelopeJSONValueHasDuplicates(decoder *json.Decoder, token json.T
 			if value == json.Delim(']') {
 				return false
 			}
-			if messagingEnvelopeJSONValueHasDuplicates(decoder, value) {
+			if messagingEnvelopeJSONValueViolatesWireBounds(decoder, value, depth) {
 				return true
 			}
 		}
@@ -223,7 +249,7 @@ func messagingEnvelopeJSONValueHasDuplicates(decoder *json.Decoder, token json.T
 		}
 		seen[name] = struct{}{}
 		value, err := decoder.Token()
-		if err != nil || messagingEnvelopeJSONValueHasDuplicates(decoder, value) {
+		if err != nil || messagingEnvelopeJSONValueViolatesWireBounds(decoder, value, depth) {
 			return true
 		}
 	}
