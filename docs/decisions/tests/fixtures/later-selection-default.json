@@ -1,1 +1,0 @@
-{"name":"accidental later selection default","operation":"set","path":["laterImplementationSelections",0,"selection"],"value":"cosign","expected":"selection artifact-and-evidence-signing: checked-in selection must remain null"}

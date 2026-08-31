@@ -18,7 +18,6 @@ machine-validated evidence; its development-topology sections were removed on
 | [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Short current architecture summary |
 | [`runbooks/direct-delivery.md`](runbooks/direct-delivery.md) | Current direct-delivery failure procedures |
 | [`adr/`](adr/) | Architecture records with explicit current or superseded status |
-| [`archive/`](archive/) | Compressed full-fidelity historical material |
 
 ## Current implementation records
 
@@ -33,39 +32,7 @@ are not the target product architecture:
 | [`guides/public-alpha-release.md`](guides/public-alpha-release.md) | Historical public-alpha decision coverage |
 | [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | Historical cross-repository issue map |
 | [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Historical work-package index |
-| [`decisions/`](decisions/) | Machine-validated 2026-07 owner decision packet, superseded where it conflicts with the current goal |
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Frozen v1 adapter contract, superseded for the v2 target and never a database dependency |
 
 Do not rewrite evidence to make it appear current. Add a correction or
 supersession notice and preserve what the old run actually proved.
-
-## Machine-validated artifacts
-
-Repository tooling consumes these files:
-
-```text
-docs/adr/readiness-index.yaml
-docs/decisions/owner-decision-packet.json
-```
-
-They record the earlier architecture and must not be used as current product
-authority. Their validators still protect the integrity of that historical
-record.
-
-```bash
-go run ./tools/orchestrator-tooling adr-readiness
-go run ./tools/orchestrator-tooling owner-decisions
-go run ./tools/orchestrator-tooling test
-```
-
-## Archives
-
-The compressed archive preserves older audits, handoffs, fixtures, pins, and
-work packages.
-
-```bash
-tar -tJf docs/archive/docs-historical-full.tar.xz | head
-tar -xJf docs/archive/docs-historical-full.tar.xz -C /tmp/orch-docs-historical
-```
-
-Archive content is evidence, not active instruction.
