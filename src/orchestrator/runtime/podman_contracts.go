@@ -61,6 +61,14 @@ const (
 	podmanMinimumPidsLimit            = 16
 )
 
+const (
+	// PodmanSeccompProfileName is the canonical plan value implemented by the
+	// profile shipped with ts-node artifacts.
+	PodmanSeccompProfileName = "terrascale-default-v1"
+	// PodmanSeccompProfileSHA256 binds that name to the exact shipped profile.
+	PodmanSeccompProfileSHA256 = "52f89c2c6abbd08f091c1ec332b29f4d0ab28cf580e9d229bc516741f07025a1"
+)
+
 // podmanLabelKeyPattern accepts dot-separated bounded canonical tokens, the
 // shape of the terrascale.* fencing labels.
 var podmanLabelKeyPattern = regexp.MustCompile(
@@ -89,6 +97,24 @@ const PodmanLabelFingerprint = "terrascale.fingerprint"
 func requirePodmanToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > 63 || !runtimeAllocationTokenPattern.MatchString(value) {
 		return "", &ArgumentError{Param: param, Message: message}
+	}
+	return value, nil
+}
+
+// requirePodmanContainerReference accepts a canonical container name or the
+// immutable full ID returned by Podman inspect. Fenced adapters inspect by
+// name, then mutate only by immutable ID.
+func requirePodmanContainerReference(value, param string) (string, error) {
+	if len(value) == 64 && isLowercaseHexDigest(value) {
+		return value, nil
+	}
+	return requirePodmanToken(value, param,
+		"Container reference must be a lowercase DNS-style name or immutable 64-hex ID.")
+}
+
+func requirePodmanRuntimeId(value string) (string, error) {
+	if len(value) != 64 || !isLowercaseHexDigest(value) {
+		return "", &InvalidDataError{Message: "Podman inspect did not return an immutable 64-hex container ID."}
 	}
 	return value, nil
 }
@@ -204,6 +230,10 @@ func requirePodmanCgroupParent(value, param string) (string, error) {
 
 // PodmanAllocationObservation is one fenced rootless-podman observation.
 type PodmanAllocationObservation struct {
+	// RuntimeId is Podman's immutable 64-hex container ID. Mutation paths use
+	// this ID after checking the canonical name and labels, so name reuse cannot
+	// redirect a fenced operation to a replacement container.
+	RuntimeId      string
 	State          PodmanAllocationState
 	ImageReference string
 	Platform       string
@@ -217,6 +247,7 @@ type PodmanAllocationObservation struct {
 // an Absent allocation carries no image, platform, or labels.
 func NewPodmanAllocationObservation(
 	state PodmanAllocationState,
+	runtimeId string,
 	imageReference string,
 	labels map[string]string,
 	running bool,
@@ -239,13 +270,19 @@ func NewPodmanAllocationObservation(
 		}
 	}
 	if state == PodmanAllocationStateAbsent {
-		if imageReference != "" || observedPlatform != "" || len(labels) > 0 {
+		if runtimeId != "" || imageReference != "" || observedPlatform != "" || len(labels) > 0 {
 			return PodmanAllocationObservation{}, &ArgumentError{
 				Param:   "state",
-				Message: "An absent allocation carries no image reference and no labels.",
+				Message: "An absent allocation carries no runtime ID, image reference, platform, or labels.",
 			}
 		}
 		return PodmanAllocationObservation{State: state}, nil
+	}
+	if len(runtimeId) != 64 || !isLowercaseHexDigest(runtimeId) {
+		return PodmanAllocationObservation{}, &ArgumentError{
+			Param:   "runtimeId",
+			Message: "A non-absent Podman allocation requires its immutable 64-hex runtime ID.",
+		}
 	}
 	validatedImage, err := requirePodmanImageReference(imageReference, "imageReference")
 	if err != nil {
@@ -261,6 +298,7 @@ func NewPodmanAllocationObservation(
 		return PodmanAllocationObservation{}, err
 	}
 	return PodmanAllocationObservation{
+		RuntimeId:      runtimeId,
 		State:          state,
 		ImageReference: validatedImage,
 		Platform:       observedPlatform,

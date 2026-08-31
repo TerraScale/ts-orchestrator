@@ -23,12 +23,14 @@ RUN go test ./...
 RUN go test -race ./...
 
 FROM build AS artifact
-RUN mkdir -p /candidate/linux-x64 /candidate/linux-arm64
+RUN mkdir -p /candidate/linux-x64/seccomp /candidate/linux-arm64/seccomp
 RUN cp /out/linux-x64/terrascale-orchestrator /candidate/linux-x64/terrascale-orchestrator
 RUN cp /out/linux-x64/ts-node /candidate/linux-x64/ts-node
+RUN cp /source/.terrascale/seccomp/terrascale-default-v1.json /candidate/linux-x64/seccomp/terrascale-default-v1.json
 RUN cp /out/linux-x64/orchestrator-tooling /candidate/linux-x64/orchestrator-tooling
 RUN cp /out/linux-arm64/terrascale-orchestrator /candidate/linux-arm64/terrascale-orchestrator
 RUN cp /out/linux-arm64/ts-node /candidate/linux-arm64/ts-node
+RUN cp /source/.terrascale/seccomp/terrascale-default-v1.json /candidate/linux-arm64/seccomp/terrascale-default-v1.json
 RUN cp /out/linux-arm64/orchestrator-tooling /candidate/linux-arm64/orchestrator-tooling
 
 FROM scratch AS ci-static

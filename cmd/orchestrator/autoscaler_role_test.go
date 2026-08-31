@@ -72,6 +72,25 @@ func TestAutoscalerRoleConfigurationRequiresAuthenticatedTLSNATS(t *testing.T) {
 	}
 }
 
+func TestAutoscalerProviderIsExplicitlyLocalDevOnly(t *testing.T) {
+	for _, value := range []string{"", "oci", "local"} {
+		lookup := func(name string) (string, bool) {
+			if name != autoscalerProviderEnvironment || value == "" {
+				return "", false
+			}
+			return value, true
+		}
+		if err := autoscalerRequireLocalDevProvider(lookup); err == nil {
+			t.Fatalf("provider %q was accepted", value)
+		}
+	}
+	if err := autoscalerRequireLocalDevProvider(func(name string) (string, bool) {
+		return "local-dev", name == autoscalerProviderEnvironment
+	}); err != nil {
+		t.Fatalf("local-dev provider: %v", err)
+	}
+}
+
 func TestAutoscalerNodeAgentArgumentsUseTheDistinctNodeIdentity(t *testing.T) {
 	settings := autoscalerRoleSettings{
 		NatsNKeyFile:     "/run/autoscaler/control.seed",

@@ -153,8 +153,12 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			runtimeId := hostRuntimePlanDigest
+			if test.state == PodmanAllocationStateAbsent {
+				runtimeId = ""
+			}
 			observation, err := NewPodmanAllocationObservation(
-				test.state, test.imageReference, test.labels, test.running)
+				test.state, runtimeId, test.imageReference, test.labels, test.running)
 			if test.wantErrorType != "" {
 				if err == nil {
 					t.Fatalf("expected %s, got a valid observation", test.wantErrorType)

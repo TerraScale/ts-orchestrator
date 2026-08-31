@@ -190,6 +190,7 @@ func runningPodmanObservation(t *testing.T) runtime.PodmanAllocationObservation 
 	t.Helper()
 	observation, err := runtime.NewPodmanAllocationObservation(
 		runtime.PodmanAllocationStateRunning,
+		executorTestDigest,
 		"registry.terrascale.internal/terrascale/x@sha256:"+executorTestDigest,
 		map[string]string{runtime.PodmanLabelAllocation: "terrascale-unit"},
 		true)
@@ -508,6 +509,7 @@ func mustStoppedPodmanObservation(t *testing.T) runtime.PodmanAllocationObservat
 	t.Helper()
 	observation, err := runtime.NewPodmanAllocationObservation(
 		runtime.PodmanAllocationStateStopped,
+		executorTestDigest,
 		"registry.terrascale.internal/terrascale/x@sha256:"+executorTestDigest,
 		map[string]string{runtime.PodmanLabelAllocation: "terrascale-unit"},
 		false)

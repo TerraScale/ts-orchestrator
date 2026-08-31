@@ -18,6 +18,23 @@ type fakeProcessSpawner struct {
 	terminateErr error
 }
 
+type blockingRetireSpawner struct {
+	started    chan struct{}
+	release    chan struct{}
+	spawnCalls int
+}
+
+func (s *blockingRetireSpawner) Spawn(context.Context, NodeProcessSpec) (int, error) {
+	s.spawnCalls++
+	return 4242, nil
+}
+
+func (s *blockingRetireSpawner) Terminate(context.Context, int) error {
+	close(s.started)
+	<-s.release
+	return errors.New("termination stayed retryable")
+}
+
 func (s *fakeProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec) (int, error) {
 	s.spawned = append(s.spawned, spec)
 	if s.spawnErr != nil {
@@ -504,6 +521,34 @@ func TestLocalProcessNodeProvisionerRetireIsFailClosedAndRetryable(t *testing.T)
 	}
 	if len(spawner.terminated) != 3 || spawner.terminated[1] != 5151 || spawner.terminated[2] != 5151 {
 		t.Fatalf("terminations = %v", spawner.terminated)
+	}
+}
+
+func TestLocalProcessNodeProvisionerSerializesRetireAgainstReprovision(t *testing.T) {
+	spawner := &blockingRetireSpawner{started: make(chan struct{}), release: make(chan struct{})}
+	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	request := validProvisionRequest(t)
+	if err := provisioner.Provision(context.Background(), request); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	retired := make(chan error, 1)
+	go func() { retired <- provisioner.Retire(context.Background(), request.NodeId) }()
+	<-spawner.started
+	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
+		t.Fatalf("reprovision entered while the previous child was retiring: %v", err)
+	}
+	if spawner.spawnCalls != 1 {
+		t.Fatalf("retire race spawned %d children", spawner.spawnCalls)
+	}
+	close(spawner.release)
+	if err := <-retired; err == nil {
+		t.Fatal("the configured termination failure did not surface")
+	}
+	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
+		t.Fatalf("failed retirement lost ownership of the old child: %v", err)
 	}
 }
 

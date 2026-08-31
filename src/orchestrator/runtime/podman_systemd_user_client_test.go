@@ -33,7 +33,7 @@ func newPodmanSystemdUserTestClient(
 func podmanSupervisorShow(t *testing.T, activeState string) HostCommandResult {
 	t.Helper()
 	description, err := podmanSupervisorDescription(
-		podmanMatchingLabels(t, podmanTestOciPlan(t)))
+		podmanMatchingLabels(t, podmanTestOciPlan(t)), hostRuntimePlanDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestSystemdUserPodmanStartCreatesTheFencedTransientUnit(t *testing.T) {
 	if command.Executable != podmanTestSystemdRunBinary {
 		t.Fatalf("start executable = %q", command.Executable)
 	}
-	description, err := podmanSupervisorDescription(podmanMatchingLabels(t, plan))
+	description, err := podmanSupervisorDescription(podmanMatchingLabels(t, plan), hostRuntimePlanDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,12 +115,12 @@ func TestSystemdUserPodmanStartCreatesTheFencedTransientUnit(t *testing.T) {
 		"Restart=always",
 		"Delegate=yes",
 		"NoNewPrivileges=yes",
-		"ExecStop=/usr/bin/podman stop --time 30 " + plan.Oci.ContainerId,
+		"ExecStop=/usr/bin/podman stop --time 30 " + hostRuntimePlanDigest,
 		"--setenv=XDG_RUNTIME_DIR=/run/user/1042",
 		plan.Oci.ContainerId + ".service",
 		podmanTestRootlessContext().PodmanBinaryPath,
 		"--attach",
-		plan.Oci.ContainerId,
+		hostRuntimePlanDigest,
 	} {
 		if !runnerArgumentsContain(runner, 1, expected) {
 			t.Fatalf("systemd-run omitted %q: %v", expected, command.Arguments)
@@ -135,6 +135,7 @@ func TestSystemdUserPodmanStartRestartsAnOwnedFailedUnit(t *testing.T) {
 	runner := newRecordingHostRunner(
 		podmanSupervisorShow(t, "failed"),
 		HostCommandResult{ExitCode: 0},
+		podmanSupervisorAbsent(),
 		HostCommandResult{ExitCode: 0},
 	)
 	client := newPodmanSystemdUserTestClient(t, podman, runner)
@@ -142,11 +143,13 @@ func TestSystemdUserPodmanStartRestartsAnOwnedFailedUnit(t *testing.T) {
 	if err := client.Start(context.Background(), plan.Oci.ContainerId); err != nil {
 		t.Fatalf("restart: %v", err)
 	}
-	if len(runner.commands) != 3 ||
+	if len(runner.commands) != 4 ||
 		!stringSlicesEqual(runner.commands[1].Arguments,
 			[]string{"--user", "reset-failed", plan.Oci.ContainerId + ".service"}) ||
 		!stringSlicesEqual(runner.commands[2].Arguments,
-			[]string{"--user", "start", plan.Oci.ContainerId + ".service"}) {
+			[]string{"--user", "show", plan.Oci.ContainerId + ".service",
+				"--property=LoadState", "--property=ActiveState", "--property=Description"}) ||
+		runner.commands[3].Executable != podmanTestSystemdRunBinary {
 		t.Fatalf("restart commands = %+v", runner.commands)
 	}
 }
@@ -187,6 +190,18 @@ func TestSystemdUserPodmanInspectRequiresTheMatchingLiveSupervisor(t *testing.T)
 			t.Fatalf("foreign supervisor was accepted: %v", err)
 		}
 	})
+
+	t.Run("immutable container replacement", func(t *testing.T) {
+		replacement := running
+		replacement.RuntimeId = strings.Repeat("b", 64)
+		client := newPodmanSystemdUserTestClient(t,
+			&recordingPodmanClient{observation: replacement},
+			newRecordingHostRunner(podmanSupervisorShow(t, "active")))
+		_, err := client.Inspect(context.Background(), plan.Oci.ContainerId)
+		if err == nil || !strings.Contains(err.Error(), "not owned by its fencing labels") {
+			t.Fatalf("replacement container was accepted by the old unit: %v", err)
+		}
+	})
 }
 
 func TestSystemdUserPodmanStopUsesTheUserUnitExecStop(t *testing.T) {
@@ -221,6 +236,9 @@ func TestSystemdUserPodmanDeleteRemovesAStoppedUnloadedContainer(t *testing.T) {
 	}
 	if !stringSlicesEqual(podman.operations, []string{"inspect", "delete"}) {
 		t.Fatalf("podman operations = %v", podman.operations)
+	}
+	if !stringSlicesEqual(podman.deletedIds, []string{hostRuntimePlanDigest}) {
+		t.Fatalf("delete used a mutable name instead of the immutable ID: %v", podman.deletedIds)
 	}
 }
 

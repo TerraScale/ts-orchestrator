@@ -81,15 +81,18 @@ type tsNodeConfiguration struct {
 }
 
 // parseTsNodeArguments validates the explicit flag vector of the node agent
-// and applies the documented defaults. The current uid and the default logical
-// CPU count are injected so parsing stays deterministic and testable; the
-// run uid must equal the current uid, because the rootless podman context
-// must describe the account this process actually runs as.
+// and applies the documented defaults. The real uid, effective uid, and
+// default logical CPU count are injected so parsing stays deterministic and
+// testable. Both process identities must name the same non-root account.
 func parseTsNodeArguments(
 	args []string,
-	currentUid uint32,
+	realUid uint32,
+	effectiveUid uint32,
 	defaultLogicalCpuCount int,
 ) (tsNodeConfiguration, error) {
+	if err := validateTsNodeProcessIdentity(realUid, effectiveUid); err != nil {
+		return tsNodeConfiguration{}, err
+	}
 	flags := map[string]string{}
 	for index := 0; index < len(args); index++ {
 		name := args[index]
@@ -171,7 +174,7 @@ func parseTsNodeArguments(
 			"ts-node: --nats-url must use nats:// for local use or tls:// for production")
 	}
 
-	runAsUid := currentUid
+	runAsUid := effectiveUid
 	if value, present := flags["--run-as-uid"]; present {
 		parsed, err := strconv.ParseUint(value, 10, 32)
 		if err != nil {
@@ -181,12 +184,11 @@ func parseTsNodeArguments(
 		runAsUid = uint32(parsed)
 	}
 	if runAsUid == 0 {
-		return tsNodeConfiguration{}, errors.New(
-			"ts-node must never run as uid 0: rootless hosting is the point of this node agent")
+		return tsNodeConfiguration{}, errors.New("ts-node must never run as uid 0")
 	}
-	if runAsUid != currentUid {
+	if runAsUid != effectiveUid {
 		return tsNodeConfiguration{}, fmt.Errorf(
-			"ts-node: --run-as-uid %d must equal the current account uid %d", runAsUid, currentUid)
+			"ts-node: --run-as-uid %d must equal the effective account uid %d", runAsUid, effectiveUid)
 	}
 
 	podmanBinary := tsNodeDefaultPodmanBinary
@@ -282,6 +284,16 @@ func parseTsNodeArguments(
 		TasksMax:             tasksMax,
 		LogicalCpuCount:      logicalCpuCount,
 	}, nil
+}
+
+func validateTsNodeProcessIdentity(realUid uint32, effectiveUid uint32) error {
+	if realUid == 0 || effectiveUid == 0 {
+		return errors.New("ts-node must never run with a real or effective uid of 0")
+	}
+	if realUid != effectiveUid {
+		return fmt.Errorf("ts-node: real uid %d does not match effective uid %d", realUid, effectiveUid)
+	}
+	return nil
 }
 
 // tsNodePendingRelay forwards the heartbeat pending-allocation count to the
@@ -469,7 +481,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	configuration, err := parseTsNodeArguments(os.Args[1:], uint32(os.Getuid()), stdruntime.NumCPU())
+	configuration, err := parseTsNodeArguments(
+		os.Args[1:], uint32(os.Getuid()), uint32(os.Geteuid()), stdruntime.NumCPU())
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

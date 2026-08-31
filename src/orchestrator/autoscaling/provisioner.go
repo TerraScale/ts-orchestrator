@@ -310,6 +310,7 @@ type LocalProcessNodeProvisioner struct {
 	spawner  ProcessSpawner
 	mutex    sync.Mutex
 	children map[string]int
+	retiring map[string]struct{}
 }
 
 // NewLocalProcessNodeProvisioner composes the provisioner from its explicit
@@ -333,6 +334,7 @@ func NewLocalProcessNodeProvisioner(
 		config:   validated,
 		spawner:  spawner,
 		children: make(map[string]int),
+		retiring: make(map[string]struct{}),
 	}, nil
 }
 
@@ -422,22 +424,28 @@ func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string)
 		p.mutex.Unlock()
 		return err
 	}
-	delete(p.children, validated)
+	if _, busy := p.retiring[validated]; busy {
+		p.mutex.Unlock()
+		return &InvalidOperationError{Message: fmt.Sprintf(
+			"Node %s is already retiring locally.", validated)}
+	}
+	p.retiring[validated] = struct{}{}
 	p.mutex.Unlock()
-	if err := p.spawner.Terminate(ctx, pid); err != nil {
+	err = p.spawner.Terminate(ctx, pid)
+	p.mutex.Lock()
+	delete(p.retiring, validated)
+	if err != nil {
 		var escalated *processTerminationEscalatedError
 		if errors.As(err, &escalated) {
-			// The spawner already killed and reaped the child. Preserve the
-			// diagnostic, but do not resurrect a pid that cannot be retried.
+			delete(p.children, validated)
+			p.mutex.Unlock()
 			return err
 		}
-		// Keep the recorded pid so a failed termination stays visible and
-		// retryable instead of silently orphaning the child.
-		p.mutex.Lock()
-		p.children[validated] = pid
 		p.mutex.Unlock()
 		return err
 	}
+	delete(p.children, validated)
+	p.mutex.Unlock()
 	return nil
 }
 

@@ -54,6 +54,7 @@ const (
 	autoscalerAgentBinaryEnvironment       = "TS_ORCH_AUTOSCALER_AGENT_BINARY"
 	autoscalerRunAsUidEnvironment          = "TS_ORCH_AUTOSCALER_RUN_AS_UID"
 	autoscalerDrainLagEnvironment          = "TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES"
+	autoscalerProviderEnvironment          = "TS_ORCH_AUTOSCALER_PROVIDER"
 	autoscalerNodeNkeyEnvironment          = "TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE"
 	autoscalerNodeTlsCaEnvironment         = "TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE"
 	autoscalerNodeTlsCertEnvironment       = "TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE"
@@ -685,6 +686,7 @@ func writeCatalog(output io.Writer) error {
 		autoscalerScaleUpTicksEnvironment, autoscalerScaleDownTicksEnvironment,
 		autoscalerConcurrencyEnvironment, autoscalerFlapTicksEnvironment,
 		autoscalerAgentBinaryEnvironment, autoscalerRunAsUidEnvironment, autoscalerDrainLagEnvironment,
+		autoscalerProviderEnvironment,
 		autoscalerNodeNkeyEnvironment, autoscalerNodeTlsCaEnvironment,
 		autoscalerNodeTlsCertEnvironment, autoscalerNodeTlsKeyEnvironment,
 	}
@@ -809,6 +811,9 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 	if sameNkey || tlsFiles.SameIdentity(nodeTlsFiles) {
 		return autoscalerRoleSettings{}, errors.New("autoscaler: node agents require NATS identities distinct from the autoscaler")
 	}
+	if err := autoscalerRequireLocalDevProvider(lookup); err != nil {
+		return autoscalerRoleSettings{}, err
+	}
 	tickInterval := autoscalerDefaultTickInterval
 	if value, present := lookup(autoscalerTickIntervalEnvironment); present {
 		parsed, parseErr := time.ParseDuration(value)
@@ -894,6 +899,18 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 		RunAsUid:         uint32(runAsUidParsed),
 		DrainMaxLagBytes: drainLag,
 	}, nil
+}
+
+func autoscalerRequireLocalDevProvider(lookup envLookup) error {
+	provider, err := autoscalerRequiredEnvironment(lookup, autoscalerProviderEnvironment)
+	if err != nil {
+		return err
+	}
+	if provider != "local-dev" {
+		return fmt.Errorf("autoscaler: %s must be local-dev; no persistent provider is wired in this stage",
+			autoscalerProviderEnvironment)
+	}
+	return nil
 }
 
 // autoscalerNodeEntry is the autoscaler's tracked view of one node: its

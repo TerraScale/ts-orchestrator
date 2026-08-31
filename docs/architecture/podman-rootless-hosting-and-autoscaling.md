@@ -73,9 +73,11 @@ rootlessly.
    the container with `podman create`. The production
    `SystemdUserPodmanClient` starts it with `podman start --attach` inside a
    transient systemd user unit whose description carries those same fencing
-   labels. Its fixed `ExecStop` calls rootless `podman stop`. Every created
-   container loads the seccomp profile named by the validated rootless
-   context. The plan's IoWeight, Nice, and memory-high dimensions are not
+   labels and the container's immutable Podman ID. `ExecStart`, `ExecStop`,
+   and delete use that immutable ID, so replacing a container under the same
+   name cannot redirect a mutation. Every created container loads the
+   digest-bound seccomp profile named by the validated rootless context. The
+   plan's IoWeight, Nice, and memory-high dimensions are not
    expressible on this podman surface and stay enforced by the native systemd
    driver only.
 
@@ -89,9 +91,10 @@ like the two existing adapters do.
 The lane is named rootless for a reason: **no workload, and no podman
 invocation, ever runs as uid 0.**
 
-- `ValidateRootlessContext` fails closed when `RunAsUid` is 0 — there is no
-  configuration in which root podman is acceptable on these nodes. The
-  context names an explicit podman binary path and XDG runtime dir
+- `ts-node` rejects a zero real or effective uid and rejects any mismatch
+  between them. `ValidateRootlessContext` also fails closed when `RunAsUid`
+  is 0. There is no configuration in which root podman is acceptable on these
+  nodes. The context names an explicit podman binary path and XDG runtime dir
   (`/run/user/<uid>`), both bounded absolute paths.
 - The client `Preflight` step is fail-closed: if the podman binary, the user
   runtime directory, or cgroup v2 delegation is missing, converge refuses to
@@ -104,9 +107,14 @@ invocation, ever runs as uid 0.**
   containerd adapter's `requireMatchingAllocation`.
 - **Supervisor fencing.** A production container runs only while its matching
   `<container-id>.service` user unit is active. The unit description repeats
-  the allocation and fingerprint labels. A live container without the unit,
-  a unit with a different description, or an orphaned unit without its
+  the allocation and fingerprint labels plus the immutable container ID. A
+  live container without the unit, a unit with a different description, a
+  replacement container under the same name, or an orphaned unit without its
   container fails closed.
+- **Digest-bound seccomp.** The shipped profile has a compiled SHA-256. The
+  runtime verifies the digest, file type, ownership, mode, and every path
+  component before preflight and every create. The live probe shows `getppid`
+  succeeds unconfined and returns `ENOSYS` with this profile.
 - **Capabilities dropped.** `NewPodmanRunRequest` requires the `ALL`
   capability drop; additional drops are allowed, additions are impossible.
 - **Read-only rootfs.** `PodmanRunRequest.ReadOnlyRootfs` is fixed `true`
@@ -214,12 +222,15 @@ operation, not a fast path.
 - **Autoscaler role** — a control-plane role that consumes heartbeats and
   the schedule state, applies the decision rules above, and drives a
   `NodeProvisioner` implementation. The single-host validation lane uses
-  `LocalProcessNodeProvisioner` with `CommandProcessSpawner`; the OCI estate
-  plugs into the same seam. The local implementation keeps child ownership
-  only in process memory, so it is deliberately not a production or
-  restart-reconciling provider. Its live smoke covers the real provision,
-  cordon, drain, and retire sequence without claiming workload convergence or
-  OCI evidence. ADR 0033 gives the regional autonomy model.
+  `LocalProcessNodeProvisioner` with `CommandProcessSpawner`, selected only by
+  the exact provider value `local-dev`; the OCI estate plugs into the same
+  seam. The local implementation keeps child ownership only in process memory
+  and gives every child the same node credential paths. It is not a
+  production, restart-reconciling, or per-node-identity provider. Its live
+  smoke covers the real provision, cordon, drain, and retire sequence through
+  embedded unauthenticated NATS. It does not exercise the autoscaler command's
+  TLS, NKey, or scheduler-feed wiring, and it claims neither workload
+  convergence nor OCI evidence. ADR 0033 gives the regional autonomy model.
 - **DrainSafetyEvaluator** — one implementation in the control plane that
   combines replica health from heartbeats with the placement state.
 

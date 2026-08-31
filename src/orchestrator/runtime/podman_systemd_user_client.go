@@ -8,12 +8,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const (
 	podmanSupervisorStopTimeoutSeconds = 30
 	podmanSupervisorStopTimeout        = "45s"
 	podmanSupervisorRestartDelay       = "5s"
+	podmanSupervisorCollectionTimeout  = 2 * time.Second
+	podmanSupervisorCollectionPoll     = 20 * time.Millisecond
 )
 
 // SystemdUserPodmanClient is the production PodmanClient composition used by
@@ -123,7 +126,11 @@ func (c *SystemdUserPodmanClient) Start(ctx context.Context, containerId string)
 		return &InvalidOperationError{Message: fmt.Sprintf(
 			"Podman container %s cannot be supervised because it is absent.", validated)}
 	}
-	description, err := podmanSupervisorDescription(container.Labels)
+	runtimeId, err := requirePodmanRuntimeId(container.RuntimeId)
+	if err != nil {
+		return err
+	}
+	description, err := podmanSupervisorDescription(container.Labels, runtimeId)
 	if err != nil {
 		return err
 	}
@@ -150,9 +157,12 @@ func (c *SystemdUserPodmanClient) Start(ctx context.Context, containerId string)
 				return err
 			}
 		}
-		return c.systemctl(ctx, "start", unit.name)
+		if err := c.awaitSupervisorCollection(ctx, validated, description); err != nil {
+			return err
+		}
+		return c.startTransientUnit(ctx, validated, runtimeId, description)
 	case SystemdAllocationStateAbsent:
-		return c.startTransientUnit(ctx, validated, description)
+		return c.startTransientUnit(ctx, validated, runtimeId, description)
 	default:
 		return &InvalidOperationError{Message: fmt.Sprintf(
 			"Podman supervisor %s returned an unsupported state.", unit.name)}
@@ -182,7 +192,11 @@ func (c *SystemdUserPodmanClient) Stop(ctx context.Context, containerId string) 
 		}
 		return nil
 	}
-	description, err := podmanSupervisorDescription(container.Labels)
+	runtimeId, err := requirePodmanRuntimeId(container.RuntimeId)
+	if err != nil {
+		return err
+	}
+	description, err := podmanSupervisorDescription(container.Labels, runtimeId)
 	if err != nil {
 		return err
 	}
@@ -236,7 +250,11 @@ func (c *SystemdUserPodmanClient) Delete(ctx context.Context, containerId string
 		}
 		return nil
 	}
-	description, err := podmanSupervisorDescription(container.Labels)
+	runtimeId, err := requirePodmanRuntimeId(container.RuntimeId)
+	if err != nil {
+		return err
+	}
+	description, err := podmanSupervisorDescription(container.Labels, runtimeId)
 	if err != nil {
 		return err
 	}
@@ -254,7 +272,12 @@ func (c *SystemdUserPodmanClient) Delete(ctx context.Context, containerId string
 			return err
 		}
 	}
-	return c.client.Delete(ctx, validated)
+	if unit.state != SystemdAllocationStateAbsent {
+		if err := c.awaitSupervisorCollection(ctx, validated, description); err != nil {
+			return err
+		}
+	}
+	return c.client.Delete(ctx, runtimeId)
 }
 
 // Inspect joins the Podman observation with its supervisor observation. A
@@ -283,7 +306,11 @@ func (c *SystemdUserPodmanClient) Inspect(
 		}
 		return container, nil
 	}
-	description, err := podmanSupervisorDescription(container.Labels)
+	runtimeId, err := requirePodmanRuntimeId(container.RuntimeId)
+	if err != nil {
+		return PodmanAllocationObservation{}, err
+	}
+	description, err := podmanSupervisorDescription(container.Labels, runtimeId)
 	if err != nil {
 		return PodmanAllocationObservation{}, err
 	}
@@ -333,6 +360,7 @@ func (c *SystemdUserPodmanClient) EnsureVolume(ctx context.Context, name string)
 func (c *SystemdUserPodmanClient) startTransientUnit(
 	ctx context.Context,
 	containerId string,
+	runtimeId string,
 	description string,
 ) error {
 	unitName := podmanSupervisorUnitName(containerId)
@@ -349,11 +377,11 @@ func (c *SystemdUserPodmanClient) startTransientUnit(
 		"--property", "Delegate=yes",
 		"--property", "NoNewPrivileges=yes",
 		"--property", fmt.Sprintf("ExecStop=%s stop --time %d %s",
-			c.rootless.PodmanBinaryPath, podmanSupervisorStopTimeoutSeconds, containerId),
+			c.rootless.PodmanBinaryPath, podmanSupervisorStopTimeoutSeconds, runtimeId),
 		"--setenv=XDG_RUNTIME_DIR=" + c.rootless.XdgRuntimeDir,
 		"--",
 		c.rootless.PodmanBinaryPath,
-		"start", "--attach", containerId,
+		"start", "--attach", runtimeId,
 	}
 	result, err := c.commandRunner.Run(ctx, c.systemdRunBinaryPath, arguments)
 	if err != nil {
@@ -363,6 +391,42 @@ func (c *SystemdUserPodmanClient) startTransientUnit(
 		return systemdUserPodmanCommandError("start", result)
 	}
 	return nil
+}
+
+func (c *SystemdUserPodmanClient) awaitSupervisorCollection(
+	ctx context.Context,
+	containerId string,
+	description string,
+) error {
+	timer := time.NewTimer(podmanSupervisorCollectionTimeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(podmanSupervisorCollectionPoll)
+	defer ticker.Stop()
+	for {
+		unit, err := c.observeSupervisor(ctx, containerId)
+		if err != nil {
+			return err
+		}
+		if unit.state == SystemdAllocationStateAbsent {
+			return nil
+		}
+		if unit.description != description {
+			return podmanSupervisorFenceError(containerId)
+		}
+		if unit.state == SystemdAllocationStateRunning || unit.state == SystemdAllocationStateStarting {
+			return &InvalidOperationError{Message: fmt.Sprintf(
+				"Podman supervisor %s restarted while collection was pending.", unit.name)}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return &InvalidOperationError{Message: fmt.Sprintf(
+				"Podman supervisor %s was not collected within %s.", unit.name,
+				podmanSupervisorCollectionTimeout)}
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *SystemdUserPodmanClient) systemctl(ctx context.Context, operation string, unitName string) error {
@@ -479,12 +543,16 @@ func (c *SystemdUserPodmanClient) validateContainer(
 		"Container ID must be a lowercase DNS-style token.")
 }
 
-func podmanSupervisorDescription(labels map[string]string) (string, error) {
+func podmanSupervisorDescription(labels map[string]string, runtimeId string) (string, error) {
 	if err := requirePodmanFencingLabels(labels); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("TerraScale rootless Podman allocation %s plan %s",
-		labels[PodmanLabelAllocation], labels[PodmanLabelFingerprint]), nil
+	validatedRuntimeId, err := requirePodmanRuntimeId(runtimeId)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("TerraScale rootless Podman allocation %s plan %s container %s",
+		labels[PodmanLabelAllocation], labels[PodmanLabelFingerprint], validatedRuntimeId), nil
 }
 
 func podmanSupervisorUnitName(containerId string) string { return containerId + ".service" }
@@ -495,10 +563,12 @@ func podmanObservationWithState(
 ) (PodmanAllocationObservation, error) {
 	if observation.Platform == "" {
 		return NewPodmanAllocationObservation(
-			state, observation.ImageReference, observation.Labels, state == PodmanAllocationStateRunning)
+			state, observation.RuntimeId, observation.ImageReference,
+			observation.Labels, state == PodmanAllocationStateRunning)
 	}
 	return NewPodmanAllocationObservation(
-		state, observation.ImageReference, observation.Labels, state == PodmanAllocationStateRunning,
+		state, observation.RuntimeId, observation.ImageReference,
+		observation.Labels, state == PodmanAllocationStateRunning,
 		observation.Platform)
 }
 

@@ -14,7 +14,7 @@ func TestParseTsNodeArgumentsAppliesDefaults(t *testing.T) {
 	configuration, err := parseTsNodeArguments([]string{
 		"--node-id", "gru-node-1",
 		"--nats-url", "nats://127.0.0.1:4222",
-	}, 1000, 8)
+	}, 1000, 1000, 8)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 		"--run-as-uid", "1001",
 		"--node-id", "as-node-4",
 		"--nats-url", "nats://regional:4222",
-	}, 1001, 16)
+	}, 1001, 1001, 16)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestParseTsNodeArgumentsBindsProductionNatsCredentials(t *testing.T) {
 		"--nats-tls-ca-file", "/run/credentials/ts-node/ca.pem",
 		"--nats-tls-cert-file", "/run/credentials/ts-node/client.pem",
 		"--nats-tls-key-file", "/run/credentials/ts-node/client.key",
-	}, 1000, 8)
+	}, 1000, 1000, 8)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 		{
 			name: "run uid mismatch",
 			args: []string{"--node-id", "gru-node-1", "--nats-url", "nats://x", "--run-as-uid", "1001"},
-			want: "must equal the current account uid 1000",
+			want: "must equal the effective account uid 1000",
 		},
 		{
 			name: "non-numeric run uid",
@@ -234,7 +234,7 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := parseTsNodeArguments(test.args, 1000, 8)
+			_, err := parseTsNodeArguments(test.args, 1000, 1000, 8)
 			if err == nil {
 				t.Fatalf("invalid args %q were accepted", test.args)
 			}
@@ -249,9 +249,20 @@ func TestParseTsNodeArgumentsFailsClosedUnderUidZero(t *testing.T) {
 	_, err := parseTsNodeArguments([]string{
 		"--node-id", "gru-node-1",
 		"--nats-url", "nats://127.0.0.1:4222",
-	}, 0, 8)
-	if err == nil || !strings.Contains(err.Error(), "must never run as uid 0") {
+	}, 0, 0, 8)
+	if err == nil || !strings.Contains(err.Error(), "real or effective uid of 0") {
 		t.Fatalf("uid 0 default was accepted: %v", err)
+	}
+}
+
+func TestParseTsNodeArgumentsRejectsEffectiveRootAndSetuidMismatch(t *testing.T) {
+	args := []string{"--node-id", "gru-node-1", "--nats-url", "nats://127.0.0.1:4222"}
+	if _, err := parseTsNodeArguments(args, 1000, 0, 8); err == nil {
+		t.Fatal("an effective-root process was accepted")
+	}
+	if _, err := parseTsNodeArguments(args, 1000, 1001, 8); err == nil ||
+		!strings.Contains(err.Error(), "real uid 1000 does not match effective uid 1001") {
+		t.Fatalf("a setuid mismatch was accepted: %v", err)
 	}
 }
 

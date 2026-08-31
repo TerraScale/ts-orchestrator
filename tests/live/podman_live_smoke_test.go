@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -20,7 +22,7 @@ import (
 )
 
 // liveSmokeTimeout bounds the whole smoke run.
-const liveSmokeTimeout = 90 * time.Second
+const liveSmokeTimeout = 2 * time.Minute
 
 // TestSystemdUserPodmanClientRootlessSmoke drives the real production client
 // under the current unprivileged account. Preflight proves both rootless
@@ -41,8 +43,9 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	}
 	uid := uint32(os.Getuid())
 	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", uid)
+	seccompProfile := liveSmokeSeccompProfile(t)
 	rootless, err := runtime.NewRootlessPodmanContext(
-		podmanBinary, xdgRuntimeDir, liveSmokeSeccompProfile(t), uid)
+		podmanBinary, xdgRuntimeDir, seccompProfile, uid)
 	if err != nil {
 		t.Fatalf("rootless context (uid %d, %s, %s): %v", uid, podmanBinary, xdgRuntimeDir, err)
 	}
@@ -68,6 +71,7 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	if err := client.Preflight(ctx); err != nil {
 		t.Fatalf("rootless podman preflight failed: %v", err)
 	}
+	liveProveSeccompDeniesSentinel(t, ctx, runner, podmanBinary, seccompProfile)
 
 	containerId := plan.Oci.ContainerId
 	request, err := runtime.NewPodmanRunRequest(
@@ -149,6 +153,30 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	if stopped.State != runtime.PodmanAllocationStateStopped {
 		t.Fatalf("state after stop = %s; want Stopped", stopped.State)
 	}
+	// The first stop lets --collect unload the transient definition. Starting
+	// the same immutable container again must recreate the fenced unit, not try
+	// to start a definition systemd has already discarded.
+	if err := client.Start(ctx, containerId); err != nil {
+		t.Fatalf("recreate collected podman supervisor: %v", err)
+	}
+	restarted := false
+	restartDeadline := time.Now().Add(30 * time.Second)
+	for !restarted {
+		observation, observeErr := client.Inspect(ctx, containerId)
+		if observeErr != nil {
+			t.Fatalf("inspect after supervisor recreation: %v", observeErr)
+		}
+		restarted = observation.State == runtime.PodmanAllocationStateRunning
+		if time.Now().After(restartDeadline) {
+			t.Fatalf("recreated supervisor never reached Running; last state %s", observation.State)
+		}
+		if !restarted {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	if err := client.Stop(ctx, containerId); err != nil {
+		t.Fatalf("podman stop after supervisor recreation failed: %v", err)
+	}
 
 	if err := client.Delete(ctx, containerId); err != nil {
 		t.Fatalf("podman rm failed: %v", err)
@@ -162,17 +190,66 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	}
 }
 
-// liveSmokeSeccompProfile writes the smoke's seccomp profile document and
-// returns its absolute path. The profile is deliberately permissive: the
-// smoke proves the create/start plumbing loads a real profile document (the
-// create fails when the document is absent), not the policy inside it.
+// liveSmokeSeccompProfile returns the shipped, digest-bound production profile
+// unless the deployment supplies its installed copy explicitly.
 func liveSmokeSeccompProfile(t *testing.T) string {
 	t.Helper()
-	path := t.TempDir() + "/terrascale-default-v1.json"
-	if err := os.WriteFile(path, []byte(`{"defaultAction":"SCMP_ACT_ALLOW"}`), 0o600); err != nil {
-		t.Fatalf("seccomp profile fixture: %v", err)
+	if configured := os.Getenv("TS_ORCH_LIVE_SECCOMP_PROFILE"); configured != "" {
+		return configured
+	}
+	path, err := filepath.Abs(filepath.Join("..", "..", ".terrascale", "seccomp",
+		runtime.PodmanSeccompProfileName+".json"))
+	if err != nil {
+		t.Fatalf("seccomp profile path: %v", err)
 	}
 	return path
+}
+
+func liveProveSeccompDeniesSentinel(
+	t *testing.T,
+	ctx context.Context,
+	runner runtime.ProcessHostCommandRunner,
+	podmanBinary string,
+	profile string,
+) {
+	t.Helper()
+	buildDirectory := t.TempDir()
+	probe := filepath.Join(buildDirectory, "seccomp-probe")
+	command := exec.CommandContext(ctx, filepath.Join(goruntime.GOROOT(), "bin", "go"),
+		"build", "-trimpath", "-o", probe, "./testdata/seccomp-probe")
+	command.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build seccomp probe: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	containerfile := filepath.Join(buildDirectory, "Containerfile")
+	if err := os.WriteFile(containerfile, []byte(
+		"FROM scratch\nCOPY seccomp-probe /seccomp-probe\nENTRYPOINT [\"/seccomp-probe\"]\n"), 0o600); err != nil {
+		t.Fatalf("seccomp probe Containerfile: %v", err)
+	}
+	image := "localhost/terrascale-seccomp-probe:" + strconv.Itoa(os.Getpid())
+	build, err := runner.Run(ctx, podmanBinary,
+		[]string{"build", "--network=none", "--tag", image, buildDirectory})
+	if err != nil || build.ExitCode != 0 {
+		t.Fatalf("build seccomp probe image: err=%v exit=%d stderr=%s",
+			err, build.ExitCode, strings.TrimSpace(build.StandardError))
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = runner.Run(cleanupCtx, podmanBinary, []string{"image", "rm", "--force", image})
+	})
+	control, err := runner.Run(ctx, podmanBinary,
+		[]string{"run", "--rm", "--security-opt", "seccomp=unconfined", image})
+	if err != nil || control.ExitCode != 1 {
+		t.Fatalf("unconfined seccomp probe must observe getppid: err=%v exit=%d stderr=%s",
+			err, control.ExitCode, strings.TrimSpace(control.StandardError))
+	}
+	denied, err := runner.Run(ctx, podmanBinary,
+		[]string{"run", "--rm", "--security-opt", "seccomp=" + profile, image})
+	if err != nil || denied.ExitCode != 0 {
+		t.Fatalf("digest-bound seccomp profile did not deny getppid: err=%v exit=%d stderr=%s",
+			err, denied.ExitCode, strings.TrimSpace(denied.StandardError))
+	}
 }
 
 // liveSmokePodmanBinary resolves the absolute podman binary: the explicit
