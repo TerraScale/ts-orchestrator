@@ -15,6 +15,22 @@ env:
   TERRASCALE_TOOLBOX_REVISION: "2026.08.26"
 
 jobs:
+  diagnostic-host:
+    name: diagnostic/runner-host
+    runs-on: terrascale-builder
+    timeout-minutes: 5
+    steps:
+      - run: uname -s
+
+  diagnostic-public-container:
+    name: diagnostic/public-go-container
+    runs-on: terrascale-builder
+    timeout-minutes: 5
+    container:
+      image: docker.io/library/golang@sha256:eef6a67266eeed3c86dd47fd01b32faa8bf0229eb83eb3d4d466e80391bd3820
+    steps:
+      - run: go version
+
   bootstrap:
     name: deploy-cli
     runs-on: terrascale-builder
