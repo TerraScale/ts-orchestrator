@@ -293,7 +293,17 @@ func (a *OCIBlockStorageAdapter) listVolumes(ctx context.Context, query url.Valu
 }
 
 func (a *OCIBlockStorageAdapter) GetBlockVolume(ctx context.Context, id string) (BlockVolume, bool, error) {
-	return a.getBlockVolumeInCompartment(ctx, id, "", nil)
+	if a == nil || a.Core == nil {
+		return BlockVolume{}, false, &InvalidOperationError{Message: "OCI block storage adapter is unavailable"}
+	}
+	if !isOCID(id, "volume") {
+		return BlockVolume{}, false, &errs.Argument{Message: "block volume identity is invalid"}
+	}
+	compartment, err := ownedResourceCompartment(ctx, a.Ownership, id, "")
+	if err != nil {
+		return BlockVolume{}, false, err
+	}
+	return a.getBlockVolumeInCompartment(ctx, id, compartment, nil)
 }
 
 func (a *OCIBlockStorageAdapter) getBlockVolumeInCompartment(ctx context.Context, id, compartment string, request *VolumeCreateRequest) (BlockVolume, bool, error) {
@@ -520,7 +530,7 @@ func (value *requiredOCIBool) UnmarshalJSON(raw []byte) error {
 
 func attachmentFromOCI(item ociAutomatedAttachment, work string) (VolumeAttachment, error) {
 	if !isOCID(item.ID, "volumeattachment") || !isOCID(item.CompartmentID, "compartment") || !isOCID(item.InstanceID, "instance") || !isOCID(item.VolumeID, "volume") ||
-		!validCanonicalETag(item.ETag) || (work != "" && !validWorkRequestID(work)) {
+		!item.IsReadOnly.set || !validCanonicalETag(item.ETag) || (work != "" && !validWorkRequestID(work)) {
 		return VolumeAttachment{}, &InvalidDataError{Message: "OCI volume attachment response is invalid"}
 	}
 	return VolumeAttachment{ID: item.ID, CompartmentID: item.CompartmentID, InstanceID: item.InstanceID, VolumeID: item.VolumeID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: work}, nil
@@ -727,7 +737,17 @@ func (a *OCIVolumeAttachmentAdapter) listAttachments(ctx context.Context, query 
 }
 
 func (a *OCIVolumeAttachmentAdapter) GetVolumeAttachment(ctx context.Context, id string) (VolumeAttachment, bool, error) {
-	return a.getVolumeAttachmentInCompartment(ctx, id, "", nil)
+	if a == nil || a.Core == nil {
+		return VolumeAttachment{}, false, &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
+	}
+	if !isOCID(id, "volumeattachment") {
+		return VolumeAttachment{}, false, &errs.Argument{Message: "volume attachment identity is invalid"}
+	}
+	compartment, err := ownedResourceCompartment(ctx, a.Ownership, id, "")
+	if err != nil {
+		return VolumeAttachment{}, false, err
+	}
+	return a.getVolumeAttachmentInCompartment(ctx, id, compartment, nil)
 }
 
 func (a *OCIVolumeAttachmentAdapter) getVolumeAttachmentInCompartment(ctx context.Context, id, compartment string, request *VolumeAttachRequest) (VolumeAttachment, bool, error) {

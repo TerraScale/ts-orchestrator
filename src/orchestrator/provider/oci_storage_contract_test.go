@@ -24,6 +24,16 @@ func testOwnership(t *testing.T, ids ...string) *DurableOwnershipJournal {
 	return journal
 }
 
+type nonDurableTestOwnership struct{}
+
+func (*nonDurableTestOwnership) AuthoritativeDurable() bool { return false }
+func (*nonDurableTestOwnership) Record(context.Context, ProviderOwnershipRecord) error {
+	return nil
+}
+func (*nonDurableTestOwnership) Lookup(context.Context, ProviderResourceId) (ProviderOwnershipRecord, bool, error) {
+	return ProviderOwnershipRecord{}, false, nil
+}
+
 func testVolumeIntentTags(request VolumeCreateRequest) string {
 	tags, _ := safeFreeformTags(request.Tags)
 	raw, _ := json.Marshal(bindMutationTags(tags, request.Mutation))
@@ -247,7 +257,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 			switch {
 			case request.Method == http.MethodGet && request.URL.Path == "/20160918/volumeAttachments/"+attachmentID:
-				body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","lifecycleState":"ATTACHED"}`
+				body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","isReadOnly":false,"lifecycleState":"ATTACHED"}`
 				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"attachment-etag"}}), nil
 			case request.Method == http.MethodDelete && request.URL.Path == "/20160918/volumeAttachments/"+attachmentID:
 				deletes++
@@ -845,6 +855,210 @@ func TestOCIAttachmentReadOnlyRequiresExplicitBoolean(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("direct get response", func(t *testing.T) {
+		tests := []struct {
+			name        string
+			field       string
+			wantSuccess bool
+		}{
+			{name: "missing"},
+			{name: "null", field: `,"isReadOnly":null`},
+			{name: "string", field: `,"isReadOnly":"false"`},
+			{name: "number", field: `,"isReadOnly":0`},
+			{name: "duplicate same value", field: `,"isReadOnly":false,"isReadOnly":false`},
+			{name: "duplicate contradictory value", field: `,"isReadOnly":false,"isReadOnly":true`},
+			{name: "explicit false", field: `,"isReadOnly":false`, wantSuccess: true},
+			{name: "explicit true", field: `,"isReadOnly":true`, wantSuccess: true},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				calls := 0
+				transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+					calls++
+					if httpRequest.Method != http.MethodGet || httpRequest.URL.Path != "/20160918/volumeAttachments/"+attachmentID {
+						t.Fatalf("unexpected attachment read request %s %s", httpRequest.Method, httpRequest.URL.String())
+					}
+					body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"presence-attachment"` + test.field + `,"lifecycleState":"ATTACHED"}`
+					return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"attachment-etag"}}), nil
+				})
+				adapter, err := NewOCIVolumeAttachmentAdapter(transport, testJournal(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = testOwnership(t, attachmentID)
+				attachment, found, readErr := adapter.GetVolumeAttachment(context.Background(), attachmentID)
+				if (readErr == nil) != test.wantSuccess || found != test.wantSuccess || calls != 1 {
+					t.Fatalf("attachment read = %+v found=%v calls=%d err=%v wantSuccess=%v", attachment, found, calls, readErr, test.wantSuccess)
+				}
+			})
+		}
+	})
+}
+
+func TestOCIStoragePublicReadsRequireDurableScopedProof(t *testing.T) {
+	const (
+		compartment      = "ocid1.compartment.oc1..testcompartment"
+		wrongCompartment = "ocid1.compartment.oc1..wrongcompartment"
+		volumeID         = "ocid1.volume.oc1.sa-saopaulo-1.publicread"
+		attachmentID     = "ocid1.volumeattachment.oc1.sa-saopaulo-1.publicread"
+		instanceID       = "ocid1.instance.oc1.sa-saopaulo-1.publicread"
+	)
+	type resourceCase struct {
+		name       string
+		id         string
+		directPath string
+		listPath   string
+		listedBody string
+		wrongBody  string
+		read       func(*testing.T, *OCIHTTPTransport, DurableOwnershipEvidence) (bool, error)
+	}
+	resources := []resourceCase{
+		{
+			name:       "volume",
+			id:         volumeID,
+			directPath: "/20160918/volumes/" + volumeID,
+			listPath:   "/20160918/volumes",
+			listedBody: `{"items":[{"id":"` + volumeID + `","compartmentId":"` + compartment + `"}]}`,
+			wrongBody:  `{"id":"` + volumeID + `","compartmentId":"` + wrongCompartment + `","lifecycleState":"AVAILABLE","sizeInGBs":100,"vpusPerGB":20}`,
+			read: func(t *testing.T, transport *OCIHTTPTransport, ownership DurableOwnershipEvidence) (bool, error) {
+				t.Helper()
+				adapter, err := NewOCIBlockStorageAdapter(transport, testJournal(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = ownership
+				_, found, err := adapter.GetBlockVolume(context.Background(), volumeID)
+				return found, err
+			},
+		},
+		{
+			name:       "attachment",
+			id:         attachmentID,
+			directPath: "/20160918/volumeAttachments/" + attachmentID,
+			listPath:   "/20160918/volumeAttachments",
+			listedBody: `{"items":[{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","isReadOnly":false}]}`,
+			wrongBody:  `{"id":"` + attachmentID + `","compartmentId":"` + wrongCompartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","isReadOnly":false,"lifecycleState":"ATTACHED"}`,
+			read: func(t *testing.T, transport *OCIHTTPTransport, ownership DurableOwnershipEvidence) (bool, error) {
+				t.Helper()
+				adapter, err := NewOCIVolumeAttachmentAdapter(transport, testJournal(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = ownership
+				_, found, err := adapter.GetVolumeAttachment(context.Background(), attachmentID)
+				return found, err
+			},
+		},
+	}
+
+	for _, resource := range resources {
+		t.Run(resource.name+" ownership", func(t *testing.T) {
+			tests := []struct {
+				name      string
+				ownership func(*testing.T) DurableOwnershipEvidence
+			}{
+				{name: "missing", ownership: func(*testing.T) DurableOwnershipEvidence { return nil }},
+				{name: "non-durable", ownership: func(*testing.T) DurableOwnershipEvidence { return &nonDurableTestOwnership{} }},
+				{name: "unrecorded", ownership: func(t *testing.T) DurableOwnershipEvidence { return testOwnership(t) }},
+			}
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					calls := 0
+					transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+						calls++
+						t.Fatalf("ownership failure sent a provider request: %s %s", request.Method, request.URL.String())
+						return nil, io.ErrUnexpectedEOF
+					})
+					found, err := resource.read(t, transport, test.ownership(t))
+					if err == nil || found || calls != 0 {
+						t.Fatalf("found=%v calls=%d err=%v", found, calls, err)
+					}
+				})
+			}
+		})
+
+		t.Run(resource.name+" wrong compartment", func(t *testing.T) {
+			calls := 0
+			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+				calls++
+				if request.Method != http.MethodGet || request.URL.Path != resource.directPath {
+					t.Fatalf("unexpected wrong-compartment request %s %s", request.Method, request.URL.String())
+				}
+				return testHTTPResponse(http.StatusOK, resource.wrongBody, http.Header{"Etag": {"resource-etag"}}), nil
+			})
+			found, err := resource.read(t, transport, testOwnership(t, resource.id))
+			if err == nil || found || calls != 1 {
+				t.Fatalf("found=%v calls=%d err=%v", found, calls, err)
+			}
+		})
+
+		t.Run(resource.name+" 404 proof", func(t *testing.T) {
+			type listPage struct {
+				status int
+				body   string
+				next   string
+			}
+			empty := `{"items":[]}`
+			tests := []struct {
+				name    string
+				pages   []listPage
+				wantErr bool
+			}{
+				{name: "authorized absence", pages: []listPage{{body: empty}}},
+				{name: "listed denial", pages: []listPage{{body: resource.listedBody}}, wantErr: true},
+				{name: "unauthorized list", pages: []listPage{{status: http.StatusForbidden, body: `{"code":"NotAuthorized"}`}}, wantErr: true},
+				{name: "malformed list", pages: []listPage{{body: `not-json`}}, wantErr: true},
+				{name: "null list", pages: []listPage{{body: `null`}}, wantErr: true},
+				{name: "partial pagination", pages: []listPage{{body: empty, next: "page-2"}, {status: http.StatusForbidden, body: `{"code":"NotAuthorized"}`}}, wantErr: true},
+				{name: "paginated absence", pages: []listPage{{body: empty, next: "page-2"}, {body: empty}}},
+				{name: "paginated listed denial", pages: []listPage{{body: empty, next: "page-2"}, {body: resource.listedBody}}, wantErr: true},
+			}
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					listCalls := 0
+					requests := 0
+					transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+						requests++
+						if request.Method != http.MethodGet {
+							t.Fatalf("public read sent a mutation: %s %s", request.Method, request.URL.String())
+						}
+						if request.URL.Path == resource.directPath {
+							return testHTTPResponse(http.StatusNotFound, `{"code":"NotAuthorizedOrNotFound"}`, nil), nil
+						}
+						if request.URL.Path != resource.listPath || request.URL.Query().Get("compartmentId") != compartment || request.URL.Query().Get("limit") != "1000" {
+							t.Fatalf("unscoped absence request %s", request.URL.String())
+						}
+						if listCalls >= len(test.pages) {
+							t.Fatalf("unexpected extra list page %s", request.URL.String())
+						}
+						page := test.pages[listCalls]
+						expectedToken := ""
+						if listCalls > 0 {
+							expectedToken = test.pages[listCalls-1].next
+						}
+						if request.URL.Query().Get("page") != expectedToken {
+							t.Fatalf("page token = %q want %q", request.URL.Query().Get("page"), expectedToken)
+						}
+						listCalls++
+						status := page.status
+						if status == 0 {
+							status = http.StatusOK
+						}
+						headers := http.Header{}
+						if page.next != "" {
+							headers.Set("Opc-Next-Page", page.next)
+						}
+						return testHTTPResponse(status, page.body, headers), nil
+					})
+					found, err := resource.read(t, transport, testOwnership(t, resource.id))
+					if (err != nil) != test.wantErr || found || listCalls != len(test.pages) || requests != 1+len(test.pages) {
+						t.Fatalf("found=%v requests=%d listCalls=%d err=%v wantErr=%v", found, requests, listCalls, err, test.wantErr)
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestOCIStorageRejectsNoncanonicalHeadersAndUnboundedPagination(t *testing.T) {
@@ -878,6 +1092,7 @@ func TestOCIStorageRejectsNoncanonicalHeadersAndUnboundedPagination(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	adapter.Ownership = testOwnership(t, volumeID)
 	if _, _, err := adapter.GetBlockVolume(context.Background(), volumeID); err == nil {
 		t.Fatal("duplicate ETag headers were accepted or replaced by the body ETag")
 	}
