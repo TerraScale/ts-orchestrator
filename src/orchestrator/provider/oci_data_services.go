@@ -12,26 +12,84 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-type OCIObjectStorageAdapter struct {
-	ObjectStorage *OCIHTTPTransport
-	Journal       ProviderMutationJournal
+type OCIObjectStorageScope struct {
+	Namespace    string
+	LedgerBucket string
+	BackupBucket string
 }
 
-func NewOCIObjectStorageAdapter(transport *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIObjectStorageAdapter, error) {
-	if err := validateOCIAdapter(transport, OCIServiceObjectStorage, journal); err != nil {
+type OCIObjectStorageAdapter struct {
+	objectStorage *OCIHTTPTransport
+	journal       ProviderMutationJournal
+	authority     DurableObjectStorageAuthority
+	namespace     string
+	buckets       map[string]struct{}
+}
+
+func NewOCIObjectStorageAdapter(transport *OCIHTTPTransport, journal ProviderMutationJournal, scope OCIObjectStorageScope, authority DurableObjectStorageAuthority) (*OCIObjectStorageAdapter, error) {
+	if err := validateOCIAdapter(transport, OCIServiceObjectStorage, journal); err != nil || transport.Client == nil ||
+		transport.Config.Endpoint.Scheme != "https" || !validOCIServiceHost(OCIServiceObjectStorage, transport.Config.Region, transport.Config.Endpoint.Host) {
+		return nil, &InvalidOperationError{Message: "OCI Object Storage transport is unavailable or has the wrong authority"}
+	}
+	if authority == nil || !authority.AuthoritativeDurable() || !validObjectStoragePart(scope.Namespace, 128, false) ||
+		!validObjectStoragePart(scope.LedgerBucket, 256, false) || !validObjectStoragePart(scope.BackupBucket, 256, false) ||
+		scope.LedgerBucket == scope.BackupBucket {
+		return nil, &InvalidOperationError{Message: "OCI Object Storage durable scope is unavailable"}
+	}
+	signer, ok := transport.Signer.(*InstancePrincipalSigner)
+	if !ok {
+		return nil, &InvalidOperationError{Message: "OCI Object Storage instance-principal signer is unavailable"}
+	}
+	signerSnapshot, err := signer.snapshot()
+	if err != nil {
 		return nil, err
 	}
-	return &OCIObjectStorageAdapter{ObjectStorage: transport, Journal: journal}, nil
+	endpoint := *transport.Config.Endpoint
+	config := transport.Config
+	config.Endpoint = &endpoint
+	client := *transport.Client
+	client.Jar = nil
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	objectStorage := *transport
+	objectStorage.Config = config
+	objectStorage.Client = &client
+	objectStorage.Signer = signerSnapshot
+	return &OCIObjectStorageAdapter{
+		objectStorage: &objectStorage,
+		journal:       journal,
+		authority:     authority,
+		namespace:     scope.Namespace,
+		buckets:       map[string]struct{}{scope.LedgerBucket: {}, scope.BackupBucket: {}},
+	}, nil
+}
+
+func validObjectStoragePart(value string, maximum int, allowSlash bool) bool {
+	if value == "" || len(value) > maximum || !utf8.ValidString(value) || strings.TrimSpace(value) != value || strings.Contains(value, "\\") {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f || (!allowSlash && character == '/') {
+			return false
+		}
+	}
+	if allowSlash {
+		for _, segment := range strings.Split(value, "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validateObjectRef(object ObjectRef) error {
-	if len(object.Namespace) < 1 || len(object.Namespace) > 128 || len(object.Bucket) < 1 || len(object.Bucket) > 256 ||
-		len(object.Name) < 1 || len(object.Name) > 1024 || strings.ContainsAny(object.Namespace+object.Bucket+object.Name, "\r\n") ||
-		strings.Contains(object.Namespace, "/") || strings.Contains(object.Bucket, "/") {
+	if !validObjectStoragePart(object.Namespace, 128, false) || !validObjectStoragePart(object.Bucket, 256, false) ||
+		!validObjectStoragePart(object.Name, 1024, true) {
 		return &errs.Argument{Message: "object storage identity is invalid"}
 	}
 	return nil
@@ -39,6 +97,30 @@ func validateObjectRef(object ObjectRef) error {
 
 func objectStoragePath(object ObjectRef) string {
 	return "/n/" + url.PathEscape(object.Namespace) + "/b/" + url.PathEscape(object.Bucket) + "/o/" + url.PathEscape(object.Name)
+}
+
+func (a *OCIObjectStorageAdapter) requireObjectAuthority(ctx context.Context, object ObjectRef) error {
+	if a == nil || a.objectStorage == nil || a.journal == nil || !a.journal.AuthoritativeDurable() ||
+		a.authority == nil || !a.authority.AuthoritativeDurable() {
+		return &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
+	}
+	if err := validateObjectRef(object); err != nil {
+		return err
+	}
+	if object.Namespace != a.namespace {
+		return &InvalidOperationError{Message: "object storage namespace is outside durable scope"}
+	}
+	if _, allowed := a.buckets[object.Bucket]; !allowed {
+		return &InvalidOperationError{Message: "object storage bucket is outside durable scope"}
+	}
+	reservation, found, err := a.authority.LookupObject(ctx, object)
+	if err != nil {
+		return err
+	}
+	if !found || reservation.Object != object {
+		return &InvalidOperationError{Message: "object storage object has no exact durable reservation"}
+	}
+	return nil
 }
 
 func objectPutBinding(request ObjectPutRequest) any {
@@ -57,119 +139,325 @@ func ObjectPutMutationScope(request ObjectPutRequest) string {
 	return ProviderMutationScope("object", request.Object.Namespace, request.Object.Bucket, request.Object.Name)
 }
 
-func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectPutRequest) (ObjectMetadata, error) {
-	if a == nil || validateOCIAdapter(a.ObjectStorage, OCIServiceObjectStorage, a.Journal) != nil {
-		return ObjectMetadata{}, &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
+func mergeObjectMutationResult(prior, next ProviderMutationResult, path string) (ProviderMutationResult, error) {
+	if path == "" || (prior.ResourceID != "" && prior.ResourceID != path) || (next.ResourceID != "" && next.ResourceID != path) ||
+		(prior.ETag != "" && !validCanonicalETag(prior.ETag)) || (next.ETag != "" && !validCanonicalETag(next.ETag)) ||
+		(prior.ETag != "" && next.ETag != "" && prior.ETag != next.ETag) ||
+		(prior.WorkRequestID != "" && !validWorkRequestID(prior.WorkRequestID)) || (next.WorkRequestID != "" && !validWorkRequestID(next.WorkRequestID)) ||
+		(prior.WorkRequestID != "" && next.WorkRequestID != "" && prior.WorkRequestID != next.WorkRequestID) {
+		return ProviderMutationResult{}, &InvalidDataError{Message: "object storage mutation result changed identity"}
 	}
-	if err := validateObjectRef(request.Object); err != nil {
+	result := prior
+	result.ResourceID = path
+	if result.ETag == "" {
+		result.ETag = next.ETag
+	}
+	if result.WorkRequestID == "" {
+		result.WorkRequestID = next.WorkRequestID
+	}
+	return result, nil
+}
+
+func (a *OCIObjectStorageAdapter) markObjectUnknown(ctx context.Context, intent ProviderMutationIntent, record ProviderMutationRecord, next ProviderMutationResult) (ProviderMutationResult, error) {
+	result, err := mergeObjectMutationResult(record.Result, next, next.ResourceID)
+	if err != nil {
+		return ProviderMutationResult{}, err
+	}
+	if record.State == MutationUnknown {
+		return result, nil
+	}
+	updated, err := a.journal.MarkUnknown(ctx, intent, result)
+	if err != nil {
+		return ProviderMutationResult{}, err
+	}
+	return updated.Result, nil
+}
+
+func objectPutMatches(request ObjectPutRequest, metadata ObjectMetadata) bool {
+	return metadata.ETag != "" && metadata.SHA256 == request.SHA256 && metadata.Size == int64(len(request.Content))
+}
+
+func (a *OCIObjectStorageAdapter) reconcileObjectPut(ctx context.Context, request ObjectPutRequest, prior ProviderMutationResult) (ObjectMetadata, error) {
+	metadata, found, err := a.HeadObject(ctx, request.Object)
+	if err != nil || !found || !objectPutMatches(request, metadata) {
+		return ObjectMetadata{}, &ProviderOutcomeUnknownError{Message: "OCI Object Storage PUT requires authoritative reconciliation"}
+	}
+	result, err := mergeObjectMutationResult(prior, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}, objectStoragePath(request.Object))
+	if err != nil {
+		return ObjectMetadata{}, &ProviderOutcomeUnknownError{Message: "OCI Object Storage PUT result changed during reconciliation"}
+	}
+	if err := markSucceeded(ctx, a.journal, request.Mutation, result); err != nil {
 		return ObjectMetadata{}, err
 	}
-	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
+	return metadata, nil
+}
+
+func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectPutRequest) (ObjectMetadata, error) {
+	if err := a.requireObjectAuthority(ctx, request.Object); err != nil {
+		return ObjectMetadata{}, err
+	}
+	if int64(len(request.Content)) > a.objectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
 		return ObjectMetadata{}, &errs.Argument{Message: "object storage content binding is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.put", ObjectPutMutationScope(request), objectPutBinding(request)); err != nil {
 		return ObjectMetadata{}, err
 	}
-	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
+	record, err := prepareMutation(ctx, a.journal, request.Mutation)
 	if err != nil {
 		return ObjectMetadata{}, err
 	}
-	if result, done, err := completedMutation(record); done {
-		if err != nil {
-			return ObjectMetadata{}, err
+	if result, done, terminalErr := completedMutation(record); done {
+		if terminalErr != nil {
+			return ObjectMetadata{}, terminalErr
+		}
+		result, err = mergeObjectMutationResult(result, ProviderMutationResult{}, objectStoragePath(request.Object))
+		if err != nil || result.ETag == "" {
+			return ObjectMetadata{}, &InvalidDataError{Message: "object storage completed PUT result is invalid"}
 		}
 		return ObjectMetadata{ETag: result.ETag, SHA256: request.SHA256, Size: int64(len(request.Content))}, nil
 	}
 	if record.State == MutationSubmitted || record.State == MutationUnknown {
-		metadata, found, err := a.HeadObject(ctx, request.Object)
-		if err != nil {
-			return ObjectMetadata{}, err
-		}
-		if !found || metadata.SHA256 != request.SHA256 || metadata.Size != int64(len(request.Content)) {
-			return ObjectMetadata{}, &ProviderOutcomeUnknownError{}
-		}
-		if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}); err != nil {
-			return ObjectMetadata{}, err
-		}
-		return metadata, nil
+		return a.reconcileObjectPut(ctx, request, record.Result)
 	}
-	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
+	record, err = a.journal.MarkSubmitted(ctx, request.Mutation)
+	if err != nil {
 		return ObjectMetadata{}, err
 	}
-	resp, err := a.ObjectStorage.DoWithHeaders(ctx, http.MethodPut, objectStoragePath(request.Object), bytes.NewReader(request.Content), map[string]string{
+	path := objectStoragePath(request.Object)
+	resp, err := a.objectStorage.DoOnceWithHeaders(ctx, http.MethodPut, path, bytes.NewReader(request.Content), map[string]string{
 		"Content-Type":               "application/octet-stream",
 		"If-None-Match":              "*",
 		"opc-meta-terrascale-sha256": request.SHA256,
 	})
 	if err != nil {
-		if indeterminate(err) {
-			metadata, found, readErr := a.HeadObject(ctx, request.Object)
-			if readErr == nil && found && metadata.SHA256 == request.SHA256 && metadata.Size == int64(len(request.Content)) {
-				if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}); err != nil {
-					return ObjectMetadata{}, err
-				}
-				return metadata, nil
-			}
-			return ObjectMetadata{}, finishUnknown(ctx, a.Journal, request.Mutation)
+		if !indeterminate(err) {
+			return ObjectMetadata{}, err
 		}
-		return ObjectMetadata{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if resp.StatusCode == http.StatusPreconditionFailed {
-			drainClose(resp.Body)
-			metadata, found, readErr := a.HeadObject(ctx, request.Object)
-			if readErr == nil && found && metadata.SHA256 == request.SHA256 && metadata.Size == int64(len(request.Content)) {
-				if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}); err != nil {
-					return ObjectMetadata{}, err
-				}
-				return metadata, nil
-			}
-			return ObjectMetadata{}, knownFailure(ctx, a.Journal, request.Mutation, "object-conflict")
+		result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, ProviderMutationResult{ResourceID: path})
+		if markErr != nil {
+			return ObjectMetadata{}, markErr
 		}
-		return ObjectMetadata{}, ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
+		return a.reconcileObjectPut(ctx, request, result)
 	}
-	drainClose(resp.Body)
-	metadata := ObjectMetadata{ETag: safeHeader(resp, "etag"), SHA256: request.SHA256, Size: int64(len(request.Content))}
-	if metadata.ETag == "" {
-		return ObjectMetadata{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	workID, workErr := optionalOCIWorkRequestID(resp)
+	if resp.StatusCode == http.StatusOK {
+		etag, etagErr := canonicalOCIETag(resp)
+		drainClose(resp.Body)
+		candidate := ProviderMutationResult{ResourceID: path, WorkRequestID: workID}
+		if etagErr == nil {
+			candidate.ETag = etag
+		}
+		result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, candidate)
+		if markErr != nil {
+			return ObjectMetadata{}, markErr
+		}
+		if workErr != nil || etagErr != nil {
+			return ObjectMetadata{}, &ProviderOutcomeUnknownError{Message: "OCI Object Storage PUT response metadata is invalid"}
+		}
+		return a.reconcileObjectPut(ctx, request, result)
 	}
-	if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: metadata.ETag}); err != nil {
-		return ObjectMetadata{}, err
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		drainClose(resp.Body)
+		if workErr != nil || workID != "" {
+			result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, ProviderMutationResult{ResourceID: path, WorkRequestID: workID})
+			if markErr != nil {
+				return ObjectMetadata{}, markErr
+			}
+			return a.reconcileObjectPut(ctx, request, result)
+		}
+		metadata, found, readErr := a.HeadObject(ctx, request.Object)
+		if readErr != nil || !found {
+			result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, ProviderMutationResult{ResourceID: path})
+			if markErr != nil {
+				return ObjectMetadata{}, markErr
+			}
+			return a.reconcileObjectPut(ctx, request, result)
+		}
+		if !objectPutMatches(request, metadata) {
+			return ObjectMetadata{}, knownFailure(ctx, a.journal, request.Mutation, "object-conflict")
+		}
+		result, mergeErr := mergeObjectMutationResult(record.Result, ProviderMutationResult{ResourceID: path, ETag: metadata.ETag}, path)
+		if mergeErr != nil {
+			return ObjectMetadata{}, mergeErr
+		}
+		if err := markSucceeded(ctx, a.journal, request.Mutation, result); err != nil {
+			return ObjectMetadata{}, err
+		}
+		return metadata, nil
 	}
-	return metadata, nil
+	if workErr != nil || workID != "" || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		drainClose(resp.Body)
+		result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, ProviderMutationResult{ResourceID: path, WorkRequestID: workID})
+		if markErr != nil {
+			return ObjectMetadata{}, markErr
+		}
+		if workErr != nil {
+			return ObjectMetadata{}, &ProviderOutcomeUnknownError{Message: "OCI Object Storage PUT work request metadata is invalid"}
+		}
+		return a.reconcileObjectPut(ctx, request, result)
+	}
+	return ObjectMetadata{}, ociMutationFailure(ctx, a.journal, request.Mutation, resp)
 }
 
 func objectMetadataFromResponse(resp *http.Response) (ObjectMetadata, error) {
 	if resp == nil {
 		return ObjectMetadata{}, &InvalidDataError{Message: "OCI Object Storage response is missing"}
 	}
-	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
-	if err != nil || size < 0 {
-		return ObjectMetadata{}, &InvalidDataError{Message: "OCI Object Storage content length is invalid"}
-	}
-	metadata := ObjectMetadata{ETag: safeHeader(resp, "etag"), SHA256: safeHeader(resp, "opc-meta-terrascale-sha256"), Size: size}
-	if metadata.ETag == "" || !validSHA256Hex(metadata.SHA256) {
+	etag, etagErr := canonicalOCIETag(resp)
+	digest, digestErr := canonicalOCIHeader(resp, "opc-meta-terrascale-sha256", true, validSHA256Hex)
+	size, validSize := registryBlobContentLength(resp)
+	_, mediaErr := canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/octet-stream" })
+	_, encodingErr := canonicalOCIHeader(resp, "Content-Encoding", true, func(value string) bool { return value == "identity" })
+	if etagErr != nil || digestErr != nil || !validSize || mediaErr != nil || encodingErr != nil {
 		return ObjectMetadata{}, &InvalidDataError{Message: "OCI Object Storage metadata is incomplete"}
 	}
-	return metadata, nil
+	return ObjectMetadata{ETag: etag, SHA256: digest, Size: size}, nil
+}
+
+type objectListPage struct {
+	Names            []string
+	NextStartWith    string
+	HasNextStartWith bool
+}
+
+func decodeObjectListPage(raw []byte, object ObjectRef) (objectListPage, error) {
+	if len(raw) == 0 || registryJSONHasDuplicateProperties(raw) {
+		return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list response is invalid"}
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(raw, &envelope) != nil || envelope == nil || len(envelope) < 1 || len(envelope) > 2 {
+		return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list response is invalid"}
+	}
+	objectsRaw, present := envelope["objects"]
+	if !present {
+		return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list response has no objects"}
+	}
+	for key := range envelope {
+		if key != "objects" && key != "nextStartWith" {
+			return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list response has unknown data"}
+		}
+	}
+	var entries []json.RawMessage
+	if json.Unmarshal(objectsRaw, &entries) != nil || entries == nil || len(entries) > maximumOCIListResults {
+		return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list objects are invalid"}
+	}
+	page := objectListPage{Names: make([]string, 0, len(entries))}
+	for _, entry := range entries {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(entry, &fields) != nil || fields == nil || len(fields) != 1 {
+			return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list object is invalid"}
+		}
+		var name string
+		if json.Unmarshal(fields["name"], &name) != nil || !validObjectStoragePart(name, 1024, true) || !strings.HasPrefix(name, object.Name) {
+			return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage list object is outside requested prefix"}
+		}
+		page.Names = append(page.Names, name)
+	}
+	nextRaw, hasNext := envelope["nextStartWith"]
+	if !hasNext {
+		return page, nil
+	}
+	var next string
+	if json.Unmarshal(nextRaw, &next) != nil || !validOCIPageToken(next) || !validObjectStoragePart(next, 1024, true) || !strings.HasPrefix(next, object.Name) {
+		return objectListPage{}, &InvalidDataError{Message: "OCI Object Storage continuation is invalid"}
+	}
+	page.NextStartWith = next
+	page.HasNextStartWith = true
+	return page, nil
+}
+
+func objectStorageListPath(object ObjectRef, start string) string {
+	query := url.Values{"fields": {"name"}, "limit": {strconv.Itoa(maximumOCIListResults)}, "prefix": {object.Name}}
+	if start != "" {
+		query.Set("start", start)
+	}
+	return "/n/" + url.PathEscape(object.Namespace) + "/b/" + url.PathEscape(object.Bucket) + "/o?" + query.Encode()
+}
+
+func (a *OCIObjectStorageAdapter) objectExistsByExactList(ctx context.Context, object ObjectRef) (bool, error) {
+	if err := a.requireObjectAuthority(ctx, object); err != nil {
+		return false, err
+	}
+	seenTokens := make(map[string]struct{})
+	seenNames := make(map[string]struct{})
+	start := ""
+	for pagesRead := 1; pagesRead <= maximumOCIPages; pagesRead++ {
+		resp, err := a.objectStorage.DoWithHeaders(ctx, http.MethodGet, objectStorageListPath(object, start), nil, map[string]string{
+			"Accept":          "application/json",
+			"Accept-Encoding": "identity",
+		})
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			drainClose(resp.Body)
+			return false, &InvalidOperationError{Message: "OCI Object Storage exact list failed"}
+		}
+		declaredLength, validLength := registryBlobContentLength(resp)
+		_, mediaErr := canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/json" })
+		_, encodingErr := canonicalOCIHeader(resp, "Content-Encoding", true, func(value string) bool { return value == "identity" })
+		if !validLength || mediaErr != nil || encodingErr != nil {
+			drainClose(resp.Body)
+			return false, &InvalidDataError{Message: "OCI Object Storage list metadata is invalid"}
+		}
+		raw, err := ReadBoundedBody(resp, a.objectStorage.Config.MaxBodyBytes)
+		if err != nil {
+			return false, err
+		}
+		if int64(len(raw)) != declaredLength {
+			return false, &InvalidDataError{Message: "OCI Object Storage list length does not match"}
+		}
+		page, err := decodeObjectListPage(raw, object)
+		if err != nil {
+			return false, err
+		}
+		for _, name := range page.Names {
+			if _, duplicate := seenNames[name]; duplicate {
+				return false, &InvalidDataError{Message: "OCI Object Storage list repeated an object"}
+			}
+			seenNames[name] = struct{}{}
+			if name == object.Name {
+				return true, nil
+			}
+		}
+		if !page.HasNextStartWith {
+			return false, nil
+		}
+		if pagesRead == maximumOCIPages {
+			return false, &InvalidDataError{Message: "OCI Object Storage list exceeded page bound"}
+		}
+		if _, duplicate := seenTokens[page.NextStartWith]; duplicate {
+			return false, &InvalidDataError{Message: "OCI Object Storage list continuation cycled"}
+		}
+		if _, duplicateObject := seenNames[page.NextStartWith]; duplicateObject {
+			return false, &InvalidDataError{Message: "OCI Object Storage continuation repeated an object"}
+		}
+		seenTokens[page.NextStartWith] = struct{}{}
+		start = page.NextStartWith
+	}
+	return false, &InvalidDataError{Message: "OCI Object Storage list did not complete"}
 }
 
 func (a *OCIObjectStorageAdapter) HeadObject(ctx context.Context, object ObjectRef) (ObjectMetadata, bool, error) {
-	if a == nil || a.ObjectStorage == nil {
-		return ObjectMetadata{}, false, &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
-	}
-	if err := validateObjectRef(object); err != nil {
+	if err := a.requireObjectAuthority(ctx, object); err != nil {
 		return ObjectMetadata{}, false, err
 	}
-	resp, err := a.ObjectStorage.Do(ctx, http.MethodHead, objectStoragePath(object), nil)
+	resp, err := a.objectStorage.DoWithHeaders(ctx, http.MethodHead, objectStoragePath(object), nil, map[string]string{"Accept-Encoding": "identity"})
 	if err != nil {
 		return ObjectMetadata{}, false, err
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		drainClose(resp.Body)
+		found, listErr := a.objectExistsByExactList(ctx, object)
+		if listErr != nil {
+			return ObjectMetadata{}, false, listErr
+		}
+		if found {
+			return ObjectMetadata{}, false, &InvalidDataError{Message: "OCI Object Storage HEAD contradicted exact list"}
+		}
 		return ObjectMetadata{}, false, nil
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK {
 		drainClose(resp.Body)
 		return ObjectMetadata{}, false, &InvalidOperationError{Message: "OCI Object Storage metadata read failed"}
 	}
@@ -179,17 +467,17 @@ func (a *OCIObjectStorageAdapter) HeadObject(ctx context.Context, object ObjectR
 }
 
 func (a *OCIObjectStorageAdapter) GetObject(ctx context.Context, object ObjectRef) (io.ReadCloser, ObjectMetadata, error) {
-	if a == nil || a.ObjectStorage == nil {
-		return nil, ObjectMetadata{}, &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
-	}
-	if err := validateObjectRef(object); err != nil {
+	if err := a.requireObjectAuthority(ctx, object); err != nil {
 		return nil, ObjectMetadata{}, err
 	}
-	resp, err := a.ObjectStorage.Do(ctx, http.MethodGet, objectStoragePath(object), nil)
+	resp, err := a.objectStorage.DoWithHeaders(ctx, http.MethodGet, objectStoragePath(object), nil, map[string]string{
+		"Accept":          "application/octet-stream",
+		"Accept-Encoding": "identity",
+	})
 	if err != nil {
 		return nil, ObjectMetadata{}, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK || resp.Body == nil {
 		drainClose(resp.Body)
 		return nil, ObjectMetadata{}, &InvalidOperationError{Message: "OCI Object Storage object read failed"}
 	}
@@ -198,7 +486,7 @@ func (a *OCIObjectStorageAdapter) GetObject(ctx context.Context, object ObjectRe
 		drainClose(resp.Body)
 		return nil, ObjectMetadata{}, err
 	}
-	return newDigestVerifyingReadCloser(resp.Body, metadata.SHA256), metadata, nil
+	return newLengthDigestVerifyingReadCloser(resp.Body, metadata.SHA256, metadata.Size), metadata, nil
 }
 
 func objectDeleteBinding(request ObjectDeleteRequest) any {
@@ -216,54 +504,94 @@ func ObjectDeleteMutationScope(request ObjectDeleteRequest) string {
 	return ProviderMutationScope("object", request.Object.Namespace, request.Object.Bucket, request.Object.Name)
 }
 
-func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request ObjectDeleteRequest) error {
-	if a == nil || validateOCIAdapter(a.ObjectStorage, OCIServiceObjectStorage, a.Journal) != nil {
-		return &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
+func (a *OCIObjectStorageAdapter) reconcileObjectDelete(ctx context.Context, request ObjectDeleteRequest, prior ProviderMutationResult) error {
+	_, found, err := a.HeadObject(ctx, request.Object)
+	if err != nil || found {
+		return &ProviderOutcomeUnknownError{Message: "OCI Object Storage DELETE requires authoritative absence proof"}
 	}
-	if err := validateObjectRef(request.Object); err != nil {
+	result, err := mergeObjectMutationResult(prior, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch}, objectStoragePath(request.Object))
+	if err != nil {
+		return &ProviderOutcomeUnknownError{Message: "OCI Object Storage DELETE result changed during reconciliation"}
+	}
+	return markSucceeded(ctx, a.journal, request.Mutation, result)
+}
+
+func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request ObjectDeleteRequest) error {
+	if err := a.requireObjectAuthority(ctx, request.Object); err != nil {
 		return err
 	}
-	if !isSafeETag(request.IfMatch) {
+	if !validCanonicalETag(request.IfMatch) {
 		return &errs.Argument{Message: "object delete ETag fence is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.delete", ObjectDeleteMutationScope(request), objectDeleteBinding(request)); err != nil {
 		return err
 	}
-	record, err := prepareMutation(ctx, a.Journal, request.Mutation)
+	record, err := prepareMutation(ctx, a.journal, request.Mutation)
 	if err != nil {
 		return err
 	}
-	if _, done, err := completedMutation(record); done {
-		return err
+	if result, done, terminalErr := completedMutation(record); done {
+		if terminalErr != nil {
+			return terminalErr
+		}
+		result, err = mergeObjectMutationResult(result, ProviderMutationResult{ETag: request.IfMatch}, objectStoragePath(request.Object))
+		if err != nil || result.ETag != request.IfMatch {
+			return &InvalidDataError{Message: "object storage completed DELETE result is invalid"}
+		}
+		return nil
+	}
+	if record.State == MutationSubmitted || record.State == MutationUnknown {
+		return a.reconcileObjectDelete(ctx, request, record.Result)
 	}
 	_, found, err := a.HeadObject(ctx, request.Object)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
-	}
-	if record.State == MutationUnknown {
-		return &ProviderOutcomeUnknownError{}
-	}
-	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
-		return err
-	}
-	resp, err := a.ObjectStorage.DoWithHeaders(ctx, http.MethodDelete, objectStoragePath(request.Object), nil, map[string]string{"If-Match": request.IfMatch})
-	if err != nil {
-		if indeterminate(err) {
-			if _, found, readErr := a.HeadObject(ctx, request.Object); readErr == nil && !found {
-				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
-			}
-			return finishUnknown(ctx, a.Journal, request.Mutation)
+		result, mergeErr := mergeObjectMutationResult(record.Result, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch}, objectStoragePath(request.Object))
+		if mergeErr != nil {
+			return mergeErr
 		}
+		return markSucceeded(ctx, a.journal, request.Mutation, result)
+	}
+	record, err = a.journal.MarkSubmitted(ctx, request.Mutation)
+	if err != nil {
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
-		drainClose(resp.Body)
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
+	path := objectStoragePath(request.Object)
+	resp, err := a.objectStorage.DoOnceWithHeaders(ctx, http.MethodDelete, path, nil, map[string]string{"If-Match": request.IfMatch})
+	if err != nil {
+		if !indeterminate(err) {
+			return err
+		}
+		result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, ProviderMutationResult{ResourceID: path, ETag: request.IfMatch})
+		if markErr != nil {
+			return markErr
+		}
+		return a.reconcileObjectDelete(ctx, request, result)
 	}
-	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
+	workID, workErr := optionalOCIWorkRequestID(resp)
+	candidate := ProviderMutationResult{ResourceID: path, ETag: request.IfMatch, WorkRequestID: workID}
+	if resp.StatusCode == http.StatusNoContent && workErr == nil && workID == "" {
+		drainClose(resp.Body)
+		result, mergeErr := mergeObjectMutationResult(record.Result, candidate, path)
+		if mergeErr != nil {
+			return mergeErr
+		}
+		return markSucceeded(ctx, a.journal, request.Mutation, result)
+	}
+	if resp.StatusCode == http.StatusNotFound || workErr != nil || workID != "" || (resp.StatusCode >= 200 && resp.StatusCode < 300) {
+		drainClose(resp.Body)
+		result, markErr := a.markObjectUnknown(ctx, request.Mutation, record, candidate)
+		if markErr != nil {
+			return markErr
+		}
+		if workErr != nil {
+			return &ProviderOutcomeUnknownError{Message: "OCI Object Storage DELETE work request metadata is invalid"}
+		}
+		return a.reconcileObjectDelete(ctx, request, result)
+	}
+	return ociMutationFailure(ctx, a.journal, request.Mutation, resp)
 }
 
 const (

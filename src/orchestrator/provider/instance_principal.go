@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"io"
 	"net/http"
@@ -24,8 +25,21 @@ type InstancePrincipalSigner struct {
 	Now   func() time.Time
 }
 
+// snapshot returns an independent signer so an adapter's signing authority
+// cannot be changed through the caller-owned signer after construction.
+func (s *InstancePrincipalSigner) snapshot() (*InstancePrincipalSigner, error) {
+	if s == nil || s.Key == nil || strings.TrimSpace(s.KeyID) == "" || s.Key.Validate() != nil {
+		return nil, &InvalidOperationError{Message: "instance-principal signer is unavailable"}
+	}
+	key, err := x509.ParsePKCS1PrivateKey(x509.MarshalPKCS1PrivateKey(s.Key))
+	if err != nil {
+		return nil, &InvalidOperationError{Message: "instance-principal signer cannot be snapshotted"}
+	}
+	return &InstancePrincipalSigner{Key: key, KeyID: s.KeyID, Now: s.Now}, nil
+}
+
 func NewInstancePrincipalSigner(keyID string, key *rsa.PrivateKey) (*InstancePrincipalSigner, error) {
-	if strings.TrimSpace(keyID) == "" || key == nil || key.N == nil || key.N.BitLen() < 2048 {
+	if strings.TrimSpace(keyID) == "" || key == nil || key.N == nil || key.N.BitLen() < 2048 || key.Validate() != nil {
 		return nil, &errs.Argument{Message: "instance-principal signer requires a 2048-bit RSA key and key ID"}
 	}
 	return &InstancePrincipalSigner{Key: key, KeyID: keyID, Now: time.Now}, nil

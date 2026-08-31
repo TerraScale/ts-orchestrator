@@ -387,6 +387,17 @@ func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.
 // DoWithHeaders is Do with a small caller-supplied set of validated headers.
 // Header names/values are rejected if they contain controls.
 func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	return t.doWithHeaders(ctx, method, path, body, headers, true)
+}
+
+// DoOnceWithHeaders sends exactly one HTTP request. It is for durable
+// mutations whose submitted or unknown state may only be reconciled, never
+// resubmitted by a transport retry loop.
+func (t *OCIHTTPTransport) DoOnceWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	return t.doWithHeaders(ctx, method, path, body, headers, false)
+}
+
+func (t *OCIHTTPTransport) doWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string, allowRetries bool) (*http.Response, error) {
 	if t == nil || t.Client == nil || t.Config.Endpoint == nil {
 		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
 	}
@@ -429,7 +440,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 	mutation := method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 	replayFenced := mutation && ociMutationReplayFenced(callerHeaders)
 	attempts := 1
-	if readOnly || mutation {
+	if allowRetries && (readOnly || mutation) {
 		attempts += t.Config.MaxRetries
 	}
 	for n := 0; n < attempts; n++ {

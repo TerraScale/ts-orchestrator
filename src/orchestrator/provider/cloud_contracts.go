@@ -554,6 +554,20 @@ type ObjectStorageProvider interface {
 }
 
 type ObjectRef struct{ Namespace, Bucket, Name string }
+
+// ObjectStorageReservation is an exact durable catalog reservation. The
+// catalog records generated ledger and backup object names before the
+// provider adapter may read or mutate them.
+type ObjectStorageReservation struct{ Object ObjectRef }
+
+// DurableObjectStorageAuthority is the read-authority seam for Object
+// Storage. Mutation fingerprints do not authorize HEAD, GET, or LIST, so the
+// adapter requires a separate durable exact-name reservation for every call.
+type DurableObjectStorageAuthority interface {
+	AuthoritativeDurable() bool
+	LookupObject(context.Context, ObjectRef) (ObjectStorageReservation, bool, error)
+}
+
 type ObjectPutRequest struct {
 	Mutation ProviderMutationIntent
 	Object   ObjectRef

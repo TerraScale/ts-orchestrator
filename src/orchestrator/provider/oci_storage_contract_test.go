@@ -2,12 +2,58 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+type testObjectAuthority struct {
+	durable bool
+	objects map[ObjectRef]ObjectStorageReservation
+}
+
+func (a *testObjectAuthority) AuthoritativeDurable() bool { return a != nil && a.durable }
+func (a *testObjectAuthority) LookupObject(_ context.Context, object ObjectRef) (ObjectStorageReservation, bool, error) {
+	reservation, found := a.objects[object]
+	return reservation, found, nil
+}
+
+var (
+	testObjectSignerOnce sync.Once
+	testObjectSignerKey  *rsa.PrivateKey
+	testObjectSignerErr  error
+)
+
+func testObjectAdapter(t *testing.T, transport *OCIHTTPTransport, journal ProviderMutationJournal, objects ...ObjectRef) *OCIObjectStorageAdapter {
+	t.Helper()
+	testObjectSignerOnce.Do(func() { testObjectSignerKey, testObjectSignerErr = rsa.GenerateKey(rand.Reader, 2048) })
+	if testObjectSignerErr != nil {
+		t.Fatal(testObjectSignerErr)
+	}
+	signer, err := NewInstancePrincipalSigner("ocid1.instance.oc1.sa-saopaulo-1.testsigner", testObjectSignerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer.Now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	transport.Signer = signer
+	reservations := make(map[ObjectRef]ObjectStorageReservation, len(objects))
+	for _, object := range objects {
+		reservations[object] = ObjectStorageReservation{Object: object}
+	}
+	adapter, err := NewOCIObjectStorageAdapter(transport, journal, OCIObjectStorageScope{
+		Namespace: "namespace", LedgerBucket: "ledger", BackupBucket: "backups",
+	}, &testObjectAuthority{durable: true, objects: reservations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
+}
 
 func testOwnership(t *testing.T, ids ...string) *DurableOwnershipJournal {
 	t.Helper()
@@ -1245,26 +1291,35 @@ func TestOCIStorageNullListCannotAuthorizeAbsence(t *testing.T) {
 func TestOCIObjectStorageAdapterContract(t *testing.T) {
 	content := []byte("durable ledger segment")
 	digest := objectSHA256(content)
+	object := ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "region/segment-1"}
 	putCalls := 0
 	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
-		if request.Method != http.MethodPut || request.URL.EscapedPath() != "/n/namespace/b/ledger/o/region%2Fsegment-1" {
+		if request.URL.EscapedPath() != "/n/namespace/b/ledger/o/region%2Fsegment-1" {
+			t.Fatalf("unexpected object path %s", request.URL.String())
+		}
+		switch request.Method {
+		case http.MethodPut:
+			putCalls++
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(body) != string(content) || request.Header.Get("If-None-Match") != "*" || request.Header.Get("opc-meta-terrascale-sha256") != digest {
+				t.Fatalf("object put body=%q headers=%v", body, request.Header)
+			}
+			return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"object-etag"}}), nil
+		case http.MethodHead:
+			return testHTTPResponse(http.StatusOK, "", http.Header{
+				"Content-Encoding": {"identity"}, "Content-Length": {stringInt(len(content))}, "Content-Type": {"application/octet-stream"},
+				"Etag": {"object-etag"}, "Opc-Meta-Terrascale-Sha256": {digest},
+			}), nil
+		default:
 			t.Fatalf("unexpected object request %s %s", request.Method, request.URL.String())
+			return nil, io.ErrUnexpectedEOF
 		}
-		putCalls++
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(body) != string(content) || request.Header.Get("If-None-Match") != "*" || request.Header.Get("opc-meta-terrascale-sha256") != digest {
-			t.Fatalf("object put body=%q headers=%v", body, request.Header)
-		}
-		return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"object-etag"}}), nil
 	})
-	adapter, err := NewOCIObjectStorageAdapter(transport, testJournal(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := ObjectPutRequest{Object: ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "region/segment-1"}, Content: content, SHA256: digest}
+	adapter := testObjectAdapter(t, transport, testJournal(t), object)
+	request := ObjectPutRequest{Object: object, Content: content, SHA256: digest}
 	request.Mutation = testMutation("object.put", ObjectPutMutationScope(request), ObjectPutMutationFingerprint(request), 5)
 	metadata, err := adapter.PutObject(context.Background(), request)
 	if err != nil || metadata.ETag != "object-etag" || metadata.SHA256 != digest || putCalls != 1 {
