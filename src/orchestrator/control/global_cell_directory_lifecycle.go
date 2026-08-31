@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 // GlobalCellDirectoryLifecycleInitialRetryDelay mirrors the C# constant.
@@ -316,7 +318,7 @@ func globalCellDirectoryLifecycleDelay(ctx context.Context, duration time.Durati
 
 func globalCellDirectoryLifecycleUnavailableSnapshot() GlobalCellDirectorySnapshot {
 	return GlobalCellDirectorySnapshot{
-		SchemaVersion: 1,
+		SchemaVersion: protocol.ProtocolVersion.Current(),
 		ObservedAt:    time.Now().UTC(),
 		ActiveCells:   0,
 		StaleCells:    0,

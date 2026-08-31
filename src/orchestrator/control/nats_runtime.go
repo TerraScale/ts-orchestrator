@@ -451,7 +451,7 @@ func (r *NatsRuntime) startCommandIngress(options *OrchestratorOptions, replaySt
 	}
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	subject, err := r.topology.DirectDeliverySubject()
 	if err != nil {
 		return errors.New("signed command ingress subject is invalid")
@@ -498,10 +498,32 @@ func natsRuntimeVerifyDurableProof(ctx context.Context, consumer jetstream.Consu
 	if err != nil {
 		return err
 	}
-	message := &nats.Msg{Subject: subject, Data: []byte(identifier), Header: nats.Header{
-		"TS-Protocol-Version": []string{"1"}, "TS-Cell": []string{topology.Cell},
-		"TS-Correlation-Id": []string{identifier},
-	}}
+	messageId, _ := protocol.MessageIdentityTokenTryCreate(identifier)
+	correlationId := messageId
+	targetCell := topology.Cell
+	payload := natsRuntimeStartupProof{Nonce: identifier}
+	body, err := protocol.MarshalMessagingEnvelope(&protocol.MessagingEnvelope{
+		SchemaVersion: protocol.MessagingSchemaVersionCurrent,
+		MessageId:     messageId,
+		CorrelationId: &correlationId,
+		Source: protocol.MessagingSource{
+			Instance: topology.Instance,
+			Session:  identifier,
+			Cell:     topology.Cell,
+			Cluster:  "orchestrator-control-" + topology.Cell,
+		},
+		Target: protocol.MessagingTargetScope{
+			Namespace: protocol.NatsSubjectNamespaceRegionalControl,
+			Subject:   subject,
+			Cell:      &targetCell,
+		},
+		PayloadType: "runtime-startup-proof",
+		ObservedAt:  time.Now().UTC(),
+	}, payload)
+	if err != nil {
+		return err
+	}
+	message := &nats.Msg{Subject: subject, Data: body}
 	if _, err := js.PublishMsg(proofCtx, message, jetstream.WithMsgID(identifier), jetstream.WithExpectStream("CELL_EVENTS")); err != nil {
 		return err
 	}
@@ -509,11 +531,29 @@ func natsRuntimeVerifyDurableProof(ctx context.Context, consumer jetstream.Consu
 	if err != nil {
 		return err
 	}
-	if received == nil || len(received.Data()) == 0 || received.Headers().Get("TS-Protocol-Version") != "1" ||
-		received.Headers().Get("TS-Cell") != topology.Cell || received.Headers().Get("TS-Correlation-Id") != string(received.Data()) {
+	if received == nil || received.Subject() != subject {
+		return errors.New("Durable NATS startup event metadata was invalid.")
+	}
+	envelope, encodedPayload, err := protocol.UnmarshalMessagingEnvelope(
+		received.Data(), subject, map[string]struct{}{"runtime-startup-proof": {}})
+	if err != nil || envelope.MessageId.Value != identifier || envelope.CorrelationId == nil ||
+		envelope.CorrelationId.Value != identifier || envelope.Source.Instance != topology.Instance ||
+		envelope.Source.Cell != topology.Cell {
+		return errors.New("Durable NATS startup event metadata was invalid.")
+	}
+	var receivedPayload natsRuntimeStartupProof
+	if err := json.Unmarshal(encodedPayload, &receivedPayload); err != nil || receivedPayload != payload {
+		return errors.New("Durable NATS startup event metadata was invalid.")
+	}
+	canonicalPayload, _ := json.Marshal(receivedPayload)
+	if !bytes.Equal(canonicalPayload, encodedPayload) {
 		return errors.New("Durable NATS startup event metadata was invalid.")
 	}
 	return received.DoubleAck(proofCtx)
+}
+
+type natsRuntimeStartupProof struct {
+	Nonce string `json:"nonce"`
 }
 
 func (r *NatsRuntime) startService() error {
@@ -528,8 +568,30 @@ func (r *NatsRuntime) startService() error {
 	add := func(name string, subject string, metadata map[string]string, handler func(context.Context, *nats.Msg) error) error {
 		return r.service.AddEndpoint(natsSvcEndpointConfig{Name: name, Subject: subject, Metadata: metadata, Handler: handler})
 	}
-	replyJSON := func(value any, message *nats.Msg) error {
-		encoded, err := json.Marshal(value)
+	replyEnvelope := func(subject, payloadType string, value any, message *nats.Msg) error {
+		observedAt := time.Now().UTC()
+		identity, messageId, err := newNatsMessageIdentity()
+		if err != nil {
+			return err
+		}
+		cell := r.topology.Cell
+		encoded, err := protocol.MarshalMessagingEnvelope(&protocol.MessagingEnvelope{
+			SchemaVersion: protocol.MessagingSchemaVersionCurrent,
+			MessageId:     messageId,
+			Source: protocol.MessagingSource{
+				Instance: r.topology.Instance,
+				Session:  identity,
+				Cell:     cell,
+				Cluster:  "orchestrator-control-" + cell,
+			},
+			Target: protocol.MessagingTargetScope{
+				Namespace: protocol.NatsSubjectNamespaceRegionalControl,
+				Subject:   subject,
+				Cell:      &cell,
+			},
+			PayloadType: payloadType,
+			ObservedAt:  observedAt,
+		}, value)
 		if err != nil {
 			return err
 		}
@@ -555,39 +617,44 @@ func (r *NatsRuntime) startService() error {
 	if err != nil {
 		return err
 	}
-	healthHandler := func(_ context.Context, message *nats.Msg) error {
-		value := "not-ready"
-		if r.ready() {
-			value = "ready"
+	healthHandler := func(subject string) func(context.Context, *nats.Msg) error {
+		return func(_ context.Context, message *nats.Msg) error {
+			value := "not-ready"
+			if r.ready() {
+				value = "ready"
+			}
+			return replyEnvelope(subject, "controller-health", struct {
+				Status string `json:"status"`
+			}{Status: value}, message)
 		}
-		return message.Respond([]byte(value))
 	}
-	if err := add("health", healthSubject, map[string]string{"protocol": "1"}, healthHandler); err != nil {
+	protocolVersion := fmt.Sprint(protocol.ProtocolVersion.Current())
+	if err := add("health", healthSubject, map[string]string{"protocol": protocolVersion}, healthHandler(healthSubject)); err != nil {
 		return err
 	}
-	if err := add("instance_health", instanceHealthSubject, map[string]string{"protocol": "1", "instance": r.topology.Instance}, healthHandler); err != nil {
+	if err := add("instance_health", instanceHealthSubject, map[string]string{"protocol": protocolVersion, "instance": r.topology.Instance}, healthHandler(instanceHealthSubject)); err != nil {
 		return err
 	}
 	startedAt := time.Now().UTC()
 	capabilities := []string{"authority", "authority-election", "delivery", "messaging", "observability", "operator-read", "provider-ownership", "reconciliation", "regional-membership", "runtime", "scheduler", "security", "service-discovery", "storage", "terrabase", "nats-nkey-authenticated", "nats-mtls"}
 	sort.Strings(capabilities)
-	if err := add("status", statusSubject, map[string]string{"protocol": "1", "readOnly": "true"}, func(_ context.Context, message *nats.Msg) error {
+	if err := add("status", statusSubject, map[string]string{"protocol": protocolVersion, "readOnly": "true"}, func(_ context.Context, message *nats.Msg) error {
 		snapshot := r.authority.Snapshot()
-		return replyJSON(&RegionalControllerStatus{SchemaVersion: 2, Cell: r.topology.Cell, Instance: r.topology.Instance, ControlReplicas: r.topology.Replicas, Ready: r.ready(), StartedAt: startedAt, ObservedAt: time.Now().UTC(), Build: "unknown", Capabilities: capabilities, AuthorityState: snapshot.State, IsAuthorityLeader: snapshot.IsLeader, AuthorityEpoch: snapshot.Epoch, AuthorityRevision: snapshot.KvRevision, AuthorityLeaseExpiresAt: snapshot.LeaseExpiresAt}, message)
+		return replyEnvelope(statusSubject, "controller-status", &RegionalControllerStatus{SchemaVersion: protocol.ProtocolVersion.Current(), Cell: r.topology.Cell, Instance: r.topology.Instance, ControlReplicas: r.topology.Replicas, Ready: r.ready(), StartedAt: startedAt, ObservedAt: time.Now().UTC(), Build: "unknown", Capabilities: capabilities, AuthorityState: snapshot.State, IsAuthorityLeader: snapshot.IsLeader, AuthorityEpoch: snapshot.Epoch, AuthorityRevision: snapshot.KvRevision, AuthorityLeaseExpiresAt: snapshot.LeaseExpiresAt}, message)
 	}); err != nil {
 		return err
 	}
-	if err := add("members", membersSubject, map[string]string{"protocol": "1", "readOnly": "true", "source": r.topology.Runtime().Bucket}, func(_ context.Context, message *nats.Msg) error {
-		return replyJSON(r.membership.Snapshot(), message)
+	if err := add("members", membersSubject, map[string]string{"protocol": protocolVersion, "readOnly": "true", "source": r.topology.Runtime().Bucket}, func(_ context.Context, message *nats.Msg) error {
+		return replyEnvelope(membersSubject, "controller-membership", r.membership.Snapshot(), message)
 	}); err != nil {
 		return err
 	}
-	if err := add("stats", statsSubject, map[string]string{"protocol": "1", "readOnly": "true", "schema": "aggregated"}, func(_ context.Context, message *nats.Msg) error {
-		document, err := NatsServiceStatsDocumentCreate(r.topology.Cell, "unknown", 2, r.ready(), time.Now().UTC(), r.stats.Snapshot())
+	if err := add("stats", statsSubject, map[string]string{"protocol": protocolVersion, "readOnly": "true", "schema": "aggregated"}, func(_ context.Context, message *nats.Msg) error {
+		document, err := NatsServiceStatsDocumentCreate(r.topology.Cell, "unknown", protocol.ProtocolVersion.Current(), r.ready(), time.Now().UTC(), r.stats.Snapshot())
 		if err != nil {
 			return err
 		}
-		return replyJSON(document, message)
+		return replyEnvelope(statsSubject, "controller-stats", document, message)
 	}); err != nil {
 		return err
 	}

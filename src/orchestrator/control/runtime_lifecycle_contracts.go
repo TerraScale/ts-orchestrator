@@ -28,7 +28,7 @@ var RuntimeLifecycleContract runtimeLifecycleContractStatic
 type runtimeLifecycleContractStatic struct{}
 
 const (
-	RuntimeLifecycleContractSchemaVersion           = 1
+	RuntimeLifecycleContractSchemaVersion           = 2
 	RuntimeLifecycleContractMaximumCasAttempts      = 3
 	RuntimeLifecycleContractMaximumCoordinatorSteps = 12
 )
@@ -320,9 +320,9 @@ type RuntimeLifecycleCheckpoint struct {
 	ErrorCode                   RuntimeLifecycleErrorCode
 }
 
-// RuntimeLifecycleCheckpointProposed mirrors RuntimeLifecycleCheckpoint.Proposed.
+// RuntimeLifecycleCheckpointProposed creates the genesis checkpoint for a request.
 func RuntimeLifecycleCheckpointProposed(request RuntimeLifecycleOperationRequest) (RuntimeLifecycleCheckpoint, error) {
-	genesisDigest, err := NewRuntimeDigest(RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v1"))
+	genesisDigest, err := NewRuntimeDigest(RuntimeLifecycleFingerprint.Hash("runtime-lifecycle-genesis-v2"))
 	if err != nil {
 		return RuntimeLifecycleCheckpoint{}, err
 	}

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const payloadType = "cellspec-v1"
+const payloadType = "cellspec-v2"
 
 func testToken(value string) MessageIdentityToken {
 	token, _ := MessageIdentityTokenTryCreate(value)
@@ -81,7 +81,7 @@ func mustT(t *testing.T, compose func() (string, error)) string {
 
 func messagingContext(overrides ...func(*messagingContextOptions)) *MessagingValidationContext {
 	options := messagingContextOptions{
-		majors:       map[int]struct{}{1: {}},
+		majors:       map[int]struct{}{MessagingSchemaVersionCurrent.Major: {}},
 		payloadTypes: map[string]struct{}{payloadType: {}},
 		command:      validContext(),
 	}
@@ -108,7 +108,7 @@ func TestAWellFormedEnvelopeOverAValidSignedCommandIsAccepted(t *testing.T) {
 }
 
 func TestAnUnknownMajorSchemaVersionFailsClosed(t *testing.T) {
-	for _, offered := range []int{0, 2, 99} {
+	for _, offered := range []int{0, 3, 99} {
 		result := MessagingEnvelopeValidator.Validate(
 			messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.schema = MessagingSchemaVersion{Major: offered} }),
 			messagingContext())
@@ -196,14 +196,6 @@ func TestASubjectOutsideTheClosedTaxonomyFailsClosed(t *testing.T) {
 		t.Fatalf("unknown family error = %v", unknown.Error)
 	}
 
-	superseded := MessagingEnvelopeValidator.Validate(
-		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {
-			o.target = messagingTarget(NatsSubjectNamespaceRegionalControl, "ts.orch.v1.gru.desired.gitops", "")
-		}),
-		messagingContext())
-	if superseded.Error != MessagingEnvelopeErrorSubjectOutsideClosedTaxonomy {
-		t.Fatalf("superseded root error = %v", superseded.Error)
-	}
 }
 
 func TestADeclaredNamespaceThatDisagreesWithTheSubjectFailsClosed(t *testing.T) {
@@ -288,7 +280,6 @@ func TestCellScopeExtractionCoversRegionalAndGlobalPerCellShapesOnly(t *testing.
 		NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
 		NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
 		NatsSubjectTaxonomy.GlobalAcceptedReleasePrefix() + ".ledger",
-		NatsSubjectTaxonomy.SupersededRoot() + ".gru.desired.gitops",
 		mustT(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("gru") }) + ".extra",
 	} {
 		if cell, ok := extractCellScope(subject); ok {
@@ -456,5 +447,13 @@ func TestTheMessageEnvelopeExtendsRatherThanDuplicatesTheSignedCommandContract(t
 
 	if envelope.SchemaVersion != MessagingSchemaVersionCurrent || envelope.PayloadType != payloadType {
 		t.Fatal("envelope schema or payload type differ")
+	}
+}
+
+func TestNonCommandEnvelopeStringDoesNotPanic(t *testing.T) {
+	envelope := messagingEnvelope(t, func(o *messagingEnvelopeOptions) { o.command = nil })
+
+	if got := envelope.String(); !strings.Contains(got, "Command = <none>") {
+		t.Fatalf("string = %q", got)
 	}
 }

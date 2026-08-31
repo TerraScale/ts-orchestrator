@@ -144,7 +144,7 @@ func commandTestMaterial(aggregate string) protocol.CommandSignedMaterial {
 }
 
 func commandTestMaterialAt(aggregate string, issued time.Time) protocol.CommandSignedMaterial {
-	protocolVersion, _ := protocol.ProtocolRevisionTryCreate(1)
+	protocolVersion, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	cell, _ := contracts.CellIdTryCreate("global")
 	aggregateID, _ := contracts.AggregateIdTryCreate(aggregate)
 	generation, _ := protocol.DesiredGenerationTryCreate(7)

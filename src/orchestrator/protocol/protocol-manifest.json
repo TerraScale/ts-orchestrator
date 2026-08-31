@@ -2,7 +2,6 @@
   "name": "terrascale-orchestrator-control-protocol",
   "version": "v2",
   "root": "ts.orch.v2",
-  "supersededRoots": ["ts.orch.v1"],
   "regionToken": {
     "subjectRule": "strict-lowercase-bijective",
     "payloadRule": "canonical-uppercase-region-code",

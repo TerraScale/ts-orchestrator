@@ -3,12 +3,14 @@ package control
 import (
 	"testing"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 func TestGlobalCellDirectoryOwnsAdvertisementSlices(t *testing.T) {
 	now := time.Now().UTC()
 	advertisement := GlobalCellAdvertisement{
-		SchemaVersion:     1,
+		SchemaVersion:     protocol.ProtocolVersion.Current(),
 		Cell:              "gru",
 		Cluster:           "orchestrator-control-gru",
 		AuthorityId:       "gru-regional",

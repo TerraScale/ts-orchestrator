@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 func TestNatsRuntimeCheckFailsClosedWhenInfrastructureJournalIsMissing(t *testing.T) {
@@ -87,6 +90,69 @@ func TestNatsRuntimeReadinessIncludesMembershipLoopFailure(t *testing.T) {
 	runtime.membership.heartbeatFailure.Store(&errorBox{err: errors.New("heartbeat failed")})
 	if runtime.ready() {
 		t.Fatal("a terminal membership heartbeat failure must make the runtime not ready")
+	}
+}
+
+func TestNatsRuntimeHealthServiceReturnsTheBoundV2Envelope(t *testing.T) {
+	instance, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.Start()
+	t.Cleanup(func() { instance.Shutdown(); instance.WaitForShutdown() })
+	if !instance.ReadyForConnections(5 * time.Second) {
+		t.Fatal("test NATS server did not become ready")
+	}
+	client, err := nats.Connect(instance.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	now := time.Now().UTC()
+	expires := now.Add(time.Minute)
+	runtime := &NatsRuntime{
+		client:   client,
+		topology: NewNatsTopology("gru", 1, "controller-1"),
+		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+			State: "leader", IsLeader: true, Epoch: 2, KvRevision: 4,
+			ObservedAt: now, LeaseExpiresAt: &expires,
+		}},
+		membership:  &RegionalRuntimeMembership{},
+		stats:       NewNatsServiceEndpointStats(),
+		lifetimeCtx: context.Background(),
+	}
+	if err := runtime.startService(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if runtime.serviceInfo != nil {
+			_ = runtime.serviceInfo.Unsubscribe()
+		}
+		if runtime.service != nil {
+			runtime.service.Stop()
+		}
+	})
+	subject, err := runtime.topology.HealthSubject()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := client.Request(subject, nil, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, payload, err := protocol.UnmarshalMessagingEnvelope(
+		reply.Data, subject, map[string]struct{}{"controller-health": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != protocol.MessagingSchemaVersionCurrent || envelope.Source.Cell != "gru" {
+		t.Fatalf("health envelope = %#v", envelope)
+	}
+	var health struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &health); err != nil || health.Status != "ready" {
+		t.Fatalf("health payload = %s, err = %v", payload, err)
 	}
 }
 

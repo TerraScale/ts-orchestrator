@@ -5,12 +5,20 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 func TestSourceNotFoundErrorMatchesOnlyItsSentinel(t *testing.T) {
@@ -66,6 +74,71 @@ func TestWebhookJournalPublishesBeforeAcceptanceAndConverges(t *testing.T) {
 	two, err := j.Accept(context.Background(), e)
 	if err != nil || two.Disposition != JournalDuplicate || len(pub.events) != 1 {
 		t.Fatalf("duplicate=%v err=%v events=%d", two, err, len(pub.events))
+	}
+}
+
+func TestNatsEventPublisherEmitsOnlyTheBoundV2ForgejoEnvelope(t *testing.T) {
+	instance, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.Start()
+	t.Cleanup(func() { instance.Shutdown(); instance.WaitForShutdown() })
+	if !instance.ReadyForConnections(5 * time.Second) {
+		t.Fatal("test NATS server did not become ready")
+	}
+	client, err := nats.Connect(instance.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	js, err := jetstream.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := protocol.NatsSubjectTaxonomy.CiForgejoTriggerSubject()
+	if _, err := js.CreateStream(context.Background(), jetstream.StreamConfig{
+		Name: "GLOBAL_CI", Subjects: []string{subject}, Storage: jetstream.MemoryStorage,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := client.SubscribeSync(subject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = subscription.Unsubscribe() })
+	if err := client.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	secret := []byte(strings.Repeat("s", 32))
+	payload := signedPush(t, "bffeb74224043ba2feb48d137756c8a9331c449a", "refs/heads/develop", "f6266f16-1bf3-46a5-9ea4-602e06ead473")
+	event := VerifyWebhook(payload, secret, "acme/repo", "application/json", signature(payload, secret), "f6266f16-1bf3-46a5-9ea4-602e06ead473", "push").Envelope
+	publisher := NatsEventPublisher{JS: js}
+	if err := publisher.Publish(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	message, err := subscription.NextMsg(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, encodedPayload, err := protocol.UnmarshalMessagingEnvelope(
+		message.Data, subject, map[string]struct{}{"forgejo-webhook": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envelope.SchemaVersion != protocol.MessagingSchemaVersionCurrent || envelope.MessageId.Value != event.DeliveryID {
+		t.Fatalf("Forgejo envelope = %#v", envelope)
+	}
+	var document eventDocument
+	if err := json.Unmarshal(encodedPayload, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != protocol.ProtocolVersion.Current() || document.DeliveryID != event.DeliveryID {
+		t.Fatalf("Forgejo payload = %#v", document)
+	}
+	if err := (NatsEventPublisher{JS: js, Subject: subject + ".alternate"}).Publish(context.Background(), event); err == nil {
+		t.Fatal("alternate Forgejo subject was accepted")
 	}
 }
 

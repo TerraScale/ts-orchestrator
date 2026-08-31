@@ -8,11 +8,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// GlobalCellAdvertisement mirrors the C# record. JSON tags mirror the C#
-// source-generated context (default options: PascalCase names, null semantics
-// through pointers).
+// GlobalCellAdvertisement is one versioned regional advertisement. Its JSON
+// field names are part of the persisted directory contract.
 type GlobalCellAdvertisement struct {
 	SchemaVersion     int                             `json:"SchemaVersion"`
 	Cell              string                          `json:"Cell"`
@@ -28,12 +29,12 @@ type GlobalCellAdvertisement struct {
 	Endpoints         []string                        `json:"Endpoints,omitempty"`
 }
 
-// GlobalCellAdvertisementSemanticLease mirrors the C# SemanticLease.
+// GlobalCellAdvertisementSemanticLease is the accepted advertisement lifetime.
 const GlobalCellAdvertisementSemanticLease = 20 * time.Second
 
-// IsValid mirrors the C# IsValid.
+// IsValid reports whether the advertisement satisfies the directory contract.
 func (a GlobalCellAdvertisement) IsValid(now time.Time) bool {
-	valid := a.SchemaVersion == 1 &&
+	valid := a.SchemaVersion == protocol.ProtocolVersion.Current() &&
 		GlobalNatsTopologyIsCellToken(a.Cell) &&
 		a.Cluster == "orchestrator-control-"+a.Cell &&
 		a.AuthorityId == a.Cell+"-regional" &&
@@ -223,7 +224,7 @@ func (s *GlobalCellDirectorySnapshot) Validate() error {
 		condition = GlobalCellDirectoryConditionHealthy
 	}
 
-	valid := s.SchemaVersion == 1 &&
+	valid := s.SchemaVersion == protocol.ProtocolVersion.Current() &&
 		!s.ObservedAt.IsZero() &&
 		!s.ObservedAt.After(time.Now().UTC().Add(time.Minute)) &&
 		s.ActiveCells == active && s.StaleCells == stale && s.RejectedAdvertisements >= 0 &&
@@ -237,7 +238,7 @@ func (s *GlobalCellDirectorySnapshot) Validate() error {
 			}
 
 			advertisement := GlobalCellAdvertisement{
-				SchemaVersion:     1,
+				SchemaVersion:     protocol.ProtocolVersion.Current(),
 				Cell:              cell.Cell,
 				Cluster:           cell.Cluster,
 				AuthorityId:       cell.AuthorityId,
@@ -473,7 +474,7 @@ func (d *GlobalCellDirectory) Snapshot(observedAt *time.Time) GlobalCellDirector
 	}
 
 	return GlobalCellDirectorySnapshot{
-		SchemaVersion:          1,
+		SchemaVersion:          protocol.ProtocolVersion.Current(),
 		ObservedAt:             now,
 		ActiveCells:            active,
 		StaleCells:             stale,

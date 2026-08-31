@@ -17,10 +17,6 @@ func TestTheControlRootIsExactlyTheFreshV2ProtocolRoot(t *testing.T) {
 		t.Fatal("root mismatch")
 	}
 
-	if NatsSubjectTaxonomy.SupersededRoot() != "ts.orch.v1" {
-		t.Fatal("superseded root mismatch")
-	}
-
 	if NatsSubjectTaxonomy.GlobalRoot() != "ts.orch.v2.global" {
 		t.Fatal("global root mismatch")
 	}
@@ -248,11 +244,8 @@ func TestClassificationSeparatesEveryNamespaceOfTheClosedTaxonomy(t *testing.T) 
 	}
 }
 
-func TestClassificationFailsClosedOnUnknownAndSupersededShapes(t *testing.T) {
+func TestClassificationFailsClosedOnUnknownShapes(t *testing.T) {
 	unknown := []string{
-		"ts.orch.v1.gru.desired.gitops",
-		"ts.orch.v1.global.query.cells",
-		"ts.orch.v1.gru.unknown.channel",
 		"ts.orch.v2.gru.unknown.channel",
 		"ts.orch.v2.gru.event.runtime.started.controller-1",
 		"ts.orch.v2.gru.internal.operation-journal.create",
@@ -337,7 +330,6 @@ func TestNoWildcardPermissionMayCrossARegionBoundary(t *testing.T) {
 		{"ts.orch.v2.gru.agent.*.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
 		{"ts.orch.v2.gru.agent.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
 		{"ts.orch.v2.gru.agent.not-a-fixed-hash.command.>", NatsSubjectPermissionErrorInvalidAgentHashToken},
-		{"ts.orch.v1.gru.desired.>", NatsSubjectPermissionErrorSupersededRoot},
 		{"ts.orch.>", NatsSubjectPermissionErrorOutsideControlRoot},
 		{"$SYS.>", NatsSubjectPermissionErrorPlatformReserved},
 		{"ts.product.v1.>", NatsSubjectPermissionErrorOutsideControlRoot},
@@ -409,7 +401,6 @@ func TestCustomerProvidedTextNeverBecomesASubjectToken(t *testing.T) {
 		{"ts.orch.v2.gru.query.héllo", NatsSubjectAdmissionErrorCustomerTextInSubject},
 		{"ts.orch.v2.gru. query.health", NatsSubjectAdmissionErrorMalformedSubject},
 		{"ts.orch.v2.gru.agent.enroll", NatsSubjectAdmissionErrorInvalidAgentHashToken},
-		{"ts.orch.v1.gru.desired.gitops", NatsSubjectAdmissionErrorSupersededRoot},
 		{"ts.product.v1.queue.default", NatsSubjectAdmissionErrorOutsideControlRoot},
 		{"$JS.API.STREAM.INFO", NatsSubjectAdmissionErrorPlatformReserved},
 		{"ts.orch.v2.gru.unknown.channel", NatsSubjectAdmissionErrorUnknownNamespace},
@@ -419,109 +410,6 @@ func TestCustomerProvidedTextNeverBecomesASubjectToken(t *testing.T) {
 		ok, err := NatsSubjectTaxonomy.TryAdmitSubject(testCase.subject)
 		if ok || err != testCase.want {
 			t.Fatalf("subject %q: ok = %v, error = %v", testCase.subject, ok, err)
-		}
-	}
-}
-
-func TestNoV1PrefixedSubjectAppearsInAnyV2TaxonomySurface(t *testing.T) {
-	// Mirrors the reflection walk over the taxonomy's public const fields with
-	// an explicit inventory of those constants.
-	constants := map[string]string{
-		"Root":                              NatsSubjectTaxonomy.Root(),
-		"SupersededRoot":                    NatsSubjectTaxonomy.SupersededRoot(),
-		"GlobalScopeToken":                  NatsSubjectTaxonomy.GlobalScopeToken(),
-		"RegionPlaceholderToken":            NatsSubjectTaxonomy.RegionPlaceholderToken(),
-		"AgentHashPlaceholderToken":         NatsSubjectTaxonomy.AgentHashPlaceholderToken(),
-		"GlobalRoot":                        NatsSubjectTaxonomy.GlobalRoot(),
-		"GlobalDirectoryQuerySubject":       NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
-		"GlobalCellSpecPrefix":              NatsSubjectTaxonomy.GlobalCellSpecPrefix(),
-		"GlobalAcceptedReleasePrefix":       NatsSubjectTaxonomy.GlobalAcceptedReleasePrefix(),
-		"CiForgejoTriggerSubject":           NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
-		"CiRuntimeProofSubject":             NatsSubjectTaxonomy.CiRuntimeProofSubject(),
-		"CiJobSubjectPrefix":                NatsSubjectTaxonomy.CiJobSubjectPrefix(),
-		"DesiredFamilySegment":              NatsSubjectTaxonomy.DesiredFamilySegment(),
-		"ReleaseFamilySegment":              NatsSubjectTaxonomy.ReleaseFamilySegment(),
-		"QueryFamilySegment":                NatsSubjectTaxonomy.QueryFamilySegment(),
-		"CommandFamilySegment":              NatsSubjectTaxonomy.CommandFamilySegment(),
-		"ObservationFamilySegment":          NatsSubjectTaxonomy.ObservationFamilySegment(),
-		"OperationFamilySegment":            NatsSubjectTaxonomy.OperationFamilySegment(),
-		"RegionalAuditPrefixSegment":        NatsSubjectTaxonomy.RegionalAuditPrefixSegment(),
-		"RegionalAgentPrefixSegment":        NatsSubjectTaxonomy.RegionalAgentPrefixSegment(),
-		"RegionalDesiredFamilyTemplate":     NatsSubjectTaxonomy.RegionalDesiredFamilyTemplate(),
-		"RegionalOperationFamilyTemplate":   NatsSubjectTaxonomy.RegionalOperationFamilyTemplate(),
-		"RegionalObservationFamilyTemplate": NatsSubjectTaxonomy.RegionalObservationFamilyTemplate(),
-		"RegionalCellSpecTemplate":          NatsSubjectTaxonomy.RegionalCellSpecTemplate(),
-		"RegionalRuntimeStartupTemplate":    NatsSubjectTaxonomy.RegionalRuntimeStartupTemplate(),
-		"GlobalCiFamilyPattern":             NatsSubjectTaxonomy.GlobalCiFamilyPattern(),
-	}
-
-	if len(constants) < 8 {
-		t.Fatal("the taxonomy constant inventory is incomplete")
-	}
-
-	if constants["Root"] != "ts.orch.v2" {
-		t.Fatal("root constant mismatch")
-	}
-
-	for name, value := range constants {
-		if name == "SupersededRoot" || name == "RegionPlaceholderToken" || name == "AgentHashPlaceholderToken" {
-			continue
-		}
-
-		if strings.HasPrefix(value, NatsSubjectTaxonomy.SupersededRoot()+".") {
-			t.Fatalf("constant %s=%q must not live under the superseded v1 root", name, value)
-		}
-	}
-
-	composed := []string{
-		NatsSubjectTaxonomy.GlobalDirectoryQuerySubject(),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.GlobalCellSpecSubject("sfo") }),
-		NatsSubjectTaxonomy.CiForgejoTriggerSubject(),
-		NatsSubjectTaxonomy.CiRuntimeProofSubject(),
-		NatsSubjectTaxonomy.CiJobSubjectPrefix(),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.CellSpecSubject("gru") }),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.DirectDeliverySubject("gru") }),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.OperationJournalCreateSubject("gru") }),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.RuntimeStartupSubject("gru", "controller-1") }),
-		must(t, func() (string, error) { return NatsSubjectTaxonomy.HostAgentSubjectRoot("gru", testAgentIdentity) }),
-		must(t, func() (string, error) {
-			return NatsSubjectTaxonomy.RegionalFamilyPattern("fra", NatsSubjectTaxonomy.RegionalAuditPrefixSegment())
-		}),
-		NatsSubjectTaxonomy.GlobalFamilyPattern(NatsSubjectTaxonomy.ReleaseFamilySegment()),
-	}
-
-	for _, subject := range composed {
-		if !strings.HasPrefix(subject, NatsSubjectTaxonomy.Root()+".") {
-			t.Fatalf("composed subject %q must live under the v2 root", subject)
-		}
-
-		if NatsSubjectTaxonomy.Classify(subject) == NatsSubjectNamespaceUnknown {
-			t.Fatalf("composed subject %q must classify", subject)
-		}
-	}
-
-	for _, prefix := range []string{NatsSubjectTaxonomy.GlobalRoot(), must(t, func() (string, error) { return NatsSubjectTaxonomy.RegionalRoot("gru") })} {
-		if !strings.HasPrefix(prefix, NatsSubjectTaxonomy.Root()+".") {
-			t.Fatalf("prefix %q must live under the v2 root", prefix)
-		}
-
-		if strings.HasPrefix(prefix, NatsSubjectTaxonomy.SupersededRoot()+".") {
-			t.Fatalf("prefix %q must not live under the v1 root", prefix)
-		}
-	}
-
-	for _, family := range NatsSubjectTaxonomy.Families() {
-		if strings.HasPrefix(family.Pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-			t.Fatalf("family %q must not live under the v1 root", family.Pattern)
-		}
-	}
-
-	for _, grants := range ProtocolManifestLoaded().AccountKinds {
-		patterns := append(append([]string{}, grants.Publish...), grants.Subscribe...)
-		for _, pattern := range patterns {
-			if strings.HasPrefix(pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-				t.Fatalf("account kind %q must not hold v1 permissions", grants.Kind)
-			}
 		}
 	}
 }

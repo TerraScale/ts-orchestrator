@@ -15,8 +15,8 @@ type MessagingSchemaVersion struct {
 	Minor int
 }
 
-// MessagingSchemaVersionCurrent mirrors MessagingSchemaVersion.Current.
-var MessagingSchemaVersionCurrent = MessagingSchemaVersion{Major: 1, Minor: 0}
+// MessagingSchemaVersionCurrent is the one admitted envelope schema.
+var MessagingSchemaVersionCurrent = MessagingSchemaVersion{Major: 2, Minor: 0}
 
 // IsWellFormed reports whether both components are valid (positive major,
 // nonnegative minor).
@@ -183,15 +183,20 @@ type MessagingEnvelope struct {
 	ObservedAt    time.Time
 }
 
-// String mirrors the C# ToString: the message id is redacted.
+// String renders a redacted envelope summary.
 func (e MessagingEnvelope) String() string {
+	command := "<none>"
+	if e.Command != nil {
+		command = e.Command.String()
+	}
+
 	return "MessagingEnvelope { SchemaVersion = " + e.SchemaVersion.String() +
 		", MessageId = <redacted>, Target = " + e.Target.Subject +
 		", PayloadType = " + e.PayloadType +
-		", Command = " + e.Command.String() + " }"
+		", Command = " + command + " }"
 }
 
-// MessagingEnvelopeError mirrors the MessagingEnvelopeError enum.
+// MessagingEnvelopeError classifies envelope admission failures.
 type MessagingEnvelopeError int
 
 const (
@@ -324,7 +329,7 @@ func (messagingEnvelopeValidator) Validate(
 		!envelope.Target.IsWellFormed() ||
 		strings.TrimSpace(envelope.PayloadType) == "" ||
 		len(envelope.PayloadType) > 64 ||
-		envelope.Command == nil {
+		envelope.ObservedAt.IsZero() {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorMalformedEnvelope, CommandValidationErrorUninitialized)
 	}
 
@@ -332,8 +337,9 @@ func (messagingEnvelopeValidator) Validate(
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorInvalidTraceContext, CommandValidationErrorUninitialized)
 	}
 
-	// Source and signed command must agree on the cell before any subject coupling check.
-	if envelope.Source.Cell != envelope.Command.Cell.Value {
+	// Signed commands bind the source cell through their signed material. Other
+	// message classes bind it directly to the v2 target below.
+	if envelope.Command != nil && envelope.Source.Cell != envelope.Command.Cell.Value {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSourceCellMismatch, CommandValidationErrorUninitialized)
 	}
 
@@ -352,12 +358,16 @@ func (messagingEnvelopeValidator) Validate(
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorDeclaredNamespaceMismatch, CommandValidationErrorUninitialized)
 	}
 
+	expectedCell := envelope.Source.Cell
+	if envelope.Command != nil {
+		expectedCell = envelope.Command.Cell.Value
+	}
 	if subjectCell, scoped := extractCellScope(envelope.Target.Subject); scoped &&
-		subjectCell != envelope.Command.Cell.Value {
+		subjectCell != expectedCell {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSubjectCellMismatch, CommandValidationErrorUninitialized)
 	}
 
-	if envelope.Target.Cell != nil && *envelope.Target.Cell != envelope.Command.Cell.Value {
+	if envelope.Target.Cell != nil && *envelope.Target.Cell != expectedCell {
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorSubjectCellMismatch, CommandValidationErrorUninitialized)
 	}
 
@@ -365,9 +375,11 @@ func (messagingEnvelopeValidator) Validate(
 		return messagingEnvelopeRejected(MessagingEnvelopeErrorPayloadTypeNotPermitted, CommandValidationErrorUninitialized)
 	}
 
-	commandResult := CommandEnvelopeValidator.Validate(envelope.Command, context.CommandContext, envelope.ObservedAt)
-	if !commandResult.IsValid() {
-		return messagingEnvelopeRejected(MessagingEnvelopeErrorCommandRejected, commandResult.Error)
+	if envelope.Command != nil {
+		commandResult := CommandEnvelopeValidator.Validate(envelope.Command, context.CommandContext, envelope.ObservedAt)
+		if !commandResult.IsValid() {
+			return messagingEnvelopeRejected(MessagingEnvelopeErrorCommandRejected, commandResult.Error)
+		}
 	}
 
 	return messagingEnvelopeAccepted(envelope)
