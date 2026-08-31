@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type OCIObjectStorageAdapter struct {
@@ -29,7 +31,7 @@ func validateObjectRef(object ObjectRef) error {
 	if len(object.Namespace) < 1 || len(object.Namespace) > 128 || len(object.Bucket) < 1 || len(object.Bucket) > 256 ||
 		len(object.Name) < 1 || len(object.Name) > 1024 || strings.ContainsAny(object.Namespace+object.Bucket+object.Name, "\r\n") ||
 		strings.Contains(object.Namespace, "/") || strings.Contains(object.Bucket, "/") {
-		return &ArgumentError{Message: "object storage identity is invalid"}
+		return &errs.Argument{Message: "object storage identity is invalid"}
 	}
 	return nil
 }
@@ -62,7 +64,7 @@ func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectP
 		return ObjectMetadata{}, err
 	}
 	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
-		return ObjectMetadata{}, &ArgumentError{Message: "object storage content binding is invalid"}
+		return ObjectMetadata{}, &errs.Argument{Message: "object storage content binding is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.put", ObjectPutMutationScope(request), objectPutBinding(request)); err != nil {
 		return ObjectMetadata{}, err
@@ -221,7 +223,7 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 		return err
 	}
 	if !isSafeETag(request.IfMatch) {
-		return &ArgumentError{Message: "object delete ETag fence is invalid"}
+		return &errs.Argument{Message: "object delete ETag fence is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.delete", ObjectDeleteMutationScope(request), objectDeleteBinding(request)); err != nil {
 		return err
@@ -272,7 +274,7 @@ type OCIRegistryTokenSigner struct{ username, token string }
 func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
 	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
 		strings.TrimSpace(username) != username || strings.ContainsAny(username+token, "\r\n") {
-		return nil, &ArgumentError{Message: "OCI registry credential is invalid"}
+		return nil, &errs.Argument{Message: "OCI registry credential is invalid"}
 	}
 	return &OCIRegistryTokenSigner{username: username, token: token}, nil
 }
@@ -294,12 +296,12 @@ func NewOCIRegistryAdapter(transport *OCIHTTPTransport) (*OCIRegistryAdapter, er
 
 func registryRepositoryPath(repository string) (string, error) {
 	if len(repository) < 1 || len(repository) > 512 || strings.ContainsAny(repository, "\r\n\\") {
-		return "", &ArgumentError{Message: "registry repository is invalid"}
+		return "", &errs.Argument{Message: "registry repository is invalid"}
 	}
 	parts := strings.Split(repository, "/")
 	for index, part := range parts {
 		if len(part) < 1 || len(part) > 128 || strings.Contains(part, "..") {
-			return "", &ArgumentError{Message: "registry repository is invalid"}
+			return "", &errs.Argument{Message: "registry repository is invalid"}
 		}
 		parts[index] = url.PathEscape(part)
 	}
@@ -322,7 +324,7 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 	}
 	repository, err := registryRepositoryPath(request.Repository)
 	if err != nil || !validRegistryReference(request.Reference) {
-		return RegistryManifest{}, &ArgumentError{Message: "registry manifest request is invalid"}
+		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
 	}
 	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{"Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json"})
 	if err != nil {
@@ -354,7 +356,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	}
 	repository, err := registryRepositoryPath(request.Repository)
 	if err != nil || !strings.HasPrefix(request.Digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(request.Digest, "sha256:")) {
-		return nil, 0, &ArgumentError{Message: "registry blob request is invalid"}
+		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
 	}
 	resp, err := a.Registry.Do(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil)
 	if err != nil {
