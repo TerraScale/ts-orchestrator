@@ -22,6 +22,27 @@ jobs:
     steps:
       - run: uname -s
 
+  diagnostic-host-go:
+    name: diagnostic/runner-host-go
+    runs-on: terrascale-builder
+    timeout-minutes: 5
+    steps:
+      - run: go version
+
+  diagnostic-host-docker:
+    name: diagnostic/runner-host-docker
+    runs-on: terrascale-builder
+    timeout-minutes: 5
+    steps:
+      - run: docker version
+
+  diagnostic-host-podman:
+    name: diagnostic/runner-host-podman
+    runs-on: terrascale-builder
+    timeout-minutes: 5
+    steps:
+      - run: podman version
+
   diagnostic-public-container:
     name: diagnostic/public-go-container
     runs-on: terrascale-builder
