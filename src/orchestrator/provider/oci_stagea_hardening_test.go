@@ -291,7 +291,7 @@ func TestStageARegistryBlobFollowsOneSafeRedirectWithoutCredentials(t *testing.T
 			}
 			return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {target}}), nil
 		case "namespace.objectstorage.sa-saopaulo-1.oci.customer-oci.com":
-			if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+			if request.Header.Get("Accept") != "application/octet-stream" || request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
 				t.Fatalf("redirect leaked headers %v", request.Header)
 			}
 			return testHTTPResponse(http.StatusOK, blob, http.Header{"Content-Length": {"16"}}), nil

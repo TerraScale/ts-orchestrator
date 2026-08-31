@@ -377,6 +377,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 		if requestErr != nil {
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
+		redirectRequest.Header.Set("Accept", "application/octet-stream")
 		redirectRequest.Header.Del("Authorization")
 		redirectRequest.Header.Del("Cookie")
 		client := *a.Registry.Client
