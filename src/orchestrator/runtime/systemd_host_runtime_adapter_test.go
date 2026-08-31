@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,8 +15,9 @@ type recordingHostRunner struct {
 }
 
 type hostCommandCall struct {
-	Executable string
-	Arguments  []string
+	Executable  string
+	Arguments   []string
+	Environment map[string]string
 }
 
 func newRecordingHostRunner(results ...HostCommandResult) *recordingHostRunner {
@@ -24,6 +26,21 @@ func newRecordingHostRunner(results ...HostCommandResult) *recordingHostRunner {
 
 func (r *recordingHostRunner) Run(ctx context.Context, executable string, arguments []string) (HostCommandResult, error) {
 	r.commands = append(r.commands, hostCommandCall{Executable: executable, Arguments: append([]string{}, arguments...)})
+	return r.nextResult()
+}
+
+func (r *recordingHostRunner) RunWithEnvironment(ctx context.Context, executable string, arguments []string, environment map[string]string) (HostCommandResult, error) {
+	copyEnvironment := make(map[string]string, len(environment))
+	for key, value := range environment {
+		copyEnvironment[key] = value
+	}
+	r.commands = append(r.commands, hostCommandCall{
+		Executable: executable, Arguments: append([]string{}, arguments...), Environment: copyEnvironment,
+	})
+	return r.nextResult()
+}
+
+func (r *recordingHostRunner) nextResult() (HostCommandResult, error) {
 	if len(r.pending) == 0 {
 		return HostCommandResult{ExitCode: 0}, nil
 	}
@@ -193,6 +210,20 @@ func TestProcessHostCommandRunnerHandlesStartFailureAndBoundsOutput(t *testing.T
 	}
 	if len([]rune(result.StandardOutput)) > hostCommandMaximumCapturedCharacters {
 		t.Fatalf("captured output exceeded bound: %d", len([]rune(result.StandardOutput)))
+	}
+}
+
+func TestProcessHostCommandRunnerOverridesRuntimeDirectoryExactly(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/9999")
+	result, err := (ProcessHostCommandRunner{}).RunWithEnvironment(
+		context.Background(), "/usr/bin/env", nil,
+		map[string]string{"XDG_RUNTIME_DIR": "/run/user/1042"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(result.StandardOutput, "XDG_RUNTIME_DIR=/run/user/1042\n") ||
+		strings.Count(result.StandardOutput, "XDG_RUNTIME_DIR=") != 1 {
+		t.Fatalf("XDG_RUNTIME_DIR environment = %q", result.StandardOutput)
 	}
 }
 

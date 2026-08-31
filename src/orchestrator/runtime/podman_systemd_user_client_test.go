@@ -82,6 +82,9 @@ func TestSystemdUserPodmanPreflightProvesPodmanAndTheUserManager(t *testing.T) {
 		!stringSlicesEqual(runner.commands[0].Arguments, []string{"--user", "show-environment"}) {
 		t.Fatalf("systemd preflight command = %+v", runner.commands)
 	}
+	if got := runner.commands[0].Environment; len(got) != 1 || got["XDG_RUNTIME_DIR"] != "/run/user/1042" {
+		t.Fatalf("systemd preflight environment = %#v", got)
+	}
 }
 
 func TestSystemdUserPodmanStartCreatesTheFencedTransientUnit(t *testing.T) {

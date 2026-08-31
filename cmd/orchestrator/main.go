@@ -171,7 +171,7 @@ func execute(ctx context.Context, args []string, lookup envLookup, output io.Wri
 		if err != nil {
 			return commandFailure(name, err)
 		}
-		if err := startAutoscalerRole(ctx, configuration); err != nil {
+		if err := startAutoscalerRoleWithOutput(ctx, configuration, output); err != nil {
 			return commandFailure(name, err)
 		}
 		return nil
@@ -959,6 +959,7 @@ type autoscalerNodeEntry struct {
 // the peer candidates observed on every other node.
 type autoscalerRole struct {
 	settings           autoscalerRoleSettings
+	output             io.Writer
 	connection         *nats.Conn
 	provisioner        autoscaling.NodeProvisioner
 	replicaDrains      *stateful.ReplicaDrainSafetyEvaluator
@@ -1271,6 +1272,11 @@ func (r *autoscalerRole) apply(ctx context.Context, action autoscaling.Autoscale
 		if err := r.requireDrained(action.NodeId()); err != nil {
 			return err
 		}
+		if r.output != nil {
+			if _, err := fmt.Fprintf(r.output, "autoscaler action=RetireNode node=%s\n", action.NodeId()); err != nil {
+				return err
+			}
+		}
 		if err := r.provisioner.Retire(ctx, action.NodeId()); err != nil {
 			return err
 		}
@@ -1507,6 +1513,10 @@ func autoscalerNodeAgentArgumentsResolver(settings autoscalerRoleSettings) func(
 // process provisioner, and executes one tick per interval. A tick or action
 // failure stops the role fail-closed.
 func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) error {
+	return startAutoscalerRoleWithOutput(ctx, settings, os.Stdout)
+}
+
+func startAutoscalerRoleWithOutput(ctx context.Context, settings autoscalerRoleSettings, output io.Writer) error {
 	if ctx == nil {
 		return errors.New("autoscaler: the role context must not be nil")
 	}
@@ -1530,6 +1540,7 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	}()
 	role := &autoscalerRole{
 		settings:   settings,
+		output:     output,
 		connection: connection,
 		nodes:      make(map[string]*autoscalerNodeEntry),
 	}

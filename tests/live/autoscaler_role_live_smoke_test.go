@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -46,7 +49,7 @@ func TestAutoscalerRoleAuthenticatedLifecycle(t *testing.T) {
 	role := exec.CommandContext(ctx, os.Getenv("TS_ORCH_LIVE_ORCHESTRATOR_BINARY"), "autoscaler")
 	role.Env = liveRoleEnvironment(os.Environ())
 	role.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	var roleOutput bytes.Buffer
+	var roleOutput synchronizedBuffer
 	role.Stdout, role.Stderr = &roleOutput, &roleOutput
 	if err := role.Start(); err != nil {
 		t.Fatalf("start autoscaler role: %v", err)
@@ -126,6 +129,42 @@ func TestAutoscalerRoleAuthenticatedLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := waitForRoleChild(t, ctx, connection, heartbeats, demand)
+	childProcess := waitForRoleChildProcess(t, ctx, role.Process.Pid,
+		os.Getenv("TS_ORCH_AUTOSCALER_AGENT_BINARY"), child.NodeId.String())
+	if !childProcess.alive() {
+		t.Fatalf("role child %s was not alive after its authenticated heartbeat", child.NodeId)
+	}
+	// Establish a live pre-retirement observation. A child that crashed before
+	// the retire action must not satisfy this lifecycle test.
+	preRetirementDeadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(preRetirementDeadline) {
+		if !childProcess.alive() {
+			t.Fatalf("role child %s exited before the retire action", child.NodeId)
+		}
+		assertRoleRunning(t, roleDone)
+		time.Sleep(100 * time.Millisecond)
+	}
+	retireOutput := "autoscaler action=RetireNode node=" + child.NodeId.String()
+	childExitedBeforeAction := atomic.Bool{}
+	childExitObserved := make(chan struct{})
+	stopChildMonitor := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(20 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if !childProcess.alive() {
+					childExitedBeforeAction.Store(!strings.Contains(roleOutput.String(), retireOutput))
+					close(childExitObserved)
+					return
+				}
+			case <-stopChildMonitor:
+				return
+			}
+		}
+	}()
+	defer close(stopChildMonitor)
 
 	feed, err := autoscaling.NewAutoscalerObservationFeed(
 		autoscaling.AutoscalerFeedSchemaVersion, time.Now().Unix(), nil, true,
@@ -140,6 +179,7 @@ func TestAutoscalerRoleAuthenticatedLifecycle(t *testing.T) {
 	lastChild := time.Now()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
+		assertRoleRunning(t, roleDone)
 		if err := connection.Publish(autoscaling.AutoscalerObservationSubject, payload); err != nil {
 			t.Fatal(err)
 		}
@@ -154,10 +194,150 @@ func TestAutoscalerRoleAuthenticatedLifecycle(t *testing.T) {
 		case <-time.After(250 * time.Millisecond):
 		}
 		if time.Since(lastChild) >= 2*time.Second {
-			return
+			break
 		}
 	}
-	t.Fatal("role did not retire the real child within the live bound")
+	if time.Since(lastChild) < 2*time.Second {
+		t.Fatal("role did not retire the real child within the live bound")
+	}
+	exitDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(exitDeadline) && childProcess.alive() {
+		assertRoleRunning(t, roleDone)
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !childProcess.alive() && !strings.Contains(roleOutput.String(), retireOutput) {
+		t.Fatalf("role child pid %d exited before the retire action was reported", childProcess.pid)
+	}
+	if !childProcess.alive() {
+		select {
+		case <-childExitObserved:
+		case <-time.After(500 * time.Millisecond):
+		}
+		if childExitedBeforeAction.Load() {
+			t.Fatalf("role child pid %d exited without a preceding retire action", childProcess.pid)
+		}
+	}
+	if childProcess.alive() {
+		t.Fatalf("retire action left role child pid %d running", childProcess.pid)
+	}
+	if !strings.Contains(roleOutput.String(), retireOutput) {
+		t.Fatalf("autoscaler output did not prove the retire action: %q", roleOutput.String())
+	}
+	assertRoleRunning(t, roleDone)
+}
+
+type synchronizedBuffer struct {
+	mutex  sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *synchronizedBuffer) Write(value []byte) (int, error) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.Write(value)
+}
+
+func (b *synchronizedBuffer) String() string {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.String()
+}
+
+func (b *synchronizedBuffer) Len() int {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	return b.buffer.Len()
+}
+
+type observedRoleProcess struct {
+	pid       int
+	parentPid int
+	cmdline   string
+}
+
+func waitForRoleChildProcess(t *testing.T, ctx context.Context, parentPid int, binaryPath string, nodeId string) observedRoleProcess {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if process, ok := findRoleChildProcess(parentPid, binaryPath, nodeId); ok {
+			return process
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	t.Fatalf("could not find the live role child process for node %s", nodeId)
+	return observedRoleProcess{}
+}
+
+func findRoleChildProcess(parentPid int, binaryPath string, nodeId string) (observedRoleProcess, bool) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return observedRoleProcess{}, false
+	}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		cmdlineBytes, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil || len(cmdlineBytes) == 0 {
+			continue
+		}
+		parts := strings.Split(strings.TrimRight(string(cmdlineBytes), "\x00"), "\x00")
+		if len(parts) == 0 || parts[0] != binaryPath {
+			continue
+		}
+		for index := 1; index+1 < len(parts); index++ {
+			if parts[index] == "--node-id" && parts[index+1] == nodeId {
+				process := observedRoleProcess{pid: pid, parentPid: parentPid, cmdline: string(cmdlineBytes)}
+				if process.alive() {
+					return process, true
+				}
+			}
+		}
+	}
+	return observedRoleProcess{}, false
+}
+
+func (p observedRoleProcess) alive() bool {
+	if p.pid <= 0 {
+		return false
+	}
+	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p.pid), "cmdline"))
+	if err != nil || string(cmdline) != p.cmdline || syscall.Kill(p.pid, 0) != nil {
+		return false
+	}
+	status, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p.pid), "status"))
+	if err != nil {
+		return false
+	}
+	zombie := false
+	observedParent := 0
+	for _, line := range strings.Split(string(status), "\n") {
+		if strings.HasPrefix(line, "State:") {
+			zombie = strings.Contains(line, "\tZ")
+		}
+		if strings.HasPrefix(line, "PPid:") && p.parentPid > 0 {
+			observedParent, err = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")))
+			if err != nil {
+				return false
+			}
+		}
+	}
+	return !zombie && observedParent == p.parentPid
+}
+
+func assertRoleRunning(t *testing.T, roleDone chan error) {
+	t.Helper()
+	select {
+	case err := <-roleDone:
+		roleDone <- err
+		t.Fatalf("autoscaler role exited before lifecycle proof completed: %v", err)
+	default:
+	}
 }
 
 func liveRoleEnvironment(base []string) []string {

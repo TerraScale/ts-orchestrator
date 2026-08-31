@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -24,6 +26,14 @@ type HostCommandResult struct {
 // HostCommandRunner ports the internal IHostCommandRunner seam.
 type HostCommandRunner interface {
 	Run(ctx context.Context, executable string, arguments []string) (HostCommandResult, error)
+}
+
+// HostCommandEnvironmentRunner runs a host command with explicit environment
+// overrides. Rootless Podman compositions use this seam to bind
+// XDG_RUNTIME_DIR to their validated runtime directory rather than trusting
+// the caller's ambient value.
+type HostCommandEnvironmentRunner interface {
+	RunWithEnvironment(ctx context.Context, executable string, arguments []string, environment map[string]string) (HostCommandResult, error)
 }
 
 // ProcessHostCommandRunner runs host commands via argument lists (never a
@@ -61,11 +71,36 @@ func (w *boundedOutputWriter) String() string { return w.buffer.String() }
 
 // Run executes one host command and captures its bounded output.
 func (ProcessHostCommandRunner) Run(ctx context.Context, executable string, arguments []string) (HostCommandResult, error) {
+	return ProcessHostCommandRunner{}.run(ctx, executable, arguments, nil)
+}
+
+// RunWithEnvironment executes one host command with explicit overrides. All
+// unrelated process variables remain available to system tooling, but each
+// overridden key occurs exactly once in the child environment.
+func (ProcessHostCommandRunner) RunWithEnvironment(
+	ctx context.Context,
+	executable string,
+	arguments []string,
+	environment map[string]string,
+) (HostCommandResult, error) {
+	return ProcessHostCommandRunner{}.run(ctx, executable, arguments,
+		explicitCommandEnvironment(environment))
+}
+
+func (ProcessHostCommandRunner) run(
+	ctx context.Context,
+	executable string,
+	arguments []string,
+	environment []string,
+) (HostCommandResult, error) {
 	if ctx == nil {
 		return HostCommandResult{}, errors.New("host command context must not be nil")
 	}
 
 	command := exec.CommandContext(ctx, executable, arguments...)
+	if environment != nil {
+		command.Env = environment
+	}
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Mirror ProcessLifecycle.WaitForExitAsync: cancellation kills the whole
 	// process tree, then the wait result surfaces the cancellation.
@@ -104,6 +139,48 @@ func (ProcessHostCommandRunner) Run(ctx context.Context, executable string, argu
 		StandardError:  boundCapturedCharacters(stderr.String()),
 	}
 	return result, nil
+}
+
+func explicitCommandEnvironment(overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return os.Environ()
+	}
+	result := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		key, _, hasValue := strings.Cut(entry, "=")
+		if !hasValue {
+			continue
+		}
+		if _, replaced := overrides[key]; replaced {
+			continue
+		}
+		result = append(result, entry)
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		result = append(result, key+"="+overrides[key])
+	}
+	return result
+}
+
+func runHostCommandWithEnvironment(
+	ctx context.Context,
+	runner HostCommandRunner,
+	executable string,
+	arguments []string,
+	environment map[string]string,
+) (HostCommandResult, error) {
+	environmentRunner, ok := runner.(HostCommandEnvironmentRunner)
+	if !ok {
+		return HostCommandResult{}, &InvalidOperationError{
+			Message: "The host command runner cannot execute with an explicit environment.",
+		}
+	}
+	return environmentRunner.RunWithEnvironment(ctx, executable, arguments, environment)
 }
 
 func boundCapturedCharacters(value string) string {

@@ -25,10 +25,8 @@ import (
 // the fail-closed rootless context (nonzero UID, bounded absolute XDG runtime
 // directory, bounded absolute binary path) and invokes the absolute binary
 // path, so no command can resolve a different executable through PATH and no
-// command can run as uid 0. The HostCommandRunner seam carries no environment
-// of its own: the composition root must run this client under the
-// unprivileged account whose XDG_RUNTIME_DIR equals the validated context
-// value.
+// command can run as uid 0. Every Podman command receives the validated
+// XDG_RUNTIME_DIR explicitly through the environment-aware runner seam.
 type ProcessPodmanClient struct {
 	rootless      RootlessPodmanContext
 	commandRunner HostCommandRunner
@@ -293,7 +291,8 @@ func (c *ProcessPodmanClient) podman(ctx context.Context, arguments []string) (H
 	if err := ValidateRootlessContext(c.rootless); err != nil {
 		return HostCommandResult{}, err
 	}
-	return c.commandRunner.Run(ctx, c.rootless.PodmanBinaryPath, arguments)
+	return runHostCommandWithEnvironment(ctx, c.commandRunner, c.rootless.PodmanBinaryPath,
+		arguments, map[string]string{"XDG_RUNTIME_DIR": c.rootless.XdgRuntimeDir})
 }
 
 // podmanContainerInspectDocument is the bounded local view of one

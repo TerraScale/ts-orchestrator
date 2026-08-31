@@ -80,7 +80,7 @@ func (c *SystemdUserPodmanClient) Preflight(ctx context.Context) error {
 	if err := c.client.Preflight(ctx); err != nil {
 		return err
 	}
-	result, err := c.commandRunner.Run(ctx, c.systemctlBinaryPath,
+	result, err := c.runHostCommand(ctx, c.systemctlBinaryPath,
 		[]string{"--user", "show-environment"})
 	if err != nil {
 		return err
@@ -385,7 +385,7 @@ func (c *SystemdUserPodmanClient) startTransientUnit(
 		c.rootless.PodmanBinaryPath,
 		"start", "--attach", runtimeId,
 	}
-	result, err := c.commandRunner.Run(ctx, c.systemdRunBinaryPath, arguments)
+	result, err := c.runHostCommand(ctx, c.systemdRunBinaryPath, arguments)
 	if err != nil {
 		return err
 	}
@@ -432,7 +432,7 @@ func (c *SystemdUserPodmanClient) awaitSupervisorCollection(
 }
 
 func (c *SystemdUserPodmanClient) systemctl(ctx context.Context, operation string, unitName string) error {
-	result, err := c.commandRunner.Run(ctx, c.systemctlBinaryPath,
+	result, err := c.runHostCommand(ctx, c.systemctlBinaryPath,
 		[]string{"--user", operation, unitName})
 	if err != nil {
 		return err
@@ -454,7 +454,7 @@ func (c *SystemdUserPodmanClient) observeSupervisor(
 	containerId string,
 ) (podmanSupervisorObservation, error) {
 	unitName := podmanSupervisorUnitName(containerId)
-	result, err := c.commandRunner.Run(ctx, c.systemctlBinaryPath, []string{
+	result, err := c.runHostCommand(ctx, c.systemctlBinaryPath, []string{
 		"--user", "show", unitName,
 		"--property=LoadState",
 		"--property=ActiveState",
@@ -510,6 +510,15 @@ func (c *SystemdUserPodmanClient) observeSupervisor(
 	return podmanSupervisorObservation{
 		name: unitName, state: state, description: values["Description"],
 	}, nil
+}
+
+func (c *SystemdUserPodmanClient) runHostCommand(
+	ctx context.Context,
+	executable string,
+	arguments []string,
+) (HostCommandResult, error) {
+	return runHostCommandWithEnvironment(ctx, c.commandRunner, executable, arguments,
+		map[string]string{"XDG_RUNTIME_DIR": c.rootless.XdgRuntimeDir})
 }
 
 func (c *SystemdUserPodmanClient) validate(ctx context.Context) error {
