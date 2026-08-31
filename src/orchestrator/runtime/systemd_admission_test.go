@@ -42,8 +42,8 @@ func TestAdmitsCanonicalNativeTerraBaseOrchestratorAndNatsPlans(t *testing.T) {
 	}{
 		{AdmittedRoleTerraBaseMember, "gru-terrabase-1"},
 		{AdmittedRoleAutoscaler, "gru-orchestrator-1"},
-		{AdmittedRoleNats, "gru-control-nats-1"},
-		{AdmittedRoleNats, "gru-product-nats-1"},
+		{AdmittedRoleNats, "gru-nats-1"},
+		{AdmittedRoleNats, "gru-nats-2"},
 	}
 	for _, testCase := range cases {
 		runner := newRecordingHostRunner(
@@ -195,7 +195,7 @@ func TestEveryCanonicalPlanTamperClassIsRejectedBeforeRunnerCall(t *testing.T) {
 }
 
 func TestAcceptedAdmissionUsesSystemManagerFixedPathsArgumentListsAndHardenedProperties(t *testing.T) {
-	plan := nativeTestPlan(t, AdmittedRoleNats, "gru-control-nats-1")
+	plan := nativeTestPlan(t, AdmittedRoleNats, "gru-nats-1")
 	runner := newRecordingHostRunner(
 		HostCommandResult{ExitCode: 1, StandardOutput: "LoadState=not-found\n", StandardError: "Unit not found"},
 		HostCommandResult{ExitCode: 0})

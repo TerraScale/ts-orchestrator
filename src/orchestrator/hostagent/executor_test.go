@@ -246,7 +246,7 @@ func TestConvergeDispatchesSerializedPlansByDriver(t *testing.T) {
 		},
 		{
 			name:       "oci plan reaches the container adapter",
-			plan:       executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "grafana-1"),
+			plan:       executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1"),
 			wantDetail: "converged through the OciContainer driver",
 		},
 	}
@@ -394,7 +394,7 @@ func TestStopAnswersWhileCordonedAndDeleteRemovesRecords(t *testing.T) {
 	container := &fakeContainerAdapter{observation: runningPodmanObservation(t)}
 	executor := newExecutorForTest(t, systemd, container)
 	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "grafana-1")
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
 	executor.SetCordoned(true)
 
 	stopReceipt, err := executor.Stop(context.Background(), executorTestCommand(t, ociPlan, "cmd-stop-1"))

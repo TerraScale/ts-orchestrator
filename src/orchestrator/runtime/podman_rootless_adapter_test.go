@@ -525,7 +525,7 @@ func TestPodmanAdapterRejectsNonCanonicalPlansBeforeAnyClientOperation(t *testin
 
 	tampered := podmanTestOciPlan(t)
 	tamperedOci := *tampered.Oci
-	tamperedOci.ImageReference = "evil.example/loki:latest"
+	tamperedOci.ImageReference = "evil.example/database-api:latest"
 	tampered.Oci = &tamperedOci
 	var operationError *InvalidOperationError
 	if err := adapter.Converge(context.Background(), tampered); !errors.As(err, &operationError) {
