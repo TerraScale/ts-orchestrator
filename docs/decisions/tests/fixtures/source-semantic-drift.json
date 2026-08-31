@@ -1,1 +1,0 @@
-{"name":"question source semantic drift","operation":"replace-spec","old":"| 1 | Regional control topology |","new":"| 1 | Regional control topology drift |","expected":"question 1: question differs from docs/architecture/orchestrator.md:89"}

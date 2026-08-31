@@ -7,7 +7,7 @@
 
 ## Context
 
-The intended deployment is greenfield: it adopts no prior cloud, data, identity, DNS, or control-plane resource. That policy does not establish that the legacy cloud estate is empty. The current P0-02 inventory is an incomplete, host-preflight-only record: OCI configuration material was detected without reading it, but the OCI CLI was unavailable, so no authenticated scoped discovery ran ([OCI residual inventory](../evidence/phase0/oci-residual-inventory.yaml)).
+The intended deployment is greenfield: it adopts no prior cloud, data, identity, DNS, or control-plane resource. That policy does not establish that the legacy cloud estate is empty. The removed P0-02 inventory was an incomplete host preflight: OCI configuration material was detected without reading it, but the OCI CLI was unavailable, so no authenticated scoped discovery ran.
 
 Consequently, compute, storage, backups, buckets, load balancers, public IPs, IAM, Vault/KMS, certificates, workloads, NATS, networking, and seven-day cost remain `not-queried`. OKE and node-pool absence remains explicitly unproven. No resource has an ownership classification or cleanup disposition.
 

@@ -19,7 +19,7 @@ This directory records architecture decision readiness for the 24-item backlog i
 
 Owner choices **1A–10A were accepted on 2026-07-16** with reliability first. Measurable cost, storage, RPO, and RTO targets remain deployment-qualification inputs rather than silent architecture defaults.
 
-`readiness-index.yaml` is JSON-compatible YAML validated by the dependency-free C# tooling executable. It is the canonical Phase 0/1 map of backlog items 1–24.
+Git history retains the former machine-validated readiness map.
 
 ## Decision register
 

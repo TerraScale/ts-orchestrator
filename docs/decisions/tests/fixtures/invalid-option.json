@@ -1,1 +1,0 @@
-{"name":"invalid option","operation":"set","path":["questions",1,"answer"],"value":"C","expected":"question 2: answer must match the explicit owner selection A"}

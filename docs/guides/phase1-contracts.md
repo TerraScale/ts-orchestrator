@@ -7,7 +7,7 @@
 
 > Consolidated 2026-07-17 from 113 work packages / 88 handoffs and the live `src/TerraScale.Orchestrator/ControlPlane` tree.
 
-Historical per-package scopes and handoffs are preserved in [`docs/archive/`](../archive/README.md).
+Git history retains the historical per-package scopes and handoffs.
 Normative architecture remains the repository [`GOAL.md`](../../GOAL.md). Owner choices 1A–10A are accepted; measurable cost/storage/RPO/RTO targets remain deployment gates.
 
 ## How to read this map
@@ -313,7 +313,7 @@ Normative architecture remains the repository [`GOAL.md`](../../GOAL.md). Owner 
 
 #### `phase0-adr-readiness` — Phase 0 work package: ADR and toolchain readiness map
 
-**Outcome:** All 24 initial ADR backlog items are represented exactly once in `docs/adr/readiness-index.yaml`. The readiness distribution is: - 4 `draft-ready` - 3 `evidence-required` - 17 `owner-input-required` - 0 `accepted` The four choice-preserving drafts that can proceed now are ADR 4 (Pulumi/provider ownership), ADR 13 (native GitOps), ADR 18 (placement boundary), and ADR 20 (provider-actuator threat model). Draft-ready does not accept their remaining implementation details. Numbered owner questions 1
+**Outcome:** The former readiness map represented all 24 initial ADR backlog items exactly once. Git history retains that result.
 
 - Handoff recorded: yes
 
