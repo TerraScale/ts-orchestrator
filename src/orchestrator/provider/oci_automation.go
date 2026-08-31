@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -109,10 +110,44 @@ func mutationResultFromHeaders(resp *http.Response, resourceID, etag string) Pro
 }
 
 func finishUnknown(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent) error {
-	if _, err := journal.MarkUnknown(ctx, intent); err != nil {
+	return finishUnknownWithResult(ctx, journal, intent, ProviderMutationResult{})
+}
+
+func finishUnknownWithResult(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult) error {
+	if result.WorkRequestID != "" && !validWorkRequestID(result.WorkRequestID) {
+		result.WorkRequestID = ""
+	}
+	if _, err := journal.MarkUnknown(ctx, intent, result); err != nil {
 		return err
 	}
 	return &ProviderOutcomeUnknownError{}
+}
+
+var mutationWorkRequestWaitPolicy = WorkRequestWaitPolicy{
+	PollInterval: 250 * time.Millisecond,
+	MaxPolls:     12,
+	MaxNotFound:  4,
+}
+
+func finishAsyncMutation(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter) error {
+	if !validWorkRequestID(result.WorkRequestID) || workRequests == nil {
+		return finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	work, err := workRequests.WaitWorkRequest(ctx, result.WorkRequestID, mutationWorkRequestWaitPolicy)
+	if work.State == WorkRequestFailed || work.State == WorkRequestCanceled {
+		failureCode := "provider-work-request-failed"
+		if work.State == WorkRequestCanceled {
+			failureCode = "provider-work-request-canceled"
+		}
+		if _, markErr := journal.MarkProviderFailed(ctx, intent, result, failureCode); markErr != nil {
+			return markErr
+		}
+		return &InvalidOperationError{Message: "OCI provider work request failed"}
+	}
+	if err != nil || work.State != WorkRequestSucceeded {
+		return finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	return markSucceeded(ctx, journal, intent, result)
 }
 
 func knownFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, code string) error {

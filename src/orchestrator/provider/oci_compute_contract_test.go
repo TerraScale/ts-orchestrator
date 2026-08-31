@@ -97,7 +97,7 @@ func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	if _, err := journal.MarkSubmitted(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := journal.MarkUnknown(context.Background(), first); err != nil {
+	if _, err := journal.MarkUnknown(context.Background(), first, ProviderMutationResult{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := journal.MarkFailed(context.Background(), first, "timeout"); err == nil {
@@ -121,6 +121,77 @@ func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	stale.Epoch.Value--
 	if _, err := journal.Prepare(context.Background(), stale); err == nil {
 		t.Fatal("stale controller epoch crossed the mutation fence")
+	}
+}
+
+func TestProviderMutationJournalPreservesUnknownProviderResult(t *testing.T) {
+	journal := testJournal(t)
+	intent := testMutation("attachment.delete", ProviderMutationScope("attachment", "restart"), ProviderMutationFingerprint("restart"), 3)
+	result := ProviderMutationResult{
+		ResourceID:    "ocid1.volumeattachment.oc1.sa-saopaulo-1.restart",
+		WorkRequestID: "work-restart",
+		ETag:          "etag-restart",
+	}
+	if _, err := journal.Prepare(context.Background(), intent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkUnknown(context.Background(), intent, result); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed := intent
+	resumed.Epoch.Value++
+	record, err := journal.Prepare(context.Background(), resumed)
+	if err != nil || record.State != MutationUnknown || record.Result != result {
+		t.Fatalf("restart record = %+v, err=%v", record, err)
+	}
+	if record, err = journal.MarkUnknown(context.Background(), resumed, ProviderMutationResult{}); err != nil || record.Result != result {
+		t.Fatalf("empty unknown update lost result: %+v, err=%v", record, err)
+	}
+
+	conflict := result
+	conflict.WorkRequestID = "work-conflict"
+	if _, err := journal.MarkUnknown(context.Background(), resumed, conflict); err == nil {
+		t.Fatal("conflicting unknown result replaced provider identity")
+	}
+	if _, err := journal.MarkProviderFailed(context.Background(), resumed, conflict, "provider-work-request-failed"); err == nil {
+		t.Fatal("provider failure used a conflicting work-request identity")
+	}
+	record, err = journal.Prepare(context.Background(), resumed)
+	if err != nil || record.State != MutationUnknown || record.Result != result {
+		t.Fatalf("conflict changed durable record = %+v, err=%v", record, err)
+	}
+	if _, err := journal.MarkFailed(context.Background(), resumed, "timeout"); err == nil {
+		t.Fatal("synchronous failure overwrote an unknown provider result")
+	}
+	if record, err = journal.MarkProviderFailed(context.Background(), resumed, result, "provider-work-request-failed"); err != nil || record.State != MutationFailed || record.Result != result {
+		t.Fatalf("provider-proven failure = %+v, err=%v", record, err)
+	}
+}
+
+func TestProviderMutationJournalRejectsUnprovedProviderFailure(t *testing.T) {
+	for _, workID := range []string{"", "work/invalid"} {
+		t.Run(workID, func(t *testing.T) {
+			journal := testJournal(t)
+			intent := testMutation("attachment.delete", ProviderMutationScope("attachment", "unproved", workID), ProviderMutationFingerprint("unproved", workID), 2)
+			if _, err := journal.Prepare(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			result := ProviderMutationResult{ResourceID: "ocid1.volumeattachment.oc1.sa-saopaulo-1.unproved", ETag: "attachment-etag", WorkRequestID: workID}
+			if _, err := journal.MarkProviderFailed(context.Background(), intent, result, "provider-work-request-failed"); err == nil {
+				t.Fatal("provider failure without a valid work-request identity was accepted")
+			}
+			record, err := journal.Prepare(context.Background(), intent)
+			if err != nil || record.State != MutationSubmitted || record.Result != (ProviderMutationResult{}) {
+				t.Fatalf("unproved failure changed record = %+v, err=%v", record, err)
+			}
+		})
 	}
 }
 
@@ -254,6 +325,111 @@ func TestOCIWorkRequestAdapterToleratesEventualVisibility(t *testing.T) {
 	work, err := adapter.WaitWorkRequest(context.Background(), "work-1", WorkRequestWaitPolicy{MaxPolls: 4, MaxNotFound: 2})
 	if err != nil || work.State != WorkRequestSucceeded || reads != 3 {
 		t.Fatalf("work request = %+v reads=%d err=%v", work, reads, err)
+	}
+}
+
+func TestOCIWorkRequestAdapterRejectsMalformedProgressAndReturnsLastObservation(t *testing.T) {
+	t.Run("non-finite progress", func(t *testing.T) {
+		for _, progress := range []string{"NaN", "1e1000"} {
+			transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
+				return testHTTPResponse(http.StatusOK, `{"id":"work-finite","status":"IN_PROGRESS","percentComplete":`+progress+`}`, nil), nil
+			})
+			adapter, err := NewOCIWorkRequestAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := adapter.GetWorkRequest(context.Background(), "work-finite"); err == nil {
+				t.Fatalf("non-finite progress %q was accepted", progress)
+			}
+		}
+	})
+
+	t.Run("poll exhaustion", func(t *testing.T) {
+		reads := 0
+		transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
+			reads++
+			return testHTTPResponse(http.StatusOK, `{"id":"work-last","status":"ACCEPTED","percentComplete":37}`, nil), nil
+		})
+		adapter, err := NewOCIWorkRequestAdapter(transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		adapter.Wait = func(context.Context, time.Duration) error { return nil }
+		work, err := adapter.WaitWorkRequest(context.Background(), "work-last", WorkRequestWaitPolicy{MaxPolls: 2, MaxNotFound: 1})
+		if !errors.As(err, new(*ProviderOutcomeUnknownError)) || work.State != WorkRequestAccepted || work.PercentComplete != 37 || reads != 2 {
+			t.Fatalf("exhausted work request = %+v reads=%d err=%v", work, reads, err)
+		}
+	})
+
+	for _, id := range []string{" work", "work/path", "work\nheader", "work☃"} {
+		if validWorkRequestID(id) {
+			t.Fatalf("invalid work-request ID was accepted: %q", id)
+		}
+	}
+}
+
+func TestAsyncMutationCompletionPreservesProviderTruth(t *testing.T) {
+	oldPolicy := mutationWorkRequestWaitPolicy
+	mutationWorkRequestWaitPolicy = WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 2, MaxNotFound: 1}
+	t.Cleanup(func() { mutationWorkRequestWaitPolicy = oldPolicy })
+
+	tests := []struct {
+		name          string
+		workID        string
+		status        int
+		providerState string
+		unknownFirst  bool
+		wantState     ProviderMutationState
+		wantFailure   string
+		wantError     bool
+	}{
+		{name: "success", workID: "work-success", status: http.StatusOK, providerState: "SUCCEEDED", wantState: MutationSucceeded},
+		{name: "failure after restart", workID: "work-failed", status: http.StatusOK, providerState: "FAILED", unknownFirst: true, wantState: MutationFailed, wantFailure: "provider-work-request-failed", wantError: true},
+		{name: "cancellation", workID: "work-canceled", status: http.StatusOK, providerState: "CANCELED", wantState: MutationFailed, wantFailure: "provider-work-request-canceled", wantError: true},
+		{name: "invisible", workID: "work-invisible", status: http.StatusNotFound, wantState: MutationUnknown, wantError: true},
+		{name: "missing work request ID", wantState: MutationUnknown, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			intent := testMutation("attachment.delete", ProviderMutationScope("attachment", test.name), ProviderMutationFingerprint(test.name), 1)
+			journal := testJournal(t)
+			if _, err := journal.Prepare(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			result := ProviderMutationResult{ResourceID: "ocid1.volumeattachment.oc1.sa-saopaulo-1.async", ETag: "attachment-etag", WorkRequestID: test.workID}
+			if test.unknownFirst {
+				if _, err := journal.MarkUnknown(context.Background(), intent, result); err != nil {
+					t.Fatal(err)
+				}
+				intent.Epoch.Value++
+				if _, err := journal.Prepare(context.Background(), intent); err != nil {
+					t.Fatal(err)
+				}
+			}
+			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path != "/20160918/workRequests/"+test.workID {
+					t.Fatalf("unexpected work request path %s", request.URL.Path)
+				}
+				body := `{"id":"` + test.workID + `","status":"` + test.providerState + `","percentComplete":100}`
+				return testHTTPResponse(test.status, body, nil), nil
+			})
+			work, err := NewOCIWorkRequestAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			work.Wait = func(context.Context, time.Duration) error { return nil }
+			err = finishAsyncMutation(context.Background(), journal, intent, result, work)
+			if (err != nil) != test.wantError {
+				t.Fatalf("completion error = %v, wantError=%v", err, test.wantError)
+			}
+			record, err := journal.Prepare(context.Background(), intent)
+			if err != nil || record.State != test.wantState || record.Result != result || record.FailureCode != test.wantFailure {
+				t.Fatalf("completion record = %+v, err=%v", record, err)
+			}
+		})
 	}
 }
 
