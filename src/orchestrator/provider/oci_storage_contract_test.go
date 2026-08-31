@@ -1310,7 +1310,7 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 			return testHTTPResponse(http.StatusOK, "", http.Header{"Etag": {"object-etag"}}), nil
 		case http.MethodHead:
 			return testHTTPResponse(http.StatusOK, "", http.Header{
-				"Content-Encoding": {"identity"}, "Content-Length": {stringInt(len(content))}, "Content-Type": {"application/octet-stream"},
+				"Content-Length": {stringInt(len(content))}, "Content-Type": {"application/octet-stream"},
 				"Etag": {"object-etag"}, "Opc-Meta-Terrascale-Sha256": {digest},
 			}), nil
 		default:

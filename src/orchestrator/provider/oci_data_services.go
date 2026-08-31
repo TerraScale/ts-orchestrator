@@ -307,8 +307,7 @@ func objectMetadataFromResponse(resp *http.Response) (ObjectMetadata, error) {
 	digest, digestErr := canonicalOCIHeader(resp, "opc-meta-terrascale-sha256", true, validSHA256Hex)
 	size, validSize := registryBlobContentLength(resp)
 	_, mediaErr := canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/octet-stream" })
-	_, encodingErr := canonicalOCIHeader(resp, "Content-Encoding", true, func(value string) bool { return value == "identity" })
-	if etagErr != nil || digestErr != nil || !validSize || mediaErr != nil || encodingErr != nil {
+	if etagErr != nil || digestErr != nil || !validSize || mediaErr != nil || !registryIdentityEncoding(resp) {
 		return ObjectMetadata{}, &InvalidDataError{Message: "OCI Object Storage metadata is incomplete"}
 	}
 	return ObjectMetadata{ETag: etag, SHA256: digest, Size: size}, nil
@@ -395,8 +394,7 @@ func (a *OCIObjectStorageAdapter) objectExistsByExactList(ctx context.Context, o
 		}
 		declaredLength, validLength := registryBlobContentLength(resp)
 		_, mediaErr := canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/json" })
-		_, encodingErr := canonicalOCIHeader(resp, "Content-Encoding", true, func(value string) bool { return value == "identity" })
-		if !validLength || mediaErr != nil || encodingErr != nil {
+		if !validLength || mediaErr != nil || !registryIdentityEncoding(resp) {
 			drainClose(resp.Body)
 			return false, &InvalidDataError{Message: "OCI Object Storage list metadata is invalid"}
 		}

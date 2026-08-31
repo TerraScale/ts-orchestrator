@@ -11,7 +11,6 @@ import (
 
 func objectMetadataHeaders(content []byte) http.Header {
 	return http.Header{
-		"Content-Encoding":           {"identity"},
 		"Content-Length":             {stringInt(len(content))},
 		"Content-Type":               {"application/octet-stream"},
 		"Etag":                       {"object-etag"},
@@ -24,9 +23,6 @@ func objectListResponse(status int, body string, headers http.Header) *http.Resp
 		headers = make(http.Header)
 	}
 	if status == http.StatusOK {
-		if len(headers.Values("Content-Encoding")) == 0 {
-			headers["Content-Encoding"] = []string{"identity"}
-		}
 		if len(headers.Values("Content-Length")) == 0 {
 			headers["Content-Length"] = []string{stringInt(len(body))}
 		}
@@ -100,6 +96,9 @@ func TestOCIObjectStorage404NeedsBoundedContradictionSafeListProof(t *testing.T)
 		{name: "null objects", listBody: `{"objects":null}`, wantErr: true},
 		{name: "duplicate property", listBody: `{"objects":[],"objects":[]}`, wantErr: true},
 		{name: "outside prefix", listBody: `{"objects":[{"name":"another"}]}`, wantErr: true},
+		{name: "explicit identity", listBody: `{"objects":[]}`, headers: http.Header{"Content-Encoding": {"identity"}}},
+		{name: "compressed", listBody: `{"objects":[]}`, headers: http.Header{"Content-Encoding": {"gzip"}}, wantErr: true},
+		{name: "duplicate encoding", listBody: `{"objects":[]}`, headers: http.Header{"Content-Encoding": {"identity", "identity"}}, wantErr: true},
 		{name: "duplicate content type", listBody: `{"objects":[]}`, headers: http.Header{"Content-Type": {"application/json", "application/json"}}, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -253,7 +252,17 @@ func TestOCIObjectStorageGetVerifiesMetadataLengthDigestAndEOF(t *testing.T) {
 			h["Content-Length"] = []string{stringInt(len(content)), stringInt(len(content))}
 			return h
 		}(), wantErr: true},
-		{name: "missing identity encoding", body: string(content), headers: func() http.Header { h := objectMetadataHeaders(content); h.Del("Content-Encoding"); return h }(), wantErr: true},
+		{name: "explicit identity encoding", body: string(content), headers: func() http.Header {
+			h := objectMetadataHeaders(content)
+			h.Set("Content-Encoding", "identity")
+			return h
+		}()},
+		{name: "compressed encoding", body: string(content), headers: func() http.Header { h := objectMetadataHeaders(content); h.Set("Content-Encoding", "gzip"); return h }(), wantErr: true},
+		{name: "duplicate encoding", body: string(content), headers: func() http.Header {
+			h := objectMetadataHeaders(content)
+			h["Content-Encoding"] = []string{"identity", "identity"}
+			return h
+		}(), wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			transport := testOCITransport(t, OCIServiceObjectStorage, func(*http.Request) (*http.Response, error) {
