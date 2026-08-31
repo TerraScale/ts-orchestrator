@@ -369,9 +369,7 @@ func TestOCIWorkRequestAdapterRejectsMalformedProgressAndReturnsLastObservation(
 }
 
 func TestAsyncMutationCompletionPreservesProviderTruth(t *testing.T) {
-	oldPolicy := mutationWorkRequestWaitPolicy
-	mutationWorkRequestWaitPolicy = WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 2, MaxNotFound: 1}
-	t.Cleanup(func() { mutationWorkRequestWaitPolicy = oldPolicy })
+	policy := WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 2, MaxNotFound: 1}
 
 	tests := []struct {
 		name          string
@@ -421,7 +419,7 @@ func TestAsyncMutationCompletionPreservesProviderTruth(t *testing.T) {
 				t.Fatal(err)
 			}
 			work.Wait = func(context.Context, time.Duration) error { return nil }
-			err = finishAsyncMutation(context.Background(), journal, intent, result, work)
+			err = finishAsyncMutation(context.Background(), journal, intent, result, work, policy)
 			if (err != nil) != test.wantError {
 				t.Fatalf("completion error = %v, wantError=%v", err, test.wantError)
 			}
