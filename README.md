@@ -198,7 +198,7 @@ product boundary.
 TS_ORCH_CELL=gru \
 TS_ORCH_NATS_URL=nats://127.0.0.1:4222 \
 TS_ORCH_REPLICAS=1 \
-go run ./cmd/orchestrator check
+TS_ORCH_PROVIDER=local go run ./cmd/orchestrator check
 
 TS_ORCH_CELL=gru \
 TS_ORCH_NATS_URL=tls://control-nats-gru.internal:4222 \
@@ -207,7 +207,11 @@ TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.nk \
 TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
 TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
 TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
-go run ./cmd/orchestrator run
+TS_ORCH_PROVIDER=oci \
+TS_ORCH_OCI_ESTATE_FILE=/etc/terrascale/oci-estate.json \
+TS_ORCH_OCI_KEY_ID='<instance-principal-key-id>' \
+TS_ORCH_OCI_PRIVATE_KEY_FILE=/run/credentials/terrascale/oci-instance-principal.pem \
+  go run ./cmd/orchestrator run
 ```
 
 Remote NATS connections require TLS, scoped NKey or credentials files, and
