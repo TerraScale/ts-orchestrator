@@ -25,6 +25,8 @@ const (
 	instanceMetadataAuthority = "http://169.254.169.254/opc/v2"
 	maximumFederationBody     = 64 << 10
 	maximumSecurityToken      = 16 << 10
+	maximumMetadataAttempts   = 8
+	maximumFederationAttempts = 3
 )
 
 var instancePrincipalRefreshWindow = 5 * time.Minute
@@ -43,6 +45,7 @@ type InstancePrincipalFederation struct {
 	metadataClient  *http.Client
 	authClient      *http.Client
 	now             func() time.Time
+	retryDelay      func(context.Context, int) error
 
 	mu         sync.Mutex
 	token      string
@@ -57,10 +60,37 @@ func NewInstancePrincipalFederation(expectedRegion, expectedTenancy string, meta
 	return &InstancePrincipalFederation{
 		expectedRegion:  expectedRegion,
 		expectedTenancy: expectedTenancy,
-		metadataClient:  noRedirectHTTPClient(metadataClient, 5*time.Second),
+		metadataClient:  instanceMetadataHTTPClient(metadataClient),
 		authClient:      noRedirectHTTPClient(authClient, 15*time.Second),
 		now:             time.Now,
+		retryDelay:      boundedOCIRetryDelay,
 	}, nil
+}
+
+type instanceMetadataTransport struct{ base *http.Transport }
+
+func (t *instanceMetadataTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if t == nil || t.base == nil || request == nil || request.URL == nil || request.URL.Scheme != "http" ||
+		request.URL.Host != "169.254.169.254" || request.URL.User != nil || !strings.HasPrefix(request.URL.Path, "/opc/v2/") {
+		return nil, &InvalidOperationError{Message: "instance metadata request escaped its fixed authority"}
+	}
+	return t.base.RoundTrip(request)
+}
+
+func instanceMetadataHTTPClient(source *http.Client) *http.Client {
+	if source != nil {
+		return noRedirectHTTPClient(source, 5*time.Second)
+	}
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	base := &http.Transport{}
+	if ok {
+		base = defaultTransport.Clone()
+	}
+	// IMDS is link-local. It must never inherit HTTP_PROXY or any other
+	// process-wide proxy configuration because the response includes the
+	// instance identity private key.
+	base.Proxy = nil
+	return noRedirectHTTPClient(&http.Client{Transport: &instanceMetadataTransport{base: base}}, 5*time.Second)
 }
 
 func noRedirectHTTPClient(source *http.Client, timeout time.Duration) *http.Client {
@@ -73,6 +103,31 @@ func noRedirectHTTPClient(source *http.Client, timeout time.Duration) *http.Clie
 	}
 	clone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &clone
+}
+
+func boundedOCIRetryDelay(ctx context.Context, attempt int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 4 {
+		attempt = 4
+	}
+	base := time.Second << (attempt - 1)
+	// Jitter prevents every regional controller from retrying OCI in lockstep
+	// after a shared service or metadata outage. Delays progress from 1-1.5s
+	// through 2-3s and 4-6s, then stay capped at 8-12s.
+	jitter := time.Duration(uint64(time.Now().UnixNano()) % uint64(base/2+1))
+	timer := time.NewTimer(base + jitter)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (f *InstancePrincipalFederation) String() string {
@@ -170,29 +225,14 @@ func (f *InstancePrincipalFederation) refresh(ctx context.Context, now time.Time
 	}
 	fingerprint := sha256.Sum256(leaf.Raw)
 	keyID := f.expectedTenancy + "/fed-x509-sha256/" + colonSeparatedFingerprint(fingerprint)
-	authURL := "https://auth." + f.expectedRegion + ".oraclecloud.com/v1/x509"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, authURL, bytes.NewReader(payload))
-	if err != nil {
-		return instancePrincipalCredential{}, time.Time{}, &InvalidOperationError{Message: "instance-principal federation request is invalid"}
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
 	signer, err := NewInstancePrincipalSigner(keyID, leafKey)
 	if err != nil {
 		return instancePrincipalCredential{}, time.Time{}, err
 	}
 	signer.Now = f.now
-	if err := signer.Sign(request); err != nil {
-		return instancePrincipalCredential{}, time.Time{}, &InvalidOperationError{Message: "instance-principal federation request signing failed"}
-	}
-	response, err := f.authClient.Do(request)
+	body, err := f.exchangeFederationToken(ctx, payload, signer)
 	if err != nil {
-		return instancePrincipalCredential{}, time.Time{}, &InvalidOperationError{Message: "instance-principal federation request failed"}
-	}
-	defer response.Body.Close()
-	body, readErr := io.ReadAll(io.LimitReader(response.Body, maximumFederationBody+1))
-	if readErr != nil || len(body) > maximumFederationBody || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return instancePrincipalCredential{}, time.Time{}, &InvalidDataError{Message: "instance-principal federation response is invalid"}
+		return instancePrincipalCredential{}, time.Time{}, err
 	}
 	var document struct {
 		Token string `json:"token"`
@@ -209,21 +249,86 @@ func (f *InstancePrincipalFederation) refresh(ctx context.Context, now time.Time
 }
 
 func (f *InstancePrincipalFederation) readMetadata(ctx context.Context, path string) ([]byte, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, instanceMetadataAuthority+path, nil)
-	if err != nil {
-		return nil, &InvalidOperationError{Message: "instance metadata request is invalid"}
+	for attempt := 1; attempt <= maximumMetadataAttempts; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, instanceMetadataAuthority+path, nil)
+		if err != nil {
+			return nil, &InvalidOperationError{Message: "instance metadata request is invalid"}
+		}
+		request.Header.Set("Authorization", "Bearer Oracle")
+		response, requestErr := f.metadataClient.Do(request)
+		if requestErr == nil && response != nil {
+			if response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusTooManyRequests {
+				if response.Body != nil {
+					_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maximumFederationBody+1))
+					_ = response.Body.Close()
+				}
+				return nil, &InvalidDataError{Message: "instance metadata response is invalid"}
+			}
+			if response.Body != nil {
+				body, readErr := io.ReadAll(io.LimitReader(response.Body, maximumFederationBody+1))
+				_ = response.Body.Close()
+				if readErr == nil && len(body) > 0 && len(body) <= maximumFederationBody && response.StatusCode == http.StatusOK {
+					return body, nil
+				}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if attempt != maximumMetadataAttempts {
+			if f.retryDelay == nil {
+				return nil, &InvalidOperationError{Message: "instance metadata retry was interrupted"}
+			}
+			if err := f.retryDelay(ctx, attempt); err != nil {
+				return nil, err
+			}
+		}
 	}
-	request.Header.Set("Authorization", "Bearer Oracle")
-	response, err := f.metadataClient.Do(request)
-	if err != nil {
-		return nil, &InvalidOperationError{Message: "instance metadata request failed"}
+	return nil, &InvalidDataError{Message: "instance metadata response is invalid"}
+}
+
+func (f *InstancePrincipalFederation) exchangeFederationToken(ctx context.Context, payload []byte, signer *InstancePrincipalSigner) ([]byte, error) {
+	authURL := "https://auth." + f.expectedRegion + ".oraclecloud.com/v1/x509"
+	for attempt := 1; attempt <= maximumFederationAttempts; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, authURL, bytes.NewReader(payload))
+		if err != nil {
+			return nil, &InvalidOperationError{Message: "instance-principal federation request is invalid"}
+		}
+		request.Header.Set("Accept", "application/json")
+		request.Header.Set("Content-Type", "application/json")
+		if err := signer.Sign(request); err != nil {
+			return nil, &InvalidOperationError{Message: "instance-principal federation request signing failed"}
+		}
+		response, requestErr := f.authClient.Do(request)
+		if requestErr == nil && response != nil {
+			if response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusTooManyRequests {
+				if response.Body != nil {
+					_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maximumFederationBody+1))
+					_ = response.Body.Close()
+				}
+				return nil, &InvalidDataError{Message: "instance-principal federation response is invalid"}
+			}
+			if response.Body != nil {
+				body, readErr := io.ReadAll(io.LimitReader(response.Body, maximumFederationBody+1))
+				_ = response.Body.Close()
+				if readErr == nil && len(body) <= maximumFederationBody && response.StatusCode >= 200 && response.StatusCode < 300 {
+					return body, nil
+				}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if attempt != maximumFederationAttempts {
+			if f.retryDelay == nil {
+				return nil, &InvalidOperationError{Message: "instance-principal federation retry was interrupted"}
+			}
+			if err := f.retryDelay(ctx, attempt); err != nil {
+				return nil, err
+			}
+		}
 	}
-	defer response.Body.Close()
-	body, readErr := io.ReadAll(io.LimitReader(response.Body, maximumFederationBody+1))
-	if readErr != nil || len(body) == 0 || len(body) > maximumFederationBody || response.StatusCode != http.StatusOK {
-		return nil, &InvalidDataError{Message: "instance metadata response is invalid"}
-	}
-	return body, nil
+	return nil, &InvalidDataError{Message: "instance-principal federation response is invalid"}
 }
 
 func parseInstanceCertificate(raw []byte) (*x509.Certificate, error) {

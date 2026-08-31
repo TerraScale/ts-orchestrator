@@ -11,8 +11,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -186,6 +188,7 @@ func TestInstancePrincipalFederationCachesRefreshesAndSignsWithSecurityToken(t *
 		t.Fatal(err)
 	}
 	federation.now = func() time.Time { return clock }
+	federation.retryDelay = func(context.Context, int) error { return nil }
 	signer, err := newFederatedInstancePrincipalSigner(federation)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +238,100 @@ func TestInstancePrincipalFederationCachesRefreshesAndSignsWithSecurityToken(t *
 	expired, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://iaas.sa-saopaulo-1.oraclecloud.com/20160918/instances", nil)
 	if err := signer.Sign(expired); err == nil {
 		t.Fatal("expired cached credential survived a failed refresh")
+	}
+}
+
+func TestInstanceMetadataProductionClientBypassesEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:65534")
+	t.Setenv("NO_PROXY", "")
+	federation, err := NewInstancePrincipalFederation("sa-saopaulo-1", "ocid1.tenancy.oc1..aaaaaaaaproxy", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := federation.metadataClient.Transport.(*instanceMetadataTransport)
+	if !ok || transport.base == nil || transport.base.Proxy != nil {
+		t.Fatalf("production metadata transport is not direct: %T", federation.metadataClient.Transport)
+	}
+	defer transport.base.CloseIdleConnections()
+	addresses := make([]string, 0, maximumMetadataAttempts)
+	transport.base.DialContext = func(_ context.Context, _, address string) (net.Conn, error) {
+		addresses = append(addresses, address)
+		return nil, errors.New("dial trap")
+	}
+	federation.retryDelay = func(context.Context, int) error { return nil }
+	if _, err := federation.readMetadata(context.Background(), "/identity/key.pem"); err == nil {
+		t.Fatal("metadata dial trap unexpectedly succeeded")
+	}
+	if len(addresses) != maximumMetadataAttempts {
+		t.Fatalf("metadata attempts = %d, want %d", len(addresses), maximumMetadataAttempts)
+	}
+	for _, address := range addresses {
+		if address != "169.254.169.254:80" {
+			t.Fatalf("metadata request dialed proxy or non-IMDS address %q", address)
+		}
+	}
+}
+
+func TestInstancePrincipalRetriesNon4xxAndNeverRetries4xx(t *testing.T) {
+	tenancy := "ocid1.tenancy.oc1..aaaaaaaaretry"
+	metadataCalls := 0
+	metadataClient := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		metadataCalls++
+		if metadataCalls < 3 {
+			return testHTTPResponse(http.StatusServiceUnavailable, "", nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, "sa-saopaulo-1", nil), nil
+	})}
+	federation, err := NewInstancePrincipalFederation("sa-saopaulo-1", tenancy, metadataClient, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	federation.retryDelay = func(context.Context, int) error { return nil }
+	body, err := federation.readMetadata(context.Background(), "/instance/region")
+	if err != nil || string(body) != "sa-saopaulo-1" || metadataCalls != 3 {
+		t.Fatalf("metadata retry body=%q calls=%d err=%v", body, metadataCalls, err)
+	}
+	metadataCalls = 0
+	federation.metadataClient = noRedirectHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		metadataCalls++
+		return testHTTPResponse(http.StatusUnauthorized, "", nil), nil
+	})}, 5*time.Second)
+	if _, err := federation.readMetadata(context.Background(), "/instance/region"); err == nil || metadataCalls != 1 {
+		t.Fatalf("metadata 4xx calls=%d err=%v", metadataCalls, err)
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := NewInstancePrincipalSigner("federation-test-key", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer.Now = func() time.Time { return time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC) }
+	authCalls := 0
+	federation.authClient = noRedirectHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		authCalls++
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload["request"] != "bound" {
+			t.Fatalf("federation retry body = %+v, %v", payload, err)
+		}
+		if authCalls < maximumFederationAttempts {
+			return testHTTPResponse(http.StatusInternalServerError, "", nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, `{"token":"token"}`, nil), nil
+	})}, 15*time.Second)
+	raw, err := federation.exchangeFederationToken(context.Background(), []byte(`{"request":"bound"}`), signer)
+	if err != nil || string(raw) != `{"token":"token"}` || authCalls != maximumFederationAttempts {
+		t.Fatalf("federation retry body=%q calls=%d err=%v", raw, authCalls, err)
+	}
+	authCalls = 0
+	federation.authClient = noRedirectHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		authCalls++
+		return testHTTPResponse(http.StatusBadRequest, "", nil), nil
+	})}, 15*time.Second)
+	if _, err := federation.exchangeFederationToken(context.Background(), []byte(`{}`), signer); err == nil || authCalls != 1 {
+		t.Fatalf("federation 4xx calls=%d err=%v", authCalls, err)
 	}
 }
 

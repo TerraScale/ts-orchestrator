@@ -51,22 +51,22 @@ func TestOCIEstateHTTPReaderUsesRetentionRuleListEndpoint(t *testing.T) {
 }
 
 func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
-	control := "ocid1.compartment.oc1.control"
-	network := "ocid1.compartment.oc1.network"
-	workload := "ocid1.compartment.oc1.workload"
-	vcn := "ocid1.vcn.oc1.x"
-	subnets := []string{"ocid1.subnet.oc1.a", "ocid1.subnet.oc1.b", "ocid1.subnet.oc1.c"}
-	nsgs := []string{"ocid1.networksecuritygroup.oc1.a", "ocid1.networksecuritygroup.oc1.b", "ocid1.networksecuritygroup.oc1.c"}
-	vault := "ocid1.vault.oc1.x"
-	key := "ocid1.key.oc1.x"
-	policy := "ocid1.policy.oc1.x"
-	dynamicGroup := "ocid1.dynamicgroup.oc1.x"
+	control := "ocid1.compartment.oc1..control"
+	network := "ocid1.compartment.oc1..network"
+	workload := "ocid1.compartment.oc1..workload"
+	vcn := "ocid1.vcn.oc1.sa-saopaulo-1.x"
+	subnets := []string{"ocid1.subnet.oc1.sa-saopaulo-1.a", "ocid1.subnet.oc1.sa-saopaulo-1.b", "ocid1.subnet.oc1.sa-saopaulo-1.c"}
+	nsgs := []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.a", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.b", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.c"}
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.x"
+	key := "ocid1.key.oc1.sa-saopaulo-1.x"
+	policy := "ocid1.policy.oc1..x"
+	dynamicGroup := "ocid1.dynamicgroup.oc1..x"
 	statement := "Allow dynamic-group terrascale-orchestrator to manage instances in compartment terrascale-workload"
 	matchingRule := "ALL {instance.compartment.id = '" + control + "'}"
 	retentionRule := OCIEstateRetentionRuleSpec{ID: "minimum-retention", DisplayName: "minimum-retention", TimeAmount: 1, TimeUnit: "DAYS"}
 	lifecycleRule := OCIEstateLifecycleRuleSpec{Name: "archive", Action: "ARCHIVE", TimeAmount: 30, TimeUnit: "DAYS", IsEnabled: true, Target: "objects", InclusionPrefixes: []string{"region/"}}
 	spec := OCIEstateSpec{
-		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1.x",
+		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..x",
 		ControlCompartmentID: control, NetworkCompartmentID: network, WorkloadCompartmentID: workload,
 		VCNID: vcn, SubnetIDs: subnets, NetworkSecurityGroupIDs: nsgs,
 		IAMPolicyCompartmentID: control, IAMPolicies: []OCIEstatePolicy{{ID: policy, Statements: []string{statement}}},
@@ -147,10 +147,10 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		mutate func(fakeEstateReader)
 	}{
 		{"wrong compartment parent", func(broken fakeEstateReader) {
-			broken[string(OCIServiceIdentity)+"|/20160918/compartments/"+control] = `{"id":"` + control + `","compartmentId":"ocid1.tenancy.oc1.wrong","lifecycleState":"ACTIVE"}`
+			broken[string(OCIServiceIdentity)+"|/20160918/compartments/"+control] = `{"id":"` + control + `","compartmentId":"ocid1.tenancy.oc1..wrong","lifecycleState":"ACTIVE"}`
 		}},
 		{"wrong subnet VCN", func(broken fakeEstateReader) {
-			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
+			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.sa-saopaulo-1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
 		}},
 		{"public subnet", func(broken fakeEstateReader) {
 			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"` + vcn + `","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":false}`
@@ -171,7 +171,7 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 			broken[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","managementEndpoint":"` + spec.KeyManagementEndpoint + `","vaultType":"DEFAULT"}`
 		}},
 		{"key belongs to another Vault", func(broken fakeEstateReader) {
-			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"ocid1.vault.oc1.wrong","protectionMode":"HSM","keyShape":{"algorithm":"AES","length":32},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
+			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"ocid1.vault.oc1.sa-saopaulo-1.wrong","protectionMode":"HSM","keyShape":{"algorithm":"AES","length":32},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
 		}},
 		{"key is not AES-256 HSM", func(broken fakeEstateReader) {
 			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"` + vault + `","protectionMode":"SOFTWARE","keyShape":{"algorithm":"RSA","length":256},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
@@ -195,7 +195,7 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Disabled","kmsKeyId":"` + key + `"}`
 		}},
 		{"bucket with wrong key", func(broken fakeEstateReader) {
-			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"ocid1.key.oc1.wrong"}`
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"ocid1.key.oc1.sa-saopaulo-1.wrong"}`
 		}},
 		{"missing retention", func(broken fakeEstateReader) {
 			broken[ledgerRetentionPath] = `{"items":[]}`

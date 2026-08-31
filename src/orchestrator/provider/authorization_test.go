@@ -4,7 +4,7 @@ import "testing"
 
 func TestAuthorizeRejectsUnknownCallStatus(t *testing.T) {
 	context := testContext(t, ActionExpandVolume,
-		ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.x"}},
+		ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.x"}},
 		ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
 	request := ProviderAuthorizationRequest{
 		Context: context,
@@ -33,7 +33,7 @@ func TestAuthorizeRejectsUnknownCallStatus(t *testing.T) {
 
 func TestAuthorizeRejectsStructLiteralWithInvalidResourceIdentity(t *testing.T) {
 	context := testContext(t, ActionExpandVolume,
-		ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.x"}},
+		ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.x"}},
 		ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
 	context.Target = ExistingProviderResource{}
 	request := ProviderAuthorizationRequest{

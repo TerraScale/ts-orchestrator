@@ -515,7 +515,9 @@ func (a *OCIVolumeAttachmentAdapter) listAttachments(ctx context.Context, query 
 		}
 		compartment, instance, volume := query.Get("compartmentId"), query.Get("instanceId"), query.Get("volumeId")
 		for _, item := range pageItems {
-			if !isOCID(item.ID, "volumeattachment") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != compartment || item.InstanceID != instance || item.VolumeID != volume {
+			if !isOCID(item.ID, "volumeattachment") || !isOCID(item.CompartmentID, "compartment") || !isOCID(item.InstanceID, "instance") ||
+				!isOCID(item.VolumeID, "volume") || item.CompartmentID != compartment || (instance != "" && item.InstanceID != instance) ||
+				(volume != "" && item.VolumeID != volume) {
 				return nil, &InvalidDataError{Message: "OCI attachment reconciliation response is outside the requested scope"}
 			}
 		}

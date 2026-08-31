@@ -218,13 +218,21 @@ func readOCIErrorCode(resp *http.Response) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	code, valid := decodeOCIErrorCode(raw)
+	if !valid {
+		return "", &InvalidDataError{Message: "OCI mutation error response is invalid"}
+	}
+	return code, nil
+}
+
+func decodeOCIErrorCode(raw []byte) (string, bool) {
 	var body struct {
 		Code string `json:"code"`
 	}
 	if json.Unmarshal(raw, &body) != nil || len(body.Code) > 96 || strings.ContainsAny(body.Code, "\r\n") {
-		return "", nil
+		return "", false
 	}
-	return body.Code, nil
+	return body.Code, body.Code != ""
 }
 
 func capacityCode(code string) bool {
@@ -237,13 +245,24 @@ func capacityCode(code string) bool {
 }
 
 func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, resp *http.Response) error {
-	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented) {
 		if resp != nil {
 			_, _ = ReadBoundedBody(resp, 64<<10)
 		}
 		return finishUnknown(ctx, journal, intent)
 	}
-	_, _ = ReadBoundedBody(resp, 64<<10)
+	code, err := readOCIErrorCode(resp)
+	if err != nil {
+		return finishUnknown(ctx, journal, intent)
+	}
+	return ociMutationFailureWithCode(ctx, journal, intent, resp.StatusCode, code)
+}
+
+func ociMutationFailureWithCode(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, status int, code string) error {
+	if status == http.StatusTooManyRequests || (status >= 500 && status != http.StatusNotImplemented) ||
+		(status == http.StatusConflict && (code == "IncorrectState" || code == "LockConflict")) {
+		return finishUnknown(ctx, journal, intent)
+	}
 	return knownFailure(ctx, journal, intent, "provider-rejected")
 }
 
@@ -428,7 +447,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 				}
 				continue
 			}
-			return ComputeInstance{}, ociMutationFailure(ctx, a.Journal, request.Mutation, &http.Response{StatusCode: resp.StatusCode, Body: http.NoBody, Header: resp.Header})
+			return ComputeInstance{}, ociMutationFailureWithCode(ctx, a.Journal, request.Mutation, resp.StatusCode, code)
 		}
 		body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
 		if err != nil {

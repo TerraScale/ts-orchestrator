@@ -58,7 +58,7 @@ func TestDurableOwnershipJournalConcurrentRecordIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := ProviderOwnershipRecord{ResourceId: ProviderResourceId{"ocid1.instance.oc1.x"}, CellId: ProviderCellId{"gru"}, CompartmentId: ProviderCompartmentId{"ocid1.compartment.oc1.x"}, Generation: ProviderGeneration{1}}
+	record := ProviderOwnershipRecord{ResourceId: ProviderResourceId{"ocid1.instance.oc1.sa-saopaulo-1.x"}, CellId: ProviderCellId{"gru"}, CompartmentId: ProviderCompartmentId{"ocid1.compartment.oc1..x"}, Generation: ProviderGeneration{1}}
 	results := make(chan error, 16)
 	for i := 0; i < cap(results); i++ {
 		go func() { results <- journal.Record(context.Background(), record) }()
@@ -117,8 +117,8 @@ func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	template, err := NewOciCiRunnerLaunchTemplate(
-		"ocid1.compartment.oc1.x", "AD-1", "FAULT-1", "ocid1.subnet.oc1.x",
-		[]string{"ocid1.networksecuritygroup.oc1.x"}, "ocid1.image.oc1.x", 3)
+		"ocid1.compartment.oc1..x", "AD-1", "FAULT-1", "ocid1.subnet.oc1.sa-saopaulo-1.x",
+		[]string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.x"}, "ocid1.image.oc1.sa-saopaulo-1.x", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {"instance-etag"}}, Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {"instance-etag"}}, Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","compartmentId":"ocid1.compartment.oc1..x"}`))}, nil
 	})}
 	config, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
 	if err != nil {
