@@ -11,10 +11,6 @@ import (
 )
 
 var hermeticToolingTests = map[string]bool{
-	"adr absolute source anchor":                         true,
-	"adr whitespace source anchor":                       true,
-	"adr symlink escape anchor":                          true,
-	"adr symlinked workspace Goal":                       true,
 	"git bytes preserve non UTF-8 blob":                  true,
 	"no python sources":                                  true,
 	"CI result manifest":                                 true,
@@ -42,6 +38,19 @@ func TestToolingHermetic(t *testing.T) {
 	}
 	if ran == 0 {
 		t.Fatal("no hermetic tooling tests were selected")
+	}
+}
+
+func TestRetiredDocumentCommandsAreAbsent(t *testing.T) {
+	retired := map[string]bool{
+		"adr-readiness":   true,
+		"owner-decisions": true,
+		"phase0-evidence": true,
+	}
+	for _, command := range toolCommands {
+		if retired[command.name] {
+			t.Fatalf("retired document command %q remains registered", command.name)
+		}
 	}
 }
 

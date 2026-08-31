@@ -221,8 +221,8 @@ func isPresentCapabilityText(value string) bool {
 	return strings.TrimSpace(value) != "" && len(value) <= 512
 }
 
-// NatsCapabilityMatrix mirrors the C# static class: the frozen NATS
-// feature-adoption matrix. Canonical document:
+// NatsCapabilityMatrix is the machine-readable NATS feature-adoption matrix.
+// Canonical document:
 // docs/contracts/nats-capability-matrix.md. Drift tests bind this table to
 // the document and pin every disposition.
 var NatsCapabilityMatrix natsCapabilityMatrix
@@ -470,7 +470,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			NatsDurabilityClassReplicatedDurableFile,
 			NatsOrderingClassPerSubjectFifo,
 			"Bounded by the consumer profile: at most 5 deliveries with a 1s/5s/15s/30s backoff ladder; ack wait is derived from the first backoff interval.",
-			"Exhaustion stops redelivery only with terminal evidence; no message may disappear silently.",
+			"Exhaustion stops redelivery only with a terminal record; no message may disappear silently.",
 			"Redelivery histograms, exhaustion counts, and final-delivery warnings by subject.",
 			"Consumer profiles in NatsTopology/GlobalNatsTopology; final-delivery warning and Nak-with-delay in ForgejoCiEventConsumer."),
 		acceptedNatsCapability(
@@ -499,7 +499,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			NatsDataClassEvidenceArtifact,
 			NatsDurabilityClassReplicatedDurableFile,
 			NatsOrderingClassPerSubjectFifo,
-			"Small signed bundles, protocol packages, and evidence only; never the build registry or backup system; secrets never enter objects.",
+			"Small signed bundles and protocol packages only; never the build registry or backup system; secrets never enter objects.",
 			"Missing or byte-unequal protocol package fails startup closed; bundle digests are content-addressed.",
 			"Object counts/bytes per bucket and integrity-check failures.",
 			"CELL_BUNDLES, GLOBAL_BUNDLES, CI_RUNNER_BUNDLES, ORCH_PROTOCOL_PACKAGE with byte-exact verification in NatsRuntime."),
@@ -557,7 +557,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Launch topology is a full mTLS gateway mesh (not hub-and-spoke) inside one offline control-plane operator domain; local streams and actions stay regional; explicit known clusters with constrained account traffic.",
 			"Gateway loss isolates regions; regional control stays autonomous and pre-authorized regional work continues.",
 			"Gateway link state, latency, and isolated-region duration; expansion beyond the mesh envelope requires a new owner decision.",
-			"Gateway membership validated by MessagingPolicyEngine plane policies (docs/architecture/orchestrator.md launch-control topology); no production gateway adapter is deployed yet."),
+			"Gateway membership is validated by MessagingPolicyEngine plane policies. ADR 0033 and docs/runbooks/nats-gateway-operations.md define the launch topology and operations; no production gateway adapter is deployed yet."),
 		acceptedNatsCapability(
 			NatsCapabilityAdvisories,
 			NatsCapabilityOwnerObservability,
@@ -567,7 +567,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"Authenticated $SYS subjects only for remote status; advisories are read, never acted on as authority.",
 			"A missed advisory degrades monitoring only; it never changes control decisions.",
 			"Slow-consumer, quorum/leader-change, and auth-failure advisories are alert inputs.",
-			"docs/architecture/orchestrator.md system-account monitoring contract; observability adapters consume advisories (design-binding; see unresolved measurements)."),
+			"docs/contracts/nats-monitoring-snapshot.md and docs/runbooks/nats-monitoring.md define advisory monitoring; observability adapters consume advisories (design-binding; see unresolved measurements)."),
 		acceptedNatsCapability(
 			NatsCapabilitySystemMonitoring,
 			NatsCapabilityOwnerObservability,
@@ -577,7 +577,7 @@ func createNatsCapabilityEntries() []NatsCapabilityEntry {
 			"HTTP monitoring binds to loopback or an isolated host-management address only, scraped locally; remote status goes through authenticated $SYS subjects; the monitoring port has no application auth boundary and is never internet- or workload-exposed.",
 			"Monitoring loss blinds operators without affecting control correctness.",
 			"Server/account/connection/consumer health and quorum state feed Grafana and alerts.",
-			"docs/architecture/orchestrator.md NATS monitoring rules; dev-lab and production monitoring adapters tracked as an unresolved measurement."),
+			"docs/contracts/nats-monitoring-snapshot.md and docs/runbooks/nats-monitoring.md define NATS monitoring rules; dev-lab and production monitoring adapters remain an unresolved measurement."),
 		acceptedNatsCapability(
 			NatsCapabilitySnapshots,
 			NatsCapabilityOwnerStorageAndSnapshots,
