@@ -118,14 +118,15 @@ func podmanFencedObservation(
 ) PodmanAllocationObservation {
 	t.Helper()
 	if state == PodmanAllocationStateAbsent {
-		observation, err := NewPodmanAllocationObservation(state, "", nil, false)
+		observation, err := NewPodmanAllocationObservation(state, "", "", nil, false)
 		if err != nil {
 			t.Fatalf("observation: %v", err)
 		}
 		return observation
 	}
 	observation, err := NewPodmanAllocationObservation(
-		state, plan.Oci.ImageReference, labels, state == PodmanAllocationStateRunning, plan.Oci.Platform)
+		state, hostRuntimePlanDigest, plan.Oci.ImageReference, labels,
+		state == PodmanAllocationStateRunning, plan.Oci.Platform)
 	if err != nil {
 		t.Fatalf("observation: %v", err)
 	}
@@ -350,7 +351,7 @@ func TestPodmanObserveReturnsTheFencedObservation(t *testing.T) {
 func TestPodmanFenceAcceptsAnUnreportedPlatform(t *testing.T) {
 	plan := podmanTestOciPlan(t)
 	unreported, err := NewPodmanAllocationObservation(
-		PodmanAllocationStateRunning, plan.Oci.ImageReference,
+		PodmanAllocationStateRunning, hostRuntimePlanDigest, plan.Oci.ImageReference,
 		podmanMatchingLabels(t, plan), true)
 	if err != nil {
 		t.Fatalf("observation: %v", err)
@@ -411,7 +412,7 @@ func TestPodmanObserveFencesImageAndPlatformMismatches(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			observation, err := NewPodmanAllocationObservation(
-				PodmanAllocationStateRunning, test.image, labels, true, test.plat)
+				PodmanAllocationStateRunning, hostRuntimePlanDigest, test.image, labels, true, test.plat)
 			if err != nil {
 				t.Fatalf("observation: %v", err)
 			}

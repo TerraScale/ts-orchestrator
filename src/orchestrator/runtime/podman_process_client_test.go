@@ -9,9 +9,41 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestVerifyPodmanSeccompProfileBindsTheShippedDocument(t *testing.T) {
+	profile, err := filepath.Abs(filepath.Join("..", "..", "..", ".terrascale", "seccomp",
+		PodmanSeccompProfileName+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(profile, uint32(os.Getuid())); err != nil {
+		t.Fatalf("shipped profile: %v", err)
+	}
+	document, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := filepath.Join(t.TempDir(), PodmanSeccompProfileName+".json")
+	document[len(document)-2] ^= 1
+	if err := os.WriteFile(tampered, document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(tampered, uint32(os.Getuid())); err == nil {
+		t.Fatal("a profile with different bytes passed the compiled digest fence")
+	}
+	symlink := filepath.Join(t.TempDir(), PodmanSeccompProfileName+".json")
+	if err := os.Symlink(profile, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(symlink, uint32(os.Getuid())); err == nil {
+		t.Fatal("a symbolic-link profile passed the path fence")
+	}
+}
 
 func podmanTestRootlessContext() RootlessPodmanContext {
 	return RootlessPodmanContext{
@@ -59,7 +91,12 @@ func newPodmanProcessClient(t *testing.T, runner *recordingHostRunner) *ProcessP
 	if err != nil {
 		t.Fatalf("client: %v", err)
 	}
+	client.verifySeccomp = func(string, uint32) error { return nil }
 	return client
+}
+
+func podmanAdmittedInfoJSON() string {
+	return `{"host":{"cgroupManager":"systemd","cgroupVersion":"v2","security":{"rootless":true,"seccompEnabled":true}}}`
 }
 
 func TestNewProcessPodmanClientValidatesItsConfiguration(t *testing.T) {
@@ -109,7 +146,10 @@ func TestProcessPodmanClientRefusesToRunWhenTheContextIsNotRootless(t *testing.T
 			rootless := podmanTestRootlessContext()
 			test.mutate(&rootless)
 			runner := newRecordingHostRunner()
-			client := &ProcessPodmanClient{rootless: rootless, commandRunner: runner}
+			client := &ProcessPodmanClient{
+				rootless: rootless, commandRunner: runner,
+				verifySeccomp: func(string, uint32) error { return nil },
+			}
 
 			for _, invoke := range []func() error{
 				func() error { return client.Preflight(context.Background()) },
@@ -235,11 +275,13 @@ func TestProcessPodmanClientSubcommandsMapToExactArgumentVectors(t *testing.T) {
 		name     string
 		invoke   func(client *ProcessPodmanClient) error
 		expected []string
+		results  []HostCommandResult
 	}{
 		{
 			name:     "preflight",
 			invoke:   func(c *ProcessPodmanClient) error { return c.Preflight(context.Background()) },
-			expected: []string{"info"},
+			expected: []string{"info", "--format", "json"},
+			results:  []HostCommandResult{{ExitCode: 0, StandardOutput: podmanAdmittedInfoJSON()}},
 		},
 		{
 			name: "pull",
@@ -279,7 +321,7 @@ func TestProcessPodmanClientSubcommandsMapToExactArgumentVectors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			runner := newRecordingHostRunner()
+			runner := newRecordingHostRunner(test.results...)
 			if err := test.invoke(newPodmanProcessClient(t, runner)); err != nil {
 				t.Fatalf("invoke: %v", err)
 			}
@@ -292,6 +334,31 @@ func TestProcessPodmanClientSubcommandsMapToExactArgumentVectors(t *testing.T) {
 			if !stringSlicesEqual(runner.commands[0].Arguments, test.expected) {
 				t.Fatalf("argument vector mismatch:\n got %v\nwant %v",
 					runner.commands[0].Arguments, test.expected)
+			}
+		})
+	}
+}
+
+func TestProcessPodmanClientPreflightRequiresRootlessSystemdCgroupV2AndSeccomp(t *testing.T) {
+	tests := []struct {
+		name string
+		info string
+	}{
+		{name: "rootful", info: `{"host":{"cgroupManager":"systemd","cgroupVersion":"v2","security":{"rootless":false,"seccompEnabled":true}}}`},
+		{name: "cgroup v1", info: `{"host":{"cgroupManager":"systemd","cgroupVersion":"v1","security":{"rootless":true,"seccompEnabled":true}}}`},
+		{name: "foreign cgroup manager", info: `{"host":{"cgroupManager":"cgroupfs","cgroupVersion":"v2","security":{"rootless":true,"seccompEnabled":true}}}`},
+		{name: "seccomp disabled", info: `{"host":{"cgroupManager":"systemd","cgroupVersion":"v2","security":{"rootless":true,"seccompEnabled":false}}}`},
+		{name: "malformed", info: `{`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := newRecordingHostRunner(HostCommandResult{ExitCode: 0, StandardOutput: test.info})
+			if err := newPodmanProcessClient(t, runner).Preflight(context.Background()); err == nil {
+				t.Fatal("unsafe Podman host was admitted")
+			}
+			if len(runner.commands) != 1 || !stringSlicesEqual(
+				runner.commands[0].Arguments, []string{"info", "--format", "json"}) {
+				t.Fatalf("preflight command = %+v", runner.commands)
 			}
 		})
 	}
