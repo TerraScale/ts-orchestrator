@@ -12,59 +12,91 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  diagnostic-host-git:
-    name: diagnostic/host-git
-    runs-on: terrascale-builder
-    timeout-minutes: 5
-    steps:
-      - run: command -v git && git --version
-
-  diagnostic-host-tar:
-    name: diagnostic/host-tar
-    runs-on: terrascale-builder
-    timeout-minutes: 5
-    steps:
-      - run: command -v tar && tar --version
-
-  diagnostic-podman-public:
-    name: diagnostic/podman-public
-    runs-on: terrascale-builder
-    timeout-minutes: 15
-    steps:
-      - run: podman run --rm docker.io/library/golang@sha256:eef6a67266eeed3c86dd47fd01b32faa8bf0229eb83eb3d4d466e80391bd3820 go version
-
-  diagnostic-podman-toolbox:
-    name: diagnostic/podman-toolbox
-    runs-on: terrascale-builder
-    timeout-minutes: 15
-    steps:
-      - run: podman run --rm git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d sh -lc 'go version && git --version && tar --version'
-
-  diagnostic-checkout-current:
-    name: diagnostic/checkout-current
-    runs-on: terrascale-builder
+  diagnostic-untrusted-checkout:
+    name: diagnostic/untrusted-checkout
+    runs-on: terrascale-untrusted
     timeout-minutes: 10
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          fetch-depth: 0
-          persist-credentials: false
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
       - run: git rev-parse HEAD
 
-  diagnostic-checkout-deploy:
-    name: diagnostic/checkout-deploy
-    runs-on: terrascale-builder
+  diagnostic-untrusted-setup-go:
+    name: diagnostic/untrusted-setup-go
+    runs-on: terrascale-untrusted
+    timeout-minutes: 10
+    steps:
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version: "1.27.0", cache: false }
+      - run: go version
+
+  diagnostic-untrusted-podman:
+    name: diagnostic/untrusted-podman
+    runs-on: terrascale-untrusted
+    timeout-minutes: 5
+    steps:
+      - run: podman version
+
+  diagnostic-untrusted-upload:
+    name: diagnostic/untrusted-upload
+    runs-on: terrascale-untrusted
+    timeout-minutes: 10
+    steps:
+      - run: mkdir -p .tools && touch .tools/probe
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with: { name: untrusted-probe, path: .tools, if-no-files-found: error, retention-days: 1 }
+
+  diagnostic-untrusted-container:
+    name: diagnostic/untrusted-container
+    runs-on: terrascale-untrusted
+    timeout-minutes: 10
+    container:
+      image: docker.io/library/golang@sha256:eef6a67266eeed3c86dd47fd01b32faa8bf0229eb83eb3d4d466e80391bd3820
+    steps:
+      - run: go version
+
+  diagnostic-ubuntu-checkout:
+    name: diagnostic/ubuntu-checkout
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          repository: TerraScale-Old/TerraScale.Deploy
-          fetch-depth: 0
-          persist-credentials: false
-          path: ts-deploy
-      - run: git -C ts-deploy rev-parse HEAD
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - run: git rev-parse HEAD
+
+  diagnostic-ubuntu-setup-go:
+    name: diagnostic/ubuntu-setup-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version: "1.27.0", cache: false }
+      - run: go version
+
+  diagnostic-ubuntu-podman:
+    name: diagnostic/ubuntu-podman
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: podman version
+
+  diagnostic-ubuntu-upload:
+    name: diagnostic/ubuntu-upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: mkdir -p .tools && touch .tools/probe
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with: { name: ubuntu-probe, path: .tools, if-no-files-found: error, retention-days: 1 }
+
+  diagnostic-ubuntu-container:
+    name: diagnostic/ubuntu-container
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: docker.io/library/golang@sha256:eef6a67266eeed3c86dd47fd01b32faa8bf0229eb83eb3d4d466e80391bd3820
+    steps:
+      - run: go version
 
   bootstrap:
     name: deploy-cli
