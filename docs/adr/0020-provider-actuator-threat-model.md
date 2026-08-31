@@ -7,9 +7,9 @@
 
 ## Context
 
-An OCI mutation can outlive the controller leadership and HTTP call that initiated it. The control plane may crash after its last authority check, lose the response, observe an SDK timeout while the request continues, or receive a delayed work-request completion after another leader takes over. OCI does not understand a NATS lease or controller fencing epoch, and IAM or dynamic-group propagation is not a leader-failover fence ([specification, lines 642-646](../../docs/architecture/orchestrator.md#L642-L646)).
+An OCI mutation can outlive the controller leadership and HTTP call that initiated it. The control plane may crash after its last authority check, lose the response, observe an SDK timeout while the request continues, or receive a delayed work-request completion after another leader takes over. OCI does not understand a NATS lease or controller fencing epoch, and IAM or dynamic-group propagation is not a leader-failover fence.
 
-The safety requirement is stronger than avoiding duplicate API calls: every external mutation must have one persisted, authorized terminal intent, and stale actors must be unable to create a conflicting accepted outcome (`INV-004`, `INV-005`, and `INV-006`; [specification, lines 146-148](../../docs/architecture/orchestrator.md#L146-L148)). The provider interface therefore requires a `ProviderOperationContext` for every mutation ([specification, lines 687-702](../../docs/architecture/orchestrator.md#L687-L702)).
+The safety requirement is stronger than avoiding duplicate API calls: every external mutation must have one persisted, authorized terminal intent, and stale actors must be unable to create a conflicting accepted outcome (`INV-004`, `INV-005`, and `INV-006`). The provider interface therefore requires a `ProviderOperationContext` for every mutation.
 
 This threat model is scoped to crash-stop failure of trusted, signed orchestrator code and ordinary provider/network faults. It does not claim safety against Byzantine execution by a root-compromised actuator host. Compromise prevention, detection, credential revocation, and recovery still require a separately reviewed IAM/host security design.
 
@@ -52,14 +52,14 @@ The adapter must reject a context whose authorization state, commit digest, payl
 
 - Every mutating adapter call consumes an exact committed `AuthorizedForProviderCall` record; an adapter cannot invent business intent or execute a merely `Prepared` operation.
 - Exactly one logical operation may own a target transition. A leadership change changes the executor, not the authorized terminal outcome.
-- All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second instance ([scale-out rule, lines 706-725](../../docs/architecture/orchestrator.md#L706-L725)).
+- All create retries use the same deterministic create identity. Losing an HTTP response cannot create a second instance.
 - The irreversible commit requires fresh observation, exact target identity, generation match, an unexpired deadline, all required approvals, and positive ownership under ADR 0004.
-- Wall-clock anomalies before commit hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps ([partition rule, line 589](../../docs/architecture/orchestrator.md#L589)). After commit, anomaly or expiry can hold dispatch but cannot erase or alter the committed authorization; resume/reconciliation stays on the same operation.
+- Wall-clock anomalies before commit hold destructive actions. Local lease validity uses bounded monotonic duration plus authoritative server timestamps. After commit, anomaly or expiry can hold dispatch but cannot erase or alter the committed authorization; resume/reconciliation stays on the same operation.
 - An unknown response is reconciled through read/work-request APIs before retry or compensation.
 - A stale leader's late call can only be absent or safely complete the existing operation; it cannot create a second accepted writer or conflicting terminal state.
 - Discovery results and tags cannot authorize mutation, adoption, cleanup, or compensation.
-- Credentials are regional and compartment scoped. GRU distributes policy and ceilings but does not receive ordinary SFO/FRA mutation authority after handoff ([specification, lines 665-671](../../docs/architecture/orchestrator.md#L665-L671)).
-- The global emergency budget may stop new non-safety scale-out but cannot manufacture destructive authority or block safety expansion needed to avoid data loss ([specification, lines 746-754](../../docs/architecture/orchestrator.md#L746-L754)).
+- Credentials are regional and compartment scoped. GRU distributes policy and ceilings but does not receive ordinary SFO/FRA mutation authority after handoff.
+- The global emergency budget may stop new non-safety scale-out but cannot manufacture destructive authority or block safety expansion needed to avoid data loss.
 
 ## Failure and resume matrix
 
@@ -138,7 +138,7 @@ and established no resource ownership.
 - **L4:** targeted disposable OCI A1/IAM/storage/LB tests after the exact-tree credential gate. Delay real work requests across leadership change and prove a new leader resumes the same operation without duplicate creation or conflicting destruction.
 - **Security:** demonstrate that an identity cannot mutate another region/compartment or an unlisted resource/action, and that access denial never falls back to broader credentials.
 
-Phase 4 cannot exit until crash/retry and leadership loss at every provider and handoff checkpoint produces exactly one owned terminal outcome and unowned resources remain untouched ([specification, lines 1538-1548](../../docs/architecture/orchestrator.md#L1538-L1548)). No test described here authorizes a cloud instance or API call before the exact-tree pre-deployment gate.
+Phase 4 cannot exit until crash/retry and leadership loss at every provider and handoff checkpoint produces exactly one owned terminal outcome and unowned resources remain untouched. No test described here authorizes a cloud instance or API call before the exact-tree pre-deployment gate.
 
 ## Traceability
 
@@ -163,5 +163,4 @@ Phase 4 cannot exit until crash/retry and leadership loss at every provider and 
 The live stable-identifier registry now transcribes the accepted identifiers in
 `GOAL.md`. The proposal names in this ADR remain historical and are not frozen
 stable identifiers
-([current registry](../../src/orchestrator/contracts/stable_identifier_registry.go),
-[historical registry note](../guides/phase0-evidence.md#registry-and-retirement)).
+([current registry](../../src/orchestrator/contracts/stable_identifier_registry.go)).
