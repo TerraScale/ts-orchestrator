@@ -8,11 +8,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +20,6 @@ import (
 
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
-
-// natsOperationJournalMaximumValueBytes bounds persisted journal values.
-const natsOperationJournalMaximumValueBytes = 16 * 1024
 
 // NatsOperationJournalMutationService is the private typed mutation boundary.
 // Only this service holds journal KV write credentials.
@@ -278,24 +273,6 @@ func natsOperationJournalUpdate(
 	}
 
 	return natsOperationJournalReply(ctx, message, request.Authority, true, revision, replies)
-}
-
-func natsOperationJournalIsValid(key, value string) bool {
-	if len(key) != 74 || !strings.HasPrefix(key, "operation.") {
-		return false
-	}
-
-	for index := len("operation."); index < len(key); index++ {
-		character := key[index]
-		isHex := character >= '0' && character <= '9' ||
-			character >= 'a' && character <= 'f' ||
-			character >= 'A' && character <= 'F'
-		if !isHex {
-			return false
-		}
-	}
-
-	return len([]byte(value)) <= natsOperationJournalMaximumValueBytes
 }
 
 func natsOperationJournalReply(
@@ -585,79 +562,6 @@ func natsOperationJournalOpenRuntimeLifecycleStores(
 	}
 
 	return &natsRuntimeLifecycleJournalStores{Operations: operations, ProofConsumptions: proofConsumptions}, nil
-}
-
-// NatsOperationJournalMutationProofConsumptionResult classifies a proof-ledger write.
-type NatsOperationJournalMutationProofConsumptionResult int
-
-const (
-	NatsOperationJournalMutationProofConsumptionResultConsumed        NatsOperationJournalMutationProofConsumptionResult = 1
-	NatsOperationJournalMutationProofConsumptionResultAlreadyConsumed NatsOperationJournalMutationProofConsumptionResult = 2
-	NatsOperationJournalMutationProofConsumptionResultUnavailable     NatsOperationJournalMutationProofConsumptionResult = 3
-)
-
-// NatsOperationJournalMutationProofConsumption exposes the R3 create-only proof
-// ledger. Entries expire within the maximum accepted proof lifetime.
-var NatsOperationJournalMutationProofConsumption natsOperationJournalMutationProofConsumption
-
-type natsOperationJournalMutationProofConsumption struct{}
-
-// NatsOperationJournalMutationProofConsumptionTryConsumeAsync consumes a proof once.
-func NatsOperationJournalMutationProofConsumptionTryConsumeAsync(
-	ctx context.Context,
-	store jetstream.KeyValue,
-	proof NatsOperationJournalMutationAuthorityProof,
-) (bool, error) {
-	result, err := NatsOperationJournalMutationProofConsumptionConsumeAsync(ctx, store, proof)
-	if err != nil {
-		return false, err
-	}
-
-	return result == NatsOperationJournalMutationProofConsumptionResultConsumed, nil
-}
-
-// NatsOperationJournalMutationProofConsumptionConsumeAsync classifies a proof consumption attempt.
-func NatsOperationJournalMutationProofConsumptionConsumeAsync(
-	ctx context.Context,
-	store jetstream.KeyValue,
-	proof NatsOperationJournalMutationAuthorityProof,
-) (NatsOperationJournalMutationProofConsumptionResult, error) {
-	key, err := NatsOperationJournalMutationProofConsumptionKey(proof)
-	if err != nil {
-		return NatsOperationJournalMutationProofConsumptionResultUnavailable, err
-	}
-
-	_, err = store.Create(ctx, key, []byte("consumed"))
-	if err == nil {
-		return NatsOperationJournalMutationProofConsumptionResultConsumed, nil
-	}
-
-	if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
-		return NatsOperationJournalMutationProofConsumptionResultAlreadyConsumed, nil
-	}
-
-	// A failed proof-ledger write must fail closed before the operation KV is
-	// touched; providers never receive a mutation reply that authorizes reuse.
-	return NatsOperationJournalMutationProofConsumptionResultUnavailable, nil
-}
-
-// NatsOperationJournalMutationProofConsumptionKey derives the proof-ledger key.
-func NatsOperationJournalMutationProofConsumptionKey(
-	proof NatsOperationJournalMutationAuthorityProof,
-) (string, error) {
-	hash := sha256.New()
-	for _, value := range []string{proof.Cell, proof.CallerIdentity, proof.Lease, proof.Nonce} {
-		bytes := []byte(value)
-		length := make([]byte, 4)
-		length[0] = byte(len(bytes) >> 24)
-		length[1] = byte(len(bytes) >> 16)
-		length[2] = byte(len(bytes) >> 8)
-		length[3] = byte(len(bytes))
-		hash.Write(length)
-		hash.Write(bytes)
-	}
-
-	return "proof." + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // NatsOperationJournalMutationClient calls the private mutation service.
@@ -1023,196 +927,9 @@ func natsRequestReplyOnce(
 	}
 }
 
-// NatsOperationJournalCreateRequest is a versioned create request.
-type NatsOperationJournalCreateRequest struct {
-	SchemaVersion int                                        `json:"SchemaVersion"`
-	Key           string                                     `json:"Key"`
-	Value         string                                     `json:"Value"`
-	Authority     NatsOperationJournalMutationAuthorityProof `json:"Authority"`
-}
-
-// NatsOperationJournalUpdateRequest is a versioned conditional update request.
-type NatsOperationJournalUpdateRequest struct {
-	SchemaVersion int                                        `json:"SchemaVersion"`
-	Key           string                                     `json:"Key"`
-	Value         string                                     `json:"Value"`
-	Revision      uint64                                     `json:"Revision"`
-	Authority     NatsOperationJournalMutationAuthorityProof `json:"Authority"`
-}
-
-// NatsOperationJournalMutationReply is a signed versioned mutation result.
-type NatsOperationJournalMutationReply struct {
-	SchemaVersion int    `json:"SchemaVersion"`
-	Succeeded     bool   `json:"Succeeded"`
-	Revision      uint64 `json:"Revision"`
-	RequestDigest string `json:"RequestDigest"`
-	Signature     string `json:"Signature"`
-}
-
-// Payload returns the canonical reply signing material.
-func (r NatsOperationJournalMutationReply) Payload() string {
-	return strings.Join([]string{
-		strconv.Itoa(r.SchemaVersion),
-		strconv.FormatBool(r.Succeeded),
-		strconv.FormatUint(r.Revision, 10),
-		r.RequestDigest,
-	}, "|")
-}
-
-// NatsOperationJournalMutationAuthorityProof binds a caller to one journal mutation.
-type NatsOperationJournalMutationAuthorityProof struct {
-	Cell             string    `json:"Cell"`
-	CallerIdentity   string    `json:"CallerIdentity"`
-	Action           string    `json:"Action"`
-	Key              string    `json:"Key"`
-	Revision         uint64    `json:"Revision"`
-	CiphertextDigest string    `json:"CiphertextDigest"`
-	Lease            string    `json:"Lease"`
-	ExpiresAt        time.Time `json:"ExpiresAt"`
-	Nonce            string    `json:"Nonce"`
-	Signature        string    `json:"Signature"`
-}
-
-// Payload returns the canonical authority-proof signing material.
-func (p NatsOperationJournalMutationAuthorityProof) Payload() string {
-	return strings.Join([]string{
-		p.Cell,
-		p.CallerIdentity,
-		p.Action,
-		p.Key,
-		strconv.FormatUint(p.Revision, 10),
-		p.CiphertextDigest,
-		p.Lease,
-		strconv.FormatInt(p.ExpiresAt.UTC().Unix(), 10),
-		p.Nonce,
-	}, "|")
-}
-
-// NatsOperationJournalMutationAuthoritySigner issues mutation proofs.
-type NatsOperationJournalMutationAuthoritySigner struct {
-	CallerIdentity string
-	key            *ecdsa.PrivateKey
-}
-
-// NewNatsOperationJournalMutationAuthoritySigner creates an authority signer.
-func NewNatsOperationJournalMutationAuthoritySigner(
-	callerIdentity string,
-	key *ecdsa.PrivateKey,
-) *NatsOperationJournalMutationAuthoritySigner {
-	return &NatsOperationJournalMutationAuthoritySigner{CallerIdentity: callerIdentity, key: key}
-}
-
-// Issue signs a short-lived proof for one mutation.
-func (s *NatsOperationJournalMutationAuthoritySigner) Issue(
-	cell string,
-	action string,
-	keyName string,
-	revision uint64,
-	value string,
-) NatsOperationJournalMutationAuthorityProof {
-	digest := sha256.Sum256([]byte(value))
-	callerIdentity := ""
-	if s != nil {
-		callerIdentity = s.CallerIdentity
-	}
-	proof := NatsOperationJournalMutationAuthorityProof{
-		Cell:             cell,
-		CallerIdentity:   callerIdentity,
-		Action:           action,
-		Key:              keyName,
-		Revision:         revision,
-		CiphertextDigest: hex.EncodeToString(digest[:]),
-		Lease:            randomNatsNonce(),
-		ExpiresAt:        time.Now().UTC().Add(2 * time.Minute),
-		Nonce:            randomNatsNonce(),
-		Signature:        "",
-	}
-
-	if s == nil || s.key == nil {
-		return proof
-	}
-	signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum(proofPayloadBytes(proof)))
-	if err == nil {
-		proof.Signature = base64.StdEncoding.EncodeToString(signature)
-	}
-
-	return proof
-}
-
-func proofPayloadBytes(p NatsOperationJournalMutationAuthorityProof) []byte {
-	return []byte(p.Payload())
-}
-
 func sha256Sum(data []byte) []byte {
 	digest := sha256.Sum256(data)
 	return digest[:]
-}
-
-// NatsOperationJournalMutationAuthorityVerifier verifies mutation proofs.
-type NatsOperationJournalMutationAuthorityVerifier struct {
-	publicKey []byte
-}
-
-// NewNatsOperationJournalMutationAuthorityVerifier creates an authority verifier.
-func NewNatsOperationJournalMutationAuthorityVerifier(publicKey []byte) *NatsOperationJournalMutationAuthorityVerifier {
-	copied := append([]byte(nil), publicKey...)
-	return &NatsOperationJournalMutationAuthorityVerifier{publicKey: copied}
-}
-
-// Verify checks a proof against the exact requested mutation.
-func (v *NatsOperationJournalMutationAuthorityVerifier) Verify(
-	proof *NatsOperationJournalMutationAuthorityProof,
-	cell string,
-	callers map[string]struct{},
-	action string,
-	keyName string,
-	revision uint64,
-	value string,
-) bool {
-	if v == nil || proof == nil {
-		return false
-	}
-
-	digest := sha256.Sum256([]byte(value))
-	_, callerKnown := callers[proof.CallerIdentity]
-	if proof.Cell != cell || !callerKnown || proof.Action != action ||
-		proof.Key != keyName || proof.Revision != revision ||
-		proof.CiphertextDigest != hex.EncodeToString(digest[:]) ||
-		strings.TrimSpace(proof.Lease) == "" || strings.TrimSpace(proof.Nonce) == "" ||
-		!proof.ExpiresAt.After(time.Now().UTC()) ||
-		proof.ExpiresAt.After(time.Now().UTC().Add(5*time.Minute)) {
-		return false
-	}
-
-	parsed, err := x509.ParsePKIXPublicKey(v.publicKey)
-	if err != nil {
-		return false
-	}
-
-	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok || !natsJournalIsP256(key) {
-		return false
-	}
-
-	signature, err := base64.StdEncoding.DecodeString(proof.Signature)
-	if err != nil {
-		return false
-	}
-
-	return ecdsa.VerifyASN1(key, sha256Sum([]byte(proof.Payload())), signature)
-}
-
-// NatsOperationJournalMutationRequestDigest exposes the request-digest contract.
-var NatsOperationJournalMutationRequestDigest natsOperationJournalMutationRequestDigest
-
-type natsOperationJournalMutationRequestDigest struct{}
-
-// NatsOperationJournalMutationRequestDigestCreate hashes a signed authority proof.
-func NatsOperationJournalMutationRequestDigestCreate(
-	proof NatsOperationJournalMutationAuthorityProof,
-) string {
-	material := proof.Payload() + "|" + proof.Signature
-	return hex.EncodeToString(sha256Sum([]byte(material)))
 }
 
 // NatsOperationJournalMutationReplySigner signs mutation replies.
