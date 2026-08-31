@@ -5,9 +5,9 @@
   adapter serves this root.
 - Source of truth: the Go contracts in `src/orchestrator/control/` and
   `src/orchestrator/protocol/`
-  (`RegionalRuntimeMembership.cs`, `RegionalRuntimeMembershipRecords.cs`,
-  `GlobalCellDirectory.cs`, `GlobalCellDirectoryRuntime.cs`,
-  `GlobalCellDirectoryLifecycle.cs`, `ControllerEligibility.cs`).
+  (`regional_runtime_membership.go`, `membership_records.go`,
+  `global_cell_directory.go`, `global_cell_directory_runtime.go`,
+  `global_cell_directory_lifecycle.go`, `controller_eligibility.go`).
   This document derives from those types; it adds no rule they do not implement.
 
 ## What membership is

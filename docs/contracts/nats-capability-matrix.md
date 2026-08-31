@@ -67,7 +67,7 @@ Platform-reserved NATS roots (`$JS`, `$KV`, `$O`, `$SRV`, `$SYS`, `_INBOX`, `_R_
 
 ## 3. Versioned envelope contract
 
-`Protocol/Messaging/MessagingEnvelope.cs` extends — never duplicates — the signed `CommandEnvelope`:
+`src/orchestrator/protocol/messaging_envelope.go` extends — never duplicates — the signed `CommandEnvelope`:
 
 - From `CommandEnvelope` (signed): protocol version, cell, aggregate, desired generation, writer epoch (fencing), operation id, operation idempotency key, issued/expiry, delivery attempt, payload + digest, signature. Signed material and validation are owned by `CommandEnvelopeValidator` (INV-005).
 - Added by the messaging envelope: schema major/minor, message id, correlation id, causation id, source (instance, session, cell, cluster), target scope (namespace, subject, cell), payload type, trace context, observation time.
@@ -76,7 +76,7 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 
 ## 4. Semantic classes
 
-`Protocol/Messaging/MessagingSemanticClasses.cs`: `Lossy`, `Replayable`, `WorkQueue`, `Snapshot`, `AuthoritativeJournal`.
+`src/orchestrator/protocol/messaging_semantic_classes.go`: `Lossy`, `Replayable`, `WorkQueue`, `Snapshot`, `AuthoritativeJournal`.
 
 | Subject pattern | Class | Loss meaning |
 | --- | --- | --- |
@@ -111,7 +111,7 @@ Queue groups distribute only equivalent-worker work; authoritative work requires
 
 ## 8. Regional autonomy
 
-`Protocol/Messaging/MessagingRegionalAutonomy.cs` (rules) + `MessagingPolicyEngine.DecidePartition` (executable epoch/generation core):
+`src/orchestrator/protocol/messaging_regional_autonomy.go` (rules) + `MessagingPolicyEngine.DecidePartition` (executable epoch/generation core):
 
 - Connected — everything permitted (subject to epoch/generation checks).
 - Globally isolated — pre-authorized regional work and observation continue; new global generations, policy, releases, and global authority claims are frozen.
@@ -119,7 +119,7 @@ Queue groups distribute only equivalent-worker work; authoritative work requires
 
 ## 9. N/N-1 compatibility rules
 
-`Protocol/Messaging/MessagingCompatibility.cs` — closed negotiation (`MessagingSchemaNegotiation`): accept exact, migrate registered older minors forward, reject unknown majors, reject newer versions (an N-1 node never guesses), reject unmigratable older versions. Matches the landed journal discipline (forward-only stepwise migration; unknown JSON members fail closed). Rule areas: clients, servers, streams, consumers, KV values, Object Store metadata, rolling upgrades (forward+rollback artifacts required; quorum floors never broken; rollback never upgrades data).
+`src/orchestrator/protocol/messaging_compatibility.go` — closed negotiation (`MessagingSchemaNegotiation`): accept exact, migrate registered older minors forward, reject unknown majors, reject newer versions (an N-1 node never guesses), reject unmigratable older versions. Matches the landed journal discipline (forward-only stepwise migration; unknown JSON members fail closed). Rule areas: clients, servers, streams, consumers, KV values, Object Store metadata, rolling upgrades (forward+rollback artifacts required; quorum floors never broken; rollback never upgrades data).
 
 ## 10. Unresolved production measurements (deferred)
 
