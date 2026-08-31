@@ -1,8 +1,5 @@
-// Package scheduling ports TerraScale.Orchestrator.Scheduler (SchedulingModels.cs,
-// DeterministicScheduler.cs, Availability/AvailabilityModels.cs and
-// Availability/AvailabilityPolicyEvaluator.cs from src/TerraScale.Orchestrator).
-//
-// This file ports Scheduling/SchedulingModels.cs.
+// Package scheduling implements deterministic resource placement and
+// availability-policy evaluation.
 package scheduling
 
 import (

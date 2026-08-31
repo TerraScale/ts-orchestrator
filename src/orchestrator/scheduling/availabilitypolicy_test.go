@@ -1,12 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// AvailabilityPolicyTests.cs.
-//
-// Skipped from the C# suite:
-//   - The CultureInfo loops inside DecisionsAndTraceAreInvariant... (Go has no
-//     ambient culture); the permutation invariance is fully ported.
-//   - TraceIsClosedNumericAndCannotCarryCallerTextOrSecrets reflection sweep
-//     over the trace type's property types; the Go AvailabilityReason exposes
-//     only the two enums and two uint64 fields, verified directly below.
 package scheduling
 
 import (

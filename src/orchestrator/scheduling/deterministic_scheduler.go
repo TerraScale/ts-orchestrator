@@ -1,4 +1,3 @@
-// This file ports Scheduling/DeterministicScheduler.cs.
 package scheduling
 
 import (

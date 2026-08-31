@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/ControllerEligibility.cs.
 package control
 
 import (

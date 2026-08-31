@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeLifecycleNatsProtocol.cs
 package control
 
 import (

@@ -1,4 +1,3 @@
-// This file ports Runtime/SystemdHostRuntimeAdapter.cs.
 package runtime
 
 import (

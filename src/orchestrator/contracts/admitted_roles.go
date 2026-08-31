@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/Resources/AdmittedRoles.cs.
 package contracts
 
 import "strconv"

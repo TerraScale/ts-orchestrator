@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsAuthoritativeJournalConfiguration.cs.
 package control
 
 import (

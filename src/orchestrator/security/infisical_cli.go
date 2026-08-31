@@ -1,4 +1,3 @@
-// This file ports Security/InfisicalCli.cs.
 package security
 
 import (

@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// AdmittedRoleCatalogTests.cs.
 package runtime
 
 import (

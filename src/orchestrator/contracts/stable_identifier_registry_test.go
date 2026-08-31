@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.ModelTests/StableIdentifierRegistryTests.cs.
 // Registry completeness against the GOAL.md tables, verbatim canonical-text
 // equality for every entry, identifier format validation, closed-set
 // construction, the typed identifier surface, and supersession rules for the

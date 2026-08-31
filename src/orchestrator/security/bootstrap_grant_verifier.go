@@ -1,4 +1,3 @@
-// This file ports Security/SystemProjectBootstrap/BootstrapGrantVerifier.cs.
 package security
 
 import "terrascale.tech/orchestrator/src/orchestrator/errs"

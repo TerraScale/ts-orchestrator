@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/MessagingRegionalAutonomy.cs.
 package protocol
 
 // MessagingConnectivity mirrors the MessagingConnectivity enum: connectivity

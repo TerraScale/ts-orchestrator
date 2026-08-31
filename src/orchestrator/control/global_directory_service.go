@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/GlobalCellDirectoryServiceRuntime.cs.
 package control
 
 import (

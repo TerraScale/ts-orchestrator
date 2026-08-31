@@ -1,7 +1,5 @@
-// Port of src/TerraScale.Orchestrator/Protocol/CommandEnvelope.cs. The file
-// also carries the small .NET DateTimeOffset helpers the port relies on
-// (round-trip formatting and .NET-epoch ticks), which the C# side got from the
-// BCL.
+// Command envelopes use RFC3339 round-trip timestamps and 100-nanosecond ticks
+// since year 1 in canonical signed material.
 package protocol
 
 import (

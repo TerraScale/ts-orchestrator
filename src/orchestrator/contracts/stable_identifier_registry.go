@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierRegistry.cs.
 package contracts
 
 // StableIdentifierRegistry mirrors the C# static class of the same name: the

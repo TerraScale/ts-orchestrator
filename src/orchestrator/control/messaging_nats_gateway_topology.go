@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsGatewayTopology.cs.
 package control
 
 import (

@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// ContainerdHostRuntimeAdapterTests.cs.
 package runtime
 
 import (

@@ -1,4 +1,3 @@
-// This file ports Security/InfisicalSecretStore.cs.
 package security
 
 import (

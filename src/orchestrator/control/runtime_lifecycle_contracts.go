@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeLifecycleContracts.cs
 package control
 
 import (
@@ -446,7 +445,7 @@ type runtimeLifecycleFingerprint struct{}
 
 func canonicalStrings(builder *strings.Builder, values []string) {
 	for _, value := range values {
-		builder.WriteString(strconv.Itoa(digestUtf16Length(value)))
+		builder.WriteString(strconv.Itoa(v1UTF16CodeUnitCount(value)))
 		builder.WriteByte(':')
 		builder.WriteString(value)
 		builder.WriteByte(';')

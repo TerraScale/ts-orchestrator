@@ -1,7 +1,4 @@
-// Package runtime ports TerraScale.Orchestrator.Runtime (the Runtime folder of
-// src/TerraScale.Orchestrator, including Runtime/Mcp).
-//
-// This file ports Runtime/AdmittedRoleCatalog.cs.
+// Package runtime defines workload admission and host execution plans.
 package runtime
 
 import (
@@ -131,8 +128,7 @@ type AdmittedRoleDescriptor struct {
 	MinimumReplicas int
 }
 
-// AdmittedRoleCatalog ports the static AdmittedRoleCatalog class; call it as
-// runtime.AdmittedRoleCatalog.Get(role) to mirror the C# call site.
+// AdmittedRoleCatalog exposes the closed descriptor catalog.
 var AdmittedRoleCatalog admittedRoleCatalog
 
 type admittedRoleCatalog struct{}

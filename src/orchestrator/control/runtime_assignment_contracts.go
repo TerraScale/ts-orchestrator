@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeAssignmentContracts.cs
 package control
 
 import (

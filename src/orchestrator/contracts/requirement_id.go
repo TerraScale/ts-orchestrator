@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/RequirementId.cs.
 package contracts
 
 import "fmt"

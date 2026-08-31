@@ -1,8 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/Fuzz/DeterministicProtocolFuzzTests.cs.
-// The .NET iterator-fault fixtures and the reflection-based
-// PublicParserAndValidatorInventory test are skipped (no Go equivalent); every
-// deterministic property loop is ported. Culture-independence loops are
-// dropped because Go formatting is culture-free by construction.
 package protocol
 
 import (

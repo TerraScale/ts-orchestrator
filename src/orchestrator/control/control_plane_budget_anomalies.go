@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Budgets/BudgetAnomalies.cs
 package control
 
 import "sort"

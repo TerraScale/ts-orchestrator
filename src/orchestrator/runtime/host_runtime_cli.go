@@ -1,4 +1,3 @@
-// This file ports Runtime/HostRuntimeCli.cs.
 package runtime
 
 import (
@@ -10,8 +9,7 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-// HostRuntimeCli ports the internal static HostRuntimeCli class; call it as
-// runtime.HostRuntimeCli.Execute(arguments) to mirror the C# call site.
+// HostRuntimeCli parses and renders host runtime plans.
 var HostRuntimeCli hostRuntimeCli
 
 type hostRuntimeCli struct{}

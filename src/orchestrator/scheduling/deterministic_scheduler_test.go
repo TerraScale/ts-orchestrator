@@ -1,11 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// DeterministicSchedulerTests.cs.
-//
-// Skipped from the C# suite:
-//   - PublicSchedulerSurfaceCannotBecomeASecondProductPlacementAuthority: it
-//     reflects over the exported .NET surface; the Go package has no
-//     ProjectId/ProjectRegions/PlacementGeneration/DatabaseId/DatabaseRegions
-//     members anywhere, so the reflection sweep has no equivalent.
 package scheduling
 
 import (

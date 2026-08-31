@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Subjects/SubjectGrammarError.cs.
 package protocol
 
 import (
@@ -59,10 +58,7 @@ func (e SubjectGrammarError) String() string {
 	}
 }
 
-// subjectGrammarParser mirrors the internal static SubjectGrammarParser. The
-// tokenizer preserves the C# UTF-16 semantics: lengths are measured in UTF-16
-// code units, and any invalid UTF-8 byte sequence (which is how unpaired
-// surrogates surface in Go) is an InvalidUnicodeScalarSequence.
+// subjectGrammarParser validates bounded NATS subjects and permission patterns.
 type subjectGrammarParser struct{}
 
 var subjectGrammarParserInstance subjectGrammarParser
@@ -76,7 +72,7 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 		return nil, SubjectGrammarErrorEmpty
 	}
 
-	if utf16Length(value) > limits.MaximumSubjectLength {
+	if v1UTF16CodeUnitCount(value) > limits.MaximumSubjectLength {
 		return nil, SubjectGrammarErrorSubjectTooLong
 	}
 
@@ -111,16 +107,16 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 			return nil, SubjectGrammarErrorControlCharacterNotAllowed
 		}
 
-		characterWidth := 1
+		characterUnits := 1
 		if character > 0xFFFF {
-			characterWidth = 2
+			characterUnits = 2
 		}
 
-		if tokenLength > limits.MaximumTokenLength-characterWidth {
+		if tokenLength > limits.MaximumTokenLength-characterUnits {
 			return nil, SubjectGrammarErrorTokenTooLong
 		}
 
-		tokenLength += characterWidth
+		tokenLength += characterUnits
 		index += width
 	}
 

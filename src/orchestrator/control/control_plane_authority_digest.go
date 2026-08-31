@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Authority/AuthorityDigest.cs
 package control
 
 // AuthorityDigestEmptyJournalDigest mirrors AuthorityDigest.EmptyJournalDigest.

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/CiRunnerNatsCredentialIssuer.cs.
 package control
 
 import (

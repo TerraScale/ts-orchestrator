@@ -1,4 +1,3 @@
-// This file ports Runtime/NativeSystemdRuntimeAdmission.cs.
 package runtime
 
 import (

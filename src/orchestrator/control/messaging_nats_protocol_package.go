@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsProtocolPackage.cs.
 package control
 
 // NatsProtocolPackageBytes mirrors NatsProtocolPackage.Bytes: the immutable

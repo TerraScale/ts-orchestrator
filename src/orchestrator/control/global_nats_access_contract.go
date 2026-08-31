@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/GlobalNatsAccessContract.cs.
 package control
 
 import (

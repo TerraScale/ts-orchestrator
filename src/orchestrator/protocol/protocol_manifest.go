@@ -1,6 +1,4 @@
-// Port of src/TerraScale.Orchestrator/Protocol/ProtocolManifest.cs. The
-// checked-in manifest bytes are embedded from protocol-manifest.json, a
-// byte-identical copy of the C# embedded resource.
+// The checked-in manifest bytes are embedded from protocol-manifest.json.
 package protocol
 
 import (

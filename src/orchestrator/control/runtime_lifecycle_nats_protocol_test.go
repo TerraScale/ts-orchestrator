@@ -93,3 +93,17 @@ func TestRetiredV1RoleValueDoesNotAcquireNewMeaning(t *testing.T) {
 		t.Fatal("retired v1 role 4 was admitted as a new workload role")
 	}
 }
+
+func TestV1DigestAndLifecycleLengthsUseUTF16CodeUnits(t *testing.T) {
+	writer := newDigestWriter()
+	writer.WriteString("a\U0001F680")
+	if got, want := writer.Finish(), "S3:a\U0001F680;"; got != want {
+		t.Fatalf("digest encoding = %q, want %q", got, want)
+	}
+
+	var canonical strings.Builder
+	canonicalStrings(&canonical, []string{"a\U0001F680"})
+	if got, want := canonical.String(), "3:a\U0001F680;"; got != want {
+		t.Fatalf("lifecycle encoding = %q, want %q", got, want)
+	}
+}

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/Resources/CanonicalMetadata.cs.
 package contracts
 
 import (

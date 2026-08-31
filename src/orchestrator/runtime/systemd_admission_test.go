@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// NativeSystemdRuntimeAdmissionTests.cs.
 package runtime
 
 import (

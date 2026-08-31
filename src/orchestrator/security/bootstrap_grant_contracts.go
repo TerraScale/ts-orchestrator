@@ -1,4 +1,3 @@
-// This file ports Security/SystemProjectBootstrap/BootstrapGrantContracts.cs.
 package security
 
 import (

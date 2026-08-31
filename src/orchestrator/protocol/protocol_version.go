@@ -1,14 +1,9 @@
-// Package protocol ports TerraScale.Orchestrator.Protocol: the signed command
-// envelope and its validation core, the NATS subject grammar and taxonomy, the
-// checked-in protocol manifest, and the frozen messaging contract tables. The
-// package is infrastructure-free: it knows subjects and policy, not NATS
-// clients.
-//
-// Port of src/TerraScale.Orchestrator/Protocol/ProtocolVersion.cs.
+// Package protocol defines the signed command envelope, NATS subject grammar,
+// checked-in manifest, and frozen messaging contracts. It knows policy and
+// subjects, not NATS clients.
 package protocol
 
-// ProtocolVersion mirrors the C# static class ProtocolVersion; call sites read
-// protocol.ProtocolVersion.Current().
+// ProtocolVersion exposes the current wire version and compatibility check.
 var ProtocolVersion protocolVersionStatic
 
 type protocolVersionStatic struct{}

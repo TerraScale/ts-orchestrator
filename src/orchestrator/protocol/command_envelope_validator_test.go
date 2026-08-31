@@ -1,5 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/CommandEnvelopeValidatorTests.cs:
-// adversarial command replay, generation, epoch, and deadline tests for INV-005.
 package protocol
 
 import (

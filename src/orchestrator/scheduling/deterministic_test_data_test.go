@@ -1,7 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// DeterministicPropertyData.cs (the shared property-test generators, oracle and
-// serialization helpers). .NET-only concerns (CultureInfo, throwing iterators)
-// have no Go equivalent and are not ported.
 package scheduling
 
 import (

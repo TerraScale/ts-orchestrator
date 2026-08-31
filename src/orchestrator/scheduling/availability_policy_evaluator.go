@@ -1,4 +1,3 @@
-// This file ports Scheduling/Availability/AvailabilityPolicyEvaluator.cs.
 package scheduling
 
 // AvailabilityPolicyEvaluator is the pure explicit-input availability policy.

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Compute/ComputeContracts.cs
 package control
 
 // ComputeTechnicalInputLimits ports the technical caller-input snapshot

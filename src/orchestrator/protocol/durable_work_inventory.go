@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/DurableWorkInventory.cs.
 package protocol
 
 import (

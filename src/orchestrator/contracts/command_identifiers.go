@@ -1,8 +1,5 @@
-// Package contracts ports TerraScale.Orchestrator.Contracts: the frozen
-// command identifiers, contract version, resource-model value objects, and the
-// permanent stable contract identifier registries.
-//
-// Port of src/TerraScale.Orchestrator/Contracts/CommandIdentifiers.cs.
+// Package contracts defines the frozen command identifiers, contract version,
+// resource-model value objects, and permanent stable identifier registries.
 package contracts
 
 import "strings"

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/NatsSubjectTaxonomy.cs.
 package protocol
 
 import (

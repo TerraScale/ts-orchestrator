@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/MessagingEnvelopeTests.cs.
 package protocol
 
 import (
@@ -145,6 +144,18 @@ func TestMalformedIdentityOrSourceFailsClosed(t *testing.T) {
 		messagingContext())
 	if invalidSource.Error != MessagingEnvelopeErrorMalformedEnvelope {
 		t.Fatalf("invalid source error = %v", invalidSource.Error)
+	}
+}
+
+func TestMessageIdentityBoundUsesV1UTF16CodeUnits(t *testing.T) {
+	atLimit := strings.Repeat("\U0001F680", 64)
+	token, ok := MessageIdentityTokenTryCreate(atLimit)
+	if !ok || !token.IsValid() {
+		t.Fatal("message identity at 128 v1 code units was rejected")
+	}
+
+	if token, ok := MessageIdentityTokenTryCreate(atLimit + "a"); ok || token.IsValid() {
+		t.Fatal("message identity over 128 v1 code units was accepted")
 	}
 }
 

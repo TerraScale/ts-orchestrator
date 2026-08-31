@@ -1,4 +1,3 @@
-// This file ports Scheduling/Availability/AvailabilityModels.cs.
 package scheduling
 
 import (

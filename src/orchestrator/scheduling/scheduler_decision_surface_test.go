@@ -1,15 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// SchedulerDecisionSurfaceTests.cs.
-//
-// Skipped from the C# suite:
-//   - Maximum_plus_one_is_rejected_before_reading_the_extra_current_value and
-//     Candidate_snapshot_translates_enumerator_and_dispose_failures: these
-//     trap .NET enumerator semantics (MoveNext/Current/Dispose throwing);
-//     Go slices cannot fail mid-iteration.
-//   - The read-only-collection mutation assertions (ReadOnlyCollection throws
-//     NotSupportedException); Go slices are not read-only, but the returned
-//     traces are fresh copies owned by the result.
-//   - Public_schedule_results_are_non_authorizing_dtos (reflection sweep).
 package scheduling
 
 import (

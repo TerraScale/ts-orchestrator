@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeInputSnapshot.cs
 package control
 
 // RuntimeTechnicalLimits ports the public technical denial-of-service safety

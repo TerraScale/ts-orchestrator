@@ -1,4 +1,3 @@
-// This file ports Runtime/HostRuntimePlan.cs.
 package runtime
 
 import (
@@ -141,8 +140,8 @@ type HostRuntimePlan struct {
 	Oci            *OciExecutionPlan
 }
 
-// NewHostRuntimePlan ports HostRuntimePlan.Create: it admits the role/driver
-// pair, applies the closed resource policy and derives the execution plan.
+// NewHostRuntimePlan admits the role/driver pair, applies the closed resource
+// policy and derives the execution plan.
 func NewHostRuntimePlan(
 	role AdmittedRole,
 	driver RuntimeDriver,

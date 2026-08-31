@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Subjects/SubjectPermissionPattern.cs.
 package protocol
 
 import "strings"

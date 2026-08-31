@@ -1,4 +1,3 @@
-// This file ports Runtime/ContainerdHostRuntimeAdapter.cs.
 package runtime
 
 import (
@@ -342,8 +341,8 @@ func (canonicalPlanFingerprint) Compute(plan HostRuntimePlan) (string, error) {
 		addFingerprintField(hash, oci.Platform)
 		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsUser), 10))
 		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsGroup), 10))
-		addFingerprintField(hash, dotNetBoolString(oci.Security.NoNewPrivileges))
-		addFingerprintField(hash, dotNetBoolString(oci.Security.ReadOnlyRootFileSystem))
+		addFingerprintField(hash, strconv.FormatBool(oci.Security.NoNewPrivileges))
+		addFingerprintField(hash, strconv.FormatBool(oci.Security.ReadOnlyRootFileSystem))
 		for _, capability := range oci.Security.DroppedCapabilities {
 			addFingerprintField(hash, capability)
 		}
@@ -363,11 +362,4 @@ func addFingerprintField(hash hashWriter, value string) {
 
 type hashWriter interface {
 	Write([]byte) (int, error)
-}
-
-func dotNetBoolString(value bool) string {
-	if value {
-		return "True"
-	}
-	return "False"
 }

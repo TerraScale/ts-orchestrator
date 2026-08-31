@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/OpaqueCommandBytes.cs.
 package protocol
 
 import "crypto/subtle"

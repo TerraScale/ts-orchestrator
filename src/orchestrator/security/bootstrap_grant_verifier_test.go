@@ -1,8 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.ControlPlane.Tests/Security/
-// SystemProjectBootstrap/BootstrapGrantVerifierTests.cs. The C# test project
-// lives under ControlPlane.Tests but its subject (BootstrapGrantVerifier and
-// the bootstrap grant contracts) lives in Security/SystemProjectBootstrap, so
-// the Go port belongs in the security package.
 package security
 
 import (

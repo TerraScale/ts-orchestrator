@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/RegionalAuthorityCoordinator.cs.
 package control
 
 import (
