@@ -64,6 +64,7 @@ type ProviderMutationRecord struct {
 	State       ProviderMutationState  `json:"state"`
 	Result      ProviderMutationResult `json:"result,omitempty"`
 	FailureCode string                 `json:"failureCode,omitempty"`
+	NextAttempt int                    `json:"nextAttempt,omitempty"`
 }
 
 // ProviderMutationJournal must durably CAS each logical scope. A process-local
@@ -72,6 +73,7 @@ type ProviderMutationJournal interface {
 	AuthoritativeDurable() bool
 	Prepare(context.Context, ProviderMutationIntent) (ProviderMutationRecord, error)
 	MarkSubmitted(context.Context, ProviderMutationIntent) (ProviderMutationRecord, error)
+	MarkAttemptRejected(context.Context, ProviderMutationIntent, int) (ProviderMutationRecord, error)
 	MarkUnknown(context.Context, ProviderMutationIntent) (ProviderMutationRecord, error)
 	MarkSucceeded(context.Context, ProviderMutationIntent, ProviderMutationResult) (ProviderMutationRecord, error)
 	MarkFailed(context.Context, ProviderMutationIntent, string) (ProviderMutationRecord, error)
@@ -143,7 +145,7 @@ func mutationJournalKey(scope string) string {
 
 func decodeMutationRecord(raw []byte, scope string) (ProviderMutationRecord, error) {
 	var record ProviderMutationRecord
-	if len(raw) == 0 || json.Unmarshal(raw, &record) != nil || record.Intent.Scope != scope || validateMutationIntent(record.Intent) != nil {
+	if len(raw) == 0 || json.Unmarshal(raw, &record) != nil || record.Intent.Scope != scope || validateMutationIntent(record.Intent) != nil || record.NextAttempt < 0 {
 		return ProviderMutationRecord{}, &InvalidDataError{Message: "provider mutation journal contains malformed data"}
 	}
 	switch record.State {
@@ -206,7 +208,7 @@ func (j *CASProviderMutationJournal) Prepare(ctx context.Context, intent Provide
 				prior.Intent.Epoch = intent.Epoch
 				next = prior
 			} else {
-				if intent.Epoch.Value <= prior.Intent.Epoch.Value {
+				if intent.Epoch.Value < prior.Intent.Epoch.Value {
 					return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation fence rejected a stale operation"}
 				}
 				if !terminalMutation(prior.State) {
@@ -272,6 +274,9 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 			}
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation terminal outcome cannot change"}
 		}
+		if !validMutationTransition(prior.State, state) {
+			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation state transition is invalid"}
+		}
 		prior.Intent.Epoch = intent.Epoch
 		prior.State, prior.Result, prior.FailureCode = state, result, failure
 		encoded, err := encodeMutationRecord(prior)
@@ -287,8 +292,74 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 	return ProviderMutationRecord{}, OwnershipCASConflict{}
 }
 
+func validMutationTransition(from, to ProviderMutationState) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case MutationPrepared:
+		return to == MutationSubmitted
+	case MutationSubmitted:
+		return to == MutationSucceeded || to == MutationFailed || to == MutationUnknown
+	case MutationUnknown:
+		return to == MutationSucceeded
+	default:
+		return false
+	}
+}
+
 func (j *CASProviderMutationJournal) MarkSubmitted(ctx context.Context, intent ProviderMutationIntent) (ProviderMutationRecord, error) {
 	return j.transition(ctx, intent, MutationSubmitted, ProviderMutationResult{}, "")
+}
+
+// MarkAttemptRejected records one provider-proven retryable rejection and
+// advances the durable cursor before an adapter tries another candidate.
+func (j *CASProviderMutationJournal) MarkAttemptRejected(ctx context.Context, intent ProviderMutationIntent, attempt int) (ProviderMutationRecord, error) {
+	if attempt < 0 {
+		return ProviderMutationRecord{}, &ArgumentError{Message: "provider mutation attempt is invalid"}
+	}
+	if j == nil || j.store == nil {
+		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal is unavailable"}
+	}
+	if ctx == nil {
+		return ProviderMutationRecord{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return ProviderMutationRecord{}, err
+	}
+	if err := validateMutationIntent(intent); err != nil {
+		return ProviderMutationRecord{}, err
+	}
+	key := mutationJournalKey(intent.Scope)
+	for retry := 0; retry < 8; retry++ {
+		raw, revision, err := j.store.Get(ctx, key)
+		if err != nil {
+			return ProviderMutationRecord{}, err
+		}
+		prior, err := decodeMutationRecord(raw, intent.Scope)
+		if err != nil {
+			return ProviderMutationRecord{}, err
+		}
+		if !sameMutation(prior.Intent, intent) || prior.Intent.Epoch.Value > intent.Epoch.Value {
+			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal transition is fenced"}
+		}
+		if prior.State != MutationSubmitted || prior.NextAttempt != attempt {
+			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation attempt transition is invalid"}
+		}
+		prior.Intent.Epoch = intent.Epoch
+		prior.State = MutationPrepared
+		prior.NextAttempt = attempt + 1
+		encoded, err := encodeMutationRecord(prior)
+		if err != nil {
+			return ProviderMutationRecord{}, err
+		}
+		if err := j.store.CompareAndSwap(ctx, key, revision, encoded); err == nil {
+			return prior, nil
+		} else if !isCASConflict(err) {
+			return ProviderMutationRecord{}, err
+		}
+	}
+	return ProviderMutationRecord{}, OwnershipCASConflict{}
 }
 
 func (j *CASProviderMutationJournal) MarkUnknown(ctx context.Context, intent ProviderMutationIntent) (ProviderMutationRecord, error) {
@@ -331,6 +402,7 @@ type ComputeProvider interface {
 type ComputeCapacityCandidate struct {
 	AvailabilityDomain string
 	FaultDomain        string
+	SubnetID           string
 	Shape              string
 	OCPUs              float64
 	MemoryGiB          float64
@@ -341,7 +413,6 @@ type ComputeLaunchRequest struct {
 	CompartmentID   string
 	DisplayName     string
 	ImageID         string
-	SubnetID        string
 	NSGIDs          []string
 	BootstrapBase64 string
 	Candidates      []ComputeCapacityCandidate

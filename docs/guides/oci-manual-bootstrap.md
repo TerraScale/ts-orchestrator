@@ -11,7 +11,7 @@ Repeat the regional steps for the launch regions:
 | TerraScale cell | OCI region |
 | --- | --- |
 | GRU | `sa-saopaulo-1` |
-| SFO | `us-sanfrancisco-1` |
+| SFO | `us-sanjose-1` |
 | FRA | `eu-frankfurt-1` |
 
 Have a second reviewer compare every recorded OCID, CIDR, policy statement,
@@ -63,6 +63,11 @@ following capabilities:
 - Manage objects only in the recorded ledger and backup buckets.
 - Use the recorded Vault key. Do not grant Vault or key creation/deletion.
 
+OCI Email Delivery uses a separate Dashboard mail identity under D-26. Keep
+its sender-domain DNS and least-privilege credential path separate from the
+regional controller; this runbook does not configure email or grant email
+permissions.
+
 Copy each policy statement byte for byte into `iamPolicies[].statements` in the
 estate file. Startup compares the provider's current statement set with that
 reviewed set. A broadened or missing policy prevents the process from starting.
@@ -81,8 +86,8 @@ Create two private Object Storage buckets in `terrascale-control`:
 
 Enable versioning and the reviewed retention/lifecycle rules. Object writes are
 content-bound and create-only. Backup producers must split large artifacts into
-chunks no larger than the configured OCI transport body limit, currently
-16 MiB, then store a content-addressed manifest.
+chunks no larger than the configured OCI transport body limit, which may not
+exceed 16 MiB, then store a content-addressed manifest.
 
 ## 5. Install the reviewed estate file
 

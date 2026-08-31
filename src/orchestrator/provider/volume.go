@@ -226,7 +226,7 @@ func ociServiceHost(service OCIService, region string) (string, bool) {
 	case "", OCIServiceCore:
 		return "iaas." + region + ".oraclecloud.com", true
 	case OCIServiceIdentity:
-		return "identity." + region + ".oraclecloud.com", true
+		return "identity." + region + ".oci.oraclecloud.com", true
 	case OCIServiceObjectStorage:
 		return "objectstorage." + region + ".oraclecloud.com", true
 	case OCIServiceRegistry:
@@ -236,7 +236,7 @@ func ociServiceHost(service OCIService, region string) (string, bool) {
 		}
 		return key + ".ocir.io", true
 	case OCIServiceVault:
-		return "kms." + region + ".oraclecloud.com", true
+		return "vaults." + region + ".oci.oraclecloud.com", true
 	case OCIServiceVaultManagement:
 		return "", true
 	default:
@@ -248,8 +248,8 @@ func ociRegistryRegionKey(region string) (string, bool) {
 	switch region {
 	case "sa-saopaulo-1":
 		return "gru", true
-	case "us-sanfrancisco-1":
-		return "sfo", true
+	case "us-sanjose-1":
+		return "sjc", true
 	case "eu-frankfurt-1":
 		return "fra", true
 	default:

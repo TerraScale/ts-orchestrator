@@ -116,6 +116,12 @@ func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	if _, err := journal.MarkUnknown(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := journal.MarkFailed(context.Background(), first, "timeout"); err == nil {
+		t.Fatal("unknown mutation changed to failed")
+	}
+	if _, err := journal.MarkSubmitted(context.Background(), first); err == nil {
+		t.Fatal("unknown mutation changed back to submitted")
+	}
 
 	resumed := first
 	resumed.Epoch.Value++
@@ -132,6 +138,27 @@ func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	stale.Epoch.Value--
 	if _, err := journal.Prepare(context.Background(), stale); err == nil {
 		t.Fatal("stale controller epoch crossed the mutation fence")
+	}
+}
+
+func TestProviderMutationJournalAllowsTerminalReplacementInSameEpoch(t *testing.T) {
+	journal := testJournal(t)
+	first := testMutation("volume.create", "volume-a", ProviderMutationFingerprint("first"), 9)
+	if _, err := journal.Prepare(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkSubmitted(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkFailed(context.Background(), first, "provider-rejected"); err != nil {
+		t.Fatal(err)
+	}
+	replacement := testMutation("volume.delete", first.Scope, ProviderMutationFingerprint("replacement"), first.Epoch.Value)
+	replacement.OperationID.Value = "operation-replacement"
+	replacement.IdempotencyKey.Value = "retry-replacement"
+	record, err := journal.Prepare(context.Background(), replacement)
+	if err != nil || record.State != MutationPrepared || record.Intent.OperationID != replacement.OperationID {
+		t.Fatalf("terminal replacement = %+v, %v", record, err)
 	}
 }
 
@@ -165,12 +192,11 @@ func TestOCIComputeAdapterFallsBackAcrossCapacityCandidatesAndResumes(t *testing
 		CompartmentID:   "ocid1.compartment.oc1.x",
 		DisplayName:     "terrascale-node-a",
 		ImageID:         "ocid1.image.oc1.x",
-		SubnetID:        "ocid1.subnet.oc1.x",
 		NSGIDs:          []string{"ocid1.networksecuritygroup.oc1.x"},
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
 		Candidates: []ComputeCapacityCandidate{
-			{AvailabilityDomain: "AD-1", Shape: "VM.Standard.A1.Flex", OCPUs: 4, MemoryGiB: 24},
-			{AvailabilityDomain: "AD-2", Shape: "VM.Standard.E5.Flex", OCPUs: 4, MemoryGiB: 24},
+			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.ad1", Shape: "VM.Standard.A1.Flex", OCPUs: 4, MemoryGiB: 24},
+			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.ad2", Shape: "VM.Standard.E5.Flex", OCPUs: 4, MemoryGiB: 24},
 		},
 		Tags: map[string]string{"role": "member"},
 	}
@@ -181,6 +207,11 @@ func TestOCIComputeAdapterFallsBackAcrossCapacityCandidatesAndResumes(t *testing
 	}
 	if posts[0]["availabilityDomain"] != "AD-1" || posts[1]["availabilityDomain"] != "AD-2" || posts[1]["shape"] != "VM.Standard.E5.Flex" {
 		t.Fatalf("capacity fallback order = %+v", posts)
+	}
+	firstVNIC := posts[0]["createVnicDetails"].(map[string]any)
+	secondVNIC := posts[1]["createVnicDetails"].(map[string]any)
+	if firstVNIC["subnetId"] != "ocid1.subnet.oc1.ad1" || secondVNIC["subnetId"] != "ocid1.subnet.oc1.ad2" {
+		t.Fatalf("capacity fallback subnet order = %+v", posts)
 	}
 	shape := posts[1]["shapeConfig"].(map[string]any)
 	if shape["ocpus"] != float64(4) || shape["memoryInGBs"] != float64(24) || tokens[0] == tokens[1] || len(tokens[0]) != 64 {
@@ -193,6 +224,62 @@ func TestOCIComputeAdapterFallsBackAcrossCapacityCandidatesAndResumes(t *testing
 	forged.Mutation = testMutation("compute.launch", "forged-scope", ComputeLaunchMutationFingerprint(forged), 8)
 	if _, err := adapter.LaunchInstance(context.Background(), forged); err == nil || len(posts) != 2 {
 		t.Fatalf("caller-chosen scope bypassed the compute fence: posts=%d err=%v", len(posts), err)
+	}
+}
+
+type pausingMutationJournal struct {
+	ProviderMutationJournal
+	pauseAt int
+	paused  bool
+}
+
+func (j *pausingMutationJournal) MarkSubmitted(ctx context.Context, intent ProviderMutationIntent) (ProviderMutationRecord, error) {
+	record, err := j.ProviderMutationJournal.Prepare(ctx, intent)
+	if err != nil {
+		return ProviderMutationRecord{}, err
+	}
+	if !j.paused && record.State == MutationPrepared && record.NextAttempt == j.pauseAt {
+		j.paused = true
+		return record, errors.New("simulated controller restart")
+	}
+	return j.ProviderMutationJournal.MarkSubmitted(ctx, intent)
+}
+
+func TestOCIComputeAdapterResumesAtDurableCapacityCursor(t *testing.T) {
+	posts := make([]map[string]any, 0, 2)
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		posts = append(posts, body)
+		if len(posts) == 1 {
+			return testHTTPResponse(http.StatusInternalServerError, `{"code":"OutOfHostCapacity"}`, nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
+	})
+	journal := &pausingMutationJournal{ProviderMutationJournal: testJournal(t), pauseAt: 1}
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ComputeLaunchRequest{
+		CompartmentID:   "ocid1.compartment.oc1.x",
+		DisplayName:     "node-resume",
+		ImageID:         "ocid1.image.oc1.x",
+		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
+		Candidates: []ComputeCapacityCandidate{
+			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.ad1", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6},
+			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.ad2", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 8},
+		},
+	}
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
+	if _, err := adapter.LaunchInstance(context.Background(), request); err == nil || len(posts) != 1 {
+		t.Fatalf("interrupted fallback posts=%d err=%v", len(posts), err)
+	}
+	instance, err := adapter.LaunchInstance(context.Background(), request)
+	if err != nil || instance.ID == "" || len(posts) != 2 || posts[1]["availabilityDomain"] != "AD-2" {
+		t.Fatalf("resumed fallback instance=%+v posts=%+v err=%v", instance, posts, err)
 	}
 }
 
@@ -215,7 +302,7 @@ func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-unknown", ImageID: "ocid1.image.oc1.x", SubnetID: "ocid1.subnet.oc1.x", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6}}}
+	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-unknown", ImageID: "ocid1.image.oc1.x", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6}}}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	if _, err := adapter.LaunchInstance(context.Background(), request); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
 		t.Fatalf("lost response error = %v", err)
@@ -385,6 +472,14 @@ func (f fakeEstateReader) Read(_ context.Context, service OCIService, path strin
 	return []byte(body), http.StatusOK, nil
 }
 
+func cloneFakeEstateReader(source fakeEstateReader) fakeEstateReader {
+	cloned := make(fakeEstateReader, len(source))
+	for path, body := range source {
+		cloned[path] = body
+	}
+	return cloned
+}
+
 func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	control := "ocid1.compartment.oc1.control"
 	network := "ocid1.compartment.oc1.network"
@@ -416,13 +511,40 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	if err := VerifyOCIEstate(context.Background(), spec, reader); err != nil {
 		t.Fatalf("valid estate rejected: %v", err)
 	}
-	broken := fakeEstateReader{}
-	for path, body := range reader {
-		broken[path] = body
+	tests := []struct {
+		name   string
+		mutate func(fakeEstateReader)
+	}{
+		{"wrong compartment parent", func(broken fakeEstateReader) {
+			broken[string(OCIServiceIdentity)+"|/20160918/compartments/"+control] = `{"id":"` + control + `","compartmentId":"ocid1.tenancy.oc1.wrong","lifecycleState":"ACTIVE"}`
+		}},
+		{"wrong subnet VCN", func(broken fakeEstateReader) {
+			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
+		}},
+		{"public subnet", func(broken fakeEstateReader) {
+			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"` + vcn + `","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":false}`
+		}},
+		{"policy drift", func(broken fakeEstateReader) {
+			broken[string(OCIServiceIdentity)+"|/20160918/policies/"+policy] = `{"id":"` + policy + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","statements":["Allow any-user to manage all-resources in tenancy"]}`
+		}},
+		{"wrong Vault compartment", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + workload + `","lifecycleState":"ACTIVE"}`
+		}},
+		{"missing bucket", func(broken fakeEstateReader) {
+			delete(broken, string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups")
+		}},
+		{"wrong bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"another-bucket","compartmentId":"` + control + `"}`
+		}},
 	}
-	broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
-	if err := VerifyOCIEstate(context.Background(), spec, broken); err == nil {
-		t.Fatal("malformed subnet-to-VCN binding passed startup estate verification")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			broken := cloneFakeEstateReader(reader)
+			test.mutate(broken)
+			if err := VerifyOCIEstate(context.Background(), spec, broken); err == nil {
+				t.Fatal("malformed estate passed startup verification")
+			}
+		})
 	}
 }
 
@@ -438,5 +560,17 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	}
 	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "sa-saopaulo-1", "https://sa-saopaulo-1.ocir.io"); err == nil {
 		t.Fatal("registry accepted the OCI region name instead of the OCIR region key")
+	}
+	if _, err := NewOCIServiceTransportConfig(OCIServiceIdentity, "sa-saopaulo-1", "https://identity.sa-saopaulo-1.oci.oraclecloud.com"); err != nil {
+		t.Fatalf("Identity authority rejected: %v", err)
+	}
+	if _, err := NewOCIServiceTransportConfig(OCIServiceVault, "sa-saopaulo-1", "https://vaults.sa-saopaulo-1.oci.oraclecloud.com"); err != nil {
+		t.Fatalf("Vault authority rejected: %v", err)
+	}
+	if _, err := NewOCIServiceTransportConfig(OCIServiceIdentity, "sa-saopaulo-1", "https://identity.sa-saopaulo-1.oraclecloud.com"); err == nil {
+		t.Fatal("Identity signer accepted an authority without the OCI service label")
+	}
+	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "us-sanjose-1", "https://sjc.ocir.io"); err != nil {
+		t.Fatalf("SJC OCIR authority rejected: %v", err)
 	}
 }

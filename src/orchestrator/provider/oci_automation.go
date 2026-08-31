@@ -176,14 +176,14 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 }
 
 type computeLaunchFingerprint struct {
-	CompartmentID, DisplayName, ImageID, SubnetID, BootstrapBase64 string
-	NSGIDs                                                         []string
-	Candidates                                                     []ComputeCapacityCandidate
-	Tags                                                           map[string]string
+	CompartmentID, DisplayName, ImageID, BootstrapBase64 string
+	NSGIDs                                               []string
+	Candidates                                           []ComputeCapacityCandidate
+	Tags                                                 map[string]string
 }
 
 func computeLaunchBinding(request ComputeLaunchRequest) computeLaunchFingerprint {
-	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ImageID, request.SubnetID, request.BootstrapBase64, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
+	return computeLaunchFingerprint{request.CompartmentID, request.DisplayName, request.ImageID, request.BootstrapBase64, append([]string(nil), request.NSGIDs...), append([]ComputeCapacityCandidate(nil), request.Candidates...), request.Tags}
 }
 
 func ComputeLaunchMutationFingerprint(request ComputeLaunchRequest) string {
@@ -195,7 +195,7 @@ func ComputeLaunchMutationScope(request ComputeLaunchRequest) string {
 }
 
 func validateComputeLaunch(request ComputeLaunchRequest) error {
-	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.ImageID, "image") || !isOCID(request.SubnetID, "subnet") {
+	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.ImageID, "image") {
 		return &ArgumentError{Message: "compute launch resource identity is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
@@ -217,6 +217,7 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 	}
 	for _, candidate := range request.Candidates {
 		if len(candidate.AvailabilityDomain) < 1 || len(candidate.AvailabilityDomain) > 128 ||
+			!isOCID(candidate.SubnetID, "subnet") ||
 			len(candidate.FaultDomain) > 64 || len(candidate.Shape) < 1 || len(candidate.Shape) > 128 ||
 			strings.ContainsAny(candidate.AvailabilityDomain+candidate.FaultDomain+candidate.Shape, "\r\n") ||
 			math.IsNaN(candidate.OCPUs) || math.IsInf(candidate.OCPUs, 0) || candidate.OCPUs <= 0 || candidate.OCPUs > 192 ||
@@ -278,7 +279,11 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 	}
 	tags, _ := safeFreeformTags(request.Tags)
 	tags = bindMutationTags(tags, request.Mutation)
-	for index, candidate := range request.Candidates {
+	if record.NextAttempt >= len(request.Candidates) {
+		return ComputeInstance{}, &InvalidDataError{Message: "compute launch capacity cursor is invalid"}
+	}
+	for index := record.NextAttempt; index < len(request.Candidates); index++ {
+		candidate := request.Candidates[index]
 		payload := struct {
 			CompartmentID      string `json:"compartmentId"`
 			AvailabilityDomain string `json:"availabilityDomain"`
@@ -305,7 +310,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}{candidate.OCPUs, candidate.MemoryGiB}, DisplayName: request.DisplayName, CreateVnicDetails: struct {
 			SubnetID string   `json:"subnetId"`
 			NSGIDs   []string `json:"nsgIds,omitempty"`
-		}{request.SubnetID, request.NSGIDs}, SourceDetails: struct {
+		}{candidate.SubnetID, request.NSGIDs}, SourceDetails: struct {
 			SourceType string `json:"sourceType"`
 			ImageID    string `json:"imageId"`
 		}{"image", request.ImageID}, Metadata: map[string]string{"user_data": request.BootstrapBase64}, FreeformTags: tags}
@@ -325,6 +330,11 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 				return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 			}
 			if capacityCode(code) {
+				if index+1 < len(request.Candidates) {
+					if _, err := a.Journal.MarkAttemptRejected(ctx, request.Mutation, index); err != nil {
+						return ComputeInstance{}, err
+					}
+				}
 				continue
 			}
 			return ComputeInstance{}, ociMutationFailure(ctx, a.Journal, request.Mutation, &http.Response{StatusCode: resp.StatusCode, Body: http.NoBody, Header: resp.Header})
