@@ -30,6 +30,10 @@ type InvalidDataError struct{ Message string }
 
 func (e *InvalidDataError) Error() string { return e.Message }
 
+// ArgumentError keeps provider callers source-compatible while using the
+// shared argument error introduced by the legacy-error cleanup.
+type ArgumentError = errs.Argument
+
 var tokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
 var nativePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/=+@-]{0,255}$`)
 
