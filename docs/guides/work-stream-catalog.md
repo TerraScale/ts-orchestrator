@@ -5,7 +5,7 @@
 
 > Index of all 113 work packages and handoffs consolidated on 2026-07-17.
 
-Original files: `docs/archive/docs-historical-full.tar.xz` and searchable `docs/archive/historical-docs-bundle.md.xz`.
+Git history retains the original work-package files.
 Paths inside the archive preserve `docs/work-packages/**` and `docs/work-packages/handoffs/**`.
 
 | Domain | Packages | With handoff |

@@ -117,7 +117,7 @@ Rejected. The provider cannot enforce that cancellation. Once durably authorized
 
 ## Unresolved inputs and evidence
 
-The readiness map requires exact OCI SDK idempotency/work-request semantics, a compartment-scoped IAM policy, leadership-loss/adapter-race evidence, and an independent security review; it depends on ADRs 1, 4, and 23 ([readiness index, lines 239-248](readiness-index.yaml#L239-L248)). Acceptance remains blocked on:
+The former readiness map requires exact OCI SDK idempotency/work-request semantics, a compartment-scoped IAM policy, leadership-loss/adapter-race evidence, and an independent security review; it depends on ADRs 1, 4, and 23. Acceptance remains blocked on:
 
 - per-OCI-service retry token support, token scope/retention, work-request lookup, cancellation, timeout, and eventual-consistency behavior from primary documentation and executable spikes;
 - the exact per-operation ambiguity and compensation table for compute, boot/block volume, attachment, LB backend, and any later provider mutations;
@@ -127,9 +127,8 @@ The readiness map requires exact OCI SDK idempotency/work-request semantics, a c
 - owner decisions governing regional outage mutation policy, storage cleanup, runtime defaults, and provider portability where downstream operations differ;
 - independent review of the crash-stop assumption and the residual risk of host or credential compromise.
 
-The incomplete read-only OCI evidence grants no mutation authority and
-establishes no resource ownership
-([OCI evidence manifest](../evidence/phase0/oci-residual-inventory.yaml)).
+The removed incomplete read-only OCI inventory granted no mutation authority
+and established no resource ownership.
 
 ## Required verification before production qualification
 

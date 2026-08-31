@@ -269,7 +269,6 @@ runtime and the benchmark authority.
 - [Direct delivery runbook](docs/runbooks/direct-delivery.md)
 - [Superseded architecture record](docs/architecture/orchestrator.md)
 - [Historical phase contract record](docs/guides/phase1-contracts.md)
-- [Historical owner decisions](docs/decisions/README.md)
 
 Historical ADRs, phase records, and evidence remain immutable context unless a
 correction notice says otherwise. A current design must not cite them as
