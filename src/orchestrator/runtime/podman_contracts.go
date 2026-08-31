@@ -572,6 +572,13 @@ func ValidateRootlessContext(rootless RootlessPodmanContext) error {
 	if _, err := requirePodmanAbsolutePath(rootless.XdgRuntimeDir, "XdgRuntimeDir"); err != nil {
 		return err
 	}
+	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", rootless.RunAsUid)
+	if rootless.XdgRuntimeDir != expectedRuntimeDir {
+		return &errs.Argument{
+			Param:   "XdgRuntimeDir",
+			Message: fmt.Sprintf("XDG runtime directory must be %s for RunAsUid.", expectedRuntimeDir),
+		}
+	}
 	if _, err := requirePodmanAbsolutePath(rootless.SeccompProfilePath, "SeccompProfilePath"); err != nil {
 		return err
 	}

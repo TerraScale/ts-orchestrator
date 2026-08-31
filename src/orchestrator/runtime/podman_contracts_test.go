@@ -458,6 +458,11 @@ func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 			wantParam: "XdgRuntimeDir",
 		},
 		{
+			name:      "runtime dir belongs to another uid",
+			mutate:    func(c *RootlessPodmanContext) { c.XdgRuntimeDir = "/run/user/1001" },
+			wantParam: "XdgRuntimeDir",
+		},
+		{
 			name:      "missing seccomp profile path",
 			mutate:    func(c *RootlessPodmanContext) { c.SeccompProfilePath = "" },
 			wantParam: "SeccompProfilePath",

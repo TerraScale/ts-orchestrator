@@ -154,11 +154,12 @@ loses that ownership, so this provider is for local lifecycle validation only.
 It is not a persistent or production provider.
 
 The command keeps the authenticated NATS boundary. Supply one scoped NKey and
-mTLS identity for the autoscaler, then a different scoped identity for child
-node agents. Configuration rejects the same NKey or TLS identity in both
-roles. Every locally spawned node receives the same child credential paths.
-The provider does not issue a distinct identity for each node, so this is
-shared development identity, not per-node isolation.
+mTLS identity for the autoscaler, then one separately issued identity for each
+child node. Put node credentials in a private directory using the names
+`<node>.seed`, `<node>.ca.pem`, `<node>.pem`, and `<node>.key`; the autoscaler
+loads the set matching the node it is provisioning. The NATS account must ACL
+each identity to that node's heartbeat, converge, cordon, and drain-status
+subjects.
 
 ```sh
 TS_ORCH_NATS_URL=tls://127.0.0.1:4222 \
@@ -167,10 +168,7 @@ TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/autoscaler/ca.pem \
 TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/autoscaler/client.pem \
 TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/autoscaler/client.key \
 TS_ORCH_AUTOSCALER_PROVIDER=local-dev \
-TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE=/run/credentials/ts-node/nkey.seed \
-TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE=/run/credentials/ts-node/ca.pem \
-TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE=/run/credentials/ts-node/client.pem \
-TS_ORCH_AUTOSCALER_NODE_NATS_TLS_KEY_FILE=/run/credentials/ts-node/client.key \
+TS_ORCH_AUTOSCALER_NODE_NATS_CREDENTIAL_DIRECTORY=/run/credentials/ts-node/nodes \
 TS_ORCH_AUTOSCALER_TICK_INTERVAL=10s \
 TS_ORCH_AUTOSCALER_MIN_NODES=1 \
 TS_ORCH_AUTOSCALER_MAX_NODES=3 \
@@ -183,7 +181,6 @@ TS_ORCH_AUTOSCALER_FLAP_SUPPRESSION_TICKS=3 \
 TS_ORCH_AUTOSCALER_AGENT_BINARY=/abs/path/to/bin/ts-node \
 TS_ORCH_AUTOSCALER_RUN_AS_UID=1000 \
 TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES=1048576 \
-TS_ORCH_PROVIDER=local \
   ./bin/orchestrator autoscaler
 ```
 
@@ -326,4 +323,18 @@ go build -o /tmp/ts-node-orch4 ./cmd/ts-node
 TS_ORCH_LIVE_AUTOSCALER=1 \
 TS_ORCH_LIVE_TS_NODE_BINARY=/tmp/ts-node-orch4 \
 go test -tags live_autoscaler ./tests/live/ -run Autoscaler -count=1 -v
+```
+
+The role-level live lane starts the actual `orchestrator autoscaler` command,
+connects with authenticated TLS/NKey NATS, publishes a complete scheduler
+observation feed, and observes a real `ts-node` child launched with its
+node-scoped credentials. It also requires the read-only OCI estate variables
+used by the role. Prepare credentials for `baseline-node` and `as-node-1` in
+the configured directory. This lane is gated by `TS_ORCH_LIVE_AUTOSCALER_ROLE=1`:
+
+```sh
+go build -o /tmp/orchestrator-orch4 ./cmd/orchestrator
+TS_ORCH_LIVE_AUTOSCALER_ROLE=1 \
+TS_ORCH_LIVE_ORCHESTRATOR_BINARY=/tmp/orchestrator-orch4 \
+go test -tags live_autoscaler_role ./tests/live/ -run AutoscalerRole -count=1 -v
 ```

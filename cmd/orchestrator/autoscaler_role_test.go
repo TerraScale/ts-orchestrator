@@ -10,7 +10,6 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscaling"
-	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
@@ -91,28 +90,14 @@ func TestAutoscalerProviderIsExplicitlyLocalDevOnly(t *testing.T) {
 	}
 }
 
-func TestAutoscalerNodeAgentArgumentsUseTheDistinctNodeIdentity(t *testing.T) {
-	settings := autoscalerRoleSettings{
-		NatsNKeyFile:     "/run/autoscaler/control.seed",
-		NatsTls:          &control.NatsTlsFiles{CaFile: "/run/autoscaler/ca.pem", CertificateFile: "/run/autoscaler/control.pem", KeyFile: "/run/autoscaler/control.key"},
-		NodeNatsNKeyFile: "/run/ts-node/node.seed",
-		NodeNatsTls:      &control.NatsTlsFiles{CaFile: "/run/ts-node/ca.pem", CertificateFile: "/run/ts-node/node.pem", KeyFile: "/run/ts-node/node.key"},
-	}
-	arguments, err := autoscalerNodeAgentArguments(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	joined := strings.Join(arguments, " ")
-	for _, value := range []string{settings.NodeNatsNKeyFile, settings.NodeNatsTls.CaFile,
-		settings.NodeNatsTls.CertificateFile, settings.NodeNatsTls.KeyFile} {
-		if !strings.Contains(joined, value) {
-			t.Fatalf("node arguments omitted %q: %v", value, arguments)
+func TestAutoscalerCredentialDirectoryIsBoundedAndAbsolute(t *testing.T) {
+	for _, value := range []string{"", "nodes", "/run/credentials/../nodes", "/run/credentials/node dir", "/run/credentials/nodes%1"} {
+		if err := autoscalerValidateCredentialDirectory(value); err == nil {
+			t.Fatalf("credential directory %q was accepted", value)
 		}
 	}
-	if strings.Contains(joined, settings.NatsNKeyFile) ||
-		strings.Contains(joined, settings.NatsTls.CertificateFile) ||
-		strings.Contains(joined, settings.NatsTls.KeyFile) {
-		t.Fatalf("autoscaler identity leaked into node arguments: %v", arguments)
+	if err := autoscalerValidateCredentialDirectory("/run/credentials/nodes"); err != nil {
+		t.Fatalf("valid credential directory: %v", err)
 	}
 }
 

@@ -428,6 +428,24 @@ func TestLocalProcessNodeProvisionerSpawnsTheConfiguredAgent(t *testing.T) {
 	}
 }
 
+func TestLocalProcessNodeProvisionerResolvesNodeScopedArguments(t *testing.T) {
+	spawner := &fakeProcessSpawner{pids: []int{4242}}
+	config := validProvisionerConfig(t)
+	config.AgentArgumentsForNode = func(nodeId string) ([]string, error) {
+		return []string{"--nats-nkey-file", "/run/credentials/nodes/" + nodeId + ".seed"}, nil
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if got := spawner.spawned[0].Args; len(got) < 2 || got[1] != "/run/credentials/nodes/gru-node-9.seed" {
+		t.Fatalf("node-scoped arguments = %v", got)
+	}
+}
+
 func TestLocalProcessNodeProvisionerRefusesDuplicatesAndSpawnFailures(t *testing.T) {
 	spawner := &fakeProcessSpawner{spawnErr: errors.New("spawn failed")}
 	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)

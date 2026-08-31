@@ -275,7 +275,11 @@ type LocalProcessProvisionerConfig struct {
 	AgentBinaryPath string
 	NatsUrl         string
 	AgentArguments  []string
-	RunAsUid        uint32
+	// AgentArgumentsForNode supplies node-scoped authentication arguments.
+	// When set, it replaces AgentArguments for each node. The resolver must
+	// return a fresh argument slice and must never return another node's credentials.
+	AgentArgumentsForNode func(nodeId string) ([]string, error)
+	RunAsUid              uint32
 }
 
 // NewLocalProcessProvisionerConfig validates one provisioner configuration;
@@ -326,6 +330,7 @@ func NewLocalProcessNodeProvisioner(
 	if err != nil {
 		return nil, err
 	}
+	validated.AgentArgumentsForNode = config.AgentArgumentsForNode
 	if spawner == nil {
 		return nil, &errs.Argument{
 			Param:   "spawner",
@@ -358,11 +363,18 @@ func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request Nod
 	if err != nil {
 		return err
 	}
+	agentArguments := append([]string{}, p.config.AgentArguments...)
+	if p.config.AgentArgumentsForNode != nil {
+		agentArguments, err = p.config.AgentArgumentsForNode(validated.NodeId)
+		if err != nil {
+			return err
+		}
+	}
 	spec, err := NewNodeProcessSpec(
 		p.config.AgentBinaryPath,
 		validated.NodeId,
 		p.config.NatsUrl,
-		append(append([]string{}, p.config.AgentArguments...),
+		append(agentArguments,
 			"--node-class", validated.NodeClass),
 		nil,
 		p.config.RunAsUid)
