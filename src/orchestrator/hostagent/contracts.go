@@ -9,23 +9,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError reports an invalid argument passed to a constructor.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError reports an argument outside its closed range.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError reports an operation invalid for the current state.
 type InvalidOperationError struct {
@@ -58,7 +44,7 @@ const (
 func requireHostAgentToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > hostAgentMaximumTokenLength ||
 		!hostAgentTokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: message}
+		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
 }
@@ -67,7 +53,7 @@ func requireHostAgentToken(value, param, message string) (string, error) {
 // string so receipts stay log-safe.
 func requireHostAgentDetail(value, param string) (string, error) {
 	if len(value) > hostAgentMaximumDetailLength || strings.ContainsFunc(value, isControlRune) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "Detail must be bounded and free of control characters.",
 		}
@@ -84,7 +70,7 @@ func requireHostAgentFingerprint(value, param string) (string, error) {
 		return "", nil
 	}
 	if !hostAgentFingerprintPattern.MatchString(value) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "Plan fingerprint must be lowercase SHA-256 hex.",
 		}
@@ -133,44 +119,44 @@ func NewNodeMetricsSample(
 	pendingAllocations int,
 ) (NodeMetricsSample, error) {
 	if memoryTotalBytes < 0 {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "memoryTotalBytes",
 			Message: "Memory total must be non-negative.",
 		}
 	}
 	if memoryUsedBytes < 0 || memoryUsedBytes > memoryTotalBytes {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "memoryUsedBytes",
 			Message: "Memory used must be between zero and the total.",
 		}
 	}
 	if cpuQuotaPercent < 1 || cpuQuotaPercent > hostAgentMaximumCpuPercent {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param: "cpuQuotaPercent",
 			Message: fmt.Sprintf("CPU quota must be between 1 and %d percent.",
 				hostAgentMaximumCpuPercent),
 		}
 	}
 	if cpuUsedPercent < 0 || cpuUsedPercent > cpuQuotaPercent {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "cpuUsedPercent",
 			Message: "CPU used must be between zero and the quota.",
 		}
 	}
 	if tasksMax < 0 {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "tasksMax",
 			Message: "Task ceiling must be non-negative.",
 		}
 	}
 	if tasksRunning < 0 || tasksRunning > tasksMax {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "tasksRunning",
 			Message: "Running tasks must be between zero and the ceiling.",
 		}
 	}
 	if pendingAllocations < 0 {
-		return NodeMetricsSample{}, &ArgumentOutOfRangeError{
+		return NodeMetricsSample{}, &errs.ArgumentOutOfRangeError{
 			Param:   "pendingAllocations",
 			Message: "Pending allocation count must be non-negative.",
 		}
@@ -202,7 +188,7 @@ func NewNodeHeartbeat(nodeId NodeId, unixSeconds int64, metrics NodeMetricsSampl
 		return NodeHeartbeat{}, err
 	}
 	if unixSeconds <= 0 {
-		return NodeHeartbeat{}, &ArgumentOutOfRangeError{
+		return NodeHeartbeat{}, &errs.ArgumentOutOfRangeError{
 			Param:   "unixSeconds",
 			Message: "Heartbeat timestamp must be a positive Unix epoch second.",
 		}
@@ -299,13 +285,13 @@ type WorkloadCommandRequest struct {
 // identifier is a bounded canonical token.
 func NewWorkloadCommandRequest(planJson []byte, commandId string) (WorkloadCommandRequest, error) {
 	if len(planJson) == 0 {
-		return WorkloadCommandRequest{}, &ArgumentError{
+		return WorkloadCommandRequest{}, &errs.Argument{
 			Param:   "planJson",
 			Message: "A plan payload is required.",
 		}
 	}
 	if len(planJson) > hostAgentMaximumPlanJsonBytes {
-		return WorkloadCommandRequest{}, &ArgumentError{
+		return WorkloadCommandRequest{}, &errs.Argument{
 			Param: "planJson",
 			Message: fmt.Sprintf("Plan payload exceeds the bound of %d bytes.",
 				hostAgentMaximumPlanJsonBytes),

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsMonitoringRedaction.cs.
 package control
 
 import (

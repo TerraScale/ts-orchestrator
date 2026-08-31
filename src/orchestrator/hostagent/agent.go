@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // HostAgentConfig is the fully explicit configuration of one node host agent.
@@ -68,43 +69,43 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		return nil, err
 	}
 	if (config.Connection == nil) == (config.NatsURL == "") {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Connection",
 			Message: "Exactly one of a wired connection or a NATS URL is required.",
 		}
 	}
 	if config.Connection == nil && config.ConnectTimeout <= 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "ConnectTimeout",
 			Message: "A positive connect timeout is required when dialing a NATS URL.",
 		}
 	}
 	if config.Systemd == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Systemd",
 			Message: "A native systemd adapter wired in user-manager mode is required.",
 		}
 	}
 	if config.Container == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Container",
 			Message: "A rootless OCI container adapter is required.",
 		}
 	}
 	if config.Metrics == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Metrics",
 			Message: "A metrics source is required.",
 		}
 	}
 	if config.HeartbeatInterval <= 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "HeartbeatInterval",
 			Message: "The heartbeat interval must be positive.",
 		}
 	}
 	if config.Now == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Now",
 			Message: "A heartbeat clock is required.",
 		}
@@ -137,7 +138,7 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 // is an invalid operation.
 func (a *HostAgent) Start(ctx context.Context) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The agent context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The agent context must not be nil."}
 	}
 	a.mutex.Lock()
 	defer a.mutex.Unlock()

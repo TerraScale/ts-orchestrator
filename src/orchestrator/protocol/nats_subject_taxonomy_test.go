@@ -1,8 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/NatsSubjectTaxonomyTests.cs.
-// The tests that pin the taxonomy against the control-plane topologies
-// (NatsTopology, GlobalNatsTopology, RuntimeLifecycleNatsProtocol) are skipped
-// until those areas are ported; the taxonomy sides of those checks are covered
-// by the rehomed-subject and host-agent tests below.
 package protocol
 
 import (

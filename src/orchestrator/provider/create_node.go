@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type CreateNodeProviderRequest struct {
@@ -43,7 +45,7 @@ type CreateNodeProviderProofSigner struct {
 
 func NewCreateNodeProviderProofSigner(id string, key *ecdsa.PrivateKey) (*CreateNodeProviderProofSigner, error) {
 	if strings.TrimSpace(id) == "" || key == nil || key.Curve != elliptic.P256() {
-		return nil, &ArgumentError{Message: "provider proof signer requires P-256"}
+		return nil, &errs.Argument{Message: "provider proof signer requires P-256"}
 	}
 	return &CreateNodeProviderProofSigner{key, id}, nil
 }
@@ -130,7 +132,7 @@ type DeterministicCreateNodeProvider struct {
 
 func NewDeterministicCreateNodeProvider(keys, recovery ReceiptKeyResolver, signer *CreateNodeProviderProofSigner, clock func() time.Time) (*DeterministicCreateNodeProvider, error) {
 	if keys == nil || recovery == nil || signer == nil {
-		return nil, &ArgumentError{Message: "deterministic provider dependencies are required"}
+		return nil, &errs.Argument{Message: "deterministic provider dependencies are required"}
 	}
 	if clock == nil {
 		clock = time.Now
@@ -157,7 +159,7 @@ func validateRecovery(r CreateNodeProviderRequest, keys ReceiptKeyResolver, now 
 }
 func (p *DeterministicCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
 	if ctx == nil {
-		return CreateNodeProviderResponse{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return CreateNodeProviderResponse{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if p == nil || p.keys == nil || p.clock == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "deterministic provider is unavailable"}
@@ -180,7 +182,7 @@ func (p *DeterministicCreateNodeProvider) CreateNode(ctx context.Context, r Crea
 }
 func (p *DeterministicCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeReconciliation, error) {
 	if ctx == nil {
-		return CreateNodeReconciliation{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return CreateNodeReconciliation{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if p == nil || p.recoveryKeys == nil || p.proofSigner == nil || p.clock == nil {
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "deterministic provider is unavailable"}
@@ -238,7 +240,7 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
 	}
 	if ctx == nil {
-		return CreateNodeProviderResponse{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return CreateNodeProviderResponse{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := validateCreateRequest(r, p.Keys, p.Clock()); err != nil {
 		return CreateNodeProviderResponse{}, err
@@ -269,7 +271,7 @@ func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r Creat
 		return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI CreateNode client is unavailable"}
 	}
 	if ctx == nil {
-		return CreateNodeReconciliation{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return CreateNodeReconciliation{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := validateRecovery(r, p.RecoveryKeys, p.Clock()); err != nil {
 		return CreateNodeReconciliation{}, err

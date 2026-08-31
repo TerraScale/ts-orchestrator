@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const (
@@ -19,21 +21,6 @@ const (
 	MaximumCompensationCount      = 64
 	MaximumHandoffInventoryCount  = 4096
 )
-
-// ArgumentError is returned for malformed caller input. Its message is
-// deliberately deterministic and does not include provider credentials.
-type ArgumentError struct{ Param, Message string }
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-type ArgumentOutOfRangeError struct{ Param, Message string }
-
-func (e *ArgumentOutOfRangeError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	return "value out of range: " + e.Param
-}
 
 type InvalidOperationError struct{ Message string }
 
@@ -48,13 +35,13 @@ var nativePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/=+@-]{0,255}$`
 
 func canonicalToken(value, param string) (string, error) {
 	if len(value) < 1 || len(value) > 96 || !tokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: "provider identity must be a bounded canonical token"}
+		return "", &errs.Argument{Param: param, Message: "provider identity must be a bounded canonical token"}
 	}
 	return value, nil
 }
 func nativeToken(value, param string) (string, error) {
 	if len(value) < 1 || len(value) > 256 || !nativePattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: "provider-native identity must be bounded and canonical"}
+		return "", &errs.Argument{Param: param, Message: "provider-native identity must be bounded and canonical"}
 	}
 	return value, nil
 }
@@ -165,19 +152,19 @@ type ProviderByteCount struct{ Value uint64 }
 
 func NewProviderGeneration(v uint64) (ProviderGeneration, error) {
 	if v == 0 {
-		return ProviderGeneration{}, &ArgumentOutOfRangeError{Param: "value"}
+		return ProviderGeneration{}, &errs.ArgumentOutOfRangeError{Param: "value"}
 	}
 	return ProviderGeneration{v}, nil
 }
 func NewProviderEpoch(v uint64) (ProviderEpoch, error) {
 	if v == 0 {
-		return ProviderEpoch{}, &ArgumentOutOfRangeError{Param: "value"}
+		return ProviderEpoch{}, &errs.ArgumentOutOfRangeError{Param: "value"}
 	}
 	return ProviderEpoch{v}, nil
 }
 func NewProviderByteCount(v uint64) (ProviderByteCount, error) {
 	if v == 0 {
-		return ProviderByteCount{}, &ArgumentOutOfRangeError{Param: "value"}
+		return ProviderByteCount{}, &errs.ArgumentOutOfRangeError{Param: "value"}
 	}
 	return ProviderByteCount{v}, nil
 }
@@ -186,10 +173,10 @@ type ProviderBootstrapEnvelopeDigest struct{ Sha256 string }
 
 func NewProviderBootstrapEnvelopeDigest(value string) (ProviderBootstrapEnvelopeDigest, error) {
 	if len(value) != 64 || strings.ToLower(value) != value {
-		return ProviderBootstrapEnvelopeDigest{}, &ArgumentError{Param: "sha256", Message: "bootstrap envelope digest must be canonical SHA-256"}
+		return ProviderBootstrapEnvelopeDigest{}, &errs.Argument{Param: "sha256", Message: "bootstrap envelope digest must be canonical SHA-256"}
 	}
 	if _, err := hex.DecodeString(value); err != nil {
-		return ProviderBootstrapEnvelopeDigest{}, &ArgumentError{Param: "sha256", Message: "bootstrap envelope digest must be canonical SHA-256"}
+		return ProviderBootstrapEnvelopeDigest{}, &errs.Argument{Param: "sha256", Message: "bootstrap envelope digest must be canonical SHA-256"}
 	}
 	return ProviderBootstrapEnvelopeDigest{value}, nil
 }

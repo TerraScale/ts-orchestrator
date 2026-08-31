@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// NativeSystemdRuntimeAdmissionTests.cs.
 package runtime
 
 import (
@@ -43,9 +41,9 @@ func TestAdmitsCanonicalNativeTerraBaseOrchestratorAndNatsPlans(t *testing.T) {
 		allocation string
 	}{
 		{AdmittedRoleTerraBaseMember, "gru-terrabase-1"},
-		{AdmittedRoleOrchestrator, "gru-orchestrator-1"},
-		{AdmittedRoleControlNatsServer, "gru-control-nats-1"},
-		{AdmittedRoleProductNatsServer, "gru-product-nats-1"},
+		{AdmittedRoleAutoscaler, "gru-orchestrator-1"},
+		{AdmittedRoleNats, "gru-control-nats-1"},
+		{AdmittedRoleNats, "gru-product-nats-1"},
 	}
 	for _, testCase := range cases {
 		runner := newRecordingHostRunner(
@@ -86,7 +84,7 @@ func TestEveryFailedHostAdmissionIsRejectedBeforeAnyRunnerCall(t *testing.T) {
 		runner := newRecordingHostRunner()
 		var operationError *InvalidOperationError
 		_, err := NewNativeSystemdRuntimeAdmissionWithRunner(
-			nativeTestPlan(t, AdmittedRoleOrchestrator, "gru-orchestrator-1"),
+			nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1"),
 			recordingProbe{result: failedProbe}, runner)
 		if !errors.As(err, &operationError) {
 			t.Fatalf("expected InvalidOperationError, got %v", err)
@@ -121,7 +119,7 @@ func TestProductionProbeIsReadOnlyAndUsesTheFixedAdmissionPaths(t *testing.T) {
 func TestOciPlansAndOciOnlyRolesAreRejectedBeforeExecutorConstruction(t *testing.T) {
 	runner := newRecordingHostRunner()
 	ociPlan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -130,8 +128,8 @@ func TestOciPlansAndOciOnlyRolesAreRejectedBeforeExecutorConstruction(t *testing
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	nativePlanWithOciOnlyRole := nativeTestPlan(t, AdmittedRoleOrchestrator, "gru-orchestrator-1")
-	nativePlanWithOciOnlyRole.Role = AdmittedRoleCustomerDashboard
+	nativePlanWithOciOnlyRole := nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1")
+	nativePlanWithOciOnlyRole.Role = AdmittedRoleDashboard
 
 	var operationError *InvalidOperationError
 	_, err = NewNativeSystemdRuntimeAdmissionWithRunner(ociPlan, admittedHostProbe(), runner)
@@ -148,7 +146,7 @@ func TestOciPlansAndOciOnlyRolesAreRejectedBeforeExecutorConstruction(t *testing
 }
 
 func TestEveryCanonicalPlanTamperClassIsRejectedBeforeRunnerCall(t *testing.T) {
-	original := nativeTestPlan(t, AdmittedRoleOrchestrator, "gru-orchestrator-1")
+	original := nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1")
 
 	executableTampered := original
 	tamperedSystemd := *original.Systemd
@@ -197,7 +195,7 @@ func TestEveryCanonicalPlanTamperClassIsRejectedBeforeRunnerCall(t *testing.T) {
 }
 
 func TestAcceptedAdmissionUsesSystemManagerFixedPathsArgumentListsAndHardenedProperties(t *testing.T) {
-	plan := nativeTestPlan(t, AdmittedRoleControlNatsServer, "gru-control-nats-1")
+	plan := nativeTestPlan(t, AdmittedRoleNats, "gru-control-nats-1")
 	runner := newRecordingHostRunner(
 		HostCommandResult{ExitCode: 1, StandardOutput: "LoadState=not-found\n", StandardError: "Unit not found"},
 		HostCommandResult{ExitCode: 0})
@@ -261,7 +259,7 @@ func intArgumentsContain(value string) bool {
 }
 
 func TestAdmissionNeverTurnsAllocationInputIntoShellOrPathExecution(t *testing.T) {
-	plan := nativeTestPlan(t, AdmittedRoleOrchestrator, "gru-orchestrator-1")
+	plan := nativeTestPlan(t, AdmittedRoleAutoscaler, "gru-orchestrator-1")
 	runner := newRecordingHostRunner(
 		HostCommandResult{ExitCode: 1, StandardOutput: "LoadState=not-found\n"},
 		HostCommandResult{ExitCode: 0})

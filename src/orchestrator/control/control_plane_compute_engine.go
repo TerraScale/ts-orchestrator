@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Compute/ComputeEngine.cs
 package control
 
 import "sort"

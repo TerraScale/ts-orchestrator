@@ -1,17 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// AvailabilityPropertyTests.cs.
-//
-// Skipped from the C# suite:
-//   - The CultureInfo permutation loops (no ambient culture in Go);
-//     permutation invariance is fully ported.
-//   - Observation_snapshot_rejects_..._infinite_and_hostile_iterators: Go
-//     slices cannot fail mid-enumeration, so the infinite and throwing-
-//     iterator traps have no equivalent; the exact-bound and maximum-plus-one
-//     rejections are ported.
-//   - Availability_outputs_are_construction_closed... reflection sweep; the
-//     enum-definedness assertions are ported directly.
-//   - Null-identity and null-change constructor families (unrepresentable as
-//     Go value types); nil slices and nil interfaces are still exercised.
 package scheduling
 
 import (

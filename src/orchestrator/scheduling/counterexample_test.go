@@ -1,12 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// Counterexample coverage for scheduler request and snapshot invariants.
-//
-// Skipped from the C# suite:
-//   - Availability_decision_admission_surface_is_assembly_wide_construction_
-//     closed: the C# test reflects over public constructors, setters and
-//     compiler-generated record clones; Go has no equivalent reflection
-//     surface, and AvailabilityDecision is only constructible inside the
-//     package (unexported fields set by the evaluator).
 package scheduling
 
 import (

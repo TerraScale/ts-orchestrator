@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Evidence/EvidencePrimitives.cs
 package control
 
 func evidenceValidId(value string, maximumLength int) bool {

@@ -1,8 +1,5 @@
-// Package scheduling ports TerraScale.Orchestrator.Scheduler (SchedulingModels.cs,
-// DeterministicScheduler.cs, Availability/AvailabilityModels.cs and
-// Availability/AvailabilityPolicyEvaluator.cs from src/TerraScale.Orchestrator).
-//
-// This file ports Scheduling/SchedulingModels.cs.
+// Package scheduling implements deterministic resource placement and
+// availability-policy evaluation.
 package scheduling
 
 import (
@@ -10,23 +7,9 @@ import (
 	"math/big"
 	"slices"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError mirrors System.ArgumentException thrown by the C# constructors.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError mirrors System.ArgumentOutOfRangeException.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError mirrors System.InvalidOperationException.
 type InvalidOperationError struct {
@@ -65,7 +48,7 @@ var SchedulerTechnicalInputLimits = struct {
 // cannot fail mid-enumeration, so only the snapshot bound remains.)
 func schedulerInputSnapshotCopy[T any](source []T, maximum int, parameterName, inputName string) ([]T, error) {
 	if len(source) > maximum {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   parameterName,
 			Message: fmt.Sprintf("%s exceeds the technical snapshot bound.", inputName),
 		}
@@ -92,7 +75,7 @@ var ResourceVectorZero = ResourceVector{}
 
 func requireNonNegative(value int64, parameterName string) (int64, error) {
 	if value < 0 {
-		return 0, &ArgumentOutOfRangeError{
+		return 0, &errs.ArgumentOutOfRangeError{
 			Param:   parameterName,
 			Message: "Resource quantities must be non-negative.",
 		}
@@ -290,7 +273,7 @@ type CandidateVeto struct {
 // NewCandidateVeto validates the code against the closed vocabulary.
 func NewCandidateVeto(code CandidateVetoCode) (CandidateVeto, error) {
 	if !code.defined() {
-		return CandidateVeto{}, &ArgumentOutOfRangeError{Param: "code"}
+		return CandidateVeto{}, &errs.ArgumentOutOfRangeError{Param: "code"}
 	}
 	return CandidateVeto{Code: code}, nil
 }
@@ -304,10 +287,10 @@ type AllocationSafetyCap struct {
 // NewAllocationSafetyCap validates that both counts are non-negative.
 func NewAllocationSafetyCap(currentAllocations, maximumAllocations int64) (AllocationSafetyCap, error) {
 	if currentAllocations < 0 {
-		return AllocationSafetyCap{}, &ArgumentOutOfRangeError{Param: "currentAllocations"}
+		return AllocationSafetyCap{}, &errs.ArgumentOutOfRangeError{Param: "currentAllocations"}
 	}
 	if maximumAllocations < 0 {
-		return AllocationSafetyCap{}, &ArgumentOutOfRangeError{Param: "maximumAllocations"}
+		return AllocationSafetyCap{}, &errs.ArgumentOutOfRangeError{Param: "maximumAllocations"}
 	}
 	return AllocationSafetyCap{
 		CurrentAllocations: currentAllocations,
@@ -329,10 +312,10 @@ type ScoreDimension struct {
 // NewScoreDimension validates that the weight is non-negative.
 func NewScoreDimension(dimension ResourceDimension, weight int64) (ScoreDimension, error) {
 	if dimension < ResourceDimensionCpu || dimension > ResourceDimensionHugePages {
-		return ScoreDimension{}, &ArgumentOutOfRangeError{Param: "dimension"}
+		return ScoreDimension{}, &errs.ArgumentOutOfRangeError{Param: "dimension"}
 	}
 	if weight < 0 {
-		return ScoreDimension{}, &ArgumentOutOfRangeError{Param: "weight"}
+		return ScoreDimension{}, &errs.ArgumentOutOfRangeError{Param: "weight"}
 	}
 	return ScoreDimension{Dimension: dimension, Weight: weight}, nil
 }
@@ -358,13 +341,13 @@ func NewLeastWastePolicy(dimensions []ScoreDimension) (*LeastWastePolicy, error)
 	positive := false
 	for _, item := range copyDimensions {
 		if item.Dimension < ResourceDimensionCpu || item.Dimension > ResourceDimensionHugePages {
-			return nil, &ArgumentOutOfRangeError{Param: "dimensions"}
+			return nil, &errs.ArgumentOutOfRangeError{Param: "dimensions"}
 		}
 		if item.Weight < 0 {
-			return nil, &ArgumentOutOfRangeError{Param: "dimensions"}
+			return nil, &errs.ArgumentOutOfRangeError{Param: "dimensions"}
 		}
 		if seen[item.Dimension] {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "dimensions",
 				Message: "Every resource dimension must appear exactly once.",
 			}
@@ -375,21 +358,21 @@ func NewLeastWastePolicy(dimensions []ScoreDimension) (*LeastWastePolicy, error)
 		}
 	}
 	if len(seen) != len(AllResourceDimensions) {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "dimensions",
 			Message: "Every resource dimension must appear exactly once.",
 		}
 	}
 	for _, dimension := range AllResourceDimensions {
 		if !seen[dimension] {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "dimensions",
 				Message: "Every resource dimension must appear exactly once.",
 			}
 		}
 	}
 	if !positive {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "dimensions",
 			Message: "At least one score weight must be positive.",
 		}
@@ -729,7 +712,7 @@ func copyPorts(ports []int, parameterName string) (map[int]struct{}, error) {
 	seen := make(map[int]struct{}, len(values))
 	for _, port := range values {
 		if _, duplicate := seen[port]; duplicate {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   parameterName,
 				Message: "Port collections cannot contain duplicates.",
 			}
@@ -738,7 +721,7 @@ func copyPorts(ports []int, parameterName string) (map[int]struct{}, error) {
 	}
 	for _, port := range values {
 		if port < 1 || port > 65535 {
-			return nil, &ArgumentOutOfRangeError{
+			return nil, &errs.ArgumentOutOfRangeError{
 				Param:   parameterName,
 				Message: "Ports must be between 1 and 65535.",
 			}
@@ -755,13 +738,13 @@ func copyFacts(facts []string) (map[string]struct{}, error) {
 	seen := make(map[string]struct{}, len(values))
 	for _, fact := range values {
 		if strings.TrimSpace(fact) == "" {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "facts",
 				Message: "Facts and zone names must be nonempty.",
 			}
 		}
 		if _, duplicate := seen[fact]; duplicate {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "facts",
 				Message: "Facts and zone names cannot contain duplicates.",
 			}
@@ -773,7 +756,7 @@ func copyFacts(facts []string) (map[string]struct{}, error) {
 
 func copyLabels(labels map[string]string, parameterName string) (map[string]string, error) {
 	if len(labels) > SchedulerTechnicalInputLimits.MaximumLabelCount {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   parameterName,
 			Message: "Label input exceeds the technical snapshot bound.",
 		}
@@ -781,7 +764,7 @@ func copyLabels(labels map[string]string, parameterName string) (map[string]stri
 	snapshot := make(map[string]string, len(labels))
 	for key, value := range labels {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   parameterName,
 				Message: "Label keys and values must be nonempty.",
 			}
@@ -795,7 +778,7 @@ func requireText(value string, parameterName string) (string, error) {
 	if strings.TrimSpace(value) != "" {
 		return value, nil
 	}
-	return "", &ArgumentError{
+	return "", &errs.Argument{
 		Param:   parameterName,
 		Message: "A nonempty value is required.",
 	}

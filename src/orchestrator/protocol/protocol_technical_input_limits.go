@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/ProtocolTechnicalInputLimits.cs.
 package protocol
 
 // ProtocolTechnicalInputLimits mirrors the C# static class: technical

@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/Fuzz/ProtocolRegressionCorpus.cs.
 // The C# test-assembly helper becomes a same-package test helper; the embedded
 // resource is the byte-identical copy of test-corpus/protocol/minimal-fail-closed-seeds.json.
 package protocol
@@ -94,8 +93,7 @@ func protocolRegressionCorpusLoadEmbedded() CorpusLoadResult {
 	return protocolRegressionCorpusLoadBytes(embeddedRegressionCorpus, true)
 }
 
-// protocolRegressionCorpusLoadString mirrors Load(string): invalid UTF-8 (the
-// Go form of an unencodable surrogate) is InvalidJson.
+// protocolRegressionCorpusLoadString rejects invalid UTF-8 as InvalidJson.
 func protocolRegressionCorpusLoadString(source string) CorpusLoadResult {
 	if source == "" {
 		return corpusResult(CorpusLoadTooLarge, nil)

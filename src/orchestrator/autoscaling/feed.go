@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
 
@@ -42,7 +43,7 @@ func NewAutoscalerNodePlacement(nodeId string, replicas []stateful.ReplicaHealth
 		return AutoscalerNodePlacement{}, err
 	}
 	if len(replicas) > autoscalingMaximumReplicaCount {
-		return AutoscalerNodePlacement{}, &ArgumentError{Param: "replicas",
+		return AutoscalerNodePlacement{}, &errs.Argument{Param: "replicas",
 			Message: fmt.Sprintf("Replica input exceeds the bound of %d entries.", autoscalingMaximumReplicaCount)}
 	}
 	snapshot := make([]stateful.ReplicaHealth, 0, len(replicas))
@@ -55,7 +56,7 @@ func NewAutoscalerNodePlacement(nodeId string, replicas []stateful.ReplicaHealth
 		}
 		key := validated.RoleKind + "/" + validated.AllocationId
 		if _, duplicate := seen[key]; duplicate {
-			return AutoscalerNodePlacement{}, &ArgumentError{Param: "replicas",
+			return AutoscalerNodePlacement{}, &errs.Argument{Param: "replicas",
 				Message: "A role allocation may appear only once per node."}
 		}
 		seen[key] = struct{}{}
@@ -88,15 +89,15 @@ func NewAutoscalerObservationFeed(
 	placementComplete bool,
 ) (AutoscalerObservationFeed, error) {
 	if schemaVersion != AutoscalerFeedSchemaVersion {
-		return AutoscalerObservationFeed{}, &ArgumentError{Param: "schemaVersion",
+		return AutoscalerObservationFeed{}, &errs.Argument{Param: "schemaVersion",
 			Message: fmt.Sprintf("Unsupported autoscaler feed schema version %d.", schemaVersion)}
 	}
 	if unixSeconds <= 0 {
-		return AutoscalerObservationFeed{}, &ArgumentOutOfRangeError{Param: "unixSeconds",
+		return AutoscalerObservationFeed{}, &errs.ArgumentOutOfRangeError{Param: "unixSeconds",
 			Message: "Autoscaler feed timestamp must be positive."}
 	}
 	if len(placements) > autoscalerMaximumPlacementNodes {
-		return AutoscalerObservationFeed{}, &ArgumentError{Param: "placements",
+		return AutoscalerObservationFeed{}, &errs.Argument{Param: "placements",
 			Message: fmt.Sprintf("Placement input exceeds the bound of %d entries.", autoscalerMaximumPlacementNodes)}
 	}
 	validatedSnapshot, err := NewAutoscalerSnapshot(nil, demand)
@@ -111,7 +112,7 @@ func NewAutoscalerObservationFeed(
 			return AutoscalerObservationFeed{}, err
 		}
 		if _, duplicate := seenNodes[validated.NodeId]; duplicate {
-			return AutoscalerObservationFeed{}, &ArgumentError{Param: "placements",
+			return AutoscalerObservationFeed{}, &errs.Argument{Param: "placements",
 				Message: "A node may appear only once per feed."}
 		}
 		seenNodes[validated.NodeId] = struct{}{}

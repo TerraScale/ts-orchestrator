@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/CommandValidation.cs.
 package protocol
 
 import (

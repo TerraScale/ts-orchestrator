@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Networking/NetworkingPrimitives.cs
 package control
 
 func networkValueRulesValid(value string, maximum int) bool {

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/NatsCapabilityMatrix.cs.
 package protocol
 
 import "strings"

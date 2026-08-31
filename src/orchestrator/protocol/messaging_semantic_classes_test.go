@@ -1,7 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/MessagingSemanticClassesTests.cs.
-// The landed-subject and landed-store drift bindings against NatsTopology and
-// GlobalNatsTopology are skipped until the control package is ported; the
-// taxonomy-composed equivalents of every landed subject shape are covered here.
 package protocol
 
 import (

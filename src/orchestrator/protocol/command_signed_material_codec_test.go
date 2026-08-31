@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/CommandSignedMaterialCodecTests.cs.
 package protocol
 
 import (

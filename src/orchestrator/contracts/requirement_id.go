@@ -1,5 +1,6 @@
-// Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/RequirementId.cs.
 package contracts
+
+import "fmt"
 
 // RequirementId is a permanent requirement identifier from the GOAL.md "Stable
 // contract identifiers" table. Identifiers form a closed set: only values
@@ -17,14 +18,12 @@ func (i RequirementId) IsRegistered() bool {
 	return ok
 }
 
-// CanonicalText returns the verbatim GOAL.md text; it panics for an
-// unregistered identifier, mirroring the C# InvalidOperationException.
-func (i RequirementId) CanonicalText() string {
+// CanonicalText returns the verbatim GOAL.md text.
+func (i RequirementId) CanonicalText() (string, error) {
 	if text, ok := StableIdentifierRegistry.tryGetRequirementText(i); ok {
-		return text
+		return text, nil
 	}
-
-	panic("Requirement " + i.Value + " is not registered.")
+	return "", fmt.Errorf("requirement %q is not registered", i.Value)
 }
 
 // TryGetText mirrors StableIdentifierRegistry.TryGetText(RequirementId, out text).

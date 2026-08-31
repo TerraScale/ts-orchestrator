@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/GlobalNatsTopology.cs.
 package control
 
 import (

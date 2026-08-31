@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // NatsConnection is the injectable NATS connection seam of the node transport.
@@ -42,7 +43,7 @@ type LiveNatsConnection struct {
 // NewLiveNatsConnection validates that the wrapped connection exists.
 func NewLiveNatsConnection(connection *nats.Conn) (LiveNatsConnection, error) {
 	if connection == nil {
-		return LiveNatsConnection{}, &ArgumentError{
+		return LiveNatsConnection{}, &errs.Argument{
 			Param:   "connection",
 			Message: "A live NATS connection is required.",
 		}
@@ -91,7 +92,7 @@ type IntervalHeartbeatTicker struct {
 // NewIntervalHeartbeatTicker validates the interval and starts the ticker.
 func NewIntervalHeartbeatTicker(interval time.Duration) (*IntervalHeartbeatTicker, error) {
 	if interval <= 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "interval",
 			Message: "The heartbeat interval must be positive.",
 		}
@@ -533,19 +534,19 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 		return nil, err
 	}
 	if config.Connection == nil {
-		return nil, &ArgumentError{Param: "Connection", Message: "A NATS connection is required."}
+		return nil, &errs.Argument{Param: "Connection", Message: "A NATS connection is required."}
 	}
 	if config.Executor == nil {
-		return nil, &ArgumentError{Param: "Executor", Message: "A workload executor is required."}
+		return nil, &errs.Argument{Param: "Executor", Message: "A workload executor is required."}
 	}
 	if config.Metrics == nil {
-		return nil, &ArgumentError{Param: "Metrics", Message: "A metrics source is required."}
+		return nil, &errs.Argument{Param: "Metrics", Message: "A metrics source is required."}
 	}
 	if config.Ticker == nil {
-		return nil, &ArgumentError{Param: "Ticker", Message: "A heartbeat ticker is required."}
+		return nil, &errs.Argument{Param: "Ticker", Message: "A heartbeat ticker is required."}
 	}
 	if config.Now == nil {
-		return nil, &ArgumentError{Param: "Now", Message: "A heartbeat clock is required."}
+		return nil, &errs.Argument{Param: "Now", Message: "A heartbeat clock is required."}
 	}
 	return &NatsTransport{
 		nodeId:          nodeId,
@@ -565,7 +566,7 @@ func NewNatsTransport(config NatsTransportConfig) (*NatsTransport, error) {
 // Close is called. It returns once the transport is serving.
 func (t *NatsTransport) Start(ctx context.Context) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The transport context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The transport context must not be nil."}
 	}
 	if err := ctx.Err(); err != nil {
 		// A cancelled context is never a serving context. In particular, do

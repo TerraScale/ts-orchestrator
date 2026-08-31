@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Subjects/SubjectPermissionPolicy.cs.
 package protocol
 
 import (

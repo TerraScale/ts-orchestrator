@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/Resources/RoleDescriptor.cs.
 package contracts
 
 import (

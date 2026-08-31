@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/CiRunnerNatsPermissions.cs.
 package control
 
 import (

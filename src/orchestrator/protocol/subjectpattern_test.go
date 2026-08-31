@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/SubjectPatternTests.cs.
 package protocol
 
 import "testing"

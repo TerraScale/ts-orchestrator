@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// ContainerdHostRuntimeAdapterTests.cs.
 package runtime
 
 import (
@@ -80,7 +78,7 @@ func (c *recordingContainerdClient) operationsEqual(expected []string) bool {
 func containerdTestOciPlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),

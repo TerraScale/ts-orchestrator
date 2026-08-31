@@ -1,5 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/ProtocolTestData.cs:
-// shared fixtures and verifier doubles for the protocol test suite.
 package protocol
 
 import (

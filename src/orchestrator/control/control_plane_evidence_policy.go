@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Evidence/EvidencePolicy.cs
 package control
 
 type EvidencePolicy struct {

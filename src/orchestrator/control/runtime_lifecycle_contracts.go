@@ -1,10 +1,10 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeLifecycleContracts.cs
 package control
 
 import (
 	"context"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
@@ -446,7 +446,7 @@ type runtimeLifecycleFingerprint struct{}
 
 func canonicalStrings(builder *strings.Builder, values []string) {
 	for _, value := range values {
-		builder.WriteString(strconv.Itoa(digestUtf16Length(value)))
+		builder.WriteString(strconv.Itoa(utf8.RuneCountInString(value)))
 		builder.WriteByte(':')
 		builder.WriteString(value)
 		builder.WriteByte(';')
@@ -513,7 +513,7 @@ func boolDigit(value bool) string {
 }
 
 func hostAdmittedRoleIsDefined(role runtime.AdmittedRole) bool {
-	return role >= runtime.AdmittedRoleCustomerDashboard && role <= runtime.AdmittedRoleJournalWriter
+	return role >= runtime.AdmittedRoleDashboard && role <= runtime.AdmittedRoleJournalWriter
 }
 
 func (runtimeLifecycleFingerprint) Operation(request RuntimeLifecycleOperationRequest) (RuntimeLifecycleOperationKey, error) {

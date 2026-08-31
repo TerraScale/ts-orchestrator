@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/DatabasePlacement/DatabasePlacementContracts.cs
 package control
 
 // DatabasePlacementPolicy holds the fixed replication and active-Region limits

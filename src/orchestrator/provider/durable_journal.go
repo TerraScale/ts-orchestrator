@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // OwnershipCASStore is the persistence seam for the ownership journal. A
@@ -31,10 +33,10 @@ type DurableOwnershipJournal struct {
 
 func NewDurableOwnershipJournal(store OwnershipCASStore, max int) (*DurableOwnershipJournal, error) {
 	if store == nil {
-		return nil, &ArgumentError{Param: "store", Message: "ownership CAS store is required"}
+		return nil, &errs.Argument{Param: "store", Message: "ownership CAS store is required"}
 	}
 	if max < 1 || max > MaximumOperationEvidenceCount {
-		return nil, &ArgumentOutOfRangeError{Param: "max"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "max"}
 	}
 	return &DurableOwnershipJournal{store: store, max: max}, nil
 }
@@ -48,16 +50,16 @@ func ownershipJournalKey(id ProviderResourceId) string {
 
 func validateOwnershipRecord(ctx context.Context, record ProviderOwnershipRecord) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if record.ResourceId.Value == "" || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 {
-		return &ArgumentError{Message: "ownership record is incomplete"}
+		return &errs.Argument{Message: "ownership record is incomplete"}
 	}
 	if strings.ContainsAny(record.ResourceId.Value+record.CellId.Value+record.CompartmentId.Value, "\r\n") {
-		return &ArgumentError{Message: "ownership record identity is invalid"}
+		return &errs.Argument{Message: "ownership record identity is invalid"}
 	}
 	return nil
 }
@@ -116,13 +118,13 @@ func (j *DurableOwnershipJournal) Lookup(ctx context.Context, id ProviderResourc
 		return ProviderOwnershipRecord{}, false, &InvalidOperationError{Message: "ownership journal is unavailable"}
 	}
 	if ctx == nil {
-		return ProviderOwnershipRecord{}, false, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ProviderOwnershipRecord{}, false, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return ProviderOwnershipRecord{}, false, err
 	}
 	if id.Value == "" || strings.ContainsAny(id.Value, "\r\n") {
-		return ProviderOwnershipRecord{}, false, &ArgumentError{Message: "ownership resource identity is invalid"}
+		return ProviderOwnershipRecord{}, false, &errs.Argument{Message: "ownership resource identity is invalid"}
 	}
 	b, _, err := j.store.Get(ctx, ownershipJournalKey(id))
 	if err != nil {

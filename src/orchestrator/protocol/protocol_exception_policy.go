@@ -1,14 +1,5 @@
-// Port of src/TerraScale.Orchestrator/Protocol/ProtocolExceptionPolicy.cs.
-//
-// The C# policy distinguishes fatal runtime failures (OutOfMemoryException,
-// StackOverflowException, AccessViolationException) from ordinary exceptions:
-// ordinary verifier and iterator failures are swallowed into typed rejections
-// while fatal ones propagate. Go has no equivalent taxonomy — the runtime
-// already aborts the process on out-of-memory and stack exhaustion — so the
-// policy maps onto recover(): verifier implementations that panic are treated
-// as ordinary failures (fail closed with the typed verification error) and
-// anything genuinely fatal kills the process, which is exactly the C#
-// observable behavior.
+// Verifier panics become typed failures so caller-supplied implementations fail
+// closed. Fatal runtime failures still terminate the process.
 package protocol
 
 // protocolExceptionPolicy mirrors the internal static class.

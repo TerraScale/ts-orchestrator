@@ -1,6 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// InfisicalSecretStoreTests.cs. It runs only on Linux (the C# suite is
-// [SupportedOSPlatform("linux")] and skips its body elsewhere).
 package security
 
 import (

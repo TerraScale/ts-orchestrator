@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const (
@@ -39,14 +41,14 @@ var autoscalingEnvironmentKeyPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 // no empty, dot, or dot-dot segments; the filesystem root itself is rejected.
 func requireAutoscalingAbsolutePath(value, param string) (string, error) {
 	if len(value) < 2 || len(value) > autoscalingMaximumPathLength || !strings.HasPrefix(value, "/") {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "A bounded absolute path is required.",
 		}
 	}
 	for _, segment := range strings.Split(value[1:], "/") {
 		if segment == "" || segment == "." || segment == ".." {
-			return "", &ArgumentError{
+			return "", &errs.Argument{
 				Param:   param,
 				Message: "Path segments must be nonempty and cannot traverse upward.",
 			}
@@ -99,13 +101,13 @@ func NewNodeProcessSpec(
 	}
 	if natsUrl == "" || len(natsUrl) > autoscalingMaximumNatsUrlLength ||
 		strings.HasPrefix(natsUrl, "-") || strings.ContainsFunc(natsUrl, isAutoscalingSpaceOrControlRune) {
-		return NodeProcessSpec{}, &ArgumentError{
+		return NodeProcessSpec{}, &errs.Argument{
 			Param:   "natsUrl",
 			Message: "The NATS URL must be bounded, whitespace-free, and flag-safe.",
 		}
 	}
 	if len(args) > autoscalingMaximumArgumentCount {
-		return NodeProcessSpec{}, &ArgumentError{
+		return NodeProcessSpec{}, &errs.Argument{
 			Param: "args",
 			Message: fmt.Sprintf("Argument input exceeds the bound of %d entries.",
 				autoscalingMaximumArgumentCount),
@@ -117,7 +119,7 @@ func NewNodeProcessSpec(
 			argument == "--node-id" || argument == "--nats-url" ||
 			strings.HasPrefix(argument, "--node-id=") || strings.HasPrefix(argument, "--nats-url=") ||
 			strings.ContainsFunc(argument, isAutoscalingSpaceOrControlRune) {
-			return NodeProcessSpec{}, &ArgumentError{
+			return NodeProcessSpec{}, &errs.Argument{
 				Param:   "args",
 				Message: "Arguments must be nonempty, bounded, control-free, and may not claim the identity flags.",
 			}
@@ -125,7 +127,7 @@ func NewNodeProcessSpec(
 		arguments = append(arguments, argument)
 	}
 	if len(env) > autoscalingMaximumEnvironmentCount {
-		return NodeProcessSpec{}, &ArgumentError{
+		return NodeProcessSpec{}, &errs.Argument{
 			Param: "env",
 			Message: fmt.Sprintf("Environment input exceeds the bound of %d entries.",
 				autoscalingMaximumEnvironmentCount),
@@ -134,14 +136,14 @@ func NewNodeProcessSpec(
 	environment := make(map[string]string, len(env))
 	for key, value := range env {
 		if !autoscalingEnvironmentKeyPattern.MatchString(key) || key == autoscalingXdgRuntimeDirKey {
-			return NodeProcessSpec{}, &ArgumentError{
+			return NodeProcessSpec{}, &errs.Argument{
 				Param:   "env",
 				Message: "Environment keys must be uppercase names and XDG_RUNTIME_DIR is reserved.",
 			}
 		}
 		if len(value) > autoscalingMaximumEnvironmentValueBytes ||
 			strings.ContainsFunc(value, isAutoscalingSpaceOrControlRune) {
-			return NodeProcessSpec{}, &ArgumentError{
+			return NodeProcessSpec{}, &errs.Argument{
 				Param:   "env",
 				Message: "Environment values must be bounded and control-free.",
 			}
@@ -149,7 +151,7 @@ func NewNodeProcessSpec(
 		environment[key] = value
 	}
 	if runAsUid == 0 {
-		return NodeProcessSpec{}, &ArgumentError{
+		return NodeProcessSpec{}, &errs.Argument{
 			Param:   "runAsUid",
 			Message: "The node host agent must run as a nonzero UID.",
 		}
@@ -227,7 +229,7 @@ func NewStaticNodeProvisioner() *StaticNodeProvisioner {
 // Provision revalidates and records one provision request.
 func (p *StaticNodeProvisioner) Provision(ctx context.Context, request NodeProvisionRequest) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The provisioner context must not be nil."}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -247,7 +249,7 @@ func (p *StaticNodeProvisioner) Provision(ctx context.Context, request NodeProvi
 // Retire revalidates and records one node retirement.
 func (p *StaticNodeProvisioner) Retire(ctx context.Context, nodeId string) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The provisioner context must not be nil."}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -323,7 +325,7 @@ func NewLocalProcessNodeProvisioner(
 		return nil, err
 	}
 	if spawner == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "spawner",
 			Message: "A process spawner is required.",
 		}
@@ -340,7 +342,7 @@ func NewLocalProcessNodeProvisioner(
 // operation, not a respawn.
 func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request NodeProvisionRequest) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The provisioner context must not be nil."}
 	}
 	if p == nil || p.spawner == nil {
 		return &InvalidOperationError{Message: "The process spawner is unavailable."}
@@ -396,7 +398,7 @@ func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request Nod
 // process it cannot prove is its own child.
 func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The provisioner context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The provisioner context must not be nil."}
 	}
 	if p == nil || p.spawner == nil {
 		return &InvalidOperationError{Message: "The process spawner is unavailable."}
@@ -469,7 +471,7 @@ type CommandProcessSpawner struct {
 // grace period between SIGTERM and the SIGKILL escalation.
 func NewCommandProcessSpawner(terminateGrace time.Duration) (*CommandProcessSpawner, error) {
 	if terminateGrace <= 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "terminateGrace",
 			Message: "The termination grace period must be positive.",
 		}
@@ -486,7 +488,7 @@ func NewCommandProcessSpawner(terminateGrace time.Duration) (*CommandProcessSpaw
 // process group, with exactly the rendered environment and argv.
 func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec) (int, error) {
 	if ctx == nil {
-		return 0, &ArgumentError{Param: "ctx", Message: "The spawner context must not be nil."}
+		return 0, &errs.Argument{Param: "ctx", Message: "The spawner context must not be nil."}
 	}
 	if s == nil {
 		return 0, &InvalidOperationError{Message: "The process spawner is unavailable."}
@@ -531,10 +533,10 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 // foreign pid by number is exactly the failure this lane forbids.
 func (s *CommandProcessSpawner) Terminate(ctx context.Context, pid int) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The spawner context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The spawner context must not be nil."}
 	}
 	if pid <= 0 {
-		return &ArgumentOutOfRangeError{
+		return &errs.ArgumentOutOfRangeError{
 			Param:   "pid",
 			Message: "A spawned pid is positive.",
 		}

@@ -1,5 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Networking/NetworkInputSnapshot.cs,
-// NetworkDiscovery.cs and NetworkRouting.cs
 package control
 
 import (

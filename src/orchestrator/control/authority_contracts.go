@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Authority/AuthorityContracts.cs
 package control
 
 import "time"

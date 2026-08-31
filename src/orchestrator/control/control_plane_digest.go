@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // invalidArgument stands in for C# ArgumentException / ArgumentNullException
@@ -93,18 +93,18 @@ func checkedAddInt64(left, right int64) (int64, bool) {
 // Shared primitive encodings for the control-plane journal digest
 // canonicalizations (AuthorityDigest, OperationDigest, ...). Every digest
 // class keeps its own typed Append switch next to the types it hashes; only
-// the primitive value encodings below are shared, and they reproduce the C#
-// writers byte-for-byte so journals stay readable across the migration.
+// the primitive value encodings below are shared.
 //
-// Encodings (mirroring the C# Append switch):
-//   null      -> "N;"
-//   string    -> "S" <utf16 length> ":" <text> ";"
-//   bool      -> "B1;" / "B0;"
-//   integer   -> "L" <invariant decimal> ";"
-//   enum      -> integer form
-//   timestamp -> "T" <utc .NET ticks> ";"
-//   duration  -> "D" <.NET ticks> ";"
-//   array     -> "A" <count> "[" <items> "];"
+// Encodings:
+//
+//	null      -> "N;"
+//	string    -> "S" <rune count> ":" <text> ";"
+//	bool      -> "B1;" / "B0;"
+//	integer   -> "L" <invariant decimal> ";"
+//	enum      -> integer form
+//	timestamp -> "T" <utc .NET ticks> ";"
+//	duration  -> "D" <.NET ticks> ";"
+//	array     -> "A" <count> "[" <items> "];"
 
 const dotNetEpochTicks = 621355968000000000 // 0001-01-01T00:00:00Z .. 1970-01-01T00:00:00Z
 
@@ -136,20 +136,6 @@ func dotNetTimeEquals(left, right time.Time) bool {
 	return left.Equal(right)
 }
 
-func digestUtf16Length(value string) int {
-	isAscii := true
-	for i := 0; i < len(value); i++ {
-		if value[i] >= 0x80 {
-			isAscii = false
-			break
-		}
-	}
-	if isAscii {
-		return len(value)
-	}
-	return len(utf16.Encode([]rune(value)))
-}
-
 type digestWriter struct {
 	builder strings.Builder
 }
@@ -164,7 +150,7 @@ func (w *digestWriter) WriteNull() {
 
 func (w *digestWriter) WriteString(value string) {
 	w.builder.WriteByte('S')
-	w.builder.WriteString(itoaCompact(int64(digestUtf16Length(value))))
+	w.builder.WriteString(itoaCompact(int64(utf8.RuneCountInString(value))))
 	w.builder.WriteByte(':')
 	w.builder.WriteString(value)
 	w.builder.WriteByte(';')

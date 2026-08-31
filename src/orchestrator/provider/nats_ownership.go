@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // NatsOwnershipCASStore adapts JetStream KV's revision-fenced Update/Create
@@ -13,7 +14,7 @@ type NatsOwnershipCASStore struct{ Store jetstream.KeyValue }
 
 func NewNatsOwnershipCASStore(store jetstream.KeyValue) (*NatsOwnershipCASStore, error) {
 	if store == nil {
-		return nil, &ArgumentError{Param: "store", Message: "JetStream ownership KV store is required"}
+		return nil, &errs.Argument{Param: "store", Message: "JetStream ownership KV store is required"}
 	}
 	return &NatsOwnershipCASStore{Store: store}, nil
 }

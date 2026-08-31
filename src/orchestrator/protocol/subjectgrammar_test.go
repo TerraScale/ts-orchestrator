@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/SubjectGrammarTests.cs.
 package protocol
 
 import "testing"
@@ -96,21 +95,21 @@ func TestConcreteSubjectRejectsFuzzLikeMalformedCorpus(t *testing.T) {
 	}
 }
 
-func TestConcreteSubjectAcceptsWellFormedSurrogatePairsOnly(t *testing.T) {
+func TestConcreteSubjectAcceptsValidUtf8Only(t *testing.T) {
 	limits := defaultTestLimits()
 
 	subject, err := ConcreteSubjectTryParse("alpha.\U0001F680", limits)
 	if err != SubjectGrammarErrorNone || subject.Value() != "alpha.\U0001F680" {
-		t.Fatalf("surrogate pair rejected: %v", err)
+		t.Fatalf("valid UTF-8 rejected: %v", err)
 	}
 
 	for _, malformed := range []string{"\xed\xa0\x80", "\xed\xb0\x80", "x\xed\xa0\x80", "\xed\xb0\x80x"} {
 		if _, err := ConcreteSubjectTryParse(malformed, limits); err != SubjectGrammarErrorInvalidUnicodeScalarSequence {
-			t.Fatalf("unpaired surrogate %q must be InvalidUnicodeScalarSequence, got %v", malformed, err)
+			t.Fatalf("invalid UTF-8 %q must be InvalidUnicodeScalarSequence, got %v", malformed, err)
 		}
 
 		if _, err := SubjectPermissionPatternTryParse(malformed, limits); err != SubjectGrammarErrorInvalidUnicodeScalarSequence {
-			t.Fatalf("unpaired surrogate %q must be InvalidUnicodeScalarSequence for patterns, got %v", malformed, err)
+			t.Fatalf("invalid UTF-8 %q must be InvalidUnicodeScalarSequence for patterns, got %v", malformed, err)
 		}
 	}
 }

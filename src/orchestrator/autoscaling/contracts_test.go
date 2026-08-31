@@ -5,25 +5,26 @@ import (
 	"strings"
 	"testing"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
 
 // errorsAsParam reports whether err is one of the package argument errors
 // naming the given parameter.
 func errorsAsParam(err error, param string) bool {
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if errors.As(err, &argumentError) {
 		return argumentError.Param == param
 	}
-	var outOfRange *ArgumentOutOfRangeError
+	var outOfRange *errs.ArgumentOutOfRangeError
 	if errors.As(err, &outOfRange) {
 		return outOfRange.Param == param
 	}
-	var statefulOutOfRange *stateful.ArgumentOutOfRangeError
+	var statefulOutOfRange *errs.ArgumentOutOfRangeError
 	if errors.As(err, &statefulOutOfRange) {
 		return statefulOutOfRange.Param == param
 	}
-	var statefulArgument *stateful.ArgumentError
+	var statefulArgument *errs.Argument
 	if errors.As(err, &statefulArgument) {
 		return statefulArgument.Param == param
 	}
@@ -198,7 +199,7 @@ func TestNewNodeObservation(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error, got a valid observation")
 				}
-				var statefulOutOfRange *stateful.ArgumentOutOfRangeError
+				var statefulOutOfRange *errs.ArgumentOutOfRangeError
 				if !errors.As(err, &statefulOutOfRange) ||
 					statefulOutOfRange.Param != test.expectStatefulParam {
 					t.Fatalf("error %v does not reference stateful param %q", err, test.expectStatefulParam)

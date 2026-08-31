@@ -375,7 +375,7 @@ func TestPodmanAutoscaleLaneEndToEnd(t *testing.T) {
 		t.Fatalf("allocation id: %v", err)
 	}
 	plan, err := runtime.NewHostRuntimePlan(
-		runtime.AdmittedRoleCustomerDashboard,
+		runtime.AdmittedRoleDashboard,
 		runtime.RuntimeDriverOciContainer,
 		allocationId,
 		e2ePlanDigest,
@@ -492,7 +492,7 @@ func TestPodmanAutoscaleLaneEndToEnd(t *testing.T) {
 	}
 
 	seededDemand := []autoscaling.AllocationDemand{
-		mustE2EDemand(t, "dashboard-main", "customer-dashboard",
+		mustE2EDemand(t, "dashboard-main", "dashboard",
 			e2eNodeMemoryTotalBytes, e2eNodeCpuQuotaPercent, e2eNodeTasksMax),
 	}
 

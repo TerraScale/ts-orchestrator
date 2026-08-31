@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// SystemdHostRuntimeAdapterTests.cs.
 package runtime
 
 import (
@@ -37,7 +35,7 @@ func (r *recordingHostRunner) Run(ctx context.Context, executable string, argume
 func systemdTestNativePlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleOrchestrator,
+		AdmittedRoleAutoscaler,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "gru-orchestrator-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),

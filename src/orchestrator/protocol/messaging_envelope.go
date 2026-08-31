@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/MessagingEnvelope.cs.
 package protocol
 
 import (
@@ -6,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // MessagingSchemaVersion is the schema version of the messaging envelope
@@ -34,10 +34,10 @@ type MessageIdentityToken struct {
 	Value string
 }
 
-// IsValid reports whether the token is nonempty, at most 128 UTF-16 units,
-// and free of NUL and control characters.
+// IsValid reports whether the token is nonempty, valid UTF-8, at most 128
+// Unicode code points, and free of NUL and control characters.
 func (t MessageIdentityToken) IsValid() bool {
-	if t.Value == "" || utf16Length(t.Value) > 128 {
+	if t.Value == "" || !utf8.ValidString(t.Value) || utf8.RuneCountInString(t.Value) > 128 {
 		return false
 	}
 
@@ -60,7 +60,8 @@ func MessageIdentityTokenTryCreate(value string) (MessageIdentityToken, bool) {
 		return MessageIdentityToken{Value: value}, true
 	}
 
-	if utf16Length(value) > 128 || strings.ContainsRune(value, '\x00') || hasControlRune(value) {
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > 128 ||
+		strings.ContainsRune(value, '\x00') || hasControlRune(value) {
 		return MessageIdentityToken{}, false
 	}
 

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // hostRuntimePlanCurrentSchemaVersion is the only plan schema version this
@@ -352,7 +354,7 @@ func requirePlanDriverShape(driver RuntimeDriver, systemd *SystemdExecutionPlan,
 			}
 		}
 	default:
-		return &ArgumentOutOfRangeError{Param: "driver"}
+		return &errs.ArgumentOutOfRangeError{Param: "driver"}
 	}
 	return nil
 }

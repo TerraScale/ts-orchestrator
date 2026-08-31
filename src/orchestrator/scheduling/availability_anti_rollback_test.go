@@ -1,8 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// AvailabilityGenerationAntiRollbackTests.cs.
-//
-// Skipped from the C# suite: the CultureInfo permutation loops (Go has no
-// ambient culture); permutation invariance is fully ported.
 package scheduling
 
 import (

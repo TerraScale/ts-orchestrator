@@ -1,8 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// SchedulerPropertyTests.cs.
-//
-// Skipped from the C# suite: the CultureInfo permutation loops (no ambient
-// culture in Go); permutation invariance is fully ported.
 package scheduling
 
 import (

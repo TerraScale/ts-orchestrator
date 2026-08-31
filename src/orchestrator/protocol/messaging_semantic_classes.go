@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/MessagingSemanticClasses.cs.
 package protocol
 
 import "strconv"

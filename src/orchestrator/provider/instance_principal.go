@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // InstancePrincipalSigner is a small OCI HTTP-signature implementation. The
@@ -23,7 +25,7 @@ type InstancePrincipalSigner struct {
 
 func NewInstancePrincipalSigner(keyID string, key *rsa.PrivateKey) (*InstancePrincipalSigner, error) {
 	if strings.TrimSpace(keyID) == "" || key == nil || key.N == nil || key.N.BitLen() < 2048 {
-		return nil, &ArgumentError{Message: "instance-principal signer requires a 2048-bit RSA key and key ID"}
+		return nil, &errs.Argument{Message: "instance-principal signer requires a 2048-bit RSA key and key ID"}
 	}
 	return &InstancePrincipalSigner{Key: key, KeyID: keyID, Now: time.Now}, nil
 }
@@ -33,10 +35,10 @@ func (s *InstancePrincipalSigner) Sign(req *http.Request) error {
 		return &InvalidOperationError{Message: "instance-principal signer is unavailable"}
 	}
 	if req == nil || req.URL == nil {
-		return &ArgumentError{Message: "OCI request is required"}
+		return &errs.Argument{Message: "OCI request is required"}
 	}
 	if strings.ContainsAny(s.KeyID, "\r\n\"") || req.Host == "" || strings.ContainsAny(req.Host, "\r\n") {
-		return &ArgumentError{Message: "OCI signing identity is invalid"}
+		return &errs.Argument{Message: "OCI signing identity is invalid"}
 	}
 	now := time.Now
 	if s.Now != nil {

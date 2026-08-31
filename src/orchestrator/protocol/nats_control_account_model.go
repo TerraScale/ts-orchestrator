@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Subjects/NatsControlAccountModel.cs.
 package protocol
 
 import (

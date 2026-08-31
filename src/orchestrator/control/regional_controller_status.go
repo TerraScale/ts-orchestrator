@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Operations/RegionalControllerStatus.cs.
 package control
 
 import (

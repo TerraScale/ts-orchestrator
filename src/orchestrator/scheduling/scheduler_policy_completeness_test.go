@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/Properties/
-// SchedulerPolicyCompletenessPropertyTests.cs.
 package scheduling
 
 import (

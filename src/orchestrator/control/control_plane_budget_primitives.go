@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Budgets/BudgetPrimitives.cs
 package control
 
 // BudgetTechnicalInputLimits ports the technical caller-input snapshot

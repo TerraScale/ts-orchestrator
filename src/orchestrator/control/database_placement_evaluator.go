@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/DatabasePlacement/DatabasePlacementEvaluator.cs
 package control
 
 import (

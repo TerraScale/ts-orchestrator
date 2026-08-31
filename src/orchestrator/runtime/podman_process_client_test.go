@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func podmanTestRootlessContext() RootlessPodmanContext {
@@ -113,8 +115,8 @@ func TestProcessPodmanClientRefusesToRunWhenTheContextIsNotRootless(t *testing.T
 
 			for _, invoke := range []func() error{
 				func() error { return client.Preflight(context.Background()) },
-				func() error { return client.Start(context.Background(), "terrascale-gru-loki-1") },
-				func() error { return client.Delete(context.Background(), "terrascale-gru-loki-1") },
+				func() error { return client.Start(context.Background(), "terrascale-gru-database-api-1") },
+				func() error { return client.Delete(context.Background(), "terrascale-gru-database-api-1") },
 			} {
 				if err := invoke(); !errorsAsParam(err, test.wantParam) {
 					t.Fatalf("expected an error naming %q, got %v", test.wantParam, err)
@@ -156,17 +158,17 @@ func TestProcessPodmanClientCreateEmitsTheExactSecurityArgumentVector(t *testing
 		"--security-opt", "no-new-privileges",
 		"--security-opt", "seccomp=" + podmanTestRootlessContext().SeccompProfilePath,
 		"--cap-drop", "ALL",
-		"--cgroup-parent", "terrascale-gru-loki-1.slice",
-		"--memory", "4294967296",
-		"--pids-limit", "1024",
-		"--cpu-quota", "300000",
-		"--cpu-shares", "300",
+		"--cgroup-parent", "terrascale-gru-database-api-1.slice",
+		"--memory", "1073741824",
+		"--pids-limit", "512",
+		"--cpu-quota", "200000",
+		"--cpu-shares", "500",
 		"--restart=no",
-		"--volume", "loki-gru-1:/var/lib/loki:rw",
-		"--volume", "loki-gru-1-rules:/etc/loki/rules:ro",
+		"--volume", "database-api-gru-1:/var/lib/terrascale-database:rw",
+		"--volume", "database-api-gru-1-config:/etc/terrascale-database/config:ro",
 		"--label", PodmanLabelAllocation + "=" + plan.AllocationId.Value,
 		"--label", PodmanLabelFingerprint + "=" + fingerprint,
-		"registry.terrascale.internal/terrascale/loki@sha256:" + hostRuntimePlanDigest,
+		"registry.terrascale.internal/terrascale/terrascale-database@sha256:" + hostRuntimePlanDigest,
 	}
 	if !stringSlicesEqual(command.Arguments, expected) {
 		t.Fatalf("argument vector mismatch:\n got %v\nwant %v", command.Arguments, expected)
@@ -272,9 +274,9 @@ func TestProcessPodmanClientSubcommandsMapToExactArgumentVectors(t *testing.T) {
 		{
 			name: "ensure volume",
 			invoke: func(c *ProcessPodmanClient) error {
-				return c.EnsureVolume(context.Background(), "loki-gru-1")
+				return c.EnsureVolume(context.Background(), "database-api-gru-1")
 			},
-			expected: []string{"volume", "create", "loki-gru-1"},
+			expected: []string{"volume", "create", "database-api-gru-1"},
 		},
 	}
 	for _, test := range tests {
@@ -315,9 +317,9 @@ func podmanCapturedInspectJson(t *testing.T, status string, running bool) string
     "Id": "3f1c9a2447a1b06d5e8f207c9931d4a5b6c7d8e9f0011223344556677889900a",
     "Created": "2026-08-30T06:14:02.58595929+02:00",
     "Pod": "",
-    "Image": "registry.terrascale.internal/terrascale/loki@sha256:%[1]s",
-    "ImageID": "registry.terrascale.internal/terrascale/loki@sha256:%[1]s",
-    "ImageName": "registry.terrascale.internal/terrascale/loki@sha256:%[1]s",
+    "Image": "registry.terrascale.internal/terrascale/terrascale-database@sha256:%[1]s",
+    "ImageID": "registry.terrascale.internal/terrascale/terrascale-database@sha256:%[1]s",
+    "ImageName": "registry.terrascale.internal/terrascale/terrascale-database@sha256:%[1]s",
     "ExitCommand": [
       "/usr/bin/podman",
       "--root",
@@ -326,7 +328,7 @@ func podmanCapturedInspectJson(t *testing.T, status string, running bool) string
       "/run/user/1042/containers",
       "container",
       "cleanup",
-      "terrascale-gru-loki-1"
+      "terrascale-gru-database-api-1"
     ],
     "Namespace": "",
     "Rootfs": "",
@@ -346,34 +348,34 @@ func podmanCapturedInspectJson(t *testing.T, status string, running bool) string
       "Error": "",
       "StartedAt": "2026-08-30T06:14:02.61289668+02:00",
       "FinishedAt": "0001-01-01T00:00:00Z",
-      "CgroupPath": "/user.slice/user-1042.slice/user@1042.service/terrascale.slice/terrascale-gru-loki-1.scope",
+      "CgroupPath": "/user.slice/user-1042.slice/user@1042.service/terrascale.slice/terrascale-gru-database-api-1.scope",
       "Health": {"Status": "", "FailingStreak": 0, "Log": null}
     },
-    "Name": "terrascale-gru-loki-1",
+    "Name": "terrascale-gru-database-api-1",
     "RestartCount": 0,
     "Driver": "overlay",
     "InfraConfig": null,
     "Config": {
-      "Image": "registry.terrascale.internal/terrascale/loki@sha256:%[1]s",
+      "Image": "registry.terrascale.internal/terrascale/terrascale-database@sha256:%[1]s",
       "Labels": {
         "io.containers.capabilities": "CHOWN,DAC_OVERRIDE,FSETID,FOWNER,MKNOD,NET_RAW,SETGID,SETUID,SETFCAP,SETPCAP,NET_BIND_SERVICE,SYS_CHROOT,KILL,AUDIT_WRITE",
-        "terrascale.allocation": "gru-loki-1",
+        "terrascale.allocation": "gru-database-api-1",
         "terrascale.fingerprint": "%[4]s"
       },
       "CreateTime": "2026-08-30T06:14:02.58595929+02:00",
-      "Entrypoint": ["/usr/local/bin/loki"],
-      "Cmd": ["-config.file=/etc/loki/config.yaml"],
+      "Entrypoint": ["/usr/local/bin/terrascale-database"],
+      "Cmd": ["--config=/etc/terrascale-database/config.yaml"],
       "User": "65532:65532",
       "SecurityOpt": ["no-new-privileges"],
       "ReadOnlyRootfs": true
     },
     "HostConfig": {
-      "CgroupParent": "terrascale/gru-loki-1",
+      "CgroupParent": "terrascale/gru-database-api-1",
       "CgroupsMode": "host",
-      "Memory": 4294967296,
-      "PidsLimit": 1024,
-      "CpuQuota": 300,
-      "CpuShares": 300,
+      "Memory": 1073741824,
+	  "PidsLimit": 512,
+	  "CpuQuota": 200,
+	  "CpuShares": 500,
       "CapDrop": ["ALL"],
       "RestartPolicy": {"Name": "no", "MaximumRetryCount": 0},
       "NetworkMode": "bridge",
@@ -515,7 +517,7 @@ func podmanTwoDocumentJson(t *testing.T) string {
 
 func TestProcessPodmanClientInspectDistinguishesAbsentFromRealErrors(t *testing.T) {
 	absentStderrs := []string{
-		`Error: no container with name or ID "terrascale-gru-loki-1": no such container`,
+		`Error: no container with name or ID "terrascale-gru-database-api-1": no such container`,
 		"Error: inspecting container: no such container",
 	}
 	for _, stderr := range absentStderrs {
@@ -573,18 +575,18 @@ func TestProcessPodmanClientMapsNonZeroExitsToTrimmedStderr(t *testing.T) {
 
 func TestProcessPodmanClientEnsureVolumeTreatsAlreadyPresentAsSuccess(t *testing.T) {
 	created := newRecordingHostRunner()
-	if err := newPodmanProcessClient(t, created).EnsureVolume(context.Background(), "loki-gru-1"); err != nil {
+	if err := newPodmanProcessClient(t, created).EnsureVolume(context.Background(), "database-api-gru-1"); err != nil {
 		t.Fatalf("ensure volume: %v", err)
 	}
-	if !stringSlicesEqual(created.commands[0].Arguments, []string{"volume", "create", "loki-gru-1"}) {
+	if !stringSlicesEqual(created.commands[0].Arguments, []string{"volume", "create", "database-api-gru-1"}) {
 		t.Fatalf("unexpected argument vector %v", created.commands[0].Arguments)
 	}
 
 	alreadyPresent := newRecordingHostRunner(HostCommandResult{
 		ExitCode:      1,
-		StandardError: "Error: volume loki-gru-1 already exists",
+		StandardError: "Error: volume database-api-gru-1 already exists",
 	})
-	if err := newPodmanProcessClient(t, alreadyPresent).EnsureVolume(context.Background(), "loki-gru-1"); err != nil {
+	if err := newPodmanProcessClient(t, alreadyPresent).EnsureVolume(context.Background(), "database-api-gru-1"); err != nil {
 		t.Fatalf("an already-present volume is success, got %v", err)
 	}
 }
@@ -600,25 +602,25 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 			name:          "flag-like container id",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Start(context.Background(), "-x") },
 			wantParam:     "containerId",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "traversal container id",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Delete(context.Background(), "../evil") },
 			wantParam:     "containerId",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "uppercase volume name",
-			invoke:        func(c *ProcessPodmanClient) error { return c.EnsureVolume(context.Background(), "Loki") },
+			invoke:        func(c *ProcessPodmanClient) error { return c.EnsureVolume(context.Background(), "DatabaseAPI") },
 			wantParam:     "name",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "flag-like image reference",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Pull(context.Background(), "--privileged", "linux/amd64") },
 			wantParam:     "imageReference",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name: "unknown platform",
@@ -626,7 +628,7 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 				return c.Pull(context.Background(), "registry.terrascale.internal/x@sha256:"+hostRuntimePlanDigest, "linux/riscv64")
 			},
 			wantParam:     "platform",
-			wantErrorType: "ArgumentOutOfRangeError",
+			wantErrorType: "errs.ArgumentOutOfRangeError",
 		},
 	}
 	for _, test := range tests {
@@ -652,12 +654,12 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 func TestProcessPodmanClientRejectsNilContext(t *testing.T) {
 	runner := newRecordingHostRunner()
 	client := newPodmanProcessClient(t, runner)
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if err := client.Preflight(nil); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if err := client.Start(nil, podmanTestOciPlan(t).Oci.ContainerId); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("no command may spawn for a nil context: %v", runner.commands)
