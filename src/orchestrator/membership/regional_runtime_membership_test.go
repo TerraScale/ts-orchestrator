@@ -1,4 +1,4 @@
-package control
+package membership
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -37,14 +38,14 @@ func newRegionalRuntimeMembershipForHeartbeat(
 		HeartbeatInterval: time.Hour,
 		LeaseDuration:     20 * time.Second,
 		store:             regionalRuntimeMembershipHeartbeatStore{update: update},
-		topology:          &NatsTopology{Cell: "gru", Replicas: 1, Instance: "controller-1"},
+		topology:          NewTopology("gru", 1, "controller-1", "ORCH_RUNTIME"),
 		sessionId:         "0123456789abcdef0123456789abcdef",
 		build:             "test-build",
 		capabilities:      []string{"authority"},
 		startedAt:         now.Add(-time.Second),
-		authority: func() RegionalAuthoritySnapshot {
+		authority: func() AuthoritySnapshot {
 			leaseExpiresAt := time.Now().UTC().Add(time.Minute)
-			return RegionalAuthoritySnapshot{
+			return AuthoritySnapshot{
 				State:          "leader",
 				IsLeader:       true,
 				Epoch:          1,
@@ -206,11 +207,46 @@ func TestRegionalRuntimeMembershipDisposeBeforeHeartbeatStartDoesNotBlock(t *tes
 }
 
 func TestRegionalRuntimeMembershipRejectsNilContext(t *testing.T) {
-	topology := NewNatsTopology("membership-test", 1, "one")
-	if _, err := RegionalRuntimeMembershipStartAsync(nil, nil, topology, "build", []string{"runtime"}, time.Now().UTC(), func() RegionalAuthoritySnapshot {
-		return RegionalAuthoritySnapshot{}
-	}, nil); err == nil {
-		t.Fatal("nil context was accepted")
+	topology := NewTopology("membership-test", 1, "one", "ORCH_RUNTIME")
+	_, err := RegionalRuntimeMembershipStartAsync(nil, nil, topology, "build", []string{"runtime"}, time.Now().UTC(), func() AuthoritySnapshot {
+		return AuthoritySnapshot{}
+	}, nil)
+	var argument *errs.Argument
+	if !errors.As(err, &argument) || argument.Param != "ctx" {
+		t.Fatalf("nil context error = %#v, want *errs.Argument for ctx", err)
+	}
+}
+
+func TestRegionalRuntimeMembershipHealthRejectsInvalidArgumentsWithTypedErrors(t *testing.T) {
+	tests := []struct {
+		name                   string
+		cell                   string
+		expectedControllers    int
+		rejectedRecords        int64
+		conflictingControllers int
+		wantParam              string
+	}{
+		{name: "empty cell", expectedControllers: 1, wantParam: "cell"},
+		{name: "unsupported replica count", cell: "gru", expectedControllers: 2, wantParam: "expectedControllers"},
+		{name: "negative rejected records", cell: "gru", expectedControllers: 1, rejectedRecords: -1, wantParam: "rejectedRecords"},
+		{name: "negative conflicts", cell: "gru", expectedControllers: 1, conflictingControllers: -1, wantParam: "conflictingControllers"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := RegionalRuntimeMembershipHealthEvaluate(
+				test.cell,
+				test.expectedControllers,
+				nil,
+				test.rejectedRecords,
+				time.Now().UTC(),
+				test.conflictingControllers,
+			)
+			var argument *errs.Argument
+			if !errors.As(err, &argument) || argument.Param != test.wantParam {
+				t.Fatalf("error = %#v, want *errs.Argument for %s", err, test.wantParam)
+			}
+		})
 	}
 }
 
