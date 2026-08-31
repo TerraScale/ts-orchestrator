@@ -261,10 +261,5 @@ runtime and the benchmark authority.
 - [Accepted authority ADR](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
-- [Direct delivery runbook](docs/runbooks/direct-delivery.md)
-- [Superseded architecture record](docs/architecture/orchestrator.md)
-- [Historical phase contract record](docs/guides/phase1-contracts.md)
 
-Historical ADRs, phase records, and evidence remain immutable context unless a
-correction notice says otherwise. A current design must not cite them as
-authority when they conflict with the workspace or repository `GOAL.md`.
+Git history retains the deleted superseded ADRs, phase records, and evidence.
