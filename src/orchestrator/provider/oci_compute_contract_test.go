@@ -145,6 +145,45 @@ func TestProviderMutationJournalAllowsTerminalReplacementInSameEpoch(t *testing.
 	}
 }
 
+func TestProviderMutationJournalRecordsObservedAbsentDelete(t *testing.T) {
+	journal := testJournal(t)
+	intent := testMutation("compute.terminate", "instance-a", ProviderMutationFingerprint("terminate"), 3)
+	if _, err := journal.Prepare(context.Background(), intent); err != nil {
+		t.Fatal(err)
+	}
+	result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.absent", ETag: "instance-etag"}
+	record, err := journal.MarkSucceeded(context.Background(), intent, result)
+	if err != nil || record.State != MutationSucceeded || record.Result != result {
+		t.Fatalf("observed-absent transition = %+v, %v", record, err)
+	}
+	if _, err := journal.MarkFailed(context.Background(), intent, "provider-rejected"); err == nil {
+		t.Fatal("observed-absent success changed terminal outcome")
+	}
+}
+
+func TestOCIComputeTerminateConvergesWhenInstanceIsAlreadyAbsent(t *testing.T) {
+	instanceID := "ocid1.instance.oc1.absent"
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent termination sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = testOwnership(t, instanceID)
+	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
+	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 4)
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("already-absent termination failed: %v", err)
+	}
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("terminal termination resume failed: %v", err)
+	}
+}
+
 type pausingMutationJournal struct {
 	ProviderMutationJournal
 	pauseAt int
@@ -272,5 +311,50 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	}
 	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "us-sanjose-1", "https://sfo.ocir.io"); err == nil {
 		t.Fatal("SFO alias accepted the wrong OCIR region key")
+	}
+}
+
+func TestOCIVaultManagementEndpointRequiresVaultOCIDAndRegion(t *testing.T) {
+	valid := "https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.sa-saopaulo-1.oci.oraclecloud.com"
+	if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", valid); err != nil {
+		t.Fatalf("valid Vault management endpoint rejected: %v", err)
+	}
+	for _, endpoint := range []string{
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.us-phoenix-1.oci.oraclecloud.com",
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x-management.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com",
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.sa-saopaulo-1.oci.oraclecloud.com:443",
+	} {
+		if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", endpoint); err == nil {
+			t.Fatalf("malformed or cross-region Vault management endpoint accepted: %s", endpoint)
+		}
+	}
+}
+
+func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID := "ocid1.instance.oc1.x"
+	adapter.Ownership = testOwnership(t, instanceID)
+	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
+	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("first absent terminate = %v", err)
+	}
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("retry absent terminate = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent terminate issued %d delete requests", deletes)
 	}
 }

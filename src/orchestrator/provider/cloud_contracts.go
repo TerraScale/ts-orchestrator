@@ -300,7 +300,10 @@ func validMutationTransition(from, to ProviderMutationState) bool {
 	}
 	switch from {
 	case MutationPrepared:
-		return to == MutationSubmitted
+		// A read-before-delete can prove that the resource is already absent.
+		// Recording that terminal observation must not require a no-op provider
+		// mutation, but every nonterminal mutation still passes through submitted.
+		return to == MutationSubmitted || to == MutationSucceeded
 	case MutationSubmitted:
 		return to == MutationSucceeded || to == MutationFailed || to == MutationUnknown
 	case MutationUnknown:

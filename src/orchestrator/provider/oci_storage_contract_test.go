@@ -149,3 +149,140 @@ func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
 		t.Fatalf("blob size=%d body=%q err=%v", size, gotBlob, err)
 	}
 }
+
+func TestOCIStorageDeletesConvergeWhenResourcesAreAlreadyAbsent(t *testing.T) {
+	volumeID := "ocid1.volume.oc1.absent"
+	attachmentID := "ocid1.volumeattachment.oc1.absent"
+
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent volume deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeAdapter.Ownership = testOwnership(t, volumeID)
+	volumeRequest := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+	volumeRequest.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(volumeRequest), VolumeDeleteMutationFingerprint(volumeRequest), 5)
+	if err := volumeAdapter.DeleteVolume(context.Background(), volumeRequest); err != nil {
+		t.Fatalf("already-absent volume deletion failed: %v", err)
+	}
+
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent attachment deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentID)
+	attachmentRequest := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	attachmentRequest.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(attachmentRequest), VolumeDetachMutationFingerprint(attachmentRequest), 6)
+	if err := attachmentAdapter.DetachVolume(context.Background(), attachmentRequest); err != nil {
+		t.Fatalf("already-absent attachment deletion failed: %v", err)
+	}
+
+	objectTransport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodHead {
+			t.Fatalf("already-absent object deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	objectAdapter, err := NewOCIObjectStorageAdapter(objectTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectRequest := ObjectDeleteRequest{Object: ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "absent"}, IfMatch: "object-etag"}
+	objectRequest.Mutation = testMutation("object.delete", ObjectDeleteMutationScope(objectRequest), ObjectDeleteMutationFingerprint(objectRequest), 7)
+	if err := objectAdapter.DeleteObject(context.Background(), objectRequest); err != nil {
+		t.Fatalf("already-absent object deletion failed: %v", err)
+	}
+}
+
+func TestOCIBlockVolumeDeleteAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeID := "ocid1.volume.oc1.x"
+	adapter.Ownership = testOwnership(t, volumeID)
+	request := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+	request.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(request), VolumeDeleteMutationFingerprint(request), 1)
+	if err := adapter.DeleteVolume(context.Background(), request); err != nil {
+		t.Fatalf("first absent volume delete = %v", err)
+	}
+	if err := adapter.DeleteVolume(context.Background(), request); err != nil {
+		t.Fatalf("retry absent volume delete = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent volume delete issued %d delete requests", deletes)
+	}
+}
+
+func TestOCIVolumeDetachAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentID := "ocid1.volumeattachment.oc1.x"
+	adapter.Ownership = testOwnership(t, attachmentID)
+	request := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	request.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(request), VolumeDetachMutationFingerprint(request), 1)
+	if err := adapter.DetachVolume(context.Background(), request); err != nil {
+		t.Fatalf("first absent detach = %v", err)
+	}
+	if err := adapter.DetachVolume(context.Background(), request); err != nil {
+		t.Fatalf("retry absent detach = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent detach issued %d delete requests", deletes)
+	}
+}
+
+func TestOCIObjectDeleteAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIObjectStorageAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ObjectDeleteRequest{Object: ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "region/segment-absent"}, IfMatch: "object-etag"}
+	request.Mutation = testMutation("object.delete", ObjectDeleteMutationScope(request), ObjectDeleteMutationFingerprint(request), 1)
+	if err := adapter.DeleteObject(context.Background(), request); err != nil {
+		t.Fatalf("first absent object delete = %v", err)
+	}
+	if err := adapter.DeleteObject(context.Background(), request); err != nil {
+		t.Fatalf("retry absent object delete = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent object delete issued %d delete requests", deletes)
+	}
+}
