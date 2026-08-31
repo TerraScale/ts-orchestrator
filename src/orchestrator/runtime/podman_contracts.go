@@ -281,7 +281,7 @@ func NewPodmanAllocationObservation(
 		return PodmanAllocationObservation{State: state}, nil
 	}
 	if len(runtimeId) != 64 || !isLowercaseHexDigest(runtimeId) {
-		return PodmanAllocationObservation{}, &ArgumentError{
+		return PodmanAllocationObservation{}, &errs.Argument{
 			Param:   "runtimeId",
 			Message: "A non-absent Podman allocation requires its immutable 64-hex runtime ID.",
 		}

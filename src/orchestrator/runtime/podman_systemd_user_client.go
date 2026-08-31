@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const (
@@ -43,7 +45,7 @@ func NewSystemdUserPodmanClient(
 	commandRunner HostCommandRunner,
 ) (*SystemdUserPodmanClient, error) {
 	if client == nil {
-		return nil, &ArgumentError{Param: "client", Message: "A rootless podman client is required."}
+		return nil, &errs.Argument{Param: "client", Message: "A rootless podman client is required."}
 	}
 	if err := ValidateRootlessContext(rootless); err != nil {
 		return nil, err
@@ -57,7 +59,7 @@ func NewSystemdUserPodmanClient(
 		return nil, err
 	}
 	if commandRunner == nil {
-		return nil, &ArgumentError{Param: "commandRunner", Message: "A host command runner is required."}
+		return nil, &errs.Argument{Param: "commandRunner", Message: "A host command runner is required."}
 	}
 	return &SystemdUserPodmanClient{
 		client:               client,
@@ -512,7 +514,7 @@ func (c *SystemdUserPodmanClient) observeSupervisor(
 
 func (c *SystemdUserPodmanClient) validate(ctx context.Context) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The podman supervisor context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The podman supervisor context must not be nil."}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
