@@ -58,10 +58,13 @@ following capabilities:
 - Manage instances and volume-family resources in `terrascale-workload`.
 - Use the recorded subnets and NSGs in `terrascale-network`.
 - Read work requests for resources it manages.
-- Read the recorded compartments, VCN, subnets, NSGs, and IAM policies.
+- Read the recorded compartments, VCN, subnets, NSGs, IAM policies, and
+  controller dynamic group.
 - Pull the TerraScale repositories from OCIR. Do not grant repository delete.
-- Manage objects only in the recorded ledger and backup buckets.
-- Use the recorded Vault key. Do not grant Vault or key creation/deletion.
+- Manage objects only in the recorded ledger and backup buckets, and read
+  those buckets' retention and lifecycle policies.
+- Use the recorded Vault key and read its Vault, shape, protection mode, and
+  rotation schedule. Do not grant Vault or key creation/deletion.
 
 OCI Email Delivery uses a separate Dashboard mail identity under D-26. Keep
 its sender-domain DNS and least-privilege credential path separate from the
@@ -74,20 +77,24 @@ reviewed set. A broadened or missing policy prevents the process from starting.
 
 ## 4. Create Vault and Object Storage resources
 
-In `terrascale-control`, create a regional virtual private Vault and a
-provider-managed AES key. Record the Vault OCID, key OCID, and the Vault's
-`managementEndpoint`. Enable key rotation according to the production key
-policy. Do not put key material or auth tokens in the estate file.
+In `terrascale-control`, create a regional `VIRTUAL_PRIVATE` Vault and an
+AES-256 key protected by an HSM. Record the Vault OCID, key OCID, and the
+Vault's `managementEndpoint`. Enable automatic key rotation, record the exact
+60-to-365-day interval, and review the key-to-Vault binding. Do not put key
+material or auth tokens in the estate file.
 
 Create two private Object Storage buckets in `terrascale-control`:
 
 - `terrascale-ledger-<region>` for the regional durable ledger.
 - `terrascale-backups-<region>` for backup chunks and manifests.
 
-Enable versioning and the reviewed retention/lifecycle rules. Object writes are
-content-bound and create-only. Backup producers must split large artifacts into
-chunks no larger than the configured OCI transport body limit, which may not
-exceed 16 MiB, then store a content-addressed manifest.
+Enable versioning and the reviewed retention/lifecycle rules. Record every
+retention rule ID, display name, duration or indefinite flag. Record every
+lifecycle rule name, action, duration, enabled state, target, and object-name
+filter. The startup verifier rejects missing, changed, or extra rules. Object
+writes are content-bound and create-only. Backup producers must split large
+artifacts into chunks no larger than the configured OCI transport body limit,
+which may not exceed 16 MiB, then store a content-addressed manifest.
 
 ## 5. Install the reviewed estate file
 
@@ -115,12 +122,59 @@ document contains identities and policy text, not credentials:
       ]
     }
   ],
+  "dynamicGroupId": "ocid1.dynamicgroup.oc1...",
+  "dynamicGroupMatchingRule": "ALL {instance.compartment.id = 'ocid1.compartment.oc1...'}",
   "vaultId": "ocid1.vault.oc1.sa-saopaulo-1...",
   "keyId": "ocid1.key.oc1.sa-saopaulo-1...",
   "keyManagementEndpoint": "https://<vault>-management.kms.sa-saopaulo-1.oraclecloud.com",
+  "keyRotationIntervalDays": 90,
   "objectNamespace": "<tenancy-namespace>",
   "ledgerBucket": "terrascale-ledger-sa-saopaulo-1",
-  "backupBucket": "terrascale-backups-sa-saopaulo-1"
+  "backupBucket": "terrascale-backups-sa-saopaulo-1",
+  "ledgerRetentionRules": [
+    {
+      "id": "<retention-rule-id>",
+      "displayName": "ledger-retention",
+      "timeAmount": 35,
+      "timeUnit": "DAYS",
+      "indefinite": false
+    }
+  ],
+  "backupRetentionRules": [
+    {
+      "id": "<retention-rule-id>",
+      "displayName": "backup-retention",
+      "timeAmount": 35,
+      "timeUnit": "DAYS",
+      "indefinite": false
+    }
+  ],
+  "ledgerLifecycleRules": [
+    {
+      "name": "archive-ledger",
+      "action": "ARCHIVE",
+      "timeAmount": 30,
+      "timeUnit": "DAYS",
+      "isEnabled": true,
+      "target": "objects",
+      "inclusionPatterns": [],
+      "exclusionPatterns": [],
+      "inclusionPrefixes": ["region/"]
+    }
+  ],
+  "backupLifecycleRules": [
+    {
+      "name": "archive-backups",
+      "action": "ARCHIVE",
+      "timeAmount": 30,
+      "timeUnit": "DAYS",
+      "isEnabled": true,
+      "target": "objects",
+      "inclusionPatterns": [],
+      "exclusionPatterns": [],
+      "inclusionPrefixes": ["database/"]
+    }
+  ]
 }
 ```
 
@@ -129,14 +183,15 @@ Configure the service with:
 ```text
 TS_ORCH_PROVIDER=oci
 TS_ORCH_OCI_ESTATE_FILE=/etc/terrascale/oci-estate.json
-TS_ORCH_OCI_KEY_ID=<instance-principal-key-id>
-TS_ORCH_OCI_PRIVATE_KEY_FILE=/run/credentials/oci-instance-principal.pem
 ```
 
-The key file must be a regular PKCS#1 or PKCS#8 RSA private key owned by the
-service account with mode 0600 or stricter. `orchestrator run`,
-`orchestrator check`, and the autoscaler refuse to start if any required
-setting is absent or any read-only estate check fails.
+Install the file as a root-owned regular file with mode `0600`. Run the service
+on an OCI compute instance matched by the reviewed dynamic
+group. The orchestrator reads the instance certificate and private key only
+from `http://169.254.169.254/opc/v2`, exchanges them for a short-lived OCI Auth
+session token, and keeps the session key in memory. `orchestrator run`,
+`orchestrator check`, and the autoscaler refuse to start if federation fails
+or any read-only estate check detects drift.
 
 ## 6. Verify before handoff
 

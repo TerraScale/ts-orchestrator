@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 )
 
@@ -59,14 +60,22 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	vault := "ocid1.vault.oc1.x"
 	key := "ocid1.key.oc1.x"
 	policy := "ocid1.policy.oc1.x"
+	dynamicGroup := "ocid1.dynamicgroup.oc1.x"
 	statement := "Allow dynamic-group terrascale-orchestrator to manage instances in compartment terrascale-workload"
+	matchingRule := "ALL {instance.compartment.id = '" + control + "'}"
+	retentionRule := OCIEstateRetentionRuleSpec{ID: "minimum-retention", DisplayName: "minimum-retention", TimeAmount: 1, TimeUnit: "DAYS"}
+	lifecycleRule := OCIEstateLifecycleRuleSpec{Name: "archive", Action: "ARCHIVE", TimeAmount: 30, TimeUnit: "DAYS", IsEnabled: true, Target: "objects", InclusionPrefixes: []string{"region/"}}
 	spec := OCIEstateSpec{
 		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1.x",
 		ControlCompartmentID: control, NetworkCompartmentID: network, WorkloadCompartmentID: workload,
 		VCNID: vcn, SubnetIDs: subnets, NetworkSecurityGroupIDs: nsgs,
 		IAMPolicyCompartmentID: control, IAMPolicies: []OCIEstatePolicy{{ID: policy, Statements: []string{statement}}},
+		DynamicGroupID: dynamicGroup, DynamicGroupMatchingRule: matchingRule,
 		VaultID: vault, KeyID: key, KeyManagementEndpoint: "https://vault-management.kms.sa-saopaulo-1.oraclecloud.com",
-		ObjectNamespace: "namespace", LedgerBucket: "terrascale-ledger", BackupBucket: "terrascale-backups",
+		KeyRotationIntervalDays: 90,
+		ObjectNamespace:         "namespace", LedgerBucket: "terrascale-ledger", BackupBucket: "terrascale-backups",
+		LedgerRetentionRules: []OCIEstateRetentionRuleSpec{retentionRule}, BackupRetentionRules: []OCIEstateRetentionRuleSpec{retentionRule},
+		LedgerLifecycleRules: []OCIEstateLifecycleRuleSpec{lifecycleRule}, BackupLifecycleRules: []OCIEstateLifecycleRuleSpec{lifecycleRule},
 	}
 	reader := fakeEstateReader{}
 	for _, compartment := range []string{control, network, workload} {
@@ -80,8 +89,9 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		reader[string(OCIServiceCore)+"|/20160918/networkSecurityGroups/"+nsg] = `{"id":"` + nsg + `","compartmentId":"` + network + `","vcnId":"` + vcn + `","lifecycleState":"AVAILABLE"}`
 	}
 	reader[string(OCIServiceIdentity)+"|/20160918/policies/"+policy] = `{"id":"` + policy + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","statements":["` + statement + `"]}`
-	reader[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE"}`
-	reader[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED"}`
+	reader[string(OCIServiceIdentity)+"|/20160918/dynamicGroups/"+dynamicGroup] = `{"id":"` + dynamicGroup + `","compartmentId":"` + spec.TenancyID + `","lifecycleState":"ACTIVE","matchingRule":"` + matchingRule + `"}`
+	reader[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","managementEndpoint":"` + spec.KeyManagementEndpoint + `","vaultType":"VIRTUAL_PRIVATE"}`
+	reader[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"` + vault + `","protectionMode":"HSM","keyShape":{"algorithm":"AES","length":32},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
 	bucketMetadata := `","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"` + key + `"}`
 	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger` + bucketMetadata
 	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups"] = `{"namespace":"namespace","name":"terrascale-backups` + bucketMetadata
@@ -90,6 +100,9 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	backupRetentionPath := string(OCIServiceObjectStorage) + "|/n/namespace/b/terrascale-backups/retentionRules"
 	reader[ledgerRetentionPath] = retention
 	reader[backupRetentionPath] = retention
+	lifecycle := `{"items":[{"name":"archive","action":"ARCHIVE","timeAmount":30,"timeUnit":"DAYS","isEnabled":true,"target":"objects","objectNameFilter":{"inclusionPrefixes":["region/"]}}]}`
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger/l"] = lifecycle
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups/l"] = lifecycle
 	if err := VerifyOCIEstate(context.Background(), spec, reader); err != nil {
 		t.Fatalf("valid estate rejected: %v", err)
 	}
@@ -100,6 +113,32 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		paged[ledgerRetentionPath+"?page=page-2"] = retention
 		if err := VerifyOCIEstate(context.Background(), spec, paged); err != nil {
 			t.Fatalf("valid paginated retention rules rejected: %v", err)
+		}
+	})
+	t.Run("indefinite retention", func(t *testing.T) {
+		indefiniteSpec := spec
+		indefiniteSpec.LedgerRetentionRules = []OCIEstateRetentionRuleSpec{{ID: "minimum-retention", DisplayName: "minimum-retention", Indefinite: true}}
+		indefinite := cloneFakeEstateReader(reader)
+		indefinite[ledgerRetentionPath] = `{"items":[{"id":"minimum-retention","displayName":"minimum-retention"}]}`
+		if err := VerifyOCIEstate(context.Background(), indefiniteSpec, indefinite); err != nil {
+			t.Fatalf("valid indefinite retention rejected: %v", err)
+		}
+	})
+	t.Run("invalid estate relationships", func(t *testing.T) {
+		sharedCompartments := spec
+		sharedCompartments.NetworkCompartmentID = sharedCompartments.ControlCompartmentID
+		if validateOCIEstateSpec(sharedCompartments) == nil {
+			t.Fatal("shared control and network compartment was accepted")
+		}
+		invalidLifecycle := spec
+		invalidLifecycle.LedgerLifecycleRules = []OCIEstateLifecycleRuleSpec{{Name: "bad-abort", Action: "ABORT", TimeAmount: 1, TimeUnit: "DAYS", IsEnabled: true, Target: "objects"}}
+		if validateOCIEstateSpec(invalidLifecycle) == nil {
+			t.Fatal("ABORT lifecycle action targeting objects was accepted")
+		}
+		invalidEndpoint := spec
+		invalidEndpoint.KeyManagementEndpoint = "https://-vault-management.kms.sa-saopaulo-1.oraclecloud.com"
+		if validateOCIEstateSpec(invalidEndpoint) == nil {
+			t.Fatal("malformed Vault management endpoint was accepted")
 		}
 	})
 
@@ -119,8 +158,26 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		{"policy drift", func(broken fakeEstateReader) {
 			broken[string(OCIServiceIdentity)+"|/20160918/policies/"+policy] = `{"id":"` + policy + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","statements":["Allow any-user to manage all-resources in tenancy"]}`
 		}},
+		{"dynamic group rule drift", func(broken fakeEstateReader) {
+			broken[string(OCIServiceIdentity)+"|/20160918/dynamicGroups/"+dynamicGroup] = `{"id":"` + dynamicGroup + `","compartmentId":"` + spec.TenancyID + `","lifecycleState":"ACTIVE","matchingRule":"ANY {instance.compartment.id = 'ocid1.compartment.oc1.wrong'}"}`
+		}},
 		{"wrong Vault compartment", func(broken fakeEstateReader) {
 			broken[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + workload + `","lifecycleState":"ACTIVE"}`
+		}},
+		{"wrong Vault endpoint", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","managementEndpoint":"https://other-management.kms.sa-saopaulo-1.oraclecloud.com","vaultType":"VIRTUAL_PRIVATE"}`
+		}},
+		{"wrong Vault type", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","managementEndpoint":"` + spec.KeyManagementEndpoint + `","vaultType":"DEFAULT"}`
+		}},
+		{"key belongs to another Vault", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"ocid1.vault.oc1.wrong","protectionMode":"HSM","keyShape":{"algorithm":"AES","length":32},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
+		}},
+		{"key is not AES-256 HSM", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"` + vault + `","protectionMode":"SOFTWARE","keyShape":{"algorithm":"RSA","length":256},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":90}}`
+		}},
+		{"key rotation drift", func(broken fakeEstateReader) {
+			broken[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED","vaultId":"` + vault + `","protectionMode":"HSM","keyShape":{"algorithm":"AES","length":32},"isAutoRotationEnabled":true,"autoKeyRotationDetails":{"rotationIntervalInDays":120}}`
 		}},
 		{"missing bucket", func(broken fakeEstateReader) {
 			delete(broken, string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups")
@@ -146,6 +203,15 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		{"malformed retention", func(broken fakeEstateReader) {
 			broken[ledgerRetentionPath] = `{"items":[{"id":"minimum-retention","displayName":"minimum-retention","duration":{"timeAmount":0,"timeUnit":"DAYS"}}]}`
 		}},
+		{"extra retention", func(broken fakeEstateReader) {
+			broken[ledgerRetentionPath] = `{"items":[{"id":"minimum-retention","displayName":"minimum-retention","duration":{"timeAmount":1,"timeUnit":"DAYS"}},{"id":"unexpected","displayName":"unexpected","duration":{"timeAmount":1,"timeUnit":"DAYS"}}]}`
+		}},
+		{"lifecycle drift", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger/l"] = `{"items":[{"name":"archive","action":"DELETE","timeAmount":30,"timeUnit":"DAYS","isEnabled":true,"target":"objects","objectNameFilter":{"inclusionPrefixes":["region/"]}}]}`
+		}},
+		{"extra lifecycle rule", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger/l"] = `{"items":[{"name":"archive","action":"ARCHIVE","timeAmount":30,"timeUnit":"DAYS","isEnabled":true,"target":"objects","objectNameFilter":{"inclusionPrefixes":["region/"]}},{"name":"delete","action":"DELETE","timeAmount":60,"timeUnit":"DAYS","isEnabled":true,"target":"objects"}]}`
+		}},
 		{"cyclic retention pagination", func(broken fakeEstateReader) {
 			broken[ledgerRetentionPath+"|opc-next-page"] = "page-2"
 			broken[ledgerRetentionPath+"?page=page-2"] = retention
@@ -163,6 +229,29 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 				t.Fatal("malformed estate passed startup verification")
 			}
 		})
+	}
+}
+
+func TestLoadOCIEstateSpecRejectsNonRootOwnedFile(t *testing.T) {
+	directory := t.TempDir()
+	path := directory + "/estate.json"
+	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		if err := os.Chown(path, 65534, 65534); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := LoadOCIEstateSpec(path); err == nil {
+		t.Fatal("non-root-owned OCI estate file was accepted")
+	}
+	symlink := directory + "/estate-link.json"
+	if err := os.Symlink(path, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOCIEstateSpec(symlink); err == nil {
+		t.Fatal("symlinked OCI estate file was accepted")
 	}
 }
 

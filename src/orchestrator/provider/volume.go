@@ -277,7 +277,7 @@ func validOCIServiceHost(service OCIService, region, host string) bool {
 	}
 	suffix := "-management.kms." + region + ".oraclecloud.com"
 	prefix := strings.TrimSuffix(host, suffix)
-	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
+	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 || prefix[0] == '-' || prefix[len(prefix)-1] == '-' {
 		return false
 	}
 	for _, ch := range prefix {

@@ -210,10 +210,13 @@ TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
 TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
 TS_ORCH_PROVIDER=oci \
 TS_ORCH_OCI_ESTATE_FILE=/etc/terrascale/oci-estate.json \
-TS_ORCH_OCI_KEY_ID='<instance-principal-key-id>' \
-TS_ORCH_OCI_PRIVATE_KEY_FILE=/run/credentials/terrascale/oci-instance-principal.pem \
   go run ./cmd/orchestrator run
 ```
+
+OCI mode must run on an OCI compute instance. The orchestrator retrieves the
+instance certificate from the fixed instance metadata endpoint and exchanges
+it for an in-memory, short-lived session token. No OCI private key file is
+configured or written to disk.
 
 Remote NATS connections require TLS, scoped NKey or credentials files, and
 complete mutual TLS identity. Credential files must be owner-private. Never
