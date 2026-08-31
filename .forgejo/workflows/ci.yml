@@ -11,9 +11,6 @@ concurrency:
   group: ${{ format('pr-{0}-{1}', forgejo.repository, forgejo.event.pull_request.number) }}
   cancel-in-progress: true
 
-env:
-  TERRASCALE_TOOLBOX_REVISION: "2026.08.26"
-
 jobs:
   diagnostic-host:
     name: diagnostic/runner-host
@@ -56,8 +53,6 @@ jobs:
     name: deploy-cli
     runs-on: terrascale-builder
     timeout-minutes: 30
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -66,9 +61,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           path: ts-deploy
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: ts-deploy/go.mod
+          cache: false
       - name: Install the exact reviewed Deploy CLI module
         shell: bash
         env:
+          CGO_ENABLED: "0"
           GOPRIVATE: git.terrascale.tech
           GONOSUMDB: git.terrascale.tech
         run: |
@@ -90,8 +90,6 @@ jobs:
     needs: bootstrap
     runs-on: terrascale-builder
     timeout-minutes: 30
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -108,11 +106,11 @@ jobs:
     needs: [bootstrap, plan]
     runs-on: terrascale-builder
     timeout-minutes: 30
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
       - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with: { name: deploy-cli, path: .tools }
       - name: Run the static profile
@@ -123,11 +121,11 @@ jobs:
     needs: [bootstrap, plan]
     runs-on: terrascale-builder
     timeout-minutes: 45
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
       - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with: { name: deploy-cli, path: .tools }
       - name: Run the build profile
@@ -138,11 +136,11 @@ jobs:
     needs: [bootstrap, plan]
     runs-on: terrascale-builder
     timeout-minutes: 60
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
       - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with: { name: deploy-cli, path: .tools }
       - name: Run the test profile
@@ -153,8 +151,6 @@ jobs:
     needs: [bootstrap, plan]
     runs-on: terrascale-builder
     timeout-minutes: 60
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
