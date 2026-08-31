@@ -35,3 +35,4 @@
 **/id_rsa
 **/id_ed25519
 **/authorized_keys
+!**/*.go

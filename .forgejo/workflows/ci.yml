@@ -1,0 +1,133 @@
+name: TerraScale orchestrator checks
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ format('pr-{0}-{1}', forgejo.repository, forgejo.event.pull_request.number) }}
+  cancel-in-progress: true
+
+env:
+  TERRASCALE_TOOLBOX_REVISION: "2026.08.26"
+
+jobs:
+  bootstrap:
+    name: deploy-cli
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          repository: TerraScale/ts-deploy
+          fetch-depth: 0
+          persist-credentials: false
+          path: ts-deploy
+      - name: Install the exact reviewed Deploy CLI module
+        shell: bash
+        env:
+          GOPRIVATE: git.terrascale.tech
+          GONOSUMDB: git.terrascale.tech
+        run: |
+          set -euo pipefail
+          test "$(git -C ts-deploy rev-parse HEAD)" = "7bab7e06ae78c86162126e9b1a0d9600038e90bc"
+          git config --global url."file://${PWD}/ts-deploy".insteadOf "https://git.terrascale.tech/TerraScale/ts-deploy.git"
+          GOBIN=.tools go install git.terrascale.tech/TerraScale/ts-deploy/cmd/terrascale-deploy@v1.0.81-0.20260830224025-7bab7e06ae78
+          go version -m .tools/terrascale-deploy
+          .tools/terrascale-deploy ci resolve-cli
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: deploy-cli
+          path: .tools
+          if-no-files-found: error
+          retention-days: 1
+
+  plan:
+    name: plan
+    needs: bootstrap
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: .tools }
+      - name: Plan the orchestrator profiles
+        run: chmod +x .tools/terrascale-deploy && .tools/terrascale-deploy ci plan --repository-root . --require-clean-source --output artifacts/plan.json
+
+  pr-static:
+    name: pr/static
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: .tools }
+      - name: Run the static profile
+        run: chmod +x .tools/terrascale-deploy && .tools/terrascale-deploy ci pr --repository-root . --profile static
+
+  pr-build:
+    name: pr/build
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 45
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: .tools }
+      - name: Run the build profile
+        run: chmod +x .tools/terrascale-deploy && .tools/terrascale-deploy ci pr --repository-root . --profile build
+
+  pr-test:
+    name: pr/test
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 60
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: .tools }
+      - name: Run the test profile
+        run: chmod +x .tools/terrascale-deploy && .tools/terrascale-deploy ci pr --repository-root . --profile test
+
+  pr-artifact:
+    name: pr/artifact
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 60
+    container:
+      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: .tools }
+      - name: Build the architecture artifacts
+        run: chmod +x .tools/terrascale-deploy && .tools/terrascale-deploy ci pr --repository-root . --profile artifact
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: orchestrator-linux-amd64-arm64
+          path: artifacts/orchestrator
+          if-no-files-found: error
+          retention-days: 7
