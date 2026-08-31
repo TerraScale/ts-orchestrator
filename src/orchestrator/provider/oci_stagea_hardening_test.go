@@ -300,7 +300,7 @@ func TestStageARegistryBlobFollowsOneSafeRedirectWithoutCredentials(t *testing.T
 			return nil, nil
 		}
 	})
-	signer, err := NewOCIRegistryTokenSigner("namespace/runner", "registry-token")
+	signer, err := NewOCIRegistryTokenSigner("tenancy/runner", "registry-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,10 +315,7 @@ func TestStageARegistryBlobFollowsOneSafeRedirectWithoutCredentials(t *testing.T
 	}
 	jar.SetCookies(targetURL, []*http.Cookie{{Name: "session", Value: "must-not-leak"}})
 	transport.Client.Jar = jar
-	adapter, err := NewOCIRegistryAdapter(transport)
-	if err != nil {
-		t.Fatal(err)
-	}
+	adapter := testRegistryAdapter(t, transport)
 	reader, size, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
 	if err != nil {
 		t.Fatal(err)
@@ -352,11 +349,8 @@ func TestStageARegistryBlobRejectsHostileRedirectsWithoutDisclosure(t *testing.T
 				requests++
 				return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": test.locations}), nil
 			})
-			adapter, err := NewOCIRegistryAdapter(transport)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
+			adapter := testRegistryAdapter(t, transport)
+			_, _, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
 			if err == nil || requests != 1 || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "token=") {
 				t.Fatalf("requests=%d err=%v", requests, err)
 			}
@@ -373,11 +367,8 @@ func TestStageARegistryBlobRejectsASecondRedirect(t *testing.T) {
 		}
 		return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/second?token=secret"}}), nil
 	})
-	adapter, err := NewOCIRegistryAdapter(transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
+	adapter := testRegistryAdapter(t, transport)
+	_, _, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
 	if err == nil || requests != 2 || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "token=") {
 		t.Fatalf("requests=%d err=%v", requests, err)
 	}
@@ -433,7 +424,8 @@ func TestStageARegistryOptionalDigestHeaderIsStrictWhenPresent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			resp := &http.Response{Header: http.Header{"Docker-Content-Digest": test.values}}
-			got, present, valid := registryBlobDigestHeader(resp)
+			got, err := canonicalRegistryDigest(resp, false)
+			present, valid := len(test.values) != 0, err == nil
 			if got != test.want || present != test.present || valid != test.valid {
 				t.Fatalf("digest=%q present=%v valid=%v", got, present, valid)
 			}
