@@ -1,10 +1,10 @@
 # NATS monitoring runbook
 
-> Applies only to the current optional Orchestrator NATS control adapter. NATS
-> health is not database health. TerraBase causal lag, replication, repair,
-> reactive sync, and usage require engine-owned signals.
+> Applies to the mandatory `ts.orch.v2` NATS control network. NATS health is
+> not database health. TerraBase causal lag, replication, repair, reactive
+> sync, and usage require engine-owned signals.
 
-Operator procedures for the NATS monitoring observability contract (issue #23): the
+Operator procedures for the NATS monitoring contract: the
 bounded instruments in `NatsMonitoringInstrumentCatalog`, the alert rules in
 `NatsAlertCatalog`, and the read-only monitoring identity's permission plan in
 `NatsMonitoringPermissions`. Every alert condition, state, and remediation below is

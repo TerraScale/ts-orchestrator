@@ -1,28 +1,23 @@
 # NATS capability-adoption matrix and messaging contract
 
-> Frozen messaging contract for the checked-in NATS adapter. The repository
-> [`GOAL.md`](../../GOAL.md) and
-> [ADR 0033](../adr/0033-gru-global-authority-and-regional-autonomy.md) replace
-> the optional-NATS target with the mandatory `ts.orch.v2` control network; the
-> subject tokens below name that v2 control root, which is the root served by
-> the checked-in adapter. It cannot
-> define v2 authority or permit database data, replication, reactive sync,
-> usage truth, or product correctness to depend on NATS.
+> Current capability decisions for the mandatory `ts.orch.v2` control
+> network. NATS cannot carry database data, replication, reactive sync, usage
+> truth, or any customer-path correctness dependency.
 
 | | |
 | --- | --- |
-| Contract version | 1 (frozen) |
-| Ratified by | `TerraScale.Orchestrator` issue #18 (parent #16, dependency #17) |
+| Contract version | 2 |
 | Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go`, `messaging_regional_autonomy.go`, `messaging_compatibility.go` |
-| Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
-| Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
-| Canonicality | Canonical for the checked-in `ts.orch.v2` implementation. The repository `GOAL.md` and ADR 0033 remain the authority for architecture beyond this adapter. |
+| Signed command envelope | `src/orchestrator/protocol/command_envelope.go` and `command_validation.go` |
+| Drift binding | Go protocol tests read the matrix and bind every disposition to the typed definitions |
+| Authority | Workspace `GOAL.md` and ADR 0033 |
 
-Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.
+`ACCEPT` means adapters must conform. `DEFER` means no adapter may assume the
+capability. `REJECT` excludes it.
 
 ## 1. Capability-adoption matrix
 
-| Capability | Disposition | Owner | Data class | Durability | Ordering | Security boundary | Failure mode | Observability | Landed evidence |
+| Capability | Disposition | Owner | Data class | Durability | Ordering | Security boundary | Failure mode | Observability | Implementation |
 | --- | --- | --- | --- | --- | --- |---|---|---|---|
 | `CorePubSub` | ACCEPT | RegionalControlRuntime | OperationalTelemetry | Ephemeral | Unordered | Control account subject permissions; publish only taxonomy subjects; no product-plane subjects. | Lost publications are safe: hints, heartbeats, and fanout are advisory and consumers reconcile from durable state. | Drop/latency counters per subject namespace; no alert may depend on a lossy hint. | `NatsRuntime` service endpoints; `RegionalRuntimeMembership` heartbeats via bounded `ORCH_RUNTIME` KV. |
 | `RequestReply` | ACCEPT | RegionalControlRuntime | OperatorQuery | Ephemeral | Unordered | Typed endpoints only; scoped subscribe + `_INBOX`; no-responder surfaces as an error, never silence. | Timeout/no-responder is caller-visible; retries reuse the idempotency key. | Request latency and no-responder rate per endpoint. | `NatsRuntime` health/status/members; directory service `ts.orch.v2.global.query.cells`. |
@@ -33,19 +28,19 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 | `JetStreamStreams` | ACCEPT | InfrastructureBootstrap | AuthoritativeState | ReplicatedDurableFile | PerSubjectFifo | Infrastructure-provisioned; controllers validate exact configuration and never create/update streams. | Start fails closed on mismatch; limits retention bounds age/bytes. | Depth, age, bytes, discards, replica health per critical stream. | `CELL_SPEC`, `CELL_OPERATIONS`, `CELL_EVENTS`, `GLOBAL_SPEC`, `GLOBAL_CI`. |
 | `DurableConsumers` | ACCEPT | InfrastructureBootstrap | ControlCommand | ReplicatedDurableFile | PerSubjectFifo | Closed profiles; controllers may only create/open/ack their named consumer. | Missing/mismatched consumer fails check/run closed. | Lag, pending, redeliveries, profile-validation failures. | `runtime_startup`, `gitops_cell_spec_*`, `global_ci_trigger`, `global_ci_runtime_proof`, `ci_runner_*`. |
 | `Acknowledgement` | ACCEPT | DeliveryContracts | ControlCommand | ReplicatedDurableFile | PerSubjectFifo | Ack only after the durable effect is journaled or an idempotent replay is proven; progress heartbeats for long work. | Crash before ack means redelivery; authority loss after acceptance withholds the ack. | Ack latency after effect, progress age, authority-lost-after-acceptance counts. | Double-ack after journal acceptance; `AckProgressAsync`; terminal acks for deterministic conflicts. |
-| `RedeliveryAndBackoff` | ACCEPT | DeliveryContracts | ControlCommand | ReplicatedDurableFile | PerSubjectFifo | Max 5 deliveries; 1 s/5 s/15 s/30 s ladder; ack wait equals the first interval. | Exhaustion stops redelivery only with terminal evidence; nothing disappears silently. | Redelivery histograms, exhaustion, final-delivery warnings by subject. | Consumer profiles; final-delivery warning and nak-with-delay in `ForgejoCiEventConsumer`. |
+| `RedeliveryAndBackoff` | ACCEPT | DeliveryContracts | ControlCommand | ReplicatedDurableFile | PerSubjectFifo | Max 5 deliveries; 1 s/5 s/15 s/30 s ladder; ack wait equals the first interval. | Exhaustion writes a terminal record; nothing disappears silently. | Redelivery histograms, exhaustion, final-delivery warnings by subject. | Consumer profiles; final-delivery warning and nak-with-delay in `ForgejoCiEventConsumer`. |
 | `FlowControl` | ACCEPT | InfrastructureBootstrap | OperationalTelemetry | Ephemeral | Unordered | `$JS.FC` grants only to owners of the consuming stream/bucket; the global authority gets no durable/pull/ack shapes for watch-only buckets. | A stalled consumer is marked slow and surfaced, never silently dropped. | Slow-consumer advisories; outstanding flow-control latency. | Explicit `$JS.FC` grants in `GlobalNatsPermissions`; the `GlobalNatsAccessContract` account model grants them only to the owning stream or bucket identity. |
 | `KeyValueCasAndWatch` | ACCEPT | RegionalControlRuntime | CoordinationRecord | ReplicatedDurableFile | PerAggregateEpoch | KV is for leases, epochs, and small coordination only; the operation stream is the durable history; journal KV stores are denied to controllers. | CAS conflict is normal: the loser re-observes and retries; ambiguity holds. | CAS conflict rate, lease age, watch lag, journal-store denial attempts. | `RegionalAuthorityCoordinator` CAS leases; `cell.>` watch; inbox-delivered ephemeral watch consumers. |
-| `ObjectStore` | ACCEPT | StorageAndSnapshots | EvidenceArtifact | ReplicatedDurableFile | PerSubjectFifo | Small signed bundles, protocol packages, evidence only; never the build registry or backup system; no secrets. | Missing/byte-unequal protocol package fails startup; bundles are content-addressed. | Object counts/bytes per bucket; integrity failures. | `CELL_BUNDLES`, `GLOBAL_BUNDLES`, `CI_RUNNER_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`. |
+| `ObjectStore` | ACCEPT | StorageAndSnapshots | EvidenceArtifact | ReplicatedDurableFile | PerSubjectFifo | Small signed bundles and protocol packages only; never the build registry or backup system; no secrets. | Missing/byte-unequal protocol package fails startup; bundles are content-addressed. | Object counts/bytes per bucket; integrity failures. | `CELL_BUNDLES`, `GLOBAL_BUNDLES`, `CI_RUNNER_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`. |
 | `Accounts` | ACCEPT | SecurityAndIdentity | CoordinationRecord | ReplicatedDurableFile | Unordered | Hard namespaces (system, global authority, global directory, regional control, CI, audit, operator, product, test); the capability selects the account, never caller credentials. | Wrong-account identities simply lack permissions; cross-plane authorization is structurally impossible. | Account-scoped auth failures and denials feed security alerts. | `GlobalNatsAccountNames`/`GlobalNatsAccessContract`; distinct control/product planes. |
-| `Jwts` | DEFER | SecurityAndIdentity | — | — | — | — | — | — | Revisit trigger: operator/account/user JWT issuance and the JWT/NKey administration toolchain are unselected (phase1-nats-l0c-foundation outcome); adopt only after the L0C lane pins the toolchain and rotating account-signing-key procedure. |
+| `Jwts` | DEFER | SecurityAndIdentity | — | — | — | — | — | — | Adopt only after the operator/account/user issuance toolchain and account-signing-key rotation procedure are selected and tested. |
 | `NKeys` | ACCEPT | SecurityAndIdentity | CoordinationRecord | Ephemeral | Unordered | Controllers, writer, infrastructure, directory, and operator identities; every command rejects every NATS credential family it does not own before file resolution. | Anonymous connections denied (verified at startup); missing NKey fails closed. | Auth failures by identity family; anonymous-denial verification. | `OrchestratorOptions.NatsNKeyFile`, `VerifyAnonymousDeniedAsync`, `CiRunnerNatsCredentialIssuer`, `GlobalNatsAccessContract` identity separation. |
 | `Mtls` | ACCEPT | SecurityAndIdentity | CoordinationRecord | Ephemeral | Unordered | Proves machine/workload transport identity for clients, routes, gateways; never replaces NKey/JWT authorization; global endpoints require absolute `tls://` URLs. | TLS failure is a startup/connection failure; no plaintext fallback. | Certificate expiry freshness, handshake failures, per-endpoint TLS mode. | `NatsTlsOpts` Require mode; `NatsTlsFiles`; infrastructure mTLS required by `NatsOperationJournalProvisioner`. |
 | `ImportsAndExports` | ACCEPT | SecurityAndIdentity | OperatorQuery | Ephemeral | Unordered | Least-privilege service import/export across accounts within one cluster only (the directory query service). Cross-cluster/region stream or service import/export is **rejected** — the gateway mesh is the only cross-cluster path and no stream may span regions. | A missing import/export makes the cross-account call fail closed with no-responder. | Import/export presence per account pair; undeclared cross-account subjects are security alerts. | `GlobalNatsServiceImport`/`Export` for `ts.orch.v2.global.query.cells`; no cross-region stream exists. |
 | `Gateways` | ACCEPT | InfrastructureBootstrap | CoordinationRecord | Ephemeral | Unordered | Full mTLS gateway mesh (not hub-and-spoke) inside one offline control-plane operator domain; local streams and actions stay regional; explicit known clusters. | Gateway loss isolates regions; regional control stays autonomous and pre-authorized work continues. | Gateway link state/latency; isolated-region duration; envelope expansion is a new owner decision. | Gateway membership validated by `MessagingPolicyEngine` plane policies; no production gateway adapter deployed yet. |
-| `Advisories` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | Authenticated `$SYS` subjects only for remote status; advisories are read, never authority. | A missed advisory degrades monitoring only; control decisions never change. | Slow-consumer, quorum/leader-change, auth-failure advisories are alert inputs. | docs/architecture/orchestrator.md monitoring contract; observability adapters tracked under unresolved measurements. |
-| `SystemMonitoring` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | HTTP monitoring binds loopback/isolated management addresses only, scraped locally; remote status via authenticated `$SYS`; never internet- or workload-exposed. | Monitoring loss blinds operators without affecting control correctness. | Server/account/connection/consumer health and quorum state feed Grafana/alerts. | docs/architecture/orchestrator.md NATS monitoring rules; adapter status tracked under unresolved measurements. |
-| `Snapshots` | ACCEPT | StorageAndSnapshots | EvidenceArtifact | ReplicatedDurableFile | PerSubjectFifo | Signed stream position + schema version; restore replays from that position and refuses an older snapshot over a newer accepted epoch; journal KV stores deny snapshot/restore to controllers. | Restore never regresses accepted epochs; product and control backups stay separate. | Snapshot freshness, restore attempts, refusals by reason. | `SignedSnapshot`/`SnapshotRestore` core; journal stores provisioned by `NatsOperationJournalProvisioner` with snapshot/restore denied to controllers; exercise is an L0C gate. |
+| `Advisories` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | Authenticated `$SYS` subjects only for remote status; advisories are read, never authority. | A missed advisory degrades monitoring only; control decisions never change. | Slow-consumer, quorum/leader-change, auth-failure advisories are alert inputs. | `NatsMonitoringPermissions`, `NatsAlertCatalog`, and the NATS monitoring runbook. |
+| `SystemMonitoring` | ACCEPT | Observability | OperationalTelemetry | Ephemeral | Unordered | HTTP monitoring binds loopback/isolated management addresses only, scraped locally; remote status via authenticated `$SYS`; never internet- or workload-exposed. | Monitoring loss blinds operators without affecting control correctness. | Server/account/connection/consumer health and quorum state feed Grafana/alerts. | `NatsMonitoringRuntime`, `NatsMonitoringInstrumentCatalog`, and the NATS monitoring runbook. |
+| `Snapshots` | ACCEPT | StorageAndSnapshots | EvidenceArtifact | ReplicatedDurableFile | PerSubjectFifo | Signed stream position + schema version; restore replays from that position and refuses an older snapshot over a newer accepted epoch; journal KV stores deny snapshot/restore to controllers. | Restore never regresses accepted epochs; product and control backups stay separate. | Snapshot freshness, restore attempts, refusals by reason. | `SignedSnapshot`/`SnapshotRestore`; journal stores deny snapshot and restore to controllers. |
 | `RollingCompatibility` | ACCEPT | MessagingContracts | ControlCommand | ReplicatedDurableFile | PerAggregateEpoch | N and N-1 interoperate for commands, snapshots, schema reads, leadership transfer; upgrades proceed one plane/failure domain at a time and cannot break quorum floors. | An upgrade cannot proceed without current and rollback artifacts; N-1 nodes fail closed on N-major documents. | Per-version interop matrix results; rollback outcomes per failure domain. | `MessagingPolicyEngine.DecideCompatibility`; forward-only journal migration discipline. |
 
 ## 2. Closed subject taxonomy
@@ -67,7 +62,8 @@ Platform-reserved NATS roots (`$JS`, `$KV`, `$O`, `$SRV`, `$SYS`, `_INBOX`, `_R_
 
 ## 3. Versioned envelope contract
 
-`src/orchestrator/protocol/messaging_envelope.go` extends — never duplicates — the signed `CommandEnvelope`:
+`src/orchestrator/protocol/messaging_envelope.go` extends the signed
+`CommandEnvelope` without duplicating its fields:
 
 - From `CommandEnvelope` (signed): protocol version, cell, aggregate, desired generation, writer epoch (fencing), operation id, operation idempotency key, issued/expiry, delivery attempt, payload + digest, signature. Signed material and validation are owned by `CommandEnvelopeValidator` (INV-005).
 - Added by the messaging envelope: schema major/minor, message id, correlation id, causation id, source (instance, session, cell, cluster), target scope (namespace, subject, cell), payload type, trace context, observation time.
@@ -76,7 +72,8 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 
 ## 4. Semantic classes
 
-`src/orchestrator/protocol/messaging_semantic_classes.go`: `Lossy`, `Replayable`, `WorkQueue`, `Snapshot`, `AuthoritativeJournal`.
+`src/orchestrator/protocol/messaging_semantic_classes.go` defines `Lossy`,
+`Replayable`, `WorkQueue`, `Snapshot`, and `AuthoritativeJournal`.
 
 | Subject pattern | Class | Loss meaning |
 | --- | --- | --- |
@@ -98,7 +95,10 @@ Store classes (`StoreRules`): authoritative journals — `ORCH_OPERATIONS`, `GLO
 
 - **Acknowledgement** — only after the durable effect (journal acceptance / convergence record) or a proven idempotent replay; double-ack; progress heartbeats for long work (`DurableEffectAcknowledgementPolicy`).
 - **Redelivery/backoff** — at most 5 deliveries, 1 s/5 s/15 s/30 s ladder, ack wait derived from the first interval, bounded ack-pending (`BoundedRedeliveryPolicy`).
-- **Poison terminal evidence** — deterministic identity conflicts terminate immediately with durable terminal records; transient failures retry on the ladder; operational capacity failures hold loudly and never terminate a healthy message; budget exhaustion ALWAYS leaves terminal evidence (final-delivery warning naming subject + counts) (`PoisonMessagePolicy`).
+- Deterministic identity conflicts write durable terminal records. Transient
+  failures retry on the ladder. Capacity failures hold. Delivery-cap
+  exhaustion writes a final warning with the subject and counts
+  (`PoisonMessagePolicy`).
 - **Cancellation** — cancel-before-effect does not acknowledge (redelivery); cancel-during-effect completes or compensates through the journal; no partial acknowledgement (`CancellationPolicy`).
 
 ## 6. Message-ID duplicate windows
@@ -126,6 +126,6 @@ Queue groups distribute only equivalent-worker work; authoritative work requires
 - `$SYS`/advisory consumption and HTTP-monitoring scrape wiring (adapters belong to the observability lane).
 - Production gateway deployment and gateway-mesh latency/isolation measurement (pure plane policies landed; no production-shape gateway measurement exists yet).
 - JWT operator/account/user toolchain selection and rotation procedure (matrix disposition DEFER).
-- Stream/KV snapshot-and-restore execution per plane (pure core landed; L0C gate pending).
+- Stream/KV snapshot-and-restore execution per plane.
 - Duplicate-window effectiveness (suppress vs conflict vs beyond-window rates) under production redelivery pressure — measured, not assumed.
-- `sync_interval` (disk RPO) selection for control and product planes (Phase 0 benchmark).
+- `sync_interval` selection for control domains under the production storage benchmark.
