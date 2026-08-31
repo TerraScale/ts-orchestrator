@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const ReceiptAlgorithm = "ECDSA-P256-SHA256"
@@ -58,7 +60,7 @@ func NewReceiptKeyRing(keys map[string][]byte) (*ReceiptKeyRing, error) {
 	r := &ReceiptKeyRing{keys: map[string][]byte{}}
 	for id, key := range keys {
 		if id == "" || len(key) == 0 {
-			return nil, &ArgumentError{Message: "receipt key ring contains invalid key"}
+			return nil, &errs.Argument{Message: "receipt key ring contains invalid key"}
 		}
 		r.keys[id] = append([]byte(nil), key...)
 	}
@@ -90,17 +92,17 @@ func EnsureDistinctKeyDomains(domains ...ReceiptKeyResolver) error {
 	for i, a := range domains {
 		sa, ok := a.(ReceiptPublicKeySource)
 		if !ok {
-			return &ArgumentError{Message: "key domain must expose public keys"}
+			return &errs.Argument{Message: "key domain must expose public keys"}
 		}
 		for _, b := range domains[i+1:] {
 			sb, ok := b.(ReceiptPublicKeySource)
 			if !ok {
-				return &ArgumentError{Message: "key domain must expose public keys"}
+				return &errs.Argument{Message: "key domain must expose public keys"}
 			}
 			for id, key := range sa.PublicKeys() {
 				for id2, key2 := range sb.PublicKeys() {
 					if id == id2 || string(key) == string(key2) {
-						return &ArgumentError{Message: "trust domains cannot share key material"}
+						return &errs.Argument{Message: "trust domains cannot share key material"}
 					}
 				}
 			}
@@ -116,7 +118,7 @@ type CreateNodeHandoffReceiptSigner struct {
 
 func NewCreateNodeHandoffReceiptSigner(keyID string, key *ecdsa.PrivateKey) (*CreateNodeHandoffReceiptSigner, error) {
 	if strings.TrimSpace(keyID) == "" || key == nil || key.Curve != elliptic.P256() {
-		return nil, &ArgumentError{Message: "receipt signer requires NIST P-256 and a key ID"}
+		return nil, &errs.Argument{Message: "receipt signer requires NIST P-256 and a key ID"}
 	}
 	return &CreateNodeHandoffReceiptSigner{keyID, key}, nil
 }
@@ -132,7 +134,7 @@ func validBinding(b CreateNodeReceiptBinding) bool {
 }
 func (s *CreateNodeHandoffReceiptSigner) Sign(binding CreateNodeReceiptBinding, issued, expires time.Time) (CreateNodeHandoffReceipt, error) {
 	if s == nil || !validBinding(binding) || issued.IsZero() || !expires.After(issued) {
-		return CreateNodeHandoffReceipt{}, &ArgumentError{Message: "receipt binding must be complete and have a positive lifetime"}
+		return CreateNodeHandoffReceipt{}, &errs.Argument{Message: "receipt binding must be complete and have a positive lifetime"}
 	}
 	r := CreateNodeHandoffReceipt{ReceiptAlgorithm, s.KeyId, binding, issued, expires, ""}
 	h := sha256.Sum256(r.payload())
@@ -187,13 +189,13 @@ type CreateNodeRecoveryLookupSigner struct {
 
 func NewCreateNodeRecoveryLookupSigner(id string, key *ecdsa.PrivateKey) (*CreateNodeRecoveryLookupSigner, error) {
 	if strings.TrimSpace(id) == "" || key == nil || key.Curve != elliptic.P256() {
-		return nil, &ArgumentError{Message: "recovery signer requires P-256"}
+		return nil, &errs.Argument{Message: "recovery signer requires P-256"}
 	}
 	return &CreateNodeRecoveryLookupSigner{key, id}, nil
 }
 func (s *CreateNodeRecoveryLookupSigner) Sign(b CreateNodeReceiptBinding, issued, expires time.Time) (CreateNodeRecoveryLookupAuthority, error) {
 	if !expires.After(issued) || expires.Sub(issued) > 7*24*time.Hour {
-		return CreateNodeRecoveryLookupAuthority{}, &ArgumentOutOfRangeError{Param: "expiresAt"}
+		return CreateNodeRecoveryLookupAuthority{}, &errs.ArgumentOutOfRangeError{Param: "expiresAt"}
 	}
 	a := CreateNodeRecoveryLookupAuthority{ReceiptAlgorithm, s.KeyId, "create-node-provider-lookup", b.Digest(), issued, expires, ""}
 	h := sha256.Sum256(a.payload())
@@ -251,13 +253,13 @@ type CreateNodeTenantAuthorizationSigner struct {
 
 func NewCreateNodeTenantAuthorizationSigner(id string, key *ecdsa.PrivateKey) (*CreateNodeTenantAuthorizationSigner, error) {
 	if strings.TrimSpace(id) == "" || key == nil || key.Curve != elliptic.P256() {
-		return nil, &ArgumentError{Message: "tenant signer requires P-256"}
+		return nil, &errs.Argument{Message: "tenant signer requires P-256"}
 	}
 	return &CreateNodeTenantAuthorizationSigner{key, id}, nil
 }
 func (s *CreateNodeTenantAuthorizationSigner) Sign(tenant, operation, digest string, expiry time.Time) (CreateNodeTenantAuthorizationProof, error) {
 	if tenant == "" || operation == "" || digest == "" || expiry.IsZero() {
-		return CreateNodeTenantAuthorizationProof{}, &ArgumentError{Message: "tenant authorization proof is incomplete"}
+		return CreateNodeTenantAuthorizationProof{}, &errs.Argument{Message: "tenant authorization proof is incomplete"}
 	}
 	p := CreateNodeTenantAuthorizationProof{ReceiptAlgorithm, s.KeyId, "create-node-tenant-authorization", tenant, operation, "CreateNode", digest, expiry, ""}
 	h := sha256.Sum256(p.payload())
@@ -293,13 +295,13 @@ type CreateNodeAuthoritativeInvocationCapabilitySigner struct {
 
 func NewInvocationCapabilitySigner(id string, key *ecdsa.PrivateKey) (*CreateNodeAuthoritativeInvocationCapabilitySigner, error) {
 	if strings.TrimSpace(id) == "" || key == nil || key.Curve != elliptic.P256() {
-		return nil, &ArgumentError{Message: "invocation signer requires P-256"}
+		return nil, &errs.Argument{Message: "invocation signer requires P-256"}
 	}
 	return &CreateNodeAuthoritativeInvocationCapabilitySigner{key, id}, nil
 }
 func (s *CreateNodeAuthoritativeInvocationCapabilitySigner) Sign(c CreateNodeAuthoritativeInvocationCapability) (CreateNodeAuthoritativeInvocationCapability, error) {
 	if c.JournalVersion <= 0 || c.OperationId == "" || c.BindingDigest == "" || c.LeaseOwner == "" || c.LeaseToken == "" || c.Nonce == "" || !c.LeaseExpiresAt.After(c.IssuedAt) || !c.ExpiresAt.After(c.IssuedAt) || c.ExpiresAt.Sub(c.IssuedAt) > 10*time.Minute {
-		return CreateNodeAuthoritativeInvocationCapability{}, &ArgumentError{Message: "invocation capability is invalid"}
+		return CreateNodeAuthoritativeInvocationCapability{}, &errs.Argument{Message: "invocation capability is invalid"}
 	}
 	c.Algorithm = ReceiptAlgorithm
 	c.KeyId = s.KeyId

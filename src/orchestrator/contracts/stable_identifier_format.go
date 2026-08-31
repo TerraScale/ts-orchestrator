@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableIdentifierFormat.cs.
 package contracts
 
 // StableIdentifierKind mirrors the StableIdentifierKind enum.

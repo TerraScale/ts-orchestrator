@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/CommandNumbers.cs.
 package protocol
 
 import "strconv"

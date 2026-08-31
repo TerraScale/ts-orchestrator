@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Evidence/EvidenceManifest.cs
 package control
 
 import "sort"

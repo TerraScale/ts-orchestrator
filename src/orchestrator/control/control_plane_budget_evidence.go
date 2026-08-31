@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Budgets/BudgetEvidence.cs
 package control
 
 type BudgetEvidenceStatus int

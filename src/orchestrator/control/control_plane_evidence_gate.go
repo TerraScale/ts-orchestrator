@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Evidence/EvidenceGate.cs
 package control
 
 type EvidenceSignatureVerificationOutcome int

@@ -1,5 +1,6 @@
-// Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StableErrorId.cs.
 package contracts
+
+import "fmt"
 
 // StableErrorId is a permanent stable-error identifier from the GOAL.md
 // "Stable contract identifiers" table. Identifiers form a closed set: only
@@ -22,14 +23,12 @@ func (i StableErrorId) IsRegistered() bool {
 	return ok
 }
 
-// CanonicalText returns the verbatim GOAL.md text; it panics for an
-// unregistered identifier, mirroring the C# InvalidOperationException.
-func (i StableErrorId) CanonicalText() string {
+// CanonicalText returns the verbatim GOAL.md text.
+func (i StableErrorId) CanonicalText() (string, error) {
 	if text, ok := StableIdentifierRegistry.tryGetStableErrorText(i); ok {
-		return text
+		return text, nil
 	}
-
-	panic("Stable error " + i.Value + " is not registered.")
+	return "", fmt.Errorf("stable error %q is not registered", i.Value)
 }
 
 // TryGetText mirrors StableIdentifierRegistry.TryGetText(StableErrorId, out text).

@@ -4,16 +4,18 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // errorsAsParam reports whether err is one of the package argument errors
 // naming the given parameter.
 func errorsAsParam(err error, param string) bool {
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if errors.As(err, &argumentError) {
 		return argumentError.Param == param
 	}
-	var outOfRange *ArgumentOutOfRangeError
+	var outOfRange *errs.ArgumentOutOfRangeError
 	if errors.As(err, &outOfRange) {
 		return outOfRange.Param == param
 	}

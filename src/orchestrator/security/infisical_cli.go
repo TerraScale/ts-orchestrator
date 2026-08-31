@@ -1,4 +1,3 @@
-// This file ports Security/InfisicalCli.cs.
 package security
 
 import (
@@ -13,6 +12,8 @@ import (
 	"unicode/utf8"
 
 	goruntime "runtime"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const infisicalForbiddenFileMode = 0o077
@@ -57,7 +58,7 @@ func (infisicalCli) Execute(
 		return 0, resolveErr
 	}
 	if configuration == nil {
-		return 0, &ArgumentError{Message: "Infisical is not configured."}
+		return 0, &errs.Argument{Message: "Infisical is not configured."}
 	}
 	store := InfisicalSecretStoreCreate(configuration)
 	defer store.Close()
@@ -108,7 +109,7 @@ func (infisicalCli) Execute(
 		}
 		fmt.Printf("deleted %s:%s@%d\n", secret.Path, secret.Name, secret.Version)
 	default:
-		return 0, &ArgumentOutOfRangeError{}
+		return 0, &errs.ArgumentOutOfRangeError{}
 	}
 	return 0, nil
 }
@@ -179,11 +180,11 @@ func infisicalWriteSecret(value string, secret string) error {
 	}
 	path, err := filepath.Abs(value)
 	if err != nil {
-		return &ArgumentError{Message: "The Infisical output directory does not exist."}
+		return &errs.Argument{Message: "The Infisical output directory does not exist."}
 	}
 	parent := filepath.Dir(path)
 	if info, statErr := os.Stat(parent); statErr != nil || !info.IsDir() {
-		return &ArgumentError{Message: "The Infisical output directory does not exist."}
+		return &errs.Argument{Message: "The Infisical output directory does not exist."}
 	}
 	if _, statErr := os.Lstat(path); statErr == nil {
 		if _, privateErr := infisicalRequirePrivateFile(path, true); privateErr != nil {
@@ -227,7 +228,7 @@ func infisicalRequirePrivateFile(value string, mustExist bool) (string, error) {
 	}
 	path, err := filepath.Abs(value)
 	if err != nil {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Message: "The Infisical secret file must be bounded, regular, and owner-private.",
 		}
 	}
@@ -238,29 +239,29 @@ func infisicalRequirePrivateFile(value string, mustExist bool) (string, error) {
 	linkInfo, linkErr := os.Lstat(path)
 	if statErr != nil || linkErr != nil || !info.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 ||
 		info.Size() > 1024*1024 || unixMode(linkInfo)&infisicalForbiddenFileMode != 0 {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Message: "The Infisical secret file must be bounded, regular, and owner-private.",
 		}
 	}
 	return path, nil
 }
 
-func infisicalRequireName(value string, usage *ArgumentError) (string, error) {
+func infisicalRequireName(value string, usage *errs.Argument) (string, error) {
 	if strings.TrimSpace(value) == "" || len(value) > 256 || strings.ContainsFunc(value, unicode.IsControl) {
 		return "", usage
 	}
 	return value, nil
 }
 
-func infisicalRequireFile(value string, usage *ArgumentError) (string, error) {
+func infisicalRequireFile(value string, usage *errs.Argument) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", usage
 	}
 	return value, nil
 }
 
-func infisicalUsage() *ArgumentError {
-	return &ArgumentError{
+func infisicalUsage() *errs.Argument {
+	return &errs.Argument{
 		Message: "Usage: infisical list | get <name> --output <file> | " +
 			"create|update <name> --value-file <file> | delete <name> --confirm <name>.",
 	}

@@ -8,12 +8,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func planJsonDecodeTestNativePlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleOrchestrator,
+		AdmittedRoleAutoscaler,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "gru-orchestrator-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -50,7 +52,7 @@ func planJsonDecodeTestOciPlan(t *testing.T) HostRuntimePlan {
 func planJsonDecodeTestControlNatsPlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleControlNatsServer,
+		AdmittedRoleNats,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "nats-a"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -119,7 +121,7 @@ func TestUnmarshalJSONDecodesCamelCaseWireShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.Role != AdmittedRoleControlNatsServer {
+	if decoded.Role != AdmittedRoleNats {
 		t.Fatalf("role = %v", decoded.Role)
 	}
 	if decoded.Driver != RuntimeDriverNativeSystemd {
@@ -167,7 +169,7 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 		},
 		{
 			name:    "unknown role enum",
-			payload: replace(validNative, `"role":"orchestrator"`, `"role":"tenantWorkload"`),
+			payload: replace(validNative, `"role":"autoscaler"`, `"role":"tenantWorkload"`),
 		},
 		{
 			name:    "unknown driver enum",
@@ -252,8 +254,8 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 				return
 			}
 			var invalidData *InvalidDataError
-			var argumentError *ArgumentError
-			var outOfRange *ArgumentOutOfRangeError
+			var argumentError *errs.Argument
+			var outOfRange *errs.ArgumentOutOfRangeError
 			if !errors.As(err, &invalidData) && !errors.As(err, &argumentError) &&
 				!errors.As(err, &outOfRange) {
 				t.Fatalf("error %v is not a package data error", err)

@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Scheduler.Tests/
-// AvailabilityAcceptedRequestFingerprint.cs (a test helper, not a test).
 package scheduling
 
 import (

@@ -147,7 +147,7 @@ func (w *bigEndianWriter) writeString(value string) error {
 		return invalidData("A command signing identity is not valid UTF-8.")
 	}
 
-	if utf16Length(value) > maximumIdentifierCharacters {
+	if v1UTF16CodeUnitCount(value) > maximumIdentifierCharacters {
 		return invalidData("A command signing identity exceeded its bound.")
 	}
 
@@ -160,19 +160,4 @@ func (w *bigEndianWriter) writeString(value string) error {
 	w.buffer = append(w.buffer, value...)
 	w.written += count
 	return nil
-}
-
-// utf16Length returns the length of value in UTF-16 code units, the
-// character-count unit defined by the protocol bounds.
-func utf16Length(value string) int {
-	length := 0
-	for _, r := range value {
-		if r > 0xFFFF {
-			length += 2
-		} else {
-			length++
-		}
-	}
-
-	return length
 }

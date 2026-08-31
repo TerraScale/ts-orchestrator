@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/RegionalRuntimeMembershipRecords.cs.
 package control
 
 import (

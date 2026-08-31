@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"sort"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
 
@@ -47,14 +48,14 @@ type AutoscalerSnapshot struct {
 // yields byte-identical decisions regardless of input order.
 func NewAutoscalerSnapshot(nodes []NodeObservation, demand []AllocationDemand) (AutoscalerSnapshot, error) {
 	if len(nodes) > autoscalingMaximumNodesPerSnapshot {
-		return AutoscalerSnapshot{}, &ArgumentError{
+		return AutoscalerSnapshot{}, &errs.Argument{
 			Param: "nodes",
 			Message: fmt.Sprintf("Node input exceeds the bound of %d entries.",
 				autoscalingMaximumNodesPerSnapshot),
 		}
 	}
 	if len(demand) > autoscalingMaximumDemandPerSnapshot {
-		return AutoscalerSnapshot{}, &ArgumentError{
+		return AutoscalerSnapshot{}, &errs.Argument{
 			Param: "demand",
 			Message: fmt.Sprintf("Demand input exceeds the bound of %d entries.",
 				autoscalingMaximumDemandPerSnapshot),
@@ -70,7 +71,7 @@ func NewAutoscalerSnapshot(nodes []NodeObservation, demand []AllocationDemand) (
 			return AutoscalerSnapshot{}, err
 		}
 		if _, duplicate := seenNodes[validated.NodeId]; duplicate {
-			return AutoscalerSnapshot{}, &ArgumentError{
+			return AutoscalerSnapshot{}, &errs.Argument{
 				Param:   "nodes",
 				Message: "A node may appear only once per snapshot.",
 			}
@@ -89,7 +90,7 @@ func NewAutoscalerSnapshot(nodes []NodeObservation, demand []AllocationDemand) (
 			return AutoscalerSnapshot{}, err
 		}
 		if _, duplicate := seenRoles[validated.RoleId]; duplicate {
-			return AutoscalerSnapshot{}, &ArgumentError{
+			return AutoscalerSnapshot{}, &errs.Argument{
 				Param:   "demand",
 				Message: "A role may appear only once per snapshot.",
 			}
@@ -159,7 +160,7 @@ func NewAutoscaler(config AutoscalerConfig, drainSafety DrainSafetyEvaluator) (*
 		return nil, err
 	}
 	if drainSafety == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "drainSafety",
 			Message: "A drain safety evaluator is required.",
 		}
@@ -183,7 +184,7 @@ func NewAutoscaler(config AutoscalerConfig, drainSafety DrainSafetyEvaluator) (*
 // error.
 func (a *Autoscaler) Tick(ctx context.Context, snapshot AutoscalerSnapshot) ([]AutoscalerAction, error) {
 	if ctx == nil {
-		return nil, &ArgumentError{Param: "ctx", Message: "The autoscaler context must not be nil."}
+		return nil, &errs.Argument{Param: "ctx", Message: "The autoscaler context must not be nil."}
 	}
 	if a == nil || a.drainSafety == nil {
 		return nil, &InvalidOperationError{Message: "The autoscaler is unavailable."}

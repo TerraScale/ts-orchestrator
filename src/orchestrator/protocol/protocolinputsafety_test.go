@@ -1,9 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/ProtocolInputSafetyTests.cs.
-// The .NET iterator-phase fault fixtures (GetEnumerator/MoveNext/Current/Dispose
-// throwing, fatal-exception prioritization, lying collection counts) have no Go
-// equivalent because accepted versions and permission patterns arrive as
-// slices, not lazy enumerables; those tests are skipped as .NET-pinning. The
-// acquisition bound itself is fully ported.
 package protocol
 
 import (

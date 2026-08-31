@@ -1,4 +1,3 @@
-// This file ports Runtime/ContainerdHostRuntimeAdapter.cs.
 package runtime
 
 import (
@@ -8,6 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // ContainerdAllocationState is the observed containerd allocation state.
@@ -78,7 +79,7 @@ func NewContainerdHostRuntimeAdapter(client ContainerdClient) *ContainerdHostRun
 // plan fingerprint and the immutable digest.
 func (a *ContainerdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The containerd context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
@@ -143,7 +144,7 @@ func (a *ContainerdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRu
 // Observe returns one fenced observation of the allocation.
 func (a *ContainerdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntimePlan) (ContainerdAllocationObservation, error) {
 	if ctx == nil {
-		return ContainerdAllocationObservation{}, &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+		return ContainerdAllocationObservation{}, &errs.Argument{Param: "ctx", Message: "The containerd context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return ContainerdAllocationObservation{}, &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
@@ -174,7 +175,7 @@ func (a *ContainerdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRun
 // Stop stops a running allocation.
 func (a *ContainerdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The containerd context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
@@ -199,7 +200,7 @@ func (a *ContainerdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntim
 // Delete removes the allocation (stopping it first when needed).
 func (a *ContainerdHostRuntimeAdapter) Delete(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The containerd context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The containerd context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The containerd runtime client is unavailable."}
@@ -247,7 +248,7 @@ func requireMatchingAllocation(
 
 func requireCanonicalOciPlan(plan HostRuntimePlan) (*OciExecutionPlan, error) {
 	if plan.Driver != RuntimeDriverOciContainer || plan.Oci == nil || plan.Systemd != nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "plan",
 			Message: "The containerd adapter requires an OCI plan.",
 		}
@@ -340,8 +341,8 @@ func (canonicalPlanFingerprint) Compute(plan HostRuntimePlan) (string, error) {
 		addFingerprintField(hash, oci.Platform)
 		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsUser), 10))
 		addFingerprintField(hash, strconv.FormatUint(uint64(oci.Security.RunAsGroup), 10))
-		addFingerprintField(hash, dotNetBoolString(oci.Security.NoNewPrivileges))
-		addFingerprintField(hash, dotNetBoolString(oci.Security.ReadOnlyRootFileSystem))
+		addFingerprintField(hash, strconv.FormatBool(oci.Security.NoNewPrivileges))
+		addFingerprintField(hash, strconv.FormatBool(oci.Security.ReadOnlyRootFileSystem))
 		for _, capability := range oci.Security.DroppedCapabilities {
 			addFingerprintField(hash, capability)
 		}
@@ -361,11 +362,4 @@ func addFingerprintField(hash hashWriter, value string) {
 
 type hashWriter interface {
 	Write([]byte) (int, error)
-}
-
-func dotNetBoolString(value bool) string {
-	if value {
-		return "True"
-	}
-	return "False"
 }

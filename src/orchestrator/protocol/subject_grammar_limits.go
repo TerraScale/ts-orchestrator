@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Subjects/SubjectGrammarLimits.cs.
 package protocol
 
 // SubjectGrammarLimits is the bounded subject-grammar policy: maximum subject

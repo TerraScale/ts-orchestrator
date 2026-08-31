@@ -1,10 +1,11 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/HostRuntimePlanTests.cs.
 package runtime
 
 import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const hostRuntimePlanDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -78,7 +79,7 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 
 func TestOciPlanIsDigestPinnedRootlessAndCapabilityFree(t *testing.T) {
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "sfo-dashboard-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -125,7 +126,7 @@ func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {
 	}
 
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-limited"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -152,21 +153,21 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 		CpuQuotaPercent: 100, CpuWeight: 100, IoWeight: 100, Nice: 5,
 	}
 	_, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-excessive"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
 		HostArchitectureArm64,
 		&excessive)
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	if !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 }
 
 func TestRuntimeCliAcceptsExplicitContainerLimits(t *testing.T) {
 	plan, err := HostRuntimeCli.ParsePlan([]string{
-		"plan", "--role", "customer-dashboard", "--allocation", "gru-dashboard-cli",
+		"plan", "--role", "dashboard", "--allocation", "gru-dashboard-cli",
 		"--digest", hostRuntimePlanDigest,
 		"--memory-max-bytes", "536870912", "--tasks-max", "128",
 		"--cpu-quota-percent", "100", "--cpu-weight", "100", "--io-weight", "100", "--nice", "5",
@@ -218,7 +219,7 @@ func TestHostRuntimePlanRevalidatesValueObjectFieldsAtPlanBoundary(t *testing.T)
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			if _, err := NewHostRuntimePlan(
-				AdmittedRoleOrchestrator,
+				AdmittedRoleAutoscaler,
 				RuntimeDriverNativeSystemd,
 				testCase.allocation,
 				testCase.digest,

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Contracts/ContractVersion.cs.
 package contracts
 
 // ContractVersion mirrors the C# static class ContractVersion; call sites read

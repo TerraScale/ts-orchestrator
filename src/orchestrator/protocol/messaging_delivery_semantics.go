@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/MessagingDeliverySemantics.cs.
 package protocol
 
 import (

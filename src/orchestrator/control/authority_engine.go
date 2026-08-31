@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Authority/AuthorityEngine.cs
 package control
 
 import (

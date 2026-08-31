@@ -1,5 +1,3 @@
-// This file ports tests/TerraScale.Orchestrator.Tests/
-// AdmittedRoleCatalogTests.cs.
 package runtime
 
 import (
@@ -18,6 +16,11 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	if len(distinct) != len(all) {
 		t.Fatal("catalog roles must be distinct")
 	}
+	for index, role := range AllAdmittedRoles {
+		if all[index].Role != role {
+			t.Fatalf("catalog role %d = %v, want %v", index, all[index].Role, role)
+		}
+	}
 	assertDriver := func(role AdmittedRole, driver RuntimeDriver) {
 		t.Helper()
 		descriptor, err := AdmittedRoleCatalog.Get(role)
@@ -29,8 +32,8 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 		}
 	}
 	assertDriver(AdmittedRoleTerraBaseMember, RuntimeDriverNativeSystemd)
-	assertDriver(AdmittedRoleCustomerDashboard, RuntimeDriverOciContainer)
-	assertDriver(AdmittedRoleGrafana, RuntimeDriverOciContainer)
+	assertDriver(AdmittedRoleDashboard, RuntimeDriverOciContainer)
+	assertDriver(AdmittedRoleDatabaseAPI, RuntimeDriverOciContainer)
 	assertReplicas := func(role AdmittedRole, minimumReplicas int) {
 		t.Helper()
 		descriptor, err := AdmittedRoleCatalog.Get(role)
@@ -41,8 +44,9 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 			t.Fatalf("role %v minimum replicas mismatch: %d", role, descriptor.MinimumReplicas)
 		}
 	}
-	assertReplicas(AdmittedRoleControlNatsServer, 3)
-	assertReplicas(AdmittedRoleProductNatsServer, 3)
+	assertReplicas(AdmittedRoleNats, 3)
+	assertReplicas(AdmittedRoleAutoscaler, 3)
+	assertReplicas(AdmittedRoleDatabaseAPI, 2)
 	assertDriver(AdmittedRoleJournalWriter, RuntimeDriverNativeSystemd)
 	journalWriter, err := AdmittedRoleCatalog.Get(AdmittedRoleJournalWriter)
 	if err != nil {
@@ -53,12 +57,34 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	}
 }
 
-func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
-	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleGrafana, RuntimeDriverNativeSystemd); err == nil {
-		t.Fatal("Grafana is not admitted on systemd")
+func TestPersistedRoleValuesRemainCompatibleWithV1Checkpoints(t *testing.T) {
+	want := map[AdmittedRole]int{
+		AdmittedRoleDashboard:       0,
+		AdmittedRoleTerraBaseMember: 1,
+		AdmittedRoleAutoscaler:      2,
+		AdmittedRoleNats:            3,
+		AdmittedRoleJournalWriter:   16,
+		AdmittedRoleDatabaseAPI:     17,
 	}
-	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleOrchestrator, RuntimeDriverOciContainer); err == nil {
-		t.Fatal("Orchestrator is not admitted on OCI")
+	for role, value := range want {
+		if int(role) != value {
+			t.Fatalf("%v persisted value = %d, want %d", role, role, value)
+		}
+	}
+
+	for value := 4; value <= 15; value++ {
+		if AdmittedRole(value).defined() {
+			t.Fatalf("retired v1 role value %d acquired a new meaning", value)
+		}
+	}
+}
+
+func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
+	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleDashboard, RuntimeDriverNativeSystemd); err == nil {
+		t.Fatal("Dashboard is not admitted on systemd")
+	}
+	if _, err := AdmittedRoleCatalog.Admit(AdmittedRoleAutoscaler, RuntimeDriverOciContainer); err == nil {
+		t.Fatal("Autoscaler is not admitted on OCI")
 	}
 	descriptor, err := AdmittedRoleCatalog.Admit(AdmittedRoleTerraBaseMember, RuntimeDriverOciContainer)
 	if err != nil {
@@ -66,5 +92,30 @@ func TestDriverAdmissionRejectsAnUnapprovedRuntime(t *testing.T) {
 	}
 	if descriptor.Role != AdmittedRoleTerraBaseMember {
 		t.Fatal("admitted descriptor must carry the requested role")
+	}
+}
+
+func TestRuntimeRoleParserAdmitsOnlyTheLaunchCatalog(t *testing.T) {
+	want := map[string]AdmittedRole{
+		"dashboard":        AdmittedRoleDashboard,
+		"database-api":     AdmittedRoleDatabaseAPI,
+		"terrabase-member": AdmittedRoleTerraBaseMember,
+		"nats":             AdmittedRoleNats,
+		"autoscaler":       AdmittedRoleAutoscaler,
+		"journal-writer":   AdmittedRoleJournalWriter,
+	}
+	for input, role := range want {
+		got, err := HostRuntimeCli.ParseRole(input)
+		if err != nil || got != role {
+			t.Fatalf("ParseRole(%q) = %v, %v; want %v", input, got, err, role)
+		}
+	}
+	for _, removed := range []string{
+		"platform", "mcp", "grafana", "loki", "vpn-coordination-relay",
+		"control-nats-server", "product-nats-server", "ci-runner",
+	} {
+		if _, err := HostRuntimeCli.ParseRole(removed); err == nil {
+			t.Fatalf("removed role %q was admitted", removed)
+		}
 	}
 }

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/Messaging/MessagingCompatibility.cs.
 package protocol
 
 // SchemaNegotiationOutcome mirrors the SchemaNegotiationOutcome enum.

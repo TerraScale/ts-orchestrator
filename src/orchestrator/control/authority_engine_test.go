@@ -1,4 +1,3 @@
-// Port (core scenario) of AuthorityEngineTests.cs.
 package control
 
 import (

@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/CiRunnerConsumerReconciler.cs.
 package control
 
 import (

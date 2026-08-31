@@ -10,6 +10,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // MetricsSource produces one validated node metric sample on demand; the
@@ -54,7 +56,7 @@ type OsProcFileReader struct{}
 // ReadFile reads one admitted /proc file from the local filesystem.
 func (OsProcFileReader) ReadFile(path string) ([]byte, error) {
 	if path != procMeminfoPath && path != procLoadavgPath {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "path",
 			Message: "Only the meminfo and loadavg proc files are read.",
 		}
@@ -100,22 +102,22 @@ type SystemMetricsSource struct {
 // NewSystemMetricsSource validates the configuration and composes the source.
 func NewSystemMetricsSource(config SystemMetricsSourceConfig) (*SystemMetricsSource, error) {
 	if config.ProcReader == nil {
-		return nil, &ArgumentError{Param: "ProcReader", Message: "A proc file reader is required."}
+		return nil, &errs.Argument{Param: "ProcReader", Message: "A proc file reader is required."}
 	}
 	if config.CpuQuotaPercent < 1 || config.CpuQuotaPercent > hostAgentMaximumCpuPercent {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "CpuQuotaPercent",
 			Message: fmt.Sprintf("CPU quota must be between 1 and %d percent.", hostAgentMaximumCpuPercent),
 		}
 	}
 	if config.TasksMax < 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "TasksMax",
 			Message: "Task ceiling must be non-negative.",
 		}
 	}
 	if config.LogicalCpuCount < 1 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "LogicalCpuCount",
 			Message: "At least one logical CPU is required.",
 		}
@@ -137,7 +139,7 @@ func NewSystemMetricsSource(config SystemMetricsSourceConfig) (*SystemMetricsSou
 // kernel's currently running scheduling entities.
 func (s *SystemMetricsSource) Sample(ctx context.Context) (NodeMetricsSample, error) {
 	if ctx == nil {
-		return NodeMetricsSample{}, &ArgumentError{Param: "ctx", Message: "The metrics context must not be nil."}
+		return NodeMetricsSample{}, &errs.Argument{Param: "ctx", Message: "The metrics context must not be nil."}
 	}
 	meminfo, err := s.procReader.ReadFile(procMeminfoPath)
 	if err != nil {

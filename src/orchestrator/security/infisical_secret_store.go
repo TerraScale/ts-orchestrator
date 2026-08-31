@@ -1,4 +1,3 @@
-// This file ports Security/InfisicalSecretStore.cs.
 package security
 
 import (
@@ -21,6 +20,8 @@ import (
 	"unicode/utf8"
 
 	goruntime "runtime"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // infisicalMarshalJSON encodes a wire body without HTML escaping (the migration
@@ -69,7 +70,7 @@ func InfisicalConfigurationRequiresRuntimeSecretEnvironment(command string) bool
 // environment lookup function; it returns nil when nothing is supplied.
 func InfisicalConfigurationResolveEnv(environment func(string) (string, bool)) (*InfisicalConfiguration, error) {
 	if environment == nil {
-		return nil, &ArgumentError{Param: "environment"}
+		return nil, &errs.Argument{Param: "environment"}
 	}
 	lookup := func(key string) string {
 		if value, present := environment(key); present {
@@ -104,7 +105,7 @@ func InfisicalConfigurationResolve(
 		return nil, nil
 	}
 	if isBlank(projectId) || isBlank(environment) || isBlank(clientIdFile) || isBlank(clientSecretFile) {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Message: "Infisical requires project, environment, client ID file, and client secret file together.",
 		}
 	}
@@ -134,7 +135,7 @@ func InfisicalConfigurationResolve(
 		return nil, err
 	}
 	if !strings.HasPrefix(resolvedPath, "/") || strings.Contains(resolvedPath, "?") || strings.Contains(resolvedPath, "#") {
-		return nil, &ArgumentError{Message: "The Infisical secret path must be an absolute vault path."}
+		return nil, &errs.Argument{Message: "The Infisical secret path must be an absolute vault path."}
 	}
 
 	var resolvedOrganization *string
@@ -169,17 +170,17 @@ func InfisicalConfigurationResolve(
 func parseInfisicalServerUri(serverValue string) (string, error) {
 	parsed, err := url.Parse(serverValue)
 	if err != nil {
-		return "", &ArgumentError{Message: "The Infisical server URL is invalid or insecure."}
+		return "", &errs.Argument{Message: "The Infisical server URL is invalid or insecure."}
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	if parsed.Host == "" || (scheme != "http" && scheme != "https") {
-		return "", &ArgumentError{Message: "The Infisical server URL is invalid or insecure."}
+		return "", &errs.Argument{Message: "The Infisical server URL is invalid or insecure."}
 	}
 	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawFragment != "" {
-		return "", &ArgumentError{Message: "The Infisical server URL is invalid or insecure."}
+		return "", &errs.Argument{Message: "The Infisical server URL is invalid or insecure."}
 	}
 	if parsed.Path != "" && parsed.Path != "/" {
-		return "", &ArgumentError{Message: "The Infisical server URL is invalid or insecure."}
+		return "", &errs.Argument{Message: "The Infisical server URL is invalid or insecure."}
 	}
 	port := parsed.Port()
 	if port == "" {
@@ -193,7 +194,7 @@ func parseInfisicalServerUri(serverValue string) (string, error) {
 		port = "" // Uri canonicalizes default ports away (GetLeftPart(Port omitted)).
 	}
 	if scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
-		return "", &ArgumentError{Message: "The Infisical server URL is invalid or insecure."}
+		return "", &errs.Argument{Message: "The Infisical server URL is invalid or insecure."}
 	}
 
 	authority := strings.ToLower(parsed.Hostname())
@@ -216,14 +217,14 @@ func isLoopbackHost(host string) bool {
 
 func infisicalRequireText(value string, maximum int, name string, allowSlash bool) (string, error) {
 	if isBlank(value) || len(value) > maximum {
-		return "", &ArgumentError{Message: fmt.Sprintf("The %s is invalid.", name)}
+		return "", &errs.Argument{Message: fmt.Sprintf("The %s is invalid.", name)}
 	}
 	for _, character := range value {
 		if unicode.IsControl(character) || unicode.IsSpace(character) {
-			return "", &ArgumentError{Message: fmt.Sprintf("The %s is invalid.", name)}
+			return "", &errs.Argument{Message: fmt.Sprintf("The %s is invalid.", name)}
 		}
 		if !allowSlash && character == '/' {
-			return "", &ArgumentError{Message: fmt.Sprintf("The %s is invalid.", name)}
+			return "", &errs.Argument{Message: fmt.Sprintf("The %s is invalid.", name)}
 		}
 	}
 	return value, nil
@@ -236,20 +237,20 @@ func infisicalResolveCredentialFile(value string, name string) (string, error) {
 		}
 	}
 	if isBlank(value) {
-		return "", &ArgumentError{Message: fmt.Sprintf("The %s file is required.", name)}
+		return "", &errs.Argument{Message: fmt.Sprintf("The %s file is required.", name)}
 	}
 	path, err := filepath.Abs(value)
 	if err != nil {
-		return "", &ArgumentError{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
+		return "", &errs.Argument{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
 	}
 	info, statErr := os.Stat(path)
 	linkInfo, linkErr := os.Lstat(path)
 	if statErr != nil || linkErr != nil || linkInfo.Mode()&os.ModeSymlink != 0 ||
 		info.Size() < 1 || info.Size() > 4096 {
-		return "", &ArgumentError{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
+		return "", &errs.Argument{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
 	}
 	if unixMode(linkInfo)&infisicalForbiddenCredentialMode != 0 {
-		return "", &ArgumentError{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
+		return "", &errs.Argument{Message: fmt.Sprintf("The %s file must be bounded, regular, and owner-private.", name)}
 	}
 	return path, nil
 }
@@ -546,7 +547,7 @@ func (s *InfisicalSecretStore) send(ctx context.Context, method string, relative
 		return &InvalidOperationError{Message: "Cannot access a disposed object."}
 	}
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The Infisical context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The Infisical context must not be nil."}
 	}
 	s.mu.Lock()
 	disposed := s.disposed
@@ -589,7 +590,7 @@ func (s *InfisicalSecretStore) ensureAuthenticated(ctx context.Context) error {
 		return &InvalidOperationError{Message: "Cannot access a disposed object."}
 	}
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The Infisical context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The Infisical context must not be nil."}
 	}
 	s.mu.Lock()
 	if s.disposed {
@@ -839,14 +840,14 @@ func (s *InfisicalSecretStore) requireDocument(document *secretDocument) (*secre
 
 func infisicalRequireSecretName(name string) error {
 	if isBlank(name) || len(name) > 256 || strings.ContainsFunc(name, unicode.IsControl) {
-		return &ArgumentError{Param: "name", Message: "The Infisical secret name is invalid."}
+		return &errs.Argument{Param: "name", Message: "The Infisical secret name is invalid."}
 	}
 	return nil
 }
 
 func infisicalRequireSecretValue(value string) error {
 	if len(value) > 1024*1024 {
-		return &ArgumentError{Param: "value", Message: "The Infisical secret value exceeds the supported bound."}
+		return &errs.Argument{Param: "value", Message: "The Infisical secret value exceeds the supported bound."}
 	}
 	return nil
 }
@@ -956,7 +957,7 @@ func InfisicalSecretEnvironmentLoad(ctx context.Context, configuration *Infisica
 // existing store.
 func InfisicalSecretEnvironmentLoadFromStore(ctx context.Context, store *InfisicalSecretStore) (*InfisicalSecretEnvironment, error) {
 	if store == nil {
-		return nil, &ArgumentError{Param: "store"}
+		return nil, &errs.Argument{Param: "store"}
 	}
 	if goruntime.GOOS != "linux" {
 		return nil, &PlatformNotSupportedError{

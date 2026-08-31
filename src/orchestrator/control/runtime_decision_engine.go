@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Runtime/RuntimeDecisionEngine.cs
 package control
 
 var RuntimeDecisionEngine runtimeDecisionEngine

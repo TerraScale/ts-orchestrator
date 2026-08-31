@@ -1,29 +1,11 @@
-// Package runtime ports TerraScale.Orchestrator.Runtime (the Runtime folder of
-// src/TerraScale.Orchestrator, including Runtime/Mcp).
-//
-// This file ports Runtime/AdmittedRoleCatalog.cs.
+// Package runtime defines workload admission and host execution plans.
 package runtime
 
 import (
 	"fmt"
-	"slices"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError mirrors System.ArgumentException thrown by the C# sources.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError mirrors System.ArgumentOutOfRangeException.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError mirrors System.InvalidOperationException.
 type InvalidOperationError struct {
@@ -43,49 +25,52 @@ func (e *InvalidDataError) Error() string { return e.Message }
 type AdmittedRole int
 
 const (
-	AdmittedRoleCustomerDashboard AdmittedRole = iota
-	AdmittedRoleTerraBaseMember
-	AdmittedRoleOrchestrator
-	AdmittedRoleControlNatsServer
-	AdmittedRoleProductNatsServer
-	AdmittedRoleGrafana
-	AdmittedRoleMetricsStore
-	AdmittedRoleLoki
-	AdmittedRoleTempo
-	AdmittedRoleAlertmanager
-	AdmittedRoleOtlpIngest
-	AdmittedRoleSyntheticCheck
-	AdmittedRoleRegionalTelemetryAgent
-	AdmittedRoleVpnCoordinationRelay
-	AdmittedRoleRoutePolicyController
-	AdmittedRoleCiRunner
-	AdmittedRoleJournalWriter
+	// Retained roles keep their v1 persisted values. New roles use values after
+	// the retired v1 range so old checkpoints cannot acquire a new meaning.
+	AdmittedRoleDashboard       AdmittedRole = 0
+	AdmittedRoleDatabaseAPI     AdmittedRole = 17
+	AdmittedRoleTerraBaseMember AdmittedRole = 1
+	AdmittedRoleNats            AdmittedRole = 3
+	AdmittedRoleAutoscaler      AdmittedRole = 2
+	AdmittedRoleJournalWriter   AdmittedRole = 16
 )
 
 func (r AdmittedRole) defined() bool {
-	return r >= AdmittedRoleCustomerDashboard && r <= AdmittedRoleJournalWriter
+	switch r {
+	case AdmittedRoleDashboard, AdmittedRoleDatabaseAPI, AdmittedRoleTerraBaseMember,
+		AdmittedRoleNats, AdmittedRoleAutoscaler, AdmittedRoleJournalWriter:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r AdmittedRole) String() string {
-	names := [...]string{
-		"CustomerDashboard", "TerraBaseMember", "Orchestrator", "ControlNatsServer",
-		"ProductNatsServer", "Grafana", "MetricsStore", "Loki", "Tempo", "Alertmanager",
-		"OtlpIngest", "SyntheticCheck", "RegionalTelemetryAgent", "VpnCoordinationRelay",
-		"RoutePolicyController", "CiRunner", "JournalWriter",
+	switch r {
+	case AdmittedRoleDashboard:
+		return "Dashboard"
+	case AdmittedRoleDatabaseAPI:
+		return "DatabaseAPI"
+	case AdmittedRoleTerraBaseMember:
+		return "TerraBaseMember"
+	case AdmittedRoleNats:
+		return "Nats"
+	case AdmittedRoleAutoscaler:
+		return "Autoscaler"
+	case AdmittedRoleJournalWriter:
+		return "JournalWriter"
+	default:
+		return fmt.Sprintf("AdmittedRole(%d)", int(r))
 	}
-	if r >= 0 && int(r) < len(names) {
-		return names[r]
-	}
-	return fmt.Sprintf("AdmittedRole(%d)", int(r))
 }
 
 // AllAdmittedRoles lists every role in declared order.
 var AllAdmittedRoles = []AdmittedRole{
-	AdmittedRoleCustomerDashboard, AdmittedRoleTerraBaseMember, AdmittedRoleOrchestrator,
-	AdmittedRoleControlNatsServer, AdmittedRoleProductNatsServer, AdmittedRoleGrafana,
-	AdmittedRoleMetricsStore, AdmittedRoleLoki, AdmittedRoleTempo, AdmittedRoleAlertmanager,
-	AdmittedRoleOtlpIngest, AdmittedRoleSyntheticCheck, AdmittedRoleRegionalTelemetryAgent,
-	AdmittedRoleVpnCoordinationRelay, AdmittedRoleRoutePolicyController, AdmittedRoleCiRunner,
+	AdmittedRoleDashboard,
+	AdmittedRoleDatabaseAPI,
+	AdmittedRoleTerraBaseMember,
+	AdmittedRoleNats,
+	AdmittedRoleAutoscaler,
 	AdmittedRoleJournalWriter,
 }
 
@@ -120,21 +105,11 @@ const (
 	RoleCapabilityProductDatabase
 	RoleCapabilityControlAuthority
 	RoleCapabilityControlMessaging
-	RoleCapabilityProductMessaging
-	RoleCapabilityTelemetryQuery
-	RoleCapabilityTelemetryIngest
-	RoleCapabilityAlerting
-	RoleCapabilitySyntheticProbe
-	RoleCapabilityNetworkCoordination
-	RoleCapabilityRoutePolicy
-	RoleCapabilityIsolatedBuild
 )
 
 func (c RoleCapability) String() string {
 	names := [...]string{
 		"PublicHttp", "ProductDatabase", "ControlAuthority", "ControlMessaging",
-		"ProductMessaging", "TelemetryQuery", "TelemetryIngest", "Alerting",
-		"SyntheticProbe", "NetworkCoordination", "RoutePolicy", "IsolatedBuild",
 	}
 	if c >= 0 && int(c) < len(names) {
 		return names[c]
@@ -153,23 +128,19 @@ type AdmittedRoleDescriptor struct {
 	MinimumReplicas int
 }
 
-// AdmittedRoleCatalog ports the static AdmittedRoleCatalog class; call it as
-// runtime.AdmittedRoleCatalog.Get(role) to mirror the C# call site.
+// AdmittedRoleCatalog exposes the closed descriptor catalog.
 var AdmittedRoleCatalog admittedRoleCatalog
 
 type admittedRoleCatalog struct{}
 
 var admittedRoleDescriptors = map[AdmittedRole]AdmittedRoleDescriptor{}
 
-// All returns every descriptor ordered by role.
+// All returns every descriptor in declared catalog order.
 func (admittedRoleCatalog) All() []AdmittedRoleDescriptor {
-	all := make([]AdmittedRoleDescriptor, 0, len(admittedRoleDescriptors))
-	for _, descriptor := range admittedRoleDescriptors {
-		all = append(all, descriptor)
+	all := make([]AdmittedRoleDescriptor, 0, len(AllAdmittedRoles))
+	for _, role := range AllAdmittedRoles {
+		all = append(all, admittedRoleDescriptors[role])
 	}
-	slices.SortFunc(all, func(left, right AdmittedRoleDescriptor) int {
-		return int(left.Role) - int(right.Role)
-	})
 	return all
 }
 
@@ -178,7 +149,7 @@ func (admittedRoleCatalog) Get(role AdmittedRole) (AdmittedRoleDescriptor, error
 	if descriptor, present := admittedRoleDescriptors[role]; present {
 		return descriptor, nil
 	}
-	return AdmittedRoleDescriptor{}, &ArgumentOutOfRangeError{
+	return AdmittedRoleDescriptor{}, &errs.ArgumentOutOfRangeError{
 		Param:   "role",
 		Message: "The workload role is not admitted.",
 	}
@@ -217,7 +188,7 @@ func init() {
 			MinimumReplicas: minimumReplicas,
 		}
 	}
-	oci := func(role AdmittedRole, artifactKey string, capabilities ...RoleCapability) AdmittedRoleDescriptor {
+	oci := func(role AdmittedRole, artifactKey string, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
 		return AdmittedRoleDescriptor{
 			Role:            role,
 			ArtifactKey:     artifactKey,
@@ -225,7 +196,7 @@ func init() {
 			AllowedDrivers:  []RuntimeDriver{RuntimeDriverOciContainer},
 			Capabilities:    capabilities,
 			OnePerHost:      false,
-			MinimumReplicas: 1,
+			MinimumReplicas: minimumReplicas,
 		}
 	}
 	both := func(role AdmittedRole, artifactKey string, defaultDriver RuntimeDriver, onePerHost bool, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
@@ -240,22 +211,11 @@ func init() {
 		}
 	}
 	for _, descriptor := range []AdmittedRoleDescriptor{
-		oci(AdmittedRoleCustomerDashboard, "terrascale-dashboard", RoleCapabilityPublicHttp),
-		both(AdmittedRoleTerraBaseMember, "terrabase-server", RuntimeDriverNativeSystemd, true, 3, RoleCapabilityProductDatabase),
-		native(AdmittedRoleOrchestrator, "terrascale-orchestrator", true, 3, RoleCapabilityControlAuthority),
-		native(AdmittedRoleControlNatsServer, "nats-server-control", true, 3, RoleCapabilityControlMessaging),
-		native(AdmittedRoleProductNatsServer, "nats-server-product", true, 3, RoleCapabilityProductMessaging),
-		oci(AdmittedRoleGrafana, "grafana", RoleCapabilityTelemetryQuery),
-		oci(AdmittedRoleMetricsStore, "victoriametrics", RoleCapabilityTelemetryQuery),
-		oci(AdmittedRoleLoki, "loki", RoleCapabilityTelemetryQuery),
-		oci(AdmittedRoleTempo, "tempo", RoleCapabilityTelemetryQuery),
-		oci(AdmittedRoleAlertmanager, "alertmanager", RoleCapabilityAlerting),
-		oci(AdmittedRoleOtlpIngest, "alloy-gru", RoleCapabilityTelemetryIngest),
-		oci(AdmittedRoleSyntheticCheck, "terrascale-synthetic-check", RoleCapabilitySyntheticProbe),
-		oci(AdmittedRoleRegionalTelemetryAgent, "alloy-regional", RoleCapabilityTelemetryIngest),
-		oci(AdmittedRoleVpnCoordinationRelay, "netbird-relay", RoleCapabilityNetworkCoordination),
-		native(AdmittedRoleRoutePolicyController, "terrascale-route-policy", false, 1, RoleCapabilityRoutePolicy),
-		oci(AdmittedRoleCiRunner, "terrascale-ci-runner", RoleCapabilityIsolatedBuild),
+		oci(AdmittedRoleDashboard, "terrascale-dashboard", 1, RoleCapabilityPublicHttp),
+		oci(AdmittedRoleDatabaseAPI, "terrascale-database", 2, RoleCapabilityPublicHttp),
+		both(AdmittedRoleTerraBaseMember, "terrabase-server", RuntimeDriverNativeSystemd, true, 2, RoleCapabilityProductDatabase),
+		native(AdmittedRoleNats, "nats-server", true, 3, RoleCapabilityControlMessaging),
+		native(AdmittedRoleAutoscaler, "terrascale-orchestrator", true, 3, RoleCapabilityControlAuthority),
 		native(AdmittedRoleJournalWriter, "terrascale-orchestrator", true, 3, RoleCapabilityControlMessaging),
 	} {
 		admittedRoleDescriptors[descriptor.Role] = descriptor

@@ -8,6 +8,8 @@ package stateful
 import (
 	"fmt"
 	"sort"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // DrainSafetyEvaluator is the seam every drain path must consult before a
@@ -30,7 +32,7 @@ type DrainPolicy struct {
 // caught-up replica (LagBytes zero) can always pass it.
 func NewDrainPolicy(maxLagBytes int64) (DrainPolicy, error) {
 	if maxLagBytes < 1 {
-		return DrainPolicy{}, &ArgumentOutOfRangeError{
+		return DrainPolicy{}, &errs.ArgumentOutOfRangeError{
 			Param:   "maxLagBytes",
 			Message: "The drain lag bound must be positive.",
 		}
@@ -75,7 +77,7 @@ func (e *ReplicaDrainSafetyEvaluator) EvaluateDrainSafety(
 		return DrainDecision{}, err
 	}
 	if len(peers) > statefulMaximumReplicaCount {
-		return DrainDecision{}, &ArgumentError{
+		return DrainDecision{}, &errs.Argument{
 			Param:   "peers",
 			Message: fmt.Sprintf("Peer input exceeds the bound of %d entries.", statefulMaximumReplicaCount),
 		}
@@ -169,19 +171,19 @@ func NewDrainingAllocation(
 	}
 	if stateful {
 		if replica == nil {
-			return DrainingAllocation{}, &ArgumentError{
+			return DrainingAllocation{}, &errs.Argument{
 				Param:   "replica",
 				Message: "A stateful allocation carries its replica observation.",
 			}
 		}
 		if replica.RoleKind != validatedRole || replica.AllocationId != validatedAllocation {
-			return DrainingAllocation{}, &ArgumentError{
+			return DrainingAllocation{}, &errs.Argument{
 				Param:   "replica",
 				Message: "The replica observation must match the allocation identity.",
 			}
 		}
 	} else if replica != nil {
-		return DrainingAllocation{}, &ArgumentError{
+		return DrainingAllocation{}, &errs.Argument{
 			Param:   "replica",
 			Message: "A stateless allocation carries no replica observation.",
 		}
@@ -220,7 +222,7 @@ func NewCordonedNodeObservation(nodeId string, allocations []DrainingAllocation)
 		return CordonedNodeObservation{}, err
 	}
 	if len(allocations) > statefulMaximumReplicaCount {
-		return CordonedNodeObservation{}, &ArgumentError{
+		return CordonedNodeObservation{}, &errs.Argument{
 			Param: "allocations",
 			Message: fmt.Sprintf("Allocation input exceeds the bound of %d entries.",
 				statefulMaximumReplicaCount),
@@ -235,7 +237,7 @@ func NewCordonedNodeObservation(nodeId string, allocations []DrainingAllocation)
 			return CordonedNodeObservation{}, err
 		}
 		if _, duplicate := seen[revalidated.AllocationId]; duplicate {
-			return CordonedNodeObservation{}, &ArgumentError{
+			return CordonedNodeObservation{}, &errs.Argument{
 				Param:   "allocations",
 				Message: "An allocation may appear only once per node.",
 			}
@@ -280,7 +282,7 @@ type DrainStep struct {
 // NewDrainStep validates one drain step.
 func NewDrainStep(kind DrainStepKind, allocationId string, roleKind string) (DrainStep, error) {
 	if !kind.defined() {
-		return DrainStep{}, &ArgumentOutOfRangeError{Param: "kind"}
+		return DrainStep{}, &errs.ArgumentOutOfRangeError{Param: "kind"}
 	}
 	validatedAllocation, err := requireStatefulToken(allocationId, "allocationId",
 		"Allocation ID must be a lowercase DNS-style token.")
@@ -323,7 +325,7 @@ func NewNodeDrainPlan(nodeId string, steps []DrainStep, decision DrainDecision) 
 		return NodeDrainPlan{}, err
 	}
 	if len(steps) > statefulMaximumReplicaCount {
-		return NodeDrainPlan{}, &ArgumentError{
+		return NodeDrainPlan{}, &errs.Argument{
 			Param: "steps",
 			Message: fmt.Sprintf("Drain step input exceeds the bound of %d entries.",
 				statefulMaximumReplicaCount),
@@ -377,7 +379,7 @@ type NodeDrainCoordinator struct {
 // DrainSafetyEvaluator.
 func NewNodeDrainCoordinator(evaluator DrainSafetyEvaluator) (*NodeDrainCoordinator, error) {
 	if evaluator == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "evaluator",
 			Message: "A drain safety evaluator is required.",
 		}

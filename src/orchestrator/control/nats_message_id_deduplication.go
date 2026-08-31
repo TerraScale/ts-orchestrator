@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsMessageIdDeduplication.cs.
 package control
 
 import (

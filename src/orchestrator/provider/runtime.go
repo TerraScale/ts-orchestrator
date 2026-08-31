@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"sync"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // ProviderActuator is the only execution seam a regional control runtime needs.
@@ -61,14 +63,14 @@ type MemoryOwnershipJournal struct {
 
 func NewMemoryOwnershipJournal(max int) (*MemoryOwnershipJournal, error) {
 	if max < 1 || max > MaximumOperationEvidenceCount {
-		return nil, &ArgumentOutOfRangeError{Param: "max"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "max"}
 	}
 	return &MemoryOwnershipJournal{records: make(map[string]ProviderOwnershipRecord), max: max}, nil
 }
 
 func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwnershipRecord) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if j == nil {
 		return &InvalidOperationError{Message: "ownership journal is unavailable"}
@@ -77,7 +79,7 @@ func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwne
 		return err
 	}
 	if record.ResourceId.Value == "" || record.CellId.Value == "" || record.CompartmentId.Value == "" || record.Generation.Value == 0 {
-		return &ArgumentError{Message: "ownership record is incomplete"}
+		return &errs.Argument{Message: "ownership record is incomplete"}
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -90,7 +92,7 @@ func (j *MemoryOwnershipJournal) Record(ctx context.Context, record ProviderOwne
 
 func (j *MemoryOwnershipJournal) Lookup(ctx context.Context, id ProviderResourceId) (ProviderOwnershipRecord, bool, error) {
 	if ctx == nil {
-		return ProviderOwnershipRecord{}, false, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ProviderOwnershipRecord{}, false, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if j == nil {
 		return ProviderOwnershipRecord{}, false, &InvalidOperationError{Message: "ownership journal is unavailable"}

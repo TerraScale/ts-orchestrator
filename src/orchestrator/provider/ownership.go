@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func definedResourceKind(v ProviderResourceKind) bool {
@@ -26,13 +28,13 @@ func definedCallStatus(v ProviderCallStatus) bool {
 }
 func copyApprovals(in []ProviderApproval) ([]ProviderApproval, error) {
 	if len(in) > MaximumApprovalCount {
-		return nil, &ArgumentError{Param: "approvals", Message: "provider approval input exceeds its bound"}
+		return nil, &errs.Argument{Param: "approvals", Message: "provider approval input exceeds its bound"}
 	}
 	out := append([]ProviderApproval(nil), in...)
 	seen := map[ProviderApproval]bool{}
 	for _, v := range out {
 		if v < ApprovalRegionalAuthority || v > ApprovalSecurityReview || seen[v] {
-			return nil, &ArgumentError{Param: "approvals", Message: "provider approvals must be defined and unique"}
+			return nil, &errs.Argument{Param: "approvals", Message: "provider approvals must be defined and unique"}
 		}
 		seen[v] = true
 	}
@@ -41,13 +43,13 @@ func copyApprovals(in []ProviderApproval) ([]ProviderApproval, error) {
 }
 func copyCompensations(in []ProviderCompensation) ([]ProviderCompensation, error) {
 	if len(in) > MaximumCompensationCount {
-		return nil, &ArgumentError{Param: "permittedCompensations", Message: "provider compensation input exceeds its bound"}
+		return nil, &errs.Argument{Param: "permittedCompensations", Message: "provider compensation input exceeds its bound"}
 	}
 	out := append([]ProviderCompensation(nil), in...)
 	seen := map[ProviderCompensation]bool{}
 	for _, v := range out {
 		if v < CompensationObserveOnly || v > CompensationDeregisterNewBackend || seen[v] {
-			return nil, &ArgumentError{Param: "permittedCompensations", Message: "provider compensations must be defined and unique"}
+			return nil, &errs.Argument{Param: "permittedCompensations", Message: "provider compensations must be defined and unique"}
 		}
 		seen[v] = true
 	}
@@ -69,10 +71,10 @@ func NewProviderOperationContext(operationID ProviderOperationId, cellID Provide
 		return ProviderOperationContext{}, err
 	}
 	if operationID.Value == "" || cellID.Value == "" || compartmentID.Value == "" || epoch.Value == 0 || generation.Value == 0 || idempotency.Value == "" || target == nil || params == nil {
-		return ProviderOperationContext{}, &ArgumentError{Message: "provider operation context is incomplete"}
+		return ProviderOperationContext{}, &errs.Argument{Message: "provider operation context is incomplete"}
 	}
 	if !definedResourceKind(kind) || !definedAction(action) || !definedObserved(observed) || !definedTerminal(terminal) || deadline.EvidenceGeneration.Value == 0 {
-		return ProviderOperationContext{}, &ArgumentOutOfRangeError{Param: "context"}
+		return ProviderOperationContext{}, &errs.ArgumentOutOfRangeError{Param: "context"}
 	}
 	if err := validateProviderParameters(params); err != nil {
 		return ProviderOperationContext{}, err
@@ -98,10 +100,10 @@ func NewProviderOperationContext(operationID ProviderOperationId, cellID Provide
 	}
 	if isCreate {
 		if _, ok := target.(IdempotentProviderCreate); !ok {
-			return ProviderOperationContext{}, &ArgumentError{Message: "create actions require a create key"}
+			return ProviderOperationContext{}, &errs.Argument{Message: "create actions require a create key"}
 		}
 	} else if _, ok := target.(ExistingProviderResource); !ok {
-		return ProviderOperationContext{}, &ArgumentError{Message: "non-create actions require an existing resource target"}
+		return ProviderOperationContext{}, &errs.Argument{Message: "non-create actions require an existing resource target"}
 	}
 	return ProviderOperationContext{operationID, cellID, compartmentID, epoch, kind, action, target, generation, observed, terminal, a, deadline, idempotency, c, params}, nil
 }
@@ -120,15 +122,15 @@ func validateProviderParameters(params ProviderActionParameters) error {
 		}
 	case CreateVolumeProviderParameters:
 		if p.Size.Value == 0 || !definedPerformance(p.Performance) {
-			return &ArgumentOutOfRangeError{Param: "createVolumeParameters"}
+			return &errs.ArgumentOutOfRangeError{Param: "createVolumeParameters"}
 		}
 	case ExpandVolumeProviderParameters:
 		if p.NewSize.Value == 0 {
-			return &ArgumentOutOfRangeError{Param: "newSize"}
+			return &errs.ArgumentOutOfRangeError{Param: "newSize"}
 		}
 	case ChangeVolumePerformanceProviderParameters:
 		if !definedPerformance(p.Performance) {
-			return &ArgumentOutOfRangeError{Param: "performance"}
+			return &errs.ArgumentOutOfRangeError{Param: "performance"}
 		}
 	case AttachVolumeProviderParameters:
 		if _, err := nativeToken(p.VolumeId.Value, "volumeId"); err != nil {
@@ -147,27 +149,27 @@ func validateProviderParameters(params ProviderActionParameters) error {
 		}
 	case ObserveProviderParameters, StartNodeProviderParameters, StopNodeProviderParameters, TerminateNodeProviderParameters, DetachVolumeProviderParameters:
 	default:
-		return &ArgumentError{Message: "unsupported provider action parameters"}
+		return &errs.Argument{Message: "unsupported provider action parameters"}
 	}
 	return nil
 }
 
 func NewDeadlineEvidence(status DeadlineEvidenceStatus, generation ProviderGeneration) (DeadlineEvidence, error) {
 	if status < DeadlineValid || status > DeadlineUnknown || generation.Value == 0 {
-		return DeadlineEvidence{}, &ArgumentOutOfRangeError{Param: "deadline"}
+		return DeadlineEvidence{}, &errs.ArgumentOutOfRangeError{Param: "deadline"}
 	}
 	return DeadlineEvidence{status, generation}, nil
 }
 
 func snapshot[T any](in []T, max int, param string) ([]T, error) {
 	if len(in) > max {
-		return nil, &ArgumentError{Param: param, Message: "provider evidence input exceeds its bound"}
+		return nil, &errs.Argument{Param: param, Message: "provider evidence input exceeds its bound"}
 	}
 	return append([]T(nil), in...), nil
 }
 func NewProviderAuthorizationRequest(context ProviderOperationContext, authority *RegionalProviderAuthority, ownership []ProviderOwnershipRecord, tags []ProviderInventoryTagEvidence, completeness ProviderObservationCompleteness, observations []ProviderResourceObservation, creates []ProviderCreateObservation, required []ProviderApproval, prior *DurableProviderAuthorization, call ProviderCallEvidence) (ProviderAuthorizationRequest, error) {
 	if completeness != EvidenceComplete && completeness != EvidenceIncomplete {
-		return ProviderAuthorizationRequest{}, &ArgumentOutOfRangeError{Param: "observationCompleteness"}
+		return ProviderAuthorizationRequest{}, &errs.ArgumentOutOfRangeError{Param: "observationCompleteness"}
 	}
 	o, err := snapshot(ownership, MaximumOperationEvidenceCount, "ownershipRecords")
 	if err != nil {
@@ -613,11 +615,11 @@ func NewHandoffScope(cell ProviderCellId, compartment ProviderCompartmentId, gen
 func NewFreshBootstrapInventory(expected, pulumi, regional []HandoffInventoryItem) (FreshBootstrapInventory, error) {
 	for _, x := range [][]HandoffInventoryItem{expected, pulumi, regional} {
 		if len(x) > MaximumHandoffInventoryCount {
-			return FreshBootstrapInventory{}, &ArgumentError{Message: "handoff inventory exceeds its bound"}
+			return FreshBootstrapInventory{}, &errs.Argument{Message: "handoff inventory exceeds its bound"}
 		}
 		for _, item := range x {
 			if !validHandoffInventoryItem(item) {
-				return FreshBootstrapInventory{}, &ArgumentError{Message: "handoff inventory contains an invalid resource"}
+				return FreshBootstrapInventory{}, &errs.Argument{Message: "handoff inventory contains an invalid resource"}
 			}
 		}
 	}

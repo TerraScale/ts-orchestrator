@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // statefulTokenPattern accepts the bounded canonical token vocabulary of
@@ -34,7 +36,7 @@ const (
 func requireStatefulToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > statefulMaximumTokenLength ||
 		!statefulTokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: message}
+		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
 }
@@ -93,7 +95,7 @@ type StatefulPlacementPolicy struct {
 // allocation's persistent volume; zero disables the locality preference.
 func NewStatefulPlacementPolicy(localityPenalty int64) (*StatefulPlacementPolicy, error) {
 	if localityPenalty < 0 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "localityPenalty",
 			Message: "The locality penalty must be non-negative.",
 		}
@@ -121,7 +123,7 @@ func (p *StatefulPlacementPolicy) StatefulAntiAffinityReason(
 		return PlacementReason{}, err
 	}
 	if candidate == nil {
-		return PlacementReason{}, &ArgumentError{
+		return PlacementReason{}, &errs.Argument{
 			Param:   "candidate",
 			Message: "A node candidate is required.",
 		}
@@ -148,13 +150,13 @@ func (p *StatefulPlacementPolicy) ApplyStatefulLocality(
 		return nil, err
 	}
 	if candidate == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "candidate",
 			Message: "A node candidate is required.",
 		}
 	}
 	if score == nil || score.WeightedWaste == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "score",
 			Message: "A weighted waste score is required.",
 		}
@@ -186,16 +188,16 @@ func ScheduleStateful(
 	allocationId string,
 ) (ScheduleResult, error) {
 	if workload == nil {
-		return nil, &ArgumentError{Param: "workload"}
+		return nil, &errs.Argument{Param: "workload"}
 	}
 	if candidates == nil {
-		return nil, &ArgumentError{Param: "candidates"}
+		return nil, &errs.Argument{Param: "candidates"}
 	}
 	if policy == nil {
-		return nil, &ArgumentError{Param: "policy"}
+		return nil, &errs.Argument{Param: "policy"}
 	}
 	if statefulPolicy == nil {
-		return nil, &ArgumentError{Param: "statefulPolicy"}
+		return nil, &errs.Argument{Param: "statefulPolicy"}
 	}
 	validatedRole, err := requireStatefulToken(roleKind, "roleKind",
 		"Role kind must be a lowercase DNS-style token.")
@@ -354,7 +356,7 @@ func snapshotStatefulCandidates(candidates []*NodeCandidate) ([]*NodeCandidate, 
 	}
 	for _, candidate := range supplied {
 		if candidate == nil {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "candidates",
 				Message: "Candidate collections cannot contain null.",
 			}
@@ -365,7 +367,7 @@ func snapshotStatefulCandidates(candidates []*NodeCandidate) ([]*NodeCandidate, 
 	})
 	for index := 1; index < len(supplied); index++ {
 		if supplied[index-1].Id == supplied[index].Id {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "candidates",
 				Message: "Candidate IDs must be unique.",
 			}

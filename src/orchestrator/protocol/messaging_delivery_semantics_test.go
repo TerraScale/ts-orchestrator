@@ -1,7 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/MessagingDeliverySemanticsTests.cs.
-// The test pinning the landed policy against the NatsTopology and
-// GlobalNatsTopology CellSpec consumer profiles is skipped until the control
-// package is ported.
 package protocol
 
 import (

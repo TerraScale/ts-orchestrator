@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/ControlPlane/Budgets/BudgetDecision.cs
 package control
 
 type BudgetDecisionKind int

@@ -1,4 +1,3 @@
-// Port of tests/TerraScale.Orchestrator.Protocol.Tests/DurableWorkInventoryTests.cs.
 package protocol
 
 import (

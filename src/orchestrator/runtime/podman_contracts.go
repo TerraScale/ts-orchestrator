@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // PodmanAllocationState is the observed rootless-podman allocation state.
@@ -81,7 +83,7 @@ const PodmanLabelFingerprint = "terrascale.fingerprint"
 // (the same DNS-style token RuntimeAllocationId admits).
 func requirePodmanToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > 63 || !runtimeAllocationTokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: message}
+		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
 }
@@ -90,14 +92,14 @@ func requirePodmanToken(value, param, message string) (string, error) {
 // empty, dot, or dot-dot segments; the filesystem root itself is rejected.
 func requirePodmanAbsolutePath(value, param string) (string, error) {
 	if len(value) < 2 || len(value) > podmanMaximumPathLength || !strings.HasPrefix(value, "/") {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "A bounded absolute path is required.",
 		}
 	}
 	for _, segment := range strings.Split(value[1:], "/") {
 		if segment == "" || segment == "." || segment == ".." {
-			return "", &ArgumentError{
+			return "", &errs.Argument{
 				Param:   param,
 				Message: "Path segments must be nonempty and cannot traverse upward.",
 			}
@@ -111,7 +113,7 @@ func requirePodmanAbsolutePath(value, param string) (string, error) {
 func requirePodmanImageReference(value, param string) (string, error) {
 	if value == "" || len(value) > podmanMaximumImageReferenceLength ||
 		strings.HasPrefix(value, "-") || strings.ContainsFunc(value, isSpaceOrControlRune) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "Image reference must be bounded, whitespace-free, and flag-safe.",
 		}
@@ -127,7 +129,7 @@ func isSpaceOrControlRune(r rune) bool { return r <= 0x20 || r == 0x7f }
 func requirePodmanLabels(labels map[string]string) (map[string]string, error) {
 	snapshot := make(map[string]string, len(labels))
 	if len(labels) > podmanMaximumLabelCount {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param: "labels",
 			Message: fmt.Sprintf("Label input exceeds the bound of %d entries.",
 				podmanMaximumLabelCount),
@@ -135,14 +137,14 @@ func requirePodmanLabels(labels map[string]string) (map[string]string, error) {
 	}
 	for key, value := range labels {
 		if len(key) < 1 || len(key) > podmanMaximumLabelKeyLength || !podmanLabelKeyPattern.MatchString(key) {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "labels",
 				Message: "Label keys must be dot-separated lowercase DNS-style tokens.",
 			}
 		}
 		if value == "" || len(value) > podmanMaximumLabelValueLength ||
 			strings.HasPrefix(value, "-") || strings.ContainsFunc(value, isSpaceOrControlRune) {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "labels",
 				Message: "Label values must be nonempty, bounded, and control-free.",
 			}
@@ -159,14 +161,14 @@ func requirePodmanLabels(labels map[string]string) (map[string]string, error) {
 func requirePodmanFencingLabels(labels map[string]string) error {
 	allocation, ok := labels[PodmanLabelAllocation]
 	if !ok {
-		return &ArgumentError{Param: "labels", Message: "A podman allocation fencing label is required."}
+		return &errs.Argument{Param: "labels", Message: "A podman allocation fencing label is required."}
 	}
 	if _, err := requirePodmanToken(allocation, "labels", "The podman allocation fencing label is invalid."); err != nil {
 		return err
 	}
 	fingerprint, ok := labels[PodmanLabelFingerprint]
 	if !ok || len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint || !isLowercaseHexDigest(fingerprint) {
-		return &ArgumentError{Param: "labels", Message: "A canonical podman plan fingerprint fencing label is required."}
+		return &errs.Argument{Param: "labels", Message: "A canonical podman plan fingerprint fencing label is required."}
 	}
 	return nil
 }
@@ -175,11 +177,11 @@ func requirePodmanFencingLabels(labels map[string]string) error {
 // under the user slice, for example terrascale/<allocation>.
 func requirePodmanCgroupParent(value, param string) (string, error) {
 	if value == "" {
-		return "", &ArgumentError{Param: param, Message: "A cgroup parent is required."}
+		return "", &errs.Argument{Param: param, Message: "A cgroup parent is required."}
 	}
 	segments := strings.Split(value, "/")
 	if len(segments) > podmanMaximumCgroupParentDepth {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param: param,
 			Message: fmt.Sprintf("Cgroup parent depth must not exceed %d segments.",
 				podmanMaximumCgroupParentDepth),
@@ -215,24 +217,24 @@ func NewPodmanAllocationObservation(
 	platform ...string,
 ) (PodmanAllocationObservation, error) {
 	if len(platform) > 1 {
-		return PodmanAllocationObservation{}, &ArgumentError{Param: "platform", Message: "At most one platform may be supplied."}
+		return PodmanAllocationObservation{}, &errs.Argument{Param: "platform", Message: "At most one platform may be supplied."}
 	}
 	observedPlatform := ""
 	if len(platform) == 1 {
 		observedPlatform = platform[0]
 	}
 	if !state.defined() {
-		return PodmanAllocationObservation{}, &ArgumentOutOfRangeError{Param: "state"}
+		return PodmanAllocationObservation{}, &errs.ArgumentOutOfRangeError{Param: "state"}
 	}
 	if running != (state == PodmanAllocationStateRunning) {
-		return PodmanAllocationObservation{}, &ArgumentError{
+		return PodmanAllocationObservation{}, &errs.Argument{
 			Param:   "running",
 			Message: "Running must be true exactly when the allocation state is Running.",
 		}
 	}
 	if state == PodmanAllocationStateAbsent {
 		if imageReference != "" || observedPlatform != "" || len(labels) > 0 {
-			return PodmanAllocationObservation{}, &ArgumentError{
+			return PodmanAllocationObservation{}, &errs.Argument{
 				Param:   "state",
 				Message: "An absent allocation carries no image reference and no labels.",
 			}
@@ -339,19 +341,19 @@ func NewPodmanRunRequest(
 		return PodmanRunRequest{}, err
 	}
 	if platform != "linux/amd64" && platform != "linux/arm64" {
-		return PodmanRunRequest{}, &ArgumentOutOfRangeError{
+		return PodmanRunRequest{}, &errs.ArgumentOutOfRangeError{
 			Param:   "platform",
 			Message: "Platform must be linux/amd64 or linux/arm64.",
 		}
 	}
 	if runAsUser == 0 {
-		return PodmanRunRequest{}, &ArgumentError{
+		return PodmanRunRequest{}, &errs.Argument{
 			Param:   "runAsUser",
 			Message: "The rootless container must run as a nonzero UID.",
 		}
 	}
 	if runAsGroup == 0 {
-		return PodmanRunRequest{}, &ArgumentError{
+		return PodmanRunRequest{}, &errs.Argument{
 			Param:   "runAsGroup",
 			Message: "The rootless container must run as a nonzero GID.",
 		}
@@ -361,7 +363,7 @@ func NewPodmanRunRequest(
 		return PodmanRunRequest{}, err
 	}
 	if len(capDrop) == 0 {
-		return PodmanRunRequest{}, &ArgumentError{
+		return PodmanRunRequest{}, &errs.Argument{
 			Param:   "capDrop",
 			Message: "At least one capability drop is required.",
 		}
@@ -371,7 +373,7 @@ func NewPodmanRunRequest(
 	for _, capability := range capDrop {
 		if len(capability) < 1 || len(capability) > podmanMaximumCapabilityLength ||
 			!podmanCapabilityPattern.MatchString(capability) {
-			return PodmanRunRequest{}, &ArgumentError{
+			return PodmanRunRequest{}, &errs.Argument{
 				Param:   "capDrop",
 				Message: "Dropped capabilities must be uppercase tokens.",
 			}
@@ -382,39 +384,39 @@ func NewPodmanRunRequest(
 		dropped = append(dropped, capability)
 	}
 	if !droppedAll {
-		return PodmanRunRequest{}, &ArgumentError{
+		return PodmanRunRequest{}, &errs.Argument{
 			Param:   "capDrop",
 			Message: "The ALL capability drop is required.",
 		}
 	}
 	if memoryMaxBytes < runtimeMinimumMemoryBytes {
-		return PodmanRunRequest{}, &ArgumentOutOfRangeError{
+		return PodmanRunRequest{}, &errs.ArgumentOutOfRangeError{
 			Param: "memoryMaxBytes",
 			Message: fmt.Sprintf("Memory limit must be at least %d bytes.",
 				runtimeMinimumMemoryBytes),
 		}
 	}
 	if pidsLimit < podmanMinimumPidsLimit {
-		return PodmanRunRequest{}, &ArgumentOutOfRangeError{
+		return PodmanRunRequest{}, &errs.ArgumentOutOfRangeError{
 			Param:   "pidsLimit",
 			Message: fmt.Sprintf("PID limit must be at least %d.", podmanMinimumPidsLimit),
 		}
 	}
 	if cpuQuotaPercent < 10 || cpuQuotaPercent > podmanMaximumCpuQuotaPercent {
-		return PodmanRunRequest{}, &ArgumentOutOfRangeError{
+		return PodmanRunRequest{}, &errs.ArgumentOutOfRangeError{
 			Param: "cpuQuotaPercent",
 			Message: fmt.Sprintf("CPU quota must be between 10 and %d percent.",
 				podmanMaximumCpuQuotaPercent),
 		}
 	}
 	if cpuWeight < 1 || cpuWeight > podmanMaximumCpuWeight {
-		return PodmanRunRequest{}, &ArgumentOutOfRangeError{
+		return PodmanRunRequest{}, &errs.ArgumentOutOfRangeError{
 			Param:   "cpuWeight",
 			Message: fmt.Sprintf("CPU weight must be between 1 and %d.", podmanMaximumCpuWeight),
 		}
 	}
 	if len(volumes) > podmanMaximumVolumeCount {
-		return PodmanRunRequest{}, &ArgumentError{
+		return PodmanRunRequest{}, &errs.Argument{
 			Param: "volumes",
 			Message: fmt.Sprintf("Volume input exceeds the bound of %d entries.",
 				podmanMaximumVolumeCount),
@@ -429,13 +431,13 @@ func NewPodmanRunRequest(
 			return PodmanRunRequest{}, err
 		}
 		if _, duplicate := seenVolumeNames[validated.VolumeName]; duplicate {
-			return PodmanRunRequest{}, &ArgumentError{
+			return PodmanRunRequest{}, &errs.Argument{
 				Param:   "volumes",
 				Message: "A named volume may be mounted only once per allocation.",
 			}
 		}
 		if _, duplicate := seenDestinations[validated.Destination]; duplicate {
-			return PodmanRunRequest{}, &ArgumentError{
+			return PodmanRunRequest{}, &errs.Argument{
 				Param:   "volumes",
 				Message: "Volume destinations must be unique.",
 			}
@@ -513,7 +515,7 @@ type RootlessPodmanContext struct {
 // never silently degrade to podman's built-in default.
 func ValidateRootlessContext(rootless RootlessPodmanContext) error {
 	if rootless.RunAsUid == 0 {
-		return &ArgumentError{
+		return &errs.Argument{
 			Param:   "RunAsUid",
 			Message: "Rootless podman must never run as uid 0.",
 		}

@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // ProcessPodmanClient implements PodmanClient by exec-ing the podman binary
@@ -40,7 +42,7 @@ func NewProcessPodmanClient(
 		return nil, err
 	}
 	if commandRunner == nil {
-		return nil, &ArgumentError{Param: "commandRunner", Message: "A host command runner is required."}
+		return nil, &errs.Argument{Param: "commandRunner", Message: "A host command runner is required."}
 	}
 	return &ProcessPodmanClient{rootless: rootless, commandRunner: commandRunner}, nil
 }
@@ -246,7 +248,7 @@ func (c *ProcessPodmanClient) EnsureVolume(ctx context.Context, name string) err
 // a process is ever spawned.
 func (c *ProcessPodmanClient) podman(ctx context.Context, arguments []string) (HostCommandResult, error) {
 	if ctx == nil {
-		return HostCommandResult{}, &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
+		return HostCommandResult{}, &errs.Argument{Param: "ctx", Message: "The podman context must not be nil."}
 	}
 	if err := ctx.Err(); err != nil {
 		return HostCommandResult{}, err
@@ -395,7 +397,7 @@ func podmanSystemdSliceName(cgroupParent string) string {
 // NewPodmanRunRequest.
 func requirePodmanPlatform(platform string) error {
 	if platform != "linux/amd64" && platform != "linux/arm64" {
-		return &ArgumentOutOfRangeError{
+		return &errs.ArgumentOutOfRangeError{
 			Param:   "platform",
 			Message: "Platform must be linux/amd64 or linux/arm64.",
 		}
