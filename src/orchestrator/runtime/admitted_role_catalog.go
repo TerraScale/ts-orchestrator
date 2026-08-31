@@ -21,10 +21,6 @@ type InvalidDataError struct {
 
 func (e *InvalidDataError) Error() string { return e.Message }
 
-// ArgumentError keeps runtime callers source-compatible while using the
-// shared argument error introduced by the legacy-error cleanup.
-type ArgumentError = errs.Argument
-
 // AdmittedRole is the closed workload role vocabulary.
 type AdmittedRole int
 
