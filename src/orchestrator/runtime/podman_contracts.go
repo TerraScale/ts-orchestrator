@@ -281,7 +281,7 @@ func NewPodmanAllocationObservation(
 		return PodmanAllocationObservation{State: state}, nil
 	}
 	if len(runtimeId) != 64 || !isLowercaseHexDigest(runtimeId) {
-		return PodmanAllocationObservation{}, &ArgumentError{
+		return PodmanAllocationObservation{}, &errs.Argument{
 			Param:   "runtimeId",
 			Message: "A non-absent Podman allocation requires its immutable 64-hex runtime ID.",
 		}
@@ -553,8 +553,8 @@ type RootlessPodmanContext struct {
 }
 
 // ValidateRootlessContext fails closed unless the context names a bounded
-// absolute podman binary, a bounded absolute XDG runtime directory, a bounded
-// absolute seccomp profile document, and a nonzero run UID. The seccomp path
+// absolute podman binary, the runtime directory belonging to the run UID, a
+// bounded absolute seccomp profile document, and a nonzero run UID. The seccomp path
 // is required, not optional: every created container loads exactly the named
 // profile the canonical plan attests (terrascale-default-v1), and podman
 // itself fails the create when the document is absent, so the profile can
@@ -571,6 +571,13 @@ func ValidateRootlessContext(rootless RootlessPodmanContext) error {
 	}
 	if _, err := requirePodmanAbsolutePath(rootless.XdgRuntimeDir, "XdgRuntimeDir"); err != nil {
 		return err
+	}
+	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", rootless.RunAsUid)
+	if rootless.XdgRuntimeDir != expectedRuntimeDir {
+		return &errs.Argument{
+			Param:   "XdgRuntimeDir",
+			Message: fmt.Sprintf("XDG runtime directory must be %s for RunAsUid.", expectedRuntimeDir),
+		}
 	}
 	if _, err := requirePodmanAbsolutePath(rootless.SeccompProfilePath, "SeccompProfilePath"); err != nil {
 		return err

@@ -80,7 +80,7 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		}
 	}
 	if config.Connection != nil && len(config.NatsOptions) != 0 {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "NatsOptions",
 			Message: "NATS dial options cannot accompany a pre-wired connection.",
 		}
