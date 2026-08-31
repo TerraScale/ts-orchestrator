@@ -1,4 +1,4 @@
-package control
+package netplan
 
 func networkValueRulesValid(value string, maximum int) bool {
 	if maximum <= 0 || len(value) == 0 || len(value) > maximum {
@@ -201,7 +201,12 @@ func NetworkAddressTryCreate(bytes []byte) (NetworkAddress, bool) {
 }
 
 func (a NetworkAddress) BitLength() int { return len(a.bytes) * 8 }
-func (a NetworkAddress) Bytes() []byte  { return a.bytes }
+
+func (a NetworkAddress) Bytes() []byte {
+	result := make([]byte, len(a.bytes))
+	copy(result, a.bytes)
+	return result
+}
 func (a NetworkAddress) Equal(other NetworkAddress) bool {
 	if len(a.bytes) != len(other.bytes) {
 		return false
