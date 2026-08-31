@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -433,8 +434,107 @@ type ComputeInstance struct {
 	Shape              string
 }
 
+type BlockVolumeProvider interface {
+	CreateVolume(context.Context, VolumeCreateRequest) (BlockVolume, error)
+	GetBlockVolume(context.Context, string) (BlockVolume, bool, error)
+	DeleteVolume(context.Context, VolumeDeleteRequest) error
+}
+
 type BlockVolumeExpansionProvider interface {
 	Expand(context.Context, ProviderIntent) (VolumeExpansionResult, error)
+}
+
+type VolumeCreateRequest struct {
+	Mutation           ProviderMutationIntent
+	CompartmentID      string
+	AvailabilityDomain string
+	DisplayName        string
+	SizeGiB            uint64
+	VPUsPerGiB         uint64
+	Tags               map[string]string
+}
+
+type VolumeDeleteRequest struct {
+	Mutation ProviderMutationIntent
+	VolumeID string
+	IfMatch  string
+}
+
+type BlockVolume struct {
+	ID             string
+	CompartmentID  string
+	LifecycleState string
+	SizeGiB        uint64
+	VPUsPerGiB     uint64
+	ETag           string
+	WorkRequestID  string
+}
+
+type VolumeAttachmentProvider interface {
+	AttachVolume(context.Context, VolumeAttachRequest) (VolumeAttachment, error)
+	GetVolumeAttachment(context.Context, string) (VolumeAttachment, bool, error)
+	DetachVolume(context.Context, VolumeDetachRequest) error
+}
+
+type VolumeAttachRequest struct {
+	Mutation      ProviderMutationIntent
+	CompartmentID string
+	InstanceID    string
+	VolumeID      string
+	DisplayName   string
+	ReadOnly      bool
+}
+
+type VolumeDetachRequest struct {
+	Mutation     ProviderMutationIntent
+	AttachmentID string
+	IfMatch      string
+}
+
+type VolumeAttachment struct {
+	ID             string
+	CompartmentID  string
+	InstanceID     string
+	VolumeID       string
+	LifecycleState string
+	ETag           string
+	WorkRequestID  string
+}
+
+type RegistryPullProvider interface {
+	PullManifest(context.Context, RegistryManifestRequest) (RegistryManifest, error)
+	PullBlob(context.Context, RegistryBlobRequest) (io.ReadCloser, int64, error)
+}
+
+type RegistryManifestRequest struct{ Repository, Reference string }
+type RegistryBlobRequest struct{ Repository, Digest string }
+type RegistryManifest struct {
+	Digest, MediaType string
+	Content           []byte
+}
+
+type ObjectStorageProvider interface {
+	PutObject(context.Context, ObjectPutRequest) (ObjectMetadata, error)
+	HeadObject(context.Context, ObjectRef) (ObjectMetadata, bool, error)
+	GetObject(context.Context, ObjectRef) (io.ReadCloser, ObjectMetadata, error)
+	DeleteObject(context.Context, ObjectDeleteRequest) error
+}
+
+type ObjectRef struct{ Namespace, Bucket, Name string }
+type ObjectPutRequest struct {
+	Mutation ProviderMutationIntent
+	Object   ObjectRef
+	Content  []byte
+	SHA256   string
+}
+type ObjectDeleteRequest struct {
+	Mutation ProviderMutationIntent
+	Object   ObjectRef
+	IfMatch  string
+}
+type ObjectMetadata struct {
+	ETag, SHA256 string
+	Size         int64
 }
 
 type WorkRequestState string
@@ -468,6 +568,20 @@ func mutationResultInstance(result ProviderMutationResult) (ComputeInstance, err
 		return ComputeInstance{}, &InvalidDataError{Message: "durable compute result is invalid"}
 	}
 	return ComputeInstance{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil
+}
+
+func mutationResultVolume(result ProviderMutationResult) (BlockVolume, error) {
+	if !isOCID(result.ResourceID, "volume") {
+		return BlockVolume{}, &InvalidDataError{Message: "durable volume result is invalid"}
+	}
+	return BlockVolume{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil
+}
+
+func mutationResultAttachment(result ProviderMutationResult) (VolumeAttachment, error) {
+	if !isOCID(result.ResourceID, "volumeattachment") {
+		return VolumeAttachment{}, &InvalidDataError{Message: "durable attachment result is invalid"}
+	}
+	return VolumeAttachment{ID: result.ResourceID, ETag: result.ETag, WorkRequestID: result.WorkRequestID}, nil
 }
 
 func validateBoundedName(value, field string, max int) error {
