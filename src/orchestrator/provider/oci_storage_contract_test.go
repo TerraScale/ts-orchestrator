@@ -233,6 +233,35 @@ func TestOCIBlockVolumeDeleteAbsentIsDurablyIdempotent(t *testing.T) {
 	}
 }
 
+func TestOCIStorageMutationResponsesStayInRequestedCompartment(t *testing.T) {
+	volumeRequest := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1.x", AvailabilityDomain: "AD-1", DisplayName: "scope-check", SizeGiB: 100, VPUsPerGiB: 20}
+	volumeRequest.Mutation = testMutation("volume.create", VolumeCreateMutationScope(volumeRequest), VolumeCreateMutationFingerprint(volumeRequest), 1)
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`, http.Header{"Etag": {"volume-etag"}}), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := volumeAdapter.CreateVolume(context.Background(), volumeRequest); err == nil {
+		t.Fatal("out-of-scope volume response was accepted")
+	}
+
+	attachmentRequest := VolumeAttachRequest{CompartmentID: "ocid1.compartment.oc1.x", InstanceID: "ocid1.instance.oc1.x", VolumeID: "ocid1.volume.oc1.x", DisplayName: "scope-check"}
+	attachmentRequest.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(attachmentRequest), VolumeAttachMutationFingerprint(attachmentRequest), 2)
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volumeattachment.oc1.x","compartmentId":"ocid1.compartment.oc1.other","instanceId":"ocid1.instance.oc1.x","volumeId":"ocid1.volume.oc1.x","lifecycleState":"ATTACHING"}`, http.Header{"Etag": {"attachment-etag"}}), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentRequest.InstanceID, attachmentRequest.VolumeID)
+	if _, err := attachmentAdapter.AttachVolume(context.Background(), attachmentRequest); err == nil {
+		t.Fatal("out-of-scope attachment response was accepted")
+	}
+}
+
 func TestOCIVolumeDetachAbsentIsDurablyIdempotent(t *testing.T) {
 	deletes := 0
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {

@@ -57,8 +57,9 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	reader[string(OCIServiceIdentity)+"|/20160918/policies/"+policy] = `{"id":"` + policy + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","statements":["` + statement + `"]}`
 	reader[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE"}`
 	reader[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED"}`
-	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `"}`
-	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups"] = `{"name":"terrascale-backups","compartmentId":"` + control + `"}`
+	bucketMetadata := `,"publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"` + key + `","retentionRules":[{"duration":{"timeAmount":30,"timeUnit":"DAYS"}}]`
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `"` + bucketMetadata + `}`
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups"] = `{"name":"terrascale-backups","compartmentId":"` + control + `"` + bucketMetadata + `}`
 	if err := VerifyOCIEstate(context.Background(), spec, reader); err != nil {
 		t.Fatalf("valid estate rejected: %v", err)
 	}
@@ -86,7 +87,19 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 			delete(broken, string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups")
 		}},
 		{"wrong bucket", func(broken fakeEstateReader) {
-			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"another-bucket","compartmentId":"` + control + `"}`
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"another-bucket","compartmentId":"` + control + `"` + bucketMetadata + `}`
+		}},
+		{"public bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"ObjectRead","versioning":"Enabled","kmsKeyId":"` + key + `","retentionRules":[{"duration":{"timeAmount":30,"timeUnit":"DAYS"}}]}`
+		}},
+		{"unencrypted bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","retentionRules":[{"duration":{"timeAmount":30,"timeUnit":"DAYS"}}]}`
+		}},
+		{"unversioned bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Disabled","kmsKeyId":"` + key + `","retentionRules":[{"duration":{"timeAmount":30,"timeUnit":"DAYS"}}]}`
+		}},
+		{"missing retention", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"` + key + `","retentionRules":[]}`
 		}},
 	}
 	for _, test := range tests {

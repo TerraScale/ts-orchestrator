@@ -130,7 +130,7 @@ func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x"}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`))}, nil
 	})}
 	config, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
 	if err != nil {

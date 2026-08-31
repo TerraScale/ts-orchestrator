@@ -81,23 +81,40 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 	v := url.Values{}
 	v.Set("compartmentId", t.CompartmentId)
 	v.Set("limit", strconv.Itoa(limit))
-	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
-	if err != nil {
-		return nil, err
+	items := make([]ociInstanceDocument, 0, limit)
+	for page, pageCount := "", 0; ; pageCount++ {
+		resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+cloneOCIQuery(v, page), nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := ociStatus(resp, "instance observation"); err != nil {
+			return nil, err
+		}
+		body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
+		if err != nil {
+			return nil, err
+		}
+		var list ociInstanceList
+		if json.Unmarshal(body, &list) != nil || len(list.Items) > limit || len(items)+len(list.Items) > limit {
+			return nil, &InvalidDataError{Message: "OCI instance observation response is invalid"}
+		}
+		for _, item := range list.Items {
+			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId {
+				return nil, &InvalidDataError{Message: "OCI instance observation contains an out-of-scope resource"}
+			}
+			items = append(items, item)
+		}
+		next, err := nextOCIPage(resp, page, pageCount)
+		if err != nil {
+			return nil, err
+		}
+		if next == "" {
+			break
+		}
+		page = next
 	}
-	if err := ociStatus(resp, "instance observation"); err != nil {
-		return nil, err
-	}
-	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-	if err != nil {
-		return nil, err
-	}
-	var list ociInstanceList
-	if json.Unmarshal(body, &list) != nil || len(list.Items) > limit {
-		return nil, &InvalidDataError{Message: "OCI instance observation response is invalid"}
-	}
-	out := make([]OciCiRunnerNodeObservation, 0, len(list.Items))
-	for _, item := range list.Items {
+	out := make([]OciCiRunnerNodeObservation, 0, len(items))
+	for _, item := range items {
 		if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId || len(item.FreeformTags) > 32 || !validFreeformTags(item.FreeformTags) {
 			return nil, &InvalidDataError{Message: "OCI instance observation contains invalid identity"}
 		}
@@ -248,7 +265,7 @@ func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction
 	if len(body) != 0 && json.Unmarshal(body, &item) != nil {
 		return c.reconcileLaunch(ctx, a)
 	}
-	if !isOCID(item.ID, "instance") {
+	if !isOCID(item.ID, "instance") || item.CompartmentID != a.Template.CompartmentId {
 		return c.reconcileLaunch(ctx, a)
 	}
 	return OciCiRunnerMutationReceipt{InstanceId: item.ID, ETag: item.ETag, OpcRequestId: safeHeader(resp, "opc-request-id"), OpcWorkRequestId: safeHeader(resp, "opc-work-request-id")}, nil
@@ -311,6 +328,16 @@ func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunner
 }
 
 func (c *OCIComputeClient) reconcileTermination(ctx context.Context, a TerminateOciCiRunnerAction) (OciCiRunnerMutationReceipt, error) {
+	if c == nil || c.Ownership == nil || !c.Ownership.AuthoritativeDurable() {
+		return OciCiRunnerMutationReceipt{}, &InvalidOperationError{Message: "OCI runner termination recovery requires authoritative ownership evidence"}
+	}
+	record, owned, err := c.Ownership.Lookup(ctx, ProviderResourceId{Value: a.InstanceId})
+	if err != nil {
+		return OciCiRunnerMutationReceipt{}, err
+	}
+	if !owned || record.ResourceId.Value != a.InstanceId || !isOCID(record.CompartmentId.Value, "compartment") {
+		return OciCiRunnerMutationReceipt{}, &InvalidOperationError{Message: "OCI runner termination recovery ownership is not recorded"}
+	}
 	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances/"+url.PathEscape(a.InstanceId), nil)
 	if err != nil {
 		return OciCiRunnerMutationReceipt{}, err
@@ -319,7 +346,14 @@ func (c *OCIComputeClient) reconcileTermination(ctx context.Context, a Terminate
 		_, _ = ReadBoundedBody(resp, 64<<10)
 		return OciCiRunnerMutationReceipt{InstanceId: a.InstanceId, ETag: a.ETag}, nil
 	}
-	_, _ = ReadBoundedBody(resp, 64<<10)
+	body, readErr := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
+	if readErr != nil {
+		return OciCiRunnerMutationReceipt{}, readErr
+	}
+	var item ociInstanceDocument
+	if json.Unmarshal(body, &item) != nil || item.ID != a.InstanceId || item.CompartmentID != record.CompartmentId.Value {
+		return OciCiRunnerMutationReceipt{}, &InvalidDataError{Message: "OCI runner termination response is outside the owned scope"}
+	}
 	return OciCiRunnerMutationReceipt{}, &InvalidOperationError{Message: "OCI runner termination outcome is unknown"}
 }
 
@@ -427,7 +461,7 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 		return CreateNodeProviderResponse{}, err
 	}
 	var item ociInstanceDocument
-	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
+	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") || item.CompartmentID != r.Context.CompartmentId.Value {
 		if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
 			return recovered, nil
 		}
@@ -540,22 +574,38 @@ func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartmen
 	v := url.Values{}
 	v.Set("compartmentId", compartment)
 	v.Set("limit", "1000")
-	resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+v.Encode(), nil)
-	if err != nil {
-		return nil, err
+	items := make([]ociInstanceDocument, 0)
+	for page, pageCount := "", 0; ; pageCount++ {
+		resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+cloneOCIQuery(v, page), nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := ociStatus(resp, "node reconciliation"); err != nil {
+			return nil, err
+		}
+		body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
+		if err != nil {
+			return nil, err
+		}
+		var list ociInstanceList
+		if json.Unmarshal(body, &list) != nil || len(list.Items) > maximumOCIListResults || len(items)+len(list.Items) > maximumOCIListResults*maximumOCIPages {
+			return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
+		}
+		for _, item := range list.Items {
+			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != compartment {
+				return nil, &InvalidDataError{Message: "OCI node reconciliation response is outside the requested compartment"}
+			}
+		}
+		items = append(items, list.Items...)
+		next, err := nextOCIPage(resp, page, pageCount)
+		if err != nil {
+			return nil, err
+		}
+		if next == "" {
+			return items, nil
+		}
+		page = next
 	}
-	if err := ociStatus(resp, "node reconciliation"); err != nil {
-		return nil, err
-	}
-	body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-	if err != nil {
-		return nil, err
-	}
-	var list ociInstanceList
-	if json.Unmarshal(body, &list) != nil || len(list.Items) > 1000 {
-		return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
-	}
-	return list.Items, nil
 }
 
 func (c *OCIComputeNodeClient) reconcileNodeCreate(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {

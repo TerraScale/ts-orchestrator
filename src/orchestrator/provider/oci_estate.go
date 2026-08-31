@@ -51,6 +51,20 @@ type OCIEstatePolicy struct {
 	Statements []string `json:"statements"`
 }
 
+type ociEstateBucket struct {
+	Name             string `json:"name"`
+	CompartmentID    string `json:"compartmentId"`
+	PublicAccessType string `json:"publicAccessType"`
+	Versioning       string `json:"versioning"`
+	KMSKeyID         string `json:"kmsKeyId"`
+	RetentionRules   []struct {
+		Duration struct {
+			TimeAmount int    `json:"timeAmount"`
+			TimeUnit   string `json:"timeUnit"`
+		} `json:"duration"`
+	} `json:"retentionRules"`
+}
+
 func LoadOCIEstateSpec(path string) (OCIEstateSpec, error) {
 	if !filepath.IsAbs(path) {
 		return OCIEstateSpec{}, &errs.Argument{Message: "OCI estate file path must be absolute"}
@@ -237,18 +251,32 @@ func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateRe
 	if err := verifyEstateResource(ctx, reader, OCIServiceVaultManagement, "/20180608/keys/"+url.PathEscape(spec.KeyID), spec.KeyID, spec.ControlCompartmentID, "", false); err != nil {
 		return err
 	}
+	allowedBuckets := map[string]struct{}{spec.LedgerBucket: {}, spec.BackupBucket: {}}
 	for _, bucket := range []string{spec.LedgerBucket, spec.BackupBucket} {
+		if _, allowed := allowedBuckets[bucket]; !allowed {
+			return &InvalidDataError{Message: "OCI estate verification rejected a bucket outside the allowlist"}
+		}
 		path := "/n/" + url.PathEscape(spec.ObjectNamespace) + "/b/" + url.PathEscape(bucket)
 		body, status, err := reader.Read(ctx, OCIServiceObjectStorage, path)
-		var document struct {
-			Name          string `json:"name"`
-			CompartmentID string `json:"compartmentId"`
-		}
-		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || document.Name != bucket || document.CompartmentID != spec.ControlCompartmentID {
+		var document ociEstateBucket
+		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || !validEstateBucket(document, bucket, spec) {
 			return &InvalidDataError{Message: "OCI estate verification rejected a bucket"}
 		}
 	}
 	return nil
+}
+
+func validEstateBucket(document ociEstateBucket, expectedName string, spec OCIEstateSpec) bool {
+	if document.Name != expectedName || document.CompartmentID != spec.ControlCompartmentID ||
+		document.PublicAccessType != "NoPublicAccess" || document.Versioning != "Enabled" || document.KMSKeyID != spec.KeyID || len(document.RetentionRules) == 0 {
+		return false
+	}
+	for _, rule := range document.RetentionRules {
+		if rule.Duration.TimeAmount > 0 && rule.Duration.TimeUnit == "DAYS" {
+			return true
+		}
+	}
+	return false
 }
 
 func verifyEstatePolicy(ctx context.Context, reader OCIEstateReader, compartment string, expected OCIEstatePolicy) error {
