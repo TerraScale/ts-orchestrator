@@ -45,17 +45,41 @@ func NewProcessPodmanClient(
 	return &ProcessPodmanClient{rootless: rootless, commandRunner: commandRunner}, nil
 }
 
-// Preflight proves the rootless podman environment is usable by running one
-// podman info command; a nonzero exit fails closed with the trimmed stderr.
+// Preflight proves the effective Podman process is rootless and uses the host
+// features this lane depends on. A configured nonzero UID is not enough: a
+// caller could otherwise run this client as root and point it at root Podman.
+// The reported runtime must be rootless, cgroup v2 with the systemd manager,
+// and seccomp-enabled before convergence may mutate anything.
 func (c *ProcessPodmanClient) Preflight(ctx context.Context) error {
-	result, err := c.podman(ctx, []string{"info"})
+	result, err := c.podman(ctx, []string{"info", "--format", "json"})
 	if err != nil {
 		return err
 	}
 	if result.ExitCode != 0 {
 		return podmanCommandError("info", result.ExitCode, result.StandardError)
 	}
+	var document podmanInfoDocument
+	if err := json.Unmarshal([]byte(result.StandardOutput), &document); err != nil {
+		return &InvalidDataError{Message: "Podman info returned malformed JSON."}
+	}
+	if !document.Host.Security.Rootless ||
+		document.Host.CgroupVersion != "v2" ||
+		document.Host.CgroupManager != "systemd" ||
+		!document.Host.Security.SeccompEnabled {
+		return &InvalidOperationError{Message: "Podman host admission requires rootless mode, cgroup v2, the systemd cgroup manager, and seccomp."}
+	}
 	return nil
+}
+
+type podmanInfoDocument struct {
+	Host struct {
+		CgroupManager string `json:"cgroupManager"`
+		CgroupVersion string `json:"cgroupVersion"`
+		Security      struct {
+			Rootless       bool `json:"rootless"`
+			SeccompEnabled bool `json:"seccompEnabled"`
+		} `json:"security"`
+	} `json:"host"`
 }
 
 // Pull resolves one image reference for one platform.

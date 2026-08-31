@@ -18,25 +18,21 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
-// The local image the smoke run uses; it is present on the development host
-// and is never pulled from the network.
-const liveSmokeImage = "localhost/benchmark-csharp-noble:latest"
-
 // liveSmokeTimeout bounds the whole smoke run.
 const liveSmokeTimeout = 90 * time.Second
 
-// TestProcessPodmanClientRootlessSmoke drives the real ProcessPodmanClient
-// under the current unprivileged account: preflight proves the rootless
-// environment, create builds the container from the local image (no pull)
-// without starting it, start starts it, inspect observes it Running, stop
-// stops it, rm deletes it, and a final inspect observes Absent. The create
-// loads the seccomp profile named by the rootless context, proving the
-// profile plumbing end to end. The container is removed on every exit path.
-func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
+// TestSystemdUserPodmanClientRootlessSmoke drives the real production client
+// under the current unprivileged account. Preflight proves both rootless
+// Podman and the systemd user manager; start creates a fenced transient unit;
+// inspect observes the joined container and unit state; stop goes through the
+// unit's ExecStop; delete removes the container. The create also loads the
+// configured seccomp profile. The container is removed on every exit path.
+func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	if os.Getenv("TS_ORCH_LIVE") != "1" {
 		t.Skip("live rootless podman smoke: set TS_ORCH_LIVE=1 (and build with -tags live_podman) to run")
 	}
 	podmanBinary := liveSmokePodmanBinary(t)
+	image := liveSmokeImage(t)
 	uid := uint32(os.Getuid())
 	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", uid)
 	rootless, err := runtime.NewRootlessPodmanContext(
@@ -44,9 +40,20 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rootless context (uid %d, %s, %s): %v", uid, podmanBinary, xdgRuntimeDir, err)
 	}
-	client, err := runtime.NewProcessPodmanClient(rootless, runtime.ProcessHostCommandRunner{})
+	runner := runtime.ProcessHostCommandRunner{}
+	processClient, err := runtime.NewProcessPodmanClient(rootless, runner)
 	if err != nil {
 		t.Fatalf("podman client: %v", err)
+	}
+	client, err := runtime.NewSystemdUserPodmanClient(
+		processClient,
+		rootless,
+		liveSmokeBinary("TS_ORCH_LIVE_SYSTEMCTL_BINARY", "/usr/bin/systemctl"),
+		liveSmokeBinary("TS_ORCH_LIVE_SYSTEMD_RUN_BINARY", "/usr/bin/systemd-run"),
+		runner,
+	)
+	if err != nil {
+		t.Fatalf("systemd user podman client: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), liveSmokeTimeout)
@@ -59,7 +66,7 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 	containerId := "terrascale-live-smoke-" + strconv.Itoa(os.Getpid())
 	request, err := runtime.NewPodmanRunRequest(
 		containerId,
-		liveSmokeImage,
+		image,
 		"linux/"+liveSmokeArchitecture(),
 		1000,
 		1000,
@@ -112,8 +119,8 @@ func TestProcessPodmanClientRootlessSmoke(t *testing.T) {
 			t.Fatalf("inspect after start: %v", observeErr)
 		}
 		if observation.State == runtime.PodmanAllocationStateRunning {
-			if observation.ImageReference != liveSmokeImage {
-				t.Fatalf("observed image = %q; want %q", observation.ImageReference, liveSmokeImage)
+			if observation.ImageReference != image {
+				t.Fatalf("observed image = %q; want %q", observation.ImageReference, image)
 			}
 			running = true
 			break
@@ -172,6 +179,22 @@ func liveSmokePodmanBinary(t *testing.T) string {
 		return "/usr/bin/podman"
 	}
 	return "/run/current-system/sw/bin/podman"
+}
+
+func liveSmokeImage(t *testing.T) string {
+	t.Helper()
+	image := os.Getenv("TS_ORCH_LIVE_PODMAN_IMAGE")
+	if image == "" {
+		t.Fatal("TS_ORCH_LIVE_PODMAN_IMAGE must name an image already present in the rootless store")
+	}
+	return image
+}
+
+func liveSmokeBinary(environment string, defaultPath string) string {
+	if override := os.Getenv(environment); override != "" {
+		return override
+	}
+	return defaultPath
 }
 
 // liveSmokeArchitecture maps the host architecture onto the closed platform

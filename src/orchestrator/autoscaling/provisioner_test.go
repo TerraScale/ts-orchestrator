@@ -544,3 +544,23 @@ func TestCommandProcessSpawnerFailsClosedWithoutSpawning(t *testing.T) {
 		t.Fatalf("the failed spawn must leave no recorded child, got %v", err)
 	}
 }
+
+func TestNodeProcessCredentialKeepsSameAccountAndFencesAccountChanges(t *testing.T) {
+	credential, err := nodeProcessCredential(1000, 100, 1000)
+	if err != nil || credential != nil {
+		t.Fatalf("same-account spawn should keep current credentials: credential=%+v err=%v", credential, err)
+	}
+	credential, err = nodeProcessCredential(0, 0, 1042)
+	if err != nil || credential == nil || credential.Uid != 1042 || credential.Gid != 1042 {
+		t.Fatalf("root credential drop = %+v, err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(1000, 1000, 1042); err == nil || credential != nil {
+		t.Fatalf("unprivileged account switch was accepted: credential=%+v err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(0, 0, 0); err == nil || credential != nil {
+		t.Fatalf("uid-0 node was accepted: credential=%+v err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(-1, 1000, 1000); err == nil || credential != nil {
+		t.Fatalf("unknown current uid was accepted: credential=%+v err=%v", credential, err)
+	}
+}

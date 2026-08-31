@@ -66,6 +66,13 @@ const (
 var podmanLabelKeyPattern = regexp.MustCompile(
 	`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$`)
 
+// podmanAbsolutePathSegmentPattern excludes whitespace, quoting, backslashes,
+// systemd specifiers, and command prefixes. Podman and systemd executables are
+// passed as argv values, but the Podman path also appears inside systemd's
+// parsed ExecStop property, so accepting arbitrary filesystem bytes there
+// would turn a validated path into a second command language.
+var podmanAbsolutePathSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._+@-]+$`)
+
 // podmanCapabilityPattern accepts uppercase capability tokens such as ALL,
 // NET_BIND_SERVICE, or CAP_NET_RAW.
 var podmanCapabilityPattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
@@ -96,10 +103,11 @@ func requirePodmanAbsolutePath(value, param string) (string, error) {
 		}
 	}
 	for _, segment := range strings.Split(value[1:], "/") {
-		if segment == "" || segment == "." || segment == ".." {
+		if segment == "" || segment == "." || segment == ".." ||
+			!podmanAbsolutePathSegmentPattern.MatchString(segment) {
 			return "", &ArgumentError{
 				Param:   param,
-				Message: "Path segments must be nonempty and cannot traverse upward.",
+				Message: "Path segments must be canonical and cannot traverse upward.",
 			}
 		}
 	}

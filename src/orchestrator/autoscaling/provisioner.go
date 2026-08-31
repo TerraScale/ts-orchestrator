@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -496,11 +497,15 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 	if err != nil {
 		return 0, err
 	}
+	credential, err := nodeProcessCredential(os.Geteuid(), os.Getegid(), validated.RunAsUid)
+	if err != nil {
+		return 0, err
+	}
 	command := exec.CommandContext(ctx, validated.BinaryPath, validated.childArguments()...)
 	command.Env = validated.environment()
 	command.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid:    true,
-		Credential: &syscall.Credential{Uid: validated.RunAsUid, Gid: validated.RunAsUid},
+		Credential: credential,
 	}
 	// Mirror the host command runner: cancellation kills the whole process
 	// group, including anything the node agent spawned.
@@ -523,6 +528,29 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 	s.processes[command.Process.Pid] = child
 	s.mutex.Unlock()
 	return command.Process.Pid, nil
+}
+
+// nodeProcessCredential returns the credential transition a spawn needs. A
+// process already running as the target non-root UID keeps its current
+// credentials; asking Linux to set groups again from an unprivileged process
+// fails with EPERM. Only uid 0 may switch to another account, and that switch
+// keeps the production node-account convention in which uid and primary gid
+// are equal.
+func nodeProcessCredential(currentUid int, currentGid int, runAsUid uint32) (*syscall.Credential, error) {
+	if currentUid < 0 || currentGid < 0 {
+		return nil, &InvalidOperationError{Message: "The current process identity is unavailable."}
+	}
+	if uint32(currentUid) == runAsUid {
+		if currentUid == 0 {
+			return nil, &InvalidOperationError{Message: "A node host agent must never run as uid 0."}
+		}
+		return nil, nil
+	}
+	if currentUid != 0 {
+		return nil, &InvalidOperationError{Message: fmt.Sprintf(
+			"The unprivileged autoscaler uid %d cannot spawn node uid %d.", currentUid, runAsUid)}
+	}
+	return &syscall.Credential{Uid: runAsUid, Gid: runAsUid}, nil
 }
 
 // Terminate delivers SIGTERM to one spawned child's process group and waits

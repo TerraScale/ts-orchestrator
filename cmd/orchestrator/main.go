@@ -1389,8 +1389,17 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	if err != nil {
 		return err
 	}
+	if settings.NatsTls == nil {
+		return errors.New("autoscaler: node-agent NATS TLS credentials are unavailable")
+	}
+	agentArguments := []string{
+		"--nats-nkey-file", settings.NatsNKeyFile,
+		"--nats-tls-ca-file", settings.NatsTls.CaFile,
+		"--nats-tls-cert-file", settings.NatsTls.CertificateFile,
+		"--nats-tls-key-file", settings.NatsTls.KeyFile,
+	}
 	provisionerConfig, err := autoscaling.NewLocalProcessProvisionerConfig(
-		settings.AgentBinaryPath, settings.NatsUrl, nil, settings.RunAsUid)
+		settings.AgentBinaryPath, settings.NatsUrl, agentArguments, settings.RunAsUid)
 	if err != nil {
 		return err
 	}

@@ -437,6 +437,16 @@ func TestValidateRootlessContextFailsClosedOnRoot(t *testing.T) {
 			wantParam: "PodmanBinaryPath",
 		},
 		{
+			name:      "systemd command injection in binary path",
+			mutate:    func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "/usr/bin/podman --remote" },
+			wantParam: "PodmanBinaryPath",
+		},
+		{
+			name:      "systemd specifier in binary path",
+			mutate:    func(c *RootlessPodmanContext) { c.PodmanBinaryPath = "/usr/bin/podman%u" },
+			wantParam: "PodmanBinaryPath",
+		},
+		{
 			name:      "relative runtime dir",
 			mutate:    func(c *RootlessPodmanContext) { c.XdgRuntimeDir = "run/user/1000" },
 			wantParam: "XdgRuntimeDir",
