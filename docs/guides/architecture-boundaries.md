@@ -1,143 +1,92 @@
 # Architecture boundaries
 
-The full authority is the repository [`GOAL.md`](../../GOAL.md). The workspace
-[`GOAL.md`](../../../GOAL.md) controls cross-repository decisions.
+The workspace [`GOAL.md`](../../../GOAL.md) is authoritative. This page is the
+short map for Orchestrator contributors.
 
 ## Product roles
 
-TerraScale is product-specific. Orchestrator schedules a closed set of trusted
-TerraScale roles and separately admitted tenant compute. It does not implement
-Kubernetes compatibility or provide a generic cluster API.
-
 | Role | Boundary |
 | --- | --- |
-| Dashboard | One full-stack Vinext TypeScript app. Owns Better Auth, Organizations, Projects, Users, Payments, entitlements, Streamable HTTP MCP, and customer workflows. |
-| Database API | Independently deployable C#/.NET 10 ASP.NET Core service. Sole QUIC/TBEP gateway to TerraBase. Permanent source lives in `TerraScale.Internals`; the standalone repository is migration-only until retirement. |
-| TerraBase | Private Rust database engine. Owns mutations, replication, repair, reactive sync, metrics, and authoritative usage. |
-| Orchestrator | Owns infrastructure, scheduling, workload identity, database placement intent, capacity, repair orchestration, and delivery. |
+| Dashboard | Vinext TypeScript application. Owns Better Auth, organizations, projects, Stripe billing, MCP, and customer workflows. |
+| Database API | Go gateway. Owns the public REST and reactive WebSocket API and is the only network TBEP client. |
+| TerraBase | Rust database engine. Owns storage, replication, repair, reactive views, backups, and authoritative usage facts. |
+| Orchestrator | Go control plane. Owns OCI infrastructure, scheduling, capacity, identity, routing, rollout, and TerraBase placement intent. |
+| Deploy | Go CLI used by Forgejo Actions. Builds, tests, publishes images, and submits candidate handoffs. |
 
-Dashboard uses `@terrascale/sdk` and the same public APIs as customer
-Projects. It has no direct TerraBase, TBEP, private route, or tenant bypass.
-
-The standalone Platform, Authentication, Payments, and `TerraScale.MCP`
-services are removed after direct cutover. Historical deployment records for
-those roles do not authorize new implementations.
+Orchestrator never becomes a customer data proxy. Dashboard and customer
+applications use the public Database API through `@terrascale/sdk`.
 
 ## Regional control
 
-GRU owns the permanent three-replica global authority. Every Region owns a
-three-replica Regional Orchestrator and local JetStream R3 domain. Regions
-continue signed survival-policy work when GRU or the WAN is unavailable.
-Global release, policy, and catalog changes freeze. Existing database reads,
-eligible writes, replication, repair, and client catch-up do not pause.
+GRU owns the three-replica global authority. GRU, SFO, and FRA each own an
+autonomous three-replica regional group and a local JetStream R3 domain. NATS
+gateway links move approved control messages between domains. No JetStream
+Raft group spans regions.
 
-The Orchestrator uses typed desired and observed state, fenced writers,
-idempotent operations, immutable release identities, and durable receipts.
-Host tags, load, a missing heartbeat, NATS lease expiry, or filtered inventory
-cannot grant database membership or authorize destructive storage work.
+When GRU or a gateway is unavailable, a regional quorum continues work already
+allowed by its accepted policy. Global policy, catalog changes, new release
+admission, and destructive work that needs a complete regional journal wait.
+Customer reads, eligible writes, replication, and reactive delivery do not
+depend on Orchestrator or NATS availability.
 
-## Database placement and host scheduling
+## Database placement and transport
 
-Database placement belongs to each database, not to its Project. A database
-selects one through twenty active Regions. Every selected active Region stores
-every logical Partition and accepts writes. GRU, SFO, and FRA are the initial
-catalog.
+Each database selects from the launch regions GRU, SFO, and FRA. A selected
+region stores every logical partition and places two active Members across
+independent failure domains.
 
-Production uses two active TerraBase Members per selected Region and
-Partition, placed in independent failure domains. A backup is optional,
-read-only, non-voting, and independent of active placement.
+Orchestrator owns database placement intent, regional capacity, Member and
+volume allocation identities, and concrete host placement. TerraBase owns
+membership acceptance, replication epochs, repair, catch-up, durability, and
+safe retirement. Host pressure may request capacity in a selected region. It
+cannot change database geography.
 
-Orchestrator owns accepted placement intent and concrete host allocation.
-TerraBase owns membership acceptance, replica epochs, causal actor lifecycle,
-split and merge decisions, repair, and safe decommission. Scheduling pressure
-may request capacity in the selected Region. It cannot add a Region, remove a
-Region, spill data into an unselected Region, or appoint a leader.
+The Database API connects through `terrabase-go` using protobuf/gRPC over
+HTTP/2 with TLS 1.3 mutual authentication. TerraBase Member replication uses a
+separate direct QUIC transport with mutual authentication. NATS carries neither
+protocol.
 
-## Database transport
+## Workload runtime
 
-Database API is the only TBEP client. TBEP uses generated FlatBuffers over QUIC
-with mutual TLS on remote and loopback paths. UDS, raw HTTP, NATS, or a broker
-cannot become alternate correctness paths.
+Workloads run as digest-pinned rootless Podman containers inside transient
+systemd user units. Container and unit labels bind the allocation ID and
+canonical plan fingerprint. Reconciliation refuses foreign, mismatched, or
+unfenced processes.
 
-Region-to-Region TerraBase replication also uses direct QUIC with mutual TLS.
-TerraBase owns flow control, batching, acknowledgements, causal reconciliation,
-anti-entropy, and Merkle repair.
+The runtime enforces non-root users, cgroup v2 limits, dropped capabilities,
+`no-new-privileges`, read-only root filesystems, seccomp, explicit volumes, and
+separate credentials. Stateful placement applies replica anti-affinity and
+drain safety before a node can retire.
 
-## NATS
+Tenant compute is the first post-launch feature. The runtime keeps a distinct
+unprivileged tenant-container profile without exposing host paths, privileged
+execution, provider credentials, or control-plane identities.
 
-NATS is the mandatory Orchestrator v2 consensus, control-state, discovery, and
-durable-work system. Global and regional JetStream domains form one
-gateway-connected supercluster without a WAN Raft group.
-It never carries database documents, WAL, CRDT deltas, replication frames,
-query results, reactive sync, or authoritative usage.
+## OCI and routing
 
-NATS remains absent from TerraBase correctness and customer data paths. The
-checked-in v1 subjects and the adapter's composition-time global topology are
-implementation state that must migrate to the accepted `ts.orch.v2` contract.
+OCI is the only launch cloud. Ampere ARM64 is the default compute platform.
+x86_64 remains supported for TerraBase Members. Provider mutations use
+persisted intent, deterministic identities, positive ownership, fenced
+authority, and same-operation resume after uncertain outcomes.
 
-## Tenant isolation and capacity
-
-Every database path enforces native scope:
-
-```text
-TenantId
-ProjectId
-DatabaseId
-EnvironmentId
-```
-
-Collection prefixes are not isolation. Query, index, WAL, replication, backup,
-restore, sync, administration, snapshots, and metrics all validate the same
-scope.
-
-Database API and TerraBase enforce admission before autoscaling. Bounded queues,
-fair scheduling, resource budgets, backpressure, spill where safe, load
-shedding, and checkpoint or snapshot fallback protect shared hosts. Capacity
-signals then allow Orchestrator to add or move eligible workloads.
-
-## Trust
-
-Workload identity uses short-lived X.509 certificates, mutual TLS, scoped
-authorization, rotated trust bundles, and auditable bootstrap grants. Same-host
-communication does not weaken identity or encryption.
-
-Secrets and customer content never enter Git, NATS, desired state, logs,
-traces, metrics, fixtures, or receipts. Configuration carries secret
-references, not secret bytes.
+Cloudflare owns DNS, global load balancing, TLS termination, and caching for
+public cacheable API reads. It does not own control state. Orchestrator manages
+the global and regional API hostnames plus the app, docs, and status hostnames
+defined by D-24.
 
 ## Delivery
 
-Build once and deploy the exact qualified digest. Release, configuration,
-schema, migration, trust, rollback, and evidence identities bind to one
-candidate. Each Region builds full green capacity beside unchanged blue and
-keeps green outside production routing until startup, minimum health, real
-dependency, authorization, isolation, routing, customer-journey, and rollback
-tests pass. One durable routing generation cuts traffic over. A failed green
-generation changes only green. Blue remains available through the rollback
-window. Rollback restores retained qualified bytes and never rebuilds an
-artifact.
+Forgejo Actions calls `ts-deploy` to build, test, publish, and submit the exact
+candidate digest. The handoff includes source and tree identity, Deploy CLI
+identity, image digests, and test results. It does not authorize rollout.
 
-TerraBase implements the invariant with surge Members, catch-up, causal and
-materialized Merkle verification, and TerraBase-accepted overlapping
-membership. Controllers and NATS replace one replica at a time and restore
-full quorum before the next replacement. Regional blue-green does not create a
-second writable TerraBase cluster or a competing control quorum.
+Orchestrator admits the candidate under current fenced authority and owns
+regional blue-green rollout, the durable routing generation, and rollback by
+the retained digest. CI success on `develop`, immutable image digests, and
+tests are the release record. No parallel approval ledger exists.
 
-## Production repository boundary
+## Scope limits
 
-The production project contains no embedded development host, `dev` runtime
-mode, local product composition, development NATS bootstrap, development PKI,
-fixed lab routing, development-host-specific fixture, or fake-provider runtime
-registration. Generic fakes and process fixtures live only in test or tooling
-projects and cannot enter the production dependency graph or artifact.
-
-## Evidence boundary
-
-Pure tests and an external RF=1 lab cannot prove production RF=2 durability,
-host loss, remote mutual TLS, cloud storage, systemd, twenty-Region behavior,
-or measured noisy-neighbor isolation. Only exact candidate-bound evidence from
-the owning runtime and benchmark authority can support those claims.
-
-Historical ADRs that require permanent TerraBase R3, Project-owned Regions,
-UDS TBEP, NATS inside TerraBase correctness, standalone Authentication,
-Payments, Platform, or MCP are superseded for future work.
+Only three regions are built and qualified for launch. The architecture keeps
+a ceiling of twenty, but regions four through twenty are post-launch work.
+Orchestrator exposes no compatibility API for another cluster manager.

@@ -1,101 +1,101 @@
-# TerraScale orchestration
+# TerraScale orchestration terms
 
-This context defines the language used to place and operate trusted TerraScale
-containers and customer tenant containers across geographic locations.
+Use these names in code, issues, tests, and documentation.
 
-## Runtime control
+## Control plane
 
-**TerraScale Orchestrator**:
-A provider-neutral workload orchestration platform that operates trusted TerraScale containers and customer tenant containers. All workloads run as OCI containers; Kubernetes compatibility is not implied for any workload.
-_Avoid_: General-purpose container orchestrator, private Kubernetes, Kubernetes-compatible platform
+**TerraScale Orchestrator**
 
-**First-party workload**:
-A service operated by TerraScale as part of the platform or a TerraScale product.
-_Avoid_: System workload, built-in application
+The Go control plane that provisions OCI, schedules TerraScale workloads on
+rootless Podman, manages regional capacity and routing, and coordinates
+TerraBase placement. It exposes no Kubernetes, Nomad, or ECS compatibility
+API.
 
-**Trusted container workload**:
-A signed OCI container admitted from TerraScale's closed first-party catalog.
-TerraBase and the TerraScale APIs are trusted container workloads.
-_Avoid_: Tenant container, arbitrary container, customer image
+**Global controller**
 
-**Tenant workload**:
-A stateless service or serverless handler submitted as an unprivileged,
-digest-pinned OCI container and bound to an admitted TerraScale interface set.
-_Avoid_: Arbitrary container, customer image, Docker workload
+One replica of the three-replica GRU global control group. The active replica
+owns global policy, release admission, the region catalog, Cloudflare intent,
+and regional journal aggregation. It is never a database leader.
 
-**Infrastructure provider**:
-A supported supplier of compute, network, and storage capacity. Provider choice must not change the workload's product-level identity or desired behavior.
-_Avoid_: Cloud-specific workload, OCI workload
+**Regional controller**
 
-**Tenant allocation**:
-One active execution-capacity unit for a tenant workload. It may disappear
-without durable-local-state recovery.
-_Avoid_: Pod, bare cloud instance, arbitrary process
+One replica of a region's three-replica control group. The active replica
+executes accepted policy through the regional scheduler, provider, identity,
+runtime, and routing adapters.
 
-**Tenant container sandbox**:
-The capability boundary around a tenant allocation. The workload container
-runs without privileges, Linux capabilities, host paths, or devices, and can
-use only the versioned interfaces and resources granted by its admitted
-contract.
-_Avoid_: Virtualized tenant tier, WebAssembly sandbox, unrestricted process
+**Regional policy**
 
-**Project Queue trigger**:
-A project-scoped event contract that invokes a tenant workload from a
-platform-owned durable queue without giving the workload NATS credentials.
-_Avoid_: Raw NATS subscription, customer JetStream consumer
+A signed, immutable generation of global policy accepted by one regional
+group. It is not a raw NATS message, provider observation, or source-repository
+manifest.
 
-**Stateless service**:
-A continuously addressable tenant workload whose allocations keep no durable local state and can be replaced without data recovery.
-_Avoid_: Persistent service, stateful container
+**Authority claim**
 
-**Managed TerraBase**:
-A trusted stateful container service for tenant applications. The platform
-owns its topology, storage, backup, and recovery lifecycle.
-_Avoid_: Tenant volume, general stateful workload
+The current term, session, build, protocol generation, lease, and KV revision
+that permit a controller to advance control state while local quorum is
+healthy. It does not replace provider, storage, identity, or TerraBase
+authorization.
 
-**Qualified release digest**:
-An immutable artifact identity that has passed the required release checks and may be activated or restored without rebuilding.
-_Avoid_: Latest image, rebuilt release
+## Runtime
 
-**Regional blue-green deployment**:
-A production release that builds a complete candidate generation beside the
-unchanged active generation in one Region, qualifies it through real
-dependencies and required tests, then switches traffic with one durable routing
-generation. Candidate failure removes only the candidate.
-_Avoid_: In-place upgrade, shallow health-check rollout, all-Region activation
+**First-party workload**
 
-**Global activation barrier**:
-Historical release term superseded by independent regional blue-green
-deployment. SFO, FRA, GRU, and later Regions qualify and cut over in bounded
-waves while each Region retains its own rollback generation.
-_Avoid_: Current release contract
+A TerraScale service admitted from the closed role catalog and run as a
+digest-pinned rootless Podman container under a transient systemd user unit.
 
-**Global Master**:
-The active replica in the three-replica GRU global Orchestrator group. It owns
-global control policy and never names a TerraBase role.
-_Avoid_: Database leader, global database primary
+**Tenant workload**
 
-**Regional Orchestrator**:
-One logical three-replica control group and local JetStream R3 domain for one
-canonical Region.
-_Avoid_: Single controller process, global authority
+A post-launch stateless function run as an unprivileged, digest-pinned OCI
+container on a dedicated tenant-worker node. It has no durable local state,
+host access, provider credentials, or control-plane identity.
 
-**RegionSpec**:
-An immutable signed generation of global policy admitted for one Regional
-Orchestrator.
-_Avoid_: Raw NATS message, Git manifest, provider observation
+**Allocation**
+
+One admitted workload instance bound to a canonical plan fingerprint, node,
+resources, identity, configuration, and artifact digest.
+
+**Node**
+
+A plain OCI Linux host managed by one `ts-node` agent. It runs workloads under
+an unprivileged account and reports capacity and drain state to its regional
+controller.
+
+**Managed TerraBase**
+
+The stateful database workload. TerraBase owns membership, replication,
+repair, and durability. Orchestrator owns capacity and fenced placement intent.
+
+## Delivery
+
+**Candidate handoff**
+
+The signed document from `ts-deploy` that identifies the source commit and
+tree, Deploy CLI, immutable image digests, test results, target, and rollback
+digest. It grants no rollout authority.
+
+**Regional blue-green rollout**
+
+A rollout that starts a complete green generation beside blue, runs the
+required checks, and switches traffic through one durable routing generation.
+A pre-cutover failure removes only green.
+
+**Rollback digest**
+
+The retained immutable image digest restored without rebuilding.
 
 ## Regions
 
-**Launch region**:
-A Region available to initial users at launch. The launch Regions are `GRU`
-in Sao Paulo, `SFO` in San Jose, and `FRA` in Frankfurt.
-_Avoid_: Planned region, supported region
+**Launch region**
 
-**Planned region**:
-A proposed location that users cannot select until TerraScale has deployed and qualified it.
-_Avoid_: Available region, supported region
+One of the three customer-selectable regions: GRU in Sao Paulo, SFO in San
+Francisco, or FRA in Frankfurt.
 
-**Qualified region**:
-A deployed region that has passed its required runtime, isolation, recovery, monitoring, and load checks and has received owner approval for customer use.
-_Avoid_: Running region, documented region
+**Planned region**
+
+A location beyond GRU, SFO, and FRA. It is not built, tested, or selectable at
+launch.
+
+**Region catalog**
+
+The GRU-owned list of regions admitted for customer selection. Provider
+discovery alone cannot add a region to the catalog.

@@ -1,30 +1,37 @@
-# ADR 0024: Greenfield bring-up remains gated by incomplete OCI residual evidence
+# ADR 0024: Build a greenfield OCI estate
 
-- Status: Accepted greenfield boundary; residual inventory evidence pending
-- Date: 2026-08-05
-- Decision owner: Cloud
-- Readiness entry: `24 / greenfield-bringup`
-
-## Context
-
-The intended deployment is greenfield: it adopts no prior cloud, data, identity, DNS, or control-plane resource. That policy does not establish that the legacy cloud estate is empty. The current P0-02 inventory is an incomplete, host-preflight-only record: OCI configuration material was detected without reading it, but the OCI CLI was unavailable, so no authenticated scoped discovery ran ([OCI residual inventory](../evidence/phase0/oci-residual-inventory.yaml)).
-
-Consequently, compute, storage, backups, buckets, load balancers, public IPs, IAM, Vault/KMS, certificates, workloads, NATS, networking, and seven-day cost remain `not-queried`. OKE and node-pool absence remains explicitly unproven. No resource has an ownership classification or cleanup disposition.
+- Status: Accepted
+- Updated: 2026-08-30
+- Scope: OCI bootstrap and ownership
 
 ## Decision
 
-1. Preserve the greenfield policy: the new platform must not adopt a historical resource.
-2. Treat the OCI residual estate as unknown until a scoped read-only inventory positively observes and classifies resources.
-3. Do not infer a clean estate, deleted OKE/node pools, or zero residual cost from unavailable tooling, unread credentials, missing authorization, or unqueried APIs.
-4. Allow cleanup only after positive observation, ownership evidence, and a named accountable owner assigns a disposition. Unknown resources remain outside the new ownership graph and are not mutated.
-5. This ADR and its evidence authorize no OCI or other cloud-account mutation.
+TerraScale starts from a new OCI estate. Orchestrator does not adopt legacy
+compute, storage, network, IAM, Vault, DNS, control-plane, or data resources.
+A tag, familiar name, or matching address does not prove ownership.
 
-## Consequences and required evidence
+Resources that change during normal operation are managed through the fenced
+OCI provider. This includes compute instances, block volumes, attachments,
+registry pulls, Object Storage objects, and work requests.
 
-Before first-production qualification or any residual cleanup proposal, the Cloud lane needs an approved read-only OCI client, a scoped read-only identity, inventory coverage for every P0-02 category, a positive OKE/node-pool query, sanitized seven-day cost evidence, and named owner dispositions for positively identified remnants. The evidence must be revalidated immediately before any ownership disposition or mutation proposal.
+Until the end-to-end bootstrap command lands, an operator creates the one-time
+compartments, VCNs, subnets, network security groups, IAM policies, and Vault
+resources from the reviewed ORCH-5 runbook. Orchestrator performs read-only
+startup checks against the recorded estate identities and refuses a malformed
+or broadened estate.
 
-Until then, the residual-estate risk is unresolved: a legacy resource, cost, credential path, network route, or OKE resource may exist but has not been verified. The greenfield architecture remains a no-adoption rule, not a clean-account assertion.
+ORCH-6 replaces the manual creation step with a resumable bootstrap command.
+It will use the same ownership model and provider fences. It must not create a
+second state owner.
 
-## Rollback
+## Legacy resources
 
-This record changes no runtime or cloud state. Its rollback is a Git revert of this ADR and the linked evidence record; it does not reverse or imply any cloud action.
+Unrecognized resources remain outside the ownership graph and are never
+mutated. Cleanup needs a separate, explicit owner decision based on a current
+read-only inventory. This ADR authorizes no legacy cleanup.
+
+## Consequences
+
+The launch estate has a clear ownership boundary. Setup requires a reviewed
+one-time procedure until ORCH-6 lands, but normal node and storage churn is
+automated and restart-safe.

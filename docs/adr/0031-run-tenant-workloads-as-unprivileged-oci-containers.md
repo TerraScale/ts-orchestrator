@@ -1,6 +1,6 @@
 # Run tenant workloads as unprivileged OCI containers
 
-Status: accepted on 2026-08-24
+Status: accepted for the first post-launch feature
 
 Tracking: [TerraScale.Orchestrator#27](https://git.terrascale.tech/TerraScale/TerraScale.Orchestrator/issues/27)
 
@@ -28,10 +28,8 @@ roles. Tenant images are admitted only by immutable digest from the tenant
 registry namespace and cannot request privileged execution, host paths, host
 devices, raw sockets, Linux capabilities, or first-party identities.
 
-This ADR supersedes [ADR 0030](0030-run-customer-workloads-as-wasi-components.md)
-and permanently retires the microVM isolation direction of
-[ADR 0028](0028-isolate-tenant-workloads-with-microvms.md).
-[ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
+This ADR permanently retires the previous microVM and WebAssembly runtime
+directions. [ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
 
 ## Consequences
 
@@ -39,7 +37,7 @@ and permanently retires the microVM isolation direction of
   image, not on compiling to a component model or targeting a language-specific
   runtime.
 - The scheduler maintains separate trusted-container and tenant-container node
-  classes, admission policies, capacity measurements, and qualification gates.
+  classes, admission policies, capacity measurements, and runtime tests.
 - Container runtime hardening (runc, namespaces, cgroups v2, seccomp,
   capabilities) is now tenant-security-critical and receives the corresponding
   review, testing, and adversarial escape gates.
