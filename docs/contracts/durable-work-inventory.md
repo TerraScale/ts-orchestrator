@@ -2,8 +2,8 @@
 
 > Current implementation inventory for NATS-backed Orchestrator control work.
 > Subject tokens name the mandatory `ts.orch.v2` control root selected by the
-> repository `GOAL.md`; the checked-in adapter still serves the superseded v1
-> root until that migration lands. It does not define TerraBase durability.
+> repository `GOAL.md`; the checked-in adapter serves that v2 root. It does not
+> define TerraBase durability.
 > NATS is the Orchestrator v2 control store: replacing it is a new goal and ADR
 > decision, and any replacement must migrate acknowledged control work without
 > losing identity, fencing, or receipts.

@@ -72,8 +72,8 @@ It never carries database documents, WAL, CRDT deltas, replication frames,
 query results, reactive sync, or authoritative usage.
 
 NATS remains absent from TerraBase correctness and customer data paths. The
-checked-in v1 subjects and the adapter's composition-time global topology are
-implementation state that must migrate to the accepted `ts.orch.v2` contract.
+checked-in subjects and the adapter's composition-time global topology follow
+the accepted `ts.orch.v2` contract.
 
 ## Tenant isolation and capacity
 

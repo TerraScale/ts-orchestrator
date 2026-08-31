@@ -286,22 +286,21 @@ delete data created by a committed safety operation.
 
 ## Compatibility and migration
 
-The current implementation uses the superseded v1 subject root, NATS KV leases,
+The current implementation uses the `ts.orch.v2` subject root, NATS KV leases,
 separate regional and global configuration types, and partial global gateway
 support. V2 is a greenfield authority generation. It does not reuse v1 streams,
 consumers, credentials, or leases.
 
-Migration must:
+The remaining greenfield rollout gates are:
 
-1. freeze the v2 protocol manifest and state ownership;
-2. delete the production `Development/` graph and every development-host
+1. delete the production `Development/` graph and every development-host
    runtime, trust, route, fixture, and service-registration dependency;
-3. implement and qualify v2 in test-owned and disposable environments;
-4. bootstrap a fresh v2 control estate;
-5. admit exact current desired state through v2;
-6. prove no v1 writer can mutate v2 scope;
-7. switch host agents and controllers through a fenced handoff; and
-8. retire v1 credentials and stores only after rollback and evidence gates
+2. qualify the v2 implementation in test-owned and disposable environments;
+3. bootstrap a fresh v2 control estate;
+4. admit exact current desired state through v2;
+5. prove no v1 writer can mutate v2 scope;
+6. switch host agents and controllers through a fenced handoff; and
+7. retire v1 credentials and stores only after rollback and evidence gates
    close.
 
 This ADR supersedes ADR 0004's Pulumi owner, ADR 0013's Git authority after

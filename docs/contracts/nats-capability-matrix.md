@@ -1,11 +1,11 @@
 # NATS capability-adoption matrix and messaging contract
 
-> Frozen v1 implementation contract for the checked-in NATS adapter. The
-> repository [`GOAL.md`](../../GOAL.md) and
+> Frozen messaging contract for the checked-in NATS adapter. The repository
+> [`GOAL.md`](../../GOAL.md) and
 > [ADR 0033](../adr/0033-gru-global-authority-and-regional-autonomy.md) replace
-> its optional-NATS target with the mandatory `ts.orch.v2` control network; the
-> subject tokens below name that v2 control root, and the checked-in adapter
-> still serves the superseded v1 root until the migration lands. It cannot
+> the optional-NATS target with the mandatory `ts.orch.v2` control network; the
+> subject tokens below name that v2 control root, which is the root served by
+> the checked-in adapter. It cannot
 > define v2 authority or permit database data, replication, reactive sync,
 > usage truth, or product correctness to depend on NATS.
 
@@ -16,7 +16,7 @@
 | Machine-readable definitions | `src/orchestrator/protocol` — `nats_capability_matrix.go`, `nats_subject_taxonomy.go`, `messaging_envelope.go`, `messaging_semantic_classes.go`, `messaging_delivery_semantics.go`, `messaging_regional_autonomy.go`, `messaging_compatibility.go` |
 | Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
 | Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
-| Canonicality | Canonical for the checked-in v1 implementation only. The repository `GOAL.md` and ADR 0033 control the v2 target. |
+| Canonicality | Canonical for the checked-in `ts.orch.v2` implementation. The repository `GOAL.md` and ADR 0033 remain the authority for architecture beyond this adapter. |
 
 Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.
 

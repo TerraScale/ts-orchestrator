@@ -34,7 +34,7 @@ are not the target product architecture:
 | [`guides/public-alpha-program-map.md`](guides/public-alpha-program-map.md) | Historical cross-repository issue map |
 | [`guides/work-stream-catalog.md`](guides/work-stream-catalog.md) | Historical work-package index |
 | [`decisions/`](decisions/) | Machine-validated 2026-07 owner decision packet, superseded where it conflicts with the current goal |
-| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Frozen v1 adapter contract, superseded for the v2 target and never a database dependency |
+| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Frozen `ts.orch.v2` adapter contract; never a database dependency |
 
 Do not rewrite evidence to make it appear current. Add a correction or
 supersession notice and preserve what the old run actually proved.

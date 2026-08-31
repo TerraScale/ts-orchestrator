@@ -2,8 +2,7 @@
 
 Status: adapter evidence for the Orchestrator messaging observability contract.
 Subject tokens name the mandatory `ts.orch.v2` control root selected by the
-repository `GOAL.md`; the checked-in adapter serves the superseded v1 root
-until that migration lands.
+repository `GOAL.md`; the checked-in adapter serves this root.
 Everything below is generated from the typed catalog
 (`NatsMonitoringInstrumentCatalog`, `NatsAlertCatalog`) — the single source of
 truth the tests assert against. Production dashboards/alerting remain a separate,
