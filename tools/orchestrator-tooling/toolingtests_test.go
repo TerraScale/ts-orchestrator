@@ -10,10 +10,11 @@ import (
 )
 
 var hermeticToolingTests = map[string]bool{
-	"git bytes preserve non UTF-8 blob": true,
-	"no python sources":                 true,
-	"CI result manifest":                true,
-	"workspace topology lease":          true,
+	"git bytes preserve non UTF-8 blob":         true,
+	"no python sources":                         true,
+	"retired deploy handoff v1 fixtures absent": true,
+	"CI result manifest":                        true,
+	"workspace topology lease":                  true,
 }
 
 func TestToolingHermetic(t *testing.T) {

@@ -1,7 +1,8 @@
 # ADR 0020: Provider actuator crash-stop and irreversible-operation fencing
 
-- Status: Accepted safety boundary; provider qualification pending
-- Updated: 2026-08-30
+- Status: Accepted safety boundary; tested contracts exist, production
+  composition is pending ORCH-6
+- Updated: 2026-08-31
 - Scope: OCI compute, volumes, attachments, work requests, Object Storage, and
   other external mutations owned by Orchestrator
 
@@ -9,169 +10,226 @@
 
 An OCI mutation can outlive the controller leadership and HTTP call that
 started it. The control plane may crash after its last authority check, lose a
-response, observe an SDK timeout while the request continues, or receive a
-delayed work-request completion after another leader takes over. OCI does not
-understand a NATS lease or controller fencing epoch.
+response, time out while OCI continues the request, or observe a delayed work
+request after another leader takes over. OCI does not understand a NATS lease
+or controller fencing epoch.
 
-Avoiding duplicate API calls is not enough. Every external mutation needs one
-persisted, authorized terminal intent. A stale actor must not create a
-conflicting accepted outcome.
+An idempotency key prevents some duplicate calls, but it does not prove who
+authorized the action, which target and payload were accepted, or whether a
+different leader may replace an uncertain operation. Provider safety needs a
+fresh authorization decision, an immutable provider request identity, and a
+durable same-operation resume path.
 
-This threat model covers crash-stop failure of trusted orchestrator code and
-ordinary provider or network faults. It does not claim safety after an
-actuator host or its regional credentials are compromised.
+This threat model covers crash-stop failure of trusted Orchestrator code and
+ordinary provider or network faults. Compromise of an actuator host or its OCI
+credentials is outside this boundary.
+
+## Implemented contracts
+
+The repository has three separate, tested provider safety contracts. None is
+composed into a production runtime.
+
+### Authorization policy
+
+`ProviderOperationContext` binds the operation, region, compartment,
+controller epoch, resource kind, action, exact target, expected generation and
+observation, terminal state, approvals, deadline evidence, idempotency key,
+permitted compensations, and typed action parameters.
+
+`Authorize` checks bounded and consistent evidence, current regional
+authority, scope, epoch, durable ownership, observed generation, deadline,
+approvals, prior authorization compatibility, action compatibility, and tag
+consistency. Missing or ambiguous evidence returns a held or rejected decision
+and no `ProviderIntent`.
+
+`AuthorizeWithOwnership` reloads existing-resource ownership from a
+`DurableOwnershipEvidence` store immediately before it calls `Authorize`.
+Caller-supplied tags and ownership records cannot establish ownership.
+
+`DurableProviderAuthorization` binds the exact context fingerprint,
+operation ID, terminal state, and an irreversible flag.
+`CaptureDurableAuthorization` produces that value only after matching call
+evidence says the provider accepted the call, its response was lost, or it
+completed. The current type has no serializer or durable store.
+`NewDurableProviderAuthorization` is an unwired constructor and is not proof
+that any durable write occurred.
+
+No production code calls `Authorize`, `AuthorizeWithOwnership`,
+`CaptureDurableAuthorization`, or `NewDurableProviderAuthorization`.
+`ProviderActuator` is an interface with no production implementation or
+caller. These contracts are implemented and tested, but they do not currently
+authorize a live provider call.
+
+### Signed create-node boundary
+
+`OciCreateNodeProvider` accepts a `CreateNodeProviderRequest`, not a
+`ProviderIntent` through `ProviderActuator`. The request carries a
+`ProviderOperationContext`, a signed create-node handoff receipt, and a signed
+invocation capability bound to the receipt. Before it calls its client, the
+provider validates the request and durably consumes the invocation capability.
+A replay cannot consume the same capability again.
+
+This path has no production caller. It does not call `Authorize` or use
+`ProviderMutationJournal`. Its one-time capability boundary is tested, but it
+is not the production composition of the authorization policy.
+
+### CAS provider mutation journal
+
+The provider-neutral OCI adapters require `ProviderMutationJournal`. Its
+CAS-backed implementation stores one `ProviderMutationIntent` per logical
+resource scope. The intent binds:
+
+- operation ID, scope, action, and controller epoch;
+- provider idempotency key; and
+- a SHA-256 fingerprint of every provider-visible immutable request field.
+
+The implemented journal states are:
+
+| State | Meaning |
+| --- | --- |
+| `MutationPrepared` | The exact intent owns the resource scope. No provider dispatch is recorded. This state does not prove that `Authorize` admitted the request. |
+| `MutationSubmitted` | The adapter recorded dispatch before crossing the provider boundary. |
+| `MutationUnknown` | OCI may have accepted the call. The same operation must be reconciled; a replacement is forbidden. |
+| `MutationSucceeded` | The provider result is persisted and immutable. |
+| `MutationFailed` | A provider-proven terminal failure is persisted and immutable. |
+
+The same operation may resume at a newer controller epoch. A different
+operation cannot replace an unresolved intent. A capacity attempt that OCI
+proved it rejected may move from `MutationSubmitted` back to
+`MutationPrepared` with an advanced durable attempt cursor. An unknown
+outcome cannot use that transition.
+
+`OCIComputeAdapter`, `OCIBlockStorageAdapter`,
+`OCIVolumeAttachmentAdapter`, and `OCIObjectStorageAdapter` prepare the
+exact intent, record `MutationSubmitted` before the HTTP mutation, and persist
+the result before returning success. `NewCASProviderMutationJournal` and the
+concrete adapter constructors have no production caller. Their current call
+paths are contract tests.
+
+The CI-runner client has another ownership and lifecycle contract. It is not
+composed with `Authorize` or `ProviderMutationJournal`.
 
 ## Decision
 
-Use persisted intent plus same-operation resume as the provider mutation
-fence.
+Keep the implemented contracts and make their boundaries normative. Do not
+claim that they form one runtime until ORCH-6 wires and tests the complete call
+path.
 
-1. A pure controller decision persists an operation as `Prepared`. The record
-   includes the exact target or deterministic create identity, expected
-   observation and generation, proposed terminal state, permitted
-   compensations, required approvals, deadline, preparing authority epoch, and
-   operation identity. `Prepared` is durable intent, not provider-call
-   authorization.
-2. While the operation is `Prepared`, the current fenced writer evaluates a
-   fresh provider observation, positive ownership, matching generation,
-   approvals, policy, quorum, budget gates, and the unexpired deadline. A
-   failed or stale check moves the operation to `Held` and makes no provider
-   call.
-3. If every gate passes, the writer atomically persists
-   `AuthorizedForProviderCall`. That record freezes the exact provider action
-   and payload digest, target OCID or create identity, desired terminal state,
-   provider retry token, allowed compensations, authorizing epoch, policy and
-   approval digests, deadline evaluated at authorization, and authorization
-   commit sequence and digest.
-4. The durable transition to `AuthorizedForProviderCall` is the irreversible
-   commit point. Before it, expiry, leadership loss, stale observation, or
-   approval withdrawal can hold the operation without a call. After it, those
-   changes may pause an unsent dispatch or force reconciliation, but they
-   cannot cancel the committed provider step, replace its terminal target,
-   change its payload or request identity, or authorize a conflicting
-   operation.
-5. Only an exact `AuthorizedForProviderCall` record can produce a
-   `ProviderOperationContext`. The regional actuator verifies that record and
-   its digest immediately before dispatch. If the executor loses authority
-   before crossing the provider boundary, it records a hold or transfer. A
-   successor continues the same committed operation.
-6. Before crossing the provider boundary, the actuator durably records the
-   dispatch attempt against the authorization commit. It sends the frozen
-   operation-bound retry token and records the work-request ID or exact
-   resource identity when OCI returns one.
-7. A timeout or lost transport response is `OutcomeUnknown`, not failure and
-   not permission to create a fresh logical operation.
-8. Recovery reads provider truth and the recorded work request, retry token,
-   or resource identity. A successor resumes or observes the same authorized
-   action and desired terminal state. Renewed authority to execute cannot
-   change the committed action, target, payload, retry token, or terminal
-   target.
-9. A late completion is accepted only when it safely completes the already
-   authorized operation. Any other result is quarantined as an inconsistent
-   observation and cannot authorize cleanup by itself.
-10. Tags help discovery and mismatch detection only. Mutation authority
-    requires a scoped OCI capability and the matching
-    `AuthorizedForProviderCall` record. IAM propagation is not a leadership
-    fence.
-11. The actuator persists the provider result and binds it to the authorization
-    commit before the controller acknowledges terminal control work.
+1. A production controller must call `AuthorizeWithOwnership` with fresh
+   regional authority, durable ownership, current provider observation,
+   generation, deadline, approvals, and call evidence before any adapter
+   request is eligible.
+2. A held or rejected decision makes no provider call. Tags remain consistency
+   evidence only.
+3. The exact authorized context and `ProviderIntent` must bind byte-for-byte
+   to the provider request and its `ProviderMutationIntent`. A translation
+   mismatch fails closed.
+4. For provider-neutral adapters, the irreversible provider-dispatch boundary
+   is the durable transition from `MutationPrepared` to
+   `MutationSubmitted` for that exact intent. The adapter must not cross the
+   network boundary before the transition succeeds.
+5. For `OciCreateNodeProvider`, the current irreversible boundary is durable
+   consumption of the exact signed invocation capability. The receipt,
+   capability, context, and concrete request must remain bound through
+   reconciliation.
+6. Once either dispatch boundary is crossed, leadership changes the executor,
+   not the action, target, payload, idempotency key, permitted compensation, or
+   terminal goal. A successor resumes or observes the same operation.
+7. A timeout or lost response is an unknown outcome. Recovery reads OCI
+   through the recorded work request, retry token, deterministic create
+   identity, receipt binding, or exact target. It does not create replacement
+   intent.
+8. The adapter persists the provider result before the controller acknowledges
+   terminal control work. A terminal journal record cannot change.
 
-Once `AuthorizedForProviderCall` commits, leaders converge on the same provider
-step and terminal intent. The commit does not guarantee provider success or
-permit blind dispatch after authority or deadline checks fail. A hold preserves
-the committed target and request identity, and recovery reconciles or resumes
-that same operation.
-
-## `ProviderOperationContext` contract
-
-The context binds at least:
-
-- operation ID, kind, cell, compartment, and exact target OCID or deterministic
-  create identity;
-- authorization commit sequence and record digest;
-- authorizing epoch, current executor identity, and execution lease;
-- expected provider observation, ownership, and generation;
-- desired terminal state, exact action and payload digest, allowed
-  compensations, and required approval digests;
-- authorization deadline and persisted dispatch-attempt sequence;
-- provider retry token plus the work-request ID when known; and
-- immutable correlation to the owning admitted candidate and accepted
-  desired-state generation.
-
-The adapter rejects a context whose authorization state, commit digest, action,
-payload, target, retry token, or owning operation differs from the journal. It
-cannot convert `Prepared` or `Held` into an adapter context.
+Deployment-driven provider work cannot use an external candidate as authority
+until DEP-3 wires and admits that machine handoff. Other provider work binds to
+its accepted desired-state generation and durable operation origin.
 
 ## Safety rules
 
-- Every mutating adapter call consumes an exact committed
-  `AuthorizedForProviderCall` record. The adapter cannot invent business
-  intent.
-- One logical operation owns a target transition. Leadership changes the
-  executor, not the authorized terminal outcome.
-- Create retries reuse one deterministic create identity and provider retry
-  token.
-- Authorization requires fresh observation, exact target identity, matching
-  generation, an unexpired deadline, all required approvals, and positive
-  ownership.
-- Clock anomalies before authorization hold destructive work. An anomaly after
-  authorization may hold dispatch, but cannot erase or alter the commit.
-- An unknown response is reconciled through read or work-request APIs before
-  retry or compensation.
-- Discovery results and tags cannot authorize mutation, adoption, cleanup, or
+- `MutationPrepared` is a durable adapter intent, not controller
+  authorization. Production composition must prove both boundaries.
+- `NewDurableProviderAuthorization` cannot substitute for captured and
+  durably stored accepted call evidence.
+- One logical operation owns a resource transition. A new leader cannot replace
+  an unresolved operation.
+- Create retries reuse one deterministic create identity and provider
+  idempotency key.
+- Unknown outcomes require read-only reconciliation before retry,
+  compensation, or replacement.
+- Tags and discovery results never authorize mutation, adoption, cleanup, or
   compensation.
+- Delete, terminate, detach, and release require positive durable ownership,
+  matching generation, retention and drain completion, dependency checks,
+  required approvals, and a fresh provider observation.
+- Compensation is another provider mutation. It requires an allowed exact
+  target, known provider truth, and the same authorization and journal gates.
+- A budget emergency may stop new non-safety scale-out. It cannot manufacture
+  destructive authority or block safety expansion required to prevent data
+  loss.
 - Regional credentials remain compartment scoped. GRU distributes policy and
   limits but does not hold routine regional mutation credentials.
-- An emergency budget may stop new non-safety scale-out. It cannot manufacture
-  destructive authority or block safety expansion needed to prevent data loss.
-- Compensation is another provider mutation. It requires an allowed target,
-  known provider truth, and its own authorization checkpoint.
-
-## Destructive operations
-
-Delete, terminate, detach, and release require every ordinary fence plus a
-current owner, retention and drain completion, dependency checks, and a fresh
-provider observation. Missing inventory, a stale authority term, an ambiguous
-work request, or a conflicting generation makes the operation read-only.
-
-The authorized operation lists every permitted compensation and its exact
-target. A controller cannot invent cleanup after an unexpected partial result.
+- Credentials never appear in operation records, messages, logs, or fixtures.
 
 ## Failure and resume behavior
 
-| Failure point | Required recovery behavior |
+| Failure point | Required behavior |
 | --- | --- |
-| Before `Prepared` persists | No provider call is permitted. Replanning may create a new operation. |
-| `Prepared`, before authorization | Re-evaluate every gate. Move to `Held` on stale authority, observation, generation, approval, ownership, quorum, or deadline. |
-| Checks pass, before authorization commits | The irreversible boundary has not been crossed. Leadership loss or expiry holds without a call. |
-| Authorization committed, before dispatch | Preserve the exact action, target, payload, retry token, and terminal state. A successor resumes the same operation. |
-| Dispatch recorded, provider acceptance unknown | Treat the outcome as unknown and reconcile before retrying with the same operation identity. |
-| OCI accepted the request, response lost | Read by work request, retry token, or resource identity. Do not infer failure from timeout. |
-| Resource created, identity not persisted | Discover only within the exact compartment and create identity, verify ownership and generation, then bind or quarantine. |
-| Leadership changes while a work request runs | Observe or resume the same terminal target. Do not issue a conflicting request. |
-| Deadline expires after authorization | Stop blind dispatch and retries. Preserve the commit and continue read-only reconciliation. |
-| Provider reports a mismatched target or generation | Return `ERR-PROVIDER-OWNERSHIP-MISMATCH`, quarantine the result, and make no further mutation. |
-| Scoped credentials are denied | Persist the denial and require scoped recovery. Do not fall back to broader credentials. |
+| `AuthorizeWithOwnership` holds or rejects | Make no provider request and persist no dispatch. |
+| Authorization passes, adapter boundary not crossed | Recheck stale inputs or hold. No external effect is committed. |
+| `MutationPrepared`, before `MutationSubmitted` | Preserve the exact intent. Submit only after its authorization binding is revalidated. |
+| Invocation capability not consumed | Make no create-node call. |
+| `MutationSubmitted` or invocation capability consumed | Preserve the exact request identity. Reconcile or resume that operation only. |
+| OCI acceptance is unknown | Persist or retain the unknown state and reconcile. Never replace the operation. |
+| Leadership changes while a work request runs | Observe or resume the same operation under current execution authority. |
+| Deadline expires before dispatch | Hold with no provider call. |
+| Deadline expires after dispatch | Stop blind retries, preserve the exact operation, and reconcile read-only. |
+| Provider reports a mismatched target or generation | Quarantine the result and make no further mutation. |
+| Scoped credentials are denied | Persist the denial. Never fall back to broader credentials. |
+| Terminal result is known | Persist it before acknowledgement. Never rewrite the terminal record. |
 
-## Required verification
+## Production composition
 
-Provider adapter tests cover lost responses, delayed work-request visibility,
-controller restart, leadership change, duplicate delivery, stale generation,
-unknown resources, capacity errors, and authorized compensation after a
-partial result. Tests must prove that a merely `Prepared` operation cannot
-reach an adapter and that authority loss cannot replace a committed operation
-with a conflicting one.
+ORCH-6 must complete the runtime using the tested contracts already in this
+package:
+
+1. invoke `AuthorizeWithOwnership` from the regional control path using a
+   durable ownership store and current authority;
+2. bind the returned `ProviderIntent` and exact context to each concrete
+   adapter request and `ProviderMutationIntent`;
+3. persist and reload captured `DurableProviderAuthorization` through the
+   control journal for same-operation resume;
+4. keep `OciCreateNodeProvider` under its receipt and invocation-capability
+   boundary, and add the authorization-policy binding or leave the path
+   disabled with a typed refusal;
+5. construct the CAS journal and concrete OCI adapters from a production
+   command with an authoritative JetStream-backed store;
+6. keep CI-runner provider mutations disabled until they use the same
+   authorization and outcome-fencing rules; and
+7. keep external candidate correlation disabled until DEP-3 supplies the
+   admitted machine contract.
+
+Any new persisted state or adapter interface needs its own claimed task and
+tests. This ADR does not create one through prose.
+
+## Verification
+
+Tests must prove stale-leader refusal before dispatch, authorization-to-request
+binding, same-operation resume after leadership change, single-use create-node
+capability consumption, unknown-outcome fencing, capacity cursor recovery,
+immutable terminal results, destructive-operation gates, result persistence
+before acknowledgement, and the absence of a live adapter bypass.
 
 Live OCI qualification remains opt-in and requires dedicated non-production
-compartments and credentials. It must confirm each OCI service's retry-token,
-work-request, ambiguity, and reconciliation behavior before that service is
-production qualified.
+compartments and credentials. Each enabled OCI service must prove its retry
+token, work-request visibility, ambiguity, reconciliation, and ownership
+behavior before production sign-off.
 
 ## Consequences
 
-Provider adapters return typed observations and do not own terminal-state,
-retry, compensation, or ownership policy. Journals distinguish `Prepared`,
-`Held`, immutable authorization, dispatch attempts, and provider outcomes.
-Operator tooling exposes unknown and held outcomes without an unscoped retry
-action. Credential scope limits damage, but it does not replace the logical
-fence.
+The package contains tested safety contracts, not a production provider
+runtime. Keeping that distinction explicit prevents an unwired policy object
+or test-only adapter from being mistaken for a live mutation fence. ORCH-6
+must compose the existing contracts and keep provider mutations disabled until
+the complete path passes its local, simulation, and live qualification gates.
