@@ -465,7 +465,7 @@ func registryBlobContentLength(resp *http.Response) (int64, bool) {
 		}
 	}
 	size, err := strconv.ParseUint(values[0], 10, 64)
-	if err != nil || size > 64<<30 {
+	if err != nil || strconv.FormatUint(size, 10) != values[0] || size > 64<<30 {
 		return 0, false
 	}
 	return int64(size), true

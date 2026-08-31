@@ -401,6 +401,9 @@ func TestStageARegistryContentLengthBoundary(t *testing.T) {
 	}{
 		{value: "68719476736", valid: true},
 		{value: "68719476737"},
+		{value: "0", valid: true},
+		{value: "00"},
+		{value: "01"},
 		{value: "+1"},
 		{value: " 1"},
 		{value: "1, 1"},
