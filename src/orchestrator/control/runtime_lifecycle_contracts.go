@@ -4,7 +4,6 @@ import (
 	"context"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
@@ -446,7 +445,7 @@ type runtimeLifecycleFingerprint struct{}
 
 func canonicalStrings(builder *strings.Builder, values []string) {
 	for _, value := range values {
-		builder.WriteString(strconv.Itoa(utf8.RuneCountInString(value)))
+		builder.WriteString(strconv.Itoa(v1UTF16CodeUnitCount(value)))
 		builder.WriteByte(':')
 		builder.WriteString(value)
 		builder.WriteByte(';')
@@ -513,7 +512,14 @@ func boolDigit(value bool) string {
 }
 
 func hostAdmittedRoleIsDefined(role runtime.AdmittedRole) bool {
-	return role >= runtime.AdmittedRoleDashboard && role <= runtime.AdmittedRoleJournalWriter
+	switch role {
+	case runtime.AdmittedRoleDashboard, runtime.AdmittedRoleDatabaseAPI,
+		runtime.AdmittedRoleTerraBaseMember, runtime.AdmittedRoleNats,
+		runtime.AdmittedRoleAutoscaler, runtime.AdmittedRoleJournalWriter:
+		return true
+	default:
+		return false
+	}
 }
 
 func (runtimeLifecycleFingerprint) Operation(request RuntimeLifecycleOperationRequest) (RuntimeLifecycleOperationKey, error) {

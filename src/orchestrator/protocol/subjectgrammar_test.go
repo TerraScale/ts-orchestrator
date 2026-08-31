@@ -114,6 +114,20 @@ func TestConcreteSubjectAcceptsValidUtf8Only(t *testing.T) {
 	}
 }
 
+func TestConcreteSubjectBoundsUseV1UTF16CodeUnits(t *testing.T) {
+	if _, err := ConcreteSubjectTryParse("\U0001F680", testLimits(2, 1, 2, 1)); err != SubjectGrammarErrorNone {
+		t.Fatalf("non-BMP scalar at the v1 code-unit bound was rejected: %v", err)
+	}
+
+	if _, err := ConcreteSubjectTryParse("\U0001F680", testLimits(1, 1, 1, 1)); err != SubjectGrammarErrorSubjectTooLong {
+		t.Fatalf("subject bound error = %v", err)
+	}
+
+	if _, err := ConcreteSubjectTryParse("\U0001F680", testLimits(2, 1, 1, 1)); err != SubjectGrammarErrorTokenTooLong {
+		t.Fatalf("token bound error = %v", err)
+	}
+}
+
 func TestConcreteSubjectLimitFailuresAreTypedAndDeterministic(t *testing.T) {
 	lengthLimits := testLimits(5, 16, 5, 16)
 	tokenCountLimits := testLimits(128, 2, 32, 16)

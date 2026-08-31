@@ -72,7 +72,7 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 		return nil, SubjectGrammarErrorEmpty
 	}
 
-	if utf8.RuneCountInString(value) > limits.MaximumSubjectLength {
+	if v1UTF16CodeUnitCount(value) > limits.MaximumSubjectLength {
 		return nil, SubjectGrammarErrorSubjectTooLong
 	}
 
@@ -107,11 +107,16 @@ func (subjectGrammarParser) tryTokenize(value string, limits *SubjectGrammarLimi
 			return nil, SubjectGrammarErrorControlCharacterNotAllowed
 		}
 
-		if tokenLength >= limits.MaximumTokenLength {
+		characterUnits := 1
+		if character > 0xFFFF {
+			characterUnits = 2
+		}
+
+		if tokenLength > limits.MaximumTokenLength-characterUnits {
 			return nil, SubjectGrammarErrorTokenTooLong
 		}
 
-		tokenLength++
+		tokenLength += characterUnits
 		index += width
 	}
 

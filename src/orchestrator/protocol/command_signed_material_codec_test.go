@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,6 +89,20 @@ func TestInvalidWindowAndOversizedPayloadCannotReachASigner(t *testing.T) {
 
 	if _, err := CommandSignedMaterialCodec.Hash(&oversized.SignedMaterial); !isInvalidData(err) {
 		t.Fatalf("oversized payload error = %v", err)
+	}
+}
+
+func TestSigningIdentityBoundUsesV1UTF16CodeUnits(t *testing.T) {
+	atLimit := strings.Repeat("\U0001F680", maximumIdentifierCharacters/2)
+	accepted := validEnvelope(func(o *validEnvelopeOption) { o.cell = ptrOf(testCell(atLimit)) })
+	if _, err := CommandSignedMaterialCodec.Encode(&accepted.SignedMaterial); err != nil {
+		t.Fatalf("identity at the v1 code-unit bound was rejected: %v", err)
+	}
+
+	overLimit := atLimit + "a"
+	rejected := validEnvelope(func(o *validEnvelopeOption) { o.cell = ptrOf(testCell(overLimit)) })
+	if _, err := CommandSignedMaterialCodec.Encode(&rejected.SignedMaterial); !isInvalidData(err) {
+		t.Fatalf("identity over the v1 code-unit bound error = %v", err)
 	}
 }
 

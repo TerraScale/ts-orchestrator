@@ -147,6 +147,18 @@ func TestMalformedIdentityOrSourceFailsClosed(t *testing.T) {
 	}
 }
 
+func TestMessageIdentityBoundUsesV1UTF16CodeUnits(t *testing.T) {
+	atLimit := strings.Repeat("\U0001F680", 64)
+	token, ok := MessageIdentityTokenTryCreate(atLimit)
+	if !ok || !token.IsValid() {
+		t.Fatal("message identity at 128 v1 code units was rejected")
+	}
+
+	if token, ok := MessageIdentityTokenTryCreate(atLimit + "a"); ok || token.IsValid() {
+		t.Fatal("message identity over 128 v1 code units was accepted")
+	}
+}
+
 func TestAMalformedSubjectFailsClosed(t *testing.T) {
 	whitespace := MessagingEnvelopeValidator.Validate(
 		messagingEnvelope(t, func(o *messagingEnvelopeOptions) {

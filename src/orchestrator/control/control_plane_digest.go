@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 )
 
 // invalidArgument stands in for C# ArgumentException / ArgumentNullException
@@ -98,7 +97,7 @@ func checkedAddInt64(left, right int64) (int64, bool) {
 // Encodings:
 //
 //	null      -> "N;"
-//	string    -> "S" <rune count> ":" <text> ";"
+//	string    -> "S" <v1 UTF-16 code-unit count> ":" <text> ";"
 //	bool      -> "B1;" / "B0;"
 //	integer   -> "L" <invariant decimal> ";"
 //	enum      -> integer form
@@ -136,6 +135,20 @@ func dotNetTimeEquals(left, right time.Time) bool {
 	return left.Equal(right)
 }
 
+// v1UTF16CodeUnitCount preserves the length field of persisted v1 material.
+// Unicode scalar values outside the basic multilingual plane occupy two code
+// units in that contract.
+func v1UTF16CodeUnitCount(value string) int {
+	count := 0
+	for _, character := range value {
+		count++
+		if character > 0xFFFF {
+			count++
+		}
+	}
+	return count
+}
+
 type digestWriter struct {
 	builder strings.Builder
 }
@@ -150,7 +163,7 @@ func (w *digestWriter) WriteNull() {
 
 func (w *digestWriter) WriteString(value string) {
 	w.builder.WriteByte('S')
-	w.builder.WriteString(itoaCompact(int64(utf8.RuneCountInString(value))))
+	w.builder.WriteString(itoaCompact(int64(v1UTF16CodeUnitCount(value))))
 	w.builder.WriteByte(':')
 	w.builder.WriteString(value)
 	w.builder.WriteByte(';')

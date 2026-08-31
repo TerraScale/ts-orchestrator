@@ -3,7 +3,6 @@ package runtime
 
 import (
 	"fmt"
-	"slices"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -26,26 +25,43 @@ func (e *InvalidDataError) Error() string { return e.Message }
 type AdmittedRole int
 
 const (
-	AdmittedRoleDashboard AdmittedRole = iota
-	AdmittedRoleDatabaseAPI
-	AdmittedRoleTerraBaseMember
-	AdmittedRoleNats
-	AdmittedRoleAutoscaler
-	AdmittedRoleJournalWriter
+	// Retained roles keep their v1 persisted values. New roles use values after
+	// the retired v1 range so old checkpoints cannot acquire a new meaning.
+	AdmittedRoleDashboard       AdmittedRole = 0
+	AdmittedRoleDatabaseAPI     AdmittedRole = 17
+	AdmittedRoleTerraBaseMember AdmittedRole = 1
+	AdmittedRoleNats            AdmittedRole = 3
+	AdmittedRoleAutoscaler      AdmittedRole = 2
+	AdmittedRoleJournalWriter   AdmittedRole = 16
 )
 
 func (r AdmittedRole) defined() bool {
-	return r >= AdmittedRoleDashboard && r <= AdmittedRoleJournalWriter
+	switch r {
+	case AdmittedRoleDashboard, AdmittedRoleDatabaseAPI, AdmittedRoleTerraBaseMember,
+		AdmittedRoleNats, AdmittedRoleAutoscaler, AdmittedRoleJournalWriter:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r AdmittedRole) String() string {
-	names := [...]string{
-		"Dashboard", "DatabaseAPI", "TerraBaseMember", "Nats", "Autoscaler", "JournalWriter",
+	switch r {
+	case AdmittedRoleDashboard:
+		return "Dashboard"
+	case AdmittedRoleDatabaseAPI:
+		return "DatabaseAPI"
+	case AdmittedRoleTerraBaseMember:
+		return "TerraBaseMember"
+	case AdmittedRoleNats:
+		return "Nats"
+	case AdmittedRoleAutoscaler:
+		return "Autoscaler"
+	case AdmittedRoleJournalWriter:
+		return "JournalWriter"
+	default:
+		return fmt.Sprintf("AdmittedRole(%d)", int(r))
 	}
-	if r >= 0 && int(r) < len(names) {
-		return names[r]
-	}
-	return fmt.Sprintf("AdmittedRole(%d)", int(r))
 }
 
 // AllAdmittedRoles lists every role in declared order.
@@ -119,15 +135,12 @@ type admittedRoleCatalog struct{}
 
 var admittedRoleDescriptors = map[AdmittedRole]AdmittedRoleDescriptor{}
 
-// All returns every descriptor ordered by role.
+// All returns every descriptor in declared catalog order.
 func (admittedRoleCatalog) All() []AdmittedRoleDescriptor {
-	all := make([]AdmittedRoleDescriptor, 0, len(admittedRoleDescriptors))
-	for _, descriptor := range admittedRoleDescriptors {
-		all = append(all, descriptor)
+	all := make([]AdmittedRoleDescriptor, 0, len(AllAdmittedRoles))
+	for _, role := range AllAdmittedRoles {
+		all = append(all, admittedRoleDescriptors[role])
 	}
-	slices.SortFunc(all, func(left, right AdmittedRoleDescriptor) int {
-		return int(left.Role) - int(right.Role)
-	})
 	return all
 }
 
@@ -175,7 +188,7 @@ func init() {
 			MinimumReplicas: minimumReplicas,
 		}
 	}
-	oci := func(role AdmittedRole, artifactKey string, capabilities ...RoleCapability) AdmittedRoleDescriptor {
+	oci := func(role AdmittedRole, artifactKey string, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
 		return AdmittedRoleDescriptor{
 			Role:            role,
 			ArtifactKey:     artifactKey,
@@ -183,7 +196,7 @@ func init() {
 			AllowedDrivers:  []RuntimeDriver{RuntimeDriverOciContainer},
 			Capabilities:    capabilities,
 			OnePerHost:      false,
-			MinimumReplicas: 1,
+			MinimumReplicas: minimumReplicas,
 		}
 	}
 	both := func(role AdmittedRole, artifactKey string, defaultDriver RuntimeDriver, onePerHost bool, minimumReplicas int, capabilities ...RoleCapability) AdmittedRoleDescriptor {
@@ -198,8 +211,8 @@ func init() {
 		}
 	}
 	for _, descriptor := range []AdmittedRoleDescriptor{
-		oci(AdmittedRoleDashboard, "terrascale-dashboard", RoleCapabilityPublicHttp),
-		oci(AdmittedRoleDatabaseAPI, "terrascale-database", RoleCapabilityPublicHttp),
+		oci(AdmittedRoleDashboard, "terrascale-dashboard", 1, RoleCapabilityPublicHttp),
+		oci(AdmittedRoleDatabaseAPI, "terrascale-database", 2, RoleCapabilityPublicHttp),
 		both(AdmittedRoleTerraBaseMember, "terrabase-server", RuntimeDriverNativeSystemd, true, 2, RoleCapabilityProductDatabase),
 		native(AdmittedRoleNats, "nats-server", true, 3, RoleCapabilityControlMessaging),
 		native(AdmittedRoleAutoscaler, "terrascale-orchestrator", true, 3, RoleCapabilityControlAuthority),

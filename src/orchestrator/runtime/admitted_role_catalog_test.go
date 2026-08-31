@@ -16,6 +16,11 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	if len(distinct) != len(all) {
 		t.Fatal("catalog roles must be distinct")
 	}
+	for index, role := range AllAdmittedRoles {
+		if all[index].Role != role {
+			t.Fatalf("catalog role %d = %v, want %v", index, all[index].Role, role)
+		}
+	}
 	assertDriver := func(role AdmittedRole, driver RuntimeDriver) {
 		t.Helper()
 		descriptor, err := AdmittedRoleCatalog.Get(role)
@@ -41,6 +46,7 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	}
 	assertReplicas(AdmittedRoleNats, 3)
 	assertReplicas(AdmittedRoleAutoscaler, 3)
+	assertReplicas(AdmittedRoleDatabaseAPI, 2)
 	assertDriver(AdmittedRoleJournalWriter, RuntimeDriverNativeSystemd)
 	journalWriter, err := AdmittedRoleCatalog.Get(AdmittedRoleJournalWriter)
 	if err != nil {
@@ -48,6 +54,28 @@ func TestCatalogIsClosedCompleteAndUsesProductionRuntimeDefaults(t *testing.T) {
 	}
 	if !journalWriter.OnePerHost {
 		t.Fatal("journal writer must be one per host")
+	}
+}
+
+func TestPersistedRoleValuesRemainCompatibleWithV1Checkpoints(t *testing.T) {
+	want := map[AdmittedRole]int{
+		AdmittedRoleDashboard:       0,
+		AdmittedRoleTerraBaseMember: 1,
+		AdmittedRoleAutoscaler:      2,
+		AdmittedRoleNats:            3,
+		AdmittedRoleJournalWriter:   16,
+		AdmittedRoleDatabaseAPI:     17,
+	}
+	for role, value := range want {
+		if int(role) != value {
+			t.Fatalf("%v persisted value = %d, want %d", role, role, value)
+		}
+	}
+
+	for value := 4; value <= 15; value++ {
+		if AdmittedRole(value).defined() {
+			t.Fatalf("retired v1 role value %d acquired a new meaning", value)
+		}
 	}
 }
 
