@@ -13,3 +13,4 @@ __pycache__/
 *.suo
 orchestrator-tooling
 /ts-node
+.codex-worktrees/
