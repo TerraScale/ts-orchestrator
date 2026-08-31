@@ -111,7 +111,7 @@ func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	if _, err := journal.MarkSubmitted(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := journal.MarkUnknown(context.Background(), first); err != nil {
+	if _, err := journal.MarkUnknown(context.Background(), first, ProviderMutationResult{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := journal.MarkFailed(context.Background(), first, "timeout"); err == nil {
@@ -189,6 +189,9 @@ func TestOCIComputeTerminateConvergesWhenInstanceIsAlreadyAbsent(t *testing.T) {
 		if request.Method != http.MethodGet {
 			t.Fatalf("already-absent termination sent %s", request.Method)
 		}
+		if request.URL.Path == "/20160918/instances" {
+			return testHTTPResponse(http.StatusOK, `[]`, nil), nil
+		}
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
 	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
@@ -235,7 +238,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		if len(posts) == 1 {
 			return testHTTPResponse(http.StatusInternalServerError, `{"code":"OutOfHostCapacity"}`, nil), nil
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, http.Header{"Etag": {"instance-etag"}}), nil
 	})
 	journal := &pausingMutationJournal{ProviderMutationJournal: testJournal(t), pauseAt: 1}
 	adapter, err := NewOCIComputeAdapter(transport, journal)
@@ -257,7 +260,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		t.Fatalf("interrupted fallback posts=%d err=%v", len(posts), err)
 	}
 	instance, err := adapter.LaunchInstance(context.Background(), request)
-	if err != nil || instance.ID == "" || len(posts) != 2 || posts[1]["availabilityDomain"] != "AD-2" {
+	if err != nil || instance.ID == "" || instance.ETag != "instance-etag" || len(posts) != 2 || posts[1]["availabilityDomain"] != "AD-2" {
 		t.Fatalf("resumed fallback instance=%+v posts=%+v err=%v", instance, posts, err)
 	}
 	firstVNIC := posts[0]["createVnicDetails"].(map[string]any)
@@ -318,6 +321,66 @@ func TestOCIWorkRequestAdapterToleratesEventualVisibility(t *testing.T) {
 	}
 }
 
+func TestAsyncMutationCompletionPreservesProviderTruth(t *testing.T) {
+	oldPolicy := mutationWorkRequestWaitPolicy
+	mutationWorkRequestWaitPolicy = WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 2, MaxNotFound: 1}
+	t.Cleanup(func() { mutationWorkRequestWaitPolicy = oldPolicy })
+
+	tests := []struct {
+		name          string
+		workID        string
+		status        int
+		providerState string
+		unknownFirst  bool
+		wantState     ProviderMutationState
+		wantError     bool
+	}{
+		{name: "success", workID: "work-success", status: http.StatusOK, providerState: "SUCCEEDED", wantState: MutationSucceeded},
+		{name: "failure after unknown", workID: "work-failed", status: http.StatusOK, providerState: "FAILED", unknownFirst: true, wantState: MutationFailed, wantError: true},
+		{name: "cancellation", workID: "work-canceled", status: http.StatusOK, providerState: "CANCELED", wantState: MutationFailed, wantError: true},
+		{name: "invisible", workID: "work-invisible", status: http.StatusNotFound, wantState: MutationUnknown, wantError: true},
+		{name: "missing work request ID", wantState: MutationUnknown, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			intent := testMutation("compute.terminate", ProviderMutationScope("compute", test.name), ProviderMutationFingerprint(test.name), 1)
+			journal := testJournal(t)
+			if _, err := journal.Prepare(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
+				t.Fatal(err)
+			}
+			result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.x", ETag: "instance-etag", WorkRequestID: test.workID}
+			if test.unknownFirst {
+				if _, err := journal.MarkUnknown(context.Background(), intent, result); err != nil {
+					t.Fatal(err)
+				}
+			}
+			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path != "/20160918/workRequests/"+test.workID {
+					t.Fatalf("unexpected work request path %s", request.URL.Path)
+				}
+				body := `{"id":"` + test.workID + `","status":"` + test.providerState + `","percentComplete":100}`
+				return testHTTPResponse(test.status, body, nil), nil
+			})
+			work, err := NewOCIWorkRequestAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			work.Wait = func(context.Context, time.Duration) error { return nil }
+			err = finishAsyncMutation(context.Background(), journal, intent, result, work)
+			if (err != nil) != test.wantError {
+				t.Fatalf("completion error = %v, wantError=%v", err, test.wantError)
+			}
+			record, err := journal.Prepare(context.Background(), intent)
+			if err != nil || record.State != test.wantState || record.Result != result {
+				t.Fatalf("completion record = %+v, err=%v", record, err)
+			}
+		})
+	}
+}
+
 func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	if _, err := NewOCIServiceTransportConfig(OCIServiceIdentity, "sa-saopaulo-1", "https://identity.sa-saopaulo-1.oci.oraclecloud.com"); err != nil {
 		t.Fatalf("Identity authority rejected: %v", err)
@@ -336,11 +399,38 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	}
 }
 
+func TestOCIDValidationAcceptsOracleRegionlessResources(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		kind  string
+	}{
+		{"ocid1.tenancy.oc1..aaaaaaaaxf3fuazos", "tenancy"},
+		{"ocid1.compartment.oc1..aaaaaaaam3we6vgnherjq5q2", "compartment"},
+		{"ocid1.policy.oc1..aaaaaaaapolicy", "policy"},
+	} {
+		if !isOCID(test.value, test.kind) {
+			t.Fatalf("real regionless %s OCID was rejected: %s", test.kind, test.value)
+		}
+	}
+	for _, invalid := range []string{
+		"ocid1.compartment.oc1.",
+		"ocid1.compartment.oc1...aaaa",
+		"ocid1.compartment.oc1..aaaa/escape",
+	} {
+		if isOCID(invalid, "compartment") {
+			t.Fatalf("invalid OCID was accepted: %s", invalid)
+		}
+	}
+}
+
 func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
 	deletes := 0
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method == http.MethodDelete {
 			deletes++
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/20160918/instances" {
+			return testHTTPResponse(http.StatusOK, `[]`, nil), nil
 		}
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
@@ -425,6 +515,9 @@ func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
 	pageCalls := 0
 	transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
 		pageCalls++
+		if httpRequest.URL.Path == "/20160918/instances/ocid1.instance.oc1.x" {
+			return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING"}`, http.Header{"Etag": {"instance-etag"}}), nil
+		}
 		if httpRequest.URL.Query().Get("page") == "" {
 			return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
 		}
@@ -436,7 +529,7 @@ func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance, err := adapter.LaunchInstance(context.Background(), request)
-	if err != nil || instance.ID != "ocid1.instance.oc1.x" || pageCalls != 2 {
+	if err != nil || instance.ID != "ocid1.instance.oc1.x" || instance.ETag != "instance-etag" || pageCalls != 3 {
 		t.Fatalf("paged reconciliation instance=%+v calls=%d err=%v", instance, pageCalls, err)
 	}
 }

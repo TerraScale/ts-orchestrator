@@ -26,8 +26,12 @@ func TestOCIObserveParsesAndValidatesRunnerIdentityTags(t *testing.T) {
 	}
 	tags := RunnerTags(demand, template.Generation)
 	responseTags := tags
-	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body := `[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING","timeCreated":"2026-08-30T12:00:00Z","freeformTags":` + string(mustJSON(responseTags)) + `}]`
+		if request.URL.Path == "/20160918/instances/ocid1.instance.oc1.x" {
+			body = `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {"instance-etag"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
 	cfg, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
@@ -46,12 +50,60 @@ func TestOCIObserveParsesAndValidatesRunnerIdentityTags(t *testing.T) {
 	if err != nil || len(observed) != 1 {
 		t.Fatalf("observe = %+v, %v", observed, err)
 	}
-	if observed[0].Runner != demand.Runner || observed[0].Sequence != demand.Sequence || !observed[0].Preemptible || observed[0].PreserveBootVolume || !RunnerMatches(observed[0], demand, template) {
+	if observed[0].Runner != demand.Runner || observed[0].Sequence != demand.Sequence || observed[0].ETag != "instance-etag" || !observed[0].Preemptible || observed[0].PreserveBootVolume || !RunnerMatches(observed[0], demand, template) {
 		t.Fatalf("runner identity was not populated from validated tags: %+v", observed[0])
 	}
 	responseTags[runnerSequenceTag] = "not-a-sequence"
 	if _, err := compute.Observe(context.Background(), template); err == nil {
 		t.Fatal("malformed runner tags must fail closed")
+	}
+}
+
+func TestOCIObserveCapsPageLimitAtOracleMaximum(t *testing.T) {
+	template, err := NewOciCiRunnerLaunchTemplate("ocid1.compartment.oc1.x", "AD-1", "FD-1", "ocid1.subnet.oc1.x", []string{"ocid1.networksecuritygroup.oc1.x"}, "ocid1.image.oc1.x", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenLimit := ""
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		seenLimit = request.URL.Query().Get("limit")
+		return testHTTPResponse(http.StatusOK, `[]`, nil), nil
+	})
+	compute, err := NewOCIComputeClient(transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compute.Observe(context.Background(), template); err != nil {
+		t.Fatal(err)
+	}
+	if seenLimit != "1000" {
+		t.Fatalf("OCI list page limit = %q, want 1000", seenLimit)
+	}
+}
+
+func TestOCIRunnerStateHandlesOracleTransitionalStates(t *testing.T) {
+	for _, state := range []string{"MOVING", "CREATING_IMAGE"} {
+		got, ok := ociRunnerState(state)
+		if !ok || got != RunnerLaunching {
+			t.Fatalf("OCI lifecycle %s = %v, %v", state, got, ok)
+		}
+	}
+}
+
+func TestOCIObserveRejectsMissingCreationTime(t *testing.T) {
+	template, err := NewOciCiRunnerLaunchTemplate("ocid1.compartment.oc1.x", "AD-1", "FD-1", "ocid1.subnet.oc1.x", []string{"ocid1.networksecuritygroup.oc1.x"}, "ocid1.image.oc1.x", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING"}]`, nil), nil
+	})
+	compute, err := NewOCIComputeClient(transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compute.Observe(context.Background(), template); err == nil {
+		t.Fatal("OCI observation accepted an instance without mandatory timeCreated")
 	}
 }
 
@@ -104,7 +156,7 @@ func TestOCINodeCreateRequiresResolvedLaunchConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := CreateNodeReceiptBinding{CreateKey: "create-1", CompartmentId: "ocid1.compartment.oc1.x", TemplateId: "template-1", PlacementId: "placement-1", BootstrapEnvelopeDigest: params.BootstrapEnvelopeDigest.Sha256, OperationId: "operation-1", IdempotencyKey: "idempotency-1"}
+	binding := CreateNodeReceiptBinding{CreateKey: "create-1", CompartmentId: "ocid1.compartment.oc1.x", TemplateId: "template-1", PlacementId: "placement-1", BootstrapEnvelopeDigest: params.BootstrapEnvelopeDigest.Sha256, OperationId: "operation-1", IdempotencyKey: "idempotency-1", Generation: 1}
 	var posts int
 	var body []byte
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -133,5 +185,25 @@ func TestOCINodeCreateRequiresResolvedLaunchConfiguration(t *testing.T) {
 	}
 	if decoded["sourceDetails"].(map[string]any)["imageId"] != "ocid1.image.oc1.x" || decoded["createVnicDetails"].(map[string]any)["subnetId"] != "ocid1.subnet.oc1.x" || decoded["metadata"].(map[string]any)["user_data"] != base64.StdEncoding.EncodeToString(bootstrap) {
 		t.Fatalf("resolved OCI node create omitted launch details: %s", body)
+	}
+
+	missingWorkTransport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","etag":"not-a-work-request"}`, http.Header{"Etag": {"instance-etag"}}), nil
+	})
+	compute.OCI = missingWorkTransport
+	if _, err := compute.CreateNode(context.Background(), CreateNodeProviderRequest{Context: contextValue, Parameters: params, Binding: binding}); err == nil {
+		t.Fatal("OCI node create accepted an ETag as a work-request identity")
+	}
+
+	compute.OCI = testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/20160918/instances" {
+			t.Fatalf("unexpected create recovery request %s %s", request.Method, request.URL.String())
+		}
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","etag":"instance-etag","freeformTags":{"terrascale-create-key":"create-1","terrascale-operation":"operation-1"}}]`, nil), nil
+	})
+	compute.Ownership = testOwnership(t, "ocid1.instance.oc1.x")
+	recovered, err := compute.reconcileNodeCreate(context.Background(), CreateNodeProviderRequest{Context: contextValue, Parameters: params, Binding: binding})
+	if err != nil || recovered.NodeId.Value != "ocid1.instance.oc1.x" || recovered.WorkRequestId.Value != "" {
+		t.Fatalf("observed-resource recovery = %+v, %v", recovered, err)
 	}
 }

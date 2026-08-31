@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"hash"
 	"io"
 	"net/http"
@@ -166,7 +167,11 @@ func (a *OCIObjectStorageAdapter) HeadObject(ctx context.Context, object ObjectR
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		drainClose(resp.Body)
-		return ObjectMetadata{}, false, nil
+		exists, listErr := a.objectExistsAuthorized(ctx, object)
+		if listErr != nil || !exists {
+			return ObjectMetadata{}, false, listErr
+		}
+		return ObjectMetadata{}, false, &InvalidOperationError{Message: "OCI Object Storage metadata read was denied for a listed object"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		drainClose(resp.Body)
@@ -175,6 +180,70 @@ func (a *OCIObjectStorageAdapter) HeadObject(ctx context.Context, object ObjectR
 	metadata, err := objectMetadataFromResponse(resp)
 	drainClose(resp.Body)
 	return metadata, err == nil, err
+}
+
+func validObjectListCursor(value string) bool {
+	return len(value) > 0 && len(value) <= 1024 && strings.TrimSpace(value) == value &&
+		strings.IndexFunc(value, func(ch rune) bool { return ch < 0x20 || ch == 0x7f }) < 0
+}
+
+func (a *OCIObjectStorageAdapter) objectExistsAuthorized(ctx context.Context, object ObjectRef) (bool, error) {
+	if a == nil || a.ObjectStorage == nil {
+		return false, &InvalidOperationError{Message: "OCI Object Storage adapter is unavailable"}
+	}
+	if err := validateObjectRef(object); err != nil {
+		return false, err
+	}
+	basePath := "/n/" + url.PathEscape(object.Namespace) + "/b/" + url.PathEscape(object.Bucket) + "/o"
+	query := url.Values{"prefix": {object.Name}, "fields": {"name"}, "limit": {strconv.Itoa(maximumOCIListResults)}}
+	seen := map[string]bool{}
+	start := ""
+	for page := 0; page < maximumOCIPages; page++ {
+		if start == "" {
+			query.Del("start")
+		} else {
+			query.Set("start", start)
+		}
+		resp, err := a.ObjectStorage.Do(ctx, http.MethodGet, basePath+"?"+query.Encode(), nil)
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			drainClose(resp.Body)
+			return false, &InvalidOperationError{Message: "OCI Object Storage absence verification failed"}
+		}
+		body, err := ReadBoundedBody(resp, a.ObjectStorage.Config.MaxBodyBytes)
+		if err != nil {
+			return false, err
+		}
+		var document struct {
+			Objects []struct {
+				Name string `json:"name"`
+			} `json:"objects"`
+			NextStartWith string `json:"nextStartWith"`
+		}
+		if json.Unmarshal(body, &document) != nil || document.Objects == nil || len(document.Objects) > maximumOCIListResults {
+			return false, &InvalidDataError{Message: "OCI Object Storage absence verification response is invalid"}
+		}
+		for _, item := range document.Objects {
+			if !validObjectPart(item.Name, 1024, true) || !strings.HasPrefix(item.Name, object.Name) {
+				return false, &InvalidDataError{Message: "OCI Object Storage absence verification escaped its prefix"}
+			}
+			if item.Name == object.Name {
+				return true, nil
+			}
+		}
+		next := document.NextStartWith
+		if next == "" {
+			return false, nil
+		}
+		if !validObjectListCursor(next) || next == start || seen[next] || page+1 == maximumOCIPages {
+			return false, &InvalidDataError{Message: "OCI Object Storage absence verification pagination is invalid"}
+		}
+		seen[next] = true
+		start = next
+	}
+	return false, &InvalidDataError{Message: "OCI Object Storage absence verification exceeded its bound"}
 }
 
 func (a *OCIObjectStorageAdapter) GetObject(ctx context.Context, object ObjectRef) (io.ReadCloser, ObjectMetadata, error) {
@@ -242,8 +311,8 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	if !found {
 		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
 	}
-	if record.State == MutationUnknown {
-		return &ProviderOutcomeUnknownError{}
+	if record.State == MutationSubmitted || record.State == MutationUnknown {
+		return finishUnknownWithResult(ctx, a.Journal, request.Mutation, record.Result)
 	}
 	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 		return err
@@ -251,16 +320,32 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	resp, err := a.ObjectStorage.DoWithHeaders(ctx, http.MethodDelete, objectStoragePath(request.Object), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
 		if indeterminate(err) {
-			if _, found, readErr := a.HeadObject(ctx, request.Object); readErr == nil && !found {
+			if exists, readErr := a.objectExistsAuthorized(ctx, request.Object); readErr == nil && !exists {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
 			}
 			return finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNotFound {
 		drainClose(resp.Body)
-		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
+		exists, readErr := a.objectExistsAuthorized(ctx, request.Object)
+		if readErr != nil {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		if !exists {
+			return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch})
+		}
+		return knownFailure(ctx, a.Journal, request.Mutation, "provider-not-authorized")
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		drainClose(resp.Body)
+		result := ProviderMutationResult{ResourceID: objectStoragePath(request.Object), ETag: request.IfMatch}
+		exists, readErr := a.objectExistsAuthorized(ctx, request.Object)
+		if readErr != nil || exists {
+			return finishUnknownWithResult(ctx, a.Journal, request.Mutation, result)
+		}
+		return markSucceeded(ctx, a.Journal, request.Mutation, result)
 	}
 	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
 }
@@ -270,6 +355,9 @@ type OCIRegistryAdapter struct{ Registry *OCIHTTPTransport }
 // OCIRegistryTokenSigner supplies the Docker Registry v2 basic credential
 // expected by OCIR. The token stays process-local and errors never include it.
 type OCIRegistryTokenSigner struct{ username, token string }
+
+func (s *OCIRegistryTokenSigner) String() string   { return "OCIRegistryTokenSigner{<redacted>}" }
+func (s *OCIRegistryTokenSigner) GoString() string { return "OCIRegistryTokenSigner{<redacted>}" }
 
 func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
 	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||

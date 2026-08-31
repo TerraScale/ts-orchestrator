@@ -173,7 +173,7 @@ func isOCID(v, kind string) bool {
 		return false
 	}
 	parts := strings.Split(v, ".")
-	if len(parts) < 4 || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
+	if len(parts) < 4 || parts[len(parts)-1] == "" || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
 		return false
 	}
 	for _, r := range parts[2][2:] {
@@ -181,7 +181,15 @@ func isOCID(v, kind string) bool {
 			return false
 		}
 	}
-	for _, part := range parts[3:] {
+	for index, part := range parts[3:] {
+		// Regionless OCI resources such as tenancies, compartments, users,
+		// and IAM policies use an empty region slot: ocid1.<kind>.oc1..<id>.
+		if part == "" {
+			if index != 0 || len(parts) < 5 {
+				return false
+			}
+			continue
+		}
 		if !ocidSegmentPattern.MatchString(part) {
 			return false
 		}
@@ -342,10 +350,9 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	return &OCIHTTPTransport{config, client, signer}, nil
 }
 
-// NewOCIInstancePrincipalTransport composes the standard OCI transport with
-// the host instance-principal RSA signer. Credential loading stays outside
-// this package, which keeps the HTTP client testable and avoids metadata
-// endpoint access from a control process.
+// NewOCIInstancePrincipalTransport composes a transport with an already
+// resolved credential. Production estate verification uses the federated
+// constructor below so no long-lived key is read from disk.
 func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Client, keyID string, key *rsa.PrivateKey) (*OCIHTTPTransport, error) {
 	signer, err := NewInstancePrincipalSigner(keyID, key)
 	if err != nil {
@@ -353,6 +360,7 @@ func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Cl
 	}
 	return NewOCIHTTPTransport(config, client, signer)
 }
+
 func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	return t.DoWithHeaders(ctx, method, path, body, nil)
 }

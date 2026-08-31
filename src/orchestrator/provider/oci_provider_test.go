@@ -130,7 +130,7 @@ func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Etag": {"instance-etag"}}, Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`))}, nil
 	})}
 	config, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
 	if err != nil {
@@ -144,9 +144,12 @@ func TestOCIComputeLaunchTransmitsCompleteRunnerConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = compute.Execute(context.Background(), LaunchOciCiRunnerAction{Demand: demand, Template: template})
+	receipt, err := compute.Execute(context.Background(), LaunchOciCiRunnerAction{Demand: demand, Template: template})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if receipt.ETag != "instance-etag" {
+		t.Fatalf("launch ETag = %q, want response header fence", receipt.ETag)
 	}
 	var body map[string]any
 	if err := json.Unmarshal(requestBody, &body); err != nil {

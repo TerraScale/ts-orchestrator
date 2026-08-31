@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -23,6 +24,12 @@ const (
 	maximumOCIListResults = 1000
 	maximumOCIPages       = 16
 )
+
+var mutationWorkRequestWaitPolicy = WorkRequestWaitPolicy{
+	PollInterval: 250 * time.Millisecond,
+	MaxPolls:     12,
+	MaxNotFound:  4,
+}
 
 func fingerprintJSON(action string, value any) string {
 	raw, _ := json.Marshal(value)
@@ -164,10 +171,31 @@ func mutationResultFromHeaders(resp *http.Response, resourceID, etag string) Pro
 }
 
 func finishUnknown(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent) error {
-	if _, err := journal.MarkUnknown(ctx, intent); err != nil {
+	return finishUnknownWithResult(ctx, journal, intent, ProviderMutationResult{})
+}
+
+func finishUnknownWithResult(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult) error {
+	if _, err := journal.MarkUnknown(ctx, intent, result); err != nil {
 		return err
 	}
 	return &ProviderOutcomeUnknownError{}
+}
+
+func finishAsyncMutation(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter) error {
+	if !validWorkRequestID(result.WorkRequestID) || workRequests == nil {
+		return finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	work, err := workRequests.WaitWorkRequest(ctx, result.WorkRequestID, mutationWorkRequestWaitPolicy)
+	if work.State == WorkRequestFailed || work.State == WorkRequestCanceled {
+		if _, markErr := journal.MarkProviderFailed(ctx, intent, result, "provider-work-request-failed"); markErr != nil {
+			return markErr
+		}
+		return &InvalidOperationError{Message: "OCI provider work request failed"}
+	}
+	if err != nil || work.State != WorkRequestSucceeded {
+		return finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	return markSucceeded(ctx, journal, intent, result)
 }
 
 func knownFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, code string) error {
@@ -221,6 +249,7 @@ func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, in
 
 type OCIComputeAdapter struct {
 	Core      *OCIHTTPTransport
+	Work      *OCIWorkRequestAdapter
 	Journal   ProviderMutationJournal
 	Ownership DurableOwnershipEvidence
 }
@@ -229,7 +258,11 @@ func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJourna
 	if err := validateOCIAdapter(core, OCIServiceCore, journal); err != nil {
 		return nil, err
 	}
-	return &OCIComputeAdapter{Core: core, Journal: journal}, nil
+	work, err := NewOCIWorkRequestAdapter(core)
+	if err != nil {
+		return nil, err
+	}
+	return &OCIComputeAdapter{Core: core, Work: work, Journal: journal}, nil
 }
 
 type computeLaunchFingerprint struct {
@@ -292,7 +325,7 @@ type ociAutomatedInstance struct {
 	ID                 string            `json:"id"`
 	CompartmentID      string            `json:"compartmentId"`
 	LifecycleState     string            `json:"lifecycleState"`
-	ETag               string            `json:"etag"`
+	ETag               string            `json:"-"`
 	AvailabilityDomain string            `json:"availabilityDomain"`
 	Shape              string            `json:"shape"`
 	FreeformTags       map[string]string `json:"freeformTags"`
@@ -405,8 +438,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") || item.CompartmentID != request.CompartmentID {
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
-		if item.ETag == "" {
-			item.ETag = safeHeader(resp, "etag")
+		item.ETag = safeHeader(resp, "etag")
+		if !isSafeETag(item.ETag) {
+			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		instance := ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: safeHeader(resp, "opc-work-request-id"), AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}
@@ -468,7 +502,11 @@ func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request C
 	if !isOCID(item.ID, "instance") {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation identity is invalid"}
 	}
-	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
+	instance, found, err := a.getInstanceInCompartment(ctx, item.ID, request.CompartmentID)
+	if err != nil || !found {
+		return ComputeInstance{}, found, err
+	}
+	return instance, true, nil
 }
 
 func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (ComputeInstance, bool, error) {
@@ -485,7 +523,14 @@ func (a *OCIComputeAdapter) getInstanceInCompartment(ctx context.Context, id, co
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		_, _ = ReadBoundedBody(resp, 64<<10)
-		return ComputeInstance{}, false, nil
+		if compartment == "" {
+			return ComputeInstance{}, false, &InvalidOperationError{Message: "OCI compute read could not distinguish absence from missing authority"}
+		}
+		exists, listErr := a.instanceExistsInCompartment(ctx, id, compartment)
+		if listErr != nil || !exists {
+			return ComputeInstance{}, false, listErr
+		}
+		return ComputeInstance{}, false, &InvalidOperationError{Message: "OCI compute read was denied for a listed resource"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = ReadBoundedBody(resp, 64<<10)
@@ -496,10 +541,52 @@ func (a *OCIComputeAdapter) getInstanceInCompartment(ctx context.Context, id, co
 		return ComputeInstance{}, false, err
 	}
 	var item ociAutomatedInstance
-	if json.Unmarshal(body, &item) != nil || item.ID != id || !isOCID(item.CompartmentID, "compartment") || (compartment != "" && item.CompartmentID != compartment) {
+	item.ETag = safeHeader(resp, "etag")
+	if json.Unmarshal(body, &item) != nil || item.ID != id || !isOCID(item.CompartmentID, "compartment") || (compartment != "" && item.CompartmentID != compartment) || !isSafeETag(item.ETag) {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI compute response is invalid"}
 	}
 	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
+}
+
+func (a *OCIComputeAdapter) instanceExistsInCompartment(ctx context.Context, id, compartment string) (bool, error) {
+	if a == nil || a.Core == nil || !isOCID(id, "instance") || !isOCID(compartment, "compartment") {
+		return false, &errs.Argument{Message: "compute instance absence scope is invalid"}
+	}
+	query := url.Values{"compartmentId": {compartment}, "limit": {strconv.Itoa(maximumOCIListResults)}}
+	for page, pageCount := "", 0; ; pageCount++ {
+		resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances?"+cloneOCIQuery(query, page), nil)
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			_, _ = ReadBoundedBody(resp, 64<<10)
+			return false, &InvalidOperationError{Message: "OCI compute absence verification failed"}
+		}
+		body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
+		if err != nil {
+			return false, err
+		}
+		items, err := decodeOCIList[ociAutomatedInstance](body)
+		if err != nil || len(items) > maximumOCIListResults {
+			return false, &InvalidDataError{Message: "OCI compute absence verification response is invalid"}
+		}
+		for _, item := range items {
+			if !isOCID(item.ID, "instance") || item.CompartmentID != compartment {
+				return false, &InvalidDataError{Message: "OCI compute absence verification escaped its compartment"}
+			}
+			if item.ID == id {
+				return true, nil
+			}
+		}
+		next, err := nextOCIPage(resp, page, pageCount+1)
+		if err != nil {
+			return false, err
+		}
+		if next == "" {
+			return false, nil
+		}
+		page = next
+	}
 }
 
 func computeTerminateBinding(request ComputeTerminateRequest) any {
@@ -542,8 +629,11 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	if !found {
 		return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
 	}
-	if record.State == MutationUnknown {
-		return &ProviderOutcomeUnknownError{}
+	if record.State == MutationSubmitted || record.State == MutationUnknown {
+		if record.Result.WorkRequestID != "" {
+			return finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.Work)
+		}
+		return finishUnknown(ctx, a.Journal, request.Mutation)
 	}
 	if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
 		return err
@@ -551,16 +641,28 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 	resp, err := a.Core.DoWithHeaders(ctx, http.MethodDelete, "/20160918/instances/"+url.PathEscape(request.InstanceID), nil, map[string]string{"If-Match": request.IfMatch})
 	if err != nil {
 		if indeterminate(err) {
-			if _, found, readErr := a.GetInstance(ctx, request.InstanceID); readErr == nil && !found {
+			if exists, readErr := a.instanceExistsInCompartment(ctx, request.InstanceID, compartment); readErr == nil && !exists {
 				return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
 			}
 			return finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		return err
 	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+	if resp.StatusCode == http.StatusNotFound {
 		_, _ = ReadBoundedBody(resp, 64<<10)
-		return markSucceeded(ctx, a.Journal, request.Mutation, mutationResultFromHeaders(resp, request.InstanceID, request.IfMatch))
+		exists, readErr := a.instanceExistsInCompartment(ctx, request.InstanceID, compartment)
+		if readErr != nil {
+			return finishUnknown(ctx, a.Journal, request.Mutation)
+		}
+		if !exists {
+			return markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: request.InstanceID, ETag: request.IfMatch})
+		}
+		return knownFailure(ctx, a.Journal, request.Mutation, "provider-not-authorized")
+	}
+	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
+		_, _ = ReadBoundedBody(resp, 64<<10)
+		result := mutationResultFromHeaders(resp, request.InstanceID, request.IfMatch)
+		return finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.Work)
 	}
 	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
 }
