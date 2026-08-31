@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
@@ -46,6 +48,13 @@ func TestNewHostAgentValidatesConfiguration(t *testing.T) {
 			name:      "neither connection nor url",
 			mutate:    func(c *HostAgentConfig) { c.Connection = nil },
 			wantParam: "Connection",
+		},
+		{
+			name: "dial options with wired connection",
+			mutate: func(c *HostAgentConfig) {
+				c.NatsOptions = []nats.Option{func(*nats.Options) error { return nil }}
+			},
+			wantParam: "NatsOptions",
 		},
 		{
 			name: "url without connect timeout",

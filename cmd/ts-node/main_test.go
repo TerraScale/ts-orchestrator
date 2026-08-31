@@ -88,6 +88,26 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 	}
 }
 
+func TestParseTsNodeArgumentsBindsProductionNatsCredentials(t *testing.T) {
+	configuration, err := parseTsNodeArguments([]string{
+		"--node-id", "gru-node-1",
+		"--nats-url", "tls://regional.internal:4222",
+		"--nats-nkey-file", "/run/credentials/ts-node/nkey.seed",
+		"--nats-tls-ca-file", "/run/credentials/ts-node/ca.pem",
+		"--nats-tls-cert-file", "/run/credentials/ts-node/client.pem",
+		"--nats-tls-key-file", "/run/credentials/ts-node/client.key",
+	}, 1000, 1000, 8)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if configuration.NatsNKeyFile != "/run/credentials/ts-node/nkey.seed" ||
+		configuration.NatsTlsCaFile != "/run/credentials/ts-node/ca.pem" ||
+		configuration.NatsTlsCertFile != "/run/credentials/ts-node/client.pem" ||
+		configuration.NatsTlsKeyFile != "/run/credentials/ts-node/client.key" {
+		t.Fatalf("NATS credential paths = %#v", configuration)
+	}
+}
+
 func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -113,6 +133,22 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 			name: "flag-like nats url",
 			args: []string{"--node-id", "gru-node-1", "--nats-url", "--evil"},
 			want: "--nats-url is required and must be whitespace-free and flag-safe",
+		},
+		{
+			name: "unsupported nats scheme",
+			args: []string{"--node-id", "gru-node-1", "--nats-url", "http://nats:4222"},
+			want: "must use nats:// for local use or tls:// for production",
+		},
+		{
+			name: "production nats without credentials",
+			args: []string{"--node-id", "gru-node-1", "--nats-url", "tls://nats:4222"},
+			want: "requires the NKey, CA, certificate, and key files",
+		},
+		{
+			name: "local nats with credentials",
+			args: []string{"--node-id", "gru-node-1", "--nats-url", "nats://nats:4222",
+				"--nats-nkey-file", "/run/nkey"},
+			want: "credential files require a tls:// NATS URL",
 		},
 		{
 			name: "invalid node class token",

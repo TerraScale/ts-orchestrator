@@ -24,8 +24,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	stdruntime "runtime"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	hostruntime "terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
@@ -60,6 +63,10 @@ type tsNodeConfiguration struct {
 	NodeId               string
 	NodeClass            string
 	NatsUrl              string
+	NatsNKeyFile         string
+	NatsTlsCaFile        string
+	NatsTlsCertFile      string
+	NatsTlsKeyFile       string
 	PodmanBinaryPath     string
 	SystemctlBinaryPath  string
 	SystemdRunBinaryPath string
@@ -106,7 +113,8 @@ func parseTsNodeArguments(
 	}
 	for name := range flags {
 		switch name {
-		case "--node-id", "--node-class", "--nats-url", "--podman-binary", "--systemctl-binary",
+		case "--node-id", "--node-class", "--nats-url", "--nats-nkey-file", "--nats-tls-ca-file",
+			"--nats-tls-cert-file", "--nats-tls-key-file", "--podman-binary", "--systemctl-binary",
 			"--systemd-run-binary", "--xdg-runtime-dir",
 			"--seccomp-profile", "--run-as-uid", "--heartbeat-interval", "--connect-timeout",
 			"--cpu-quota-percent", "--tasks-max", "--logical-cpu-count":
@@ -139,6 +147,33 @@ func parseTsNodeArguments(
 		return tsNodeConfiguration{}, errors.New(
 			"ts-node: --nats-url is required and must be whitespace-free and flag-safe")
 	}
+	natsNKeyFile := flags["--nats-nkey-file"]
+	natsTlsCaFile := flags["--nats-tls-ca-file"]
+	natsTlsCertFile := flags["--nats-tls-cert-file"]
+	natsTlsKeyFile := flags["--nats-tls-key-file"]
+	natsCredentialValues := []string{natsNKeyFile, natsTlsCaFile, natsTlsCertFile, natsTlsKeyFile}
+	suppliedNatsCredentials := 0
+	for _, value := range natsCredentialValues {
+		if value != "" {
+			suppliedNatsCredentials++
+		}
+	}
+	switch {
+	case strings.HasPrefix(natsUrl, "nats://"):
+		if suppliedNatsCredentials != 0 {
+			return tsNodeConfiguration{}, errors.New(
+				"ts-node: NATS credential files require a tls:// NATS URL")
+		}
+	case strings.HasPrefix(natsUrl, "tls://"):
+		if suppliedNatsCredentials != len(natsCredentialValues) {
+			return tsNodeConfiguration{}, errors.New(
+				"ts-node: tls:// NATS requires the NKey, CA, certificate, and key files")
+		}
+	default:
+		return tsNodeConfiguration{}, errors.New(
+			"ts-node: --nats-url must use nats:// for local use or tls:// for production")
+	}
+
 	runAsUid := effectiveUid
 	if value, present := flags["--run-as-uid"]; present {
 		parsed, err := strconv.ParseUint(value, 10, 32)
@@ -233,6 +268,10 @@ func parseTsNodeArguments(
 		NodeId:               nodeId,
 		NodeClass:            nodeClass,
 		NatsUrl:              natsUrl,
+		NatsNKeyFile:         natsNKeyFile,
+		NatsTlsCaFile:        natsTlsCaFile,
+		NatsTlsCertFile:      natsTlsCertFile,
+		NatsTlsKeyFile:       natsTlsKeyFile,
 		PodmanBinaryPath:     podmanBinary,
 		SystemctlBinaryPath:  systemctlBinary,
 		SystemdRunBinaryPath: systemdRunBinary,
@@ -313,6 +352,27 @@ func (r *tsNodePendingRelay) RunningAllocations() int {
 // volume bindings of the stateful catalog are not carried on the wire plan
 // yet.
 func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent, error) {
+	var natsOptions []nats.Option
+	if strings.HasPrefix(configuration.NatsUrl, "tls://") {
+		authentication, err := control.NatsAuthenticationFilesFromNKeyFile(configuration.NatsNKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("ts-node: NATS authentication is invalid: %s", err.Error())
+		}
+		tlsFiles, err := control.NatsTlsFilesResolve(
+			configuration.NatsTlsCaFile,
+			configuration.NatsTlsCertFile,
+			configuration.NatsTlsKeyFile,
+			"ts-node NATS",
+		)
+		if err != nil || tlsFiles == nil {
+			if err == nil {
+				err = errors.New("the TLS identity is missing")
+			}
+			return nil, fmt.Errorf("ts-node: NATS TLS is invalid: %s", err.Error())
+		}
+		natsOptions = append(natsOptions, authentication.Options()...)
+		natsOptions = append(natsOptions, tlsFiles.Options()...)
+	}
 	rootless, err := hostruntime.NewRootlessPodmanContext(
 		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
 		configuration.SeccompProfilePath, configuration.RunAsUid)
@@ -366,6 +426,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	agent, err := hostagent.NewHostAgent(hostagent.HostAgentConfig{
 		NodeId:            nodeId,
 		NatsURL:           configuration.NatsUrl,
+		NatsOptions:       natsOptions,
 		ConnectTimeout:    configuration.ConnectTimeout,
 		Systemd:           systemdAdapter,
 		Container:         containerAdapter,
