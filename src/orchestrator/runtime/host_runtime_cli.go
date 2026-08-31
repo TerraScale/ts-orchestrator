@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // HostRuntimeCli ports the internal static HostRuntimeCli class; call it as
@@ -36,7 +38,7 @@ func (hostRuntimeCli) Execute(arguments []string) int {
 // ParsePlan parses the exact `runtime plan` option vocabulary.
 func (hostRuntimeCli) ParsePlan(arguments []string) (HostRuntimePlan, error) {
 	if len(arguments) == 0 || arguments[0] != "plan" {
-		return HostRuntimePlan{}, &ArgumentError{Message: "Unknown runtime command. Use 'runtime plan'."}
+		return HostRuntimePlan{}, &errs.Argument{Message: "Unknown runtime command. Use 'runtime plan'."}
 	}
 	values, err := parseRuntimePlanValues(arguments[1:])
 	if err != nil {
@@ -159,7 +161,7 @@ func (hostRuntimeCli) ParseRole(value string) (AdmittedRole, error) {
 	case "ci-runner":
 		return AdmittedRoleCiRunner, nil
 	default:
-		return AdmittedRole(0), &ArgumentError{
+		return AdmittedRole(0), &errs.Argument{
 			Message: fmt.Sprintf("Unknown or unadmitted role '%s'.", value),
 		}
 	}
@@ -172,7 +174,7 @@ func parseRuntimeDriver(value string) (RuntimeDriver, error) {
 	case "oci":
 		return RuntimeDriverOciContainer, nil
 	default:
-		return RuntimeDriverNativeSystemd, &ArgumentError{
+		return RuntimeDriverNativeSystemd, &errs.Argument{
 			Message: "Runtime driver must be 'systemd' or 'oci'.",
 		}
 	}
@@ -185,7 +187,7 @@ func parseHostArchitecture(value string) (HostArchitecture, error) {
 	case "x64":
 		return HostArchitectureX64, nil
 	default:
-		return HostArchitectureArm64, &ArgumentError{
+		return HostArchitectureArm64, &errs.Argument{
 			Message: "Architecture must be 'arm64' or 'x64'.",
 		}
 	}
@@ -195,12 +197,12 @@ func parseRuntimePlanValues(arguments []string) (map[string]string, error) {
 	values := make(map[string]string)
 	for index := 0; index < len(arguments); index += 2 {
 		if index+1 >= len(arguments) || !strings.HasPrefix(arguments[index], "--") {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Message: "Runtime plan options must be '--name value' pairs.",
 			}
 		}
 		if _, duplicate := values[arguments[index]]; duplicate {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Message: fmt.Sprintf("Duplicate runtime option '%s'.", arguments[index]),
 			}
 		}
@@ -216,7 +218,7 @@ func parseRuntimePlanValues(arguments []string) (map[string]string, error) {
 	// are unordered, so report the first unknown key in argument order instead.
 	for _, argument := range arguments {
 		if strings.HasPrefix(argument, "--") && !allowed[argument] {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Message: fmt.Sprintf("Unknown runtime option '%s'.", argument),
 			}
 		}
@@ -228,7 +230,7 @@ func requiredRuntimePlanValue(values map[string]string, key string) (string, err
 	if value, present := values[key]; present && strings.TrimSpace(value) != "" {
 		return value, nil
 	}
-	return "", &ArgumentError{
+	return "", &errs.Argument{
 		Message: fmt.Sprintf("Runtime plan requires %s.", key),
 	}
 }
@@ -240,7 +242,7 @@ func runtimePlanInteger(values map[string]string, key string, fallback int) (int
 	}
 	parsed, err := strconv.ParseInt(value, 10, 32)
 	if err != nil {
-		return 0, &ArgumentError{
+		return 0, &errs.Argument{
 			Message: fmt.Sprintf("Runtime option %s must be an integer.", key),
 		}
 	}
@@ -254,7 +256,7 @@ func runtimePlanLong(values map[string]string, key string, fallback int64) (int6
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return 0, &ArgumentError{
+		return 0, &errs.Argument{
 			Message: fmt.Sprintf("Runtime option %s must be an integer.", key),
 		}
 	}

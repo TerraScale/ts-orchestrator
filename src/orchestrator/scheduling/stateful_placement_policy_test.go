@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // statefulTestPolicy builds one validated stateful placement policy.
@@ -68,11 +70,11 @@ func TestStatefulPlacementFacts(t *testing.T) {
 // statefulTestParam reports whether err names the given parameter in one of
 // the argument error families.
 func statefulTestParam(err error, param string) bool {
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if errors.As(err, &argumentError) {
 		return argumentError.Param == param
 	}
-	var outOfRange *ArgumentOutOfRangeError
+	var outOfRange *errs.ArgumentOutOfRangeError
 	if errors.As(err, &outOfRange) {
 		return outOfRange.Param == param
 	}

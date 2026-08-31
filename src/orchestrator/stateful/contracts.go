@@ -9,23 +9,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError reports an invalid argument passed to a constructor.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError reports an argument outside its closed range.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError reports an operation invalid for the current state.
 type InvalidOperationError struct {
@@ -54,7 +40,7 @@ const (
 // by volume, allocation, role, and node identifiers.
 func requireStatefulToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > statefulMaximumTokenLength || !statefulTokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: message}
+		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
 }
@@ -63,14 +49,14 @@ func requireStatefulToken(value, param, message string) (string, error) {
 // no empty, dot, or dot-dot segments; the filesystem root itself is rejected.
 func requireStatefulAbsolutePath(value, param string) (string, error) {
 	if len(value) < 2 || len(value) > statefulMaximumPathLength || !strings.HasPrefix(value, "/") {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "A bounded absolute path is required.",
 		}
 	}
 	for _, segment := range strings.Split(value[1:], "/") {
 		if segment == "" || segment == "." || segment == ".." {
-			return "", &ArgumentError{
+			return "", &errs.Argument{
 				Param:   param,
 				Message: "Path segments must be nonempty and cannot traverse upward.",
 			}
@@ -83,7 +69,7 @@ func requireStatefulAbsolutePath(value, param string) (string, error) {
 // string so drain traces stay log-safe.
 func requireStatefulReasonText(value, param string) (string, error) {
 	if value == "" || len(value) > statefulMaximumReasonLength || strings.ContainsFunc(value, isControlRune) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   param,
 			Message: "A nonempty bounded reason without control characters is required.",
 		}
@@ -186,19 +172,19 @@ func NewReplicaHealth(
 		return ReplicaHealth{}, err
 	}
 	if peerAckCount < 0 {
-		return ReplicaHealth{}, &ArgumentOutOfRangeError{
+		return ReplicaHealth{}, &errs.ArgumentOutOfRangeError{
 			Param:   "peerAckCount",
 			Message: "Peer acknowledgement count must be non-negative.",
 		}
 	}
 	if minReplicas < 1 {
-		return ReplicaHealth{}, &ArgumentOutOfRangeError{
+		return ReplicaHealth{}, &errs.ArgumentOutOfRangeError{
 			Param:   "minReplicas",
 			Message: "Minimum replica count must be at least one.",
 		}
 	}
 	if lagBytes < 0 {
-		return ReplicaHealth{}, &ArgumentOutOfRangeError{
+		return ReplicaHealth{}, &errs.ArgumentOutOfRangeError{
 			Param:   "lagBytes",
 			Message: "Replication lag must be non-negative.",
 		}
@@ -229,7 +215,7 @@ func NewNodeDrainCandidate(nodeId string, replicas []ReplicaHealth) (NodeDrainCa
 		return NodeDrainCandidate{}, err
 	}
 	if len(replicas) > statefulMaximumReplicaCount {
-		return NodeDrainCandidate{}, &ArgumentError{
+		return NodeDrainCandidate{}, &errs.Argument{
 			Param:   "replicas",
 			Message: fmt.Sprintf("Replica input exceeds the bound of %d entries.", statefulMaximumReplicaCount),
 		}
@@ -245,7 +231,7 @@ func NewNodeDrainCandidate(nodeId string, replicas []ReplicaHealth) (NodeDrainCa
 		}
 		key := validated.RoleKind + "/" + validated.AllocationId
 		if _, duplicate := seen[key]; duplicate {
-			return NodeDrainCandidate{}, &ArgumentError{
+			return NodeDrainCandidate{}, &errs.Argument{
 				Param:   "replicas",
 				Message: "A role allocation may appear only once per node.",
 			}
@@ -272,7 +258,7 @@ func NewDrainDecision(allowed bool, reason string, blockingAllocationIds []strin
 		return DrainDecision{}, err
 	}
 	if len(blockingAllocationIds) > statefulMaximumReplicaCount {
-		return DrainDecision{}, &ArgumentError{
+		return DrainDecision{}, &errs.Argument{
 			Param:   "blockingAllocationIds",
 			Message: fmt.Sprintf("Blocking allocation input exceeds the bound of %d entries.", statefulMaximumReplicaCount),
 		}
@@ -289,7 +275,7 @@ func NewDrainDecision(allowed bool, reason string, blockingAllocationIds []strin
 	seen := make(map[string]struct{}, len(snapshot))
 	for _, allocationId := range snapshot {
 		if _, duplicate := seen[allocationId]; duplicate {
-			return DrainDecision{}, &ArgumentError{
+			return DrainDecision{}, &errs.Argument{
 				Param:   "blockingAllocationIds",
 				Message: "Blocking allocation IDs cannot contain duplicates.",
 			}
@@ -297,7 +283,7 @@ func NewDrainDecision(allowed bool, reason string, blockingAllocationIds []strin
 		seen[allocationId] = struct{}{}
 	}
 	if allowed && len(snapshot) > 0 {
-		return DrainDecision{}, &ArgumentError{
+		return DrainDecision{}, &errs.Argument{
 			Param:   "blockingAllocationIds",
 			Message: "An allowed drain cannot name blocking allocations.",
 		}

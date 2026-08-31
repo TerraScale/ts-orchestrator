@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // DeterministicScheduler performs pure regional constrained least-waste
@@ -20,13 +22,13 @@ func (DeterministicScheduler) Schedule(
 	policy *LeastWastePolicy,
 ) (ScheduleResult, error) {
 	if workload == nil {
-		return nil, &ArgumentError{Param: "workload"}
+		return nil, &errs.Argument{Param: "workload"}
 	}
 	if candidates == nil {
-		return nil, &ArgumentError{Param: "candidates"}
+		return nil, &errs.Argument{Param: "candidates"}
 	}
 	if policy == nil {
-		return nil, &ArgumentError{Param: "policy"}
+		return nil, &errs.Argument{Param: "policy"}
 	}
 
 	suppliedCandidates, err := schedulerInputSnapshotCopy(
@@ -39,7 +41,7 @@ func (DeterministicScheduler) Schedule(
 	}
 	for _, candidate := range suppliedCandidates {
 		if candidate == nil {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "candidates",
 				Message: "Candidate collections cannot contain null.",
 			}
@@ -51,7 +53,7 @@ func (DeterministicScheduler) Schedule(
 	})
 	for index := 1; index < len(suppliedCandidates); index++ {
 		if suppliedCandidates[index-1].Id == suppliedCandidates[index].Id {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "candidates",
 				Message: "Candidate IDs must be unique.",
 			}

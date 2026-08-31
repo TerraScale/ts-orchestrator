@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 var availabilityTestService = mustServiceId("control-service")
@@ -611,13 +613,13 @@ func TestUnknownEnumsAndNoncanonicalIdentitiesFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generation: %v", err)
 	}
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	_, err = NewAvailabilityEvaluationRequest(
 		availabilityTestPolicy(t, 3, 2, 2, 1, 2, true, ResourceVectorZero, ReserveDispositionPreserve),
 		MaintainReplicaChange{ReplicaId: mustReplicaId(t, "replica-a")},
 		ObservationCompleteness(0), generation, generation, availabilityHealthyThree(t))
 	if !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 	if _, err := NewReplicaId("secret\nvalue"); err == nil {
 		t.Fatal("noncanonical identity must be rejected")

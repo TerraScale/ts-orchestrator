@@ -1,6 +1,8 @@
 // Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/SecurityRuleId.cs.
 package contracts
 
+import "fmt"
+
 // SecurityRuleId is a permanent security-rule identifier from the GOAL.md
 // "Stable contract identifiers" table. Identifiers form a closed set: only
 // values registered in StableIdentifierRegistry construct successfully, the
@@ -17,14 +19,12 @@ func (i SecurityRuleId) IsRegistered() bool {
 	return ok
 }
 
-// CanonicalText returns the verbatim GOAL.md text; it panics for an
-// unregistered identifier, mirroring the C# InvalidOperationException.
-func (i SecurityRuleId) CanonicalText() string {
+// CanonicalText returns the verbatim GOAL.md text.
+func (i SecurityRuleId) CanonicalText() (string, error) {
 	if text, ok := StableIdentifierRegistry.tryGetSecurityRuleText(i); ok {
-		return text
+		return text, nil
 	}
-
-	panic("Security rule " + i.Value + " is not registered.")
+	return "", fmt.Errorf("security rule %q is not registered", i.Value)
 }
 
 // TryGetText mirrors StableIdentifierRegistry.TryGetText(SecurityRuleId, out text).

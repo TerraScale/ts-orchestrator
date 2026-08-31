@@ -7,23 +7,9 @@ package runtime
 import (
 	"fmt"
 	"slices"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError mirrors System.ArgumentException thrown by the C# sources.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError mirrors System.ArgumentOutOfRangeException.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError mirrors System.InvalidOperationException.
 type InvalidOperationError struct {
@@ -178,7 +164,7 @@ func (admittedRoleCatalog) Get(role AdmittedRole) (AdmittedRoleDescriptor, error
 	if descriptor, present := admittedRoleDescriptors[role]; present {
 		return descriptor, nil
 	}
-	return AdmittedRoleDescriptor{}, &ArgumentOutOfRangeError{
+	return AdmittedRoleDescriptor{}, &errs.ArgumentOutOfRangeError{
 		Param:   "role",
 		Message: "The workload role is not admitted.",
 	}

@@ -1,6 +1,8 @@
 // Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/InvariantId.cs.
 package contracts
 
+import "fmt"
+
 // InvariantId is a permanent invariant identifier from the GOAL.md "Stable
 // contract identifiers" table. Identifiers form a closed set: only values
 // registered in StableIdentifierRegistry construct successfully, the canonical
@@ -17,14 +19,12 @@ func (i InvariantId) IsRegistered() bool {
 	return ok
 }
 
-// CanonicalText returns the verbatim GOAL.md text; it panics for an
-// unregistered identifier, mirroring the C# InvalidOperationException.
-func (i InvariantId) CanonicalText() string {
+// CanonicalText returns the verbatim GOAL.md text.
+func (i InvariantId) CanonicalText() (string, error) {
 	if text, ok := StableIdentifierRegistry.tryGetInvariantText(i); ok {
-		return text
+		return text, nil
 	}
-
-	panic("Invariant " + i.Value + " is not registered.")
+	return "", fmt.Errorf("invariant %q is not registered", i.Value)
 }
 
 // TryGetText mirrors StableIdentifierRegistry.TryGetText(InvariantId, out text).

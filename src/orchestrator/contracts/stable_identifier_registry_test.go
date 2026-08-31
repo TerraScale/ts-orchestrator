@@ -378,19 +378,21 @@ func TestTryCreateAcceptsEveryRegisteredIdentifierAndRejectsEverythingElse(t *te
 		}
 	}
 
-	assertPanics(t, func() { _ = RequirementId{}.CanonicalText() })
-	assertPanics(t, func() { _ = StableErrorId{}.CanonicalText() })
-}
-
-func assertPanics(t *testing.T, action func()) {
-	t.Helper()
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected a panic for an unregistered identifier")
+	invalidCanonicalText := []struct {
+		name    string
+		resolve func() (string, error)
+	}{
+		{"requirement", func() (string, error) { return (RequirementId{}).CanonicalText() }},
+		{"invariant", func() (string, error) { return (InvariantId{}).CanonicalText() }},
+		{"security rule", func() (string, error) { return (SecurityRuleId{}).CanonicalText() }},
+		{"state machine", func() (string, error) { return (StateMachineId{}).CanonicalText() }},
+		{"stable error", func() (string, error) { return (StableErrorId{}).CanonicalText() }},
+	}
+	for _, test := range invalidCanonicalText {
+		if _, err := test.resolve(); err == nil {
+			t.Fatalf("default %s canonical text must return an error", test.name)
 		}
-	}()
-
-	action()
+	}
 }
 
 // The typed identifier surface mirrors the C# static-property coverage via
@@ -503,31 +505,31 @@ func TestTypedIdentifierPropertiesCoverTheRegistryExactly(t *testing.T) {
 
 func TestCanonicalTextMatchesRegistryTextForEveryIdentifier(t *testing.T) {
 	for id, text := range StableIdentifierRegistry.Requirements() {
-		if id.CanonicalText() != text {
+		if got, err := id.CanonicalText(); err != nil || got != text {
 			t.Fatalf("requirement %q canonical text differs", id.Value)
 		}
 	}
 
 	for id, text := range StableIdentifierRegistry.Invariants() {
-		if id.CanonicalText() != text {
+		if got, err := id.CanonicalText(); err != nil || got != text {
 			t.Fatalf("invariant %q canonical text differs", id.Value)
 		}
 	}
 
 	for id, text := range StableIdentifierRegistry.SecurityRules() {
-		if id.CanonicalText() != text {
+		if got, err := id.CanonicalText(); err != nil || got != text {
 			t.Fatalf("security rule %q canonical text differs", id.Value)
 		}
 	}
 
 	for id, text := range StableIdentifierRegistry.StateMachines() {
-		if id.CanonicalText() != text {
+		if got, err := id.CanonicalText(); err != nil || got != text {
 			t.Fatalf("state machine %q canonical text differs", id.Value)
 		}
 	}
 
 	for id, text := range StableIdentifierRegistry.StableErrors() {
-		if id.CanonicalText() != text {
+		if got, err := id.CanonicalText(); err != nil || got != text {
 			t.Fatalf("stable error %q canonical text differs", id.Value)
 		}
 	}

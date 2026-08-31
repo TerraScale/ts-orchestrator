@@ -9,24 +9,9 @@ import (
 	"fmt"
 	"regexp"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
-
-// ArgumentError reports an invalid argument passed to a constructor.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError reports an argument outside its closed range.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError reports an operation invalid for the current state.
 type InvalidOperationError struct {
@@ -57,7 +42,7 @@ const (
 func requireAutoscalingToken(value, param, message string) (string, error) {
 	if len(value) < 1 || len(value) > autoscalingMaximumTokenLength ||
 		!autoscalingTokenPattern.MatchString(value) {
-		return "", &ArgumentError{Param: param, Message: message}
+		return "", &errs.Argument{Param: param, Message: message}
 	}
 	return value, nil
 }
@@ -105,20 +90,20 @@ type NodeResources struct {
 // non-negative and the CPU envelope stays inside the closed percent bound.
 func NewNodeResources(memoryBytes int64, cpuPercent int, tasks int) (NodeResources, error) {
 	if memoryBytes < 0 {
-		return NodeResources{}, &ArgumentOutOfRangeError{
+		return NodeResources{}, &errs.ArgumentOutOfRangeError{
 			Param:   "memoryBytes",
 			Message: "Memory must be non-negative.",
 		}
 	}
 	if cpuPercent < 0 || cpuPercent > autoscalingMaximumCpuPercent {
-		return NodeResources{}, &ArgumentOutOfRangeError{
+		return NodeResources{}, &errs.ArgumentOutOfRangeError{
 			Param: "cpuPercent",
 			Message: fmt.Sprintf("CPU percent must be between 0 and %d.",
 				autoscalingMaximumCpuPercent),
 		}
 	}
 	if tasks < 0 {
-		return NodeResources{}, &ArgumentOutOfRangeError{
+		return NodeResources{}, &errs.ArgumentOutOfRangeError{
 			Param:   "tasks",
 			Message: "Task count must be non-negative.",
 		}
@@ -161,7 +146,7 @@ func NewNodeObservation(
 		return NodeObservation{}, err
 	}
 	if !nodeState.defined() {
-		return NodeObservation{}, &ArgumentOutOfRangeError{Param: "nodeState"}
+		return NodeObservation{}, &errs.ArgumentOutOfRangeError{Param: "nodeState"}
 	}
 	validatedCapacity, err := NewNodeResources(capacity.MemoryBytes, capacity.CpuPercent, capacity.Tasks)
 	if err != nil {
@@ -172,19 +157,19 @@ func NewNodeObservation(
 		return NodeObservation{}, err
 	}
 	if !validatedUsage.fits(validatedCapacity) {
-		return NodeObservation{}, &ArgumentError{
+		return NodeObservation{}, &errs.Argument{
 			Param:   "usage",
 			Message: "Usage cannot exceed capacity.",
 		}
 	}
 	if pendingAllocations < 0 {
-		return NodeObservation{}, &ArgumentOutOfRangeError{
+		return NodeObservation{}, &errs.ArgumentOutOfRangeError{
 			Param:   "pendingAllocations",
 			Message: "Pending allocation count must be non-negative.",
 		}
 	}
 	if len(statefulReplicas) > autoscalingMaximumReplicaCount {
-		return NodeObservation{}, &ArgumentError{
+		return NodeObservation{}, &errs.Argument{
 			Param: "statefulReplicas",
 			Message: fmt.Sprintf("Replica input exceeds the bound of %d entries.",
 				autoscalingMaximumReplicaCount),
@@ -201,7 +186,7 @@ func NewNodeObservation(
 		}
 		key := validated.RoleKind + "/" + validated.AllocationId
 		if _, duplicate := seen[key]; duplicate {
-			return NodeObservation{}, &ArgumentError{
+			return NodeObservation{}, &errs.Argument{
 				Param:   "statefulReplicas",
 				Message: "A role allocation may appear only once per node.",
 			}
@@ -283,50 +268,50 @@ func NewAutoscalerConfig(
 	flapSuppressionTicks int,
 ) (AutoscalerConfig, error) {
 	if minNodes < 1 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "minNodes",
 			Message: "MinNodes must be at least one.",
 		}
 	}
 	if maxNodes < minNodes {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "maxNodes",
 			Message: "MaxNodes must be at least MinNodes.",
 		}
 	}
 	if scaleUpHeadroomPercent <= 0 || scaleUpHeadroomPercent >= 100 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "scaleUpHeadroomPercent",
 			Message: "Scale-up headroom must be between 0 and 100 exclusive.",
 		}
 	}
 	if scaleDownHeadroomPercent <= 0 || scaleDownHeadroomPercent >= 100 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "scaleDownHeadroomPercent",
 			Message: "Scale-down headroom must be between 0 and 100 exclusive.",
 		}
 	}
 	if scaleUpConfirmTicks < 1 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "scaleUpConfirmTicks",
 			Message: "Scale-up confirmation ticks must be at least one.",
 		}
 	}
 	if scaleDownConfirmTicks < 1 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "scaleDownConfirmTicks",
 			Message: "Scale-down confirmation ticks must be at least one.",
 		}
 	}
 	if maxConcurrentProvisions < 1 || maxConcurrentProvisions > autoscalingMaximumConcurrentProvisions {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param: "maxConcurrentProvisions",
 			Message: fmt.Sprintf("Provision concurrency must be between 1 and %d.",
 				autoscalingMaximumConcurrentProvisions),
 		}
 	}
 	if flapSuppressionTicks < 0 {
-		return AutoscalerConfig{}, &ArgumentOutOfRangeError{
+		return AutoscalerConfig{}, &errs.ArgumentOutOfRangeError{
 			Param:   "flapSuppressionTicks",
 			Message: "Flap suppression ticks must be non-negative.",
 		}
@@ -453,7 +438,7 @@ func NewNodeProvisionRequest(
 		return NodeProvisionRequest{}, err
 	}
 	if reason == "" || len(reason) > autoscalingMaximumReasonLength {
-		return NodeProvisionRequest{}, &ArgumentError{
+		return NodeProvisionRequest{}, &errs.Argument{
 			Param:   "reason",
 			Message: "A nonempty bounded reason is required.",
 		}
@@ -463,7 +448,7 @@ func NewNodeProvisionRequest(
 		return NodeProvisionRequest{}, err
 	}
 	if validatedResources.MemoryBytes == 0 && validatedResources.CpuPercent == 0 && validatedResources.Tasks == 0 {
-		return NodeProvisionRequest{}, &ArgumentError{
+		return NodeProvisionRequest{}, &errs.Argument{
 			Param:   "resources",
 			Message: "A provision request must reserve at least one resource.",
 		}

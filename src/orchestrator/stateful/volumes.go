@@ -7,6 +7,8 @@ package stateful
 import (
 	"fmt"
 	"sort"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // CanonicalDataVolumeId builds the canonical data volume identity of one
@@ -50,7 +52,7 @@ type PersistentVolumeCatalog struct {
 // binding bound that every mutation and restore enforces.
 func NewPersistentVolumeCatalog(maximumBindings int) (*PersistentVolumeCatalog, error) {
 	if maximumBindings < 1 {
-		return nil, &ArgumentOutOfRangeError{
+		return nil, &errs.ArgumentOutOfRangeError{
 			Param:   "maximumBindings",
 			Message: "The catalog binding bound must be at least one.",
 		}
@@ -162,7 +164,7 @@ func (c *PersistentVolumeCatalog) Snapshot() []VolumeBinding {
 // Persist writes the canonical catalog snapshot to one store.
 func (c *PersistentVolumeCatalog) Persist(store PersistentVolumeStore) error {
 	if store == nil {
-		return &ArgumentError{
+		return &errs.Argument{
 			Param:   "store",
 			Message: "A persistent volume store is required.",
 		}
@@ -190,7 +192,7 @@ func RestorePersistentVolumeCatalog(
 	maximumBindings int,
 ) (*PersistentVolumeCatalog, error) {
 	if store == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "store",
 			Message: "A persistent volume store is required.",
 		}
@@ -204,7 +206,7 @@ func RestorePersistentVolumeCatalog(
 		return nil, err
 	}
 	if len(loaded) > maximumBindings {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "bindings",
 			Message: fmt.Sprintf("Binding input exceeds the bound of %d entries.", maximumBindings),
 		}
@@ -274,7 +276,7 @@ func RestorePersistentVolumeCatalog(
 // so every listing is deterministic.
 func (c *PersistentVolumeCatalog) reserveBinding(key volumeBindingKey, binding VolumeBinding) error {
 	if c.totalBindings+1 > c.maximumBindings {
-		return &ArgumentError{
+		return &errs.Argument{
 			Param:   "bindings",
 			Message: fmt.Sprintf("Binding input exceeds the bound of %d entries.", c.maximumBindings),
 		}

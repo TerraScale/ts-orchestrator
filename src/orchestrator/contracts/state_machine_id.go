@@ -1,6 +1,8 @@
 // Port of src/TerraScale.Orchestrator/Contracts/StableIdentifiers/StateMachineId.cs.
 package contracts
 
+import "fmt"
+
 // StateMachineId is a permanent state-machine identifier from the GOAL.md
 // "Stable contract identifiers" table. Identifiers form a closed set: only
 // values registered in StableIdentifierRegistry construct successfully, the
@@ -17,14 +19,12 @@ func (i StateMachineId) IsRegistered() bool {
 	return ok
 }
 
-// CanonicalText returns the verbatim GOAL.md text; it panics for an
-// unregistered identifier, mirroring the C# InvalidOperationException.
-func (i StateMachineId) CanonicalText() string {
+// CanonicalText returns the verbatim GOAL.md text.
+func (i StateMachineId) CanonicalText() (string, error) {
 	if text, ok := StableIdentifierRegistry.tryGetStateMachineText(i); ok {
-		return text
+		return text, nil
 	}
-
-	panic("State machine " + i.Value + " is not registered.")
+	return "", fmt.Errorf("state machine %q is not registered", i.Value)
 }
 
 // TryGetText mirrors StableIdentifierRegistry.TryGetText(StateMachineId, out text).

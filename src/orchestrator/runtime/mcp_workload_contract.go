@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // Canonical public route and host-owned application paths of the MCP product
@@ -202,14 +204,14 @@ var mcpSecretReferenceNames = []string{McpSecretReferenceNamesOAuthClientSecret}
 // NewMcpSecretReference validates the bounded reference token.
 func NewMcpSecretReference(value string) (McpSecretReference, error) {
 	if len(value) > McpSecretReferenceMaximumLength || !mcpSecretReferenceTokenPattern.MatchString(value) {
-		return McpSecretReference{}, &ArgumentError{
+		return McpSecretReference{}, &errs.Argument{
 			Param: "value",
 			Message: "A MCP secret reference must be a bounded " +
 				"'vault:terrascale/mcp/<name>' token.",
 		}
 	}
 	if !containsStringValue(mcpSecretReferenceNames, mcpSecretReferenceName(value)) {
-		return McpSecretReference{}, &ArgumentError{
+		return McpSecretReference{}, &errs.Argument{
 			Param: "value",
 			Message: fmt.Sprintf(
 				"The MCP secret reference '%s' is not admitted; only '%s' may be referenced.",
@@ -278,13 +280,13 @@ type McpQualifiedHttpArtifact struct {
 // NewMcpQualifiedHttpArtifact validates the digest and architecture.
 func NewMcpQualifiedHttpArtifact(digest string, architecture HostArchitecture) (McpQualifiedHttpArtifact, error) {
 	if len(digest) != McpQualifiedHttpArtifactDigestLength || !isLowercaseHexDigest(digest) {
-		return McpQualifiedHttpArtifact{}, &ArgumentError{
+		return McpQualifiedHttpArtifact{}, &errs.Argument{
 			Param:   "digest",
 			Message: "A qualified MCP artifact digest must be lowercase SHA-256 hex.",
 		}
 	}
 	if !architecture.defined() {
-		return McpQualifiedHttpArtifact{}, &ArgumentError{
+		return McpQualifiedHttpArtifact{}, &errs.Argument{
 			Param:   "architecture",
 			Message: "The MCP artifact architecture is not admitted.",
 		}
@@ -312,7 +314,7 @@ func NewMcpHttpArtifactQualification(artifacts ...McpQualifiedHttpArtifact) (*Mc
 	for index := range artifacts {
 		for other := index + 1; other < len(artifacts); other++ {
 			if artifacts[index] == artifacts[other] {
-				return nil, &ArgumentError{
+				return nil, &errs.Argument{
 					Message: "A digest/architecture pair may appear exactly once in a qualification.",
 				}
 			}

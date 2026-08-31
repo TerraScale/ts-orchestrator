@@ -9,6 +9,8 @@ package runtime
 import (
 	"context"
 	"fmt"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // PodmanRootlessHostRuntimeAdapter converges canonical OCI plans through the
@@ -30,10 +32,10 @@ func NewPodmanRootlessHostRuntimeAdapter(
 	statefulVolumes []PodmanVolumeMount,
 ) (*PodmanRootlessHostRuntimeAdapter, error) {
 	if client == nil {
-		return nil, &ArgumentError{Param: "client", Message: "A podman client is required."}
+		return nil, &errs.Argument{Param: "client", Message: "A podman client is required."}
 	}
 	if len(statefulVolumes) > podmanMaximumVolumeCount {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "statefulVolumes",
 			Message: fmt.Sprintf("Volume input exceeds the bound of %d entries.", podmanMaximumVolumeCount),
 		}
@@ -47,13 +49,13 @@ func NewPodmanRootlessHostRuntimeAdapter(
 			return nil, err
 		}
 		if _, duplicate := seenVolumeNames[validated.VolumeName]; duplicate {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "statefulVolumes",
 				Message: "A named volume may be mounted only once per allocation.",
 			}
 		}
 		if _, duplicate := seenDestinations[validated.Destination]; duplicate {
-			return nil, &ArgumentError{
+			return nil, &errs.Argument{
 				Param:   "statefulVolumes",
 				Message: "Volume destinations must be unique.",
 			}
@@ -73,7 +75,7 @@ func NewPodmanRootlessHostRuntimeAdapter(
 // started; a running or starting allocation is already converged.
 func (a *PodmanRootlessHostRuntimeAdapter) Converge(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The podman context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}
@@ -145,7 +147,7 @@ func (a *PodmanRootlessHostRuntimeAdapter) Converge(ctx context.Context, plan Ho
 // exact canonical plan.
 func (a *PodmanRootlessHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntimePlan) (PodmanAllocationObservation, error) {
 	if ctx == nil {
-		return PodmanAllocationObservation{}, &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
+		return PodmanAllocationObservation{}, &errs.Argument{Param: "ctx", Message: "The podman context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return PodmanAllocationObservation{}, &InvalidOperationError{Message: "The podman runtime client is unavailable."}
@@ -177,7 +179,7 @@ func (a *PodmanRootlessHostRuntimeAdapter) Observe(ctx context.Context, plan Hos
 // nothing running, so stopping it is already satisfied.
 func (a *PodmanRootlessHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The podman context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}
@@ -203,7 +205,7 @@ func (a *PodmanRootlessHostRuntimeAdapter) Stop(ctx context.Context, plan HostRu
 // starting; an absent allocation is success.
 func (a *PodmanRootlessHostRuntimeAdapter) Delete(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The podman context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The podman context must not be nil."}
 	}
 	if a == nil || a.client == nil {
 		return &InvalidOperationError{Message: "The podman runtime client is unavailable."}

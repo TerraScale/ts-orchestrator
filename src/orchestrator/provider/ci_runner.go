@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type TrustZone int
@@ -41,18 +43,18 @@ type OciCiRunnerDemand struct {
 
 func NewOciCiRunnerDemand(runner string, zone TrustZone, sequence int64, bootstrapBase64, bootstrapSHA string) (OciCiRunnerDemand, error) {
 	if runner == "" || zone < TrustUntrustedProduct || zone > TrustTrustedBuild || sequence <= 0 {
-		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner demand identity is invalid"}
+		return OciCiRunnerDemand{}, &errs.Argument{Message: "CI runner demand identity is invalid"}
 	}
 	if len(runner) > 256 || strings.ContainsAny(runner, "\r\n") {
-		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner demand identity is invalid"}
+		return OciCiRunnerDemand{}, &errs.Argument{Message: "CI runner demand identity is invalid"}
 	}
 	raw, err := base64.StdEncoding.DecodeString(bootstrapBase64)
 	if err != nil || len(raw) < 1 || len(raw) > 32*1024 {
-		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner bootstrap is invalid"}
+		return OciCiRunnerDemand{}, &errs.Argument{Message: "CI runner bootstrap is invalid"}
 	}
 	sum := sha256.Sum256(raw)
 	if hex.EncodeToString(sum[:]) != bootstrapSHA {
-		return OciCiRunnerDemand{}, &ArgumentError{Message: "CI runner bootstrap digest does not match"}
+		return OciCiRunnerDemand{}, &errs.Argument{Message: "CI runner bootstrap digest does not match"}
 	}
 	h := sha256.Sum256([]byte(runner + ":" + strconv.FormatInt(sequence, 10) + ":" + bootstrapSHA))
 	return OciCiRunnerDemand{runner, zone, sequence, bootstrapBase64, bootstrapSHA, "ci-" + hex.EncodeToString(h[:])[:48]}, nil
@@ -76,21 +78,21 @@ type OciCiRunnerLaunchTemplate struct {
 func NewOciCiRunnerLaunchTemplate(compartment, availability, fault, subnet string, nsg []string, image string, generation int64) (OciCiRunnerLaunchTemplate, error) {
 	for _, x := range []struct{ v, k string }{{compartment, "compartment"}, {subnet, "subnet"}, {image, "image"}} {
 		if !isOCID(x.v, x.k) {
-			return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI CI runner OCID is invalid"}
+			return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI CI runner OCID is invalid"}
 		}
 	}
 	if availability == "" || len(availability) > 128 || strings.IndexFunc(availability, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || generation <= 0 || len(nsg) < 1 || len(nsg) > 5 {
-		return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI CI runner launch template is invalid"}
+		return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI CI runner launch template is invalid"}
 	}
 	seen := map[string]bool{}
 	for _, x := range nsg {
 		if !isOCID(x, "networksecuritygroup") || seen[x] {
-			return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI CI runner NSGs must be distinct OCIDs"}
+			return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI CI runner NSGs must be distinct OCIDs"}
 		}
 		seen[x] = true
 	}
 	if fault != "" && (len(fault) > 64 || strings.IndexFunc(fault, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0) {
-		return OciCiRunnerLaunchTemplate{}, &ArgumentError{Message: "OCI fault domain is invalid"}
+		return OciCiRunnerLaunchTemplate{}, &errs.Argument{Message: "OCI fault domain is invalid"}
 	}
 	return OciCiRunnerLaunchTemplate{compartment, availability, fault, subnet, image, append([]string(nil), nsg...), generation}, nil
 }
@@ -109,41 +111,41 @@ type OciCiRunnerCapacityRequest struct {
 
 func NewOciCiRunnerCapacityRequest(now time.Time, idle time.Duration, max int, template OciCiRunnerLaunchTemplate, permitted, desired []OciCiRunnerDemand, observed []OciCiRunnerNodeObservation) (OciCiRunnerCapacityRequest, error) {
 	if now.UnixMilli() <= 0 || idle < 30*time.Second || idle > 15*time.Minute || max < 1 || max > 256 || len(permitted) == 0 || len(permitted) > max || len(desired) > max || len(observed) > 512 || !validRunnerLaunchTemplate(template) {
-		return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "CI runner capacity request is outside its bounds"}
+		return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "CI runner capacity request is outside its bounds"}
 	}
 	p := map[string]OciCiRunnerDemand{}
 	for _, x := range permitted {
 		if !validRunnerDemand(x) {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "invalid permitted runner demand"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "invalid permitted runner demand"}
 		}
 		k := x.Runner + ":" + strconv.FormatInt(x.Sequence, 10)
 		if _, ok := p[k]; ok {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "duplicate permitted runner identity"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "duplicate permitted runner identity"}
 		}
 		p[k] = x
 	}
 	seen := map[string]bool{}
 	for _, x := range desired {
 		if !validRunnerDemand(x) {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "invalid desired runner demand"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "invalid desired runner demand"}
 		}
 		k := x.Runner + ":" + strconv.FormatInt(x.Sequence, 10)
 		if seen[k] {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "duplicate desired runner identity"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "duplicate desired runner identity"}
 		}
 		seen[k] = true
 		y, ok := p[k]
 		if !ok || y.Zone != x.Zone || y.BootstrapSha256 != x.BootstrapSha256 {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "desired runner is not permitted"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "desired runner is not permitted"}
 		}
 	}
 	inst := map[string]bool{}
 	for _, x := range observed {
 		if x.InstanceId == "" || inst[x.InstanceId] || x.LastActivity.After(now) || x.State < RunnerLaunching || x.State > RunnerTerminated || len(x.FreeformTags) > 32 {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "invalid CI runner observation"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "invalid CI runner observation"}
 		}
 		if x.Runner != "" && x.Sequence <= 0 {
-			return OciCiRunnerCapacityRequest{}, &ArgumentError{Message: "invalid CI runner observation identity"}
+			return OciCiRunnerCapacityRequest{}, &errs.Argument{Message: "invalid CI runner observation identity"}
 		}
 		inst[x.InstanceId] = true
 	}
@@ -420,7 +422,7 @@ func LoadOciCiRunnerPoolConfiguration(path string) (*OciCiRunnerPoolConfiguratio
 	}
 	st, err := os.Lstat(path)
 	if err != nil || !st.Mode().IsRegular() || st.Size() < 1 || st.Size() > 256*1024 {
-		return nil, &ArgumentError{Message: "CI runner pool configuration must be a bounded regular file"}
+		return nil, &errs.Argument{Message: "CI runner pool configuration must be a bounded regular file"}
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

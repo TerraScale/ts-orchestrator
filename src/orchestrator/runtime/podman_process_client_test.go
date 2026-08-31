@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func podmanTestRootlessContext() RootlessPodmanContext {
@@ -600,25 +602,25 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 			name:          "flag-like container id",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Start(context.Background(), "-x") },
 			wantParam:     "containerId",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "traversal container id",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Delete(context.Background(), "../evil") },
 			wantParam:     "containerId",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "uppercase volume name",
 			invoke:        func(c *ProcessPodmanClient) error { return c.EnsureVolume(context.Background(), "Loki") },
 			wantParam:     "name",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name:          "flag-like image reference",
 			invoke:        func(c *ProcessPodmanClient) error { return c.Pull(context.Background(), "--privileged", "linux/amd64") },
 			wantParam:     "imageReference",
-			wantErrorType: "ArgumentError",
+			wantErrorType: "errs.Argument",
 		},
 		{
 			name: "unknown platform",
@@ -626,7 +628,7 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 				return c.Pull(context.Background(), "registry.terrascale.internal/x@sha256:"+hostRuntimePlanDigest, "linux/riscv64")
 			},
 			wantParam:     "platform",
-			wantErrorType: "ArgumentOutOfRangeError",
+			wantErrorType: "errs.ArgumentOutOfRangeError",
 		},
 	}
 	for _, test := range tests {
@@ -652,12 +654,12 @@ func TestProcessPodmanClientValidatesTokensBeforeAnyCommandSpawns(t *testing.T) 
 func TestProcessPodmanClientRejectsNilContext(t *testing.T) {
 	runner := newRecordingHostRunner()
 	client := newPodmanProcessClient(t, runner)
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if err := client.Preflight(nil); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if err := client.Start(nil, podmanTestOciPlan(t).Oci.ContainerId); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("no command may spawn for a nil context: %v", runner.commands)

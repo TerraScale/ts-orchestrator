@@ -4,6 +4,8 @@ package runtime
 import (
 	"fmt"
 	"regexp"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // McpChangeKind records why a new desired state exists, so an upgrade, a
@@ -48,13 +50,13 @@ func NewMcpDesiredWorkload(
 	changeKind McpChangeKind,
 ) (McpDesiredWorkload, error) {
 	if generation < 1 {
-		return McpDesiredWorkload{}, &ArgumentOutOfRangeError{
+		return McpDesiredWorkload{}, &errs.ArgumentOutOfRangeError{
 			Param:   "generation",
 			Message: "The desired generation must be positive.",
 		}
 	}
 	if len(failureDomains) != McpPlacementContractMinimumInstances {
-		return McpDesiredWorkload{}, &ArgumentError{
+		return McpDesiredWorkload{}, &errs.Argument{
 			Param: "failureDomains",
 			Message: fmt.Sprintf("The MCP workload requires exactly %d failure domains.",
 				McpPlacementContractMinimumInstances),
@@ -63,7 +65,7 @@ func NewMcpDesiredWorkload(
 	distinct := make(map[string]bool, len(failureDomains))
 	for _, domain := range failureDomains {
 		if domain == "" || !mcpFailureDomainTokenPattern.MatchString(domain) {
-			return McpDesiredWorkload{}, &ArgumentError{
+			return McpDesiredWorkload{}, &errs.Argument{
 				Param:   "failureDomains",
 				Message: "A failure domain must be a bounded lowercase token.",
 			}
@@ -71,13 +73,13 @@ func NewMcpDesiredWorkload(
 		distinct[domain] = true
 	}
 	if len(distinct) != len(failureDomains) {
-		return McpDesiredWorkload{}, &ArgumentError{
+		return McpDesiredWorkload{}, &errs.Argument{
 			Param:   "failureDomains",
 			Message: "The two MCP instances must run in independent failure domains.",
 		}
 	}
 	if !changeKind.defined() {
-		return McpDesiredWorkload{}, &ArgumentOutOfRangeError{Param: "changeKind"}
+		return McpDesiredWorkload{}, &errs.ArgumentOutOfRangeError{Param: "changeKind"}
 	}
 	return McpDesiredWorkload{
 		Generation:     generation,
@@ -215,7 +217,7 @@ func (p McpReconciliationPlan) StickySessions() bool {
 // and any healthy backend may replace a lost one.
 func (p McpReconciliationPlan) SelectBackend(requestSequence int64) (McpBackendSelection, error) {
 	if requestSequence < 0 {
-		return McpBackendSelection{}, &ArgumentOutOfRangeError{
+		return McpBackendSelection{}, &errs.ArgumentOutOfRangeError{
 			Param:   "requestSequence",
 			Message: "The request sequence must be non-negative.",
 		}

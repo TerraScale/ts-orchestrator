@@ -9,6 +9,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type recordingPodmanClient struct {
@@ -516,9 +518,9 @@ func TestPodmanAdapterRejectsNonCanonicalPlansBeforeAnyClientOperation(t *testin
 	client := &recordingPodmanClient{}
 	adapter := newPodmanTestAdapter(t, client)
 
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if err := adapter.Converge(context.Background(), nativePlan); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError for the native plan, got %v", err)
+		t.Fatalf("expected errs.Argument for the native plan, got %v", err)
 	}
 
 	tampered := podmanTestOciPlan(t)
@@ -540,18 +542,18 @@ func TestPodmanAdapterRejectsNonCanonicalPlansBeforeAnyClientOperation(t *testin
 
 func TestPodmanAdapterRejectsNilContext(t *testing.T) {
 	adapter := newPodmanTestAdapter(t, &recordingPodmanClient{})
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if err := adapter.Converge(nil, podmanTestOciPlan(t)); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if _, err := adapter.Observe(nil, podmanTestOciPlan(t)); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if err := adapter.Stop(nil, podmanTestOciPlan(t)); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 	if err := adapter.Delete(nil, podmanTestOciPlan(t)); !errors.As(err, &argumentError) {
-		t.Fatalf("expected ArgumentError, got %v", err)
+		t.Fatalf("expected errs.Argument, got %v", err)
 	}
 }
 

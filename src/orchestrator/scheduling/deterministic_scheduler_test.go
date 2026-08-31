@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func schedulerTestTiny() ResourceVector {
@@ -219,12 +221,12 @@ func TestResourceQuantitiesAndSafetyCapsMustBeNonNegative(t *testing.T) {
 	if _, err := NewResourceVector(-1, 0, 0, 0, 0, 0, 0, 0); err == nil {
 		t.Fatal("negative resource vector must be rejected")
 	}
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	if _, err := NewResourceVector(-1, 0, 0, 0, 0, 0, 0, 0); !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 	if _, err := NewAllocationSafetyCap(-1, 1); !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 }
 

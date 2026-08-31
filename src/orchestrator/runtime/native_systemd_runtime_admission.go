@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	goruntime "runtime"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func isLinuxHost() bool { return goruntime.GOOS == "linux" }
@@ -119,7 +121,7 @@ func NewNativeSystemdRuntimeAdmissionWithRunner(
 		return nil, err
 	}
 	if hostProbe == nil {
-		return nil, &ArgumentError{Param: "hostProbe"}
+		return nil, &errs.Argument{Param: "hostProbe"}
 	}
 
 	var probeFailed bool

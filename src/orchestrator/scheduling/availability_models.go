@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 var availabilityIdentityPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
@@ -13,7 +15,7 @@ var availabilityIdentityPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z
 // availabilityIdentityValidate ports the internal AvailabilityIdentity.Validate.
 func availabilityIdentityValidate(value string, parameterName string) (string, error) {
 	if len(value) < 1 || len(value) > 63 || !availabilityIdentityPattern.MatchString(value) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   parameterName,
 			Message: "Identity must be a bounded canonical lowercase token.",
 		}
@@ -130,7 +132,7 @@ type AvailabilityGeneration struct {
 // NewAvailabilityGeneration requires a positive generation.
 func NewAvailabilityGeneration(value uint64) (AvailabilityGeneration, error) {
 	if value == 0 {
-		return AvailabilityGeneration{}, &ArgumentOutOfRangeError{
+		return AvailabilityGeneration{}, &errs.ArgumentOutOfRangeError{
 			Param:   "value",
 			Message: "Availability generations must be positive.",
 		}
@@ -190,15 +192,15 @@ func NewServiceAvailabilityPolicy(
 	reserveDisposition ReserveDisposition,
 ) (*ServiceAvailabilityPolicy, error) {
 	if !criticality.defined() {
-		return nil, &ArgumentOutOfRangeError{Param: "criticality"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "criticality"}
 	}
 	if !reserveDisposition.defined() {
-		return nil, &ArgumentOutOfRangeError{Param: "reserveDisposition"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "reserveDisposition"}
 	}
 	if minimumAvailable.Value > desired.Value || quorum.Value > desired.Value ||
 		maximumConcurrentDisruptions.Value > desired.Value ||
 		requiredDistinctFailureDomains.Value > desired.Value {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param: "minimumAvailable",
 			Message: "Minimum, quorum, disruption, and topology counts cannot exceed " +
 				"desired count.",
@@ -249,7 +251,7 @@ func NewReplicaObservation(
 	state ReplicaAvailabilityState,
 ) (ReplicaObservation, error) {
 	if !state.defined() {
-		return ReplicaObservation{}, &ArgumentOutOfRangeError{Param: "state"}
+		return ReplicaObservation{}, &errs.ArgumentOutOfRangeError{Param: "state"}
 	}
 	return ReplicaObservation{
 		ReplicaId:       replicaId,
@@ -336,16 +338,16 @@ func NewAvailabilityEvaluationRequest(
 	observations []ReplicaObservation,
 ) (*AvailabilityEvaluationRequest, error) {
 	if policy == nil {
-		return nil, &ArgumentError{Param: "policy"}
+		return nil, &errs.Argument{Param: "policy"}
 	}
 	if change == nil {
-		return nil, &ArgumentError{Param: "change"}
+		return nil, &errs.Argument{Param: "change"}
 	}
 	if !observationCompleteness.defined() {
-		return nil, &ArgumentOutOfRangeError{Param: "observationCompleteness"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "observationCompleteness"}
 	}
 	if observations == nil {
-		return nil, &ArgumentError{Param: "observations"}
+		return nil, &errs.Argument{Param: "observations"}
 	}
 	snapshot, err := schedulerInputSnapshotCopy(
 		observations,

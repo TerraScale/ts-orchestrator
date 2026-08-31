@@ -4,23 +4,9 @@ package security
 import (
 	"regexp"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
-
-// ArgumentError mirrors System.ArgumentException.
-type ArgumentError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentError) Error() string { return e.Message }
-
-// ArgumentOutOfRangeError mirrors System.ArgumentOutOfRangeException.
-type ArgumentOutOfRangeError struct {
-	Param   string
-	Message string
-}
-
-func (e *ArgumentOutOfRangeError) Error() string { return e.Message }
 
 // InvalidOperationError mirrors System.InvalidOperationException.
 type InvalidOperationError struct {
@@ -60,7 +46,7 @@ type bootstrapValueRules struct{}
 // Token validates a bounded canonical bootstrap token.
 func (bootstrapValueRules) Token(value string, name string) (string, error) {
 	if len(value) < 1 || len(value) > 128 || !bootstrapTokenPattern.MatchString(value) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   name,
 			Message: "Bootstrap value must be a bounded canonical token.",
 		}
@@ -71,7 +57,7 @@ func (bootstrapValueRules) Token(value string, name string) (string, error) {
 // Thumbprint validates a lowercase SHA-256 thumbprint.
 func (bootstrapValueRules) Thumbprint(value string, name string) (string, error) {
 	if len(value) != 64 || !isLowercaseHex(value) {
-		return "", &ArgumentError{
+		return "", &errs.Argument{
 			Param:   name,
 			Message: "Certificate thumbprint must be a lowercase SHA-256 value.",
 		}
@@ -225,7 +211,7 @@ type BootstrapTrustBundleVersion struct {
 // NewBootstrapTrustBundleVersion requires a positive version.
 func NewBootstrapTrustBundleVersion(value uint64) (BootstrapTrustBundleVersion, error) {
 	if value == 0 {
-		return BootstrapTrustBundleVersion{}, &ArgumentOutOfRangeError{Param: "value"}
+		return BootstrapTrustBundleVersion{}, &errs.ArgumentOutOfRangeError{Param: "value"}
 	}
 	return BootstrapTrustBundleVersion{Value: value}, nil
 }
@@ -330,7 +316,7 @@ type BootstrapSystemProjectAllowlist struct {
 // NewBootstrapSystemProjectAllowlist validates the bounded, duplicate-free list.
 func NewBootstrapSystemProjectAllowlist(entries []BootstrapSystemProjectIdentity) (*BootstrapSystemProjectAllowlist, error) {
 	if len(entries) < 1 || len(entries) > 20 {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "entries",
 			Message: "The fixed system Project allowlist must be bounded and non-empty.",
 		}
@@ -338,7 +324,7 @@ func NewBootstrapSystemProjectAllowlist(entries []BootstrapSystemProjectIdentity
 	for index := range entries {
 		for other := index + 1; other < len(entries); other++ {
 			if entries[index] == entries[other] {
-				return nil, &ArgumentError{
+				return nil, &errs.Argument{
 					Param:   "entries",
 					Message: "The fixed system Project allowlist cannot contain duplicates.",
 				}
@@ -388,7 +374,7 @@ type BootstrapTrustBundleRotation struct {
 // and older than the current key.
 func NewBootstrapTrustBundleRotation(current BootstrapTrustBundleKey, overlap *BootstrapTrustBundleKey) (BootstrapTrustBundleRotation, error) {
 	if overlap != nil && (overlap.KeyId == current.KeyId || overlap.Version.Value >= current.Version.Value) {
-		return BootstrapTrustBundleRotation{}, &ArgumentError{
+		return BootstrapTrustBundleRotation{}, &errs.Argument{
 			Param:   "overlap",
 			Message: "An overlap key must be distinct and older than the current key.",
 		}
@@ -427,7 +413,7 @@ func NewBootstrapGrant(
 	trustBundleKey BootstrapTrustBundleKey,
 ) (BootstrapGrant, error) {
 	if !operation.defined() {
-		return BootstrapGrant{}, &ArgumentOutOfRangeError{Param: "operation"}
+		return BootstrapGrant{}, &errs.ArgumentOutOfRangeError{Param: "operation"}
 	}
 	return BootstrapGrant{
 		GrantId:               grantId,
@@ -451,7 +437,7 @@ type BootstrapGrantSignatureEvidence struct {
 // NewBootstrapGrantSignatureEvidence validates the status vocabulary.
 func NewBootstrapGrantSignatureEvidence(status BootstrapGrantSignatureStatus, verifiedWith *BootstrapTrustBundleKey) (BootstrapGrantSignatureEvidence, error) {
 	if !status.defined() {
-		return BootstrapGrantSignatureEvidence{}, &ArgumentOutOfRangeError{Param: "status"}
+		return BootstrapGrantSignatureEvidence{}, &errs.ArgumentOutOfRangeError{Param: "status"}
 	}
 	return BootstrapGrantSignatureEvidence{Status: status, VerifiedWith: verifiedWith}, nil
 }
@@ -491,13 +477,13 @@ func NewBootstrapGrantVerificationContext(
 	maximumLifetime time.Duration,
 ) (BootstrapGrantVerificationContext, error) {
 	if !requestedOperation.defined() {
-		return BootstrapGrantVerificationContext{}, &ArgumentOutOfRangeError{Param: "requestedOperation"}
+		return BootstrapGrantVerificationContext{}, &errs.ArgumentOutOfRangeError{Param: "requestedOperation"}
 	}
 	if maximumLifetime <= 0 {
-		return BootstrapGrantVerificationContext{}, &ArgumentOutOfRangeError{Param: "maximumLifetime"}
+		return BootstrapGrantVerificationContext{}, &errs.ArgumentOutOfRangeError{Param: "maximumLifetime"}
 	}
 	if systemProjectAllowlist == nil {
-		return BootstrapGrantVerificationContext{}, &ArgumentError{Param: "systemProjectAllowlist"}
+		return BootstrapGrantVerificationContext{}, &errs.Argument{Param: "systemProjectAllowlist"}
 	}
 	return BootstrapGrantVerificationContext{
 		RequestedOperation:            requestedOperation,

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const mcpFirstDomain = "fault-domain-a"
@@ -434,11 +436,11 @@ func TestTheDesiredPlacementRequiresTwoIndependentFailureDomains(t *testing.T) {
 		[]string{"only-one"}, McpChangeKindInitialCreation); err == nil {
 		t.Fatal("a single failure domain must be rejected")
 	}
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	_, err := NewMcpDesiredWorkload(0, mcpTestManifest(t, mcpDeployedDigest, HostArchitectureArm64),
 		[]string{mcpFirstDomain, mcpSecondDomain}, McpChangeKindInitialCreation)
 	if !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 }
 
@@ -458,15 +460,15 @@ func TestBackendSelectionRejectsNegativeRequestSequences(t *testing.T) {
 			mcpReady(mcpSecondDomain, 1, mcpDeployedDigest),
 		}, mcpRoutesOpen(t), &mcpOpenIngress)
 
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	if _, err := plan.SelectBackend(-1); !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 	// The guard is the first check: even a plan without healthy backends
 	// refuses a negative sequence with the argument guard rather than the
 	// routing failure.
 	empty := mcpPlan(t, mcpDesired(t, McpChangeKindInitialCreation, mcpDeployedDigest, 1), nil, mcpRoutesOpen(t), &mcpOpenIngress)
 	if _, err := empty.SelectBackend(-1); !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 }

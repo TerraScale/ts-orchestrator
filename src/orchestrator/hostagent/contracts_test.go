@@ -4,16 +4,18 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // errorsAsParam reports whether err is one of the package argument errors
 // naming the given parameter.
 func errorsAsParam(err error, param string) bool {
-	var argumentError *ArgumentError
+	var argumentError *errs.Argument
 	if errors.As(err, &argumentError) {
 		return argumentError.Param == param
 	}
-	var outOfRange *ArgumentOutOfRangeError
+	var outOfRange *errs.ArgumentOutOfRangeError
 	if errors.As(err, &outOfRange) {
 		return outOfRange.Param == param
 	}
@@ -248,16 +250,16 @@ func TestNewWorkloadCommandRequest(t *testing.T) {
 		wantType    string
 		expectParam string
 	}{
-		{name: "empty plan", planJson: nil, commandId: "cmd-0001", wantType: "ArgumentError", expectParam: "planJson"},
+		{name: "empty plan", planJson: nil, commandId: "cmd-0001", wantType: "errs.Argument", expectParam: "planJson"},
 		{
 			name:        "oversized plan",
 			planJson:    append([]byte(`{"pad":"`), bytesOf('a', hostAgentMaximumPlanJsonBytes)...),
 			commandId:   "cmd-0001",
-			wantType:    "ArgumentError",
+			wantType:    "errs.Argument",
 			expectParam: "planJson",
 		},
 		{name: "invalid json", planJson: []byte(`{"schemaVersion":`), commandId: "cmd-0001", wantType: "InvalidDataError"},
-		{name: "invalid command id", planJson: validPlan, commandId: "CMD 1", wantType: "ArgumentError", expectParam: "commandId"},
+		{name: "invalid command id", planJson: validPlan, commandId: "CMD 1", wantType: "errs.Argument", expectParam: "commandId"},
 	}
 
 	for _, test := range tests {
@@ -323,11 +325,11 @@ func TestReceiptConstructorsShareOneValidation(t *testing.T) {
 // hostAgentErrorType reports whether err unwraps to the named package error.
 func hostAgentErrorType(err error, name string) bool {
 	switch name {
-	case "ArgumentError":
-		var target *ArgumentError
+	case "errs.Argument":
+		var target *errs.Argument
 		return errors.As(err, &target)
-	case "ArgumentOutOfRangeError":
-		var target *ArgumentOutOfRangeError
+	case "errs.ArgumentOutOfRangeError":
+		var target *errs.ArgumentOutOfRangeError
 		return errors.As(err, &target)
 	case "InvalidOperationError":
 		var target *InvalidOperationError

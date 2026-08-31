@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const hostRuntimePlanDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -158,9 +160,9 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 		mustArtifactDigest(t, hostRuntimePlanDigest),
 		HostArchitectureArm64,
 		&excessive)
-	var rangeError *ArgumentOutOfRangeError
+	var rangeError *errs.ArgumentOutOfRangeError
 	if !errors.As(err, &rangeError) {
-		t.Fatalf("expected ArgumentOutOfRangeError, got %v", err)
+		t.Fatalf("expected errs.ArgumentOutOfRangeError, got %v", err)
 	}
 }
 

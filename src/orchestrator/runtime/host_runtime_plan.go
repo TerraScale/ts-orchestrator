@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // HostArchitecture is the closed host architecture vocabulary.
@@ -42,7 +44,7 @@ type RuntimeAllocationId struct {
 // NewRuntimeAllocationId validates the DNS-style token.
 func NewRuntimeAllocationId(value string) (RuntimeAllocationId, error) {
 	if len(value) < 1 || len(value) > 63 || !runtimeAllocationTokenPattern.MatchString(value) {
-		return RuntimeAllocationId{}, &ArgumentError{
+		return RuntimeAllocationId{}, &errs.Argument{
 			Param:   "value",
 			Message: "Allocation ID must be a lowercase DNS-style token.",
 		}
@@ -60,7 +62,7 @@ type ArtifactDigest struct {
 // NewArtifactDigest validates the digest shape.
 func NewArtifactDigest(value string) (ArtifactDigest, error) {
 	if len(value) != 64 || !isLowercaseHexDigest(value) {
-		return ArtifactDigest{}, &ArgumentError{
+		return ArtifactDigest{}, &errs.Argument{
 			Param:   "value",
 			Message: "Artifact digest must be lowercase SHA-256 hex.",
 		}
@@ -160,7 +162,7 @@ func NewHostRuntimePlan(
 		return HostRuntimePlan{}, err
 	}
 	if !architecture.defined() {
-		return HostRuntimePlan{}, &ArgumentOutOfRangeError{Param: "architecture"}
+		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "architecture"}
 	}
 
 	descriptor, err := AdmittedRoleCatalog.Admit(role, driver)
@@ -197,7 +199,7 @@ func NewHostRuntimePlan(
 			Oci:            createOciExecutionPlan(descriptor, allocationId, digest, architecture, resources),
 		}, nil
 	default:
-		return HostRuntimePlan{}, &ArgumentOutOfRangeError{Param: "driver"}
+		return HostRuntimePlan{}, &errs.ArgumentOutOfRangeError{Param: "driver"}
 	}
 }
 
@@ -316,20 +318,20 @@ func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResou
 		return maximum, nil
 	}
 	if requested.MemoryMaxBytes < runtimeMinimumMemoryBytes || requested.MemoryMaxBytes > maximum.MemoryMaxBytes {
-		return RuntimeResourceLimits{}, &ArgumentOutOfRangeError{
+		return RuntimeResourceLimits{}, &errs.ArgumentOutOfRangeError{
 			Param: "requested",
 			Message: fmt.Sprintf("Memory limit must be between %d and %d bytes for %s.",
 				runtimeMinimumMemoryBytes, maximum.MemoryMaxBytes, role),
 		}
 	}
 	if requested.TasksMax < 16 || requested.TasksMax > maximum.TasksMax {
-		return RuntimeResourceLimits{}, &ArgumentOutOfRangeError{
+		return RuntimeResourceLimits{}, &errs.ArgumentOutOfRangeError{
 			Param:   "requested",
 			Message: fmt.Sprintf("Task limit must be between 16 and %d for %s.", maximum.TasksMax, role),
 		}
 	}
 	if requested.CpuQuotaPercent < 10 || requested.CpuQuotaPercent > maximum.CpuQuotaPercent {
-		return RuntimeResourceLimits{}, &ArgumentOutOfRangeError{
+		return RuntimeResourceLimits{}, &errs.ArgumentOutOfRangeError{
 			Param: "requested",
 			Message: fmt.Sprintf("CPU quota must be between 10 and %d percent for %s.",
 				maximum.CpuQuotaPercent, role),
@@ -337,14 +339,14 @@ func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResou
 	}
 	if requested.CpuWeight < 1 || requested.CpuWeight > maximum.CpuWeight ||
 		requested.IoWeight < 1 || requested.IoWeight > maximum.IoWeight {
-		return RuntimeResourceLimits{}, &ArgumentOutOfRangeError{
+		return RuntimeResourceLimits{}, &errs.ArgumentOutOfRangeError{
 			Param: "requested",
 			Message: fmt.Sprintf("CPU and I/O weights must be positive and cannot exceed the %s catalog policy.",
 				role),
 		}
 	}
 	if requested.Nice < maximum.Nice || requested.Nice > 19 {
-		return RuntimeResourceLimits{}, &ArgumentOutOfRangeError{
+		return RuntimeResourceLimits{}, &errs.ArgumentOutOfRangeError{
 			Param:   "requested",
 			Message: fmt.Sprintf("Nice must be between %d and 19 for %s.", maximum.Nice, role),
 		}

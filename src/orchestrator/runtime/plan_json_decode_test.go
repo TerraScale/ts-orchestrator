@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func planJsonDecodeTestNativePlan(t *testing.T) HostRuntimePlan {
@@ -252,8 +254,8 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 				return
 			}
 			var invalidData *InvalidDataError
-			var argumentError *ArgumentError
-			var outOfRange *ArgumentOutOfRangeError
+			var argumentError *errs.Argument
+			var outOfRange *errs.ArgumentOutOfRangeError
 			if !errors.As(err, &invalidData) && !errors.As(err, &argumentError) &&
 				!errors.As(err, &outOfRange) {
 				t.Fatalf("error %v is not a package data error", err)

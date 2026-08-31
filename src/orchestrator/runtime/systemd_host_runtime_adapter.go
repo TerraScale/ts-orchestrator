@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // HostCommandResult is one captured host command execution.
@@ -156,7 +158,7 @@ func NewSystemdHostRuntimeAdapter(commandRunner HostCommandRunner, userManager b
 // Converge brings the unit to the running state.
 func (a *SystemdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The systemd context must not be nil."}
 	}
 	if a == nil || a.commandRunner == nil {
 		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
@@ -219,7 +221,7 @@ func (a *SystemdHostRuntimeAdapter) Converge(ctx context.Context, plan HostRunti
 // Observe parses one fenced systemctl show observation.
 func (a *SystemdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntimePlan) (SystemdAllocationObservation, error) {
 	if ctx == nil {
-		return SystemdAllocationObservation{}, &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+		return SystemdAllocationObservation{}, &errs.Argument{Param: "ctx", Message: "The systemd context must not be nil."}
 	}
 	if a == nil || a.commandRunner == nil {
 		return SystemdAllocationObservation{}, &InvalidOperationError{Message: "The systemd command runner is unavailable."}
@@ -309,7 +311,7 @@ func (a *SystemdHostRuntimeAdapter) Observe(ctx context.Context, plan HostRuntim
 // Stop stops a running unit.
 func (a *SystemdHostRuntimeAdapter) Stop(ctx context.Context, plan HostRuntimePlan) error {
 	if ctx == nil {
-		return &ArgumentError{Param: "ctx", Message: "The systemd context must not be nil."}
+		return &errs.Argument{Param: "ctx", Message: "The systemd context must not be nil."}
 	}
 	if a == nil || a.commandRunner == nil {
 		return &InvalidOperationError{Message: "The systemd command runner is unavailable."}
@@ -360,7 +362,7 @@ func (a *SystemdHostRuntimeAdapter) managerArguments(arguments ...string) []stri
 
 func requireCanonicalSystemdPlan(plan HostRuntimePlan) (*SystemdExecutionPlan, error) {
 	if plan.Driver != RuntimeDriverNativeSystemd || plan.Systemd == nil || plan.Oci != nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "plan",
 			Message: "The systemd adapter requires a native systemd plan.",
 		}

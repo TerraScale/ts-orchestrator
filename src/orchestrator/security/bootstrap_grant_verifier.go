@@ -1,6 +1,8 @@
 // This file ports Security/SystemProjectBootstrap/BootstrapGrantVerifier.cs.
 package security
 
+import "terrascale.tech/orchestrator/src/orchestrator/errs"
+
 // BootstrapGrantVerifier ports the static BootstrapGrantVerifier class; call it
 // as security.BootstrapGrantVerifier.Verify(input) to mirror the C# call site.
 var BootstrapGrantVerifier bootstrapGrantVerifier
@@ -10,7 +12,7 @@ type bootstrapGrantVerifier struct{}
 // Verify runs the fail-closed bootstrap-grant decision.
 func (bootstrapGrantVerifier) Verify(input *BootstrapGrantVerificationInput) (BootstrapGrantVerificationResult, error) {
 	if input == nil {
-		return BootstrapGrantVerificationResult{}, &ArgumentError{Param: "input"}
+		return BootstrapGrantVerificationResult{}, &errs.Argument{Param: "input"}
 	}
 	grant := input.Grant
 	context := input.Context

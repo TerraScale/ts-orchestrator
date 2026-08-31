@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
 
@@ -102,13 +103,13 @@ func NewWorkloadExecutor(config WorkloadExecutorConfig) (*WorkloadExecutor, erro
 		return nil, err
 	}
 	if config.Systemd == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Systemd",
 			Message: "A native systemd adapter wired in user-manager mode is required.",
 		}
 	}
 	if config.Container == nil {
-		return nil, &ArgumentError{
+		return nil, &errs.Argument{
 			Param:   "Container",
 			Message: "A rootless OCI container adapter is required.",
 		}
@@ -130,7 +131,7 @@ func NewWorkloadExecutor(config WorkloadExecutorConfig) (*WorkloadExecutor, erro
 // decoded plan is still reported.
 func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommandRequest) (ConvergeReceipt, error) {
 	if ctx == nil {
-		return ConvergeReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
+		return ConvergeReceipt{}, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
 	}
 	if e == nil {
 		return ConvergeReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
@@ -185,7 +186,7 @@ func (e *WorkloadExecutor) Converge(ctx context.Context, command WorkloadCommand
 // drain decisions consume observations.
 func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandRequest) (ObserveReceipt, error) {
 	if ctx == nil {
-		return ObserveReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
+		return ObserveReceipt{}, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
 	}
 	if e == nil {
 		return ObserveReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
@@ -230,7 +231,7 @@ func (e *WorkloadExecutor) Observe(ctx context.Context, command WorkloadCommandR
 // sequence depends on it.
 func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequest) (StopReceipt, error) {
 	if ctx == nil {
-		return StopReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
+		return StopReceipt{}, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
 	}
 	if e == nil {
 		return StopReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
@@ -279,7 +280,7 @@ func (e *WorkloadExecutor) Stop(ctx context.Context, command WorkloadCommandRequ
 // plans are deleted through the container adapter, which stops them first.
 func (e *WorkloadExecutor) Delete(ctx context.Context, command WorkloadCommandRequest) (DeleteReceipt, error) {
 	if ctx == nil {
-		return DeleteReceipt{}, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
+		return DeleteReceipt{}, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
 	}
 	if e == nil {
 		return DeleteReceipt{}, &InvalidOperationError{Message: "The executor is unavailable."}
@@ -360,7 +361,7 @@ const allocationStateUnknown = "Unknown"
 // carries every failure; callers must treat Unknown as not drained.
 func (e *WorkloadExecutor) ObserveAllocations(ctx context.Context) ([]AllocationObservation, error) {
 	if ctx == nil {
-		return nil, &ArgumentError{Param: "ctx", Message: "The executor context must not be nil."}
+		return nil, &errs.Argument{Param: "ctx", Message: "The executor context must not be nil."}
 	}
 	type observedPair struct {
 		decoded    decodedWorkloadPlan
