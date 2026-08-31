@@ -1,4 +1,4 @@
-package control
+package computeplan
 
 import "sort"
 
@@ -672,19 +672,30 @@ func computeValidOptional(value *ComputeProofId, max int) bool {
 	return value == nil || computeValid(value.Value, max)
 }
 
-func computeScaleOutDefined(value ScaleOutState) bool { return scaleOutStateIsDefined(value) }
-func computeScaleInDefined(value ScaleInState) bool   { return scaleInStateIsDefined(value) }
-func computeTriggerDefined(value ComputeTrigger) bool { return computeTriggerIsDefined(value) }
+func computeScaleOutDefined(value ScaleOutState) bool {
+	return value != ScaleOutStateUnspecified && scaleOutStateIsDefined(value)
+}
+
+func computeScaleInDefined(value ScaleInState) bool {
+	return value != ScaleInStateUnspecified && scaleInStateIsDefined(value)
+}
+
+func computeTriggerDefined(value ComputeTrigger) bool {
+	return value != ComputeTriggerUnspecified && computeTriggerIsDefined(value)
+}
+
 func computeProviderCreateStatusDefined(value ProviderCreateStatus) bool {
-	return providerCreateStatusIsDefined(value)
+	return value != ProviderCreateStatusUnspecified && providerCreateStatusIsDefined(value)
 }
 func computeStatefulDispositionDefined(value StatefulDisposition) bool {
-	return statefulDispositionIsDefined(value)
+	return value != StatefulDispositionUnspecified && statefulDispositionIsDefined(value)
 }
 func computeVolumeDispositionDefined(value VolumeDisposition) bool {
-	return volumeDispositionIsDefined(value)
+	return value != VolumeDispositionUnspecified && volumeDispositionIsDefined(value)
 }
-func computeNodeRoleDefined(value ComputeNodeRole) bool { return computeNodeRoleIsDefined(value) }
+func computeNodeRoleDefined(value ComputeNodeRole) bool {
+	return value != ComputeNodeRoleUnspecified && computeNodeRoleIsDefined(value)
+}
 
 // computeDefined mirrors the C# Defined<T> helper: defined and non-zero.
 func computeDefined(defined bool) bool { return defined }

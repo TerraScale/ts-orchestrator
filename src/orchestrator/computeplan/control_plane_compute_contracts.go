@@ -1,4 +1,4 @@
-package control
+package computeplan
 
 // ComputeTechnicalInputLimits ports the technical caller-input snapshot
 // limits; these are not scaling, replica, or capacity policy caps.
@@ -13,7 +13,7 @@ func computeInputSnapshotCopy[T any](source []T, maximum int, parameterName, inp
 		return nil, argumentNil(parameterName)
 	}
 	if len(source) > maximum {
-		return nil, invalidArgument(inputName + " exceeds the technical snapshot bound.")
+		return nil, invalidArgument(parameterName, inputName+" exceeds the technical snapshot bound.")
 	}
 	result := make([]T, len(source))
 	copy(result, source)
