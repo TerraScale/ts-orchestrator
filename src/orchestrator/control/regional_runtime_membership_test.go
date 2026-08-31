@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 type regionalRuntimeMembershipHeartbeatStore struct {
@@ -246,5 +248,21 @@ func TestRegionalRuntimeMembershipSnapshotDoesNotExposeCapabilityStorage(t *test
 	snapshot.Members[0].Capabilities[0] = "caller-mutated"
 	if got := membership.members[membership.key].Capabilities[0]; got != "authority" {
 		t.Fatalf("snapshot mutation changed internal capabilities to %q", got)
+	}
+}
+
+func TestRegionalRuntimeMembershipRejectsPreV2DiscoveryRecords(t *testing.T) {
+	membership := newRegionalRuntimeMembershipForHeartbeat(nil, nil)
+	document, err := membership.document(time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != protocol.ProtocolVersion.Current() || !document.IsValidFor("gru", time.Now().UTC()) {
+		t.Fatalf("current discovery document = %#v", document)
+	}
+
+	document.SchemaVersion = protocol.ProtocolVersion.Current() - 1
+	if document.IsValidFor("gru", time.Now().UTC()) {
+		t.Fatal("pre-v2 discovery record was accepted")
 	}
 }

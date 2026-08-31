@@ -32,10 +32,6 @@ func TestTheManifestPinsExactlyTheFreshV2Root(t *testing.T) {
 		t.Fatalf("manifest version = %q", manifest.Version)
 	}
 
-	if len(manifest.SupersededRoots) != 1 || manifest.SupersededRoots[0] != "ts.orch.v1" {
-		t.Fatalf("superseded roots = %v", manifest.SupersededRoots)
-	}
-
 	if len(manifest.ReservedRegionTokens) != 1 || manifest.ReservedRegionTokens[0] != "global" {
 		t.Fatalf("reserved region tokens = %v", manifest.ReservedRegionTokens)
 	}
@@ -136,29 +132,6 @@ func TestEveryMaterializedManifestFamilyIsAClosedV2Permission(t *testing.T) {
 		ok, err := NatsSubjectTaxonomy.TryValidatePermissionPattern(pattern)
 		if !ok || err != NatsSubjectPermissionErrorNone {
 			t.Fatalf("materialized family pattern %q is not a closed v2 permission: %v", pattern, err)
-		}
-	}
-}
-
-func TestNoManifestSurfaceSharesTheSupersededV1Root(t *testing.T) {
-	manifest := ProtocolManifestLoaded()
-
-	for _, family := range manifest.SubjectFamilies {
-		if strings.HasPrefix(family.Pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-			t.Fatalf("family %q lives under the v1 root", family.Pattern)
-		}
-
-		if !strings.HasPrefix(family.Pattern, NatsSubjectTaxonomy.Root()+".") {
-			t.Fatalf("family %q does not live under the v2 root", family.Pattern)
-		}
-	}
-
-	for _, grants := range manifest.AccountKinds {
-		patterns := append(append([]string{}, grants.Publish...), grants.Subscribe...)
-		for _, pattern := range patterns {
-			if strings.HasPrefix(pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-				t.Fatalf("account kind %q holds a v1 permission", grants.Kind)
-			}
 		}
 	}
 }

@@ -99,27 +99,27 @@ func TestUnknownInputsDecideNothingRatherThanDefaultingToPermit(t *testing.T) {
 }
 
 func TestExactVersionsAreAcceptedAndKnownOlderVersionsMigrateForward(t *testing.T) {
-	current := MessagingSchemaVersion{Major: 1, Minor: 0}
-	migratable := map[MessagingSchemaVersion]struct{}{{Major: 1, Minor: 0}: {}}
+	current := MessagingSchemaVersion{Major: 2, Minor: 0}
+	migratable := map[MessagingSchemaVersion]struct{}{{Major: 2, Minor: 0}: {}}
 
-	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 1, Minor: 0}, current, migratable) !=
+	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 2, Minor: 0}, current, migratable) !=
 		SchemaNegotiationOutcomeAcceptExact {
 		t.Fatal("exact versions must be accepted")
 	}
 
 	if MessagingSchemaNegotiation.Decide(
-		MessagingSchemaVersion{Major: 1, Minor: 0},
-		MessagingSchemaVersion{Major: 1, Minor: 1},
-		map[MessagingSchemaVersion]struct{}{{Major: 1, Minor: 0}: {}}) != SchemaNegotiationOutcomeMigrateForward {
+		MessagingSchemaVersion{Major: 2, Minor: 0},
+		MessagingSchemaVersion{Major: 2, Minor: 1},
+		map[MessagingSchemaVersion]struct{}{{Major: 2, Minor: 0}: {}}) != SchemaNegotiationOutcomeMigrateForward {
 		t.Fatal("registered older minors must migrate forward")
 	}
 }
 
 func TestUnknownMajorsFailClosed(t *testing.T) {
-	current := MessagingSchemaVersion{Major: 1, Minor: 0}
-	migratable := map[MessagingSchemaVersion]struct{}{{Major: 1, Minor: 0}: {}}
+	current := MessagingSchemaVersion{Major: 2, Minor: 0}
+	migratable := map[MessagingSchemaVersion]struct{}{{Major: 2, Minor: 0}: {}}
 
-	for _, offered := range []MessagingSchemaVersion{{Major: 2, Minor: 0}, {Major: 99, Minor: 4}} {
+	for _, offered := range []MessagingSchemaVersion{{Major: 3, Minor: 0}, {Major: 99, Minor: 4}} {
 		if MessagingSchemaNegotiation.Decide(offered, current, migratable) != SchemaNegotiationOutcomeRejectMajorMismatch {
 			t.Fatalf("offered %v must be a major mismatch", offered)
 		}
@@ -127,12 +127,12 @@ func TestUnknownMajorsFailClosed(t *testing.T) {
 }
 
 func TestMalformedVersionsFailClosedWithADistinctMalformedOutcome(t *testing.T) {
-	current := MessagingSchemaVersion{Major: 1, Minor: 0}
-	migratable := map[MessagingSchemaVersion]struct{}{{Major: 1, Minor: 0}: {}}
+	current := MessagingSchemaVersion{Major: 2, Minor: 0}
+	migratable := map[MessagingSchemaVersion]struct{}{{Major: 2, Minor: 0}: {}}
 
 	// A malformed offered version is not a major mismatch: it never got far
 	// enough to compare majors, and reporting a mismatch would mislead the operator.
-	for _, offered := range []MessagingSchemaVersion{{Major: 0, Minor: 1}, {Major: -1, Minor: 0}, {Major: 1, Minor: -1}} {
+	for _, offered := range []MessagingSchemaVersion{{Major: 0, Minor: 1}, {Major: -1, Minor: 0}, {Major: 2, Minor: -1}} {
 		if MessagingSchemaNegotiation.Decide(offered, current, migratable) != SchemaNegotiationOutcomeRejectMalformed {
 			t.Fatalf("offered %v must be malformed", offered)
 		}
@@ -140,7 +140,7 @@ func TestMalformedVersionsFailClosedWithADistinctMalformedOutcome(t *testing.T) 
 
 	// A malformed CURRENT version is equally undecidable and fails closed the same way.
 	if MessagingSchemaNegotiation.Decide(
-		MessagingSchemaVersion{Major: 1, Minor: 0},
+		MessagingSchemaVersion{Major: 2, Minor: 0},
 		MessagingSchemaVersion{Major: 0, Minor: 0},
 		migratable) != SchemaNegotiationOutcomeRejectMalformed {
 		t.Fatal("malformed current version must be malformed")
@@ -148,15 +148,15 @@ func TestMalformedVersionsFailClosedWithADistinctMalformedOutcome(t *testing.T) 
 }
 
 func TestNewerVersionsFailClosedSoAnNMinusOneNodeNeverGuesses(t *testing.T) {
-	current := MessagingSchemaVersion{Major: 1, Minor: 0}
-	migratable := map[MessagingSchemaVersion]struct{}{{Major: 1, Minor: 0}: {}}
+	current := MessagingSchemaVersion{Major: 2, Minor: 0}
+	migratable := map[MessagingSchemaVersion]struct{}{{Major: 2, Minor: 0}: {}}
 
-	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 1, Minor: 1}, current, migratable) !=
+	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 2, Minor: 1}, current, migratable) !=
 		SchemaNegotiationOutcomeRejectNewerVersion {
 		t.Fatal("newer minor must fail closed")
 	}
 
-	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 2, Minor: 0}, current, migratable) !=
+	if MessagingSchemaNegotiation.Decide(MessagingSchemaVersion{Major: 3, Minor: 0}, current, migratable) !=
 		SchemaNegotiationOutcomeRejectMajorMismatch {
 		t.Fatal("newer major must fail closed as a major mismatch")
 	}
@@ -164,8 +164,8 @@ func TestNewerVersionsFailClosedSoAnNMinusOneNodeNeverGuesses(t *testing.T) {
 
 func TestOlderVersionsWithoutARegisteredMigrationFailClosed(t *testing.T) {
 	if MessagingSchemaNegotiation.Decide(
-		MessagingSchemaVersion{Major: 1, Minor: 0},
-		MessagingSchemaVersion{Major: 1, Minor: 2},
+		MessagingSchemaVersion{Major: 2, Minor: 0},
+		MessagingSchemaVersion{Major: 2, Minor: 2},
 		map[MessagingSchemaVersion]struct{}{}) != SchemaNegotiationOutcomeRejectUnmigratableOlderVersion {
 		t.Fatal("unregistered older minor must fail closed")
 	}

@@ -524,7 +524,7 @@ func runEnvelopeFuzz(seed uint64) envelopeSummary {
 			envelope = CommandEnvelope{}
 			expected = CommandValidationErrorMalformedEnvelope
 		case 2:
-			envelope = validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) })
+			envelope = validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(3)) })
 			expected = CommandValidationErrorUnsupportedProtocolVersion
 		case 3:
 			envelope = validEnvelope(

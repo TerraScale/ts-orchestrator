@@ -1,6 +1,4 @@
-// Port of src/TerraScale.Orchestrator/Protocol/ProtocolManifest.cs. The
-// checked-in manifest bytes are embedded from protocol-manifest.json, a
-// byte-identical copy of the C# embedded resource.
+// The checked-in manifest bytes are embedded from protocol-manifest.json.
 package protocol
 
 import (
@@ -132,20 +130,18 @@ func isUnicodeWhitespace(r rune) bool {
 // ProtocolManifest is the checked-in protocol manifest: the single source of
 // truth for the closed subject-family set and the account-kind grant
 // templates. The manifest is embedded into the binary and loaded fail-closed:
-// a missing, oversized, malformed, or shape-invalid manifest panics (the C#
-// InvalidOperationException thrown out of the lazy loader), never a silent
-// fallback to compiled defaults.
+// a missing, oversized, malformed, or shape-invalid manifest panics rather
+// than falling back to compiled defaults.
 type ProtocolManifest struct {
 	Name                 string
 	Version              string
 	Root                 string
-	SupersededRoots      []string
 	ReservedRegionTokens []string
 	SubjectFamilies      []ProtocolSubjectFamily
 	AccountKinds         []ProtocolAccountKindGrants
 }
 
-// ManifestResourceName mirrors the C# const naming the embedded resource.
+// ManifestResourceName names the embedded manifest resource.
 const ManifestResourceName = "TerraScale.Orchestrator.Protocol.protocol-manifest.json"
 
 const (
@@ -198,9 +194,7 @@ func protocolManifestFromDto(dto *protocolManifestDto) *ProtocolManifest {
 	if isNullOrWhiteSpaceString(dto.Name) || len(deref(dto.Name)) > 128 ||
 		isNullOrWhiteSpaceString(dto.Version) || len(deref(dto.Version)) > 32 ||
 		isNullOrWhiteSpaceString(dto.Root) || len(deref(dto.Root)) > 128 ||
-		strings.IndexFunc(deref(dto.Root), func(r rune) bool { return isUnicodeWhitespace(r) }) >= 0 ||
-		dto.SupersededRoots == nil || len(dto.SupersededRoots) < 1 ||
-		anySupersededRootMalformed(dto.SupersededRoots) {
+		strings.IndexFunc(deref(dto.Root), func(r rune) bool { return isUnicodeWhitespace(r) }) >= 0 {
 		panic("The protocol manifest header is malformed.")
 	}
 
@@ -276,18 +270,10 @@ func protocolManifestFromDto(dto *protocolManifestDto) *ProtocolManifest {
 		kinds[index] = grants
 	}
 
-	supersededRoots := make([]string, 0, len(dto.SupersededRoots))
-	for _, root := range dto.SupersededRoots {
-		if !isNullOrWhiteSpaceString(&root) {
-			supersededRoots = append(supersededRoots, root)
-		}
-	}
-
 	return &ProtocolManifest{
 		Name:                 deref(dto.Name),
 		Version:              deref(dto.Version),
 		Root:                 deref(dto.Root),
-		SupersededRoots:      supersededRoots,
 		ReservedRegionTokens: reserved,
 		SubjectFamilies:      families,
 		AccountKinds:         kinds,
@@ -307,16 +293,6 @@ func filterReservedRegionTokens(regionToken *protocolRegionTokenDto) []string {
 	}
 
 	return reserved
-}
-
-func anySupersededRootMalformed(roots []string) bool {
-	for _, root := range roots {
-		if isNullOrWhiteSpaceString(&root) || len(root) > 128 {
-			return true
-		}
-	}
-
-	return false
 }
 
 func hasOrdinalDuplicates(values []string) bool {
@@ -352,13 +328,11 @@ func derefStringSlice(values []string) []string {
 	return values
 }
 
-// The wire DTOs mirror the C# DTO shapes: camelCase property names and
-// nullable strings/lists (System.Text.Json source generation, default options).
+// The wire DTOs use camelCase property names and presence-sensitive pointers.
 type protocolManifestDto struct {
 	Name            *string                    `json:"name"`
 	Version         *string                    `json:"version"`
 	Root            *string                    `json:"root"`
-	SupersededRoots []string                   `json:"supersededRoots"`
 	RegionToken     *protocolRegionTokenDto    `json:"regionToken"`
 	SubjectFamilies []protocolSubjectFamilyDto `json:"subjectFamilies"`
 	AccountKinds    []protocolAccountKindDto   `json:"accountKinds"`

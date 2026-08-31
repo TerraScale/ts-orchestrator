@@ -3,16 +3,18 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// GlobalCellDirectoryServiceRuntime mirrors the C# class: the read-only NATS
-// service for the global cell projection with a distinct service identity.
+// GlobalCellDirectoryServiceRuntime exposes the global cell projection through
+// a read-only NATS service with a distinct identity.
 type GlobalCellDirectoryServiceRuntime struct {
 	client   *nats.Conn
 	service  *natsSvcServer
@@ -73,12 +75,33 @@ func GlobalCellDirectoryServiceRuntimeStartAsync(
 		Name:    "cells",
 		Subject: GlobalNatsTopologyCellDirectorySubject(),
 		Metadata: map[string]string{
-			"protocol": "1",
+			"protocol": strconv.Itoa(protocol.ProtocolVersion.Current()),
 			"readOnly": "true",
 			"source":   GlobalNatsTopologyCellsBucket,
 		},
 		Handler: func(ctx context.Context, message *nats.Msg) error {
-			document, err := json.Marshal(snapshot())
+			observedAt := time.Now().UTC()
+			identity, messageId, err := newNatsMessageIdentity()
+			if err != nil {
+				return err
+			}
+			subject := GlobalNatsTopologyCellDirectorySubject()
+			document, err := protocol.MarshalMessagingEnvelope(&protocol.MessagingEnvelope{
+				SchemaVersion: protocol.MessagingSchemaVersionCurrent,
+				MessageId:     messageId,
+				Source: protocol.MessagingSource{
+					Instance: "directory-service",
+					Session:  identity,
+					Cell:     "gru",
+					Cluster:  "orchestrator-control-global",
+				},
+				Target: protocol.MessagingTargetScope{
+					Namespace: protocol.NatsSubjectNamespaceGlobalDirectory,
+					Subject:   subject,
+				},
+				PayloadType: "global-cell-directory-snapshot",
+				ObservedAt:  observedAt,
+			}, snapshot())
 			if err != nil {
 				return err
 			}

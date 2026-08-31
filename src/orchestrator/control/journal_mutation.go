@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Messaging/NatsOperationJournalMutationService.cs.
 package control
 
 import (
@@ -20,20 +19,22 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
-// natsOperationJournalMaximumValueBytes mirrors the C# private bound.
+// natsOperationJournalMaximumValueBytes bounds persisted journal values.
 const natsOperationJournalMaximumValueBytes = 16 * 1024
 
-// NatsOperationJournalMutationService mirrors the C# class: the private typed
-// mutation boundary; only this service holds journal KV write credentials.
+// NatsOperationJournalMutationService is the private typed mutation boundary.
+// Only this service holds journal KV write credentials.
 type NatsOperationJournalMutationService struct {
 	service  *natsSvcServer
 	replies  *NatsOperationJournalMutationReplySigner
 	lifetime context.CancelFunc
 }
 
-// NatsOperationJournalMutationServiceStartAsync mirrors the C# StartAsync.
+// NatsOperationJournalMutationServiceStartAsync starts the private mutation service.
 func NatsOperationJournalMutationServiceStartAsync(
 	ctx context.Context,
 	writer *nats.Conn,
@@ -189,7 +190,7 @@ func NatsOperationJournalMutationServiceStartAsync(
 	return &NatsOperationJournalMutationService{service: service, replies: replies, lifetime: lifetime}, nil
 }
 
-// Dispose mirrors the C# DisposeAsync.
+// Dispose stops the service and releases its signer.
 func (s *NatsOperationJournalMutationService) Dispose() {
 	if s == nil {
 		return
@@ -216,11 +217,14 @@ func natsOperationJournalCreate(
 	replies *NatsOperationJournalMutationReplySigner,
 ) error {
 	var request NatsOperationJournalCreateRequest
-	if err := json.Unmarshal(message.Data, &request); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		message.Data, message.Subject, journalPayloadOperationCreate, &request)
+	if err != nil || !journalEnvelopeBindsProof(envelope, request.Authority) {
 		return nil
 	}
 
-	if !natsOperationJournalIsValid(request.Key, request.Value) ||
+	if request.SchemaVersion != protocol.ProtocolVersion.Current() ||
+		!natsOperationJournalIsValid(request.Key, request.Value) ||
 		!authority.Verify(&request.Authority, cell, controllerIdentities, "create", request.Key, 0, request.Value) {
 		return natsOperationJournalReply(ctx, message, request.Authority, false, 0, replies)
 	}
@@ -250,11 +254,14 @@ func natsOperationJournalUpdate(
 	replies *NatsOperationJournalMutationReplySigner,
 ) error {
 	var request NatsOperationJournalUpdateRequest
-	if err := json.Unmarshal(message.Data, &request); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		message.Data, message.Subject, journalPayloadOperationUpdate, &request)
+	if err != nil || !journalEnvelopeBindsProof(envelope, request.Authority) {
 		return nil
 	}
 
-	if !natsOperationJournalIsValid(request.Key, request.Value) || request.Revision == 0 ||
+	if request.SchemaVersion != protocol.ProtocolVersion.Current() ||
+		!natsOperationJournalIsValid(request.Key, request.Value) || request.Revision == 0 ||
 		!authority.Verify(&request.Authority, cell, controllerIdentities, "update", request.Key, request.Revision, request.Value) {
 		return natsOperationJournalReply(ctx, message, request.Authority, false, 0, replies)
 	}
@@ -300,7 +307,21 @@ func natsOperationJournalReply(
 	replies *NatsOperationJournalMutationReplySigner,
 ) error {
 	digest := NatsOperationJournalMutationRequestDigestCreate(authority)
-	return message.Respond(natsMarshalServicePayload(replies.Sign(succeeded, revision, digest)))
+	reply := replies.Sign(succeeded, revision, digest)
+	document, err := marshalJournalEnvelope(
+		message.Reply,
+		journalPayloadOperationReply,
+		authority.Cell,
+		"journal-writer",
+		authority.Nonce+"-reply",
+		digest,
+		authority.Nonce,
+		reply,
+	)
+	if err != nil {
+		return err
+	}
+	return message.Respond(document)
 }
 
 func natsOperationJournalReadRuntimeLifecycle(
@@ -313,7 +334,9 @@ func natsOperationJournalReadRuntimeLifecycle(
 	replies *NatsOperationJournalMutationReplySigner,
 ) error {
 	var request NatsRuntimeLifecycleJournalReadRequest
-	if err := json.Unmarshal(message.Data, &request); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		message.Data, message.Subject, journalPayloadRuntimeRead, &request)
+	if err != nil || !journalEnvelopeBindsProof(envelope, request.Authority) {
 		return nil
 	}
 
@@ -390,7 +413,9 @@ func natsOperationJournalWriteRuntimeLifecycle(
 	replies *NatsOperationJournalMutationReplySigner,
 ) error {
 	var request NatsRuntimeLifecycleJournalWriteRequest
-	if err := json.Unmarshal(message.Data, &request); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		message.Data, message.Subject, journalPayloadRuntimeWrite, &request)
+	if err != nil || !journalEnvelopeBindsProof(envelope, request.Authority) {
 		return nil
 	}
 
@@ -516,7 +541,21 @@ func natsOperationJournalReplyRuntime(
 ) error {
 	reply := replies.SignRuntime(status, revision, checkpoint,
 		NatsOperationJournalMutationRequestDigestCreate(authority))
-	return message.Respond(natsMarshalServicePayload(reply))
+	digest := NatsOperationJournalMutationRequestDigestCreate(authority)
+	document, err := marshalJournalEnvelope(
+		message.Reply,
+		journalPayloadRuntimeReply,
+		authority.Cell,
+		"journal-writer",
+		authority.Nonce+"-reply",
+		digest,
+		authority.Nonce,
+		reply,
+	)
+	if err != nil {
+		return err
+	}
+	return message.Respond(document)
 }
 
 type natsRuntimeLifecycleJournalStores struct {
@@ -548,16 +587,7 @@ func natsOperationJournalOpenRuntimeLifecycleStores(
 	return &natsRuntimeLifecycleJournalStores{Operations: operations, ProofConsumptions: proofConsumptions}, nil
 }
 
-func natsMarshalServicePayload(value any) []byte {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return []byte("{}")
-	}
-
-	return encoded
-}
-
-// NatsOperationJournalMutationProofConsumptionResult mirrors the C# enum.
+// NatsOperationJournalMutationProofConsumptionResult classifies a proof-ledger write.
 type NatsOperationJournalMutationProofConsumptionResult int
 
 const (
@@ -566,15 +596,13 @@ const (
 	NatsOperationJournalMutationProofConsumptionResultUnavailable     NatsOperationJournalMutationProofConsumptionResult = 3
 )
 
-// NatsOperationJournalMutationProofConsumption mirrors the C# static class:
-// the R3 create-only proof ledger. Entries expire within the maximum accepted
-// proof lifetime.
+// NatsOperationJournalMutationProofConsumption exposes the R3 create-only proof
+// ledger. Entries expire within the maximum accepted proof lifetime.
 var NatsOperationJournalMutationProofConsumption natsOperationJournalMutationProofConsumption
 
 type natsOperationJournalMutationProofConsumption struct{}
 
-// NatsOperationJournalMutationProofConsumptionTryConsumeAsync mirrors the C#
-// TryConsumeAsync.
+// NatsOperationJournalMutationProofConsumptionTryConsumeAsync consumes a proof once.
 func NatsOperationJournalMutationProofConsumptionTryConsumeAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
@@ -588,8 +616,7 @@ func NatsOperationJournalMutationProofConsumptionTryConsumeAsync(
 	return result == NatsOperationJournalMutationProofConsumptionResultConsumed, nil
 }
 
-// NatsOperationJournalMutationProofConsumptionConsumeAsync mirrors the C#
-// ConsumeAsync.
+// NatsOperationJournalMutationProofConsumptionConsumeAsync classifies a proof consumption attempt.
 func NatsOperationJournalMutationProofConsumptionConsumeAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
@@ -614,7 +641,7 @@ func NatsOperationJournalMutationProofConsumptionConsumeAsync(
 	return NatsOperationJournalMutationProofConsumptionResultUnavailable, nil
 }
 
-// NatsOperationJournalMutationProofConsumptionKey mirrors the C# Key.
+// NatsOperationJournalMutationProofConsumptionKey derives the proof-ledger key.
 func NatsOperationJournalMutationProofConsumptionKey(
 	proof NatsOperationJournalMutationAuthorityProof,
 ) (string, error) {
@@ -633,7 +660,7 @@ func NatsOperationJournalMutationProofConsumptionKey(
 	return "proof." + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// NatsOperationJournalMutationClient mirrors the C# class.
+// NatsOperationJournalMutationClient calls the private mutation service.
 type NatsOperationJournalMutationClient struct {
 	client    *nats.Conn
 	topology  *NatsTopology
@@ -641,7 +668,7 @@ type NatsOperationJournalMutationClient struct {
 	replies   *NatsOperationJournalMutationReplyVerifier
 }
 
-// NewNatsOperationJournalMutationClient mirrors the C# primary constructor.
+// NewNatsOperationJournalMutationClient creates a mutation client.
 func NewNatsOperationJournalMutationClient(
 	client *nats.Conn,
 	topology *NatsTopology,
@@ -656,7 +683,7 @@ func NewNatsOperationJournalMutationClient(
 	}
 }
 
-// CreateAsync mirrors the C# CreateAsync.
+// CreateAsync creates a journal value through the private mutation service.
 func (c *NatsOperationJournalMutationClient) CreateAsync(
 	ctx context.Context,
 	key string,
@@ -671,11 +698,11 @@ func (c *NatsOperationJournalMutationClient) CreateAsync(
 	}
 
 	proof := c.authority.Issue(c.topology.Cell, "create", key, 0, value)
-	request := NatsOperationJournalCreateRequest{Key: key, Value: value, Authority: proof}
+	request := NatsOperationJournalCreateRequest{SchemaVersion: protocol.ProtocolVersion.Current(), Key: key, Value: value, Authority: proof}
 	return c.requestAsync(ctx, subject, request, proof)
 }
 
-// UpdateAsync mirrors the C# UpdateAsync.
+// UpdateAsync conditionally updates a journal value.
 func (c *NatsOperationJournalMutationClient) UpdateAsync(
 	ctx context.Context,
 	key string,
@@ -691,11 +718,11 @@ func (c *NatsOperationJournalMutationClient) UpdateAsync(
 	}
 
 	proof := c.authority.Issue(c.topology.Cell, "update", key, revision, value)
-	request := NatsOperationJournalUpdateRequest{Key: key, Value: value, Revision: revision, Authority: proof}
+	request := NatsOperationJournalUpdateRequest{SchemaVersion: protocol.ProtocolVersion.Current(), Key: key, Value: value, Revision: revision, Authority: proof}
 	return c.requestAsync(ctx, subject, request, proof)
 }
 
-// ReadRuntimeLifecycleAsync mirrors the C# ReadRuntimeLifecycleAsync.
+// ReadRuntimeLifecycleAsync reads a lifecycle checkpoint through the private service.
 func (c *NatsOperationJournalMutationClient) ReadRuntimeLifecycleAsync(
 	ctx context.Context,
 	cell string,
@@ -757,7 +784,7 @@ func (c *NatsOperationJournalMutationClient) ReadRuntimeLifecycleAsync(
 	}
 }
 
-// WriteRuntimeLifecycleAsync mirrors the C# WriteRuntimeLifecycleAsync.
+// WriteRuntimeLifecycleAsync conditionally writes a lifecycle checkpoint.
 func (c *NatsOperationJournalMutationClient) WriteRuntimeLifecycleAsync(
 	ctx context.Context,
 	cell string,
@@ -833,18 +860,33 @@ func (c *NatsOperationJournalMutationClient) requestAsync(
 		return NatsOperationJournalMutationReply{}, err
 	}
 
-	response, err := natsRequestReplyOnce(ctx, c.client, subject, natsMarshalServicePayload(request), replySubject)
+	requestDigest := NatsOperationJournalMutationRequestDigestCreate(proof)
+	document, err := marshalJournalEnvelope(
+		subject,
+		journalPayloadTypeForOperation(request),
+		c.topology.Cell,
+		proof.CallerIdentity,
+		proof.Nonce,
+		requestDigest,
+		"",
+		request,
+	)
+	if err != nil {
+		return NatsOperationJournalMutationReply{}, err
+	}
+	response, err := natsRequestReplyOnce(ctx, c.client, subject, document, replySubject)
 	if err != nil {
 		return NatsOperationJournalMutationReply{}, err
 	}
 
 	var mutationReply NatsOperationJournalMutationReply
-	if err := json.Unmarshal(response, &mutationReply); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		response, replySubject, journalPayloadOperationReply, &mutationReply)
+	if err != nil || !journalReplyEnvelopeBindsProof(envelope, proof) {
 		return NatsOperationJournalMutationReply{}, errors.New(
 			"The private journal mutation service returned no reply.")
 	}
 
-	requestDigest := NatsOperationJournalMutationRequestDigestCreate(proof)
 	if mutationReply.RequestDigest != requestDigest {
 		return NatsOperationJournalMutationReply{}, errors.New(
 			"The private journal mutation service reply did not bind the exact request authority.")
@@ -873,13 +915,29 @@ func (c *NatsOperationJournalMutationClient) requestRuntimeAsync(
 		return NatsRuntimeLifecycleJournalReply{}, err
 	}
 
-	response, err := natsRequestReplyOnce(ctx, c.client, subject, natsMarshalServicePayload(request), replySubject)
+	requestDigest := NatsOperationJournalMutationRequestDigestCreate(proof)
+	document, err := marshalJournalEnvelope(
+		subject,
+		journalPayloadTypeForRuntime(request),
+		c.topology.Cell,
+		proof.CallerIdentity,
+		proof.Nonce,
+		requestDigest,
+		"",
+		request,
+	)
+	if err != nil {
+		return NatsRuntimeLifecycleJournalReply{}, err
+	}
+	response, err := natsRequestReplyOnce(ctx, c.client, subject, document, replySubject)
 	if err != nil {
 		return NatsRuntimeLifecycleJournalReply{}, err
 	}
 
 	var runtimeReply NatsRuntimeLifecycleJournalReply
-	if err := json.Unmarshal(response, &runtimeReply); err != nil {
+	envelope, err := unmarshalJournalEnvelope(
+		response, replySubject, journalPayloadRuntimeReply, &runtimeReply)
+	if err != nil || !journalReplyEnvelopeBindsProof(envelope, proof) {
 		return NatsRuntimeLifecycleJournalReply{}, errors.New(
 			"The private runtime lifecycle journal service returned no reply.")
 	}
@@ -911,9 +969,8 @@ func (c *NatsOperationJournalMutationClient) validate() error {
 	return nil
 }
 
-// natsRequestReplyOnce implements the C# one-shot reply subscription: publish
-// with an explicit reply subject, read exactly one reply, bounded by a
-// 15-second window.
+// natsRequestReplyOnce publishes with an explicit reply subject and reads one
+// reply within a 15-second window.
 func natsRequestReplyOnce(
 	ctx context.Context,
 	client *nats.Conn,
@@ -966,39 +1023,43 @@ func natsRequestReplyOnce(
 	}
 }
 
-// NatsOperationJournalCreateRequest mirrors the C# record.
+// NatsOperationJournalCreateRequest is a versioned create request.
 type NatsOperationJournalCreateRequest struct {
-	Key       string                                     `json:"Key"`
-	Value     string                                     `json:"Value"`
-	Authority NatsOperationJournalMutationAuthorityProof `json:"Authority"`
+	SchemaVersion int                                        `json:"SchemaVersion"`
+	Key           string                                     `json:"Key"`
+	Value         string                                     `json:"Value"`
+	Authority     NatsOperationJournalMutationAuthorityProof `json:"Authority"`
 }
 
-// NatsOperationJournalUpdateRequest mirrors the C# record.
+// NatsOperationJournalUpdateRequest is a versioned conditional update request.
 type NatsOperationJournalUpdateRequest struct {
-	Key       string                                     `json:"Key"`
-	Value     string                                     `json:"Value"`
-	Revision  uint64                                     `json:"Revision"`
-	Authority NatsOperationJournalMutationAuthorityProof `json:"Authority"`
+	SchemaVersion int                                        `json:"SchemaVersion"`
+	Key           string                                     `json:"Key"`
+	Value         string                                     `json:"Value"`
+	Revision      uint64                                     `json:"Revision"`
+	Authority     NatsOperationJournalMutationAuthorityProof `json:"Authority"`
 }
 
-// NatsOperationJournalMutationReply mirrors the C# record.
+// NatsOperationJournalMutationReply is a signed versioned mutation result.
 type NatsOperationJournalMutationReply struct {
+	SchemaVersion int    `json:"SchemaVersion"`
 	Succeeded     bool   `json:"Succeeded"`
 	Revision      uint64 `json:"Revision"`
 	RequestDigest string `json:"RequestDigest"`
 	Signature     string `json:"Signature"`
 }
 
-// Payload mirrors the C# Payload.
+// Payload returns the canonical reply signing material.
 func (r NatsOperationJournalMutationReply) Payload() string {
 	return strings.Join([]string{
+		strconv.Itoa(r.SchemaVersion),
 		strconv.FormatBool(r.Succeeded),
 		strconv.FormatUint(r.Revision, 10),
 		r.RequestDigest,
 	}, "|")
 }
 
-// NatsOperationJournalMutationAuthorityProof mirrors the C# record.
+// NatsOperationJournalMutationAuthorityProof binds a caller to one journal mutation.
 type NatsOperationJournalMutationAuthorityProof struct {
 	Cell             string    `json:"Cell"`
 	CallerIdentity   string    `json:"CallerIdentity"`
@@ -1012,7 +1073,7 @@ type NatsOperationJournalMutationAuthorityProof struct {
 	Signature        string    `json:"Signature"`
 }
 
-// Payload mirrors the C# Payload.
+// Payload returns the canonical authority-proof signing material.
 func (p NatsOperationJournalMutationAuthorityProof) Payload() string {
 	return strings.Join([]string{
 		p.Cell,
@@ -1027,14 +1088,13 @@ func (p NatsOperationJournalMutationAuthorityProof) Payload() string {
 	}, "|")
 }
 
-// NatsOperationJournalMutationAuthoritySigner mirrors the C# class.
+// NatsOperationJournalMutationAuthoritySigner issues mutation proofs.
 type NatsOperationJournalMutationAuthoritySigner struct {
 	CallerIdentity string
 	key            *ecdsa.PrivateKey
 }
 
-// NewNatsOperationJournalMutationAuthoritySigner mirrors the C# primary
-// constructor.
+// NewNatsOperationJournalMutationAuthoritySigner creates an authority signer.
 func NewNatsOperationJournalMutationAuthoritySigner(
 	callerIdentity string,
 	key *ecdsa.PrivateKey,
@@ -1042,7 +1102,7 @@ func NewNatsOperationJournalMutationAuthoritySigner(
 	return &NatsOperationJournalMutationAuthoritySigner{CallerIdentity: callerIdentity, key: key}
 }
 
-// Issue mirrors the C# Issue.
+// Issue signs a short-lived proof for one mutation.
 func (s *NatsOperationJournalMutationAuthoritySigner) Issue(
 	cell string,
 	action string,
@@ -1088,19 +1148,18 @@ func sha256Sum(data []byte) []byte {
 	return digest[:]
 }
 
-// NatsOperationJournalMutationAuthorityVerifier mirrors the C# class.
+// NatsOperationJournalMutationAuthorityVerifier verifies mutation proofs.
 type NatsOperationJournalMutationAuthorityVerifier struct {
 	publicKey []byte
 }
 
-// NewNatsOperationJournalMutationAuthorityVerifier mirrors the C# primary
-// constructor.
+// NewNatsOperationJournalMutationAuthorityVerifier creates an authority verifier.
 func NewNatsOperationJournalMutationAuthorityVerifier(publicKey []byte) *NatsOperationJournalMutationAuthorityVerifier {
 	copied := append([]byte(nil), publicKey...)
 	return &NatsOperationJournalMutationAuthorityVerifier{publicKey: copied}
 }
 
-// Verify mirrors the C# Verify.
+// Verify checks a proof against the exact requested mutation.
 func (v *NatsOperationJournalMutationAuthorityVerifier) Verify(
 	proof *NatsOperationJournalMutationAuthorityProof,
 	cell string,
@@ -1143,12 +1202,12 @@ func (v *NatsOperationJournalMutationAuthorityVerifier) Verify(
 	return ecdsa.VerifyASN1(key, sha256Sum([]byte(proof.Payload())), signature)
 }
 
-// NatsOperationJournalMutationRequestDigest mirrors the C# static class.
+// NatsOperationJournalMutationRequestDigest exposes the request-digest contract.
 var NatsOperationJournalMutationRequestDigest natsOperationJournalMutationRequestDigest
 
 type natsOperationJournalMutationRequestDigest struct{}
 
-// NatsOperationJournalMutationRequestDigestCreate mirrors the C# Create.
+// NatsOperationJournalMutationRequestDigestCreate hashes a signed authority proof.
 func NatsOperationJournalMutationRequestDigestCreate(
 	proof NatsOperationJournalMutationAuthorityProof,
 ) string {
@@ -1156,12 +1215,12 @@ func NatsOperationJournalMutationRequestDigestCreate(
 	return hex.EncodeToString(sha256Sum([]byte(material)))
 }
 
-// NatsOperationJournalMutationReplySigner mirrors the C# class.
+// NatsOperationJournalMutationReplySigner signs mutation replies.
 type NatsOperationJournalMutationReplySigner struct {
 	key *ecdsa.PrivateKey
 }
 
-// NatsOperationJournalMutationReplySignerLoad mirrors the C# Load.
+// NatsOperationJournalMutationReplySignerLoad loads a reply signing key.
 func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJournalMutationReplySigner, error) {
 	_, data, err := natsJournalReadFile(path, 8192, true)
 	if err != nil {
@@ -1191,13 +1250,14 @@ func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJou
 	return &NatsOperationJournalMutationReplySigner{key: privateKey}, nil
 }
 
-// Sign mirrors the C# Sign.
+// Sign creates a signed operation-journal reply.
 func (s *NatsOperationJournalMutationReplySigner) Sign(
 	succeeded bool,
 	revision uint64,
 	requestDigest string,
 ) NatsOperationJournalMutationReply {
 	reply := NatsOperationJournalMutationReply{
+		SchemaVersion: protocol.ProtocolVersion.Current(),
 		Succeeded:     succeeded,
 		Revision:      revision,
 		RequestDigest: requestDigest,
@@ -1214,7 +1274,7 @@ func (s *NatsOperationJournalMutationReplySigner) Sign(
 	return reply
 }
 
-// SignRuntime mirrors the C# SignRuntime.
+// SignRuntime creates a signed lifecycle-journal reply.
 func (s *NatsOperationJournalMutationReplySigner) SignRuntime(
 	status int,
 	revision uint64,
@@ -1240,7 +1300,7 @@ func (s *NatsOperationJournalMutationReplySigner) SignRuntime(
 	return reply
 }
 
-// ExportPublicKey mirrors the C# ExportPublicKey.
+// ExportPublicKey returns the signer's PKIX public key.
 func (s *NatsOperationJournalMutationReplySigner) ExportPublicKey() ([]byte, error) {
 	if s == nil || s.key == nil {
 		return nil, errors.New("The reply signing key is unavailable.")
@@ -1248,27 +1308,27 @@ func (s *NatsOperationJournalMutationReplySigner) ExportPublicKey() ([]byte, err
 	return x509.MarshalPKIXPublicKey(&s.key.PublicKey)
 }
 
-// Dispose mirrors the C# Dispose.
+// Dispose releases signer resources.
 func (s *NatsOperationJournalMutationReplySigner) Dispose() {}
 
-// NatsOperationJournalMutationReplyVerifier mirrors the C# class.
+// NatsOperationJournalMutationReplyVerifier verifies signed journal replies.
 type NatsOperationJournalMutationReplyVerifier struct {
 	publicKey []byte
 }
 
-// NewNatsOperationJournalMutationReplyVerifier mirrors the C# primary
-// constructor.
+// NewNatsOperationJournalMutationReplyVerifier creates a reply verifier.
 func NewNatsOperationJournalMutationReplyVerifier(publicKey []byte) *NatsOperationJournalMutationReplyVerifier {
 	copied := append([]byte(nil), publicKey...)
 	return &NatsOperationJournalMutationReplyVerifier{publicKey: copied}
 }
 
-// Verify mirrors the C# Verify.
+// Verify checks an operation-journal reply and its request binding.
 func (v *NatsOperationJournalMutationReplyVerifier) Verify(
 	reply *NatsOperationJournalMutationReply,
 	requestDigest string,
 ) bool {
-	if reply == nil || reply.RequestDigest != requestDigest ||
+	if reply == nil || reply.SchemaVersion != protocol.ProtocolVersion.Current() ||
+		reply.RequestDigest != requestDigest ||
 		strings.TrimSpace(reply.Signature) == "" {
 		return false
 	}
@@ -1276,7 +1336,7 @@ func (v *NatsOperationJournalMutationReplyVerifier) Verify(
 	return v.verifySignature(sha256Sum([]byte(reply.Payload())), reply.Signature)
 }
 
-// VerifyRuntime mirrors the C# VerifyRuntime.
+// VerifyRuntime checks a lifecycle-journal reply and its request binding.
 func (v *NatsOperationJournalMutationReplyVerifier) VerifyRuntime(
 	reply *NatsRuntimeLifecycleJournalReply,
 	requestDigest string,
@@ -1316,12 +1376,9 @@ func natsJournalIsP256(key *ecdsa.PublicKey) bool {
 	return key != nil && key.Curve != nil && key.Curve.Params().Name == elliptic.P256().Params().Name
 }
 
-// The following section maps the NATS.Net services API (NatsSvcConfig,
-// INatsSvcServer, AddEndpointAsync) onto plain nats.go subscriptions. There is
-// no C# source file: it is the client-library mapping every Messaging service
-// runtime shares. Endpoints are queue-grouped request handlers; the $SRV
-// discovery subjects answer with the NATS.Net micro-service wire shape so the
-// C# HasExpectedEndpoint verification logic is unchanged.
+// The service adapter maps the NATS micro-service protocol onto nats.go
+// subscriptions. Endpoints are queue-grouped request handlers, and the $SRV
+// discovery subjects return the standard micro-service wire shape.
 
 type natsSvcConfig struct {
 	Name        string

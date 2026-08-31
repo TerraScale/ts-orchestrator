@@ -47,7 +47,7 @@ const (
 	corpusMaximumBytes      = 32768
 	corpusMaximumEntries    = 64
 	corpusMaximumTextLength = 256
-	corpusContentSha256     = "4f08f00d68bb88e2a935dcef54f80f0048a93ca455afd8bdd97ceebd6d2f363d"
+	corpusContentSha256     = "6229c67f13f29e8e8f6c8051f44e3a8cb1771bc901f0e280613bb1d4bf36cc1a"
 )
 
 var corpusRootFields = []string{"version", "entries"}

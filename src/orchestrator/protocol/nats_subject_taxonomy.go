@@ -32,11 +32,6 @@ type natsSubjectTaxonomy struct{}
 // subject root. The product plane is NOT rooted here.
 func (natsSubjectTaxonomy) Root() string { return "ts.orch.v2" }
 
-// SupersededRoot mirrors NatsSubjectTaxonomy.SupersededRoot: the superseded v1
-// control root. It must never share authority, subjects, permissions, or
-// consumers with Root; every v1-prefixed subject fails closed.
-func (natsSubjectTaxonomy) SupersededRoot() string { return "ts.orch.v1" }
-
 // GlobalScopeToken mirrors NatsSubjectTaxonomy.GlobalScopeToken: the reserved
 // scope token that names the global authority namespace.
 func (natsSubjectTaxonomy) GlobalScopeToken() string { return "global" }
@@ -649,10 +644,6 @@ func (natsSubjectTaxonomy) TryValidatePermissionPattern(pattern string) (bool, N
 		return false, NatsSubjectPermissionErrorMalformedPattern
 	}
 
-	if strings.HasPrefix(pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-		return false, NatsSubjectPermissionErrorSupersededRoot
-	}
-
 	tokens := strings.Split(pattern, ".")
 	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v2" {
 		if isPlatformReservedRoot(tokens[0]) {
@@ -703,10 +694,6 @@ func (natsSubjectTaxonomy) TryAdmitSubject(subject string) (bool, NatsSubjectAdm
 		return false, NatsSubjectAdmissionErrorMalformedSubject
 	}
 
-	if strings.HasPrefix(subject, NatsSubjectTaxonomy.SupersededRoot()+".") {
-		return false, NatsSubjectAdmissionErrorSupersededRoot
-	}
-
 	tokens := strings.Split(subject, ".")
 	if len(tokens) < 3 || tokens[0] != "ts" || tokens[1] != "orch" || tokens[2] != "v2" {
 		if isPlatformReservedRoot(tokens[0]) {
@@ -750,22 +737,6 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 			"The manifest root '"+manifest.Root+"' is not the canonical root '"+NatsSubjectTaxonomy.Root()+"'.")
 	}
 
-	containsSuperseded := false
-	containsFresh := false
-	for _, root := range manifest.SupersededRoots {
-		if root == NatsSubjectTaxonomy.SupersededRoot() {
-			containsSuperseded = true
-		}
-
-		if root == NatsSubjectTaxonomy.Root() {
-			containsFresh = true
-		}
-	}
-
-	if !containsSuperseded || containsFresh || hasOrdinalDuplicates(manifest.SupersededRoots) {
-		violations = append(violations, "The manifest superseded-root set is not exactly the superseded v1 root.")
-	}
-
 	if len(manifest.ReservedRegionTokens) != 1 ||
 		manifest.ReservedRegionTokens[0] != NatsSubjectTaxonomy.GlobalScopeToken() {
 		violations = append(violations,
@@ -791,12 +762,6 @@ func (natsSubjectTaxonomy) ManifestValidationViolations() []string {
 	for _, family := range manifest.SubjectFamilies {
 		if _, declaredPattern := declared[family.Pattern]; !declaredPattern {
 			violations = append(violations, "The manifest declares the unknown subject family '"+family.Pattern+"'.")
-		}
-	}
-
-	for _, family := range manifest.SubjectFamilies {
-		if strings.HasPrefix(family.Pattern, NatsSubjectTaxonomy.SupersededRoot()+".") {
-			violations = append(violations, "The manifest family '"+family.Pattern+"' lives under the superseded v1 root.")
 		}
 	}
 
@@ -1070,13 +1035,12 @@ const (
 	NatsSubjectPermissionErrorNone                  NatsSubjectPermissionError = 0
 	NatsSubjectPermissionErrorMalformedPattern      NatsSubjectPermissionError = 1
 	NatsSubjectPermissionErrorOutsideControlRoot    NatsSubjectPermissionError = 2
-	NatsSubjectPermissionErrorSupersededRoot        NatsSubjectPermissionError = 3
-	NatsSubjectPermissionErrorWildcardInScopeToken  NatsSubjectPermissionError = 4
-	NatsSubjectPermissionErrorWildcardInFamilyToken NatsSubjectPermissionError = 5
-	NatsSubjectPermissionErrorInvalidRegionToken    NatsSubjectPermissionError = 6
-	NatsSubjectPermissionErrorUnknownFamily         NatsSubjectPermissionError = 7
-	NatsSubjectPermissionErrorInvalidAgentHashToken NatsSubjectPermissionError = 8
-	NatsSubjectPermissionErrorPlatformReserved      NatsSubjectPermissionError = 9
+	NatsSubjectPermissionErrorWildcardInScopeToken  NatsSubjectPermissionError = 3
+	NatsSubjectPermissionErrorWildcardInFamilyToken NatsSubjectPermissionError = 4
+	NatsSubjectPermissionErrorInvalidRegionToken    NatsSubjectPermissionError = 5
+	NatsSubjectPermissionErrorUnknownFamily         NatsSubjectPermissionError = 6
+	NatsSubjectPermissionErrorInvalidAgentHashToken NatsSubjectPermissionError = 7
+	NatsSubjectPermissionErrorPlatformReserved      NatsSubjectPermissionError = 8
 )
 
 func (e NatsSubjectPermissionError) String() string {
@@ -1087,8 +1051,6 @@ func (e NatsSubjectPermissionError) String() string {
 		return "MalformedPattern"
 	case NatsSubjectPermissionErrorOutsideControlRoot:
 		return "OutsideControlRoot"
-	case NatsSubjectPermissionErrorSupersededRoot:
-		return "SupersededRoot"
 	case NatsSubjectPermissionErrorWildcardInScopeToken:
 		return "WildcardInScopeToken"
 	case NatsSubjectPermissionErrorWildcardInFamilyToken:
@@ -1114,11 +1076,10 @@ const (
 	NatsSubjectAdmissionErrorNone                  NatsSubjectAdmissionError = 0
 	NatsSubjectAdmissionErrorMalformedSubject      NatsSubjectAdmissionError = 1
 	NatsSubjectAdmissionErrorOutsideControlRoot    NatsSubjectAdmissionError = 2
-	NatsSubjectAdmissionErrorSupersededRoot        NatsSubjectAdmissionError = 3
-	NatsSubjectAdmissionErrorUnknownNamespace      NatsSubjectAdmissionError = 4
-	NatsSubjectAdmissionErrorCustomerTextInSubject NatsSubjectAdmissionError = 5
-	NatsSubjectAdmissionErrorInvalidAgentHashToken NatsSubjectAdmissionError = 6
-	NatsSubjectAdmissionErrorPlatformReserved      NatsSubjectAdmissionError = 7
+	NatsSubjectAdmissionErrorUnknownNamespace      NatsSubjectAdmissionError = 3
+	NatsSubjectAdmissionErrorCustomerTextInSubject NatsSubjectAdmissionError = 4
+	NatsSubjectAdmissionErrorInvalidAgentHashToken NatsSubjectAdmissionError = 5
+	NatsSubjectAdmissionErrorPlatformReserved      NatsSubjectAdmissionError = 6
 )
 
 func (e NatsSubjectAdmissionError) String() string {
@@ -1129,8 +1090,6 @@ func (e NatsSubjectAdmissionError) String() string {
 		return "MalformedSubject"
 	case NatsSubjectAdmissionErrorOutsideControlRoot:
 		return "OutsideControlRoot"
-	case NatsSubjectAdmissionErrorSupersededRoot:
-		return "SupersededRoot"
 	case NatsSubjectAdmissionErrorUnknownNamespace:
 		return "UnknownNamespace"
 	case NatsSubjectAdmissionErrorCustomerTextInSubject:

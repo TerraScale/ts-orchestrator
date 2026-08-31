@@ -12,6 +12,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 // GlobalCellDirectoryAdvertisementInterval mirrors the C# constant.
@@ -500,7 +502,7 @@ func GlobalCellDirectoryCreateAdvertisement(
 	sort.Strings(orderedEndpoints)
 
 	return GlobalCellAdvertisement{
-		SchemaVersion:     1,
+		SchemaVersion:     protocol.ProtocolVersion.Current(),
 		Cell:              membership.Cell,
 		Cluster:           "orchestrator-control-" + membership.Cell,
 		AuthorityId:       membership.Cell + "-regional",

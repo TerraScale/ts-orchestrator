@@ -15,12 +15,12 @@ func TestCanonicalHashIsDeterministicAndCoversEveryMaterialField(t *testing.T) {
 		t.Fatalf("hash failed: %v", err)
 	}
 
-	if hex.EncodeToString(hash[:]) != "b0441ae96a300dde1a88ca5d44f60af132ee165e93d869d545607bb70959130f" {
+	if hex.EncodeToString(hash[:]) != "f0c33bfb14f052c4ae3fba270f274fd922bdf02963e517dbaffec75a74c19c8b" {
 		t.Fatalf("canonical hash = %s", hex.EncodeToString(hash[:]))
 	}
 
 	alternatives := []CommandEnvelope{
-		validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) }),
+		validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(3)) }),
 		validEnvelope(func(o *validEnvelopeOption) { o.cell = ptrOf(testCell("sfo")) }),
 		validEnvelope(func(o *validEnvelopeOption) { o.aggregate = ptrOf(testAggregate("allocation/43")) }),
 		validEnvelope(func(o *validEnvelopeOption) { o.generation = ptrOf(testGeneration(11)) }),
@@ -71,7 +71,7 @@ func TestCanonicalHashMatchesNonUtcDateTimeOffsetVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash failed: %v", err)
 	}
-	if got, want := hex.EncodeToString(hash[:]), "8e9b4a27ace84e4ad08be229be1df79a3fb438f1e2cfc1b888f2327c9e528142"; got != want {
+	if got, want := hex.EncodeToString(hash[:]), "b10102726c4bc6a2b3decede3b23d726f08f44e60928b44cafaed7dee1aa51c2"; got != want {
 		t.Fatalf("non-UTC canonical hash = %s, want %s", got, want)
 	}
 }
