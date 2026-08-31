@@ -19,20 +19,11 @@ type toolCommand struct {
 // toolCommands mirrors the C# dispatcher dictionary; the slice keeps the C#
 // insertion order for the usage inventory.
 var toolCommands = []toolCommand{
-	{"adr-readiness", func(_ context.Context, arguments []string) (int, error) {
-		return AdrReadinessCommand.Run(arguments)
-	}},
-	{"owner-decisions", func(_ context.Context, arguments []string) (int, error) {
-		return OwnerDecisionCommand.Run(arguments)
-	}},
 	{"ci-result-manifest", func(_ context.Context, arguments []string) (int, error) {
 		return CiResultManifestCommand.Run(arguments)
 	}},
 	{"development-attest", func(_ context.Context, arguments []string) (int, error) {
 		return DevelopmentEvidenceCommand.Run(arguments)
-	}},
-	{"phase0-evidence", func(_ context.Context, arguments []string) (int, error) {
-		return Phase0EvidenceCommand.Run(arguments)
 	}},
 	{"json-format", func(_ context.Context, arguments []string) (int, error) {
 		return JsonFormatCommand.Run(arguments)
