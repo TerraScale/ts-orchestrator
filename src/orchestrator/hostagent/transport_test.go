@@ -282,7 +282,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 	}{
 		{
 			leaf: "converge",
-			plan: executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
+			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
 			decoder: func(payload []byte) (string, bool, string) {
 				var receipt ConvergeReceipt
 				if err := json.Unmarshal(payload, &receipt); err != nil {
@@ -293,7 +293,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 		},
 		{
 			leaf: "observe",
-			plan: executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
+			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
 			decoder: func(payload []byte) (string, bool, string) {
 				var receipt ObserveReceipt
 				if err := json.Unmarshal(payload, &receipt); err != nil {
@@ -304,7 +304,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 		},
 		{
 			leaf: "stop",
-			plan: executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
+			plan: executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
 			decoder: func(payload []byte) (string, bool, string) {
 				var receipt StopReceipt
 				if err := json.Unmarshal(payload, &receipt); err != nil {
@@ -315,7 +315,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 		},
 		{
 			leaf: "delete",
-			plan: executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "grafana-1"),
+			plan: executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1"),
 			decoder: func(payload []byte) (string, bool, string) {
 				var receipt DeleteReceipt
 				if err := json.Unmarshal(payload, &receipt); err != nil {
@@ -355,7 +355,7 @@ func TestNatsTransportAnswersEveryWorkloadLeaf(t *testing.T) {
 }
 
 func TestNatsTransportWorkloadCommandWireRoundTrips(t *testing.T) {
-	plan := executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "grafana-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
 	command := executorTestCommand(t, plan, "cmd-wire-1")
 
 	payload, err := json.Marshal(command)
@@ -400,7 +400,7 @@ func TestNatsTransportCordonRejectsConvergeWhileObserving(t *testing.T) {
 		t.Fatalf("acknowledgment = %+v", acknowledgment)
 	}
 
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 	convergePayload, err := json.Marshal(executorTestCommand(t, plan, "cmd-after-cordon"))
 	if err != nil {
 		t.Fatalf("command wire: %v", err)
@@ -429,8 +429,8 @@ func TestNatsTransportCordonRejectsConvergeWhileObserving(t *testing.T) {
 
 func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
 	_, connection, systemd, container := defaultTransportForTest(t)
-	nativePlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "grafana-1")
+	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
 	for _, plan := range []runtime.HostRuntimePlan{nativePlan, ociPlan} {
 		payload, err := json.Marshal(executorTestCommand(t, plan, "cmd-"+plan.AllocationId.Value))
 		if err != nil {
@@ -458,7 +458,7 @@ func TestNatsTransportDrainStatusReportsCordonAndObservations(t *testing.T) {
 	if len(report.Allocations) != 2 {
 		t.Fatalf("allocations = %+v", report.Allocations)
 	}
-	if report.Allocations[0].AllocationId != "grafana-1" || report.Allocations[1].AllocationId != "gru-orchestrator-1" {
+	if report.Allocations[0].AllocationId != "dashboard-1" || report.Allocations[1].AllocationId != "gru-orchestrator-1" {
 		t.Fatalf("allocations must be ordered: %+v", report.Allocations)
 	}
 	for _, allocation := range report.Allocations {

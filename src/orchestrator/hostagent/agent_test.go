@@ -118,7 +118,7 @@ func TestHostAgentServesThroughTheWiredConnection(t *testing.T) {
 		t.Fatalf("the agent must publish its first heartbeat, got %d", len(published))
 	}
 
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 	command := executorTestCommand(t, plan, "cmd-agent-1")
 	payload, err := json.Marshal(command)
 	if err != nil {

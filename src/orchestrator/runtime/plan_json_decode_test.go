@@ -15,7 +15,7 @@ import (
 func planJsonDecodeTestNativePlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleOrchestrator,
+		AdmittedRoleAutoscaler,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "gru-orchestrator-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -52,7 +52,7 @@ func planJsonDecodeTestOciPlan(t *testing.T) HostRuntimePlan {
 func planJsonDecodeTestControlNatsPlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleControlNatsServer,
+		AdmittedRoleNats,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "nats-a"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -121,7 +121,7 @@ func TestUnmarshalJSONDecodesCamelCaseWireShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded.Role != AdmittedRoleControlNatsServer {
+	if decoded.Role != AdmittedRoleNats {
 		t.Fatalf("role = %v", decoded.Role)
 	}
 	if decoded.Driver != RuntimeDriverNativeSystemd {
@@ -169,7 +169,7 @@ func TestUnmarshalJSONRejectsNonCanonicalPayloads(t *testing.T) {
 		},
 		{
 			name:    "unknown role enum",
-			payload: replace(validNative, `"role":"orchestrator"`, `"role":"tenantWorkload"`),
+			payload: replace(validNative, `"role":"autoscaler"`, `"role":"tenantWorkload"`),
 		},
 		{
 			name:    "unknown driver enum",

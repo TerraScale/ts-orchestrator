@@ -89,14 +89,14 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 		{
 			name:           "running observation",
 			state:          PodmanAllocationStateRunning,
-			imageReference: "registry.terrascale.internal/terrascale/loki@sha256:" + hostRuntimePlanDigest,
-			labels:         map[string]string{PodmanLabelAllocation: "terrascale-loki-1"},
+			imageReference: "registry.terrascale.internal/terrascale/terrascale-database@sha256:" + hostRuntimePlanDigest,
+			labels:         map[string]string{PodmanLabelAllocation: "terrascale-database-api-1"},
 			running:        true,
 		},
 		{
 			name:           "stopped observation is not running",
 			state:          PodmanAllocationStateStopped,
-			imageReference: "registry.terrascale.internal/terrascale/loki@sha256:" + hostRuntimePlanDigest,
+			imageReference: "registry.terrascale.internal/terrascale/terrascale-database@sha256:" + hostRuntimePlanDigest,
 			running:        false,
 		},
 		{
@@ -123,7 +123,7 @@ func TestNewPodmanAllocationObservation(t *testing.T) {
 		{
 			name:          "absent observation carrying labels is rejected",
 			state:         PodmanAllocationStateAbsent,
-			labels:        map[string]string{PodmanLabelAllocation: "terrascale-loki-1"},
+			labels:        map[string]string{PodmanLabelAllocation: "terrascale-database-api-1"},
 			wantErrorType: "errs.Argument",
 			expectedParam: "state",
 		},

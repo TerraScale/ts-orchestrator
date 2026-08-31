@@ -80,7 +80,7 @@ func TestNativePlanUsesOnlyCatalogDerivedPathsAndHardenedSystemdProperties(t *te
 
 func TestOciPlanIsDigestPinnedRootlessAndCapabilityFree(t *testing.T) {
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "sfo-dashboard-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -127,7 +127,7 @@ func TestRuntimeLimitsCanBeReducedWithinTheClosedRolePolicy(t *testing.T) {
 	}
 
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-limited"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -154,7 +154,7 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 		CpuQuotaPercent: 100, CpuWeight: 100, IoWeight: 100, Nice: 5,
 	}
 	_, err := NewHostRuntimePlan(
-		AdmittedRoleCustomerDashboard,
+		AdmittedRoleDashboard,
 		RuntimeDriverOciContainer,
 		mustRuntimeAllocationId(t, "gru-dashboard-excessive"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -168,7 +168,7 @@ func TestRuntimeLimitsCannotEscapeTheClosedRolePolicy(t *testing.T) {
 
 func TestRuntimeCliAcceptsExplicitContainerLimits(t *testing.T) {
 	plan, err := HostRuntimeCli.ParsePlan([]string{
-		"plan", "--role", "customer-dashboard", "--allocation", "gru-dashboard-cli",
+		"plan", "--role", "dashboard", "--allocation", "gru-dashboard-cli",
 		"--digest", hostRuntimePlanDigest,
 		"--memory-max-bytes", "536870912", "--tasks-max", "128",
 		"--cpu-quota-percent", "100", "--cpu-weight", "100", "--io-weight", "100", "--nice", "5",
@@ -220,7 +220,7 @@ func TestHostRuntimePlanRevalidatesValueObjectFieldsAtPlanBoundary(t *testing.T)
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			if _, err := NewHostRuntimePlan(
-				AdmittedRoleOrchestrator,
+				AdmittedRoleAutoscaler,
 				RuntimeDriverNativeSystemd,
 				testCase.allocation,
 				testCase.digest,

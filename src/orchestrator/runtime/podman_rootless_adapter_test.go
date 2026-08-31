@@ -84,9 +84,9 @@ func (c *recordingPodmanClient) EnsureVolume(ctx context.Context, name string) e
 func podmanTestOciPlan(t *testing.T) HostRuntimePlan {
 	t.Helper()
 	plan, err := NewHostRuntimePlan(
-		AdmittedRoleLoki,
+		AdmittedRoleDatabaseAPI,
 		RuntimeDriverOciContainer,
-		mustRuntimeAllocationId(t, "gru-loki-1"),
+		mustRuntimeAllocationId(t, "gru-database-api-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
 		HostArchitectureX64,
 		nil)
@@ -98,8 +98,8 @@ func podmanTestOciPlan(t *testing.T) HostRuntimePlan {
 
 func podmanTestVolumes() []PodmanVolumeMount {
 	return []PodmanVolumeMount{
-		{VolumeName: "loki-gru-1", Destination: "/var/lib/loki", ReadOnly: false},
-		{VolumeName: "loki-gru-1-rules", Destination: "/etc/loki/rules", ReadOnly: true},
+		{VolumeName: "database-api-gru-1", Destination: "/var/lib/terrascale-database", ReadOnly: false},
+		{VolumeName: "database-api-gru-1-config", Destination: "/etc/terrascale-database/config", ReadOnly: true},
 	}
 }
 
@@ -161,7 +161,7 @@ func TestPodmanConvergeAbsentRunsPreflightEnsuresVolumesPullsCreatesAndStarts(t 
 		[]string{"preflight", "inspect", "ensure-volume", "ensure-volume", "pull", "create", "start"}) {
 		t.Fatalf("unexpected operations %v", client.operations)
 	}
-	if !stringSlicesEqual(client.ensuredVolumes, []string{"loki-gru-1", "loki-gru-1-rules"}) {
+	if !stringSlicesEqual(client.ensuredVolumes, []string{"database-api-gru-1", "database-api-gru-1-config"}) {
 		t.Fatalf("unexpected ensured volumes %v", client.ensuredVolumes)
 	}
 	if client.pulledImage != plan.Oci.ImageReference || client.pulledPlatform != plan.Oci.Platform {
@@ -289,7 +289,7 @@ func TestPodmanConvergeFencesAllocationsFromDifferentPlans(t *testing.T) {
 		PodmanLabelFingerprint: strings.Repeat("b", 64),
 	}
 	foreignAllocation := map[string]string{
-		PodmanLabelAllocation:  "terrascale-gru-loki-2",
+		PodmanLabelAllocation:  "terrascale-gru-database-api-2",
 		PodmanLabelFingerprint: matching[PodmanLabelFingerprint],
 	}
 	missingAllocation := map[string]string{PodmanLabelFingerprint: matching[PodmanLabelFingerprint]}
@@ -506,7 +506,7 @@ func TestPodmanAdapterFailsClosedOnPreflightAndClientErrors(t *testing.T) {
 
 func TestPodmanAdapterRejectsNonCanonicalPlansBeforeAnyClientOperation(t *testing.T) {
 	nativePlan, err := NewHostRuntimePlan(
-		AdmittedRoleOrchestrator,
+		AdmittedRoleAutoscaler,
 		RuntimeDriverNativeSystemd,
 		mustRuntimeAllocationId(t, "gru-orchestrator-1"),
 		mustArtifactDigest(t, hostRuntimePlanDigest),
@@ -525,7 +525,7 @@ func TestPodmanAdapterRejectsNonCanonicalPlansBeforeAnyClientOperation(t *testin
 
 	tampered := podmanTestOciPlan(t)
 	tamperedOci := *tampered.Oci
-	tamperedOci.ImageReference = "evil.example/loki:latest"
+	tamperedOci.ImageReference = "evil.example/database-api:latest"
 	tampered.Oci = &tamperedOci
 	var operationError *InvalidOperationError
 	if err := adapter.Converge(context.Background(), tampered); !errors.As(err, &operationError) {
@@ -564,13 +564,13 @@ func TestNewPodmanRootlessHostRuntimeAdapterValidatesItsConfiguration(t *testing
 
 	volumes := podmanTestVolumes()
 	duplicateName := append(append([]PodmanVolumeMount{}, volumes...),
-		PodmanVolumeMount{VolumeName: "loki-gru-1", Destination: "/var/lib/loki-2"})
+		PodmanVolumeMount{VolumeName: "database-api-gru-1", Destination: "/var/lib/terrascale-database-2"})
 	if _, err := NewPodmanRootlessHostRuntimeAdapter(&recordingPodmanClient{}, duplicateName); !errorsAsParam(err, "statefulVolumes") {
 		t.Fatalf("a duplicate volume name must be rejected, got %v", err)
 	}
 
 	duplicateDestination := append(append([]PodmanVolumeMount{}, volumes...),
-		PodmanVolumeMount{VolumeName: "loki-gru-2", Destination: "/var/lib/loki"})
+		PodmanVolumeMount{VolumeName: "database-api-gru-2", Destination: "/var/lib/terrascale-database"})
 	if _, err := NewPodmanRootlessHostRuntimeAdapter(&recordingPodmanClient{}, duplicateDestination); !errorsAsParam(err, "statefulVolumes") {
 		t.Fatalf("a duplicate destination must be rejected, got %v", err)
 	}

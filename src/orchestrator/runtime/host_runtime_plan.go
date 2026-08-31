@@ -215,13 +215,13 @@ func createSystemdExecutionPlan(
 		descriptor.ArtifactKey, digest, descriptor.ArtifactKey)
 	var arguments []string
 	switch descriptor.Role {
-	case AdmittedRoleControlNatsServer, AdmittedRoleProductNatsServer, AdmittedRoleRoutePolicyController:
+	case AdmittedRoleNats:
 		arguments = []string{"--config", stateDirectory + "/config.json"}
 	default:
 		arguments = []string{}
 	}
 	var configurationProperty string
-	if descriptor.Role == AdmittedRoleOrchestrator {
+	if descriptor.Role == AdmittedRoleAutoscaler || descriptor.Role == AdmittedRoleJournalWriter {
 		configurationProperty = "Environment=TS_ORCH_CONFIG=" + stateDirectory + "/config.json"
 	} else {
 		configurationProperty = "EnvironmentFile=-" + stateDirectory + "/environment"
@@ -303,14 +303,8 @@ func (runtimeResourceLimitPolicy) For(role AdmittedRole, requested *RuntimeResou
 	switch role {
 	case AdmittedRoleTerraBaseMember:
 		maximum = RuntimeResourceLimits{8 * 1024 * 1024 * 1024, 2048, 400, 1000, 1000, 0}
-	case AdmittedRoleControlNatsServer, AdmittedRoleProductNatsServer:
+	case AdmittedRoleNats:
 		maximum = RuntimeResourceLimits{2 * 1024 * 1024 * 1024, 512, 200, 800, 800, 0}
-	case AdmittedRoleMetricsStore, AdmittedRoleLoki, AdmittedRoleTempo:
-		maximum = RuntimeResourceLimits{4 * 1024 * 1024 * 1024, 1024, 300, 300, 500, 0}
-	case AdmittedRoleRegionalTelemetryAgent:
-		maximum = RuntimeResourceLimits{1 * 1024 * 1024 * 1024, 512, 200, 200, 200, 5}
-	case AdmittedRoleCiRunner:
-		maximum = RuntimeResourceLimits{8 * 1024 * 1024 * 1024, 4096, 800, 100, 100, 10}
 	default:
 		maximum = RuntimeResourceLimits{1 * 1024 * 1024 * 1024, 512, 200, 500, 300, 0}
 	}

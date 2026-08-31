@@ -128,38 +128,18 @@ func (hostRuntimeCli) ParsePlan(arguments []string) (HostRuntimePlan, error) {
 // ParseRole parses the closed role vocabulary.
 func (hostRuntimeCli) ParseRole(value string) (AdmittedRole, error) {
 	switch value {
-	case "customer-dashboard":
-		return AdmittedRoleCustomerDashboard, nil
+	case "dashboard":
+		return AdmittedRoleDashboard, nil
+	case "database-api":
+		return AdmittedRoleDatabaseAPI, nil
 	case "terrabase-member":
 		return AdmittedRoleTerraBaseMember, nil
-	case "orchestrator":
-		return AdmittedRoleOrchestrator, nil
-	case "control-nats-server":
-		return AdmittedRoleControlNatsServer, nil
-	case "product-nats-server":
-		return AdmittedRoleProductNatsServer, nil
-	case "grafana":
-		return AdmittedRoleGrafana, nil
-	case "metrics-store":
-		return AdmittedRoleMetricsStore, nil
-	case "loki":
-		return AdmittedRoleLoki, nil
-	case "tempo":
-		return AdmittedRoleTempo, nil
-	case "alertmanager":
-		return AdmittedRoleAlertmanager, nil
-	case "otlp-ingest":
-		return AdmittedRoleOtlpIngest, nil
-	case "synthetic-check":
-		return AdmittedRoleSyntheticCheck, nil
-	case "regional-telemetry-agent":
-		return AdmittedRoleRegionalTelemetryAgent, nil
-	case "vpn-coordination-relay":
-		return AdmittedRoleVpnCoordinationRelay, nil
-	case "route-policy-controller":
-		return AdmittedRoleRoutePolicyController, nil
-	case "ci-runner":
-		return AdmittedRoleCiRunner, nil
+	case "nats":
+		return AdmittedRoleNats, nil
+	case "autoscaler":
+		return AdmittedRoleAutoscaler, nil
+	case "journal-writer":
+		return AdmittedRoleJournalWriter, nil
 	default:
 		return AdmittedRole(0), &errs.Argument{
 			Message: fmt.Sprintf("Unknown or unadmitted role '%s'.", value),

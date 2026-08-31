@@ -241,12 +241,12 @@ func TestConvergeDispatchesSerializedPlansByDriver(t *testing.T) {
 	}{
 		{
 			name:       "native systemd plan reaches the systemd adapter",
-			plan:       executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
+			plan:       executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1"),
 			wantDetail: "converged through the NativeSystemd driver",
 		},
 		{
 			name:       "oci plan reaches the container adapter",
-			plan:       executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "grafana-1"),
+			plan:       executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1"),
 			wantDetail: "converged through the OciContainer driver",
 		},
 	}
@@ -325,7 +325,7 @@ func TestConvergeRejectsNonCanonicalPlanPayload(t *testing.T) {
 func TestCordonedExecutorRefusesNewConvergeWorkFailClosed(t *testing.T) {
 	systemd := &fakeNativeAdapter{}
 	executor := newExecutorForTest(t, systemd, &fakeContainerAdapter{})
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 	executor.SetCordoned(true)
 
 	receipt, err := executor.Converge(context.Background(), executorTestCommand(t, plan, "cmd-cordoned"))
@@ -362,7 +362,7 @@ func TestCordonedExecutorRefusesNewConvergeWorkFailClosed(t *testing.T) {
 func TestObserveTracksPendingAllocations(t *testing.T) {
 	systemd := &fakeNativeAdapter{observation: runningSystemdObservation()}
 	executor := newExecutorForTest(t, systemd, &fakeContainerAdapter{})
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 
 	if _, err := executor.Converge(context.Background(), executorTestCommand(t, plan, "cmd-1")); err != nil {
 		t.Fatalf("converge: %v", err)
@@ -393,8 +393,8 @@ func TestStopAnswersWhileCordonedAndDeleteRemovesRecords(t *testing.T) {
 	}
 	container := &fakeContainerAdapter{observation: runningPodmanObservation(t)}
 	executor := newExecutorForTest(t, systemd, container)
-	nativePlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "grafana-1")
+	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "dashboard-1")
 	executor.SetCordoned(true)
 
 	stopReceipt, err := executor.Stop(context.Background(), executorTestCommand(t, ociPlan, "cmd-stop-1"))
@@ -433,7 +433,7 @@ func TestStopAnswersWhileCordonedAndDeleteRemovesRecords(t *testing.T) {
 func TestNativeDeleteRejectsStillRunningAllocation(t *testing.T) {
 	systemd := &fakeNativeAdapter{observation: runningSystemdObservation()}
 	executor := newExecutorForTest(t, systemd, &fakeContainerAdapter{})
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "gru-orchestrator-1")
 
 	receipt, err := executor.Delete(context.Background(), executorTestCommand(t, plan, "cmd-delete-1"))
 
@@ -452,8 +452,8 @@ func TestObserveAllocationsReportsSortedStatesAndFailsClosed(t *testing.T) {
 	systemd := &fakeNativeAdapter{observation: runningSystemdObservation()}
 	container := &fakeContainerAdapter{observation: runningPodmanObservation(t), observeErr: errors.New("podman refused")}
 	executor := newExecutorForTest(t, systemd, container)
-	nativePlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator, runtime.RuntimeDriverNativeSystemd, "z-late-allocation")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleGrafana, runtime.RuntimeDriverOciContainer, "a-first-allocation")
+	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler, runtime.RuntimeDriverNativeSystemd, "z-late-allocation")
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard, runtime.RuntimeDriverOciContainer, "a-first-allocation")
 	for _, plan := range []runtime.HostRuntimePlan{nativePlan, ociPlan} {
 		if _, err := executor.Converge(context.Background(), executorTestCommand(t, plan, "cmd-1")); err != nil {
 			t.Fatalf("converge: %v", err)
@@ -549,7 +549,7 @@ func TestConvergeReservesCapacityBeforeConcurrentAdapterCalls(t *testing.T) {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
-			plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+			plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler,
 				runtime.RuntimeDriverNativeSystemd, fmt.Sprintf("concurrent-%d", index))
 			receipt, err := executor.Converge(context.Background(),
 				executorTestCommand(t, plan, fmt.Sprintf("cmd-concurrent-%d", index)))
@@ -592,7 +592,7 @@ func TestConvergeRejectsOverlappingOperationForSameAllocation(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	executor := newExecutorForTest(t, adapter, &fakeContainerAdapter{})
-	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+	plan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler,
 		runtime.RuntimeDriverNativeSystemd, "same-allocation")
 	firstCommand := executorTestCommand(t, plan, "cmd-overlap-first")
 	secondCommand := executorTestCommand(t, plan, "cmd-overlap-second")
@@ -631,9 +631,9 @@ func TestExistingAllocationOperatesAtCapacityAndDeleteReleasesSlot(t *testing.T)
 	container := &fakeContainerAdapter{}
 	executor := newExecutorForTest(t, &fakeNativeAdapter{}, container)
 	executor.maximumTrackedAllocations = 1
-	first := executorTestPlan(t, runtime.AdmittedRoleGrafana,
+	first := executorTestPlan(t, runtime.AdmittedRoleDashboard,
 		runtime.RuntimeDriverOciContainer, "capacity-first")
-	second := executorTestPlan(t, runtime.AdmittedRoleAlertmanager,
+	second := executorTestPlan(t, runtime.AdmittedRoleDatabaseAPI,
 		runtime.RuntimeDriverOciContainer, "capacity-second")
 
 	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, first, "cmd-capacity-first")); err != nil || !receipt.Accepted {
@@ -674,9 +674,9 @@ func TestUnknownObservationsDoNotConsumeCapacity(t *testing.T) {
 	executor := newExecutorForTest(t, systemd, container)
 	executor.maximumTrackedAllocations = 1
 
-	nativePlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+	nativePlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler,
 		runtime.RuntimeDriverNativeSystemd, "unknown-absent")
-	ociPlan := executorTestPlan(t, runtime.AdmittedRoleGrafana,
+	ociPlan := executorTestPlan(t, runtime.AdmittedRoleDashboard,
 		runtime.RuntimeDriverOciContainer, "unknown-error")
 	if receipt, err := executor.Observe(context.Background(), executorTestCommand(t, nativePlan, "cmd-unknown-absent")); err != nil || !receipt.Accepted {
 		t.Fatalf("absent observation: receipt=%+v err=%v", receipt, err)
@@ -691,7 +691,7 @@ func TestUnknownObservationsDoNotConsumeCapacity(t *testing.T) {
 		t.Fatalf("records after failed unknown observation = %d, want 0", got)
 	}
 
-	trackedPlan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+	trackedPlan := executorTestPlan(t, runtime.AdmittedRoleAutoscaler,
 		runtime.RuntimeDriverNativeSystemd, "after-unknown")
 	if receipt, err := executor.Converge(context.Background(), executorTestCommand(t, trackedPlan, "cmd-after-unknown")); err != nil || !receipt.Accepted {
 		t.Fatalf("converge after unknown observations: receipt=%+v err=%v", receipt, err)
