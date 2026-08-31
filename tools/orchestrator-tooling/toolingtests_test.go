@@ -1,7 +1,6 @@
 // Go-test wrapper for the ported ToolingTests bodies. The full suite remains
-// available through `orchestrator-tooling test`; here only the hermetic
-// bodies run, because the mutation-based validator tests require the sibling
-// TerraScale workspace repositories to be checked out next to this module.
+// available through `orchestrator-tooling test`; the Go test runs its hermetic
+// bodies directly.
 package main
 
 import (
@@ -11,15 +10,10 @@ import (
 )
 
 var hermeticToolingTests = map[string]bool{
-	"git bytes preserve non UTF-8 blob":                  true,
-	"no python sources":                                  true,
-	"CI result manifest":                                 true,
-	"development evidence fixed topology authorization":  true,
-	"development evidence bounded execution":             true,
-	"development bounded process observation":            true,
-	"development validation lease":                       true,
-	"development validation lease recovers stale holder": true,
-	"workspace topology lease":                           true,
+	"git bytes preserve non UTF-8 blob": true,
+	"no python sources":                 true,
+	"CI result manifest":                true,
+	"workspace topology lease":          true,
 }
 
 func TestToolingHermetic(t *testing.T) {
@@ -41,15 +35,19 @@ func TestToolingHermetic(t *testing.T) {
 	}
 }
 
-func TestRetiredDocumentCommandsAreAbsent(t *testing.T) {
-	retired := map[string]bool{
-		"adr-readiness":   true,
-		"owner-decisions": true,
-		"phase0-evidence": true,
+func TestCommandInventory(t *testing.T) {
+	expected := []string{
+		"ci-result-manifest",
+		"json-format",
+		"test",
+		"workspace-topology-lease-holder",
 	}
-	for _, command := range toolCommands {
-		if retired[command.name] {
-			t.Fatalf("retired document command %q remains registered", command.name)
+	if len(toolCommands) != len(expected) {
+		t.Fatalf("expected %d commands, observed %d", len(expected), len(toolCommands))
+	}
+	for index, command := range toolCommands {
+		if command.name != expected[index] {
+			t.Fatalf("expected command %q at index %d, observed %q", expected[index], index, command.name)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -67,11 +68,6 @@ func toolingTestSuite() []toolingTest {
 		{"git bytes preserve non UTF-8 blob", gitBytesPreserveNonUtf8Blob},
 		{"no python sources", noPythonSources},
 		{"CI result manifest", testCiResultManifest},
-		{"development evidence fixed topology authorization", developmentEvidenceTopology},
-		{"development evidence bounded execution", developmentEvidenceBounds},
-		{"development bounded process observation", developmentBoundedProcessObservation},
-		{"development validation lease", developmentValidationLease},
-		{"development validation lease recovers stale holder", developmentValidationLeaseRecoversStaleHolder},
 		{"workspace topology lease", developmentWorkspaceTopologyLease},
 	}
 }
@@ -199,84 +195,6 @@ func testCiResultManifest() {
 	}
 }
 
-func developmentEvidenceTopology() {
-	if _, err := DevelopmentEvidenceCommand.Parse([]string{"--output", "/tmp/evidence.json"}); err != nil {
-		panic(err)
-	}
-	if _, err := DevelopmentEvidenceCommand.Parse([]string{
-		"--output", "/tmp/evidence.json", "--profile", "quick"}); !isToolValidationException(err) {
-		panic(errors.New("expected ToolValidationException"))
-	}
-	if _, err := DevelopmentEvidenceCommand.Parse([]string{
-		"--output", "/tmp/evidence.json", "--profile", "control"}); !isToolValidationException(err) {
-		panic(errors.New("expected ToolValidationException"))
-	}
-}
-
-func developmentEvidenceBounds() {
-	assertEqualValue(1, DevelopmentMaximumParallelTestModules)
-	assertEqualValue(2, DevelopmentEvidenceSchemaVersion)
-	assertEqualValue(4, DevelopmentMaximumParallelTests)
-	assertEqualValue(5, len(DevelopmentTestModules))
-	assertEqualValue(5, DevelopmentDefaultTestModuleTimeoutMinutes)
-	assertEqualValue(15, DevelopmentIntegrationTestModuleTimeoutMinutes)
-	for _, module := range DevelopmentTestModules[:4] {
-		assertEqualValue(DevelopmentDefaultTestModuleTimeoutMinutes, module.TimeoutMinutes)
-	}
-	assertEqualValue(DevelopmentIntegrationTestModuleTimeoutMinutes,
-		DevelopmentTestModules[len(DevelopmentTestModules)-1].TimeoutMinutes)
-	assertEqualValue(int64(24)*1024*1024*1024, DevelopmentAggregateMemoryLimitBytes)
-	assertEqualValue(int64(20)*1024*1024*1024, DevelopmentExecutionMemoryLimitBytes)
-	assertEqualValue(int64(4)*1024*1024*1024, DevelopmentReservedHeadroomBytes)
-	total, err := DevelopmentEvidenceCommand.ParseTestTotal("sample", "total: 46\n")
-	if err != nil {
-		panic(err)
-	}
-	assertEqualValue(46, total)
-}
-
-func developmentValidationLease() {
-	scope := "tooling-test-" + randomTestToken()
-	lease, err := AcquireLocalValidationLease(scope)
-	if err != nil {
-		panic(err)
-	}
-	defer lease.Close()
-	if _, err := AcquireLocalValidationLease(scope); err == nil {
-		panic(errors.New("expected an error while the validation lease is held"))
-	}
-}
-
-func developmentValidationLeaseRecoversStaleHolder() {
-	scope := "tooling-test-" + randomTestToken()
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("terrascale-orchestrator-validation-%s.lock", scope))
-	if err := os.WriteFile(path, []byte("999999999"), 0o644); err != nil {
-		panic(err)
-	}
-	lease, err := AcquireLocalValidationLease(scope)
-	if err != nil {
-		panic(err)
-	}
-	defer lease.Close()
-}
-
-func developmentBoundedProcessObservation() {
-	result, err := BoundedProcessRunner.Run(
-		"go",
-		[]string{"version"},
-		ToolingSupport.Root(),
-		30*time.Second,
-		256*1024*1024,
-		4)
-	if err != nil {
-		panic(err)
-	}
-	assertEqualValue(0, result.ExitCode)
-	if result.Observation.PeakMemoryBytes <= 0 || result.Observation.PeakProcessCount <= 0 {
-		panic(errors.New("bounded process observation did not capture resource use"))
-	}
-}
-
 type leaseHolderProcess struct {
 	command    *exec.Cmd
 	stdin      io.WriteCloser
@@ -377,7 +295,12 @@ func startWorkspaceTopologyLeaseHolder(leaseNamespace string, noisyStderr bool, 
 	if err != nil {
 		panic(errors.New("The tooling test host path is unavailable."))
 	}
-	arguments := []string{"-test.run=^TestWorkspaceTopologyLeaseHolderProcess$"}
+	arguments := []string{"workspace-topology-lease-holder", "--namespace", leaseNamespace}
+	if flag.Lookup("test.run") != nil {
+		arguments = []string{"-test.run=^TestWorkspaceTopologyLeaseHolderProcess$"}
+	} else if noisyStderr && ignoreStandardInput {
+		arguments = append(arguments, "--noisy-stderr", "--ignore-stdin")
+	}
 	command := exec.Command(processPath, arguments...)
 	command.Dir = ToolingSupport.Root()
 	command.Env = append(os.Environ(),

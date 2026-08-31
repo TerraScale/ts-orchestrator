@@ -22,9 +22,6 @@ var toolCommands = []toolCommand{
 	{"ci-result-manifest", func(_ context.Context, arguments []string) (int, error) {
 		return CiResultManifestCommand.Run(arguments)
 	}},
-	{"development-attest", func(_ context.Context, arguments []string) (int, error) {
-		return DevelopmentEvidenceCommand.Run(arguments)
-	}},
 	{"json-format", func(_ context.Context, arguments []string) (int, error) {
 		return JsonFormatCommand.Run(arguments)
 	}},
