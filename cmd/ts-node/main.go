@@ -24,8 +24,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	stdruntime "runtime"
 
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	hostruntime "terrascale.tech/orchestrator/src/orchestrator/runtime"
 )
@@ -35,6 +38,8 @@ import (
 // --podman-binary explicitly.
 const (
 	tsNodeDefaultPodmanBinary     = "/usr/bin/podman"
+	tsNodeDefaultSystemctlBinary  = "/usr/bin/systemctl"
+	tsNodeDefaultSystemdRunBinary = "/usr/bin/systemd-run"
 	tsNodeDefaultSeccompProfile   = "/etc/terrascale/seccomp/terrascale-default-v1.json"
 	tsNodeDefaultHeartbeatPeriod  = 10 * time.Second
 	tsNodeDefaultConnectTimeout   = 5 * time.Second
@@ -55,30 +60,39 @@ func isTsNodeSpaceRune(r rune) bool { return r <= ' ' || r == 0x7f }
 // tsNodeConfiguration is the fully explicit runtime configuration of one node
 // host agent after flag parsing.
 type tsNodeConfiguration struct {
-	NodeId             string
-	NodeClass          string
-	NatsUrl            string
-	PodmanBinaryPath   string
-	XdgRuntimeDir      string
-	SeccompProfilePath string
-	RunAsUid           uint32
-	HeartbeatInterval  time.Duration
-	ConnectTimeout     time.Duration
-	CpuQuotaPercent    int
-	TasksMax           int
-	LogicalCpuCount    int
+	NodeId               string
+	NodeClass            string
+	NatsUrl              string
+	NatsNKeyFile         string
+	NatsTlsCaFile        string
+	NatsTlsCertFile      string
+	NatsTlsKeyFile       string
+	PodmanBinaryPath     string
+	SystemctlBinaryPath  string
+	SystemdRunBinaryPath string
+	XdgRuntimeDir        string
+	SeccompProfilePath   string
+	RunAsUid             uint32
+	HeartbeatInterval    time.Duration
+	ConnectTimeout       time.Duration
+	CpuQuotaPercent      int
+	TasksMax             int
+	LogicalCpuCount      int
 }
 
 // parseTsNodeArguments validates the explicit flag vector of the node agent
-// and applies the documented defaults. The current uid and the default logical
-// CPU count are injected so parsing stays deterministic and testable; the
-// run uid must equal the current uid, because the rootless podman context
-// must describe the account this process actually runs as.
+// and applies the documented defaults. The real uid, effective uid, and
+// default logical CPU count are injected so parsing stays deterministic and
+// testable. Both process identities must name the same non-root account.
 func parseTsNodeArguments(
 	args []string,
-	currentUid uint32,
+	realUid uint32,
+	effectiveUid uint32,
 	defaultLogicalCpuCount int,
 ) (tsNodeConfiguration, error) {
+	if err := validateTsNodeProcessIdentity(realUid, effectiveUid); err != nil {
+		return tsNodeConfiguration{}, err
+	}
 	flags := map[string]string{}
 	for index := 0; index < len(args); index++ {
 		name := args[index]
@@ -99,7 +113,9 @@ func parseTsNodeArguments(
 	}
 	for name := range flags {
 		switch name {
-		case "--node-id", "--node-class", "--nats-url", "--podman-binary", "--xdg-runtime-dir",
+		case "--node-id", "--node-class", "--nats-url", "--nats-nkey-file", "--nats-tls-ca-file",
+			"--nats-tls-cert-file", "--nats-tls-key-file", "--podman-binary", "--systemctl-binary",
+			"--systemd-run-binary", "--xdg-runtime-dir",
 			"--seccomp-profile", "--run-as-uid", "--heartbeat-interval", "--connect-timeout",
 			"--cpu-quota-percent", "--tasks-max", "--logical-cpu-count":
 		default:
@@ -131,8 +147,34 @@ func parseTsNodeArguments(
 		return tsNodeConfiguration{}, errors.New(
 			"ts-node: --nats-url is required and must be whitespace-free and flag-safe")
 	}
+	natsNKeyFile := flags["--nats-nkey-file"]
+	natsTlsCaFile := flags["--nats-tls-ca-file"]
+	natsTlsCertFile := flags["--nats-tls-cert-file"]
+	natsTlsKeyFile := flags["--nats-tls-key-file"]
+	natsCredentialValues := []string{natsNKeyFile, natsTlsCaFile, natsTlsCertFile, natsTlsKeyFile}
+	suppliedNatsCredentials := 0
+	for _, value := range natsCredentialValues {
+		if value != "" {
+			suppliedNatsCredentials++
+		}
+	}
+	switch {
+	case strings.HasPrefix(natsUrl, "nats://"):
+		if suppliedNatsCredentials != 0 {
+			return tsNodeConfiguration{}, errors.New(
+				"ts-node: NATS credential files require a tls:// NATS URL")
+		}
+	case strings.HasPrefix(natsUrl, "tls://"):
+		if suppliedNatsCredentials != len(natsCredentialValues) {
+			return tsNodeConfiguration{}, errors.New(
+				"ts-node: tls:// NATS requires the NKey, CA, certificate, and key files")
+		}
+	default:
+		return tsNodeConfiguration{}, errors.New(
+			"ts-node: --nats-url must use nats:// for local use or tls:// for production")
+	}
 
-	runAsUid := currentUid
+	runAsUid := effectiveUid
 	if value, present := flags["--run-as-uid"]; present {
 		parsed, err := strconv.ParseUint(value, 10, 32)
 		if err != nil {
@@ -142,17 +184,24 @@ func parseTsNodeArguments(
 		runAsUid = uint32(parsed)
 	}
 	if runAsUid == 0 {
-		return tsNodeConfiguration{}, errors.New(
-			"ts-node must never run as uid 0: rootless hosting is the point of this node agent")
+		return tsNodeConfiguration{}, errors.New("ts-node must never run as uid 0")
 	}
-	if runAsUid != currentUid {
+	if runAsUid != effectiveUid {
 		return tsNodeConfiguration{}, fmt.Errorf(
-			"ts-node: --run-as-uid %d must equal the current account uid %d", runAsUid, currentUid)
+			"ts-node: --run-as-uid %d must equal the effective account uid %d", runAsUid, effectiveUid)
 	}
 
 	podmanBinary := tsNodeDefaultPodmanBinary
 	if value, present := flags["--podman-binary"]; present {
 		podmanBinary = value
+	}
+	systemctlBinary := tsNodeDefaultSystemctlBinary
+	if value, present := flags["--systemctl-binary"]; present {
+		systemctlBinary = value
+	}
+	systemdRunBinary := tsNodeDefaultSystemdRunBinary
+	if value, present := flags["--systemd-run-binary"]; present {
+		systemdRunBinary = value
 	}
 	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", runAsUid)
 	if value, present := flags["--xdg-runtime-dir"]; present {
@@ -216,19 +265,35 @@ func parseTsNodeArguments(
 	}
 
 	return tsNodeConfiguration{
-		NodeId:             nodeId,
-		NodeClass:          nodeClass,
-		NatsUrl:            natsUrl,
-		PodmanBinaryPath:   podmanBinary,
-		XdgRuntimeDir:      xdgRuntimeDir,
-		SeccompProfilePath: seccompProfile,
-		RunAsUid:           runAsUid,
-		HeartbeatInterval:  heartbeatInterval,
-		ConnectTimeout:     connectTimeout,
-		CpuQuotaPercent:    cpuQuotaPercent,
-		TasksMax:           tasksMax,
-		LogicalCpuCount:    logicalCpuCount,
+		NodeId:               nodeId,
+		NodeClass:            nodeClass,
+		NatsUrl:              natsUrl,
+		NatsNKeyFile:         natsNKeyFile,
+		NatsTlsCaFile:        natsTlsCaFile,
+		NatsTlsCertFile:      natsTlsCertFile,
+		NatsTlsKeyFile:       natsTlsKeyFile,
+		PodmanBinaryPath:     podmanBinary,
+		SystemctlBinaryPath:  systemctlBinary,
+		SystemdRunBinaryPath: systemdRunBinary,
+		XdgRuntimeDir:        xdgRuntimeDir,
+		SeccompProfilePath:   seccompProfile,
+		RunAsUid:             runAsUid,
+		HeartbeatInterval:    heartbeatInterval,
+		ConnectTimeout:       connectTimeout,
+		CpuQuotaPercent:      cpuQuotaPercent,
+		TasksMax:             tasksMax,
+		LogicalCpuCount:      logicalCpuCount,
 	}, nil
+}
+
+func validateTsNodeProcessIdentity(realUid uint32, effectiveUid uint32) error {
+	if realUid == 0 || effectiveUid == 0 {
+		return errors.New("ts-node must never run with a real or effective uid of 0")
+	}
+	if realUid != effectiveUid {
+		return fmt.Errorf("ts-node: real uid %d does not match effective uid %d", realUid, effectiveUid)
+	}
+	return nil
 }
 
 // tsNodePendingRelay forwards the heartbeat pending-allocation count to the
@@ -287,6 +352,27 @@ func (r *tsNodePendingRelay) RunningAllocations() int {
 // volume bindings of the stateful catalog are not carried on the wire plan
 // yet.
 func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent, error) {
+	var natsOptions []nats.Option
+	if strings.HasPrefix(configuration.NatsUrl, "tls://") {
+		authentication, err := control.NatsAuthenticationFilesFromNKeyFile(configuration.NatsNKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("ts-node: NATS authentication is invalid: %s", err.Error())
+		}
+		tlsFiles, err := control.NatsTlsFilesResolve(
+			configuration.NatsTlsCaFile,
+			configuration.NatsTlsCertFile,
+			configuration.NatsTlsKeyFile,
+			"ts-node NATS",
+		)
+		if err != nil || tlsFiles == nil {
+			if err == nil {
+				err = errors.New("the TLS identity is missing")
+			}
+			return nil, fmt.Errorf("ts-node: NATS TLS is invalid: %s", err.Error())
+		}
+		natsOptions = append(natsOptions, authentication.Options()...)
+		natsOptions = append(natsOptions, tlsFiles.Options()...)
+	}
 	rootless, err := hostruntime.NewRootlessPodmanContext(
 		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
 		configuration.SeccompProfilePath, configuration.RunAsUid)
@@ -301,15 +387,26 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	if configuration.XdgRuntimeDir != expectedRuntimeDir {
 		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
 	}
-	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, hostruntime.ProcessHostCommandRunner{})
+	commandRunner := hostruntime.ProcessHostCommandRunner{}
+	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, commandRunner)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())
 	}
-	containerAdapter, err := hostruntime.NewPodmanRootlessHostRuntimeAdapter(podmanClient, nil)
+	supervisedPodmanClient, err := hostruntime.NewSystemdUserPodmanClient(
+		podmanClient,
+		rootless,
+		configuration.SystemctlBinaryPath,
+		configuration.SystemdRunBinaryPath,
+		commandRunner,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ts-node: the podman supervisor is unavailable: %s", err.Error())
+	}
+	containerAdapter, err := hostruntime.NewPodmanRootlessHostRuntimeAdapter(supervisedPodmanClient, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the rootless podman adapter is unavailable: %s", err.Error())
 	}
-	systemdAdapter := hostruntime.NewSystemdHostRuntimeAdapter(hostruntime.ProcessHostCommandRunner{}, true)
+	systemdAdapter := hostruntime.NewSystemdHostRuntimeAdapter(commandRunner, true)
 	pending := &tsNodePendingRelay{}
 	metrics, err := hostagent.NewSystemMetricsSource(hostagent.SystemMetricsSourceConfig{
 		ProcReader:      hostagent.OsProcFileReader{},
@@ -329,6 +426,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	agent, err := hostagent.NewHostAgent(hostagent.HostAgentConfig{
 		NodeId:            nodeId,
 		NatsURL:           configuration.NatsUrl,
+		NatsOptions:       natsOptions,
 		ConnectTimeout:    configuration.ConnectTimeout,
 		Systemd:           systemdAdapter,
 		Container:         containerAdapter,
@@ -383,7 +481,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	configuration, err := parseTsNodeArguments(os.Args[1:], uint32(os.Getuid()), stdruntime.NumCPU())
+	configuration, err := parseTsNodeArguments(
+		os.Args[1:], uint32(os.Getuid()), uint32(os.Geteuid()), stdruntime.NumCPU())
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

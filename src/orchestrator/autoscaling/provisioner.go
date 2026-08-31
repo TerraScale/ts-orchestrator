@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -311,6 +312,7 @@ type LocalProcessNodeProvisioner struct {
 	spawner  ProcessSpawner
 	mutex    sync.Mutex
 	children map[string]int
+	retiring map[string]struct{}
 }
 
 // NewLocalProcessNodeProvisioner composes the provisioner from its explicit
@@ -334,6 +336,7 @@ func NewLocalProcessNodeProvisioner(
 		config:   validated,
 		spawner:  spawner,
 		children: make(map[string]int),
+		retiring: make(map[string]struct{}),
 	}, nil
 }
 
@@ -423,22 +426,28 @@ func (p *LocalProcessNodeProvisioner) Retire(ctx context.Context, nodeId string)
 		p.mutex.Unlock()
 		return err
 	}
-	delete(p.children, validated)
+	if _, busy := p.retiring[validated]; busy {
+		p.mutex.Unlock()
+		return &InvalidOperationError{Message: fmt.Sprintf(
+			"Node %s is already retiring locally.", validated)}
+	}
+	p.retiring[validated] = struct{}{}
 	p.mutex.Unlock()
-	if err := p.spawner.Terminate(ctx, pid); err != nil {
+	err = p.spawner.Terminate(ctx, pid)
+	p.mutex.Lock()
+	delete(p.retiring, validated)
+	if err != nil {
 		var escalated *processTerminationEscalatedError
 		if errors.As(err, &escalated) {
-			// The spawner already killed and reaped the child. Preserve the
-			// diagnostic, but do not resurrect a pid that cannot be retried.
+			delete(p.children, validated)
+			p.mutex.Unlock()
 			return err
 		}
-		// Keep the recorded pid so a failed termination stays visible and
-		// retryable instead of silently orphaning the child.
-		p.mutex.Lock()
-		p.children[validated] = pid
 		p.mutex.Unlock()
 		return err
 	}
+	delete(p.children, validated)
+	p.mutex.Unlock()
 	return nil
 }
 
@@ -498,11 +507,15 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 	if err != nil {
 		return 0, err
 	}
+	credential, err := nodeProcessCredential(os.Geteuid(), os.Getegid(), validated.RunAsUid)
+	if err != nil {
+		return 0, err
+	}
 	command := exec.CommandContext(ctx, validated.BinaryPath, validated.childArguments()...)
 	command.Env = validated.environment()
 	command.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid:    true,
-		Credential: &syscall.Credential{Uid: validated.RunAsUid, Gid: validated.RunAsUid},
+		Credential: credential,
 	}
 	// Mirror the host command runner: cancellation kills the whole process
 	// group, including anything the node agent spawned.
@@ -525,6 +538,29 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 	s.processes[command.Process.Pid] = child
 	s.mutex.Unlock()
 	return command.Process.Pid, nil
+}
+
+// nodeProcessCredential returns the credential transition a spawn needs. A
+// process already running as the target non-root UID keeps its current
+// credentials; asking Linux to set groups again from an unprivileged process
+// fails with EPERM. Only uid 0 may switch to another account, and that switch
+// keeps the production node-account convention in which uid and primary gid
+// are equal.
+func nodeProcessCredential(currentUid int, currentGid int, runAsUid uint32) (*syscall.Credential, error) {
+	if currentUid < 0 || currentGid < 0 {
+		return nil, &InvalidOperationError{Message: "The current process identity is unavailable."}
+	}
+	if uint32(currentUid) == runAsUid {
+		if currentUid == 0 {
+			return nil, &InvalidOperationError{Message: "A node host agent must never run as uid 0."}
+		}
+		return nil, nil
+	}
+	if currentUid != 0 {
+		return nil, &InvalidOperationError{Message: fmt.Sprintf(
+			"The unprivileged autoscaler uid %d cannot spawn node uid %d.", currentUid, runAsUid)}
+	}
+	return &syscall.Credential{Uid: runAsUid, Gid: runAsUid}, nil
 }
 
 // Terminate delivers SIGTERM to one spawned child's process group and waits

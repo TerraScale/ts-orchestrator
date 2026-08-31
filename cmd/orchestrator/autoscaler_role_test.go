@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscaling"
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
@@ -68,6 +69,50 @@ func TestAutoscalerRoleConfigurationRequiresAuthenticatedTLSNATS(t *testing.T) {
 		return value, ok
 	}); err == nil || !strings.Contains(err.Error(), "TS_ORCH_NATS_NKEY_FILE") {
 		t.Fatalf("autoscaler accepted missing NKey credentials: %v", err)
+	}
+}
+
+func TestAutoscalerProviderIsExplicitlyLocalDevOnly(t *testing.T) {
+	for _, value := range []string{"", "oci", "local"} {
+		lookup := func(name string) (string, bool) {
+			if name != autoscalerProviderEnvironment || value == "" {
+				return "", false
+			}
+			return value, true
+		}
+		if err := autoscalerRequireLocalDevProvider(lookup); err == nil {
+			t.Fatalf("provider %q was accepted", value)
+		}
+	}
+	if err := autoscalerRequireLocalDevProvider(func(name string) (string, bool) {
+		return "local-dev", name == autoscalerProviderEnvironment
+	}); err != nil {
+		t.Fatalf("local-dev provider: %v", err)
+	}
+}
+
+func TestAutoscalerNodeAgentArgumentsUseTheDistinctNodeIdentity(t *testing.T) {
+	settings := autoscalerRoleSettings{
+		NatsNKeyFile:     "/run/autoscaler/control.seed",
+		NatsTls:          &control.NatsTlsFiles{CaFile: "/run/autoscaler/ca.pem", CertificateFile: "/run/autoscaler/control.pem", KeyFile: "/run/autoscaler/control.key"},
+		NodeNatsNKeyFile: "/run/ts-node/node.seed",
+		NodeNatsTls:      &control.NatsTlsFiles{CaFile: "/run/ts-node/ca.pem", CertificateFile: "/run/ts-node/node.pem", KeyFile: "/run/ts-node/node.key"},
+	}
+	arguments, err := autoscalerNodeAgentArguments(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(arguments, " ")
+	for _, value := range []string{settings.NodeNatsNKeyFile, settings.NodeNatsTls.CaFile,
+		settings.NodeNatsTls.CertificateFile, settings.NodeNatsTls.KeyFile} {
+		if !strings.Contains(joined, value) {
+			t.Fatalf("node arguments omitted %q: %v", value, arguments)
+		}
+	}
+	if strings.Contains(joined, settings.NatsNKeyFile) ||
+		strings.Contains(joined, settings.NatsTls.CertificateFile) ||
+		strings.Contains(joined, settings.NatsTls.KeyFile) {
+		t.Fatalf("autoscaler identity leaked into node arguments: %v", arguments)
 	}
 }
 

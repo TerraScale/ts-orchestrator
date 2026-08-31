@@ -18,6 +18,23 @@ type fakeProcessSpawner struct {
 	terminateErr error
 }
 
+type blockingRetireSpawner struct {
+	started    chan struct{}
+	release    chan struct{}
+	spawnCalls int
+}
+
+func (s *blockingRetireSpawner) Spawn(context.Context, NodeProcessSpec) (int, error) {
+	s.spawnCalls++
+	return 4242, nil
+}
+
+func (s *blockingRetireSpawner) Terminate(context.Context, int) error {
+	close(s.started)
+	<-s.release
+	return errors.New("termination stayed retryable")
+}
+
 func (s *fakeProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec) (int, error) {
 	s.spawned = append(s.spawned, spec)
 	if s.spawnErr != nil {
@@ -507,6 +524,34 @@ func TestLocalProcessNodeProvisionerRetireIsFailClosedAndRetryable(t *testing.T)
 	}
 }
 
+func TestLocalProcessNodeProvisionerSerializesRetireAgainstReprovision(t *testing.T) {
+	spawner := &blockingRetireSpawner{started: make(chan struct{}), release: make(chan struct{})}
+	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	request := validProvisionRequest(t)
+	if err := provisioner.Provision(context.Background(), request); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	retired := make(chan error, 1)
+	go func() { retired <- provisioner.Retire(context.Background(), request.NodeId) }()
+	<-spawner.started
+	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
+		t.Fatalf("reprovision entered while the previous child was retiring: %v", err)
+	}
+	if spawner.spawnCalls != 1 {
+		t.Fatalf("retire race spawned %d children", spawner.spawnCalls)
+	}
+	close(spawner.release)
+	if err := <-retired; err == nil {
+		t.Fatal("the configured termination failure did not surface")
+	}
+	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
+		t.Fatalf("failed retirement lost ownership of the old child: %v", err)
+	}
+}
+
 func TestCommandProcessSpawnerFailsClosedWithoutSpawning(t *testing.T) {
 	if _, err := NewCommandProcessSpawner(0); !errorsAsParam(err, "terminateGrace") {
 		t.Fatalf("a nonpositive grace period must be refused, got %v", err)
@@ -542,5 +587,25 @@ func TestCommandProcessSpawnerFailsClosedWithoutSpawning(t *testing.T) {
 	}
 	if err := spawner.Terminate(context.Background(), 4242); !isInvalidOperation(err) {
 		t.Fatalf("the failed spawn must leave no recorded child, got %v", err)
+	}
+}
+
+func TestNodeProcessCredentialKeepsSameAccountAndFencesAccountChanges(t *testing.T) {
+	credential, err := nodeProcessCredential(1000, 100, 1000)
+	if err != nil || credential != nil {
+		t.Fatalf("same-account spawn should keep current credentials: credential=%+v err=%v", credential, err)
+	}
+	credential, err = nodeProcessCredential(0, 0, 1042)
+	if err != nil || credential == nil || credential.Uid != 1042 || credential.Gid != 1042 {
+		t.Fatalf("root credential drop = %+v, err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(1000, 1000, 1042); err == nil || credential != nil {
+		t.Fatalf("unprivileged account switch was accepted: credential=%+v err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(0, 0, 0); err == nil || credential != nil {
+		t.Fatalf("uid-0 node was accepted: credential=%+v err=%v", credential, err)
+	}
+	if credential, err = nodeProcessCredential(-1, 1000, 1000); err == nil || credential != nil {
+		t.Fatalf("unknown current uid was accepted: credential=%+v err=%v", credential, err)
 	}
 }
