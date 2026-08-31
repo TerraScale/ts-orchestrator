@@ -1,80 +1,56 @@
-# Container tenant runtime architecture
+# Tenant container runtime
 
-Status: accepted architecture evidence
+Status: accepted direction for the first post-launch feature.
 
-Tracking: [TerraScale.Orchestrator#27](https://git.terrascale.tech/TerraScale/TerraScale.Orchestrator/issues/27)
+ADR 0031 records the decision. Tenant compute does not ship in the first
+release, but launch architecture must preserve this boundary.
 
-Accessed: 2026-08-24, America/Sao_Paulo
+## Runtime
 
-## Result
+Tenant functions run as unprivileged, digest-pinned OCI containers through the
+same rootless Podman and systemd user-unit mechanism used for first-party
+workloads. Tenant allocations use a separate node class and security profile.
+They never share a host with TerraBase, NATS, controllers, identity issuers, or
+provider actuators.
 
-Use one runtime substrate for every workload class:
+The tenant contract permits:
 
-1. Run signed TerraScale API and TerraBase images through containerd and runc.
-2. Run customer stateless and serverless workloads as unprivileged,
-   digest-pinned OCI containers through the same containerd/runc substrate on
-   dedicated tenant-worker nodes.
-
-OCI containers are the only workload runtime. The earlier virtualized-isolation
-research and the WebAssembly component runtime were retired by owner
-decision on 2026-08-24; [ADR 0031](../adr/0031-run-tenant-workloads-as-unprivileged-oci-containers.md)
-records the decision, and the repository retired-runtime policy tests block
-the return of virtualized or WebAssembly tenant tiers in living source and
-documentation.
-
-The initial customer contract is:
-
-- unprivileged OCI container image, admitted only by immutable digest from
-  the tenant registry namespace;
-- HTTP or TerraScale Project Queue trigger;
-- no durable local state or tenant volume;
+- a digest-pinned OCI image from the tenant registry namespace;
+- HTTP or a platform-owned queue trigger;
 - bounded ephemeral scratch;
-- no privileged mode, host path, host device, raw socket, or raw NATS
-  credential;
-- all Linux capabilities dropped, `no-new-privileges` enforced, read-only
-  root filesystem, seccomp, and Landlock where supported;
-- policy-controlled outbound HTTP;
-- managed TerraBase access through a versioned TerraScale capability or
-  credential-hiding gateway;
-- explicit CPU, memory, execution-time, concurrency, request, response,
-  logging, and temporary-storage limits.
+- policy-controlled outbound HTTP; and
+- managed TerraBase access through a scoped credential or capability.
 
-Privileged containers, native Linux executables, unrestricted POSIX
-applications, child-process supervisors, GPUs, kernel modules, host mounts,
-and privileged networking do not run as tenant workloads. The tenant
-platform profile validates the image configuration (non-root user, declared
-service port, no privileged or host hints honored) before admission;
-image-declared limits never replace operating-system limits.
+It does not permit durable local volumes, privileged mode, host paths, host
+devices, raw sockets, raw NATS credentials, provider credentials, control-plane
+identity, or unrestricted networking.
 
-## Isolation model
+## Isolation
 
-Tenant isolation is a hardened shared-kernel container boundary:
+Each allocation receives a non-root container, process namespace, and cgroup.
+The runtime drops every Linux capability, sets `no-new-privileges`, uses a
+read-only root filesystem, loads the pinned seccomp profile, and applies
+Landlock where the host supports it. CPU, memory, task, execution-time,
+concurrency, request, response, log, and scratch limits come from the admitted
+plan and operating system controls.
 
-- one non-root container, process namespace, and cgroup per tenant and
-  deployment revision; cross-tenant pooling is forbidden;
-- tenant containers run only on the separate tenant-worker node class, which
-  hosts no TerraBase, controller, NATS, secret-authority, or provider-actuator
-  role;
-- the platform owns listeners and queue consumers and invokes containers
-  through versioned trigger envelopes on loopback-only or private-namespace
-  networking;
-- a tenant-runtime integrity failure quarantines the worker and evacuates its
-  allocations; it never fails over onto a trusted-service node.
+Tenant isolation is a hardened shared-kernel boundary, not a hardware virtual
+machine boundary. The separate node class, denial tests, quarantine, and host
+hardening control the accepted residual risk.
 
-The owner explicitly accepts the residual kernel-sharing risk and controls it
-through node-class separation, denial tests, defense-in-depth host policy,
-and quarantine. No hardware virtualization boundary is claimed, and
-adversarial container-escape and resource-exhaustion tests against the pinned
-containerd/runc versions on the real production architecture remain launch
-requirements.
+## Failure behavior
 
-## Consequences for the platform
+A tenant-runtime integrity failure quarantines the node and stops new
+allocations. Existing allocations move only after the scheduler and drain
+policy permit it. The control plane never fails a tenant onto a trusted-service
+node.
 
-- One lifecycle substrate (containerd/runc) serves trusted, tenant, and CI
-  containers, so runtime hardening review concentrates on a single pinned
-  stack.
-- Tenant admission, scheduling, density measurement, and autoscaling operate
-  on OCI images and their resource profiles; no per-language runtime or
-  component compilation step exists.
-- Rollback, staging, and digest verification reuse the trusted-container
-  artifact machinery with a separate tenant registry namespace and policy.
+Losing an allocation must not require data recovery. Durable application state
+lives in managed TerraBase or an explicitly allowed external service.
+
+## Consequences
+
+Tenant admission and autoscaling use OCI images and declared resources. There
+is no per-language runtime or component compilation step. Runtime hardening,
+container escape tests, resource-exhaustion tests, and tenant-to-tenant denial
+tests are required before the post-launch function service opens.
