@@ -1,6 +1,6 @@
 # Rootless podman hosting, stateful-first operation, and the autonomous node autoscaler
 
-Status: production single-host lane (2026-08-30)
+Status: production rootless host runtime with live single-host validation (2026-08-30)
 
 Goal: [`../../GOAL.md`](../../GOAL.md)
 
@@ -213,11 +213,13 @@ operation, not a fast path.
   cluster credentials beyond its regional NATS connection.
 - **Autoscaler role** — a control-plane role that consumes heartbeats and
   the schedule state, applies the decision rules above, and drives a
-  `NodeProvisioner` implementation. The production single-host lane uses
+  `NodeProvisioner` implementation. The single-host validation lane uses
   `LocalProcessNodeProvisioner` with `CommandProcessSpawner`; the OCI estate
-  plugs into the same seam. The local provider's live smoke covers the real
-  provision, cordon, drain, and retire sequence without claiming OCI
-  evidence. ADR 0033 gives the regional autonomy model.
+  plugs into the same seam. The local implementation keeps child ownership
+  only in process memory, so it is deliberately not a production or
+  restart-reconciling provider. Its live smoke covers the real provision,
+  cordon, drain, and retire sequence without claiming workload convergence or
+  OCI evidence. ADR 0033 gives the regional autonomy model.
 - **DrainSafetyEvaluator** — one implementation in the control plane that
   combines replica health from heartbeats with the placement state.
 

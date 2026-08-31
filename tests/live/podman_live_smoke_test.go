@@ -12,6 +12,7 @@ import (
 	"os"
 	goruntime "runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,11 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	}
 	podmanBinary := liveSmokePodmanBinary(t)
 	image := liveSmokeImage(t)
+	plan := liveSmokeCanonicalPlan(t, image)
+	fingerprint, err := runtime.CanonicalPlanFingerprint.Compute(plan)
+	if err != nil {
+		t.Fatalf("canonical plan fingerprint: %v", err)
+	}
 	uid := uint32(os.Getuid())
 	xdgRuntimeDir := fmt.Sprintf("/run/user/%d", uid)
 	rootless, err := runtime.NewRootlessPodmanContext(
@@ -63,23 +69,23 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 		t.Fatalf("rootless podman preflight failed: %v", err)
 	}
 
-	containerId := "terrascale-live-smoke-" + strconv.Itoa(os.Getpid())
+	containerId := plan.Oci.ContainerId
 	request, err := runtime.NewPodmanRunRequest(
 		containerId,
-		image,
-		"linux/"+liveSmokeArchitecture(),
-		1000,
-		1000,
-		"terrascale/live-smoke",
-		[]string{"ALL"},
-		256*1024*1024,
-		128,
-		100,
-		100,
+		plan.Oci.ImageReference,
+		plan.Oci.Platform,
+		plan.Oci.Security.RunAsUser,
+		plan.Oci.Security.RunAsGroup,
+		plan.Oci.Security.CgroupParent,
+		plan.Oci.Security.DroppedCapabilities,
+		plan.Resources.MemoryMaxBytes,
+		plan.Resources.TasksMax,
+		plan.Resources.CpuQuotaPercent,
+		plan.Resources.CpuWeight,
 		nil,
 		map[string]string{
-			runtime.PodmanLabelAllocation:  "live-smoke",
-			runtime.PodmanLabelFingerprint: liveSmokeFingerprintPlaceholder(),
+			runtime.PodmanLabelAllocation:  plan.AllocationId.Value,
+			runtime.PodmanLabelFingerprint: fingerprint,
 		})
 	if err != nil {
 		t.Fatalf("run request: %v", err)
@@ -104,6 +110,7 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 	if created.State != runtime.PodmanAllocationStateCreating {
 		t.Fatalf("state after create = %s; want Creating (created, not started)", created.State)
 	}
+	liveRequireCanonicalFencing(t, created, plan, fingerprint)
 
 	if err := client.Start(ctx, containerId); err != nil {
 		t.Fatalf("podman start failed: %v", err)
@@ -122,6 +129,7 @@ func TestSystemdUserPodmanClientRootlessSmoke(t *testing.T) {
 			if observation.ImageReference != image {
 				t.Fatalf("observed image = %q; want %q", observation.ImageReference, image)
 			}
+			liveRequireCanonicalFencing(t, observation, plan, fingerprint)
 			running = true
 			break
 		}
@@ -190,30 +198,57 @@ func liveSmokeImage(t *testing.T) string {
 	return image
 }
 
+func liveSmokeCanonicalPlan(t *testing.T, image string) runtime.HostRuntimePlan {
+	t.Helper()
+	const prefix = "registry.terrascale.internal/terrascale/terrascale-dashboard@sha256:"
+	if !strings.HasPrefix(image, prefix) {
+		t.Fatalf("TS_ORCH_LIVE_PODMAN_IMAGE must be a locally present %s<digest> reference", prefix)
+	}
+	digest, err := runtime.NewArtifactDigest(strings.TrimPrefix(image, prefix))
+	if err != nil {
+		t.Fatalf("live image digest: %v", err)
+	}
+	allocation, err := runtime.NewRuntimeAllocationId("live-smoke-" + strconv.Itoa(os.Getpid()))
+	if err != nil {
+		t.Fatalf("live allocation: %v", err)
+	}
+	architecture := runtime.HostArchitectureX64
+	if goruntime.GOARCH == "arm64" {
+		architecture = runtime.HostArchitectureArm64
+	}
+	plan, err := runtime.NewHostRuntimePlan(
+		runtime.AdmittedRoleCustomerDashboard,
+		runtime.RuntimeDriverOciContainer,
+		allocation,
+		digest,
+		architecture,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("live canonical plan: %v", err)
+	}
+	if plan.Oci == nil || plan.Oci.ImageReference != image {
+		t.Fatalf("live image %q is not the canonical plan image", image)
+	}
+	return plan
+}
+
+func liveRequireCanonicalFencing(
+	t *testing.T,
+	observation runtime.PodmanAllocationObservation,
+	plan runtime.HostRuntimePlan,
+	fingerprint string,
+) {
+	t.Helper()
+	if observation.Labels[runtime.PodmanLabelAllocation] != plan.AllocationId.Value ||
+		observation.Labels[runtime.PodmanLabelFingerprint] != fingerprint {
+		t.Fatalf("observed fencing labels = %#v", observation.Labels)
+	}
+}
+
 func liveSmokeBinary(environment string, defaultPath string) string {
 	if override := os.Getenv(environment); override != "" {
 		return override
 	}
 	return defaultPath
-}
-
-// liveSmokeArchitecture maps the host architecture onto the closed platform
-// vocabulary of the run request.
-func liveSmokeArchitecture() string {
-	if goruntime.GOARCH == "arm64" {
-		return "arm64"
-	}
-	return "amd64"
-}
-
-// liveSmokeFingerprintPlaceholder supplies the 64-character lowercase
-// fingerprint the fencing labels require; a smoke container carries the smoke
-// marker instead of a canonical plan digest.
-func liveSmokeFingerprintPlaceholder() string {
-	const digits = "0123456789abcdef"
-	fingerprint := make([]byte, 0, 64)
-	for index := 0; index < 64; index++ {
-		fingerprint = append(fingerprint, digits[index%len(digits)])
-	}
-	return string(fingerprint)
 }

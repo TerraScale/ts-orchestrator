@@ -1,8 +1,9 @@
 //go:build live_autoscaler
 
 // Package live holds infrastructure-backed smoke tests. This file uses the
-// real local process provider and a real ts-node child, so it remains gated by
-// both a build tag and explicit environment opt-in.
+// local process lifecycle provider and a real ts-node child, so it remains
+// gated by both a build tag and explicit environment opt-in. It does not
+// converge a workload or claim restart-safe provider ownership.
 package live
 
 import (
@@ -31,11 +32,12 @@ func (liveAllowDrains) EvaluateDrainSafety(
 	return stateful.NewDrainDecision(true, "live stateless node is safe to drain", nil)
 }
 
-// TestAutoscalerLocalProviderLifecycle proves the production loop against a
-// material provider. The real engine provisions a real ts-node child through
-// CommandProcessSpawner, receives its heartbeat, cordons it over NATS, proves
-// the empty node drained, and retires the exact child process. This test does
-// not claim OCI evidence; it is the documented single-host provider lane.
+// TestAutoscalerLocalProviderLifecycle proves the autoscaler action sequence
+// against a material single-host lifecycle provider. The real engine
+// provisions a real ts-node child through CommandProcessSpawner, receives its
+// heartbeat, cordons it over NATS, proves the empty node drained, and retires
+// the exact child process. This test claims neither workload convergence nor
+// OCI or restart-recovery evidence.
 func TestAutoscalerLocalProviderLifecycle(t *testing.T) {
 	if os.Getenv("TS_ORCH_LIVE_AUTOSCALER") != "1" {
 		t.Skip("live autoscaler smoke: set TS_ORCH_LIVE_AUTOSCALER=1 and build with -tags live_autoscaler")
