@@ -27,10 +27,6 @@ type InvalidDataError struct {
 
 func (e *InvalidDataError) Error() string { return e.Message }
 
-// ArgumentError keeps host-agent callers source-compatible while using the
-// shared argument error introduced by the legacy-error cleanup.
-type ArgumentError = errs.Argument
-
 var hostAgentTokenPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 
 var hostAgentFingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
