@@ -128,9 +128,10 @@ TS_ORCH_OCI_KEY_ID=<instance-principal-key-id>
 TS_ORCH_OCI_PRIVATE_KEY_FILE=/run/credentials/oci-instance-principal.pem
 ```
 
-The key file must be a regular PKCS#1 or PKCS#8 RSA private key with mode 0600
-or stricter. `orchestrator run`, `orchestrator check`, and the autoscaler refuse
-to start if any required setting is absent or any read-only estate check fails.
+The key file must be a regular PKCS#1 or PKCS#8 RSA private key owned by the
+service account with mode 0600 or stricter. `orchestrator run`,
+`orchestrator check`, and the autoscaler refuse to start if any required
+setting is absent or any read-only estate check fails.
 
 ## 6. Verify before handoff
 

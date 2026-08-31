@@ -207,7 +207,7 @@ func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateRe
 		return &ArgumentError{Message: "OCI estate verification request is invalid"}
 	}
 	for _, compartment := range []string{spec.ControlCompartmentID, spec.NetworkCompartmentID, spec.WorkloadCompartmentID} {
-		if err := verifyEstateResource(ctx, reader, OCIServiceIdentity, "/20160918/compartments/"+url.PathEscape(compartment), compartment, "", "", false); err != nil {
+		if err := verifyEstateResource(ctx, reader, OCIServiceIdentity, "/20160918/compartments/"+url.PathEscape(compartment), compartment, spec.TenancyID, "", false); err != nil {
 			return err
 		}
 	}

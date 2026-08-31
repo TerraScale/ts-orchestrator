@@ -399,7 +399,7 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	spec := OCIEstateSpec{Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1.x", ControlCompartmentID: control, NetworkCompartmentID: network, WorkloadCompartmentID: workload, VCNID: vcn, SubnetIDs: subnets, NetworkSecurityGroupIDs: nsgs, IAMPolicyCompartmentID: control, IAMPolicies: []OCIEstatePolicy{{ID: policy, Statements: []string{statement}}}, VaultID: vault, KeyID: key, KeyManagementEndpoint: "https://vault-management.kms.sa-saopaulo-1.oraclecloud.com", ObjectNamespace: "namespace", LedgerBucket: "terrascale-ledger", BackupBucket: "terrascale-backups"}
 	reader := fakeEstateReader{}
 	for _, compartment := range []string{control, network, workload} {
-		reader[string(OCIServiceIdentity)+"|/20160918/compartments/"+compartment] = `{"id":"` + compartment + `","lifecycleState":"ACTIVE"}`
+		reader[string(OCIServiceIdentity)+"|/20160918/compartments/"+compartment] = `{"id":"` + compartment + `","compartmentId":"` + spec.TenancyID + `","lifecycleState":"ACTIVE"}`
 	}
 	reader[string(OCIServiceCore)+"|/20160918/vcns/"+vcn] = `{"id":"` + vcn + `","compartmentId":"` + network + `","lifecycleState":"AVAILABLE"}`
 	for _, subnet := range subnets {
