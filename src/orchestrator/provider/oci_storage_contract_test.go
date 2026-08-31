@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -148,6 +149,192 @@ func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
 	if err != nil || size != int64(len(blob)) || string(gotBlob) != blob {
 		t.Fatalf("blob size=%d body=%q err=%v", size, gotBlob, err)
 	}
+}
+
+func TestOCIRegistryAdapterFollowsOneValidatedBlobRedirect(t *testing.T) {
+	blob := "redirected-layer"
+	digest := "sha256:" + objectSHA256([]byte(blob))
+	for _, host := range []string{
+		"objectstorage.sa-saopaulo-1.oraclecloud.com",
+		"objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+		"namespace-1.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+	} {
+		t.Run(host, func(t *testing.T) {
+			calls := 0
+			transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch calls {
+				case 1:
+					username, token, ok := request.BasicAuth()
+					if !ok || username != "namespace/runner" || token != "registry-token" {
+						t.Fatal("initial registry request did not carry its OCIR credential")
+					}
+					location := "https://" + host + "/p/presigned/n/namespace/b/layers/o/blob?token=presigned-secret"
+					return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {location}}), nil
+				case 2:
+					if request.URL.Host != host || request.URL.Path != "/p/presigned/n/namespace/b/layers/o/blob" || request.URL.RawQuery != "token=presigned-secret" {
+						t.Fatalf("redirect request authority or target changed: host=%q path=%q", request.URL.Host, request.URL.Path)
+					}
+					if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" || request.Header.Get("Accept") != "application/octet-stream" {
+						t.Fatalf("redirect request carried registry credentials or wrong media type: %v", request.Header)
+					}
+					return testHTTPResponse(http.StatusOK, blob, http.Header{"Content-Length": {"16"}}), nil
+				default:
+					t.Fatal("registry blob pull followed more than one redirect hop")
+					return nil, io.ErrUnexpectedEOF
+				}
+			})
+			signer, err := NewOCIRegistryTokenSigner("namespace/runner", "registry-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			transport.Signer = signer
+			adapter, err := NewOCIRegistryAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, size, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/terrascale/member", Digest: digest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			content, err := io.ReadAll(reader)
+			if err != nil || string(content) != blob || size != int64(len(blob)) || calls != 2 {
+				t.Fatalf("redirected blob size=%d body=%q calls=%d err=%v", size, content, calls, err)
+			}
+		})
+	}
+}
+
+func TestOCIRegistryAdapterRejectsHostileBlobRedirectsWithoutLeakingTargets(t *testing.T) {
+	tests := map[string]string{
+		"relative":          "/p/blob?token=presigned-secret",
+		"plaintext":         "http://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret",
+		"userinfo":          "https://user@objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret",
+		"fragment":          "https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret#fragment",
+		"port":              "https://objectstorage.sa-saopaulo-1.oraclecloud.com:443/p/blob?token=presigned-secret",
+		"wrong-region":      "https://objectstorage.us-sanjose-1.oraclecloud.com/p/blob?token=presigned-secret",
+		"oracle-suffix":     "https://objectstorage.sa-saopaulo-1.oraclecloud.com.evil.test/p/blob?token=presigned-secret",
+		"nested-namespace":  "https://a.b.objectstorage.sa-saopaulo-1.oci.customer-oci.com/p/blob?token=presigned-secret",
+		"invalid-namespace": "https://-namespace.objectstorage.sa-saopaulo-1.oci.customer-oci.com/p/blob?token=presigned-secret",
+		"registry-host":     "https://gru.ocir.io/p/blob?token=presigned-secret",
+	}
+	for name, location := range tests {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+				calls++
+				if calls != 1 {
+					t.Fatal("invalid registry redirect reached its target")
+				}
+				return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {location}}), nil
+			})
+			adapter, err := NewOCIRegistryAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: "sha256:" + strings.Repeat("a", 64)})
+			if err == nil || calls != 1 || strings.Contains(err.Error(), location) || strings.Contains(err.Error(), "presigned-secret") {
+				t.Fatalf("hostile redirect calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
+func TestOCIRegistryAdapterBoundsRedirectsAndRedactsFailures(t *testing.T) {
+	digest := "sha256:" + objectSHA256([]byte("expected"))
+	t.Run("second redirect", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=first-secret"}}), nil
+			}
+			return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://evil.test/blob?token=second-secret"}}), nil
+		})
+		adapter, err := NewOCIRegistryAdapter(transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
+		if err == nil || calls != 2 || strings.Contains(err.Error(), "first-secret") || strings.Contains(err.Error(), "second-secret") {
+			t.Fatalf("second redirect calls=%d err=%v", calls, err)
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		calls := 0
+		transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
+			calls++
+			if calls == 1 {
+				return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret"}}), nil
+			}
+			return nil, errors.New(request.URL.String())
+		})
+		adapter, err := NewOCIRegistryAdapter(transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
+		if err == nil || calls != 2 || strings.Contains(err.Error(), "presigned-secret") || strings.Contains(err.Error(), "objectstorage") {
+			t.Fatalf("redirect transport error calls=%d err=%v", calls, err)
+		}
+	})
+
+	for name, response := range map[string]*http.Response{
+		"over 64 GiB":          testHTTPResponse(http.StatusOK, "", http.Header{"Content-Length": {"68719476737"}}),
+		"duplicate length":     testHTTPResponse(http.StatusOK, "", http.Header{"Content-Length": {"8", "9"}}),
+		"wrong digest header":  testHTTPResponse(http.StatusOK, "expected", http.Header{"Content-Length": {"8"}, "Docker-Content-Digest": {"sha256:" + strings.Repeat("b", 64)}}),
+		"duplicate digest":     testHTTPResponse(http.StatusOK, "expected", http.Header{"Content-Length": {"8"}, "Docker-Content-Digest": {digest, digest}}),
+		"malformed digest":     testHTTPResponse(http.StatusOK, "expected", http.Header{"Content-Length": {"8"}, "Docker-Content-Digest": {"sha256:not-a-digest"}}),
+		"uppercase digest hex": testHTTPResponse(http.StatusOK, "expected", http.Header{"Content-Length": {"8"}, "Docker-Content-Digest": {"sha256:" + strings.Repeat("A", 64)}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret"}}), nil
+				}
+				return response, nil
+			})
+			adapter, err := NewOCIRegistryAdapter(transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
+			if err == nil || calls != 2 || strings.Contains(err.Error(), "presigned-secret") {
+				t.Fatalf("redirect metadata calls=%d err=%v", calls, err)
+			}
+		})
+	}
+
+	t.Run("stream length and digest", func(t *testing.T) {
+		for name, body := range map[string]string{"length": "expected-extra", "digest": "mismatch"} {
+			t.Run(name, func(t *testing.T) {
+				calls := 0
+				transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
+					calls++
+					if calls == 1 {
+						return testHTTPResponse(http.StatusTemporaryRedirect, "", http.Header{"Location": {"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/blob?token=presigned-secret"}}), nil
+					}
+					return testHTTPResponse(http.StatusOK, body, http.Header{"Content-Length": {"8"}}), nil
+				})
+				adapter, err := NewOCIRegistryAdapter(transport)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reader, _, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer reader.Close()
+				if _, err := io.ReadAll(reader); err == nil {
+					t.Fatal("redirected blob stream accepted invalid content")
+				}
+			})
+		}
+	})
 }
 
 func TestOCIResourceReadsUseHeaderETags(t *testing.T) {
