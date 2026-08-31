@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type OCIBlockStorageAdapter struct {
@@ -42,13 +44,13 @@ func VolumeCreateMutationScope(request VolumeCreateRequest) string {
 
 func validateVolumeCreate(request VolumeCreateRequest) error {
 	if !isOCID(request.CompartmentID, "compartment") || len(request.AvailabilityDomain) < 1 || len(request.AvailabilityDomain) > 128 {
-		return &ArgumentError{Message: "volume create placement is invalid"}
+		return &errs.Argument{Message: "volume create placement is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "volume display name", 128); err != nil {
 		return err
 	}
 	if request.SizeGiB < 50 || request.SizeGiB > 32*1024 || request.VPUsPerGiB < 10 || request.VPUsPerGiB > 120 {
-		return &ArgumentError{Message: "volume create size or performance is invalid"}
+		return &errs.Argument{Message: "volume create size or performance is invalid"}
 	}
 	if _, err := safeFreeformTags(request.Tags); err != nil {
 		return err
@@ -184,7 +186,7 @@ func (a *OCIBlockStorageAdapter) findVolumeForIntent(ctx context.Context, reques
 
 func (a *OCIBlockStorageAdapter) GetBlockVolume(ctx context.Context, id string) (BlockVolume, bool, error) {
 	if a == nil || a.Core == nil || !isOCID(id, "volume") {
-		return BlockVolume{}, false, &ArgumentError{Message: "block volume identity is invalid"}
+		return BlockVolume{}, false, &errs.Argument{Message: "block volume identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumes/"+url.PathEscape(id), nil)
 	if err != nil {
@@ -227,7 +229,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 		return &InvalidOperationError{Message: "OCI block storage adapter is unavailable"}
 	}
 	if !isOCID(request.VolumeID, "volume") || !isSafeETag(request.IfMatch) {
-		return &ArgumentError{Message: "volume delete fence is invalid"}
+		return &errs.Argument{Message: "volume delete fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.VolumeID, ""); err != nil {
 		return err
@@ -321,7 +323,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 		return VolumeAttachment{}, &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
 	}
 	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.InstanceID, "instance") || !isOCID(request.VolumeID, "volume") {
-		return VolumeAttachment{}, &ArgumentError{Message: "volume attachment identity is invalid"}
+		return VolumeAttachment{}, &errs.Argument{Message: "volume attachment identity is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, request.CompartmentID); err != nil {
 		return VolumeAttachment{}, err
@@ -430,7 +432,7 @@ func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request
 
 func (a *OCIVolumeAttachmentAdapter) GetVolumeAttachment(ctx context.Context, id string) (VolumeAttachment, bool, error) {
 	if a == nil || a.Core == nil || !isOCID(id, "volumeattachment") {
-		return VolumeAttachment{}, false, &ArgumentError{Message: "volume attachment identity is invalid"}
+		return VolumeAttachment{}, false, &errs.Argument{Message: "volume attachment identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/volumeAttachments/"+url.PathEscape(id), nil)
 	if err != nil {
@@ -473,7 +475,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 		return &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
 	}
 	if !isOCID(request.AttachmentID, "volumeattachment") || !isSafeETag(request.IfMatch) {
-		return &ArgumentError{Message: "volume detach fence is invalid"}
+		return &errs.Argument{Message: "volume detach fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.AttachmentID, ""); err != nil {
 		return err

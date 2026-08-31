@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 func validObjectPart(value string, max int, slash bool) bool {
@@ -51,7 +53,7 @@ type OCIEstatePolicy struct {
 
 func LoadOCIEstateSpec(path string) (OCIEstateSpec, error) {
 	if !filepath.IsAbs(path) {
-		return OCIEstateSpec{}, &ArgumentError{Message: "OCI estate file path must be absolute"}
+		return OCIEstateSpec{}, &errs.Argument{Message: "OCI estate file path must be absolute"}
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
@@ -80,21 +82,21 @@ func validateOCIEstateSpec(spec OCIEstateSpec) error {
 		!validObjectPart(spec.BackupBucket, 256, false) || spec.LedgerBucket == spec.BackupBucket ||
 		len(spec.SubnetIDs) < 1 || len(spec.SubnetIDs) > 16 || len(spec.NetworkSecurityGroupIDs) < 1 || len(spec.NetworkSecurityGroupIDs) > 16 ||
 		len(spec.IAMPolicies) == 0 || len(spec.IAMPolicies) > 16 {
-		return &ArgumentError{Message: "OCI estate specification is incomplete"}
+		return &errs.Argument{Message: "OCI estate specification is incomplete"}
 	}
 	keyEndpoint, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, spec.Region, spec.KeyManagementEndpoint)
 	if err != nil || keyEndpoint.Endpoint == nil {
-		return &ArgumentError{Message: "OCI estate key management endpoint is invalid"}
+		return &errs.Argument{Message: "OCI estate key management endpoint is invalid"}
 	}
 	policyIDs := make([]string, 0, len(spec.IAMPolicies))
 	for _, policy := range spec.IAMPolicies {
 		if len(policy.Statements) == 0 || len(policy.Statements) > 32 {
-			return &ArgumentError{Message: "OCI estate IAM policy is incomplete"}
+			return &errs.Argument{Message: "OCI estate IAM policy is incomplete"}
 		}
 		seenStatements := map[string]bool{}
 		for _, statement := range policy.Statements {
 			if len(statement) < 1 || len(statement) > 1024 || strings.ContainsAny(statement, "\r\n") || seenStatements[statement] {
-				return &ArgumentError{Message: "OCI estate IAM policy statement is invalid"}
+				return &errs.Argument{Message: "OCI estate IAM policy statement is invalid"}
 			}
 			seenStatements[statement] = true
 		}
@@ -110,7 +112,7 @@ func validateEstateIDs(groups ...any) error {
 		seen := map[string]bool{}
 		for _, id := range ids {
 			if !isOCID(id, kind) || seen[id] {
-				return &ArgumentError{Message: "OCI estate specification contains invalid resource identities"}
+				return &errs.Argument{Message: "OCI estate specification contains invalid resource identities"}
 			}
 			seen[id] = true
 		}
@@ -147,7 +149,7 @@ func (r *OCIEstateHTTPReader) Read(ctx context.Context, service OCIService, path
 
 func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEstateHTTPReader, error) {
 	if validateOCIEstateSpec(spec) != nil || keyID == "" || !filepath.IsAbs(keyPath) {
-		return nil, &ArgumentError{Message: "OCI estate verification credentials are invalid"}
+		return nil, &errs.Argument{Message: "OCI estate verification credentials are invalid"}
 	}
 	key, err := readRSAPrivateKey(keyPath)
 	if err != nil {
@@ -204,7 +206,7 @@ func readRSAPrivateKey(path string) (*rsa.PrivateKey, error) {
 
 func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateReader) error {
 	if ctx == nil || reader == nil || validateOCIEstateSpec(spec) != nil {
-		return &ArgumentError{Message: "OCI estate verification request is invalid"}
+		return &errs.Argument{Message: "OCI estate verification request is invalid"}
 	}
 	for _, compartment := range []string{spec.ControlCompartmentID, spec.NetworkCompartmentID, spec.WorkloadCompartmentID} {
 		if err := verifyEstateResource(ctx, reader, OCIServiceIdentity, "/20160918/compartments/"+url.PathEscape(compartment), compartment, spec.TenancyID, "", false); err != nil {

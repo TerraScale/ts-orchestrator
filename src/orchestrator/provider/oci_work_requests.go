@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 type OCIWorkRequestAdapter struct {
@@ -38,7 +40,7 @@ func validWorkRequestID(id string) bool {
 
 func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (WorkRequest, error) {
 	if a == nil || a.Core == nil || !validWorkRequestID(id) {
-		return WorkRequest{}, &ArgumentError{Message: "OCI work request identity is invalid"}
+		return WorkRequest{}, &errs.Argument{Message: "OCI work request identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/workRequests/"+url.PathEscape(id), nil)
 	if err != nil {
@@ -84,7 +86,7 @@ func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (
 
 func (a *OCIWorkRequestAdapter) WaitWorkRequest(ctx context.Context, id string, policy WorkRequestWaitPolicy) (WorkRequest, error) {
 	if a == nil || a.Wait == nil || policy.PollInterval < 0 || policy.PollInterval > time.Minute || policy.MaxPolls < 1 || policy.MaxPolls > 10000 || policy.MaxNotFound < 0 || policy.MaxNotFound > policy.MaxPolls {
-		return WorkRequest{}, &ArgumentError{Message: "OCI work request wait policy is invalid"}
+		return WorkRequest{}, &errs.Argument{Message: "OCI work request wait policy is invalid"}
 	}
 	notFound := 0
 	for poll := 0; poll < policy.MaxPolls; poll++ {

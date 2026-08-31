@@ -291,7 +291,7 @@ func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (
 	}
 	_, ok := ociServiceHost(service, region)
 	if !ok {
-		return OCITransportConfig{}, &ArgumentError{Message: "OCI service is invalid"}
+		return OCITransportConfig{}, &errs.Argument{Message: "OCI service is invalid"}
 	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || !validOCIServiceHost(service, region, u.Host) {

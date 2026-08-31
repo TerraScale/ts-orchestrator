@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // ProviderOutcomeUnknownError means a mutating provider request may have been
@@ -100,17 +102,17 @@ func ProviderMutationScope(kind string, parts ...string) string {
 
 func validateMutationIntent(intent ProviderMutationIntent) error {
 	if intent.OperationID.Value == "" || intent.Epoch.Value == 0 || intent.IdempotencyKey.Value == "" {
-		return &ArgumentError{Message: "provider mutation intent is incomplete"}
+		return &errs.Argument{Message: "provider mutation intent is incomplete"}
 	}
 	if len(intent.Scope) < 1 || len(intent.Scope) > 512 || strings.ContainsAny(intent.Scope, "\r\n") ||
 		len(intent.Action) < 1 || len(intent.Action) > 96 || !tokenPattern.MatchString(intent.Action) {
-		return &ArgumentError{Message: "provider mutation intent identity is invalid"}
+		return &errs.Argument{Message: "provider mutation intent identity is invalid"}
 	}
 	if len(intent.Fingerprint) != sha256.Size*2 {
-		return &ArgumentError{Message: "provider mutation fingerprint is invalid"}
+		return &errs.Argument{Message: "provider mutation fingerprint is invalid"}
 	}
 	if _, err := hex.DecodeString(intent.Fingerprint); err != nil || strings.ToLower(intent.Fingerprint) != intent.Fingerprint {
-		return &ArgumentError{Message: "provider mutation fingerprint is invalid"}
+		return &errs.Argument{Message: "provider mutation fingerprint is invalid"}
 	}
 	return nil
 }
@@ -131,7 +133,7 @@ type CASProviderMutationJournal struct{ store OwnershipCASStore }
 
 func NewCASProviderMutationJournal(store OwnershipCASStore) (*CASProviderMutationJournal, error) {
 	if store == nil {
-		return nil, &ArgumentError{Param: "store", Message: "provider mutation CAS store is required"}
+		return nil, &errs.Argument{Param: "store", Message: "provider mutation CAS store is required"}
 	}
 	return &CASProviderMutationJournal{store: store}, nil
 }
@@ -178,7 +180,7 @@ func (j *CASProviderMutationJournal) Prepare(ctx context.Context, intent Provide
 		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal is unavailable"}
 	}
 	if ctx == nil {
-		return ProviderMutationRecord{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ProviderMutationRecord{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return ProviderMutationRecord{}, err
@@ -240,7 +242,7 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal is unavailable"}
 	}
 	if ctx == nil {
-		return ProviderMutationRecord{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ProviderMutationRecord{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return ProviderMutationRecord{}, err
@@ -249,11 +251,11 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 		return ProviderMutationRecord{}, err
 	}
 	if failure != "" && (len(failure) > 96 || !tokenPattern.MatchString(failure)) {
-		return ProviderMutationRecord{}, &ArgumentError{Message: "provider mutation failure code is invalid"}
+		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation failure code is invalid"}
 	}
 	if len(result.ResourceID) > 2048 || len(result.WorkRequestID) > 256 || len(result.ETag) > 512 ||
 		strings.ContainsAny(result.ResourceID+result.WorkRequestID+result.ETag, "\r\n") {
-		return ProviderMutationRecord{}, &ArgumentError{Message: "provider mutation result is invalid"}
+		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation result is invalid"}
 	}
 	key := mutationJournalKey(intent.Scope)
 	for attempt := 0; attempt < 8; attempt++ {
@@ -316,13 +318,13 @@ func (j *CASProviderMutationJournal) MarkSubmitted(ctx context.Context, intent P
 // advances the durable cursor before an adapter tries another candidate.
 func (j *CASProviderMutationJournal) MarkAttemptRejected(ctx context.Context, intent ProviderMutationIntent, attempt int) (ProviderMutationRecord, error) {
 	if attempt < 0 {
-		return ProviderMutationRecord{}, &ArgumentError{Message: "provider mutation attempt is invalid"}
+		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation attempt is invalid"}
 	}
 	if j == nil || j.store == nil {
 		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal is unavailable"}
 	}
 	if ctx == nil {
-		return ProviderMutationRecord{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ProviderMutationRecord{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return ProviderMutationRecord{}, err
@@ -586,7 +588,7 @@ func mutationResultAttachment(result ProviderMutationResult) (VolumeAttachment, 
 
 func validateBoundedName(value, field string, max int) error {
 	if len(value) < 1 || len(value) > max || strings.ContainsAny(value, "\r\n") {
-		return &ArgumentError{Message: fmt.Sprintf("%s is invalid", field)}
+		return &errs.Argument{Message: fmt.Sprintf("%s is invalid", field)}
 	}
 	return nil
 }
