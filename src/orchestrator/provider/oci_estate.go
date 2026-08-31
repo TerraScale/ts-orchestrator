@@ -51,6 +51,24 @@ type OCIEstatePolicy struct {
 	Statements []string `json:"statements"`
 }
 
+type ociEstateBucket struct {
+	Namespace        string `json:"namespace"`
+	Name             string `json:"name"`
+	CompartmentID    string `json:"compartmentId"`
+	PublicAccessType string `json:"publicAccessType"`
+	Versioning       string `json:"versioning"`
+	KMSKeyID         string `json:"kmsKeyId"`
+}
+
+type ociEstateRetentionRule struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Duration    *struct {
+		TimeAmount int64  `json:"timeAmount"`
+		TimeUnit   string `json:"timeUnit"`
+	} `json:"duration"`
+}
+
 func LoadOCIEstateSpec(path string) (OCIEstateSpec, error) {
 	if !filepath.IsAbs(path) {
 		return OCIEstateSpec{}, &errs.Argument{Message: "OCI estate file path must be absolute"}
@@ -124,6 +142,7 @@ func validateEstateIDs(groups ...any) error {
 // by startup and fake malformed-estate tests.
 type OCIEstateReader interface {
 	Read(context.Context, OCIService, string) ([]byte, int, error)
+	ReadPage(context.Context, OCIService, string, string) ([]byte, int, string, error)
 }
 
 type OCIEstateHTTPReader struct {
@@ -131,20 +150,36 @@ type OCIEstateHTTPReader struct {
 }
 
 func (r *OCIEstateHTTPReader) Read(ctx context.Context, service OCIService, path string) ([]byte, int, error) {
+	body, status, _, err := r.ReadPage(ctx, service, path, "")
+	return body, status, err
+}
+
+func (r *OCIEstateHTTPReader) ReadPage(ctx context.Context, service OCIService, path, page string) ([]byte, int, string, error) {
 	if r == nil {
-		return nil, 0, &InvalidOperationError{Message: "OCI estate reader is unavailable"}
+		return nil, 0, "", &InvalidOperationError{Message: "OCI estate reader is unavailable"}
 	}
 	transport := r.Transports[service]
 	if transport == nil {
-		return nil, 0, &InvalidOperationError{Message: "OCI estate reader is unavailable"}
+		return nil, 0, "", &InvalidOperationError{Message: "OCI estate reader is unavailable"}
 	}
-	resp, err := transport.Do(ctx, http.MethodGet, path, nil)
+	requestPath := path
+	if page != "" {
+		if !validOCIPageToken(page) {
+			return nil, 0, "", &InvalidDataError{Message: "OCI estate pagination is invalid"}
+		}
+		requestPath += "?" + url.Values{"page": {page}}.Encode()
+	}
+	resp, err := transport.Do(ctx, http.MethodGet, requestPath, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	status := resp.StatusCode
-	body, err := ReadBoundedBody(resp, transport.Config.MaxBodyBytes)
-	return body, status, err
+	next, nextErr := validatedOCINextPage(resp)
+	body, bodyErr := ReadBoundedBody(resp, transport.Config.MaxBodyBytes)
+	if nextErr != nil {
+		return nil, status, "", nextErr
+	}
+	return body, status, next, bodyErr
 }
 
 func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEstateHTTPReader, error) {
@@ -240,15 +275,57 @@ func VerifyOCIEstate(ctx context.Context, spec OCIEstateSpec, reader OCIEstateRe
 	for _, bucket := range []string{spec.LedgerBucket, spec.BackupBucket} {
 		path := "/n/" + url.PathEscape(spec.ObjectNamespace) + "/b/" + url.PathEscape(bucket)
 		body, status, err := reader.Read(ctx, OCIServiceObjectStorage, path)
-		var document struct {
-			Name          string `json:"name"`
-			CompartmentID string `json:"compartmentId"`
-		}
-		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || document.Name != bucket || document.CompartmentID != spec.ControlCompartmentID {
+		var document ociEstateBucket
+		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || !validEstateBucket(document, bucket, spec) {
 			return &InvalidDataError{Message: "OCI estate verification rejected a bucket"}
+		}
+		if err := verifyEstateRetentionRules(ctx, reader, path); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validEstateBucket(document ociEstateBucket, expectedName string, spec OCIEstateSpec) bool {
+	return document.Namespace == spec.ObjectNamespace && document.Name == expectedName &&
+		document.CompartmentID == spec.ControlCompartmentID && document.PublicAccessType == "NoPublicAccess" &&
+		document.Versioning == "Enabled" && document.KMSKeyID == spec.KeyID
+}
+
+func verifyEstateRetentionRules(ctx context.Context, reader OCIEstateReader, bucketPath string) error {
+	path := bucketPath + "/retentionRules"
+	seenPages := map[string]bool{"": true}
+	seenRules := make(map[string]bool)
+	page := ""
+	for pagesRead := 1; pagesRead <= maximumOCIPages; pagesRead++ {
+		body, status, next, err := reader.ReadPage(ctx, OCIServiceObjectStorage, path, page)
+		var document struct {
+			Items []ociEstateRetentionRule `json:"items"`
+		}
+		if err != nil || status < 200 || status >= 300 || json.Unmarshal(body, &document) != nil || document.Items == nil ||
+			len(document.Items) > maximumOCIListResults || len(seenRules)+len(document.Items) > maximumOCIListResults*maximumOCIPages {
+			return &InvalidDataError{Message: "OCI estate verification rejected bucket retention rules"}
+		}
+		for _, rule := range document.Items {
+			if !validObjectPart(rule.ID, 256, false) || !validObjectPart(rule.DisplayName, 256, true) || rule.Duration == nil ||
+				rule.Duration.TimeAmount <= 0 || (rule.Duration.TimeUnit != "DAYS" && rule.Duration.TimeUnit != "YEARS") || seenRules[rule.ID] {
+				return &InvalidDataError{Message: "OCI estate verification rejected bucket retention rules"}
+			}
+			seenRules[rule.ID] = true
+		}
+		if next == "" {
+			if len(seenRules) == 0 {
+				return &InvalidDataError{Message: "OCI estate verification rejected bucket retention rules"}
+			}
+			return nil
+		}
+		if !validOCIPageToken(next) || pagesRead == maximumOCIPages || seenPages[next] {
+			return &InvalidDataError{Message: "OCI estate verification rejected bucket retention rules"}
+		}
+		seenPages[next] = true
+		page = next
+	}
+	return &InvalidDataError{Message: "OCI estate verification rejected bucket retention rules"}
 }
 
 func verifyEstatePolicy(ctx context.Context, reader OCIEstateReader, compartment string, expected OCIEstatePolicy) error {

@@ -149,3 +149,265 @@ func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
 		t.Fatalf("blob size=%d body=%q err=%v", size, gotBlob, err)
 	}
 }
+
+func TestOCIStorageDeletesConvergeWhenResourcesAreAlreadyAbsent(t *testing.T) {
+	volumeID := "ocid1.volume.oc1.absent"
+	attachmentID := "ocid1.volumeattachment.oc1.absent"
+
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent volume deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeAdapter.Ownership = testOwnership(t, volumeID)
+	volumeRequest := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+	volumeRequest.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(volumeRequest), VolumeDeleteMutationFingerprint(volumeRequest), 5)
+	if err := volumeAdapter.DeleteVolume(context.Background(), volumeRequest); err != nil {
+		t.Fatalf("already-absent volume deletion failed: %v", err)
+	}
+
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent attachment deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentID)
+	attachmentRequest := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	attachmentRequest.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(attachmentRequest), VolumeDetachMutationFingerprint(attachmentRequest), 6)
+	if err := attachmentAdapter.DetachVolume(context.Background(), attachmentRequest); err != nil {
+		t.Fatalf("already-absent attachment deletion failed: %v", err)
+	}
+
+	objectTransport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodHead {
+			t.Fatalf("already-absent object deletion sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	objectAdapter, err := NewOCIObjectStorageAdapter(objectTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectRequest := ObjectDeleteRequest{Object: ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "absent"}, IfMatch: "object-etag"}
+	objectRequest.Mutation = testMutation("object.delete", ObjectDeleteMutationScope(objectRequest), ObjectDeleteMutationFingerprint(objectRequest), 7)
+	if err := objectAdapter.DeleteObject(context.Background(), objectRequest); err != nil {
+		t.Fatalf("already-absent object deletion failed: %v", err)
+	}
+}
+
+func TestOCIBlockVolumeDeleteAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeID := "ocid1.volume.oc1.x"
+	adapter.Ownership = testOwnership(t, volumeID)
+	request := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+	request.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(request), VolumeDeleteMutationFingerprint(request), 1)
+	if err := adapter.DeleteVolume(context.Background(), request); err != nil {
+		t.Fatalf("first absent volume delete = %v", err)
+	}
+	if err := adapter.DeleteVolume(context.Background(), request); err != nil {
+		t.Fatalf("retry absent volume delete = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent volume delete issued %d delete requests", deletes)
+	}
+}
+
+func TestOCIStorageMutationResponsesStayInRequestedCompartment(t *testing.T) {
+	volumeRequest := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1.x", AvailabilityDomain: "AD-1", DisplayName: "scope-check", SizeGiB: 100, VPUsPerGiB: 20}
+	volumeRequest.Mutation = testMutation("volume.create", VolumeCreateMutationScope(volumeRequest), VolumeCreateMutationFingerprint(volumeRequest), 1)
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`, http.Header{"Etag": {"volume-etag"}}), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := volumeAdapter.CreateVolume(context.Background(), volumeRequest); err == nil {
+		t.Fatal("out-of-scope volume response was accepted")
+	}
+
+	attachmentRequest := VolumeAttachRequest{CompartmentID: "ocid1.compartment.oc1.x", InstanceID: "ocid1.instance.oc1.x", VolumeID: "ocid1.volume.oc1.x", DisplayName: "scope-check"}
+	attachmentRequest.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(attachmentRequest), VolumeAttachMutationFingerprint(attachmentRequest), 2)
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volumeattachment.oc1.x","compartmentId":"ocid1.compartment.oc1.other","instanceId":"ocid1.instance.oc1.x","volumeId":"ocid1.volume.oc1.x","lifecycleState":"ATTACHING"}`, http.Header{"Etag": {"attachment-etag"}}), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentRequest.InstanceID, attachmentRequest.VolumeID)
+	if _, err := attachmentAdapter.AttachVolume(context.Background(), attachmentRequest); err == nil {
+		t.Fatal("out-of-scope attachment response was accepted")
+	}
+}
+
+func TestOCIStorageReconciliationFollowsNextPage(t *testing.T) {
+	volumeRequest := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1.x", AvailabilityDomain: "AD-1", DisplayName: "paged-volume", SizeGiB: 100, VPUsPerGiB: 20}
+	volumeRequest.Mutation = testMutation("volume.create", VolumeCreateMutationScope(volumeRequest), VolumeCreateMutationFingerprint(volumeRequest), 1)
+	volumeJournal := testJournal(t)
+	if _, err := volumeJournal.Prepare(context.Background(), volumeRequest.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := volumeJournal.MarkSubmitted(context.Background(), volumeRequest.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	volumeCalls := 0
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		volumeCalls++
+		if request.URL.Query().Get("page") == "" {
+			return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
+		}
+		body := `{"items":[{"id":"ocid1.volume.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"AVAILABLE","sizeInGBs":100,"vpusPerGB":20,"etag":"volume-etag","freeformTags":{"terrascale-operation":"` + volumeRequest.Mutation.OperationID.Value + `","terrascale-intent":"` + volumeRequest.Mutation.Fingerprint + `"}}]}`
+		return testHTTPResponse(http.StatusOK, body, nil), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, volumeJournal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume, err := volumeAdapter.CreateVolume(context.Background(), volumeRequest)
+	if err != nil || volume.ID != "ocid1.volume.oc1.x" || volumeCalls != 2 {
+		t.Fatalf("paged volume reconciliation volume=%+v calls=%d err=%v", volume, volumeCalls, err)
+	}
+
+	attachmentRequest := VolumeAttachRequest{CompartmentID: "ocid1.compartment.oc1.x", InstanceID: "ocid1.instance.oc1.x", VolumeID: "ocid1.volume.oc1.x", DisplayName: "paged-attachment"}
+	attachmentRequest.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(attachmentRequest), VolumeAttachMutationFingerprint(attachmentRequest), 2)
+	attachmentJournal := testJournal(t)
+	if _, err := attachmentJournal.Prepare(context.Background(), attachmentRequest.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := attachmentJournal.MarkSubmitted(context.Background(), attachmentRequest.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	attachmentCalls := 0
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		attachmentCalls++
+		if request.URL.Query().Get("page") == "" {
+			return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
+		}
+		return testHTTPResponse(http.StatusOK, `{"items":[{"id":"ocid1.volumeattachment.oc1.x","compartmentId":"ocid1.compartment.oc1.x","instanceId":"ocid1.instance.oc1.x","volumeId":"ocid1.volume.oc1.x","lifecycleState":"ATTACHED","etag":"attachment-etag"}]}`, nil), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, attachmentJournal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentRequest.InstanceID, attachmentRequest.VolumeID)
+	attachment, err := attachmentAdapter.AttachVolume(context.Background(), attachmentRequest)
+	if err != nil || attachment.ID != "ocid1.volumeattachment.oc1.x" || attachmentCalls != 2 {
+		t.Fatalf("paged attachment reconciliation attachment=%+v calls=%d err=%v", attachment, attachmentCalls, err)
+	}
+}
+
+func TestOCIStorageDeletesRejectOutOfScopeObservations(t *testing.T) {
+	volumeID := "ocid1.volume.oc1.x"
+	volumeDeletes := 0
+	volumeTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			volumeDeletes++
+		}
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"AVAILABLE","sizeInGBs":100}`, nil), nil
+	})
+	volumeAdapter, err := NewOCIBlockStorageAdapter(volumeTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumeAdapter.Ownership = testOwnership(t, volumeID)
+	volumeRequest := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+	volumeRequest.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(volumeRequest), VolumeDeleteMutationFingerprint(volumeRequest), 1)
+	if err := volumeAdapter.DeleteVolume(context.Background(), volumeRequest); err == nil || volumeDeletes != 0 {
+		t.Fatalf("out-of-scope volume delete err=%v deletes=%d", err, volumeDeletes)
+	}
+
+	attachmentID := "ocid1.volumeattachment.oc1.x"
+	attachmentDeletes := 0
+	attachmentTransport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			attachmentDeletes++
+		}
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volumeattachment.oc1.x","compartmentId":"ocid1.compartment.oc1.other","instanceId":"ocid1.instance.oc1.x","volumeId":"ocid1.volume.oc1.x","lifecycleState":"ATTACHED"}`, nil), nil
+	})
+	attachmentAdapter, err := NewOCIVolumeAttachmentAdapter(attachmentTransport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentAdapter.Ownership = testOwnership(t, attachmentID)
+	attachmentRequest := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	attachmentRequest.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(attachmentRequest), VolumeDetachMutationFingerprint(attachmentRequest), 2)
+	if err := attachmentAdapter.DetachVolume(context.Background(), attachmentRequest); err == nil || attachmentDeletes != 0 {
+		t.Fatalf("out-of-scope attachment delete err=%v deletes=%d", err, attachmentDeletes)
+	}
+}
+
+func TestOCIVolumeDetachAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentID := "ocid1.volumeattachment.oc1.x"
+	adapter.Ownership = testOwnership(t, attachmentID)
+	request := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	request.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(request), VolumeDetachMutationFingerprint(request), 1)
+	if err := adapter.DetachVolume(context.Background(), request); err != nil {
+		t.Fatalf("first absent detach = %v", err)
+	}
+	if err := adapter.DetachVolume(context.Background(), request); err != nil {
+		t.Fatalf("retry absent detach = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent detach issued %d delete requests", deletes)
+	}
+}
+
+func TestOCIObjectDeleteAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIObjectStorageAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ObjectDeleteRequest{Object: ObjectRef{Namespace: "namespace", Bucket: "ledger", Name: "region/segment-absent"}, IfMatch: "object-etag"}
+	request.Mutation = testMutation("object.delete", ObjectDeleteMutationScope(request), ObjectDeleteMutationFingerprint(request), 1)
+	if err := adapter.DeleteObject(context.Background(), request); err != nil {
+		t.Fatalf("first absent object delete = %v", err)
+	}
+	if err := adapter.DeleteObject(context.Background(), request); err != nil {
+		t.Fatalf("retry absent object delete = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent object delete issued %d delete requests", deletes)
+	}
+}

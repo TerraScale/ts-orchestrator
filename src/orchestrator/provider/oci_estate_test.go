@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -16,12 +17,36 @@ func (f fakeEstateReader) Read(_ context.Context, service OCIService, path strin
 	return []byte(body), http.StatusOK, nil
 }
 
+func (f fakeEstateReader) ReadPage(ctx context.Context, service OCIService, path, page string) ([]byte, int, string, error) {
+	requestPath := path
+	if page != "" {
+		requestPath += "?" + url.Values{"page": {page}}.Encode()
+	}
+	body, status, err := f.Read(ctx, service, requestPath)
+	next := f[string(service)+"|"+requestPath+"|opc-next-page"]
+	return body, status, next, err
+}
+
 func cloneFakeEstateReader(source fakeEstateReader) fakeEstateReader {
 	cloned := make(fakeEstateReader, len(source))
 	for path, body := range source {
 		cloned[path] = body
 	}
 	return cloned
+}
+
+func TestOCIEstateHTTPReaderUsesRetentionRuleListEndpoint(t *testing.T) {
+	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/n/namespace/b/ledger/retentionRules" || request.URL.Query().Get("page") != "page-2" {
+			t.Fatalf("unexpected retention request %s %s", request.Method, request.URL.String())
+		}
+		return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-3"}}), nil
+	})
+	reader := &OCIEstateHTTPReader{Transports: map[OCIService]*OCIHTTPTransport{OCIServiceObjectStorage: transport}}
+	body, status, next, err := reader.ReadPage(context.Background(), OCIServiceObjectStorage, "/n/namespace/b/ledger/retentionRules", "page-2")
+	if err != nil || status != http.StatusOK || next != "page-3" || string(body) != `{"items":[]}` {
+		t.Fatalf("retention response status=%d next=%q body=%q err=%v", status, next, body, err)
+	}
 }
 
 func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
@@ -57,11 +82,26 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	reader[string(OCIServiceIdentity)+"|/20160918/policies/"+policy] = `{"id":"` + policy + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE","statements":["` + statement + `"]}`
 	reader[string(OCIServiceVault)+"|/20180608/vaults/"+vault] = `{"id":"` + vault + `","compartmentId":"` + control + `","lifecycleState":"ACTIVE"}`
 	reader[string(OCIServiceVaultManagement)+"|/20180608/keys/"+key] = `{"id":"` + key + `","compartmentId":"` + control + `","lifecycleState":"ENABLED"}`
-	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"terrascale-ledger","compartmentId":"` + control + `"}`
-	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups"] = `{"name":"terrascale-backups","compartmentId":"` + control + `"}`
+	bucketMetadata := `","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"` + key + `"}`
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger` + bucketMetadata
+	reader[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups"] = `{"namespace":"namespace","name":"terrascale-backups` + bucketMetadata
+	retention := `{"items":[{"id":"minimum-retention","displayName":"minimum-retention","duration":{"timeAmount":1,"timeUnit":"DAYS"}}]}`
+	ledgerRetentionPath := string(OCIServiceObjectStorage) + "|/n/namespace/b/terrascale-ledger/retentionRules"
+	backupRetentionPath := string(OCIServiceObjectStorage) + "|/n/namespace/b/terrascale-backups/retentionRules"
+	reader[ledgerRetentionPath] = retention
+	reader[backupRetentionPath] = retention
 	if err := VerifyOCIEstate(context.Background(), spec, reader); err != nil {
 		t.Fatalf("valid estate rejected: %v", err)
 	}
+	t.Run("retention pagination", func(t *testing.T) {
+		paged := cloneFakeEstateReader(reader)
+		paged[ledgerRetentionPath] = `{"items":[]}`
+		paged[ledgerRetentionPath+"|opc-next-page"] = "page-2"
+		paged[ledgerRetentionPath+"?page=page-2"] = retention
+		if err := VerifyOCIEstate(context.Background(), spec, paged); err != nil {
+			t.Fatalf("valid paginated retention rules rejected: %v", err)
+		}
+	})
 
 	tests := []struct {
 		name   string
@@ -86,7 +126,33 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 			delete(broken, string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-backups")
 		}},
 		{"wrong bucket", func(broken fakeEstateReader) {
-			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"name":"another-bucket","compartmentId":"` + control + `"}`
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"another-bucket` + bucketMetadata
+		}},
+		{"wrong bucket namespace", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"another-namespace","name":"terrascale-ledger` + bucketMetadata
+		}},
+		{"public bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"ObjectRead","versioning":"Enabled","kmsKeyId":"` + key + `"}`
+		}},
+		{"unversioned bucket", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Disabled","kmsKeyId":"` + key + `"}`
+		}},
+		{"bucket with wrong key", func(broken fakeEstateReader) {
+			broken[string(OCIServiceObjectStorage)+"|/n/namespace/b/terrascale-ledger"] = `{"namespace":"namespace","name":"terrascale-ledger","compartmentId":"` + control + `","publicAccessType":"NoPublicAccess","versioning":"Enabled","kmsKeyId":"ocid1.key.oc1.wrong"}`
+		}},
+		{"missing retention", func(broken fakeEstateReader) {
+			broken[ledgerRetentionPath] = `{"items":[]}`
+		}},
+		{"malformed retention", func(broken fakeEstateReader) {
+			broken[ledgerRetentionPath] = `{"items":[{"id":"minimum-retention","displayName":"minimum-retention","duration":{"timeAmount":0,"timeUnit":"DAYS"}}]}`
+		}},
+		{"cyclic retention pagination", func(broken fakeEstateReader) {
+			broken[ledgerRetentionPath+"|opc-next-page"] = "page-2"
+			broken[ledgerRetentionPath+"?page=page-2"] = retention
+			broken[ledgerRetentionPath+"?page=page-2|opc-next-page"] = "page-2"
+		}},
+		{"malformed retention pagination", func(broken fakeEstateReader) {
+			broken[ledgerRetentionPath+"|opc-next-page"] = " page-2"
 		}},
 	}
 	for _, test := range tests {

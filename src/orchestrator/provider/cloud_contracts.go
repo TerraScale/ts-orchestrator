@@ -276,7 +276,7 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 			}
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation terminal outcome cannot change"}
 		}
-		if !validMutationTransition(prior.State, state) {
+		if !validMutationTransition(intent.Action, prior.State, state) {
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation state transition is invalid"}
 		}
 		prior.Intent.Epoch = intent.Epoch
@@ -294,17 +294,29 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 	return ProviderMutationRecord{}, OwnershipCASConflict{}
 }
 
-func validMutationTransition(from, to ProviderMutationState) bool {
+func validMutationTransition(action string, from, to ProviderMutationState) bool {
 	if from == to {
 		return true
 	}
 	switch from {
 	case MutationPrepared:
-		return to == MutationSubmitted
+		// A read-before-delete can prove that the resource is already absent.
+		// Recording that terminal observation must not require a no-op provider
+		// mutation, but every nonterminal mutation still passes through submitted.
+		return to == MutationSubmitted || (to == MutationSucceeded && observedAbsentAction(action))
 	case MutationSubmitted:
 		return to == MutationSucceeded || to == MutationFailed || to == MutationUnknown
 	case MutationUnknown:
 		return to == MutationSucceeded
+	default:
+		return false
+	}
+}
+
+func observedAbsentAction(action string) bool {
+	switch action {
+	case "compute.terminate", "volume.delete", "attachment.delete", "object.delete":
+		return true
 	default:
 		return false
 	}

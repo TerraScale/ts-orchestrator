@@ -145,6 +145,53 @@ func TestProviderMutationJournalAllowsTerminalReplacementInSameEpoch(t *testing.
 	}
 }
 
+func TestProviderMutationJournalRecordsObservedAbsentDelete(t *testing.T) {
+	journal := testJournal(t)
+	intent := testMutation("compute.terminate", "instance-a", ProviderMutationFingerprint("terminate"), 3)
+	if _, err := journal.Prepare(context.Background(), intent); err != nil {
+		t.Fatal(err)
+	}
+	result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.absent", ETag: "instance-etag"}
+	record, err := journal.MarkSucceeded(context.Background(), intent, result)
+	if err != nil || record.State != MutationSucceeded || record.Result != result {
+		t.Fatalf("observed-absent transition = %+v, %v", record, err)
+	}
+	if _, err := journal.MarkFailed(context.Background(), intent, "provider-rejected"); err == nil {
+		t.Fatal("observed-absent success changed terminal outcome")
+	}
+
+	create := testMutation("compute.launch", "instance-b", ProviderMutationFingerprint("launch"), 3)
+	if _, err := journal.Prepare(context.Background(), create); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkSucceeded(context.Background(), create, result); err == nil {
+		t.Fatal("create mutation skipped the required submitted state")
+	}
+}
+
+func TestOCIComputeTerminateConvergesWhenInstanceIsAlreadyAbsent(t *testing.T) {
+	instanceID := "ocid1.instance.oc1.absent"
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			t.Fatalf("already-absent termination sent %s", request.Method)
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = testOwnership(t, instanceID)
+	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
+	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 4)
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("already-absent termination failed: %v", err)
+	}
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("terminal termination resume failed: %v", err)
+	}
+}
+
 type pausingMutationJournal struct {
 	ProviderMutationJournal
 	pauseAt int
@@ -174,7 +221,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		if len(posts) == 1 {
 			return testHTTPResponse(http.StatusInternalServerError, `{"code":"OutOfHostCapacity"}`, nil), nil
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
 	})
 	journal := &pausingMutationJournal{ProviderMutationJournal: testJournal(t), pauseAt: 1}
 	adapter, err := NewOCIComputeAdapter(transport, journal)
@@ -272,5 +319,138 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	}
 	if _, err := NewOCIServiceTransportConfig(OCIServiceRegistry, "us-sanjose-1", "https://sfo.ocir.io"); err == nil {
 		t.Fatal("SFO alias accepted the wrong OCIR region key")
+	}
+}
+
+func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusNotFound, "", nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID := "ocid1.instance.oc1.x"
+	adapter.Ownership = testOwnership(t, instanceID)
+	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
+	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("first absent terminate = %v", err)
+	}
+	if err := adapter.TerminateInstance(context.Background(), request); err != nil {
+		t.Fatalf("retry absent terminate = %v", err)
+	}
+	if deletes != 0 {
+		t.Fatalf("absent terminate issued %d delete requests", deletes)
+	}
+}
+
+func TestOCIComputeLaunchRejectsOutOfScopeMutationResponse(t *testing.T) {
+	request := ComputeLaunchRequest{
+		CompartmentID:   "ocid1.compartment.oc1.x",
+		DisplayName:     "scope-check",
+		ImageID:         "ocid1.image.oc1.x",
+		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
+		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
+	}
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"PROVISIONING"}`, nil), nil
+	})
+	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.LaunchInstance(context.Background(), request); err == nil {
+		t.Fatal("out-of-scope compute response was accepted")
+	}
+}
+
+func TestOCIComputeTerminateRejectsOutOfScopeObservation(t *testing.T) {
+	deletes := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deletes++
+		}
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"RUNNING"}`, nil), nil
+	})
+	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID := "ocid1.instance.oc1.x"
+	adapter.Ownership = testOwnership(t, instanceID)
+	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
+	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
+	if err := adapter.TerminateInstance(context.Background(), request); err == nil || deletes != 0 {
+		t.Fatalf("out-of-scope compute termination err=%v deletes=%d", err, deletes)
+	}
+}
+
+func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
+	request := ComputeLaunchRequest{
+		CompartmentID:   "ocid1.compartment.oc1.x",
+		DisplayName:     "paged-reconcile",
+		ImageID:         "ocid1.image.oc1.x",
+		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
+		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
+	}
+	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
+	journal := testJournal(t)
+	if _, err := journal.Prepare(context.Background(), request.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.MarkSubmitted(context.Background(), request.Mutation); err != nil {
+		t.Fatal(err)
+	}
+	pageCalls := 0
+	transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+		pageCalls++
+		if httpRequest.URL.Query().Get("page") == "" {
+			return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
+		}
+		body := `{"items":[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","freeformTags":{"terrascale-operation":"` + request.Mutation.OperationID.Value + `","terrascale-intent":"` + request.Mutation.Fingerprint + `"}}]}`
+		return testHTTPResponse(http.StatusOK, body, nil), nil
+	})
+	adapter, err := NewOCIComputeAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := adapter.LaunchInstance(context.Background(), request)
+	if err != nil || instance.ID != "ocid1.instance.oc1.x" || pageCalls != 2 {
+		t.Fatalf("paged reconciliation instance=%+v calls=%d err=%v", instance, pageCalls, err)
+	}
+}
+
+func TestOCIListPaginationRejectsMalformedOrUnboundedContinuation(t *testing.T) {
+	valid := testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}})
+	next, err := nextOCIPage(valid, "", 1)
+	if err != nil || next != "page-2" {
+		t.Fatalf("valid continuation = %q, %v", next, err)
+	}
+
+	cases := []struct {
+		name      string
+		header    http.Header
+		page      string
+		pagesRead int
+	}{
+		{"repeated token", http.Header{"Opc-Next-Page": {"page-2"}}, "page-2", 2},
+		{"page bound", http.Header{"Opc-Next-Page": {"page-17"}}, "page-16", maximumOCIPages},
+		{"multiple tokens", http.Header{"Opc-Next-Page": {"page-2", "page-3"}}, "", 1},
+		{"whitespace token", http.Header{"Opc-Next-Page": {" page-2"}}, "", 1},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			resp := testHTTPResponse(http.StatusOK, `{"items":[]}`, test.header)
+			if _, err := nextOCIPage(resp, test.page, test.pagesRead); err == nil {
+				t.Fatal("invalid continuation was accepted")
+			}
+		})
 	}
 }
