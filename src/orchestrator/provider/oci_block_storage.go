@@ -13,10 +13,10 @@ import (
 
 type OCIBlockStorageAdapter struct {
 	Core       *OCIHTTPTransport
-	Work       *OCIWorkRequestAdapter
-	WaitPolicy WorkRequestWaitPolicy
 	Journal    ProviderMutationJournal
 	Ownership  DurableOwnershipEvidence
+	work       *OCIWorkRequestAdapter
+	waitPolicy WorkRequestWaitPolicy
 }
 
 func NewOCIBlockStorageAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIBlockStorageAdapter, error) {
@@ -27,7 +27,7 @@ func NewOCIBlockStorageAdapter(core *OCIHTTPTransport, journal ProviderMutationJ
 	if err != nil {
 		return nil, err
 	}
-	return &OCIBlockStorageAdapter{Core: core, Work: work, WaitPolicy: productionMutationWorkRequestWaitPolicy(), Journal: journal}, nil
+	return &OCIBlockStorageAdapter{Core: core, Journal: journal, work: work, waitPolicy: productionMutationWorkRequestWaitPolicy()}, nil
 }
 
 type volumeCreateFingerprint struct {
@@ -85,8 +85,22 @@ func blockVolumeFromOCI(item ociAutomatedVolume, work string) (BlockVolume, erro
 }
 
 func volumeMatchesCreateRequest(item ociAutomatedVolume, request VolumeCreateRequest) bool {
-	return item.CompartmentID == request.CompartmentID && item.AvailabilityDomain == request.AvailabilityDomain &&
-		item.DisplayName == request.DisplayName && item.SizeGiB == request.SizeGiB && item.VPUsPerGiB == request.VPUsPerGiB
+	tags, err := safeFreeformTags(request.Tags)
+	return err == nil && item.CompartmentID == request.CompartmentID && item.AvailabilityDomain == request.AvailabilityDomain &&
+		item.DisplayName == request.DisplayName && item.SizeGiB == request.SizeGiB && item.VPUsPerGiB == request.VPUsPerGiB &&
+		equalStringMap(item.FreeformTags, bindMutationTags(tags, request.Mutation))
+}
+
+func equalStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request VolumeCreateRequest) (BlockVolume, error) {
@@ -107,27 +121,7 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 		return mutationResultVolume(result)
 	}
 	if record.State == MutationSubmitted || record.State == MutationUnknown {
-		if validWorkRequestID(record.Result.WorkRequestID) && isOCID(record.Result.ResourceID, "volume") && validCanonicalETag(record.Result.ETag) {
-			if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy); err != nil {
-				return BlockVolume{}, err
-			}
-			return mutationResultVolume(record.Result)
-		}
-		volume, found, err := a.findVolumeForIntent(ctx, request)
-		if err != nil {
-			return BlockVolume{}, err
-		}
-		if !found {
-			if validWorkRequestID(record.Result.WorkRequestID) {
-				return BlockVolume{}, finishAsyncMutationWithoutResourceProof(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy)
-			}
-			return BlockVolume{}, &ProviderOutcomeUnknownError{}
-		}
-		result := ProviderMutationResult{ResourceID: volume.ID, ETag: volume.ETag}
-		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
-			return BlockVolume{}, err
-		}
-		return volume, nil
+		return a.resumeVolumeCreate(ctx, request, record)
 	}
 	tags, _ := safeFreeformTags(request.Tags)
 	payload := struct {
@@ -162,18 +156,18 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 	}
 	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
 	if err != nil {
-		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.Work, a.WaitPolicy)
+		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.work, a.waitPolicy)
 	}
 	var item ociAutomatedVolume
 	if json.Unmarshal(body, &item) != nil {
-		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.Work, a.WaitPolicy)
+		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.work, a.waitPolicy)
 	}
 	if workErr != nil || etagErr != nil {
 		result := headerResult
 		if isOCID(item.ID, "volume") && volumeMatchesCreateRequest(item, request) {
 			result.ResourceID = item.ID
 		}
-		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 	}
 	item.ETag = etag
 	volume, err := blockVolumeFromOCI(item, work)
@@ -183,11 +177,11 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 			result.ResourceID = item.ID
 			result.ETag = etag
 		}
-		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+		return BlockVolume{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 	}
 	result := ProviderMutationResult{ResourceID: volume.ID, ETag: volume.ETag, WorkRequestID: volume.WorkRequestID}
 	if work != "" {
-		if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy); err != nil {
+		if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy); err != nil {
 			return BlockVolume{}, err
 		}
 		return volume, nil
@@ -195,6 +189,44 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 		return BlockVolume{}, err
 	}
+	return volume, nil
+}
+
+func (a *OCIBlockStorageAdapter) resumeVolumeCreate(ctx context.Context, request VolumeCreateRequest, record ProviderMutationRecord) (BlockVolume, error) {
+	prior := record.Result
+	workSucceeded := false
+	if validWorkRequestID(prior.WorkRequestID) {
+		if _, err := observeAsyncMutation(ctx, a.Journal, request.Mutation, prior, a.work, a.waitPolicy); err != nil {
+			return BlockVolume{}, err
+		}
+		workSucceeded = true
+	}
+	var volume BlockVolume
+	var found bool
+	var err error
+	if prior.ResourceID != "" {
+		volume, found, err = a.getBlockVolumeInCompartment(ctx, prior.ResourceID, request.CompartmentID, &request)
+	} else {
+		volume, found, err = a.findVolumeForIntent(ctx, request)
+	}
+	if err != nil {
+		return BlockVolume{}, err
+	}
+	if !found {
+		return BlockVolume{}, &ProviderOutcomeUnknownError{Message: "OCI volume create result is not authoritatively visible"}
+	}
+	result := ProviderMutationResult{ResourceID: volume.ID, ETag: volume.ETag, WorkRequestID: prior.WorkRequestID}
+	if prior.ResourceID != "" && prior.ResourceID != volume.ID {
+		return BlockVolume{}, &ProviderOutcomeUnknownError{Message: "OCI volume create result identity changed"}
+	}
+	if workSucceeded && prior.ResourceID == volume.ID && validCanonicalETag(prior.ETag) {
+		result.ETag = prior.ETag
+	}
+	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
+		return BlockVolume{}, err
+	}
+	volume.ETag = result.ETag
+	volume.WorkRequestID = result.WorkRequestID
 	return volume, nil
 }
 
@@ -357,7 +389,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 		return err
 	}
 	if (record.State == MutationSubmitted || record.State == MutationUnknown) && validWorkRequestID(record.Result.WorkRequestID) {
-		return finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy)
+		return finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.work, a.waitPolicy)
 	}
 	_, found, err := a.getBlockVolumeInCompartment(ctx, request.VolumeID, compartment, nil)
 	if err != nil {
@@ -409,7 +441,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 			return finishUnknownWithResult(ctx, a.Journal, request.Mutation, baseResult)
 		}
 		if work != "" {
-			return finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+			return finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 		}
 		exists, readErr := a.volumeExistsInCompartment(ctx, request.VolumeID, compartment)
 		if readErr != nil || exists {
@@ -422,10 +454,10 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 
 type OCIVolumeAttachmentAdapter struct {
 	Core       *OCIHTTPTransport
-	Work       *OCIWorkRequestAdapter
-	WaitPolicy WorkRequestWaitPolicy
 	Journal    ProviderMutationJournal
 	Ownership  DurableOwnershipEvidence
+	work       *OCIWorkRequestAdapter
+	waitPolicy WorkRequestWaitPolicy
 }
 
 func NewOCIVolumeAttachmentAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIVolumeAttachmentAdapter, error) {
@@ -436,7 +468,7 @@ func NewOCIVolumeAttachmentAdapter(core *OCIHTTPTransport, journal ProviderMutat
 	if err != nil {
 		return nil, err
 	}
-	return &OCIVolumeAttachmentAdapter{Core: core, Work: work, WaitPolicy: productionMutationWorkRequestWaitPolicy(), Journal: journal}, nil
+	return &OCIVolumeAttachmentAdapter{Core: core, Journal: journal, work: work, waitPolicy: productionMutationWorkRequestWaitPolicy()}, nil
 }
 
 func volumeAttachBinding(request VolumeAttachRequest) any {
@@ -455,14 +487,35 @@ func VolumeAttachMutationScope(request VolumeAttachRequest) string {
 }
 
 type ociAutomatedAttachment struct {
-	ID             string `json:"id"`
-	CompartmentID  string `json:"compartmentId"`
-	InstanceID     string `json:"instanceId"`
-	VolumeID       string `json:"volumeId"`
-	DisplayName    string `json:"displayName"`
-	IsReadOnly     bool   `json:"isReadOnly"`
-	LifecycleState string `json:"lifecycleState"`
-	ETag           string `json:"-"`
+	ID             string          `json:"id"`
+	CompartmentID  string          `json:"compartmentId"`
+	InstanceID     string          `json:"instanceId"`
+	VolumeID       string          `json:"volumeId"`
+	DisplayName    string          `json:"displayName"`
+	IsReadOnly     requiredOCIBool `json:"isReadOnly"`
+	LifecycleState string          `json:"lifecycleState"`
+	ETag           string          `json:"-"`
+}
+
+type requiredOCIBool struct {
+	value bool
+	set   bool
+}
+
+func (value *requiredOCIBool) UnmarshalJSON(raw []byte) error {
+	if value == nil || value.set {
+		return &InvalidDataError{Message: "OCI response contains a duplicate required boolean"}
+	}
+	value.set = true
+	switch string(bytes.TrimSpace(raw)) {
+	case "false":
+		value.value = false
+	case "true":
+		value.value = true
+	default:
+		return &InvalidDataError{Message: "OCI response required boolean is invalid"}
+	}
+	return nil
 }
 
 func attachmentFromOCI(item ociAutomatedAttachment, work string) (VolumeAttachment, error) {
@@ -475,7 +528,7 @@ func attachmentFromOCI(item ociAutomatedAttachment, work string) (VolumeAttachme
 
 func attachmentMatchesCreateRequest(item ociAutomatedAttachment, request VolumeAttachRequest) bool {
 	return item.CompartmentID == request.CompartmentID && item.InstanceID == request.InstanceID && item.VolumeID == request.VolumeID &&
-		item.DisplayName == request.DisplayName && item.IsReadOnly == request.ReadOnly
+		item.DisplayName == request.DisplayName && item.IsReadOnly.set && item.IsReadOnly.value == request.ReadOnly
 }
 
 func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request VolumeAttachRequest) (VolumeAttachment, error) {
@@ -508,26 +561,7 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 		return mutationResultAttachment(result)
 	}
 	if record.State == MutationSubmitted || record.State == MutationUnknown {
-		if validWorkRequestID(record.Result.WorkRequestID) && isOCID(record.Result.ResourceID, "volumeattachment") && validCanonicalETag(record.Result.ETag) {
-			if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy); err != nil {
-				return VolumeAttachment{}, err
-			}
-			return mutationResultAttachment(record.Result)
-		}
-		attachment, found, err := a.findAttachment(ctx, request)
-		if err != nil {
-			return VolumeAttachment{}, err
-		}
-		if !found {
-			if validWorkRequestID(record.Result.WorkRequestID) {
-				return VolumeAttachment{}, finishAsyncMutationWithoutResourceProof(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy)
-			}
-			return VolumeAttachment{}, &ProviderOutcomeUnknownError{}
-		}
-		if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: attachment.ID, ETag: attachment.ETag}); err != nil {
-			return VolumeAttachment{}, err
-		}
-		return attachment, nil
+		return a.resumeAttachmentCreate(ctx, request, record)
 	}
 	payload := struct {
 		Type          string `json:"type"`
@@ -561,18 +595,18 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	}
 	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
 	if err != nil {
-		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.Work, a.WaitPolicy)
+		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.work, a.waitPolicy)
 	}
 	var item ociAutomatedAttachment
 	if json.Unmarshal(body, &item) != nil {
-		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.Work, a.WaitPolicy)
+		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, headerResult, a.work, a.waitPolicy)
 	}
 	if workErr != nil || etagErr != nil {
 		result := headerResult
 		if isOCID(item.ID, "volumeattachment") && attachmentMatchesCreateRequest(item, request) {
 			result.ResourceID = item.ID
 		}
-		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 	}
 	item.ETag = etag
 	attachment, err := attachmentFromOCI(item, work)
@@ -582,11 +616,11 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 			result.ResourceID = item.ID
 			result.ETag = etag
 		}
-		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+		return VolumeAttachment{}, finishUnboundMutationResult(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 	}
 	result := ProviderMutationResult{ResourceID: attachment.ID, ETag: attachment.ETag, WorkRequestID: attachment.WorkRequestID}
 	if work != "" {
-		if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy); err != nil {
+		if err := finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy); err != nil {
 			return VolumeAttachment{}, err
 		}
 		return attachment, nil
@@ -594,6 +628,44 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 		return VolumeAttachment{}, err
 	}
+	return attachment, nil
+}
+
+func (a *OCIVolumeAttachmentAdapter) resumeAttachmentCreate(ctx context.Context, request VolumeAttachRequest, record ProviderMutationRecord) (VolumeAttachment, error) {
+	prior := record.Result
+	workSucceeded := false
+	if validWorkRequestID(prior.WorkRequestID) {
+		if _, err := observeAsyncMutation(ctx, a.Journal, request.Mutation, prior, a.work, a.waitPolicy); err != nil {
+			return VolumeAttachment{}, err
+		}
+		workSucceeded = true
+	}
+	var attachment VolumeAttachment
+	var found bool
+	var err error
+	if prior.ResourceID != "" {
+		attachment, found, err = a.getVolumeAttachmentInCompartment(ctx, prior.ResourceID, request.CompartmentID, &request)
+	} else {
+		attachment, found, err = a.findAttachment(ctx, request)
+	}
+	if err != nil {
+		return VolumeAttachment{}, err
+	}
+	if !found {
+		return VolumeAttachment{}, &ProviderOutcomeUnknownError{Message: "OCI attachment create result is not authoritatively visible"}
+	}
+	result := ProviderMutationResult{ResourceID: attachment.ID, ETag: attachment.ETag, WorkRequestID: prior.WorkRequestID}
+	if prior.ResourceID != "" && prior.ResourceID != attachment.ID {
+		return VolumeAttachment{}, &ProviderOutcomeUnknownError{Message: "OCI attachment create result identity changed"}
+	}
+	if workSucceeded && prior.ResourceID == attachment.ID && validCanonicalETag(prior.ETag) {
+		result.ETag = prior.ETag
+	}
+	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
+		return VolumeAttachment{}, err
+	}
+	attachment.ETag = result.ETag
+	attachment.WorkRequestID = result.WorkRequestID
 	return attachment, nil
 }
 
@@ -608,6 +680,9 @@ func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request
 	}
 	if len(list) != 1 {
 		return VolumeAttachment{}, false, &InvalidOperationError{Message: "OCI attachment reconciliation found duplicate results"}
+	}
+	if !attachmentMatchesCreateRequest(list[0], request) {
+		return VolumeAttachment{}, false, &InvalidDataError{Message: "OCI attachment reconciliation result does not match its durable intent"}
 	}
 	return a.getVolumeAttachmentInCompartment(ctx, list[0].ID, request.CompartmentID, &request)
 }
@@ -748,7 +823,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 		return err
 	}
 	if (record.State == MutationSubmitted || record.State == MutationUnknown) && validWorkRequestID(record.Result.WorkRequestID) {
-		return finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.Work, a.WaitPolicy)
+		return finishAsyncMutation(ctx, a.Journal, request.Mutation, record.Result, a.work, a.waitPolicy)
 	}
 	_, found, err := a.getVolumeAttachmentInCompartment(ctx, request.AttachmentID, compartment, nil)
 	if err != nil {
@@ -800,7 +875,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 			return finishUnknownWithResult(ctx, a.Journal, request.Mutation, baseResult)
 		}
 		if work != "" {
-			return finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.Work, a.WaitPolicy)
+			return finishAsyncMutation(ctx, a.Journal, request.Mutation, result, a.work, a.waitPolicy)
 		}
 		exists, readErr := a.attachmentExistsInCompartment(ctx, request.AttachmentID, compartment)
 		if readErr != nil || exists {

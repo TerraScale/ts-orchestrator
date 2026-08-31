@@ -107,7 +107,7 @@ func fingerprintJSON(action string, value any) string {
 
 func decodeOCIList[T any](raw []byte) ([]T, error) {
 	var direct []T
-	if json.Unmarshal(raw, &direct) == nil {
+	if json.Unmarshal(raw, &direct) == nil && direct != nil {
 		return direct, nil
 	}
 	var wrapped struct {

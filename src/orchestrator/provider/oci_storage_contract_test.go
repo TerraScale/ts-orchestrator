@@ -24,23 +24,30 @@ func testOwnership(t *testing.T, ids ...string) *DurableOwnershipJournal {
 	return journal
 }
 
+func testVolumeIntentTags(request VolumeCreateRequest) string {
+	tags, _ := safeFreeformTags(request.Tags)
+	raw, _ := json.Marshal(bindMutationTags(tags, request.Mutation))
+	return string(raw)
+}
+
 func TestOCIBlockVolumeAdapterContract(t *testing.T) {
 	var requestBody map[string]any
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
-		if request.Method != http.MethodPost || request.URL.Path != "/20160918/volumes" {
-			t.Fatalf("unexpected volume request %s %s", request.Method, request.URL.String())
+	request := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1..testcompartment", AvailabilityDomain: "AD-1", DisplayName: "data-node-a", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
+	request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 2)
+	transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+		if httpRequest.Method != http.MethodPost || httpRequest.URL.Path != "/20160918/volumes" {
+			t.Fatalf("unexpected volume request %s %s", httpRequest.Method, httpRequest.URL.String())
 		}
-		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+		if err := json.NewDecoder(httpRequest.Body).Decode(&requestBody); err != nil {
 			t.Fatal(err)
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.sa-saopaulo-1.testvolume","compartmentId":"ocid1.compartment.oc1..testcompartment","availabilityDomain":"AD-1","displayName":"data-node-a","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`, http.Header{"Etag": {"volume-etag"}}), nil
+		body := `{"id":"ocid1.volume.oc1.sa-saopaulo-1.testvolume","compartmentId":"ocid1.compartment.oc1..testcompartment","availabilityDomain":"AD-1","displayName":"data-node-a","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
+		return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"volume-etag"}}), nil
 	})
 	adapter, err := NewOCIBlockStorageAdapter(transport, testJournal(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1..testcompartment", AvailabilityDomain: "AD-1", DisplayName: "data-node-a", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
-	request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 2)
 	volume, err := adapter.CreateVolume(context.Background(), request)
 	if err != nil || volume.ID != "ocid1.volume.oc1.sa-saopaulo-1.testvolume" || volume.ETag != "volume-etag" {
 		t.Fatalf("create volume = %+v, %v", volume, err)
@@ -88,16 +95,18 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 
 	t.Run("volume create success", func(t *testing.T) {
 		posts := 0
-		transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "async-volume", SizeGiB: 100, VPUsPerGiB: 20}
+		request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
+		transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
 			switch {
-			case request.Method == http.MethodPost && request.URL.Path == "/20160918/volumes":
+			case httpRequest.Method == http.MethodPost && httpRequest.URL.Path == "/20160918/volumes":
 				posts++
-				body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"async-volume","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`
+				body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"async-volume","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
 				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"volume-etag"}, "Opc-Work-Request-Id": {"volume-work"}}), nil
-			case request.Method == http.MethodGet && request.URL.Path == "/20160918/workRequests/volume-work":
+			case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/workRequests/volume-work":
 				return testHTTPResponse(http.StatusOK, `{"id":"volume-work","status":"SUCCEEDED","percentComplete":100}`, nil), nil
 			default:
-				t.Fatalf("unexpected volume create request %s %s", request.Method, request.URL.String())
+				t.Fatalf("unexpected volume create request %s %s", httpRequest.Method, httpRequest.URL.String())
 				return nil, io.ErrUnexpectedEOF
 			}
 		})
@@ -106,9 +115,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapter.WaitPolicy = policy
-		request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "async-volume", SizeGiB: 100, VPUsPerGiB: 20}
-		request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
+		adapter.waitPolicy = policy
 		volume, err := adapter.CreateVolume(context.Background(), request)
 		if err != nil || volume.ID != volumeID || posts != 1 {
 			t.Fatalf("async volume create = %+v posts=%d err=%v", volume, posts, err)
@@ -139,7 +146,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapter.WaitPolicy = policy
+		adapter.waitPolicy = policy
 		request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "unbound-volume", SizeGiB: 100, VPUsPerGiB: 20}
 		request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
 		if _, err := adapter.CreateVolume(context.Background(), request); err == nil {
@@ -172,7 +179,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapter.WaitPolicy = policy
+		adapter.waitPolicy = policy
 		adapter.Ownership = testOwnership(t, instanceID, volumeID)
 		request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "async-attachment", ReadOnly: true}
 		request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 2)
@@ -212,7 +219,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapter.WaitPolicy = policy
+		adapter.waitPolicy = policy
 		adapter.Ownership = testOwnership(t, volumeID)
 		request := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
 		request.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(request), VolumeDeleteMutationFingerprint(request), 3)
@@ -257,7 +264,7 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		adapter.WaitPolicy = policy
+		adapter.waitPolicy = policy
 		adapter.Ownership = testOwnership(t, attachmentID)
 		request := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
 		request.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(request), VolumeDetachMutationFingerprint(request), 4)
@@ -268,6 +275,248 @@ func TestOCIStorageProductionAsyncPathsPreserveProviderTruth(t *testing.T) {
 		record, err := journal.Prepare(context.Background(), request.Mutation)
 		if err != nil || record.State != MutationFailed || record.Result != want || record.FailureCode != "provider-work-request-canceled" || deletes != 1 {
 			t.Fatalf("canceled detach record = %+v deletes=%d err=%v", record, deletes, err)
+		}
+	})
+}
+
+func TestOCIStorageCreateRestartRevalidatesRecordedResource(t *testing.T) {
+	const (
+		compartment = "ocid1.compartment.oc1..testcompartment"
+		volumeID    = "ocid1.volume.oc1.sa-saopaulo-1.mismatchedrestart"
+	)
+	posts := 0
+	request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "restart-volume", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
+	request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
+	transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+		switch {
+		case httpRequest.Method == http.MethodPost && httpRequest.URL.Path == "/20160918/volumes":
+			posts++
+			body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-2","displayName":"other-volume","lifecycleState":"PROVISIONING","sizeInGBs":101,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
+			return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"mismatched-etag"}, "Opc-Work-Request-Id": {"mismatched-work"}}), nil
+		case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/workRequests/mismatched-work":
+			return testHTTPResponse(http.StatusOK, `{"id":"mismatched-work","status":"SUCCEEDED","percentComplete":100}`, nil), nil
+		case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/volumes/"+volumeID:
+			body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-2","displayName":"other-volume","lifecycleState":"AVAILABLE","sizeInGBs":101,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
+			return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"current-etag"}}), nil
+		default:
+			t.Fatalf("unexpected mismatched restart request %s %s", httpRequest.Method, httpRequest.URL.String())
+			return nil, io.ErrUnexpectedEOF
+		}
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.waitPolicy = WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 1, MaxNotFound: 0}
+	if _, err := adapter.CreateVolume(context.Background(), request); err == nil {
+		t.Fatal("mismatched initial volume response was accepted")
+	}
+	want := ProviderMutationResult{ResourceID: volumeID, ETag: "mismatched-etag", WorkRequestID: "mismatched-work"}
+	record, err := journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationUnknown || record.Result != want || posts != 1 {
+		t.Fatalf("mismatched initial record = %+v posts=%d err=%v", record, posts, err)
+	}
+	request.Mutation.Epoch.Value++
+	if _, err := adapter.CreateVolume(context.Background(), request); err == nil {
+		t.Fatal("mismatched recorded resource became trusted after restart")
+	}
+	record, err = journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationUnknown || record.Result != want || posts != 1 {
+		t.Fatalf("mismatched restart record = %+v posts=%d err=%v", record, posts, err)
+	}
+}
+
+func TestOCIAttachmentCreateRestartPollsPartialWorkBeforeReconciliation(t *testing.T) {
+	const (
+		compartment  = "ocid1.compartment.oc1..testcompartment"
+		volumeID     = "ocid1.volume.oc1.sa-saopaulo-1.partialwork"
+		instanceID   = "ocid1.instance.oc1.sa-saopaulo-1.partialwork"
+		attachmentID = "ocid1.volumeattachment.oc1.sa-saopaulo-1.partialwork"
+	)
+	tests := []struct {
+		name        string
+		status      string
+		wantState   ProviderMutationState
+		wantFailure string
+		wantError   bool
+	}{
+		{name: "succeeded", status: "SUCCEEDED", wantState: MutationSucceeded},
+		{name: "failed", status: "FAILED", wantState: MutationFailed, wantFailure: "provider-work-request-failed", wantError: true},
+		{name: "canceled", status: "CANCELED", wantState: MutationFailed, wantFailure: "provider-work-request-canceled", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			posts := 0
+			terminal := false
+			request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "partial-attachment", ReadOnly: true}
+			request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 1)
+			transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+				switch {
+				case httpRequest.Method == http.MethodPost && httpRequest.URL.Path == "/20160918/volumeAttachments":
+					posts++
+					return testHTTPResponse(http.StatusOK, `not-json`, http.Header{"Opc-Work-Request-Id": {"partial-work"}}), nil
+				case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/workRequests/partial-work":
+					if !terminal {
+						return testHTTPResponse(http.StatusNotFound, "", nil), nil
+					}
+					body := `{"id":"partial-work","status":"` + test.status + `","percentComplete":100}`
+					return testHTTPResponse(http.StatusOK, body, nil), nil
+				case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/volumeAttachments":
+					body := `{"items":[{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"partial-attachment","isReadOnly":true,"lifecycleState":"ATTACHED"}]}`
+					return testHTTPResponse(http.StatusOK, body, nil), nil
+				case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/volumeAttachments/"+attachmentID:
+					body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"partial-attachment","isReadOnly":true,"lifecycleState":"ATTACHED"}`
+					return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"attachment-etag"}}), nil
+				default:
+					t.Fatalf("unexpected partial work request %s %s", httpRequest.Method, httpRequest.URL.String())
+					return nil, io.ErrUnexpectedEOF
+				}
+			})
+			journal := testJournal(t)
+			adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			adapter.waitPolicy = WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 1, MaxNotFound: 0}
+			adapter.Ownership = testOwnership(t, instanceID, volumeID)
+			if _, err := adapter.AttachVolume(context.Background(), request); err == nil {
+				t.Fatal("invisible partial work request was accepted")
+			}
+			partial := ProviderMutationResult{WorkRequestID: "partial-work"}
+			record, err := journal.Prepare(context.Background(), request.Mutation)
+			if err != nil || record.State != MutationUnknown || record.Result != partial || posts != 1 {
+				t.Fatalf("partial initial record = %+v posts=%d err=%v", record, posts, err)
+			}
+			terminal = true
+			request.Mutation.Epoch.Value++
+			attachment, resumeErr := adapter.AttachVolume(context.Background(), request)
+			if (resumeErr != nil) != test.wantError {
+				t.Fatalf("partial resume error = %v wantError=%v", resumeErr, test.wantError)
+			}
+			record, err = journal.Prepare(context.Background(), request.Mutation)
+			if err != nil || record.State != test.wantState || record.FailureCode != test.wantFailure || posts != 1 {
+				t.Fatalf("partial terminal record = %+v posts=%d err=%v", record, posts, err)
+			}
+			if test.wantState == MutationSucceeded {
+				want := ProviderMutationResult{ResourceID: attachmentID, ETag: "attachment-etag", WorkRequestID: "partial-work"}
+				if record.Result != want || attachment.ID != attachmentID || attachment.WorkRequestID != "partial-work" {
+					t.Fatalf("partial success result = %+v attachment=%+v", record.Result, attachment)
+				}
+			} else if record.Result != partial {
+				t.Fatalf("partial failure result changed: %+v", record.Result)
+			}
+		})
+	}
+}
+
+func TestOCIStorageCreateRestartPreservesSubmittedProviderResult(t *testing.T) {
+	const (
+		compartment  = "ocid1.compartment.oc1..testcompartment"
+		volumeID     = "ocid1.volume.oc1.sa-saopaulo-1.submittedresult"
+		instanceID   = "ocid1.instance.oc1.sa-saopaulo-1.submittedresult"
+		attachmentID = "ocid1.volumeattachment.oc1.sa-saopaulo-1.submittedresult"
+	)
+	policy := WorkRequestWaitPolicy{PollInterval: 0, MaxPolls: 1, MaxNotFound: 0}
+
+	t.Run("volume", func(t *testing.T) {
+		posts := 0
+		terminal := false
+		request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "submitted-volume", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
+		request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
+		transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+			switch {
+			case httpRequest.Method == http.MethodPost && httpRequest.URL.Path == "/20160918/volumes":
+				posts++
+				body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"submitted-volume","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
+				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"submitted-volume-etag"}, "Opc-Work-Request-Id": {"submitted-volume-work"}}), nil
+			case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/workRequests/submitted-volume-work":
+				if !terminal {
+					return testHTTPResponse(http.StatusNotFound, "", nil), nil
+				}
+				return testHTTPResponse(http.StatusOK, `{"id":"submitted-volume-work","status":"SUCCEEDED","percentComplete":100}`, nil), nil
+			case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/volumes/"+volumeID:
+				body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"submitted-volume","lifecycleState":"AVAILABLE","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(request) + `}`
+				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"current-volume-etag"}}), nil
+			default:
+				t.Fatalf("unexpected submitted volume request %s %s", httpRequest.Method, httpRequest.URL.String())
+				return nil, io.ErrUnexpectedEOF
+			}
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		adapter.waitPolicy = policy
+		if _, err := adapter.CreateVolume(context.Background(), request); err == nil {
+			t.Fatal("invisible submitted volume work request was accepted")
+		}
+		want := ProviderMutationResult{ResourceID: volumeID, ETag: "submitted-volume-etag", WorkRequestID: "submitted-volume-work"}
+		record, err := journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationUnknown || record.Result != want || posts != 1 {
+			t.Fatalf("submitted volume record = %+v posts=%d err=%v", record, posts, err)
+		}
+		terminal = true
+		request.Mutation.Epoch.Value++
+		volume, err := adapter.CreateVolume(context.Background(), request)
+		if err != nil || volume.ID != volumeID || volume.ETag != want.ETag || volume.WorkRequestID != want.WorkRequestID || posts != 1 {
+			t.Fatalf("resumed volume = %+v posts=%d err=%v", volume, posts, err)
+		}
+		record, err = journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationSucceeded || record.Result != want {
+			t.Fatalf("resumed volume record = %+v err=%v", record, err)
+		}
+	})
+
+	t.Run("attachment", func(t *testing.T) {
+		posts := 0
+		terminal := false
+		request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "submitted-attachment", ReadOnly: true}
+		request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 1)
+		transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+			switch {
+			case httpRequest.Method == http.MethodPost && httpRequest.URL.Path == "/20160918/volumeAttachments":
+				posts++
+				body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"submitted-attachment","isReadOnly":true,"lifecycleState":"ATTACHING"}`
+				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"submitted-attachment-etag"}, "Opc-Work-Request-Id": {"submitted-attachment-work"}}), nil
+			case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/workRequests/submitted-attachment-work":
+				if !terminal {
+					return testHTTPResponse(http.StatusNotFound, "", nil), nil
+				}
+				return testHTTPResponse(http.StatusOK, `{"id":"submitted-attachment-work","status":"SUCCEEDED","percentComplete":100}`, nil), nil
+			case httpRequest.Method == http.MethodGet && httpRequest.URL.Path == "/20160918/volumeAttachments/"+attachmentID:
+				body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"submitted-attachment","isReadOnly":true,"lifecycleState":"ATTACHED"}`
+				return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"current-attachment-etag"}}), nil
+			default:
+				t.Fatalf("unexpected submitted attachment request %s %s", httpRequest.Method, httpRequest.URL.String())
+				return nil, io.ErrUnexpectedEOF
+			}
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		adapter.waitPolicy = policy
+		adapter.Ownership = testOwnership(t, instanceID, volumeID)
+		if _, err := adapter.AttachVolume(context.Background(), request); err == nil {
+			t.Fatal("invisible submitted attachment work request was accepted")
+		}
+		want := ProviderMutationResult{ResourceID: attachmentID, ETag: "submitted-attachment-etag", WorkRequestID: "submitted-attachment-work"}
+		record, err := journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationUnknown || record.Result != want || posts != 1 {
+			t.Fatalf("submitted attachment record = %+v posts=%d err=%v", record, posts, err)
+		}
+		terminal = true
+		request.Mutation.Epoch.Value++
+		attachment, err := adapter.AttachVolume(context.Background(), request)
+		if err != nil || attachment.ID != attachmentID || attachment.ETag != want.ETag || attachment.WorkRequestID != want.WorkRequestID || posts != 1 {
+			t.Fatalf("resumed attachment = %+v posts=%d err=%v", attachment, posts, err)
+		}
+		record, err = journal.Prepare(context.Background(), request.Mutation)
+		if err != nil || record.State != MutationSucceeded || record.Result != want {
+			t.Fatalf("resumed attachment record = %+v err=%v", record, err)
 		}
 	})
 }
@@ -296,7 +545,7 @@ func TestOCIStorageReconciliationIsPagedScopedAndIntentBound(t *testing.T) {
 			t.Fatalf("unscoped volume reconciliation request %s %s", request.Method, request.URL.String())
 		}
 		if request.URL.Path == "/20160918/volumes/"+volumeID {
-			body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"reconciled-volume","lifecycleState":"AVAILABLE","sizeInGBs":100,"vpusPerGB":20}`
+			body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"reconciled-volume","lifecycleState":"AVAILABLE","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + testVolumeIntentTags(volumeRequest) + `}`
 			return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"reconciled-volume-etag"}}), nil
 		}
 		if request.URL.Query().Get("page") == "" {
@@ -378,6 +627,44 @@ func TestOCIStorageCreateResponsesMustMatchDurableIntent(t *testing.T) {
 		}
 	})
 
+	t.Run("volume exact bound tags", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			mutate func(map[string]string)
+		}{
+			{name: "user tag", mutate: func(tags map[string]string) { tags["role"] = "other" }},
+			{name: "reserved tag", mutate: func(tags map[string]string) { tags["terrascale-operation"] = "other-operation" }},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				journal := testJournal(t)
+				request := VolumeCreateRequest{CompartmentID: compartment, AvailabilityDomain: "AD-1", DisplayName: "bound-volume", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
+				request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 1)
+				tags := bindMutationTags(map[string]string{"role": "data"}, request.Mutation)
+				test.mutate(tags)
+				rawTags, err := json.Marshal(tags)
+				if err != nil {
+					t.Fatal(err)
+				}
+				transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
+					body := `{"id":"` + volumeID + `","compartmentId":"` + compartment + `","availabilityDomain":"AD-1","displayName":"bound-volume","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20,"freeformTags":` + string(rawTags) + `}`
+					return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"volume-etag"}}), nil
+				})
+				adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := adapter.CreateVolume(context.Background(), request); err == nil {
+					t.Fatal("volume response with mismatched bound tags was accepted")
+				}
+				record, err := journal.Prepare(context.Background(), request.Mutation)
+				if err != nil || record.State != MutationUnknown || record.Result.ResourceID != volumeID || record.Result.ETag != "volume-etag" {
+					t.Fatalf("mismatched volume tag record = %+v err=%v", record, err)
+				}
+			})
+		}
+	})
+
 	t.Run("attachment display name and read-only mode", func(t *testing.T) {
 		transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
 			body := `{"id":"ocid1.volumeattachment.oc1.sa-saopaulo-1.binding","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"other-name","isReadOnly":false,"lifecycleState":"ATTACHING"}`
@@ -397,6 +684,165 @@ func TestOCIStorageCreateResponsesMustMatchDurableIntent(t *testing.T) {
 		record, err := journal.Prepare(context.Background(), request.Mutation)
 		if err != nil || record.State != MutationUnknown || record.Result.ResourceID == "" || record.Result.ETag != "attachment-etag" {
 			t.Fatalf("mismatched attachment record = %+v err=%v", record, err)
+		}
+	})
+}
+
+func TestOCIAttachmentReadOnlyRequiresExplicitBoolean(t *testing.T) {
+	const (
+		compartment  = "ocid1.compartment.oc1..testcompartment"
+		volumeID     = "ocid1.volume.oc1.sa-saopaulo-1.readonlypresence"
+		instanceID   = "ocid1.instance.oc1.sa-saopaulo-1.readonlypresence"
+		attachmentID = "ocid1.volumeattachment.oc1.sa-saopaulo-1.readonlypresence"
+	)
+	tests := []struct {
+		name        string
+		field       string
+		readOnly    bool
+		wantSuccess bool
+	}{
+		{name: "missing"},
+		{name: "null", field: `,"isReadOnly":null`},
+		{name: "string", field: `,"isReadOnly":"false"`},
+		{name: "number", field: `,"isReadOnly":0`},
+		{name: "duplicate same value", field: `,"isReadOnly":false,"isReadOnly":false`},
+		{name: "duplicate contradictory value", field: `,"isReadOnly":false,"isReadOnly":true`},
+		{name: "wrong explicit value", field: `,"isReadOnly":true`},
+		{name: "explicit false", field: `,"isReadOnly":false`, wantSuccess: true},
+		{name: "explicit true", field: `,"isReadOnly":true`, readOnly: true, wantSuccess: true},
+	}
+
+	t.Run("create response", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				posts := 0
+				transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+					if httpRequest.Method != http.MethodPost || httpRequest.URL.Path != "/20160918/volumeAttachments" {
+						t.Fatalf("unexpected attachment create request %s %s", httpRequest.Method, httpRequest.URL.String())
+					}
+					posts++
+					body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"presence-attachment"` + test.field + `,"lifecycleState":"ATTACHING"}`
+					return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"attachment-etag"}}), nil
+				})
+				journal := testJournal(t)
+				adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = testOwnership(t, instanceID, volumeID)
+				request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "presence-attachment", ReadOnly: test.readOnly}
+				request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 1)
+				attachment, createErr := adapter.AttachVolume(context.Background(), request)
+				if (createErr == nil) != test.wantSuccess || posts != 1 {
+					t.Fatalf("attachment create = %+v posts=%d err=%v wantSuccess=%v", attachment, posts, createErr, test.wantSuccess)
+				}
+				record, err := journal.Prepare(context.Background(), request.Mutation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if test.wantSuccess {
+					if record.State != MutationSucceeded || attachment.ID != attachmentID {
+						t.Fatalf("explicit attachment result = %+v record=%+v", attachment, record)
+					}
+				} else if record.State != MutationUnknown {
+					t.Fatalf("malformed attachment response state = %s", record.State)
+				}
+			})
+		}
+	})
+
+	t.Run("reconciliation response", func(t *testing.T) {
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "presence-attachment", ReadOnly: test.readOnly}
+				request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 1)
+				journal := testJournal(t)
+				if _, err := journal.Prepare(context.Background(), request.Mutation); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := journal.MarkSubmitted(context.Background(), request.Mutation); err != nil {
+					t.Fatal(err)
+				}
+				calls := 0
+				listValue := "false"
+				if request.ReadOnly {
+					listValue = "true"
+				}
+				transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+					calls++
+					switch httpRequest.URL.Path {
+					case "/20160918/volumeAttachments":
+						body := `{"items":[{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"presence-attachment","isReadOnly":` + listValue + `,"lifecycleState":"ATTACHED"}]}`
+						return testHTTPResponse(http.StatusOK, body, nil), nil
+					case "/20160918/volumeAttachments/" + attachmentID:
+						body := `{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"presence-attachment"` + test.field + `,"lifecycleState":"ATTACHED"}`
+						return testHTTPResponse(http.StatusOK, body, http.Header{"Etag": {"attachment-etag"}}), nil
+					default:
+						t.Fatalf("unexpected attachment reconciliation request %s %s", httpRequest.Method, httpRequest.URL.String())
+						return nil, io.ErrUnexpectedEOF
+					}
+				})
+				adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = testOwnership(t, instanceID, volumeID)
+				attachment, reconcileErr := adapter.AttachVolume(context.Background(), request)
+				if (reconcileErr == nil) != test.wantSuccess || calls != 2 {
+					t.Fatalf("attachment reconciliation = %+v calls=%d err=%v wantSuccess=%v", attachment, calls, reconcileErr, test.wantSuccess)
+				}
+				record, err := journal.Prepare(context.Background(), request.Mutation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if test.wantSuccess {
+					if record.State != MutationSucceeded || attachment.ID != attachmentID {
+						t.Fatalf("explicit reconciled attachment = %+v record=%+v", attachment, record)
+					}
+				} else if record.State == MutationSucceeded {
+					t.Fatalf("malformed reconciliation became terminal: %+v", record)
+				}
+			})
+		}
+	})
+
+	t.Run("reconciliation list response", func(t *testing.T) {
+		for _, test := range tests {
+			if test.wantSuccess {
+				continue
+			}
+			t.Run(test.name, func(t *testing.T) {
+				request := VolumeAttachRequest{CompartmentID: compartment, InstanceID: instanceID, VolumeID: volumeID, DisplayName: "presence-attachment", ReadOnly: false}
+				request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 1)
+				journal := testJournal(t)
+				if _, err := journal.Prepare(context.Background(), request.Mutation); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := journal.MarkSubmitted(context.Background(), request.Mutation); err != nil {
+					t.Fatal(err)
+				}
+				calls := 0
+				transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
+					calls++
+					if httpRequest.Method != http.MethodGet || httpRequest.URL.Path != "/20160918/volumeAttachments" {
+						t.Fatalf("malformed list item triggered another request: %s %s", httpRequest.Method, httpRequest.URL.String())
+					}
+					body := `{"items":[{"id":"` + attachmentID + `","compartmentId":"` + compartment + `","instanceId":"` + instanceID + `","volumeId":"` + volumeID + `","displayName":"presence-attachment"` + test.field + `,"lifecycleState":"ATTACHED"}]}`
+					return testHTTPResponse(http.StatusOK, body, nil), nil
+				})
+				adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				adapter.Ownership = testOwnership(t, instanceID, volumeID)
+				if _, err := adapter.AttachVolume(context.Background(), request); err == nil {
+					t.Fatal("malformed attachment list response was accepted")
+				}
+				record, err := journal.Prepare(context.Background(), request.Mutation)
+				if err != nil || record.State == MutationSucceeded || calls != 1 {
+					t.Fatalf("malformed list record = %+v calls=%d err=%v", record, calls, err)
+				}
+			})
 		}
 	})
 }
@@ -488,6 +934,78 @@ func TestOCIStorageDeletesNeedAuthorizedAbsenceProofAndNeverResubmit(t *testing.
 	if err != nil || record.State != MutationSucceeded || record.Result != want || deletes != 1 {
 		t.Fatalf("proved delete record = %+v deletes=%d err=%v", record, deletes, err)
 	}
+}
+
+func TestOCIStorageNullListCannotAuthorizeAbsence(t *testing.T) {
+	const (
+		compartment  = "ocid1.compartment.oc1..testcompartment"
+		volumeID     = "ocid1.volume.oc1.sa-saopaulo-1.nullabsence"
+		attachmentID = "ocid1.volumeattachment.oc1.sa-saopaulo-1.nullabsence"
+	)
+
+	t.Run("volume delete", func(t *testing.T) {
+		deletes := 0
+		transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodDelete:
+				deletes++
+				return testHTTPResponse(http.StatusNoContent, "", nil), nil
+			case request.URL.Path == "/20160918/volumes/"+volumeID:
+				return testHTTPResponse(http.StatusNotFound, `{"code":"NotAuthorizedOrNotFound"}`, nil), nil
+			case request.URL.Path == "/20160918/volumes":
+				return testHTTPResponse(http.StatusOK, `null`, nil), nil
+			default:
+				t.Fatalf("unexpected null volume absence request %s %s", request.Method, request.URL.String())
+				return nil, io.ErrUnexpectedEOF
+			}
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIBlockStorageAdapter(transport, journal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		adapter.Ownership = testOwnership(t, volumeID)
+		request := VolumeDeleteRequest{VolumeID: volumeID, IfMatch: "volume-etag"}
+		request.Mutation = testMutation("volume.delete", VolumeDeleteMutationScope(request), VolumeDeleteMutationFingerprint(request), 1)
+		if err := adapter.DeleteVolume(context.Background(), request); err == nil {
+			t.Fatal("null volume list authorized absence")
+		}
+		if deletes != 0 {
+			t.Fatalf("null volume list sent %d deletes", deletes)
+		}
+	})
+
+	t.Run("attachment detach", func(t *testing.T) {
+		deletes := 0
+		transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+			switch {
+			case request.Method == http.MethodDelete:
+				deletes++
+				return testHTTPResponse(http.StatusNoContent, "", nil), nil
+			case request.URL.Path == "/20160918/volumeAttachments/"+attachmentID:
+				return testHTTPResponse(http.StatusNotFound, `{"code":"NotAuthorizedOrNotFound"}`, nil), nil
+			case request.URL.Path == "/20160918/volumeAttachments":
+				return testHTTPResponse(http.StatusOK, `null`, nil), nil
+			default:
+				t.Fatalf("unexpected null attachment absence request %s %s", request.Method, request.URL.String())
+				return nil, io.ErrUnexpectedEOF
+			}
+		})
+		journal := testJournal(t)
+		adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		adapter.Ownership = testOwnership(t, attachmentID)
+		request := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+		request.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(request), VolumeDetachMutationFingerprint(request), 1)
+		if err := adapter.DetachVolume(context.Background(), request); err == nil {
+			t.Fatal("null attachment list authorized absence")
+		}
+		if deletes != 0 {
+			t.Fatalf("null attachment list sent %d deletes", deletes)
+		}
+	})
 }
 
 func TestOCIObjectStorageAdapterContract(t *testing.T) {
