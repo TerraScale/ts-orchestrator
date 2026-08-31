@@ -34,6 +34,25 @@ func (*nonDurableTestOwnership) Lookup(context.Context, ProviderResourceId) (Pro
 	return ProviderOwnershipRecord{}, false, nil
 }
 
+func testRegistryAdapter(t *testing.T, transport *OCIHTTPTransport) *OCIRegistryAdapter {
+	t.Helper()
+	if transport.Signer == nil {
+		signer, err := NewOCIRegistryTokenSigner("tenancy/runner", "registry-token")
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.Signer = signer
+	}
+	adapter, err := NewOCIRegistryAdapter(transport, OCIRegistryScope{
+		Namespace:    "tenancy",
+		Repositories: []string{"member", "terrascale/member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
+}
+
 func testVolumeIntentTags(request VolumeCreateRequest) string {
 	tags, _ := safeFreeformTags(request.Tags)
 	raw, _ := json.Marshal(bindMutationTags(tags, request.Mutation))
@@ -1254,33 +1273,30 @@ func TestOCIObjectStorageAdapterContract(t *testing.T) {
 }
 
 func TestOCIRegistryAdapterVerifiesManifestAndBlobDigests(t *testing.T) {
-	manifest := []byte(`{"schemaVersion":2}`)
+	manifest := []byte(validRegistryManifestBody(ociImageManifestMediaType))
 	manifestDigest := "sha256:" + objectSHA256(manifest)
 	blob := "layer-bytes"
 	blobDigest := "sha256:" + objectSHA256([]byte(blob))
 	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
 		username, token, ok := request.BasicAuth()
-		if !ok || username != "namespace/runner" || token != "registry-token" {
+		if !ok || username != "tenancy/runner" || token != "registry-token" {
 			t.Fatal("registry request did not carry the injected OCIR credential")
 		}
 		switch {
 		case strings.Contains(request.URL.Path, "/manifests/"):
-			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
+			return testHTTPResponse(http.StatusOK, string(manifest), http.Header{"Content-Length": {stringInt(len(manifest))}, "Docker-Content-Digest": {manifestDigest}, "Content-Type": {"application/vnd.oci.image.manifest.v1+json"}}), nil
 		case strings.Contains(request.URL.Path, "/blobs/"):
-			return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {blobDigest}, "Content-Length": {"11"}}), nil
+			return testHTTPResponse(http.StatusOK, blob, http.Header{"Docker-Content-Digest": {blobDigest}, "Content-Length": {"11"}, "Content-Type": {"application/octet-stream"}}), nil
 		default:
 			return nil, io.ErrUnexpectedEOF
 		}
 	})
-	signer, err := NewOCIRegistryTokenSigner("namespace/runner", "registry-token")
+	signer, err := NewOCIRegistryTokenSigner("tenancy/runner", "registry-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	transport.Signer = signer
-	adapter, err := NewOCIRegistryAdapter(transport)
-	if err != nil {
-		t.Fatal(err)
-	}
+	adapter := testRegistryAdapter(t, transport)
 	gotManifest, err := adapter.PullManifest(context.Background(), RegistryManifestRequest{Repository: "tenancy/terrascale/member", Reference: manifestDigest})
 	if err != nil || gotManifest.Digest != manifestDigest || string(gotManifest.Content) != string(manifest) {
 		t.Fatalf("manifest = %+v, %v", gotManifest, err)

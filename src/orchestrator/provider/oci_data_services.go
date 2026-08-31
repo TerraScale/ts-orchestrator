@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"hash"
 	"io"
 	"net/http"
@@ -265,18 +266,40 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	return ociMutationFailure(ctx, a.Journal, request.Mutation, resp)
 }
 
-type OCIRegistryAdapter struct{ Registry *OCIHTTPTransport }
+const (
+	ociImageManifestMediaType    = "application/vnd.oci.image.manifest.v1+json"
+	ociImageIndexMediaType       = "application/vnd.oci.image.index.v1+json"
+	dockerImageManifestMediaType = "application/vnd.docker.distribution.manifest.v2+json"
+	dockerImageListMediaType     = "application/vnd.docker.distribution.manifest.list.v2+json"
+	registryManifestAccept       = ociImageManifestMediaType + ", " + ociImageIndexMediaType + ", " + dockerImageManifestMediaType + ", " + dockerImageListMediaType
+)
+
+// OCIRegistryScope limits the pull adapter to one OCIR namespace and the
+// exact repositories assigned to this process. Repository values are
+// relative to Namespace, for example "terrascale/member".
+type OCIRegistryScope struct {
+	Namespace    string
+	Repositories []string
+}
+
+type OCIRegistryAdapter struct {
+	registry     *OCIHTTPTransport
+	namespace    string
+	repositories map[string]struct{}
+}
 
 // OCIRegistryTokenSigner supplies the Docker Registry v2 basic credential
 // expected by OCIR. The token stays process-local and errors never include it.
-type OCIRegistryTokenSigner struct{ username, token string }
+type OCIRegistryTokenSigner struct{ namespace, username, token string }
 
 func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
-	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
-		strings.TrimSpace(username) != username || strings.ContainsAny(username+token, "\r\n") {
+	namespace, principal, found := strings.Cut(username, "/")
+	if !found || !validRegistryNamespace(namespace) || !validRegistryPrincipal(principal) || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
+		strings.TrimSpace(username) != username || strings.TrimSpace(token) != token || strings.Contains(username, ":") ||
+		containsASCIIControl(username) || containsASCIIControl(token) {
 		return nil, &errs.Argument{Message: "OCI registry credential is invalid"}
 	}
-	return &OCIRegistryTokenSigner{username: username, token: token}, nil
+	return &OCIRegistryTokenSigner{namespace: namespace, username: username, token: token}, nil
 }
 
 func (s *OCIRegistryTokenSigner) Sign(request *http.Request) error {
@@ -287,78 +310,384 @@ func (s *OCIRegistryTokenSigner) Sign(request *http.Request) error {
 	return nil
 }
 
-func NewOCIRegistryAdapter(transport *OCIHTTPTransport) (*OCIRegistryAdapter, error) {
-	if transport == nil || transport.Config.Service != OCIServiceRegistry {
+func NewOCIRegistryAdapter(transport *OCIHTTPTransport, scope OCIRegistryScope) (*OCIRegistryAdapter, error) {
+	if transport == nil || transport.Client == nil || transport.Config.Endpoint == nil || transport.Config.Service != OCIServiceRegistry ||
+		transport.Config.Endpoint.Scheme != "https" || transport.Config.Endpoint.User != nil || transport.Config.Endpoint.RawQuery != "" ||
+		transport.Config.Endpoint.Fragment != "" || transport.Config.Endpoint.Opaque != "" || transport.Config.Endpoint.RawPath != "" ||
+		(transport.Config.Endpoint.Path != "" && transport.Config.Endpoint.Path != "/") ||
+		!validOCIServiceHost(OCIServiceRegistry, transport.Config.Region, transport.Config.Endpoint.Host) {
 		return nil, &InvalidOperationError{Message: "OCI registry transport is unavailable or has the wrong authority"}
 	}
-	return &OCIRegistryAdapter{Registry: transport}, nil
+	signer, ok := transport.Signer.(*OCIRegistryTokenSigner)
+	if !ok || signer == nil || signer.namespace != scope.Namespace || !validRegistryNamespace(scope.Namespace) ||
+		len(scope.Repositories) < 1 || len(scope.Repositories) > 64 {
+		return nil, &InvalidOperationError{Message: "OCI registry scope or credential is unavailable"}
+	}
+	repositories := make(map[string]struct{}, len(scope.Repositories))
+	for _, repository := range scope.Repositories {
+		canonical, err := canonicalRegistryRepository(repository, false)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := repositories[canonical]; exists {
+			return nil, &errs.Argument{Message: "OCI registry repository scope is duplicated"}
+		}
+		repositories[canonical] = struct{}{}
+	}
+	// Snapshot every authority-bearing transport value. Registry credentials
+	// must not follow later mutation of caller-owned config, endpoint, client,
+	// cookie jar, redirect policy, or signer fields.
+	endpoint := *transport.Config.Endpoint
+	config := transport.Config
+	config.Endpoint = &endpoint
+	client := *transport.Client
+	client.Jar = nil
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	signerCopy := *signer
+	registry := *transport
+	registry.Config = config
+	registry.Client = &client
+	registry.Signer = &signerCopy
+	return &OCIRegistryAdapter{registry: &registry, namespace: scope.Namespace, repositories: repositories}, nil
 }
 
-func registryRepositoryPath(repository string) (string, error) {
-	if len(repository) < 1 || len(repository) > 512 || strings.ContainsAny(repository, "\r\n\\") {
+func containsASCIIControl(value string) bool {
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+func validRegistryNamespace(namespace string) bool {
+	if len(namespace) < 1 || len(namespace) > 63 {
+		return false
+	}
+	for _, character := range namespace {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func validRegistryPrincipal(principal string) bool {
+	if len(principal) < 1 || strings.HasPrefix(principal, "/") || strings.HasSuffix(principal, "/") || strings.Contains(principal, "//") {
+		return false
+	}
+	for _, character := range principal {
+		if character < 0x21 || character == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validRegistryRepositoryComponent(component string) bool {
+	if len(component) < 1 || len(component) > 128 {
+		return false
+	}
+	alphaNumeric := func(value byte) bool {
+		return (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')
+	}
+	index := 0
+	for index < len(component) && alphaNumeric(component[index]) {
+		index++
+	}
+	if index == 0 {
+		return false
+	}
+	for index < len(component) {
+		switch component[index] {
+		case '.':
+			index++
+		case '_':
+			index++
+			if index < len(component) && component[index] == '_' {
+				index++
+			}
+		case '-':
+			for index < len(component) && component[index] == '-' {
+				index++
+			}
+		default:
+			return false
+		}
+		start := index
+		for index < len(component) && alphaNumeric(component[index]) {
+			index++
+		}
+		if start == index {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalRegistryRepository(repository string, includeNamespace bool) (string, error) {
+	if len(repository) < 1 || len(repository) > 255 || strings.TrimSpace(repository) != repository || containsASCIIControl(repository) ||
+		strings.Contains(repository, "\\") {
 		return "", &errs.Argument{Message: "registry repository is invalid"}
 	}
 	parts := strings.Split(repository, "/")
-	for index, part := range parts {
-		if len(part) < 1 || len(part) > 128 || strings.Contains(part, "..") {
+	minimum := 1
+	if includeNamespace {
+		minimum = 2
+	}
+	if len(parts) < minimum || len(parts) > 8 {
+		return "", &errs.Argument{Message: "registry repository is invalid"}
+	}
+	for _, part := range parts {
+		if !validRegistryRepositoryComponent(part) {
 			return "", &errs.Argument{Message: "registry repository is invalid"}
 		}
-		parts[index] = url.PathEscape(part)
 	}
 	return strings.Join(parts, "/"), nil
 }
 
-func validRegistryReference(reference string) bool {
-	if len(reference) < 1 || len(reference) > 128 || strings.ContainsAny(reference, "\r\n/") {
+func (a *OCIRegistryAdapter) registryRepositoryPath(repository string) (string, error) {
+	canonical, err := canonicalRegistryRepository(repository, true)
+	if err != nil {
+		return "", err
+	}
+	prefix := a.namespace + "/"
+	if !strings.HasPrefix(canonical, prefix) {
+		return "", &InvalidOperationError{Message: "registry repository is outside the configured namespace"}
+	}
+	relative := strings.TrimPrefix(canonical, prefix)
+	if _, allowed := a.repositories[relative]; !allowed {
+		return "", &InvalidOperationError{Message: "registry repository is outside the configured scope"}
+	}
+	return canonical, nil
+}
+
+func validRegistryDigest(reference string) bool {
+	return len(reference) == len("sha256:")+sha256.Size*2 && strings.HasPrefix(reference, "sha256:") &&
+		validSHA256Hex(strings.TrimPrefix(reference, "sha256:"))
+}
+
+func supportedRegistryManifestMediaType(mediaType string) bool {
+	switch mediaType {
+	case ociImageManifestMediaType, ociImageIndexMediaType, dockerImageManifestMediaType, dockerImageListMediaType:
+		return true
+	default:
 		return false
 	}
-	if strings.HasPrefix(reference, "sha256:") {
-		return validSHA256Hex(strings.TrimPrefix(reference, "sha256:"))
+}
+
+func registryIdentityEncoding(resp *http.Response) bool {
+	_, err := canonicalOCIHeader(resp, "Content-Encoding", false, func(value string) bool { return value == "identity" })
+	return err == nil
+}
+
+func canonicalRegistryDigest(resp *http.Response, required bool) (string, error) {
+	return canonicalOCIHeader(resp, "Docker-Content-Digest", required, validRegistryDigest)
+}
+
+func canonicalRegistryManifestMediaType(resp *http.Response) (string, error) {
+	return canonicalOCIHeader(resp, "Content-Type", true, supportedRegistryManifestMediaType)
+}
+
+func canonicalRegistryBlobMediaType(resp *http.Response) (string, error) {
+	return canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/octet-stream" })
+}
+
+func registryJSONHasDuplicateProperties(raw []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	duplicate, err := scanRegistryJSONValue(decoder, 0)
+	if err != nil || duplicate {
+		return true
+	}
+	var trailing any
+	return decoder.Decode(&trailing) != io.EOF
+}
+
+func scanRegistryJSONValue(decoder *json.Decoder, depth int) (bool, error) {
+	if depth > 64 {
+		return false, &InvalidDataError{Message: "registry manifest JSON nesting exceeds limit"}
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return false, err
+	}
+	delimiter, compound := token.(json.Delim)
+	if !compound {
+		return false, nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return false, err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return false, &InvalidDataError{Message: "registry manifest JSON is invalid"}
+			}
+			canonicalName := strings.ToLower(name)
+			if _, exists := seen[canonicalName]; exists {
+				return true, nil
+			}
+			seen[canonicalName] = struct{}{}
+			duplicate, err := scanRegistryJSONValue(decoder, depth+1)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	case '[':
+		for decoder.More() {
+			duplicate, err := scanRegistryJSONValue(decoder, depth+1)
+			if err != nil || duplicate {
+				return duplicate, err
+			}
+		}
+		_, err = decoder.Token()
+		return false, err
+	default:
+		return false, &InvalidDataError{Message: "registry manifest JSON is invalid"}
+	}
+}
+
+func validRegistryManifestEnvelope(raw []byte, mediaType string) bool {
+	if len(raw) == 0 || registryJSONHasDuplicateProperties(raw) {
+		return false
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(raw, &envelope) != nil || envelope == nil {
+		return false
+	}
+	var schemaVersion int
+	var bodyMediaType string
+	if json.Unmarshal(envelope["schemaVersion"], &schemaVersion) != nil || schemaVersion != 2 ||
+		json.Unmarshal(envelope["mediaType"], &bodyMediaType) != nil {
+		return false
+	}
+	if bodyMediaType != mediaType {
+		return false
+	}
+	switch mediaType {
+	case ociImageManifestMediaType, dockerImageManifestMediaType:
+		if _, hasIndex := envelope["manifests"]; hasIndex {
+			return false
+		}
+		config, hasConfig := envelope["config"]
+		layers, hasLayers := envelope["layers"]
+		return hasConfig && hasLayers && validRegistryDescriptor(config) && validRegistryDescriptorList(layers, true)
+	case ociImageIndexMediaType, dockerImageListMediaType:
+		if _, hasConfig := envelope["config"]; hasConfig {
+			return false
+		}
+		if _, hasLayers := envelope["layers"]; hasLayers {
+			return false
+		}
+		manifests, present := envelope["manifests"]
+		return present && validRegistryDescriptorList(manifests, false)
+	default:
+		return false
+	}
+}
+
+func validRegistryDescriptor(raw json.RawMessage) bool {
+	var descriptor map[string]json.RawMessage
+	if json.Unmarshal(raw, &descriptor) != nil || descriptor == nil {
+		return false
+	}
+	if _, external := descriptor["urls"]; external {
+		return false
+	}
+	if _, embedded := descriptor["data"]; embedded {
+		return false
+	}
+	var mediaType, digest string
+	var size int64
+	if json.Unmarshal(descriptor["mediaType"], &mediaType) != nil || json.Unmarshal(descriptor["digest"], &digest) != nil ||
+		json.Unmarshal(descriptor["size"], &size) != nil || len(mediaType) < 1 || len(mediaType) > 256 ||
+		strings.TrimSpace(mediaType) != mediaType || containsASCIIControl(mediaType) || !validRegistryDigest(digest) || size < 0 || size > 64<<30 {
+		return false
+	}
+	return true
+}
+
+func validRegistryDescriptorList(raw json.RawMessage, allowEmpty bool) bool {
+	var descriptors []json.RawMessage
+	if json.Unmarshal(raw, &descriptors) != nil || descriptors == nil || len(descriptors) > 1024 || (!allowEmpty && len(descriptors) == 0) {
+		return false
+	}
+	for _, descriptor := range descriptors {
+		if !validRegistryDescriptor(descriptor) {
+			return false
+		}
 	}
 	return true
 }
 
 func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryManifestRequest) (RegistryManifest, error) {
-	if a == nil || a.Registry == nil {
+	if a == nil || a.registry == nil {
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !validRegistryReference(request.Reference) {
-		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
-	}
-	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{"Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json"})
+	repository, err := a.registryRepositoryPath(request.Repository)
 	if err != nil {
 		return RegistryManifest{}, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !validRegistryDigest(request.Reference) {
+		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
+	}
+	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{
+		"Accept":          registryManifestAccept,
+		"Accept-Encoding": "identity",
+	})
+	if err != nil {
+		return RegistryManifest{}, err
+	}
+	if resp.StatusCode != http.StatusOK || !registryIdentityEncoding(resp) {
 		drainClose(resp.Body)
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry manifest pull failed"}
 	}
-	body, err := ReadBoundedBody(resp, a.Registry.Config.MaxBodyBytes)
+	declaredLength, validLength := registryBlobContentLength(resp)
+	if !validLength || declaredLength > a.registry.Config.MaxBodyBytes {
+		drainClose(resp.Body)
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
+	}
+	body, err := ReadBoundedBody(resp, a.registry.Config.MaxBodyBytes)
 	if err != nil {
 		return RegistryManifest{}, err
 	}
+	if int64(len(body)) != declaredLength {
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
+	}
 	sum := sha256.Sum256(body)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
-	if header := safeHeader(resp, "Docker-Content-Digest"); header == "" || header != digest || (strings.HasPrefix(request.Reference, "sha256:") && request.Reference != digest) {
+	headerDigest, digestErr := canonicalRegistryDigest(resp, true)
+	if digestErr != nil || headerDigest != digest || request.Reference != digest {
 		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest digest is invalid"}
 	}
-	mediaType := safeHeader(resp, "Content-Type")
-	if mediaType == "" || len(mediaType) > 256 {
+	mediaType, mediaErr := canonicalRegistryManifestMediaType(resp)
+	if mediaErr != nil || !validRegistryManifestEnvelope(body, mediaType) {
 		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest media type is invalid"}
 	}
 	return RegistryManifest{Digest: digest, MediaType: mediaType, Content: body}, nil
 }
 
 func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobRequest) (io.ReadCloser, int64, error) {
-	if a == nil || a.Registry == nil {
+	if a == nil || a.registry == nil {
 		return nil, 0, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !strings.HasPrefix(request.Digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(request.Digest, "sha256:")) {
+	repository, err := a.registryRepositoryPath(request.Repository)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !validRegistryDigest(request.Digest) {
 		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
 	}
-	resp, err := a.Registry.Do(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil)
+	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil, map[string]string{
+		"Accept":          "application/octet-stream",
+		"Accept-Encoding": "identity",
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -369,7 +698,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 		if !valid {
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
-		target, valid := parseRegistryBlobRedirect(location, a.Registry.Config.Region)
+		target, valid := parseRegistryBlobRedirect(location, a.registry.Config.Region, a.namespace)
 		if !valid {
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
@@ -378,9 +707,10 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
 		redirectRequest.Header.Set("Accept", "application/octet-stream")
+		redirectRequest.Header.Set("Accept-Encoding", "identity")
 		redirectRequest.Header.Del("Authorization")
 		redirectRequest.Header.Del("Cookie")
-		client := *a.Registry.Client
+		client := *a.registry.Client
 		client.Jar = nil
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		resp, err = client.Do(redirectRequest)
@@ -395,13 +725,14 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 		}
 		redirected = true
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode != http.StatusOK || !registryIdentityEncoding(resp) {
 		drainClose(resp.Body)
 		return nil, 0, &InvalidOperationError{Message: "OCI registry blob pull failed"}
 	}
 	size, valid := registryBlobContentLength(resp)
-	headerDigest, digestPresent, digestValid := registryBlobDigestHeader(resp)
-	if !valid || !digestValid || (!redirected && !digestPresent) || (digestPresent && headerDigest != request.Digest) {
+	headerDigest, digestErr := canonicalRegistryDigest(resp, !redirected)
+	_, mediaTypeErr := canonicalRegistryBlobMediaType(resp)
+	if !valid || digestErr != nil || mediaTypeErr != nil || (headerDigest != "" && headerDigest != request.Digest) {
 		drainClose(resp.Body)
 		return nil, 0, &InvalidDataError{Message: "OCI registry blob metadata is invalid"}
 	}
@@ -420,36 +751,44 @@ func singleRegistryRedirectLocation(resp *http.Response) (string, bool) {
 	return returnValue, len(values) == 1 && len(returnValue) > 0 && len(returnValue) <= 8192 && !strings.ContainsAny(returnValue, "\r\n")
 }
 
-func parseRegistryBlobRedirect(raw, region string) (*url.URL, bool) {
+func parseRegistryBlobRedirect(raw, region, namespace string) (*url.URL, bool) {
 	target, err := url.Parse(raw)
-	if err != nil || !target.IsAbs() || target.Scheme != "https" || target.Opaque != "" || target.User != nil || target.Host == "" || target.Fragment != "" {
+	if err != nil || !target.IsAbs() || target.Scheme != "https" || target.Opaque != "" || target.User != nil || target.Host == "" || target.Fragment != "" ||
+		!validRegistryNamespace(namespace) {
 		return nil, false
 	}
 	host := target.Hostname()
-	if target.Host != host || host != strings.ToLower(host) || !validRegistryBlobRedirectHost(host, region) {
+	if target.Host != host || host != strings.ToLower(host) || !validRegistryBlobRedirectAuthority(target, region, namespace) {
 		return nil, false
 	}
 	return target, true
 }
 
-func validRegistryBlobRedirectHost(host, region string) bool {
-	if host == "objectstorage."+region+".oraclecloud.com" || host == "objectstorage."+region+".oci.customer-oci.com" {
-		return true
-	}
-	suffix := ".objectstorage." + region + ".oci.customer-oci.com"
-	if !strings.HasSuffix(host, suffix) {
+func validRegistryBlobRedirectAuthority(target *url.URL, region, namespace string) bool {
+	if target == nil {
 		return false
 	}
-	namespace := strings.TrimSuffix(host, suffix)
-	if len(namespace) < 1 || len(namespace) > 63 || namespace[0] == '-' || namespace[len(namespace)-1] == '-' {
+	host := target.Hostname()
+	namespacedHost := namespace + ".objectstorage." + region + ".oci.customer-oci.com"
+	genericHost := host == "objectstorage."+region+".oraclecloud.com" || host == "objectstorage."+region+".oci.customer-oci.com"
+	if host != namespacedHost && !genericHost {
 		return false
 	}
-	for _, value := range namespace {
-		if (value < 'a' || value > 'z') && (value < '0' || value > '9') && value != '-' {
-			return false
+	parts := strings.Split(target.EscapedPath(), "/")
+	pathNamespacePresent := false
+	pathNamespaceMatches := false
+	for _, index := range []int{1, 3} {
+		if index+4 >= len(parts) || parts[index] != "n" || parts[index+2] != "b" || parts[index+4] != "o" {
+			continue
 		}
+		pathNamespacePresent = true
+		pathNamespaceMatches = parts[index+1] == namespace
+		break
 	}
-	return true
+	if pathNamespacePresent && !pathNamespaceMatches {
+		return false
+	}
+	return host == namespacedHost || (genericHost && pathNamespacePresent && pathNamespaceMatches)
 }
 
 func registryBlobContentLength(resp *http.Response) (int64, bool) {
@@ -470,20 +809,6 @@ func registryBlobContentLength(resp *http.Response) (int64, bool) {
 		return 0, false
 	}
 	return int64(size), true
-}
-
-func registryBlobDigestHeader(resp *http.Response) (string, bool, bool) {
-	if resp == nil {
-		return "", false, false
-	}
-	values := resp.Header.Values("Docker-Content-Digest")
-	if len(values) == 0 {
-		return "", false, true
-	}
-	if len(values) != 1 || !strings.HasPrefix(values[0], "sha256:") || !validSHA256Hex(strings.TrimPrefix(values[0], "sha256:")) {
-		return "", true, false
-	}
-	return values[0], true, true
 }
 
 type digestVerifyingReadCloser struct {
@@ -585,7 +910,16 @@ func (r *lengthDigestVerifyingReadCloser) finish() error {
 	return io.EOF
 }
 
-func (r *lengthDigestVerifyingReadCloser) Close() error { return r.source.Close() }
+func (r *lengthDigestVerifyingReadCloser) Close() error {
+	closeErr := r.source.Close()
+	if !r.done {
+		return &InvalidDataError{Message: "provider content was not read to verified EOF"}
+	}
+	if r.terminal != io.EOF {
+		return r.terminal
+	}
+	return closeErr
+}
 
 var (
 	_ ObjectStorageProvider = (*OCIObjectStorageAdapter)(nil)
