@@ -1,4 +1,3 @@
-// Port of src/TerraScale.Orchestrator/Protocol/CommandSignedMaterialCodec.cs.
 package protocol
 
 import (
@@ -8,8 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// InvalidDataError mirrors System.IO.InvalidDataException for callers that
-// distinguish malformed signing material from other failures.
+// InvalidDataError lets callers distinguish malformed signing material from
+// other failures.
 type InvalidDataError struct {
 	Message string
 }
@@ -20,11 +19,9 @@ func invalidData(message string) error {
 	return &InvalidDataError{Message: message}
 }
 
-// CommandSignedMaterialCodec mirrors the C# internal static class (exported
-// here because the Go package boundary replaces the C# assembly boundary):
-// the canonical versioned representation of every command field covered by a
-// signature. Length prefixes and big-endian integers make the representation
-// unambiguous across implementations.
+// CommandSignedMaterialCodec is the canonical versioned representation of
+// every command field covered by a signature. Length prefixes and big-endian
+// integers make the representation unambiguous across implementations.
 var CommandSignedMaterialCodec commandSignedMaterialCodec
 
 type commandSignedMaterialCodec struct{}
@@ -37,7 +34,7 @@ const (
 	maximumEncodedBytes         = 2 * 1024 * 1024
 )
 
-var commandSignedMaterialMagic = []byte("TS-COMMAND-SIGNED-V1\x00")
+var commandSignedMaterialMagic = []byte("TS-COMMAND-SIGNED-V2\x00")
 
 // Encode produces the canonical signing bytes for the given material.
 func (commandSignedMaterialCodec) Encode(material *CommandSignedMaterial) ([]byte, error) {
@@ -145,9 +142,7 @@ func (w *bigEndianWriter) writeBytes(value []byte) {
 }
 
 func (w *bigEndianWriter) writeString(value string) error {
-	// The C# UTF8Encoding(false, true) throws EncoderFallbackException for
-	// invalid UTF-16 input; a Go string that is not valid UTF-8 is the same
-	// failure mode.
+	// Canonical signing material rejects invalid string encoding.
 	if !utf8.ValidString(value) {
 		return invalidData("A command signing identity is not valid UTF-8.")
 	}
@@ -167,8 +162,8 @@ func (w *bigEndianWriter) writeString(value string) error {
 	return nil
 }
 
-// utf16Length returns the length of value in UTF-16 code units, mirroring the
-// C# string.Length measurement used by every bound in the protocol.
+// utf16Length returns the length of value in UTF-16 code units, the
+// character-count unit defined by the protocol bounds.
 func utf16Length(value string) int {
 	length := 0
 	for _, r := range value {

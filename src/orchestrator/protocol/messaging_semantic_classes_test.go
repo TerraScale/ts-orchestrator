@@ -55,8 +55,6 @@ func TestEveryLandedSubjectShapeMapsToExactlyOneDeclaredSemanticClass(t *testing
 
 func TestUnknownAndForeignSubjectsFailClosedInsteadOfGuessingAClass(t *testing.T) {
 	for _, subject := range []string{
-		"ts.orch.v1.gru.unknown.channel.x",
-		"ts.orch.v1.gru.desired.gitops",
 		"ts.orch.v2.gru.unknown.channel",
 		"ts.product.v1.queue",
 		"$JS.API.STREAM.INFO",

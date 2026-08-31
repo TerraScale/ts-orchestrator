@@ -50,15 +50,15 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 
 ## 2. Closed subject taxonomy
 
-Canonical definitions: `Protocol/Messaging/NatsSubjectTaxonomy.cs`. Production adapters compose subjects ONLY through the taxonomy; `MessagingContractSourceScanTests` fails any `ts.orch`/`ts.product` literal outside the canonical directory.
+Canonical definitions: `src/orchestrator/protocol/nats_subject_taxonomy.go`. Production adapters compose subjects only through the taxonomy; the protocol tests reject `ts.orch` and `ts.product` literals outside the canonical package.
 
 | Namespace | Root / pattern | Status | Notes |
 | --- | --- | --- | --- |
 | Global authority | `ts.orch.v2.global.>` (minus `ci.>`, `query.cells`, `audit.>`) | landed | GRU-owned global journals: `desired.gitops.<cell>` (GLOBAL_SPEC), release/CI ledger keys. |
 | Global directory | `ts.orch.v2.global.query.cells` | landed | Served by the GRU directory-service identity over the standalone snapshot. |
-| Regional control | `ts.orch.v2.<cell>.{query,command,event,desired,internal.reply}.>` | landed | Controller services, delivery admission, startup events, accepted CellSpecs, inboxes. |
-| Operations | `ts.orch.v2.<cell>.{operation,internal.operation-journal,internal.runtime-lifecycle-journal}.>` | landed | Authoritative journaled mutation channels. |
-| Continuous integration | `ts.orch.v2.global.ci.>` | landed | `forgejo` triggers, `runtime-proof` observations, `job.<zone>.<hash>` runner inboxes. |
+| Regional control | `ts.orch.v2.<cell>.{query,command,observation,desired}.>` | landed | Controller services, journal mutation admission, startup observations, and accepted CellSpecs. |
+| Operations | `ts.orch.v2.<cell>.operation.>` | landed | Authoritative regional operation history. |
+| Continuous integration | `ts.orch.v2.global.release.ci.>` | landed | `forgejo` triggers, `runtime-proof` observations, `job.<zone>.<hash>` runner inboxes. |
 | Agent | `ts.orch.v2.<cell>.agent.>` | reserved | Host-agent channels; work-queue semantics when landed. |
 | Audit | `ts.orch.v2.<cell>.audit.>` and `ts.orch.v2.global.audit.>` | reserved | Audit history is authoritative and export-only. |
 | Product plane | `ts.product.…` | rejected from control | Separate trust plane and clusters; no control subject is ever defined under it. |
@@ -82,13 +82,13 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 | --- | --- | --- |
 | `ts.orch.v2.global.query.cells` | Lossy | request/reply over the durable directory snapshot |
 | `ts.orch.v2.global.desired.gitops.>` | AuthoritativeJournal | GLOBAL_SPEC authority |
-| `ts.orch.v2.global.ci.forgejo` | WorkQueue | leader-only trigger decisions |
-| `ts.orch.v2.global.ci.job.>` | WorkQueue | fenced per-runner inbox (MaxAckPending 1) |
-| `ts.orch.v2.global.ci.runtime-proof` | Replayable | bounded durable observations |
-| `ts.orch.v2.*.query.>`, `ts.orch.v2.*.command.>`, `ts.orch.v2.*.internal.reply.>` | Lossy | caller-visible retry; effects journaled separately |
-| `ts.orch.v2.*.event.>` | Replayable | CELL_EVENTS bounded history |
+| `ts.orch.v2.global.release.ci.forgejo` | WorkQueue | leader-only trigger decisions |
+| `ts.orch.v2.global.release.ci.job.>` | WorkQueue | fenced per-runner inbox (MaxAckPending 1) |
+| `ts.orch.v2.global.release.ci.runtime-proof` | Replayable | bounded durable observations |
+| `ts.orch.v2.*.query.>`, `ts.orch.v2.*.command.>` | Lossy | caller-visible retry; effects journaled separately |
+| `ts.orch.v2.*.observation.>` | Replayable | CELL_EVENTS bounded history |
 | `ts.orch.v2.*.desired.>` | AuthoritativeJournal | accepted CellSpec history (CELL_SPEC) |
-| `ts.orch.v2.*.operation.>`, `ts.orch.v2.*.internal.operation-journal.>`, `ts.orch.v2.*.internal.runtime-lifecycle-journal.>` | AuthoritativeJournal | authoritative regional journals |
+| `ts.orch.v2.*.operation.>` | AuthoritativeJournal | authoritative regional journals |
 | `ts.orch.v2.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
 | `ts.orch.v2.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
 

@@ -59,7 +59,7 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	var dispatches atomic.Int32
 	now := time.Now().UTC()
 	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
@@ -135,7 +135,7 @@ func TestNatsCommandIngressRejectsMemoryReplayForMultiInstance(t *testing.T) {
 	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	if _, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
 		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
 		Replay: replay, MultiInstance: true, ExpectedCell: cell, ExpectedAggregateId: aggregate,
@@ -161,7 +161,7 @@ func TestNatsCommandIngressStartsAndStopsExactSubscription(t *testing.T) {
 	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	started := make(chan struct{}, 1)
 	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
 		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
@@ -204,7 +204,7 @@ func (ingressAlwaysValidVerifier) Verify(protocol.CommandSignedMaterial, protoco
 
 func ingressTestEnvelope(t *testing.T, signer *security.CommandSignatureSigner, cell contracts.CellId, aggregate contracts.AggregateId, now time.Time) protocol.CommandEnvelope {
 	t.Helper()
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
 	operation, _ := contracts.OperationIdTryCreate("runtime")

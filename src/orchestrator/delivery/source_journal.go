@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 type SourceJournalDisposition uint8
@@ -39,7 +41,7 @@ func (j *SourceJournal) Observe(ctx context.Context, o BranchObservation, epoch,
 	if !ValidRepository(o.Revision.Repository) || o.Branch != "develop" && o.Branch != "main" || !objectID(o.Revision.Commit) || allZero(o.Revision.Commit) || !objectID(o.Revision.Tree) || allZero(o.Revision.Tree) {
 		return SourceJournalReceipt{}, errors.New("invalid branch observation")
 	}
-	d := sourceDocument{SchemaVersion: 1, SourceKey: "forgejo-source:" + o.Revision.Repository + ":" + o.Branch, Repository: o.Revision.Repository, Branch: o.Branch, Commit: o.Revision.Commit, Tree: o.Revision.Tree, SignatureVerified: o.Revision.SignatureVerified, Protected: true, AuthorityEpoch: epoch, PollSequence: sequence}
+	d := sourceDocument{SchemaVersion: protocol.ProtocolVersion.Current(), SourceKey: "forgejo-source:" + o.Revision.Repository + ":" + o.Branch, Repository: o.Revision.Repository, Branch: o.Branch, Commit: o.Revision.Commit, Tree: o.Revision.Tree, SignatureVerified: o.Revision.SignatureVerified, Protected: true, AuthorityEpoch: epoch, PollSequence: sequence}
 	b, _ := json.Marshal(d)
 	key := "source." + hash(d.SourceKey)
 	for i := 0; i < 8; i++ {
@@ -60,7 +62,7 @@ func (j *SourceJournal) Observe(ctx context.Context, o BranchObservation, epoch,
 		if e = json.Unmarshal(cur.Value, &old); e != nil {
 			return SourceJournalReceipt{}, fmt.Errorf("invalid source journal: %w", e)
 		}
-		if old.SourceKey != d.SourceKey {
+		if old.SchemaVersion != protocol.ProtocolVersion.Current() || old.SourceKey != d.SourceKey {
 			return SourceJournalReceipt{}, errors.New("source journal identity changed")
 		}
 		if epoch < old.AuthorityEpoch {

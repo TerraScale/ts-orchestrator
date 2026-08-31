@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 const MaximumDeliveryPlanBytes = 8 << 20
@@ -189,7 +191,7 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 		return DeliveryReceipt{}, ErrDeliveryFenced
 	}
 
-	plan := DeliveryPlan{SchemaVersion: 1, Idempotency: event.DedupeKey(), Trigger: *cloneTrigger(trigger)}
+	plan := DeliveryPlan{SchemaVersion: protocol.ProtocolVersion.Current(), Idempotency: event.DedupeKey(), Trigger: *cloneTrigger(trigger)}
 	if trigger.Disposition == TriggerDispatch {
 		if p.Graph == nil || p.Handoff == nil {
 			return DeliveryReceipt{}, errors.New("dispatch requires source graph and handoff")
@@ -243,7 +245,7 @@ func (p *DeliveryProcessor) process(ctx context.Context, event *WebhookEnvelope,
 		return DeliveryReceipt{}, errors.New("delivery plan digest is missing")
 	}
 
-	doc := deliveryJournalDocument{SchemaVersion: 1, State: "pending", Envelope: *event, Digest: plan.Digest, AuthorityEpoch: authority.Epoch, Job: plan.Job, Sources: append([]ResolvedRevision(nil), plan.Snapshot.Sources...), Descriptors: append([]SourceDescriptor(nil), plan.Descriptors...), Archives: append([]ArchiveDescriptor(nil), plan.ArchiveRecords...), Intent: plan.Intent}
+	doc := deliveryJournalDocument{SchemaVersion: protocol.ProtocolVersion.Current(), State: "pending", Envelope: *event, Digest: plan.Digest, AuthorityEpoch: authority.Epoch, Job: plan.Job, Sources: append([]ResolvedRevision(nil), plan.Snapshot.Sources...), Descriptors: append([]SourceDescriptor(nil), plan.Descriptors...), Archives: append([]ArchiveDescriptor(nil), plan.ArchiveRecords...), Intent: plan.Intent}
 	reservation, err := p.reserve(ctx, key, doc)
 	if err != nil {
 		return DeliveryReceipt{}, err
@@ -285,7 +287,7 @@ type deliveryJournalDocument struct {
 }
 
 func (d deliveryJournalDocument) matches(e *WebhookEnvelope) bool {
-	return d.SchemaVersion == 1 && d.Envelope.DeliveryID == e.DeliveryID && d.Envelope.Kind == e.Kind && d.Envelope.Action == e.Action && d.Envelope.Repository == e.Repository && d.Envelope.SourceRepository == e.SourceRepository && d.Envelope.BaseRevision == e.BaseRevision && d.Envelope.Revision == e.Revision && d.Envelope.SourceRef == e.SourceRef && d.Envelope.TargetRef == e.TargetRef && d.Envelope.PullRequestNumber == e.PullRequestNumber && d.Envelope.IsDeletion == e.IsDeletion && d.Envelope.PayloadSHA256 == e.PayloadSHA256 && d.Envelope.DedupeKey() == e.DedupeKey()
+	return d.SchemaVersion == protocol.ProtocolVersion.Current() && d.Envelope.DeliveryID == e.DeliveryID && d.Envelope.Kind == e.Kind && d.Envelope.Action == e.Action && d.Envelope.Repository == e.Repository && d.Envelope.SourceRepository == e.SourceRepository && d.Envelope.BaseRevision == e.BaseRevision && d.Envelope.Revision == e.Revision && d.Envelope.SourceRef == e.SourceRef && d.Envelope.TargetRef == e.TargetRef && d.Envelope.PullRequestNumber == e.PullRequestNumber && d.Envelope.IsDeletion == e.IsDeletion && d.Envelope.PayloadSHA256 == e.PayloadSHA256 && d.Envelope.DedupeKey() == e.DedupeKey()
 }
 
 func decodeDeliveryJournal(b []byte) (deliveryJournalDocument, error) {
@@ -293,7 +295,7 @@ func decodeDeliveryJournal(b []byte) (deliveryJournalDocument, error) {
 	if err := json.Unmarshal(b, &d); err != nil {
 		return d, fmt.Errorf("invalid delivery journal: %w", err)
 	}
-	if d.SchemaVersion != 1 || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.Digest != "" && len(d.Digest) != 64 || d.AuthorityEpoch <= 0 {
+	if d.SchemaVersion != protocol.ProtocolVersion.Current() || d.State != "pending" && d.State != "accepted" || !ValidRepository(d.Envelope.Repository) || d.Digest != "" && len(d.Digest) != 64 || d.AuthorityEpoch <= 0 {
 		return d, errors.New("invalid delivery journal identity")
 	}
 	return d, nil

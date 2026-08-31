@@ -16,7 +16,7 @@ func acceptTestEnvelope(t *testing.T, envelope CommandEnvelope, now time.Time) C
 		envelope.AggregateId,
 		envelope.DesiredGeneration,
 		envelope.WriterEpoch,
-		[]ProtocolRevision{testProtocol(1), testProtocol(2)},
+		[]ProtocolRevision{testProtocol(2), testProtocol(3)},
 		2*time.Minute,
 		outcomeDigestVerifier{outcome: VerificationOutcomeValid},
 		outcomeSignatureVerifier{outcome: VerificationOutcomeValid})
@@ -29,15 +29,15 @@ func acceptTestEnvelope(t *testing.T, envelope CommandEnvelope, now time.Time) C
 
 func TestAcceptedValidationReceiptDistinguishesTheExactProtocolAndCommand(t *testing.T) {
 	context := validContext(func(o *validContextOption) {
-		o.acceptedProtocols = []ProtocolRevision{testProtocol(1), testProtocol(2)}
+		o.acceptedProtocols = []ProtocolRevision{testProtocol(2), testProtocol(3)}
 	})
 	n := validEnvelope(
-		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) },
+		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(3)) },
 		func(o *validEnvelopeOption) { o.generation = ptrOf(testGeneration(11)) },
 		func(o *validEnvelopeOption) { o.operation = ptrOf(testOperation("operation/n")) },
 		func(o *validEnvelopeOption) { o.idempotency = ptrOf(testIdempotency("idempotency/n")) })
 	nMinusOne := validEnvelope(
-		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(1)) },
+		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) },
 		func(o *validEnvelopeOption) { o.generation = ptrOf(testGeneration(10)) },
 		func(o *validEnvelopeOption) { o.operation = ptrOf(testOperation("operation/n-minus-one")) },
 		func(o *validEnvelopeOption) { o.idempotency = ptrOf(testIdempotency("idempotency/n-minus-one")) })
@@ -60,7 +60,7 @@ func TestAcceptanceRetainsEveryApprovedFieldButNotTheRawPayload(t *testing.T) {
 	signatureSecret := []byte("signature-secret")
 	validatedAt := protocolNow.Add(17 * time.Second)
 	envelope := validEnvelope(
-		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) },
+		func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(3)) },
 		func(o *validEnvelopeOption) { o.generation = ptrOf(testGeneration(11)) },
 		func(o *validEnvelopeOption) { o.epoch = ptrOf(testEpoch(8)) },
 		func(o *validEnvelopeOption) { o.operation = ptrOf(testOperation("operation/exact")) },
@@ -75,7 +75,7 @@ func TestAcceptanceRetainsEveryApprovedFieldButNotTheRawPayload(t *testing.T) {
 		func(o *validContextOption) { o.minimumGeneration = ptrOf(testGeneration(11)) },
 		func(o *validContextOption) { o.minimumEpoch = ptrOf(testEpoch(8)) },
 		func(o *validContextOption) {
-			o.acceptedProtocols = []ProtocolRevision{testProtocol(1), testProtocol(2)}
+			o.acceptedProtocols = []ProtocolRevision{testProtocol(2), testProtocol(3)}
 		},
 		func(o *validContextOption) {
 			o.digestVerifier = outcomeDigestVerifier{outcome: VerificationOutcomeValid}
@@ -120,7 +120,7 @@ func TestIdenticalReplayIsEqualAndEachReceiptFieldParticipatesInEquality(t *test
 		envelope CommandEnvelope
 		now      time.Time
 	}{
-		{validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(2)) }), protocolNow},
+		{validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(3)) }), protocolNow},
 		{validEnvelope(func(o *validEnvelopeOption) { o.cell = ptrOf(testCell("sfo")) }), protocolNow},
 		{validEnvelope(func(o *validEnvelopeOption) { o.aggregate = ptrOf(testAggregate("allocation/other")) }), protocolNow},
 		{validEnvelope(func(o *validEnvelopeOption) { o.generation = ptrOf(testGeneration(11)) }), protocolNow},
@@ -148,7 +148,7 @@ func TestRejectionsAndDefaultNeverCarryAnAcceptance(t *testing.T) {
 		t.Fatal("default result must carry no acceptance")
 	}
 
-	for protocol := int64(2); protocol <= 33; protocol++ {
+	for protocol := int64(3); protocol <= 33; protocol++ {
 		envelope := validEnvelope(func(o *validEnvelopeOption) { o.protocol = ptrOf(testProtocol(protocol)) })
 		result := CommandEnvelopeValidator.Validate(&envelope, validContext(), protocolNow)
 		if result.IsValid() || result.Acceptance != nil {

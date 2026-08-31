@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
 // RegionalRuntimeMember mirrors the C# record. JSON tags mirror the C#
@@ -41,7 +43,7 @@ type RegionalRuntimeMember struct {
 
 // IsValidFor mirrors the C# IsValidFor.
 func (m RegionalRuntimeMember) IsValidFor(expectedCell string, now time.Time) bool {
-	return m.SchemaVersion == 1 &&
+	return m.SchemaVersion == protocol.ProtocolVersion.Current() &&
 		m.Cell == expectedCell &&
 		m.Cluster == "orchestrator-control-"+expectedCell &&
 		strings.TrimSpace(m.Instance) != "" &&
@@ -291,7 +293,7 @@ type RegionalRuntimeMembershipSnapshot struct {
 // Validate mirrors the C# Validate.
 func (s *RegionalRuntimeMembershipSnapshot) Validate(expectedCell string) error {
 	s.Health.Validate()
-	if s.SchemaVersion != 2 || s.Cell != expectedCell ||
+	if s.SchemaVersion != protocol.ProtocolVersion.Current() || s.Cell != expectedCell ||
 		s.ObservedAt.After(time.Now().UTC().Add(time.Minute)) ||
 		!s.Health.ObservedAt.Equal(s.ObservedAt) ||
 		s.Health.ActiveControllers != len(s.Members) ||
@@ -551,7 +553,7 @@ func (m *RegionalRuntimeMembership) Snapshot() RegionalRuntimeMembershipSnapshot
 	}
 
 	return RegionalRuntimeMembershipSnapshot{
-		SchemaVersion: 2,
+		SchemaVersion: protocol.ProtocolVersion.Current(),
 		Cell:          m.topology.Cell,
 		ObservedAt:    now,
 		Health:        health,
@@ -891,7 +893,7 @@ func (m *RegionalRuntimeMembership) document(observedAt time.Time) (RegionalRunt
 	}
 
 	unsigned := RegionalRuntimeMember{
-		SchemaVersion:     1,
+		SchemaVersion:     protocol.ProtocolVersion.Current(),
 		Cell:              m.topology.Cell,
 		Cluster:           "orchestrator-control-" + m.topology.Cell,
 		Instance:          m.topology.Instance,
