@@ -362,16 +362,127 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	if err != nil {
 		return nil, 0, err
 	}
+	redirected := false
+	if resp.StatusCode == http.StatusTemporaryRedirect {
+		location, valid := singleRegistryRedirectLocation(resp)
+		drainClose(resp.Body)
+		if !valid {
+			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
+		}
+		target, valid := parseRegistryBlobRedirect(location, a.Registry.Config.Region)
+		if !valid {
+			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
+		}
+		redirectRequest, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+		if requestErr != nil {
+			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
+		}
+		redirectRequest.Header.Del("Authorization")
+		redirectRequest.Header.Del("Cookie")
+		client := *a.Registry.Client
+		client.Jar = nil
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		resp, err = client.Do(redirectRequest)
+		if err != nil {
+			if resp != nil {
+				drainClose(resp.Body)
+			}
+			if ctx.Err() != nil {
+				return nil, 0, ctx.Err()
+			}
+			return nil, 0, &InvalidOperationError{Message: "OCI registry blob redirect failed"}
+		}
+		redirected = true
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		drainClose(resp.Body)
 		return nil, 0, &InvalidOperationError{Message: "OCI registry blob pull failed"}
 	}
-	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
-	if err != nil || size < 0 || size > 64<<30 || safeHeader(resp, "Docker-Content-Digest") != request.Digest {
+	size, valid := registryBlobContentLength(resp)
+	headerDigest, digestPresent, digestValid := registryBlobDigestHeader(resp)
+	if !valid || !digestValid || (!redirected && !digestPresent) || (digestPresent && headerDigest != request.Digest) {
 		drainClose(resp.Body)
 		return nil, 0, &InvalidDataError{Message: "OCI registry blob metadata is invalid"}
 	}
-	return newDigestVerifyingReadCloser(resp.Body, strings.TrimPrefix(request.Digest, "sha256:")), size, nil
+	return newLengthDigestVerifyingReadCloser(resp.Body, strings.TrimPrefix(request.Digest, "sha256:"), size), size, nil
+}
+
+func singleRegistryRedirectLocation(resp *http.Response) (string, bool) {
+	if resp == nil {
+		return "", false
+	}
+	values := resp.Header.Values("Location")
+	returnValue := ""
+	if len(values) == 1 {
+		returnValue = values[0]
+	}
+	return returnValue, len(values) == 1 && len(returnValue) > 0 && len(returnValue) <= 8192 && !strings.ContainsAny(returnValue, "\r\n")
+}
+
+func parseRegistryBlobRedirect(raw, region string) (*url.URL, bool) {
+	target, err := url.Parse(raw)
+	if err != nil || !target.IsAbs() || target.Scheme != "https" || target.Opaque != "" || target.User != nil || target.Host == "" || target.Fragment != "" {
+		return nil, false
+	}
+	host := target.Hostname()
+	if target.Host != host || host != strings.ToLower(host) || !validRegistryBlobRedirectHost(host, region) {
+		return nil, false
+	}
+	return target, true
+}
+
+func validRegistryBlobRedirectHost(host, region string) bool {
+	if host == "objectstorage."+region+".oraclecloud.com" || host == "objectstorage."+region+".oci.customer-oci.com" {
+		return true
+	}
+	suffix := ".objectstorage." + region + ".oci.customer-oci.com"
+	if !strings.HasSuffix(host, suffix) {
+		return false
+	}
+	namespace := strings.TrimSuffix(host, suffix)
+	if len(namespace) < 1 || len(namespace) > 63 || namespace[0] == '-' || namespace[len(namespace)-1] == '-' {
+		return false
+	}
+	for _, value := range namespace {
+		if (value < 'a' || value > 'z') && (value < '0' || value > '9') && value != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func registryBlobContentLength(resp *http.Response) (int64, bool) {
+	if resp == nil {
+		return 0, false
+	}
+	values := resp.Header.Values("Content-Length")
+	if len(values) != 1 || len(values[0]) < 1 || len(values[0]) > 20 {
+		return 0, false
+	}
+	for _, value := range values[0] {
+		if value < '0' || value > '9' {
+			return 0, false
+		}
+	}
+	size, err := strconv.ParseUint(values[0], 10, 64)
+	if err != nil || size > 64<<30 {
+		return 0, false
+	}
+	return int64(size), true
+}
+
+func registryBlobDigestHeader(resp *http.Response) (string, bool, bool) {
+	if resp == nil {
+		return "", false, false
+	}
+	values := resp.Header.Values("Docker-Content-Digest")
+	if len(values) == 0 {
+		return "", false, true
+	}
+	if len(values) != 1 || !strings.HasPrefix(values[0], "sha256:") || !validSHA256Hex(strings.TrimPrefix(values[0], "sha256:")) {
+		return "", true, false
+	}
+	return values[0], true, true
 }
 
 type digestVerifyingReadCloser struct {
@@ -400,6 +511,80 @@ func (r *digestVerifyingReadCloser) Read(buffer []byte) (int, error) {
 }
 
 func (r *digestVerifyingReadCloser) Close() error { return r.source.Close() }
+
+type lengthDigestVerifyingReadCloser struct {
+	source    io.ReadCloser
+	digest    hash.Hash
+	expected  string
+	remaining int64
+	done      bool
+	terminal  error
+}
+
+func newLengthDigestVerifyingReadCloser(source io.ReadCloser, expected string, size int64) io.ReadCloser {
+	return &lengthDigestVerifyingReadCloser{source: source, digest: sha256.New(), expected: expected, remaining: size}
+}
+
+func (r *lengthDigestVerifyingReadCloser) Read(buffer []byte) (int, error) {
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+	if r.done {
+		return 0, r.terminal
+	}
+	if r.remaining == 0 {
+		return 0, r.finish()
+	}
+	limit := int64(len(buffer))
+	if limit > r.remaining {
+		limit = r.remaining
+	}
+	n, err := r.source.Read(buffer[:int(limit)])
+	if n > 0 {
+		_, _ = r.digest.Write(buffer[:n])
+		r.remaining -= int64(n)
+	}
+	if err != nil && err != io.EOF {
+		r.done = true
+		r.terminal = err
+		return n, err
+	}
+	if err == io.EOF && r.remaining > 0 {
+		r.done = true
+		r.terminal = &InvalidDataError{Message: "provider content length does not match"}
+		return n, r.terminal
+	}
+	if r.remaining == 0 {
+		return n, r.finish()
+	}
+	return n, nil
+}
+
+func (r *lengthDigestVerifyingReadCloser) finish() error {
+	var probe [1]byte
+	n, err := r.source.Read(probe[:])
+	if n > 0 {
+		r.done = true
+		r.terminal = &InvalidDataError{Message: "provider content length does not match"}
+		return r.terminal
+	}
+	if err == nil {
+		return nil
+	}
+	r.done = true
+	if err != io.EOF {
+		r.terminal = err
+		return err
+	}
+	if hex.EncodeToString(r.digest.Sum(nil)) != r.expected {
+		r.terminal = &InvalidDataError{Message: "provider content digest does not match"}
+		return r.terminal
+	}
+	r.terminal = io.EOF
+	return io.EOF
+}
+
+func (r *lengthDigestVerifyingReadCloser) Close() error { return r.source.Close() }
 
 var (
 	_ ObjectStorageProvider = (*OCIObjectStorageAdapter)(nil)

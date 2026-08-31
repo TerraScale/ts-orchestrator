@@ -427,6 +427,9 @@ func (a *OCIVolumeAttachmentAdapter) findAttachment(ctx context.Context, request
 		return VolumeAttachment{}, false, &InvalidOperationError{Message: "OCI attachment reconciliation found duplicate results"}
 	}
 	attachment, err := attachmentFromOCI(list[0], "")
+	if err == nil && (attachment.CompartmentID != request.CompartmentID || attachment.InstanceID != request.InstanceID || attachment.VolumeID != request.VolumeID) {
+		return VolumeAttachment{}, false, &InvalidDataError{Message: "OCI attachment reconciliation returned a resource outside the requested scope"}
+	}
 	return attachment, err == nil, err
 }
 

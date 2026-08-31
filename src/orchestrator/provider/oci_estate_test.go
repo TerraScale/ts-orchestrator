@@ -25,18 +25,18 @@ func cloneFakeEstateReader(source fakeEstateReader) fakeEstateReader {
 }
 
 func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
-	control := "ocid1.compartment.oc1.control"
-	network := "ocid1.compartment.oc1.network"
-	workload := "ocid1.compartment.oc1.workload"
-	vcn := "ocid1.vcn.oc1.x"
-	subnets := []string{"ocid1.subnet.oc1.a", "ocid1.subnet.oc1.b", "ocid1.subnet.oc1.c"}
-	nsgs := []string{"ocid1.networksecuritygroup.oc1.a", "ocid1.networksecuritygroup.oc1.b", "ocid1.networksecuritygroup.oc1.c"}
-	vault := "ocid1.vault.oc1.x"
-	key := "ocid1.key.oc1.x"
-	policy := "ocid1.policy.oc1.x"
+	control := "ocid1.compartment.oc1..control"
+	network := "ocid1.compartment.oc1..network"
+	workload := "ocid1.compartment.oc1..workload"
+	vcn := "ocid1.vcn.oc1.sa-saopaulo-1.testvcn"
+	subnets := []string{"ocid1.subnet.oc1.sa-saopaulo-1.a", "ocid1.subnet.oc1.sa-saopaulo-1.b", "ocid1.subnet.oc1.sa-saopaulo-1.c"}
+	nsgs := []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.a", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.b", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.c"}
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.testvault"
+	key := "ocid1.key.oc1.sa-saopaulo-1.testkey"
+	policy := "ocid1.policy.oc1..testpolicy"
 	statement := "Allow dynamic-group terrascale-orchestrator to manage instances in compartment terrascale-workload"
 	spec := OCIEstateSpec{
-		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1.x",
+		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..testtenancy",
 		ControlCompartmentID: control, NetworkCompartmentID: network, WorkloadCompartmentID: workload,
 		VCNID: vcn, SubnetIDs: subnets, NetworkSecurityGroupIDs: nsgs,
 		IAMPolicyCompartmentID: control, IAMPolicies: []OCIEstatePolicy{{ID: policy, Statements: []string{statement}}},
@@ -68,10 +68,10 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 		mutate func(fakeEstateReader)
 	}{
 		{"wrong compartment parent", func(broken fakeEstateReader) {
-			broken[string(OCIServiceIdentity)+"|/20160918/compartments/"+control] = `{"id":"` + control + `","compartmentId":"ocid1.tenancy.oc1.wrong","lifecycleState":"ACTIVE"}`
+			broken[string(OCIServiceIdentity)+"|/20160918/compartments/"+control] = `{"id":"` + control + `","compartmentId":"ocid1.tenancy.oc1..wrong","lifecycleState":"ACTIVE"}`
 		}},
 		{"wrong subnet VCN", func(broken fakeEstateReader) {
-			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
+			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"ocid1.vcn.oc1.sa-saopaulo-1.wrong","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":true}`
 		}},
 		{"public subnet", func(broken fakeEstateReader) {
 			broken[string(OCIServiceCore)+"|/20160918/subnets/"+subnets[0]] = `{"id":"` + subnets[0] + `","compartmentId":"` + network + `","vcnId":"` + vcn + `","lifecycleState":"AVAILABLE","prohibitPublicIpOnVnic":false}`

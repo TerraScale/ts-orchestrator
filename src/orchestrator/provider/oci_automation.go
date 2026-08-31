@@ -135,13 +135,33 @@ func readOCIErrorCode(resp *http.Response) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	code, valid := decodeOCIErrorCode(raw)
+	if !valid {
+		return "", &InvalidDataError{Message: "OCI mutation error response is invalid"}
+	}
+	return code, nil
+}
+
+func decodeOCIErrorCode(raw []byte) (string, bool) {
 	var body struct {
 		Code string `json:"code"`
 	}
-	if json.Unmarshal(raw, &body) != nil || len(body.Code) > 96 || strings.ContainsAny(body.Code, "\r\n") {
-		return "", nil
+	if json.Unmarshal(raw, &body) != nil || !validOCIErrorCode(body.Code) {
+		return "", false
 	}
-	return body.Code, nil
+	return body.Code, true
+}
+
+func validOCIErrorCode(code string) bool {
+	if len(code) < 1 || len(code) > 96 || (code[0] < 'A' || code[0] > 'Z') {
+		return false
+	}
+	for _, value := range code[1:] {
+		if (value < 'A' || value > 'Z') && (value < 'a' || value > 'z') && (value < '0' || value > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func capacityCode(code string) bool {
@@ -154,13 +174,24 @@ func capacityCode(code string) bool {
 }
 
 func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, resp *http.Response) error {
-	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented) {
 		if resp != nil {
 			_, _ = ReadBoundedBody(resp, 64<<10)
 		}
 		return finishUnknown(ctx, journal, intent)
 	}
-	_, _ = ReadBoundedBody(resp, 64<<10)
+	code, err := readOCIErrorCode(resp)
+	if err != nil {
+		return finishUnknown(ctx, journal, intent)
+	}
+	return ociMutationFailureWithCode(ctx, journal, intent, resp.StatusCode, code)
+}
+
+func ociMutationFailureWithCode(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, status int, code string) error {
+	if status == http.StatusTooManyRequests || (status >= 500 && status != http.StatusNotImplemented) ||
+		(status == http.StatusConflict && (code == "IncorrectState" || code == "LockConflict")) {
+		return finishUnknown(ctx, journal, intent)
+	}
 	return knownFailure(ctx, journal, intent, "provider-rejected")
 }
 
@@ -339,7 +370,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 				}
 				continue
 			}
-			return ComputeInstance{}, ociMutationFailure(ctx, a.Journal, request.Mutation, &http.Response{StatusCode: resp.StatusCode, Body: http.NoBody, Header: resp.Header})
+			return ComputeInstance{}, ociMutationFailureWithCode(ctx, a.Journal, request.Mutation, resp.StatusCode, code)
 		}
 		body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
 		if err != nil {
@@ -349,8 +380,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
-		if item.ETag == "" {
-			item.ETag = safeHeader(resp, "etag")
+		item.ETag = safeHeader(resp, "etag")
+		if !isSafeETag(item.ETag) {
+			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		instance := ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: safeHeader(resp, "opc-work-request-id"), AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}

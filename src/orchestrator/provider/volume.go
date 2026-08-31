@@ -173,7 +173,7 @@ func isOCID(v, kind string) bool {
 		return false
 	}
 	parts := strings.Split(v, ".")
-	if len(parts) < 4 || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
+	if len(parts) < 5 || parts[len(parts)-1] == "" || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
 		return false
 	}
 	for _, r := range parts[2][2:] {
@@ -181,7 +181,20 @@ func isOCID(v, kind string) bool {
 			return false
 		}
 	}
-	for _, part := range parts[3:] {
+	regionless := regionlessOCIDKind(kind)
+	if (regionless && parts[3] != "") || (!regionless && parts[3] == "") {
+		return false
+	}
+	if !regionless && !regionPattern.MatchString(parts[3]) {
+		return false
+	}
+	for index, part := range parts[3:] {
+		if part == "" {
+			if index != 0 || len(parts) < 5 || !regionless {
+				return false
+			}
+			continue
+		}
 		if !ocidSegmentPattern.MatchString(part) {
 			return false
 		}
@@ -193,6 +206,16 @@ func isOCID(v, kind string) bool {
 	}
 	return true
 }
+
+func regionlessOCIDKind(kind string) bool {
+	switch kind {
+	case "tenancy", "compartment", "policy", "dynamicgroup":
+		return true
+	default:
+		return false
+	}
+}
+
 func indeterminate(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error)) || errors.As(err, new(*ProviderOutcomeUnknownError))
 }
@@ -269,7 +292,7 @@ func validOCIServiceHost(service OCIService, region, host string) bool {
 	}
 	suffix := "-management.kms." + region + ".oraclecloud.com"
 	prefix := strings.TrimSuffix(host, suffix)
-	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
+	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 || prefix[0] == '-' || prefix[len(prefix)-1] == '-' {
 		return false
 	}
 	for _, ch := range prefix {
@@ -306,9 +329,10 @@ func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (
 
 type RequestSigner interface{ Sign(*http.Request) error }
 type OCIHTTPTransport struct {
-	Config OCITransportConfig
-	Client *http.Client
-	Signer RequestSigner
+	Config     OCITransportConfig
+	Client     *http.Client
+	Signer     RequestSigner
+	retryDelay func(context.Context, int) error
 }
 
 func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer RequestSigner) (*OCIHTTPTransport, error) {
@@ -336,10 +360,13 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if client == nil {
 		client = &http.Client{Timeout: config.Timeout}
 	}
+	clientClone := *client
+	clientClone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	client = &clientClone
 	// Keep the endpoint immutable from callers that reuse their config value.
 	endpoint := *config.Endpoint
 	config.Endpoint = &endpoint
-	return &OCIHTTPTransport{config, client, signer}, nil
+	return &OCIHTTPTransport{Config: config, Client: client, Signer: signer, retryDelay: boundedOCIRetryDelay}, nil
 }
 
 // NewOCIInstancePrincipalTransport composes the standard OCI transport with
@@ -372,6 +399,20 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\r\n") {
 		return nil, &errs.Argument{Message: "OCI path is invalid"}
 	}
+	if len(headers) > 16 {
+		return nil, &errs.Argument{Message: "OCI request headers exceed limit"}
+	}
+	callerHeaders := make(map[string]string, len(headers))
+	for key, value := range headers {
+		if key == "" || strings.TrimSpace(key) != key || strings.ContainsAny(key+value, "\r\n") || strings.ContainsAny(key, ": \t") || len(value) > 4096 {
+			return nil, &errs.Argument{Message: "OCI request header is invalid"}
+		}
+		canonical := http.CanonicalHeaderKey(key)
+		if _, exists := callerHeaders[canonical]; exists {
+			return nil, &errs.Argument{Message: "OCI request header is duplicated"}
+		}
+		callerHeaders[canonical] = value
+	}
 	var data []byte
 	hasBody := body != nil
 	if body != nil {
@@ -384,8 +425,11 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 			return nil, &InvalidDataError{Message: "OCI request body exceeds limit"}
 		}
 	}
+	readOnly := method == http.MethodGet || method == http.MethodHead
+	mutation := method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
+	replayFenced := mutation && ociMutationReplayFenced(callerHeaders)
 	attempts := 1
-	if method == http.MethodGet || method == http.MethodHead {
+	if readOnly || mutation {
 		attempts += t.Config.MaxRetries
 	}
 	for n := 0; n < attempts; n++ {
@@ -398,14 +442,8 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 			return nil, err
 		}
 		req.Header.Set("Accept", "application/json")
-		if len(headers) > 16 {
-			return nil, &errs.Argument{Message: "OCI request headers exceed limit"}
-		}
-		for k, v := range headers {
-			if k == "" || strings.TrimSpace(k) != k || strings.ContainsAny(k+v, "\r\n") || strings.ContainsAny(k, ": \t") || len(v) > 4096 {
-				return nil, &errs.Argument{Message: "OCI request header is invalid"}
-			}
-			req.Header.Set(k, v)
+		for key, value := range callerHeaders {
+			req.Header.Set(key, value)
 		}
 		if hasBody && req.Header.Get("Content-Type") == "" {
 			req.Header.Set("Content-Type", "application/json")
@@ -417,12 +455,57 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		}
 		resp, err := t.Client.Do(req)
 		if err == nil {
-			if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && n+1 < attempts {
+			if readOnly && (resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented)) && n+1 < attempts {
 				_, _ = ReadBoundedBody(resp, t.Config.MaxBodyBytes)
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(time.Duration(1<<n) * 25 * time.Millisecond):
+				if t.retryDelay == nil {
+					return nil, &InvalidOperationError{Message: "OCI retry policy is unavailable"}
+				}
+				if err := t.retryDelay(ctx, n+1); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if mutation && resp.StatusCode == http.StatusConflict {
+				retryable, parseErr := retryableOCIConflictResponse(resp, t.Config.MaxBodyBytes)
+				if parseErr != nil {
+					return nil, &ProviderOutcomeUnknownError{Message: "OCI mutation conflict could not be classified"}
+				}
+				if retryable {
+					if !replayFenced {
+						return resp, nil
+					}
+					if n+1 == attempts {
+						return nil, newOCIResponseRetriesExhausted("OCI mutation remained in a retryable conflict state")
+					}
+					if t.retryDelay == nil {
+						return nil, &InvalidOperationError{Message: "OCI retry policy is unavailable"}
+					}
+					if err := t.retryDelay(ctx, n+1); err != nil {
+						return nil, err
+					}
+					continue
+				}
+			}
+			if replayFenced && (resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented)) {
+				raw, readErr := ReadBoundedBody(resp, t.Config.MaxBodyBytes)
+				if readErr != nil {
+					return nil, &ProviderOutcomeUnknownError{Message: "OCI retryable mutation response could not be consumed"}
+				}
+				if resp.StatusCode >= 500 {
+					code, valid := decodeOCIErrorCode(raw)
+					if valid && capacityCode(code) {
+						resp.Body = io.NopCloser(bytes.NewReader(raw))
+						return resp, nil
+					}
+				}
+				if n+1 == attempts {
+					return nil, newOCIResponseRetriesExhausted("OCI mutation remained in a retryable provider state")
+				}
+				if t.retryDelay == nil {
+					return nil, &InvalidOperationError{Message: "OCI retry policy is unavailable"}
+				}
+				if err := t.retryDelay(ctx, n+1); err != nil {
+					return nil, err
 				}
 				continue
 			}
@@ -431,16 +514,67 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if n+1 == attempts {
+		if mutation || n+1 == attempts {
 			return nil, redactOCIError(err, "OCI request transport failed")
 		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(1<<n) * 25 * time.Millisecond):
+		if t.retryDelay == nil {
+			return nil, &InvalidOperationError{Message: "OCI retry policy is unavailable"}
+		}
+		if err := t.retryDelay(ctx, n+1); err != nil {
+			return nil, err
 		}
 	}
 	return nil, context.DeadlineExceeded
+}
+
+type ociResponseRetriesExhaustedError struct {
+	unknown *ProviderOutcomeUnknownError
+}
+
+func newOCIResponseRetriesExhausted(message string) error {
+	return &ociResponseRetriesExhaustedError{unknown: &ProviderOutcomeUnknownError{Message: message}}
+}
+
+func (e *ociResponseRetriesExhaustedError) Error() string { return e.unknown.Error() }
+func (e *ociResponseRetriesExhaustedError) Unwrap() error { return e.unknown }
+
+func ociMutationReplayFenced(headers map[string]string) bool {
+	return headers["Opc-Retry-Token"] != "" || headers["If-Match"] != "" || headers["If-None-Match"] != ""
+}
+
+func retryableOCIConflictResponse(resp *http.Response, max int64) (bool, error) {
+	raw, err := ReadBoundedBody(resp, max)
+	if err != nil {
+		return false, err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	code, valid := decodeOCIErrorCode(raw)
+	if !valid {
+		return false, &InvalidDataError{Message: "OCI mutation conflict response is invalid"}
+	}
+	return code == "IncorrectState" || code == "LockConflict", nil
+}
+
+func boundedOCIRetryDelay(ctx context.Context, attempt int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 4 {
+		attempt = 4
+	}
+	base := time.Second << (attempt - 1)
+	jitter := time.Duration(uint64(time.Now().UnixNano()) % uint64(base/2+1))
+	timer := time.NewTimer(base + jitter)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func redactOCIError(err error, fallback string) error {

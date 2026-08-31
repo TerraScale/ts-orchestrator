@@ -16,7 +16,7 @@ func testOwnership(t *testing.T, ids ...string) *DurableOwnershipJournal {
 		t.Fatal(err)
 	}
 	for _, id := range ids {
-		record := ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: id}, CellId: ProviderCellId{Value: "gru"}, CompartmentId: ProviderCompartmentId{Value: "ocid1.compartment.oc1.x"}, Generation: ProviderGeneration{Value: 1}}
+		record := ProviderOwnershipRecord{ResourceId: ProviderResourceId{Value: id}, CellId: ProviderCellId{Value: "gru"}, CompartmentId: ProviderCompartmentId{Value: "ocid1.compartment.oc1..testcompartment"}, Generation: ProviderGeneration{Value: 1}}
 		if err := journal.Record(context.Background(), record); err != nil {
 			t.Fatal(err)
 		}
@@ -33,16 +33,16 @@ func TestOCIBlockVolumeAdapterContract(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
 			t.Fatal(err)
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`, http.Header{"Etag": {"volume-etag"}, "Opc-Work-Request-Id": {"volume-work"}}), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volume.oc1.sa-saopaulo-1.testvolume","compartmentId":"ocid1.compartment.oc1..testcompartment","lifecycleState":"PROVISIONING","sizeInGBs":100,"vpusPerGB":20}`, http.Header{"Etag": {"volume-etag"}, "Opc-Work-Request-Id": {"volume-work"}}), nil
 	})
 	adapter, err := NewOCIBlockStorageAdapter(transport, testJournal(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1.x", AvailabilityDomain: "AD-1", DisplayName: "data-node-a", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
+	request := VolumeCreateRequest{CompartmentID: "ocid1.compartment.oc1..testcompartment", AvailabilityDomain: "AD-1", DisplayName: "data-node-a", SizeGiB: 100, VPUsPerGiB: 20, Tags: map[string]string{"role": "data"}}
 	request.Mutation = testMutation("volume.create", VolumeCreateMutationScope(request), VolumeCreateMutationFingerprint(request), 2)
 	volume, err := adapter.CreateVolume(context.Background(), request)
-	if err != nil || volume.ID != "ocid1.volume.oc1.x" || volume.ETag != "volume-etag" {
+	if err != nil || volume.ID != "ocid1.volume.oc1.sa-saopaulo-1.testvolume" || volume.ETag != "volume-etag" {
 		t.Fatalf("create volume = %+v, %v", volume, err)
 	}
 	if requestBody["sizeInGBs"] != float64(100) || requestBody["vpusPerGB"] != float64(20) || requestBody["freeformTags"].(map[string]any)["terrascale-intent"] != request.Mutation.Fingerprint {
@@ -59,17 +59,17 @@ func TestOCIVolumeAttachmentAdapterContract(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
 			t.Fatal(err)
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volumeattachment.oc1.x","compartmentId":"ocid1.compartment.oc1.x","instanceId":"ocid1.instance.oc1.x","volumeId":"ocid1.volume.oc1.x","lifecycleState":"ATTACHING"}`, http.Header{"Etag": {"attachment-etag"}}), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.volumeattachment.oc1.sa-saopaulo-1.testattachment","compartmentId":"ocid1.compartment.oc1..testcompartment","instanceId":"ocid1.instance.oc1.sa-saopaulo-1.testinstance","volumeId":"ocid1.volume.oc1.sa-saopaulo-1.testvolume","lifecycleState":"ATTACHING"}`, http.Header{"Etag": {"attachment-etag"}}), nil
 	})
 	adapter, err := NewOCIVolumeAttachmentAdapter(transport, testJournal(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapter.Ownership = testOwnership(t, "ocid1.instance.oc1.x", "ocid1.volume.oc1.x")
-	request := VolumeAttachRequest{CompartmentID: "ocid1.compartment.oc1.x", InstanceID: "ocid1.instance.oc1.x", VolumeID: "ocid1.volume.oc1.x", DisplayName: "data-node-a"}
+	adapter.Ownership = testOwnership(t, "ocid1.instance.oc1.sa-saopaulo-1.testinstance", "ocid1.volume.oc1.sa-saopaulo-1.testvolume")
+	request := VolumeAttachRequest{CompartmentID: "ocid1.compartment.oc1..testcompartment", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.testinstance", VolumeID: "ocid1.volume.oc1.sa-saopaulo-1.testvolume", DisplayName: "data-node-a"}
 	request.Mutation = testMutation("attachment.create", VolumeAttachMutationScope(request), VolumeAttachMutationFingerprint(request), 3)
 	attachment, err := adapter.AttachVolume(context.Background(), request)
-	if err != nil || attachment.ID != "ocid1.volumeattachment.oc1.x" || attachment.ETag != "attachment-etag" {
+	if err != nil || attachment.ID != "ocid1.volumeattachment.oc1.sa-saopaulo-1.testattachment" || attachment.ETag != "attachment-etag" {
 		t.Fatalf("attach volume = %+v, %v", attachment, err)
 	}
 	if requestBody["type"] != "iscsi" || requestBody["compartmentId"] != request.CompartmentID || requestBody["instanceId"] != request.InstanceID || requestBody["volumeId"] != request.VolumeID {

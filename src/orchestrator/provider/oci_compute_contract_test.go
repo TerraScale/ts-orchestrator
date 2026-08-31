@@ -174,7 +174,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		if len(posts) == 1 {
 			return testHTTPResponse(http.StatusInternalServerError, `{"code":"OutOfHostCapacity"}`, nil), nil
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, http.Header{"Etag": {"resumed-etag"}}), nil
 	})
 	journal := &pausingMutationJournal{ProviderMutationJournal: testJournal(t), pauseAt: 1}
 	adapter, err := NewOCIComputeAdapter(transport, journal)
@@ -182,13 +182,13 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := ComputeLaunchRequest{
-		CompartmentID:   "ocid1.compartment.oc1.x",
+		CompartmentID:   "ocid1.compartment.oc1..testcompartment",
 		DisplayName:     "node-resume",
-		ImageID:         "ocid1.image.oc1.x",
+		ImageID:         "ocid1.image.oc1.sa-saopaulo-1.testimage",
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
 		Candidates: []ComputeCapacityCandidate{
-			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.ad1", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6},
-			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.ad2", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 8},
+			{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.ad1", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6},
+			{AvailabilityDomain: "AD-2", SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.ad2", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 8},
 		},
 	}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
@@ -201,7 +201,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 	}
 	firstVNIC := posts[0]["createVnicDetails"].(map[string]any)
 	secondVNIC := posts[1]["createVnicDetails"].(map[string]any)
-	if firstVNIC["subnetId"] != "ocid1.subnet.oc1.ad1" || secondVNIC["subnetId"] != "ocid1.subnet.oc1.ad2" {
+	if firstVNIC["subnetId"] != "ocid1.subnet.oc1.sa-saopaulo-1.ad1" || secondVNIC["subnetId"] != "ocid1.subnet.oc1.sa-saopaulo-1.ad2" {
 		t.Fatalf("capacity fallback subnet order = %+v", posts)
 	}
 }
@@ -224,7 +224,7 @@ func TestOCIComputeAdapterNeverRepostsAnUnknownOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1.x", DisplayName: "node-unknown", ImageID: "ocid1.image.oc1.x", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6}}}
+	request := ComputeLaunchRequest{CompartmentID: "ocid1.compartment.oc1..testcompartment", DisplayName: "node-unknown", ImageID: "ocid1.image.oc1.sa-saopaulo-1.testimage", BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")), Candidates: []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.testsubnet", Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGiB: 6}}}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	if _, err := adapter.LaunchInstance(context.Background(), request); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
 		t.Fatalf("lost response error = %v", err)
