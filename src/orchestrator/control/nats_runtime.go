@@ -38,7 +38,7 @@ type NatsRuntime struct {
 	topology       *NatsTopology
 	service        *natsSvcServer
 	serviceInfo    *nats.Subscription
-	authority      *RegionalAuthorityCoordinator
+	authority      regionalAuthorityCoordinator
 	membership     regionalRuntimeMembership
 	stats          *NatsServiceEndpointStats
 	commandIngress *NatsCommandIngress
@@ -57,6 +57,12 @@ type regionalRuntimeMembership interface {
 	Snapshot() RegionalRuntimeMembershipSnapshot
 	LastFailure() error
 	Dispose() error
+}
+
+type regionalAuthorityCoordinator interface {
+	Completion() <-chan struct{}
+	Snapshot() RegionalAuthoritySnapshot
+	Dispose()
 }
 
 type natsRuntimeState struct {

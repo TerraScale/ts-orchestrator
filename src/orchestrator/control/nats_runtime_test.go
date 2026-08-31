@@ -21,6 +21,17 @@ type natsRuntimeMembershipStub struct {
 	done     chan struct{}
 }
 
+type natsRuntimeAuthorityStub struct {
+	snapshot RegionalAuthoritySnapshot
+	done     chan struct{}
+}
+
+func (s *natsRuntimeAuthorityStub) Completion() <-chan struct{} { return s.done }
+func (s *natsRuntimeAuthorityStub) Snapshot() RegionalAuthoritySnapshot {
+	return s.snapshot
+}
+func (s *natsRuntimeAuthorityStub) Dispose() {}
+
 func (s *natsRuntimeMembershipStub) Completion() <-chan struct{} { return s.done }
 func (s *natsRuntimeMembershipStub) Snapshot() RegionalRuntimeMembershipSnapshot {
 	return s.snapshot
@@ -92,7 +103,7 @@ func TestNatsRuntimeReadinessIncludesMembershipLoopFailure(t *testing.T) {
 	now := time.Now().UTC()
 	expires := now.Add(time.Minute)
 	runtime := &NatsRuntime{
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: &natsRuntimeAuthorityStub{snapshot: RegionalAuthoritySnapshot{
 			State: "leader", ObservedAt: now, LeaseExpiresAt: &expires,
 		}},
 		membership: &natsRuntimeMembershipStub{},
@@ -126,7 +137,7 @@ func TestNatsRuntimeHealthServiceReturnsTheBoundV2Envelope(t *testing.T) {
 	runtime := &NatsRuntime{
 		client:   client,
 		topology: NewNatsTopology("gru", 1, "controller-1"),
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: &natsRuntimeAuthorityStub{snapshot: RegionalAuthoritySnapshot{
 			State: "leader", IsLeader: true, Epoch: 2, KvRevision: 4,
 			ObservedAt: now, LeaseExpiresAt: &expires,
 		}},
