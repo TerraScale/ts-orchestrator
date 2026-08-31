@@ -67,6 +67,8 @@ func restoreHostSeams(t *testing.T) {
 	oldServer := runEmbeddedNatsServer
 	oldCatalog := renderCatalog
 	oldGlobalConfig := makeGlobalConfiguration
+	oldVerifyEstate := verifyEstate
+	verifyEstate = func(context.Context, envLookup) error { return nil }
 	t.Cleanup(func() {
 		parseOptions = oldParse
 		startRegionalRuntime = oldRegional
@@ -80,6 +82,7 @@ func restoreHostSeams(t *testing.T) {
 		runEmbeddedNatsServer = oldServer
 		renderCatalog = oldCatalog
 		makeGlobalConfiguration = oldGlobalConfig
+		verifyEstate = oldVerifyEstate
 	})
 }
 
@@ -144,6 +147,42 @@ func TestExecuteDispatchesSelectedCommands(t *testing.T) {
 	}
 	if len(selected) != 3 || selected[0] != "check" || selected[1] != "provision-journal" || selected[2] != "journal-writer" {
 		t.Fatalf("selected parser commands = %v", selected)
+	}
+}
+
+func TestExecuteRefusesRunWhenOCIEstateVerificationFails(t *testing.T) {
+	restoreHostSeams(t)
+	parseOptions = func([]string, control.EnvironmentLookup) (*control.OrchestratorOptions, error) {
+		return fakeOptions(control.OrchestratorCommandRun), nil
+	}
+	estateErr := errors.New("malformed estate")
+	verifyEstate = func(context.Context, envLookup) error { return estateErr }
+	started := false
+	startRegionalRuntime = func(context.Context, *control.OrchestratorOptions) (component, error) {
+		started = true
+		return nil, nil
+	}
+	err := execute(context.Background(), []string{"run"}, func(string) (string, bool) { return "", false }, ioDiscard{})
+	if !errors.Is(err, estateErr) || started {
+		t.Fatalf("estate failure = %v, runtime started = %v", err, started)
+	}
+}
+
+func TestConfiguredEstateRequiresExplicitProviderSelection(t *testing.T) {
+	lookup := func(values map[string]string) envLookup {
+		return func(key string) (string, bool) {
+			value, ok := values[key]
+			return value, ok
+		}
+	}
+	if err := verifyConfiguredOCIEstate(context.Background(), lookup(map[string]string{providerEnvironment: "local"})); err != nil {
+		t.Fatalf("explicit local provider rejected: %v", err)
+	}
+	if err := verifyConfiguredOCIEstate(context.Background(), lookup(nil)); err == nil {
+		t.Fatal("missing provider selection was accepted")
+	}
+	if err := verifyConfiguredOCIEstate(context.Background(), lookup(map[string]string{providerEnvironment: "oci"})); err == nil {
+		t.Fatal("OCI provider without estate settings was accepted")
 	}
 }
 

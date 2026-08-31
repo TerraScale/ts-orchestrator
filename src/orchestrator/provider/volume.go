@@ -165,6 +165,9 @@ func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent Provider
 func converged(k ProviderIdempotencyKey, o VolumeObservation) VolumeExpansionResult {
 	return VolumeExpansionResult{VolumeConverged, k, o.Size, o.ETag, true}
 }
+
+var _ BlockVolumeExpansionProvider = BlockVolumeExpansionAdapter{}
+
 func isOCID(v, kind string) bool {
 	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") || strings.Count(v, ".") < 3 {
 		return false
@@ -191,13 +194,14 @@ func isOCID(v, kind string) bool {
 	return true
 }
 func indeterminate(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error))
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error)) || errors.As(err, new(*ProviderOutcomeUnknownError))
 }
 
 var regionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var ocidSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]*$`)
 
 type OCITransportConfig struct {
+	Service      OCIService
 	Region       string
 	Endpoint     *url.URL
 	Timeout      time.Duration
@@ -205,17 +209,99 @@ type OCITransportConfig struct {
 	MaxRetries   int
 }
 
+// OCIService identifies the small set of OCI HTTP authorities used by the
+// orchestrator. Keeping it explicit prevents a caller from redirecting signed
+// requests to an arbitrary host.
+type OCIService string
+
+const (
+	OCIServiceCore            OCIService = "core"
+	OCIServiceIdentity        OCIService = "identity"
+	OCIServiceObjectStorage   OCIService = "object-storage"
+	OCIServiceRegistry        OCIService = "registry"
+	OCIServiceVault           OCIService = "vault"
+	OCIServiceVaultManagement OCIService = "vault-management"
+)
+
+func ociServiceHost(service OCIService, region string) (string, bool) {
+	switch service {
+	case "", OCIServiceCore:
+		return "iaas." + region + ".oraclecloud.com", true
+	case OCIServiceIdentity:
+		return "identity." + region + ".oci.oraclecloud.com", true
+	case OCIServiceObjectStorage:
+		return "objectstorage." + region + ".oraclecloud.com", true
+	case OCIServiceRegistry:
+		key, ok := ociRegistryRegionKey(region)
+		if !ok {
+			return "", false
+		}
+		return key + ".ocir.io", true
+	case OCIServiceVault:
+		return "vaults." + region + ".oci.oraclecloud.com", true
+	case OCIServiceVaultManagement:
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func ociRegistryRegionKey(region string) (string, bool) {
+	switch region {
+	case "sa-saopaulo-1":
+		return "gru", true
+	case "us-sanjose-1":
+		return "sjc", true
+	case "eu-frankfurt-1":
+		return "fra", true
+	default:
+		return "", false
+	}
+}
+
+func validOCIServiceHost(service OCIService, region, host string) bool {
+	expected, ok := ociServiceHost(service, region)
+	if !ok {
+		return false
+	}
+	if service != OCIServiceVaultManagement {
+		return host == expected
+	}
+	suffix := "-management.kms." + region + ".oraclecloud.com"
+	prefix := strings.TrimSuffix(host, suffix)
+	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
+		return false
+	}
+	for _, ch := range prefix {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) {
+	return NewOCIServiceTransportConfig(OCIServiceCore, region, endpoint)
+}
+
+func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (OCITransportConfig, error) {
 	region = strings.TrimSpace(region)
 	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
 		return OCITransportConfig{}, &errs.Argument{Message: "configured OCI region is not canonical"}
 	}
+	_, ok := ociServiceHost(service, region)
+	if !ok {
+		return OCITransportConfig{}, &ArgumentError{Message: "OCI service is invalid"}
+	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
+	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || !validOCIServiceHost(service, region, u.Host) {
 		return OCITransportConfig{}, &errs.Argument{Message: "OCI endpoint is invalid"}
 	}
 	u.Path = "/"
-	return OCITransportConfig{region, u, 30 * time.Second, 1 << 20, 2}, nil
+	if service == "" {
+		service = OCIServiceCore
+	}
+	return OCITransportConfig{Service: service, Region: region, Endpoint: u, Timeout: 30 * time.Second, MaxBodyBytes: 1 << 20, MaxRetries: 2}, nil
 }
 
 type RequestSigner interface{ Sign(*http.Request) error }
@@ -226,13 +312,17 @@ type OCIHTTPTransport struct {
 }
 
 func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer RequestSigner) (*OCIHTTPTransport, error) {
+	_, serviceOK := ociServiceHost(config.Service, config.Region)
 	if len(config.Region) < 1 || len(config.Region) > 63 || !regionPattern.MatchString(config.Region) ||
 		config.Endpoint == nil || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
 		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
 		config.Endpoint.Opaque != "" || config.Endpoint.RawPath != "" ||
 		(config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
-		config.Endpoint.Host != "iaas."+config.Region+".oraclecloud.com" {
+		!serviceOK || !validOCIServiceHost(config.Service, config.Region, config.Endpoint.Host) {
 		return nil, &errs.Argument{Message: "OCI endpoint is invalid"}
+	}
+	if config.Service == "" {
+		config.Service = OCIServiceCore
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = 30 * time.Second
@@ -283,6 +373,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		return nil, &errs.Argument{Message: "OCI path is invalid"}
 	}
 	var data []byte
+	hasBody := body != nil
 	if body != nil {
 		var err error
 		data, err = io.ReadAll(io.LimitReader(body, t.Config.MaxBodyBytes+1))
@@ -298,7 +389,11 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		attempts += t.Config.MaxRetries
 	}
 	for n := 0; n < attempts; n++ {
-		req, err := http.NewRequestWithContext(ctx, method, t.Config.Endpoint.String()+strings.TrimPrefix(path, "/"), bytes.NewReader(data))
+		var requestBody io.Reader
+		if hasBody {
+			requestBody = bytes.NewReader(data)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, t.Config.Endpoint.String()+strings.TrimPrefix(path, "/"), requestBody)
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +407,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 			}
 			req.Header.Set(k, v)
 		}
-		if len(data) > 0 {
+		if hasBody && req.Header.Get("Content-Type") == "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
 		if t.Signer != nil {
@@ -355,7 +450,7 @@ func redactOCIError(err error, fallback string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	return &InvalidOperationError{Message: fallback}
+	return &ProviderOutcomeUnknownError{Message: fallback}
 }
 
 func ReadBoundedBody(resp *http.Response, max int64) ([]byte, error) {

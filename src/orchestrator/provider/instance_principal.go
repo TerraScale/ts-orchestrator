@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func (s *InstancePrincipalSigner) Sign(req *http.Request) error {
 		req.Header.Set("Host", req.Host)
 	}
 	// The transport buffers bodies, so GetBody is available for the digest.
-	if req.Body != nil && req.Header.Get("x-content-sha256") == "" {
+	if req.Body != nil && req.Body != http.NoBody && req.Header.Get("x-content-sha256") == "" {
 		if req.GetBody == nil {
 			return &InvalidOperationError{Message: "OCI request body cannot be signed"}
 		}
@@ -79,6 +80,15 @@ func (s *InstancePrincipalSigner) Sign(req *http.Request) error {
 	}
 	headerNames := []string{"date", "(request-target)", "host"}
 	canonical := "date: " + req.Header.Get("Date") + "\n(request-target): " + strings.ToLower(req.Method) + " " + path + "\nhost: " + req.Host
+	if req.Body != nil && req.Body != http.NoBody {
+		if req.ContentLength < 0 || req.Header.Get("Content-Type") == "" || req.Header.Get("x-content-sha256") == "" {
+			return &InvalidOperationError{Message: "OCI request body signing metadata is incomplete"}
+		}
+		contentLength := strconv.FormatInt(req.ContentLength, 10)
+		req.Header.Set("Content-Length", contentLength)
+		headerNames = append(headerNames, "content-length", "content-type", "x-content-sha256")
+		canonical += "\ncontent-length: " + contentLength + "\ncontent-type: " + req.Header.Get("Content-Type") + "\nx-content-sha256: " + req.Header.Get("x-content-sha256")
+	}
 	hash := sha256.Sum256([]byte(canonical))
 	signature, err := rsa.SignPKCS1v15(rand.Reader, s.Key, crypto.SHA256, hash[:])
 	if err != nil {
