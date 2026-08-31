@@ -12,72 +12,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  diagnostic-deploy-checkout:
-    name: diagnostic/deploy-checkout
+  diagnostic-host-git:
+    name: diagnostic/host-git
     runs-on: terrascale-builder
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          repository: TerraScale-Old/TerraScale.Deploy
-          fetch-depth: 0
-          persist-credentials: false
-          path: ts-deploy
-      - run: test "$(git -C ts-deploy rev-parse HEAD)" = "7bab7e06ae78c86162126e9b1a0d9600038e90bc"
+      - run: command -v git && git --version
 
-  diagnostic-deploy-toolchain:
-    name: diagnostic/deploy-toolchain
+  diagnostic-host-tar:
+    name: diagnostic/host-tar
     runs-on: terrascale-builder
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          repository: TerraScale-Old/TerraScale.Deploy
-          fetch-depth: 0
-          persist-credentials: false
-          path: ts-deploy
-      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: ts-deploy/go.mod
-          cache: false
-      - run: go version
+      - run: command -v tar && tar --version
 
-  diagnostic-deploy-install:
-    name: diagnostic/deploy-install
+  diagnostic-podman-public:
+    name: diagnostic/podman-public
     runs-on: terrascale-builder
     timeout-minutes: 15
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          repository: TerraScale-Old/TerraScale.Deploy
-          fetch-depth: 0
-          persist-credentials: false
-          path: ts-deploy
-      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: ts-deploy/go.mod
-          cache: false
-      - name: Install the exact reviewed Deploy CLI module
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-          GOPRIVATE: git.terrascale.tech
-          GONOSUMDB: git.terrascale.tech
-        run: |
-          set -euo pipefail
-          test "$(git -C ts-deploy rev-parse HEAD)" = "7bab7e06ae78c86162126e9b1a0d9600038e90bc"
-          git config --global url."file://${PWD}/ts-deploy".insteadOf "https://git.terrascale.tech/TerraScale/ts-deploy.git"
-          GOBIN=.tools go install git.terrascale.tech/TerraScale/ts-deploy/cmd/terrascale-deploy@v1.0.81-0.20260830224025-7bab7e06ae78
-          test -x .tools/terrascale-deploy
+      - run: podman run --rm docker.io/library/golang@sha256:eef6a67266eeed3c86dd47fd01b32faa8bf0229eb83eb3d4d466e80391bd3820 go version
 
-  diagnostic-deploy-resolve:
-    name: diagnostic/deploy-resolve
+  diagnostic-podman-toolbox:
+    name: diagnostic/podman-toolbox
     runs-on: terrascale-builder
     timeout-minutes: 15
     steps:
+      - run: podman run --rm git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d sh -lc 'go version && git --version && tar --version'
+
+  diagnostic-checkout-current:
+    name: diagnostic/checkout-current
+    runs-on: terrascale-builder
+    timeout-minutes: 10
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          fetch-depth: 0
+          persist-credentials: false
+      - run: git rev-parse HEAD
+
+  diagnostic-checkout-deploy:
+    name: diagnostic/checkout-deploy
+    runs-on: terrascale-builder
+    timeout-minutes: 10
+    steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           github-server-url: "https://git.terrascale.tech"
@@ -85,36 +64,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           path: ts-deploy
-      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
-        with:
-          go-version-file: ts-deploy/go.mod
-          cache: false
-      - name: Resolve the exact reviewed Deploy CLI module
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-          GOPRIVATE: git.terrascale.tech
-          GONOSUMDB: git.terrascale.tech
-        run: |
-          set -euo pipefail
-          test "$(git -C ts-deploy rev-parse HEAD)" = "7bab7e06ae78c86162126e9b1a0d9600038e90bc"
-          git config --global url."file://${PWD}/ts-deploy".insteadOf "https://git.terrascale.tech/TerraScale/ts-deploy.git"
-          GOBIN=.tools go install git.terrascale.tech/TerraScale/ts-deploy/cmd/terrascale-deploy@v1.0.81-0.20260830224025-7bab7e06ae78
-          go version -m .tools/terrascale-deploy
-          .tools/terrascale-deploy ci resolve-cli
-
-  diagnostic-artifact-upload:
-    name: diagnostic/artifact-upload
-    runs-on: terrascale-builder
-    timeout-minutes: 10
-    steps:
-      - run: mkdir -p .tools && touch .tools/probe
-      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
-        with:
-          name: diagnostic-probe
-          path: .tools
-          if-no-files-found: error
-          retention-days: 1
+      - run: git -C ts-deploy rev-parse HEAD
 
   bootstrap:
     name: deploy-cli
