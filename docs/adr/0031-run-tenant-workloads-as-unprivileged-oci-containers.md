@@ -28,9 +28,9 @@ roles. Tenant images are admitted only by immutable digest from the tenant
 registry namespace and cannot request privileged execution, host paths, host
 devices, raw sockets, Linux capabilities, or first-party identities.
 
-This ADR supersedes [ADR 0030](0030-run-customer-workloads-as-wasi-components.md)
+This ADR supersedes the deleted ADR 0030
 and permanently retires the microVM isolation direction of
-[ADR 0028](0028-isolate-tenant-workloads-with-microvms.md).
+the deleted ADR 0028.
 [ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
 
 ## Consequences
