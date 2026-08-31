@@ -28,10 +28,6 @@ type ociInstanceDocument struct {
 	FreeformTags  map[string]string `json:"freeformTags"`
 }
 
-type ociInstanceList struct {
-	Items []ociInstanceDocument `json:"items"`
-}
-
 func ociStatus(resp *http.Response, operation string) error {
 	if resp == nil {
 		return &InvalidDataError{Message: "OCI request returned no response"}
@@ -94,11 +90,11 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 		if err != nil {
 			return nil, err
 		}
-		var list ociInstanceList
-		if json.Unmarshal(body, &list) != nil || len(list.Items) > limit || len(items)+len(list.Items) > limit {
+		pageItems, err := decodeOCIList[ociInstanceDocument](body)
+		if err != nil || len(pageItems) > limit || len(items)+len(pageItems) > limit {
 			return nil, &InvalidDataError{Message: "OCI instance observation response is invalid"}
 		}
-		for _, item := range list.Items {
+		for _, item := range pageItems {
 			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != t.CompartmentId {
 				return nil, &InvalidDataError{Message: "OCI instance observation contains an out-of-scope resource"}
 			}
@@ -587,16 +583,16 @@ func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartmen
 		if err != nil {
 			return nil, err
 		}
-		var list ociInstanceList
-		if json.Unmarshal(body, &list) != nil || len(list.Items) > maximumOCIListResults || len(items)+len(list.Items) > maximumOCIListResults*maximumOCIPages {
+		pageItems, err := decodeOCIList[ociInstanceDocument](body)
+		if err != nil || len(pageItems) > maximumOCIListResults || len(items)+len(pageItems) > maximumOCIListResults*maximumOCIPages {
 			return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
 		}
-		for _, item := range list.Items {
+		for _, item := range pageItems {
 			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != compartment {
 				return nil, &InvalidDataError{Message: "OCI node reconciliation response is outside the requested compartment"}
 			}
 		}
-		items = append(items, list.Items...)
+		items = append(items, pageItems...)
 		next, err := nextOCIPage(resp, page, pageCount+1)
 		if err != nil {
 			return nil, err

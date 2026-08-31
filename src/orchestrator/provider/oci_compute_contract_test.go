@@ -88,6 +88,20 @@ func testHTTPResponse(status int, body string, headers http.Header) *http.Respon
 	return &http.Response{StatusCode: status, Header: headers, Body: io.NopCloser(strings.NewReader(body))}
 }
 
+func TestOCIComputeNodeListAcceptsRawOCIArray(t *testing.T) {
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/20160918/instances" {
+			t.Fatalf("unexpected list request %s %s", request.Method, request.URL.String())
+		}
+		return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"RUNNING"}]`, nil), nil
+	})
+	client := &OCIComputeNodeClient{OCI: transport}
+	items, err := client.listNodeInstances(context.Background(), "ocid1.compartment.oc1.x")
+	if err != nil || len(items) != 1 || items[0].ID != "ocid1.instance.oc1.x" {
+		t.Fatalf("raw OCI instance list = %+v, %v", items, err)
+	}
+}
+
 func TestProviderMutationJournalFencesUnknownOutcomes(t *testing.T) {
 	journal := testJournal(t)
 	first := testMutation("compute.launch", "node-a", ProviderMutationFingerprint("first"), 4)
