@@ -60,6 +60,115 @@ func TestGlobalNatsRuntimeOpenAndValidateRequiresPreProvisionedGlobalState(t *te
 	}
 }
 
+func TestGlobalNatsRuntimeOpenAndValidateFullyProvisionedTopology(t *testing.T) {
+	instance, err := server.NewServer(&server.Options{
+		Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.Start()
+	t.Cleanup(func() { instance.Shutdown(); instance.WaitForShutdown() })
+	if !instance.ReadyForConnections(5 * time.Second) {
+		t.Fatal("test NATS server did not become ready")
+	}
+	client, err := nats.Connect(instance.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	js, err := jetstream.New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The production constructor requires R3. A single-node topology exercises
+	// the same server normalization and validation paths without weakening the
+	// production admission boundary.
+	topology := &GlobalNatsTopology{Replicas: 1}
+	cellSpecConsumer, err := topology.CellSpecConsumer("gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciJobConsumer, err := topology.CiJobConsumer("trusted-build", "runner-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, configuration := range []jetstream.ConsumerConfig{
+		topology.CiConsumer(), topology.CiRuntimeProofConsumer(), cellSpecConsumer, ciJobConsumer,
+	} {
+		if configuration.Name == "" || configuration.Durable != configuration.Name {
+			t.Fatalf("global consumer is not durable: %#v", configuration)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, configuration := range topology.Streams() {
+		if _, err := js.CreateStream(ctx, configuration); err != nil {
+			t.Fatalf("create stream %s: %v", configuration.Name, err)
+		}
+	}
+	for _, configuration := range []jetstream.KeyValueConfig{
+		topology.Leaders(), topology.Cells(), topology.Releases(), topology.RunnerJobs(),
+	} {
+		if _, err := js.CreateKeyValue(ctx, configuration); err != nil {
+			t.Fatalf("create KV %s: %v", configuration.Bucket, err)
+		}
+	}
+	for _, configuration := range []jetstream.ObjectStoreConfig{
+		topology.Bundles(), topology.RunnerBundles(),
+	} {
+		if _, err := js.CreateObjectStore(ctx, configuration); err != nil {
+			t.Fatalf("create object store %s: %v", configuration.Bucket, err)
+		}
+	}
+	ciStream, err := js.Stream(ctx, GlobalNatsTopologyCiStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, configuration := range []jetstream.ConsumerConfig{
+		topology.CiConsumer(), topology.CiRuntimeProofConsumer(),
+	} {
+		consumer, err := ciStream.CreateOrUpdateConsumer(ctx, configuration)
+		if err != nil {
+			t.Fatalf("create consumer %s: %v", configuration.Name, err)
+		}
+		info, err := consumer.Info(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !CiRunnerConsumerReconcilerMatches(info, configuration, GlobalNatsTopologyCiStream) {
+			t.Fatalf("consumer %s normalized unexpectedly: actual=%#v expected=%#v",
+				configuration.Name, info.Config, configuration)
+		}
+	}
+
+	state, err := globalNatsRuntimeOpenAndValidate(ctx, client, topology, false, "gru")
+	if err != nil {
+		t.Fatalf("fully provisioned global topology rejected: %v", err)
+	}
+	if state.cells == nil || state.runnerBundles == nil || state.runtimeProof == nil {
+		t.Fatal("fully provisioned global topology returned incomplete state")
+	}
+
+	cellsStream, err := js.Stream(ctx, "KV_"+GlobalNatsTopologyCellsBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := cellsStream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := info.Config
+	drifted.MaxBytes--
+	if _, err := js.UpdateStream(ctx, drifted); err != nil {
+		t.Fatalf("drift global cells KV: %v", err)
+	}
+	if _, err := globalNatsRuntimeOpenAndValidate(ctx, client, topology, false, "gru"); err == nil {
+		t.Fatal("global runtime accepted a drifted global KV configuration")
+	}
+}
+
 func TestGlobalNatsRuntimeConnectHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

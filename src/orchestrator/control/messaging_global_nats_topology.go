@@ -68,25 +68,33 @@ func (t *GlobalNatsTopology) Streams() []jetstream.StreamConfig {
 			Description: "Accepted global revisions and compiled cell handoffs",
 			Subjects: []string{protocol.NatsSubjectTaxonomy.GlobalFamilyPattern(
 				protocol.NatsSubjectTaxonomy.DesiredFamilySegment())},
-			MaxBytes:   256 * 1024 * 1024,
-			MaxAge:     30 * 24 * time.Hour,
-			Duplicates: 2 * time.Minute,
-			Replicas:   t.Replicas,
-			Retention:  jetstream.LimitsPolicy,
-			Storage:    jetstream.FileStorage,
-			Discard:    jetstream.DiscardOld,
+			MaxConsumers:      -1,
+			MaxMsgs:           -1,
+			MaxMsgsPerSubject: -1,
+			MaxBytes:          256 * 1024 * 1024,
+			MaxAge:            30 * 24 * time.Hour,
+			MaxMsgSize:        -1,
+			Duplicates:        2 * time.Minute,
+			Replicas:          t.Replicas,
+			Retention:         jetstream.LimitsPolicy,
+			Storage:           jetstream.FileStorage,
+			Discard:           jetstream.DiscardOld,
 		},
 		{
-			Name:        GlobalNatsTopologyCiStream,
-			Description: "Durable normalized CI events and fenced runner commands",
-			Subjects:    []string{protocol.NatsSubjectTaxonomy.GlobalCiFamilyPattern()},
-			MaxBytes:    1024 * 1024 * 1024,
-			MaxAge:      30 * 24 * time.Hour,
-			Duplicates:  24 * time.Hour,
-			Replicas:    t.Replicas,
-			Retention:   jetstream.LimitsPolicy,
-			Storage:     jetstream.FileStorage,
-			Discard:     jetstream.DiscardOld,
+			Name:              GlobalNatsTopologyCiStream,
+			Description:       "Durable normalized CI events and fenced runner commands",
+			Subjects:          []string{protocol.NatsSubjectTaxonomy.GlobalCiFamilyPattern()},
+			MaxConsumers:      -1,
+			MaxMsgs:           -1,
+			MaxMsgsPerSubject: -1,
+			MaxBytes:          1024 * 1024 * 1024,
+			MaxAge:            30 * 24 * time.Hour,
+			MaxMsgSize:        -1,
+			Duplicates:        24 * time.Hour,
+			Replicas:          t.Replicas,
+			Retention:         jetstream.LimitsPolicy,
+			Storage:           jetstream.FileStorage,
+			Discard:           jetstream.DiscardOld,
 		},
 	}
 }
@@ -167,8 +175,10 @@ func (t *GlobalNatsTopology) RunnerBundles() jetstream.ObjectStoreConfig {
 
 // CiConsumer mirrors GlobalNatsTopology.CiConsumer.
 func (t *GlobalNatsTopology) CiConsumer() jetstream.ConsumerConfig {
+	const name = "global_ci_trigger"
 	return jetstream.ConsumerConfig{
-		Name:          "global_ci_trigger",
+		Name:          name,
+		Durable:       name,
 		Description:   "Leader-only normalized Forgejo trigger decisions",
 		FilterSubject: GlobalNatsTopologyCiSubject(),
 		AckWait:       1 * time.Second,
@@ -187,8 +197,10 @@ func (t *GlobalNatsTopology) CiConsumer() jetstream.ConsumerConfig {
 
 // CiRuntimeProofConsumer mirrors GlobalNatsTopology.CiRuntimeProofConsumer.
 func (t *GlobalNatsTopology) CiRuntimeProofConsumer() jetstream.ConsumerConfig {
+	const name = "global_ci_runtime_proof"
 	return jetstream.ConsumerConfig{
-		Name:              "global_ci_runtime_proof",
+		Name:              name,
+		Durable:           name,
 		Description:       "Leader-verified native CI runtime observations",
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		AckPolicy:         jetstream.AckExplicitPolicy,
@@ -217,8 +229,10 @@ func (t *GlobalNatsTopology) CellSpecConsumer(cell string) (jetstream.ConsumerCo
 		return jetstream.ConsumerConfig{}, err
 	}
 
+	name := "gitops_global_cell_spec_" + cell
 	return jetstream.ConsumerConfig{
-		Name:              "gitops_global_cell_spec_" + cell,
+		Name:              name,
+		Durable:           name,
 		Description:       "Durable globally signed native GitOps CellSpecs for " + cell,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		AckPolicy:         jetstream.AckExplicitPolicy,
@@ -248,8 +262,10 @@ func (t *GlobalNatsTopology) CiJobConsumer(zone, runner string) (jetstream.Consu
 	}
 
 	runnerHash := subject[strings.LastIndex(subject, ".")+1:]
+	name := "ci_runner_" + strings.ReplaceAll(zone, "-", "_") + "_" + runnerHash
 	return jetstream.ConsumerConfig{
-		Name:              "ci_runner_" + strings.ReplaceAll(zone, "-", "_") + "_" + runnerHash,
+		Name:              name,
+		Durable:           name,
 		Description:       "Durable fenced CI command inbox for " + zone + " runner " + runnerHash,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		AckPolicy:         jetstream.AckExplicitPolicy,
