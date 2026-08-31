@@ -1,28 +1,22 @@
-# TerraScale.Orchestrator documentation
+# TerraScale Orchestrator documentation
 
-The repository [`GOAL.md`](../GOAL.md) is the current Orchestrator architecture
-and release contract. The workspace [`GOAL.md`](../../GOAL.md) controls
-cross-repository product decisions. The repository goal cannot weaken it.
-Git history retains the superseded architecture and phase records.
+The workspace [`GOAL.md`](../../GOAL.md) is the architecture and delivery
+authority. The repository [`GOAL.md`](../GOAL.md) points back to it.
 
-## Start here
+These documents describe the current system:
 
 | Document | Purpose |
 | --- | --- |
-| [`../GOAL.md`](../GOAL.md) | Current authority, topology, NATS, OCI, scheduling, delivery, failure, and GA contract |
-| [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | Accepted authority, regional autonomy, blue-green cutover, and production artifact boundary |
-| [`../README.md`](../README.md) | Repository purpose, current implementation gap, validation, and current adapter commands |
-| [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Short current architecture summary |
-| [`adr/`](adr/) | Architecture records with explicit current or superseded status |
+| [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Product, data-path, control-plane, and delivery boundaries |
+| [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | GRU global authority, regional autonomy, and JetStream R3 |
+| [`architecture/podman-rootless-hosting-and-autoscaling.md`](architecture/podman-rootless-hosting-and-autoscaling.md) | Rootless Podman hosting, stateful drain safety, and autoscaling |
+| [`guides/running-locally.md`](guides/running-locally.md) | Local host-agent and autoscaler operation |
+| [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v2` streams and consumers |
+| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
+| [`contracts/controller-membership.md`](contracts/controller-membership.md) | Regional controller membership and the global cell directory |
+| [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Lean candidate handoff and authority separation |
+| [`runbooks/nats-gateway-operations.md`](runbooks/nats-gateway-operations.md) | Gateway rotation and failure handling |
+| [`runbooks/nats-monitoring.md`](runbooks/nats-monitoring.md) | NATS alert interpretation and remediation |
 
-## Current implementation records
-
-The following documents remain useful for understanding checked-in code. They
-are not the target product architecture:
-
-| Document | Scope |
-| --- | --- |
-| [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | Frozen v1 adapter contract, superseded for the v2 target and never a database dependency |
-
-Do not rewrite evidence to make it appear current. Add a correction or
-supersession notice and preserve what the old run actually proved.
+Deleted documents remain available through Git history when an old decision
+must be inspected.
