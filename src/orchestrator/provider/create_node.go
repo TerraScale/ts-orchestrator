@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -119,7 +120,17 @@ type OciNodeLaunchConfigurationResolver = OciNodeLaunchResolver
 // mutation provider. Implementations must atomically consume a capability.
 type CreateNodeJournal interface {
 	AuthoritativeDurable() bool
-	ConsumeInvocationCapability(context.Context, CreateNodeAuthoritativeInvocationCapability, CreateNodeReceiptBinding, time.Time) error
+	ConsumeInvocationCapability(context.Context, CreateNodeAuthoritativeInvocationCapability, CreateNodeReceiptBinding, string, time.Time) error
+	InvocationCapabilityConsumption(context.Context, CreateNodeAuthoritativeInvocationCapability, CreateNodeReceiptBinding) (CreateNodeInvocationConsumption, bool, error)
+}
+
+// CreateNodeInvocationConsumption is the durable authority for replaying one
+// provider request after a controller restart. ProviderRequestDigest binds the
+// exact authority, service, region, method, path, compartment, body, and
+// caller-supplied retry token.
+type CreateNodeInvocationConsumption struct {
+	ConsumedAt            time.Time
+	ProviderRequestDigest string
 }
 type DeterministicCreateNodeProvider struct {
 	keys, recoveryKeys ReceiptKeyResolver
@@ -229,7 +240,7 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	if p == nil || !p.Enabled {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode is disabled"}
 	}
-	if p.Journal == nil || p.Clock == nil || p.Keys == nil || p.InvocationKeys == nil {
+	if p.Journal == nil || p.Clock == nil || p.Keys == nil || p.InvocationKeys == nil || p.Ownership == nil || !p.Ownership.AuthoritativeDurable() {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode dependencies are incomplete"}
 	}
 	client := p.Client
@@ -248,13 +259,65 @@ func (p *OciCreateNodeProvider) CreateNode(ctx context.Context, r CreateNodeProv
 	if r.InvocationCapability == nil || !p.Journal.AuthoritativeDurable() || !VerifyInvocationCapability(*r.InvocationCapability, p.InvocationKeys, r.Binding, p.Clock()) {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode requires an unconsumed authoritative invocation capability"}
 	}
-	if err := p.Journal.ConsumeInvocationCapability(ctx, *r.InvocationCapability, r.Binding, p.Clock()); err != nil {
+	concrete, concreteClient := client.(*OCIComputeNodeClient)
+	var launch ociNodeLaunchRequest
+	providerRequestDigest := digestCanonical("create-node-client-seam-v1", r.Binding.Digest())
+	if concreteClient {
+		var err error
+		launch, err = concrete.prepareNodeLaunch(ctx, r)
+		if err != nil {
+			return CreateNodeProviderResponse{}, err
+		}
+		providerRequestDigest = launch.digest()
+	}
+	if err := p.Journal.ConsumeInvocationCapability(ctx, *r.InvocationCapability, r.Binding, providerRequestDigest, p.Clock()); err != nil {
 		if ctx.Err() != nil {
 			return CreateNodeProviderResponse{}, ctx.Err()
 		}
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI CreateNode invocation capability was not consumed"}
 	}
-	return client.CreateNode(ctx, r)
+	var response CreateNodeProviderResponse
+	var err error
+	if concreteClient {
+		response, err = concrete.executeNodeLaunch(ctx, launch)
+	} else {
+		response, err = client.CreateNode(ctx, r)
+	}
+	if err == nil {
+		if recordErr := recordCreateNodeOwnership(ctx, p.Ownership, r, response.NodeId); recordErr != nil {
+			if ctx.Err() != nil {
+				return CreateNodeProviderResponse{}, ctx.Err()
+			}
+			return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node was created but its ownership record is not durable"}
+		}
+		return response, nil
+	}
+	if ctx.Err() != nil {
+		return CreateNodeProviderResponse{}, err
+	}
+	var unknown *ProviderOutcomeUnknownError
+	if !concreteClient || !errors.As(err, &unknown) {
+		return CreateNodeProviderResponse{}, err
+	}
+	var exhausted *ociResponseRetriesExhaustedError
+	if errors.As(err, &exhausted) {
+		return CreateNodeProviderResponse{}, err
+	}
+	// The invocation capability was validated and consumed before the first
+	// POST. OCI defines opc-retry-token replay as the only authoritative way
+	// to recover that mutation. Reuse the already-built request so the body,
+	// caller headers, launch resolution, and token stay byte-identical.
+	response, err = concrete.executeNodeLaunch(ctx, launch)
+	if err != nil {
+		return CreateNodeProviderResponse{}, err
+	}
+	if recordErr := recordCreateNodeOwnership(ctx, p.Ownership, r, response.NodeId); recordErr != nil {
+		if ctx.Err() != nil {
+			return CreateNodeProviderResponse{}, ctx.Err()
+		}
+		return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node was recovered but its ownership record is not durable"}
+	}
+	return response, nil
 }
 func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeReconciliation, error) {
 	if p == nil || !p.Enabled {
@@ -273,8 +336,86 @@ func (p *OciCreateNodeProvider) ReconcileCreateNode(ctx context.Context, r Creat
 	if ctx == nil {
 		return CreateNodeReconciliation{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
-	if err := validateRecovery(r, p.RecoveryKeys, p.Clock()); err != nil {
+	now := p.Clock()
+	if err := validateRecovery(r, p.RecoveryKeys, now); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
+	if concrete, ok := client.(*OCIComputeNodeClient); ok {
+		if concrete.ProofSigner == nil || p.Keys == nil || p.InvocationKeys == nil || p.Journal == nil || !p.Journal.AuthoritativeDurable() || p.Ownership == nil || !p.Ownership.AuthoritativeDurable() {
+			return CreateNodeReconciliation{}, &InvalidOperationError{Message: "OCI node mutation recovery dependencies are incomplete"}
+		}
+		if r.InvocationCapability == nil || !VerifyInvocationCapability(*r.InvocationCapability, p.InvocationKeys, r.Binding, r.InvocationCapability.IssuedAt) {
+			return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+		}
+		consumption, consumed, err := p.Journal.InvocationCapabilityConsumption(ctx, *r.InvocationCapability, r.Binding)
+		if err != nil {
+			return CreateNodeReconciliation{}, err
+		}
+		capability := *r.InvocationCapability
+		if !consumed || consumption.ProviderRequestDigest == "" || consumption.ConsumedAt.Before(capability.IssuedAt) ||
+			consumption.ConsumedAt.Before(r.Receipt.IssuedAt) || !consumption.ConsumedAt.Before(capability.ExpiresAt) ||
+			!consumption.ConsumedAt.Before(capability.LeaseExpiresAt) || now.Before(consumption.ConsumedAt) ||
+			!now.Before(consumption.ConsumedAt.Add(ociRetryTokenValidity)) {
+			return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+		}
+		if !createNodeReplayWindowValid(r, p.Keys, now) {
+			return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+		}
+		launch, err := concrete.prepareNodeLaunch(ctx, r)
+		if err != nil {
+			return CreateNodeReconciliation{}, err
+		}
+		if launch.digest() != consumption.ProviderRequestDigest {
+			return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+		}
+		response, err := concrete.executeNodeLaunch(ctx, launch)
+		if err != nil {
+			var unknown *ProviderOutcomeUnknownError
+			if errors.As(err, &unknown) {
+				return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+			}
+			return CreateNodeReconciliation{}, err
+		}
+		if err := recordCreateNodeOwnership(ctx, p.Ownership, r, response.NodeId); err != nil {
+			if ctx.Err() != nil {
+				return CreateNodeReconciliation{}, ctx.Err()
+			}
+			return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
+		}
+		proof, err := concrete.ProofSigner.Sign(r.Binding, response)
+		if err != nil {
+			return CreateNodeReconciliation{}, err
+		}
+		return CreateNodeReconciliation{Status: CreateNodeFound, Response: &response, Proof: &proof}, nil
+	}
 	return client.ReconcileCreateNode(ctx, r)
+}
+
+const ociRetryTokenValidity = 24 * time.Hour
+
+func createNodeReplayWindowValid(r CreateNodeProviderRequest, keys ReceiptKeyResolver, now time.Time) bool {
+	issued := r.Receipt.IssuedAt
+	if now.Before(issued) || !now.Before(issued.Add(ociRetryTokenValidity)) {
+		return false
+	}
+	// Verify at the signed issue time because the short-lived handoff receipt
+	// can expire before crash recovery. Its signed IssuedAt still proves a
+	// conservative upper bound on the original OCI retry-token age.
+	return VerifyCreateNodeHandoffReceipt(r.Receipt, keys, r.Binding, issued)
+}
+
+func recordCreateNodeOwnership(ctx context.Context, ownership DurableOwnershipEvidence, r CreateNodeProviderRequest, nodeID ProviderResourceId) error {
+	if ownership == nil || !ownership.AuthoritativeDurable() {
+		return &InvalidOperationError{Message: "OCI node ownership journal is unavailable"}
+	}
+	if !isOCID(nodeID.Value, "instance") || r.Context.CellId.Value == "" || r.Context.CellId.Value != r.Binding.CellId ||
+		r.Context.CompartmentId.Value != r.Binding.CompartmentId || r.Context.ExpectedGeneration.Value != r.Binding.Generation {
+		return &InvalidDataError{Message: "OCI node ownership binding is invalid"}
+	}
+	return ownership.Record(ctx, ProviderOwnershipRecord{
+		ResourceId:    nodeID,
+		CellId:        r.Context.CellId,
+		CompartmentId: ProviderCompartmentId{Value: r.Binding.CompartmentId},
+		Generation:    ProviderGeneration{Value: r.Binding.Generation},
+	})
 }

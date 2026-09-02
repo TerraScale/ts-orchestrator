@@ -498,6 +498,65 @@ func TestOCIVolumeDetachAbsentIsDurablyIdempotent(t *testing.T) {
 	}
 }
 
+func TestOCIVolumeDetachUsesCompartmentOnlyPaginatedAbsenceProof(t *testing.T) {
+	attachmentID := "ocid1.volumeattachment.oc1.sa-saopaulo-1.target"
+	listCalls := 0
+	deleteCalls := 0
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.Method == http.MethodDelete {
+			deleteCalls++
+			return testHTTPResponse(http.StatusNoContent, "", nil), nil
+		}
+		if request.URL.Path == "/20160918/volumeAttachments/"+attachmentID {
+			return testHTTPResponse(http.StatusNotFound, "", nil), nil
+		}
+		if request.URL.Path != "/20160918/volumeAttachments" || request.URL.Query().Get("compartmentId") != "ocid1.compartment.oc1..x" ||
+			request.URL.Query().Get("instanceId") != "" || request.URL.Query().Get("volumeId") != "" {
+			t.Fatalf("unexpected attachment absence request %s", request.URL.String())
+		}
+		listCalls++
+		if request.URL.Query().Get("page") == "" {
+			return testHTTPResponse(http.StatusOK, `[{"id":"ocid1.volumeattachment.oc1.sa-saopaulo-1.other","compartmentId":"ocid1.compartment.oc1..x","instanceId":"ocid1.instance.oc1.sa-saopaulo-1.other","volumeId":"ocid1.volume.oc1.sa-saopaulo-1.other"}]`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
+		}
+		return testHTTPResponse(http.StatusOK, `[]`, nil), nil
+	})
+	journal := testJournal(t)
+	adapter, err := NewOCIVolumeAttachmentAdapter(transport, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter.Ownership = testOwnership(t, attachmentID)
+	request := VolumeDetachRequest{AttachmentID: attachmentID, IfMatch: "attachment-etag"}
+	request.Mutation = testMutation("attachment.delete", VolumeDetachMutationScope(request), VolumeDetachMutationFingerprint(request), 1)
+	if err := adapter.DetachVolume(context.Background(), request); err != nil {
+		t.Fatalf("compartment-list-proven detach = %v", err)
+	}
+	if listCalls != 2 || deleteCalls != 0 {
+		t.Fatalf("absence proof list calls=%d delete calls=%d", listCalls, deleteCalls)
+	}
+	record, err := journal.Prepare(context.Background(), request.Mutation)
+	if err != nil || record.State != MutationSucceeded {
+		t.Fatalf("absence-proven detach record = %+v, %v", record, err)
+	}
+}
+
+func TestOCIAttachmentAbsenceProofFindsExactListedAttachment(t *testing.T) {
+	attachmentID := "ocid1.volumeattachment.oc1.sa-saopaulo-1.target"
+	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/20160918/volumeAttachments/"+attachmentID {
+			return testHTTPResponse(http.StatusNotFound, "", nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, `[{"id":"`+attachmentID+`","compartmentId":"ocid1.compartment.oc1..x","instanceId":"ocid1.instance.oc1.sa-saopaulo-1.target","volumeId":"ocid1.volume.oc1.sa-saopaulo-1.target"}]`, nil), nil
+	})
+	adapter, err := NewOCIVolumeAttachmentAdapter(transport, testJournal(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := adapter.getVolumeAttachmentInCompartment(context.Background(), attachmentID, "ocid1.compartment.oc1..x"); err == nil || found {
+		t.Fatalf("listed attachment 404 was treated as absent: found=%v err=%v", found, err)
+	}
+}
+
 func TestOCIObjectDeleteAbsentIsDurablyIdempotent(t *testing.T) {
 	deletes := 0
 	transport := testOCITransport(t, OCIServiceObjectStorage, func(request *http.Request) (*http.Response, error) {
