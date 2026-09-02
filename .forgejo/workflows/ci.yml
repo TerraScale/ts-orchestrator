@@ -1,5 +1,7 @@
 # CI = the repository verification set (workspace GOAL.md section 5),
-# the same commands `make check` runs.
+# the same commands `make check` runs. Runs on the runner host (no
+# container) because the pinned builder image digest is gone from the
+# registry; revisit if the registry is restored.
 name: check
 
 on:
@@ -14,11 +16,13 @@ jobs:
   check:
     timeout-minutes: 30
     runs-on: terrascale-builder
-    container:
-      image: git.terrascale.tech/terrascale/terrascale-builder@sha256:0c5a6f8c1c18fdd801acd6b02bc3cb159d080a0aa40e41832312a455a34cdf2d
     steps:
       - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with: { github-server-url: "https://git.terrascale.tech", persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: gofmt
         run: test -z "$(gofmt -l .)"
       - name: vet
