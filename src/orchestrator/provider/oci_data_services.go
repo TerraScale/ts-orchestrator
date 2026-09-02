@@ -283,7 +283,7 @@ type OCIRegistryScope struct {
 }
 
 type OCIRegistryAdapter struct {
-	Registry     *OCIHTTPTransport
+	registry     *OCIHTTPTransport
 	namespace    string
 	repositories map[string]struct{}
 }
@@ -334,7 +334,21 @@ func NewOCIRegistryAdapter(transport *OCIHTTPTransport, scope OCIRegistryScope) 
 		}
 		repositories[canonical] = struct{}{}
 	}
-	return &OCIRegistryAdapter{Registry: transport, namespace: scope.Namespace, repositories: repositories}, nil
+	// Snapshot every authority-bearing transport value. Registry credentials
+	// must not follow later mutation of caller-owned config, endpoint, client,
+	// cookie jar, redirect policy, or signer fields.
+	endpoint := *transport.Config.Endpoint
+	config := transport.Config
+	config.Endpoint = &endpoint
+	client := *transport.Client
+	client.Jar = nil
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	signerCopy := *signer
+	registry := *transport
+	registry.Config = config
+	registry.Client = &client
+	registry.Signer = &signerCopy
+	return &OCIRegistryAdapter{registry: &registry, namespace: scope.Namespace, repositories: repositories}, nil
 }
 
 func containsASCIIControl(value string) bool {
@@ -374,22 +388,41 @@ func validRegistryRepositoryComponent(component string) bool {
 	if len(component) < 1 || len(component) > 128 {
 		return false
 	}
-	firstAlphaNumeric := (component[0] >= 'a' && component[0] <= 'z') || (component[0] >= '0' && component[0] <= '9')
-	if !firstAlphaNumeric {
+	alphaNumeric := func(value byte) bool {
+		return (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')
+	}
+	index := 0
+	for index < len(component) && alphaNumeric(component[index]) {
+		index++
+	}
+	if index == 0 {
 		return false
 	}
-	separator := false
-	for _, character := range component {
-		alphaNumeric := (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
-		if !alphaNumeric && character != '.' && character != '_' && character != '-' {
+	for index < len(component) {
+		switch component[index] {
+		case '.':
+			index++
+		case '_':
+			index++
+			if index < len(component) && component[index] == '_' {
+				index++
+			}
+		case '-':
+			for index < len(component) && component[index] == '-' {
+				index++
+			}
+		default:
 			return false
 		}
-		if !alphaNumeric && separator {
+		start := index
+		for index < len(component) && alphaNumeric(component[index]) {
+			index++
+		}
+		if start == index {
 			return false
 		}
-		separator = !alphaNumeric
 	}
-	return !separator
+	return true
 }
 
 func canonicalRegistryRepository(repository string, includeNamespace bool) (string, error) {
@@ -454,6 +487,10 @@ func canonicalRegistryDigest(resp *http.Response, required bool) (string, error)
 
 func canonicalRegistryManifestMediaType(resp *http.Response) (string, error) {
 	return canonicalOCIHeader(resp, "Content-Type", true, supportedRegistryManifestMediaType)
+}
+
+func canonicalRegistryBlobMediaType(resp *http.Response) (string, error) {
+	return canonicalOCIHeader(resp, "Content-Type", true, func(value string) bool { return value == "application/octet-stream" })
 }
 
 func registryJSONHasDuplicateProperties(raw []byte) bool {
@@ -590,7 +627,7 @@ func validRegistryDescriptorList(raw json.RawMessage, allowEmpty bool) bool {
 }
 
 func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryManifestRequest) (RegistryManifest, error) {
-	if a == nil || a.Registry == nil {
+	if a == nil || a.registry == nil {
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
 	repository, err := a.registryRepositoryPath(request.Repository)
@@ -600,7 +637,7 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 	if !validRegistryDigest(request.Reference) {
 		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
 	}
-	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{
+	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{
 		"Accept":          registryManifestAccept,
 		"Accept-Encoding": "identity",
 	})
@@ -611,9 +648,17 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 		drainClose(resp.Body)
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry manifest pull failed"}
 	}
-	body, err := ReadBoundedBody(resp, a.Registry.Config.MaxBodyBytes)
+	declaredLength, validLength := registryBlobContentLength(resp)
+	if !validLength || declaredLength > a.registry.Config.MaxBodyBytes {
+		drainClose(resp.Body)
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
+	}
+	body, err := ReadBoundedBody(resp, a.registry.Config.MaxBodyBytes)
 	if err != nil {
 		return RegistryManifest{}, err
+	}
+	if int64(len(body)) != declaredLength {
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
 	}
 	sum := sha256.Sum256(body)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
@@ -629,7 +674,7 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 }
 
 func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobRequest) (io.ReadCloser, int64, error) {
-	if a == nil || a.Registry == nil {
+	if a == nil || a.registry == nil {
 		return nil, 0, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
 	repository, err := a.registryRepositoryPath(request.Repository)
@@ -639,7 +684,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	if !validRegistryDigest(request.Digest) {
 		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
 	}
-	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil, map[string]string{
+	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil, map[string]string{
 		"Accept":          "application/octet-stream",
 		"Accept-Encoding": "identity",
 	})
@@ -653,7 +698,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 		if !valid {
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
-		target, valid := parseRegistryBlobRedirect(location, a.Registry.Config.Region)
+		target, valid := parseRegistryBlobRedirect(location, a.registry.Config.Region, a.namespace)
 		if !valid {
 			return nil, 0, &InvalidDataError{Message: "OCI registry blob redirect is invalid"}
 		}
@@ -665,7 +710,7 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 		redirectRequest.Header.Set("Accept-Encoding", "identity")
 		redirectRequest.Header.Del("Authorization")
 		redirectRequest.Header.Del("Cookie")
-		client := *a.Registry.Client
+		client := *a.registry.Client
 		client.Jar = nil
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		resp, err = client.Do(redirectRequest)
@@ -686,7 +731,8 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	}
 	size, valid := registryBlobContentLength(resp)
 	headerDigest, digestErr := canonicalRegistryDigest(resp, !redirected)
-	if !valid || digestErr != nil || (headerDigest != "" && headerDigest != request.Digest) {
+	_, mediaTypeErr := canonicalRegistryBlobMediaType(resp)
+	if !valid || digestErr != nil || mediaTypeErr != nil || (headerDigest != "" && headerDigest != request.Digest) {
 		drainClose(resp.Body)
 		return nil, 0, &InvalidDataError{Message: "OCI registry blob metadata is invalid"}
 	}
@@ -705,36 +751,45 @@ func singleRegistryRedirectLocation(resp *http.Response) (string, bool) {
 	return returnValue, len(values) == 1 && len(returnValue) > 0 && len(returnValue) <= 8192 && !strings.ContainsAny(returnValue, "\r\n")
 }
 
-func parseRegistryBlobRedirect(raw, region string) (*url.URL, bool) {
+func parseRegistryBlobRedirect(raw, region, namespace string) (*url.URL, bool) {
 	target, err := url.Parse(raw)
-	if err != nil || !target.IsAbs() || target.Scheme != "https" || target.Opaque != "" || target.User != nil || target.Host == "" || target.Fragment != "" {
+	if err != nil || !target.IsAbs() || target.Scheme != "https" || target.Opaque != "" || target.User != nil || target.Host == "" || target.Fragment != "" ||
+		!validRegistryNamespace(namespace) {
 		return nil, false
 	}
 	host := target.Hostname()
-	if target.Host != host || host != strings.ToLower(host) || !validRegistryBlobRedirectHost(host, region) {
+	if target.Host != host || host != strings.ToLower(host) || !validRegistryBlobRedirectAuthority(target, region, namespace) {
 		return nil, false
 	}
 	return target, true
 }
 
-func validRegistryBlobRedirectHost(host, region string) bool {
-	if host == "objectstorage."+region+".oraclecloud.com" || host == "objectstorage."+region+".oci.customer-oci.com" {
-		return true
-	}
-	suffix := ".objectstorage." + region + ".oci.customer-oci.com"
-	if !strings.HasSuffix(host, suffix) {
+func validRegistryBlobRedirectAuthority(target *url.URL, region, namespace string) bool {
+	if target == nil {
 		return false
 	}
-	namespace := strings.TrimSuffix(host, suffix)
-	if len(namespace) < 1 || len(namespace) > 63 || namespace[0] == '-' || namespace[len(namespace)-1] == '-' {
+	host := target.Hostname()
+	namespacedHost := namespace + ".objectstorage." + region + ".oci.customer-oci.com"
+	genericHost := host == "objectstorage."+region+".oraclecloud.com" || host == "objectstorage."+region+".oci.customer-oci.com"
+	if host != namespacedHost && !genericHost {
 		return false
 	}
-	for _, value := range namespace {
-		if (value < 'a' || value > 'z') && (value < '0' || value > '9') && value != '-' {
-			return false
+	parts := strings.Split(target.EscapedPath(), "/")
+	namespaceSegments := 0
+	pathNamespaceMatches := false
+	for index, part := range parts {
+		if part != "n" {
+			continue
+		}
+		namespaceSegments++
+		if index+1 < len(parts) && parts[index+1] == namespace {
+			pathNamespaceMatches = true
 		}
 	}
-	return true
+	if namespaceSegments > 1 || (namespaceSegments == 1 && !pathNamespaceMatches) {
+		return false
+	}
+	return host == namespacedHost || (genericHost && namespaceSegments == 1 && pathNamespaceMatches)
 }
 
 func registryBlobContentLength(resp *http.Response) (int64, bool) {
