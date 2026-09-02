@@ -15,11 +15,90 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-const maximumOCIListResults = 1000
+const (
+	maximumOCIListResults = 1000
+	maximumOCIPages       = 16
+)
+
+func validOCIPageToken(page string) bool {
+	if len(page) == 0 || len(page) > 1024 || strings.TrimSpace(page) != page {
+		return false
+	}
+	for _, value := range page {
+		if value < 0x21 || value > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func nextOCIPage(resp *http.Response, seen map[string]struct{}, pagesRead int) (string, error) {
+	if resp == nil || seen == nil || pagesRead < 1 || pagesRead > maximumOCIPages {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	values := resp.Header.Values("opc-next-page")
+	if len(values) == 0 {
+		return "", nil
+	}
+	if len(values) != 1 || !validOCIPageToken(values[0]) || pagesRead == maximumOCIPages {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	next := values[0]
+	if _, duplicate := seen[next]; duplicate {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	seen[next] = struct{}{}
+	return next, nil
+}
+
+func cloneOCIQuery(base url.Values, page string) string {
+	query := base.Clone()
+	if page == "" {
+		query.Del("page")
+	} else {
+		query.Set("page", page)
+	}
+	return query.Encode()
+}
+
+func canonicalOCIHeader(resp *http.Response, name string, required bool, valid func(string) bool) (string, error) {
+	if resp == nil || valid == nil {
+		return "", &InvalidDataError{Message: "OCI response header is invalid"}
+	}
+	values := resp.Header.Values(name)
+	if len(values) == 0 && !required {
+		return "", nil
+	}
+	if len(values) != 1 || !valid(values[0]) {
+		return "", &InvalidDataError{Message: "OCI response header is invalid"}
+	}
+	return values[0], nil
+}
+
+func validCanonicalETag(value string) bool {
+	if !isSafeETag(value) || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalOCIETag(resp *http.Response) (string, error) {
+	return canonicalOCIHeader(resp, "etag", true, validCanonicalETag)
+}
+
+func optionalOCIWorkRequestID(resp *http.Response) (string, error) {
+	return canonicalOCIHeader(resp, "opc-work-request-id", false, validWorkRequestID)
+}
 
 func fingerprintJSON(action string, value any) string {
 	raw, _ := json.Marshal(value)
@@ -59,18 +138,23 @@ func validateOCIAdapter(transport *OCIHTTPTransport, service OCIService, journal
 }
 
 func requireOwnedResource(ctx context.Context, ownership DurableOwnershipEvidence, id, compartment string) error {
+	_, err := ownedResourceCompartment(ctx, ownership, id, compartment)
+	return err
+}
+
+func ownedResourceCompartment(ctx context.Context, ownership DurableOwnershipEvidence, id, compartment string) (string, error) {
 	if ownership == nil || !ownership.AuthoritativeDurable() {
-		return &InvalidOperationError{Message: "provider mutation requires authoritative ownership evidence"}
+		return "", &InvalidOperationError{Message: "provider mutation requires authoritative ownership evidence"}
 	}
 	record, found, err := ownership.Lookup(ctx, ProviderResourceId{Value: id})
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !found || record.ResourceId.Value != id || record.Generation.Value == 0 ||
+	if !found || record.ResourceId.Value != id || !isOCID(record.CompartmentId.Value, "compartment") || record.Generation.Value == 0 ||
 		(compartment != "" && record.CompartmentId.Value != compartment) {
-		return &InvalidOperationError{Message: "provider resource ownership is not recorded in the required scope"}
+		return "", &InvalidOperationError{Message: "provider resource ownership is not recorded in the required scope"}
 	}
-	return nil
+	return record.CompartmentId.Value, nil
 }
 
 func safeFreeformTags(tags map[string]string) (map[string]string, error) {
@@ -109,10 +193,70 @@ func mutationResultFromHeaders(resp *http.Response, resourceID, etag string) Pro
 }
 
 func finishUnknown(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent) error {
-	if _, err := journal.MarkUnknown(ctx, intent); err != nil {
+	return finishUnknownWithResult(ctx, journal, intent, ProviderMutationResult{})
+}
+
+func finishUnknownWithResult(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult) error {
+	if result.WorkRequestID != "" && !validWorkRequestID(result.WorkRequestID) {
+		result.WorkRequestID = ""
+	}
+	if _, err := journal.MarkUnknown(ctx, intent, result); err != nil {
 		return err
 	}
 	return &ProviderOutcomeUnknownError{}
+}
+
+func productionMutationWorkRequestWaitPolicy() WorkRequestWaitPolicy {
+	return WorkRequestWaitPolicy{
+		PollInterval: 250 * time.Millisecond,
+		MaxPolls:     12,
+		MaxNotFound:  4,
+	}
+}
+
+func observeAsyncMutation(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter, policy WorkRequestWaitPolicy) (WorkRequest, error) {
+	if !validWorkRequestID(result.WorkRequestID) || workRequests == nil {
+		return WorkRequest{}, finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	if _, err := journal.MarkUnknown(ctx, intent, result); err != nil {
+		return WorkRequest{}, err
+	}
+	work, err := workRequests.WaitWorkRequest(ctx, result.WorkRequestID, policy)
+	if work.State == WorkRequestFailed || work.State == WorkRequestCanceled {
+		failureCode := "provider-work-request-failed"
+		if work.State == WorkRequestCanceled {
+			failureCode = "provider-work-request-canceled"
+		}
+		if _, markErr := journal.MarkProviderFailed(ctx, intent, result, failureCode); markErr != nil {
+			return WorkRequest{}, markErr
+		}
+		return work, &InvalidOperationError{Message: "OCI provider work request failed"}
+	}
+	if err != nil || work.State != WorkRequestSucceeded {
+		return work, finishUnknownWithResult(ctx, journal, intent, result)
+	}
+	return work, nil
+}
+
+func finishAsyncMutation(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter, policy WorkRequestWaitPolicy) error {
+	if _, err := observeAsyncMutation(ctx, journal, intent, result, workRequests, policy); err != nil {
+		return err
+	}
+	return markSucceeded(ctx, journal, intent, result)
+}
+
+func finishAsyncMutationWithoutResourceProof(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter, policy WorkRequestWaitPolicy) error {
+	if _, err := observeAsyncMutation(ctx, journal, intent, result, workRequests, policy); err != nil {
+		return err
+	}
+	return &ProviderOutcomeUnknownError{Message: "OCI work request succeeded without a scope-bound resource result"}
+}
+
+func finishUnboundMutationResult(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, workRequests *OCIWorkRequestAdapter, policy WorkRequestWaitPolicy) error {
+	if validWorkRequestID(result.WorkRequestID) {
+		return finishAsyncMutationWithoutResourceProof(ctx, journal, intent, result, workRequests, policy)
+	}
+	return finishUnknownWithResult(ctx, journal, intent, result)
 }
 
 func knownFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, code string) error {
