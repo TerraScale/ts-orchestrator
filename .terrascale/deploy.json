@@ -49,17 +49,16 @@
       "resourceWeight": "heavy",
       "commands": [
         {
-          "description": "Build the linux-x64 and linux-arm64 artifacts",
-          "command": "docker",
+          "description": "Build the linux-x64 and linux-arm64 artifacts with Podman",
+          "command": "podman",
+          "arguments": ["build", "--file", ".terrascale/ci.Dockerfile", "--target", "ci-artifact", "--output", "type=local,dest=artifacts/orchestrator", "."]
+        },
+        {
+          "description": "Validate the orchestrator artifact contract",
+          "command": "bash",
           "arguments": [
-            "build",
-            "--file",
-            ".terrascale/ci.Dockerfile",
-            "--target",
-            "ci-artifact",
-            "--output",
-            "type=local,dest=artifacts/orchestrator",
-            "."
+            "-c",
+            "set -euo pipefail; root=\"artifacts/orchestrator\"; expected=$(printf '%s\\n' linux-arm64/orchestrator-tooling linux-arm64/seccomp/terrascale-default-v1.json linux-arm64/terrascale-orchestrator linux-arm64/ts-node linux-x64/orchestrator-tooling linux-x64/seccomp/terrascale-default-v1.json linux-x64/terrascale-orchestrator linux-x64/ts-node); actual=$(find \"$root\" -type f -printf '%P\\n' | LC_ALL=C sort); test \"$actual\" = \"$expected\"; while IFS= read -r executable; do test -x \"$root/$executable\"; done <<'EOF'\nlinux-arm64/orchestrator-tooling\nlinux-arm64/terrascale-orchestrator\nlinux-arm64/ts-node\nlinux-x64/orchestrator-tooling\nlinux-x64/terrascale-orchestrator\nlinux-x64/ts-node\nEOF"
           ]
         }
       ]

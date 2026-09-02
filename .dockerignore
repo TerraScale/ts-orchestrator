@@ -1,4 +1,5 @@
 .git
+artifacts
 **/bin
 **/obj
 **/TestResults
