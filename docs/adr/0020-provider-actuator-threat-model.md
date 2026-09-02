@@ -1,6 +1,7 @@
 # ADR 0020: Provider actuator crash-stop and irreversible-operation fencing
 
-- Status: Accepted safety boundary; provider qualification pending
+- Status: Accepted safety boundary; provider qualification and unified
+  authorization migration pending
 - Updated: 2026-08-30
 - Scope: OCI compute, volumes, attachments, work requests, Object Storage, and
   other external mutations owned by Orchestrator
@@ -26,6 +27,40 @@ actuator host or its regional credentials are compromised.
 Use persisted intent plus same-operation resume as the provider mutation
 fence.
 
+The current Go implementation has two related but distinct layers. The
+controller authorization layer uses `ProviderOperationContext` and `Authorize`
+to validate authority, ownership, generation, approvals, deadlines, and call
+evidence before producing a typed `ProviderIntent`. Its durable authorization
+value is `DurableProviderAuthorization`; it is not currently serialized as a
+record named `AuthorizedForProviderCall`.
+
+The concrete OCI mutation fence used by the provider-neutral resource
+adapters (`OCIComputeAdapter`, block-storage, attachment, and Object Storage)
+is the authoritative CAS-backed `ProviderMutationJournal`. It persists a
+`ProviderMutationIntent` bound to its scope, action, epoch, idempotency key,
+and complete request fingerprint. The journal states are `Prepared`,
+`Submitted`, `Unknown`, `Succeeded`, and `Failed`; a known capacity rejection
+may return `Submitted` to `Prepared` with an advanced attempt cursor. Adapters
+persist `Submitted` before dispatch, reuse the same intent after an uncertain
+result, and refuse conflicting operations while an intent is unresolved.
+
+The context-based node-create adapter and the CI-runner lifecycle are separate
+current contracts: node create verifies a signed, durably consumed invocation
+capability, while CI-runner recovery and termination require durable ownership
+evidence. They are not yet represented by the provider mutation journal or the
+planned unified authorization record.
+
+The `AuthorizedForProviderCall` record described below is the planned unified
+authorization record. Until every concrete adapter consumes that record, its
+requirements apply to the controller authorization layer where supported, and
+the provider-neutral journal requirements above remain the effective adapter
+boundary. This distinction is intentional: neither layer may be treated as a
+permission to bypass the other.
+
+The following numbered lifecycle is the target unified contract; the current
+adapter state transitions are described above and remain normative until that
+migration is complete.
+
 1. A pure controller decision persists an operation as `Prepared`. The record
    includes the exact target or deterministic create identity, expected
    observation and generation, proposed terminal state, permitted
@@ -37,24 +72,29 @@ fence.
    approvals, policy, quorum, budget gates, and the unexpired deadline. A
    failed or stale check moves the operation to `Held` and makes no provider
    call.
-3. If every gate passes, the writer atomically persists
-   `AuthorizedForProviderCall`. That record freezes the exact provider action
+3. In the planned unified lifecycle, if every gate passes, the writer
+   atomically persists `AuthorizedForProviderCall`. That record freezes the
+   exact provider action
    and payload digest, target OCID or create identity, desired terminal state,
    provider retry token, allowed compensations, authorizing epoch, policy and
    approval digests, deadline evaluated at authorization, and authorization
    commit sequence and digest.
-4. The durable transition to `AuthorizedForProviderCall` is the irreversible
-   commit point. Before it, expiry, leadership loss, stale observation, or
-   approval withdrawal can hold the operation without a call. After it, those
-   changes may pause an unsent dispatch or force reconciliation, but they
-   cannot cancel the committed provider step, replace its terminal target,
-   change its payload or request identity, or authorize a conflicting
-   operation.
-5. Only an exact `AuthorizedForProviderCall` record can produce a
-   `ProviderOperationContext`. The regional actuator verifies that record and
-   its digest immediately before dispatch. If the executor loses authority
-   before crossing the provider boundary, it records a hold or transfer. A
-   successor continues the same committed operation.
+4. In that planned lifecycle, the durable transition to
+   `AuthorizedForProviderCall` is the irreversible commit point. Before it,
+   expiry, leadership loss, stale observation, or approval withdrawal can hold
+   the operation without a call. After it, those changes may pause an unsent
+   dispatch or force reconciliation, but they cannot cancel the committed
+   provider step, replace its terminal target, change its payload or request
+   identity, or authorize a conflicting operation. Current adapters obtain the
+   equivalent call boundary by persisting `Submitted` in their mutation
+   journal immediately before dispatch.
+5. In the planned unified lifecycle, only an exact
+   `AuthorizedForProviderCall` record can produce a `ProviderOperationContext`.
+   The regional actuator verifies that record and its digest immediately before
+   dispatch. The current context-based node-create adapter instead verifies the
+   bound context, signed invocation capability, and durable capability
+   consumption; the current provider-neutral adapters verify their mutation
+   intent and CAS journal. A successor continues the same committed operation.
 6. Before crossing the provider boundary, the actuator durably records the
    dispatch attempt against the authorization commit. It sends the frozen
    operation-bound retry token and records the work-request ID or exact
@@ -70,7 +110,9 @@ fence.
    authorized operation. Any other result is quarantined as an inconsistent
    observation and cannot authorize cleanup by itself.
 10. Tags help discovery and mismatch detection only. Mutation authority
-    requires a scoped OCI capability and the matching
+    requires the matching durable provider record and, for context-based
+    operations, the scoped capability and authorization checks described above.
+    The planned unified form binds those checks to an
     `AuthorizedForProviderCall` record. IAM propagation is not a leadership
     fence.
 11. The actuator persists the provider result and binds it to the authorization
@@ -98,15 +140,22 @@ The context binds at least:
 - immutable correlation to the owning admitted candidate and accepted
   desired-state generation.
 
-The adapter rejects a context whose authorization state, commit digest, action,
-payload, target, retry token, or owning operation differs from the journal. It
-cannot convert `Prepared` or `Held` into an adapter context.
+For context-based operations, the adapter rejects a context whose authorization
+state, commit digest, action, payload, target, retry token, or owning operation
+differs from the journal; it cannot convert an unauthorized request into an
+adapter context. The current provider-neutral OCI adapters perform the
+equivalent binding with `ProviderMutationIntent` and reject a malformed,
+stale, or conflicting journal transition. Their `Prepared` record is the
+durable intent from which the adapter may proceed to `Submitted`; it is not the
+controller authorization state described by the planned unified record.
 
 ## Safety rules
 
-- Every mutating adapter call consumes an exact committed
-  `AuthorizedForProviderCall` record. The adapter cannot invent business
-  intent.
+- Every current OCI mutation adapter consumes an exact `ProviderMutationIntent`
+  through an authoritative CAS-backed `ProviderMutationJournal`. Context-based
+  adapters consume only typed intents produced by `Authorize`; the planned
+  unified form names their shared committed record
+  `AuthorizedForProviderCall`. No adapter can invent business intent.
 - One logical operation owns a target transition. Leadership changes the
   executor, not the authorized terminal outcome.
 - Create retries reuse one deterministic create identity and provider retry
@@ -158,8 +207,9 @@ target. A controller cannot invent cleanup after an unexpected partial result.
 Provider adapter tests cover lost responses, delayed work-request visibility,
 controller restart, leadership change, duplicate delivery, stale generation,
 unknown resources, capacity errors, and authorized compensation after a
-partial result. Tests must prove that a merely `Prepared` operation cannot
-reach an adapter and that authority loss cannot replace a committed operation
+partial result. Tests must prove that an unauthorized controller context
+cannot produce a provider intent, that a prepared mutation cannot be replaced
+while unresolved, and that authority loss cannot replace a committed operation
 with a conflicting one.
 
 Live OCI qualification remains opt-in and requires dedicated non-production
@@ -170,8 +220,10 @@ production qualified.
 ## Consequences
 
 Provider adapters return typed observations and do not own terminal-state,
-retry, compensation, or ownership policy. Journals distinguish `Prepared`,
-`Held`, immutable authorization, dispatch attempts, and provider outcomes.
-Operator tooling exposes unknown and held outcomes without an unscoped retry
-action. Credential scope limits damage, but it does not replace the logical
-fence.
+retry, compensation, or ownership policy. Controller authorization traces
+expose held and rejected decisions; provider mutation journals distinguish
+`Prepared`, `Submitted`, `Unknown`, dispatch attempts, and terminal provider
+outcomes. The planned unified journal will add an immutable authorization
+record. Operator tooling exposes unknown and held outcomes without an unscoped
+retry action. Credential scope limits damage, but it does not replace the
+logical fence.
