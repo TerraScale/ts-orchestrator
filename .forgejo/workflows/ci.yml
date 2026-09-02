@@ -1,0 +1,205 @@
+name: TerraScale orchestrator checks
+
+on:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orchestrator-${{ forgejo.workflow }}-${{ forgejo.repository }}-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+# DEP-1 must publish an independently accepted replacement before this can run.
+# The sentinels intentionally keep this workflow non-runnable until then.
+env:
+  TS_DEPLOY_REPOSITORY: "TerraScale-Old/TerraScale.Deploy"
+  TS_DEPLOY_REVISION: "PENDING_DEP1_GREEN_COMMIT"
+  TS_DEPLOY_EXPECTED_TREE: "PENDING_DEP1_GREEN_TREE"
+
+jobs:
+  bootstrap:
+    name: deploy-cli
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    permissions: { contents: read }
+    steps:
+      - name: Require the least-privileged Deploy repository token
+        shell: bash
+        env:
+          TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN: ${{ secrets.TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN}" ]]; then
+            echo "X-8 is blocked: TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN is not configured." >&2
+            exit 1
+          fi
+
+      - name: Require the accepted Deploy commit and tree pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="${TS_DEPLOY_REVISION}"
+          tree="${TS_DEPLOY_EXPECTED_TREE}"
+          if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ || ! "${tree}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "X-8 is blocked: replace TS_DEPLOY_REVISION and TS_DEPLOY_EXPECTED_TREE with the accepted DEP-1 full commit and its Git tree." >&2
+            exit 1
+          fi
+      - name: Fetch the exact reviewed Deploy source
+        shell: bash
+        env:
+          TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN: ${{ secrets.TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          git_config_global="${RUNNER_TEMP}/terrascale-deploy-gitconfig"
+          askpass="${RUNNER_TEMP}/terrascale-deploy-askpass"
+          cleanup() {
+            rm -f -- "${git_config_global}" "${askpass}"
+          }
+          trap cleanup EXIT
+          : >"${git_config_global}"
+          chmod 600 "${git_config_global}"
+          cat >"${askpass}" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "${TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN:?}" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 600 "${askpass}"
+          test ! -e ts-deploy
+          git init --initial-branch=empty ts-deploy
+          GIT_CONFIG_GLOBAL="${git_config_global}" GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 \
+            git -C ts-deploy -c credential.helper= fetch --no-tags --depth=1 \
+            "https://git.terrascale.tech/${TS_DEPLOY_REPOSITORY}.git" "${TS_DEPLOY_REVISION}"
+          git -C ts-deploy checkout --detach FETCH_HEAD
+          test "$(git -C ts-deploy rev-parse HEAD)" = "${TS_DEPLOY_REVISION}"
+          test "$(git -C ts-deploy rev-parse HEAD^{tree})" = "${TS_DEPLOY_EXPECTED_TREE}"
+          test -z "$(git -C ts-deploy status --porcelain=v1 --untracked-files=all)"
+
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: ts-deploy/go.mod
+          cache: false
+
+      - name: Build the exact reviewed Deploy CLI from its checkout
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOBIN: ${{ runner.temp }}/terrascale-deploy/bin
+        working-directory: ts-deploy
+        run: |
+          set -euo pipefail
+          case "${GOBIN}" in /*) ;; *) echo "GOBIN must be absolute" >&2; exit 1 ;; esac
+          test "$(git rev-parse HEAD)" = "${TS_DEPLOY_REVISION}"
+          test "$(git rev-parse HEAD^{tree})" = "${TS_DEPLOY_EXPECTED_TREE}"
+          mkdir -p "${GOBIN}"
+          go build -trimpath -o "${GOBIN}/terrascale-deploy" ./cmd/terrascale-deploy
+          go version -m "${GOBIN}/terrascale-deploy" | tee "${RUNNER_TEMP}/terrascale-deploy-build.txt"
+          "${GOBIN}/terrascale-deploy" ci resolve-cli
+
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: deploy-cli
+          path: ${{ runner.temp }}/terrascale-deploy/bin
+          if-no-files-found: error
+          retention-days: 1
+
+  plan:
+    name: plan
+    needs: bootstrap
+    runs-on: terrascale-builder
+    timeout-minutes: 15
+    permissions: { contents: read }
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: "${{ runner.temp }}/terrascale-deploy/bin" }
+      - name: Plan the orchestrator profiles from clean source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          chmod +x "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy"
+          "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" ci plan \
+            --repository-root . --require-clean-source \
+            --output "${RUNNER_TEMP}/orchestrator-plan.json"
+
+  static:
+    name: verify/static
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 30
+    permissions: { contents: read }
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: "${{ runner.temp }}/terrascale-deploy/bin" }
+      - name: Run the static profile
+        run: chmod +x "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" && "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" ci pr --repository-root . --profile static
+
+  build:
+    name: verify/build
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 45
+    permissions: { contents: read }
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: "${{ runner.temp }}/terrascale-deploy/bin" }
+      - name: Run the build profile
+        run: chmod +x "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" && "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" ci pr --repository-root . --profile build
+
+  test:
+    name: verify/test
+    needs: [bootstrap, plan]
+    runs-on: terrascale-builder
+    timeout-minutes: 60
+    permissions: { contents: read }
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: "${{ runner.temp }}/terrascale-deploy/bin" }
+      - name: Run the test and race profiles
+        run: chmod +x "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" && "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" ci pr --repository-root . --profile test
+
+  artifact:
+    name: artifact/linux-amd64-arm64
+    needs: [bootstrap, plan, static, build, test]
+    runs-on: terrascale-builder
+    timeout-minutes: 60
+    permissions: { contents: read }
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: { github-server-url: "https://git.terrascale.tech", fetch-depth: 0, persist-credentials: false }
+      - uses: https://data.forgejo.org/actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version-file: go.mod, cache: false }
+      - uses: https://data.forgejo.org/actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with: { name: deploy-cli, path: "${{ runner.temp }}/terrascale-deploy/bin" }
+      - name: Run the artifact profile
+        run: |
+          chmod +x "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy"
+          "${RUNNER_TEMP}/terrascale-deploy/bin/terrascale-deploy" ci pr --repository-root . --profile artifact
+      - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        with:
+          name: orchestrator-linux-amd64-arm64
+          path: artifacts/orchestrator
+          if-no-files-found: error
+          retention-days: 7
