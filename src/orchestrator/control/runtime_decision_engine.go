@@ -526,11 +526,22 @@ func runtimeDescriptorMatches(spec WorkloadRuntimeSpec) bool {
 		return isOci && oci.Descriptor == OciRuntimeDescriptorTerraBase
 	case RuntimeRoleNatsServer:
 		return isNative && native.Descriptor == NativeUnitDescriptorNatsServer
+	case RuntimeRoleTelemetry:
+		if isNative && native.Descriptor == NativeUnitDescriptorTelemetry {
+			return true
+		}
+		return isOci && oci.Descriptor == OciRuntimeDescriptorTelemetry
+	case RuntimeRolePlatform:
+		return isOci && oci.Descriptor == OciRuntimeDescriptorPlatform
+	case RuntimeRoleAuthentication:
+		return isOci && oci.Descriptor == OciRuntimeDescriptorAuthentication
 	case RuntimeRoleDashboard:
 		return isOci && oci.Descriptor == OciRuntimeDescriptorDashboard
+	case RuntimeRoleGrafana:
+		return isOci && oci.Descriptor == OciRuntimeDescriptorGrafana
+	case RuntimeRoleTrustedCi:
+		return isOci && oci.Descriptor == OciRuntimeDescriptorTrustedCi
 	default:
-		// Removed roles and every unknown value fail closed, including when a
-		// caller hand-builds a WorkloadRuntimeSpec around a legacy payload.
 		return false
 	}
 }

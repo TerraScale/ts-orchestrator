@@ -228,9 +228,6 @@ func runtimeArchitectureIsDefined(value RuntimeArchitecture) bool {
 type RuntimeRole int
 
 const (
-	// These four roles retain their v1 control-plane meanings. The removed
-	// values remain named below so old payloads can be identified and refused;
-	// none may be reused for the reduced runtime.AdmittedRole catalog.
 	RuntimeRoleOrchestrator   RuntimeRole = 1
 	RuntimeRoleTerraBase      RuntimeRole = 2
 	RuntimeRolePlatform       RuntimeRole = 3
@@ -243,15 +240,7 @@ const (
 )
 
 func runtimeRoleIsDefined(value RuntimeRole) bool {
-	switch value {
-	case RuntimeRoleOrchestrator, RuntimeRoleTerraBase,
-		RuntimeRoleDashboard, RuntimeRoleNatsServer:
-		return true
-	default:
-		// The removed roles and the reduced catalog's unrelated ordinals have
-		// no safe interpretation in this legacy contract.
-		return false
-	}
+	return value >= RuntimeRoleOrchestrator && value <= RuntimeRoleTrustedCi
 }
 
 type NativeUnitDescriptor int
