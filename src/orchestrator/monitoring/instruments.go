@@ -1,4 +1,4 @@
-package control
+package monitoring
 
 import (
 	"errors"
@@ -805,7 +805,7 @@ func NatsMonitoringSnapshotFrom(aggregate NatsMonitoringAggregate) (*NatsMonitor
 // Validate mirrors the C# Validate.
 func (s *NatsMonitoringSnapshot) Validate() error {
 	if s.SchemaVersion != NatsMonitoringSnapshotCurrentSchemaVersion ||
-		!messagingCellTokenIsValid(s.Cell) || s.ObservedAt.IsZero() ||
+		!monitoringCellTokenIsValid(s.Cell) || s.ObservedAt.IsZero() ||
 		s.Availability < NatsMonitoringAvailabilityAvailable ||
 		s.Availability > NatsMonitoringAvailabilityUnavailable {
 		return errors.New("The NATS monitoring snapshot is invalid.")
