@@ -12,16 +12,24 @@ import (
 )
 
 type OCIBlockStorageAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core         *OCIHTTPTransport
+	Journal      ProviderMutationJournal
+	Ownership    DurableOwnershipEvidence
+	WorkRequests WorkRequestProvider
 }
 
-func NewOCIBlockStorageAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIBlockStorageAdapter, error) {
+func NewOCIBlockStorageAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal, workRequests ...WorkRequestProvider) (*OCIBlockStorageAdapter, error) {
 	if err := validateOCIAdapter(core, OCIServiceCore, journal); err != nil {
 		return nil, err
 	}
-	return &OCIBlockStorageAdapter{Core: core, Journal: journal}, nil
+	if len(workRequests) > 1 {
+		return nil, &errs.Argument{Message: "OCI block storage adapter accepts at most one work request provider"}
+	}
+	var provider WorkRequestProvider
+	if len(workRequests) == 1 {
+		provider = workRequests[0]
+	}
+	return &OCIBlockStorageAdapter{Core: core, Journal: journal, WorkRequests: provider}, nil
 }
 
 type volumeCreateFingerprint struct {
@@ -142,6 +150,12 @@ func (a *OCIBlockStorageAdapter) CreateVolume(ctx context.Context, request Volum
 	volume, err := blockVolumeFromOCI(item, safeHeader(resp, "opc-work-request-id"))
 	if err != nil {
 		return BlockVolume{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if volume.CompartmentID != request.CompartmentID {
+		return BlockVolume{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, volume.WorkRequestID); err != nil {
+		return BlockVolume{}, err
 	}
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: volume.ID, ETag: volume.ETag, WorkRequestID: volume.WorkRequestID}); err != nil {
 		return BlockVolume{}, err
@@ -275,16 +289,24 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 }
 
 type OCIVolumeAttachmentAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core         *OCIHTTPTransport
+	Journal      ProviderMutationJournal
+	Ownership    DurableOwnershipEvidence
+	WorkRequests WorkRequestProvider
 }
 
-func NewOCIVolumeAttachmentAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIVolumeAttachmentAdapter, error) {
+func NewOCIVolumeAttachmentAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal, workRequests ...WorkRequestProvider) (*OCIVolumeAttachmentAdapter, error) {
 	if err := validateOCIAdapter(core, OCIServiceCore, journal); err != nil {
 		return nil, err
 	}
-	return &OCIVolumeAttachmentAdapter{Core: core, Journal: journal}, nil
+	if len(workRequests) > 1 {
+		return nil, &errs.Argument{Message: "OCI volume attachment adapter accepts at most one work request provider"}
+	}
+	var provider WorkRequestProvider
+	if len(workRequests) == 1 {
+		provider = workRequests[0]
+	}
+	return &OCIVolumeAttachmentAdapter{Core: core, Journal: journal, WorkRequests: provider}, nil
 }
 
 func volumeAttachBinding(request VolumeAttachRequest) any {
@@ -395,6 +417,12 @@ func (a *OCIVolumeAttachmentAdapter) AttachVolume(ctx context.Context, request V
 	attachment, err := attachmentFromOCI(item, safeHeader(resp, "opc-work-request-id"))
 	if err != nil {
 		return VolumeAttachment{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if attachment.CompartmentID != request.CompartmentID || attachment.InstanceID != request.InstanceID || attachment.VolumeID != request.VolumeID {
+		return VolumeAttachment{}, finishUnknown(ctx, a.Journal, request.Mutation)
+	}
+	if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, attachment.WorkRequestID); err != nil {
+		return VolumeAttachment{}, err
 	}
 	if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: attachment.ID, ETag: attachment.ETag, WorkRequestID: attachment.WorkRequestID}); err != nil {
 		return VolumeAttachment{}, err

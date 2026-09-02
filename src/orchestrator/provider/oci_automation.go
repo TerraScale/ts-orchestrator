@@ -15,11 +15,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
-const maximumOCIListResults = 1000
+const (
+	maximumOCIListResults = 1000
+	maximumOCIPages       = 16
+)
 
 func fingerprintJSON(action string, value any) string {
 	raw, _ := json.Marshal(value)
@@ -38,6 +42,84 @@ func decodeOCIList[T any](raw []byte) ([]T, error) {
 		return nil, errors.New("invalid OCI list")
 	}
 	return wrapped.Items, nil
+}
+
+func validatedOCINextPage(resp *http.Response) (string, error) {
+	if resp == nil {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	values := resp.Header.Values("opc-next-page")
+	if len(values) == 0 {
+		return "", nil
+	}
+	if len(values) != 1 {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	next := values[0]
+	if !validOCIPageToken(next) {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	return next, nil
+}
+
+func validOCIPageToken(page string) bool {
+	return len(page) > 0 && len(page) <= 1024 && strings.TrimSpace(page) == page &&
+		strings.IndexFunc(page, func(ch rune) bool { return ch < 0x20 || ch == 0x7f }) < 0
+}
+
+func nextOCIPage(resp *http.Response, page string, pagesRead int) (string, error) {
+	if pagesRead < 1 {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	next, err := validatedOCINextPage(resp)
+	if err != nil || next == "" {
+		return next, err
+	}
+	if next == page || pagesRead >= maximumOCIPages {
+		return "", &InvalidDataError{Message: "OCI list pagination is invalid"}
+	}
+	return next, nil
+}
+
+func finalizeOCIWorkRequest(ctx context.Context, workRequests WorkRequestProvider, journal ProviderMutationJournal, intent ProviderMutationIntent, id string) error {
+	if id == "" || workRequests == nil {
+		return nil
+	}
+	err := waitOCIWorkRequest(ctx, workRequests, id)
+	if err == nil {
+		return nil
+	}
+	if journal == nil {
+		return err
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, new(*ProviderOutcomeUnknownError)) {
+		if _, markErr := journal.MarkUnknown(ctx, intent); markErr != nil {
+			return markErr
+		}
+		return err
+	}
+	if _, markErr := journal.MarkFailed(ctx, intent, "work-request-failed"); markErr != nil {
+		return markErr
+	}
+	return err
+}
+
+func waitOCIWorkRequest(ctx context.Context, workRequests WorkRequestProvider, id string) error {
+	if id == "" || workRequests == nil {
+		return nil
+	}
+	_, err := workRequests.WaitWorkRequest(ctx, id, WorkRequestWaitPolicy{PollInterval: 100 * time.Millisecond, MaxPolls: 30, MaxNotFound: 3})
+	return err
+}
+
+func cloneOCIQuery(base url.Values, page string) string {
+	query := base.Clone()
+	if page == "" {
+		query.Del("page")
+	} else {
+		query.Set("page", page)
+	}
+	return query.Encode()
 }
 
 func expectJSONMutation(intent ProviderMutationIntent, action, scope string, value any) error {
@@ -135,13 +217,21 @@ func readOCIErrorCode(resp *http.Response) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	code, valid := decodeOCIErrorCode(raw)
+	if !valid {
+		return "", nil
+	}
+	return code, nil
+}
+
+func decodeOCIErrorCode(raw []byte) (string, bool) {
 	var body struct {
 		Code string `json:"code"`
 	}
-	if json.Unmarshal(raw, &body) != nil || len(body.Code) > 96 || strings.ContainsAny(body.Code, "\r\n") {
-		return "", nil
+	if json.Unmarshal(raw, &body) != nil || body.Code == "" || len(body.Code) > 96 || strings.ContainsAny(body.Code, "\r\n") {
+		return "", false
 	}
-	return body.Code, nil
+	return body.Code, true
 }
 
 func capacityCode(code string) bool {
@@ -154,7 +244,7 @@ func capacityCode(code string) bool {
 }
 
 func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, resp *http.Response) error {
-	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+	if resp == nil || resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented) {
 		if resp != nil {
 			_, _ = ReadBoundedBody(resp, 64<<10)
 		}
@@ -165,16 +255,24 @@ func ociMutationFailure(ctx context.Context, journal ProviderMutationJournal, in
 }
 
 type OCIComputeAdapter struct {
-	Core      *OCIHTTPTransport
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
+	Core         *OCIHTTPTransport
+	Journal      ProviderMutationJournal
+	Ownership    DurableOwnershipEvidence
+	WorkRequests WorkRequestProvider
 }
 
-func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal) (*OCIComputeAdapter, error) {
+func NewOCIComputeAdapter(core *OCIHTTPTransport, journal ProviderMutationJournal, workRequests ...WorkRequestProvider) (*OCIComputeAdapter, error) {
 	if err := validateOCIAdapter(core, OCIServiceCore, journal); err != nil {
 		return nil, err
 	}
-	return &OCIComputeAdapter{Core: core, Journal: journal}, nil
+	var provider WorkRequestProvider
+	if len(workRequests) > 1 {
+		return nil, &errs.Argument{Message: "OCI compute adapter accepts at most one work request provider"}
+	}
+	if len(workRequests) == 1 {
+		provider = workRequests[0]
+	}
+	return &OCIComputeAdapter{Core: core, Journal: journal, WorkRequests: provider}, nil
 }
 
 type computeLaunchFingerprint struct {
@@ -235,6 +333,7 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 
 type ociAutomatedInstance struct {
 	ID                 string            `json:"id"`
+	CompartmentID      string            `json:"compartmentId"`
 	LifecycleState     string            `json:"lifecycleState"`
 	ETag               string            `json:"etag"`
 	AvailabilityDomain string            `json:"availabilityDomain"`
@@ -272,6 +371,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		if found {
 			result := ProviderMutationResult{ResourceID: instance.ID, ETag: instance.ETag, WorkRequestID: instance.WorkRequestID}
+			if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, instance.WorkRequestID); err != nil {
+				return ComputeInstance{}, err
+			}
 			if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 				return ComputeInstance{}, err
 			}
@@ -346,7 +448,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		var item ociAutomatedInstance
-		if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") {
+		if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") || item.CompartmentID != request.CompartmentID {
 			return ComputeInstance{}, finishUnknown(ctx, a.Journal, request.Mutation)
 		}
 		if item.ETag == "" {
@@ -354,6 +456,9 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		}
 		instance := ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, WorkRequestID: safeHeader(resp, "opc-work-request-id"), AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}
 		result := ProviderMutationResult{ResourceID: item.ID, ETag: item.ETag, WorkRequestID: instance.WorkRequestID}
+		if err := finalizeOCIWorkRequest(ctx, a.WorkRequests, a.Journal, request.Mutation, instance.WorkRequestID); err != nil {
+			return ComputeInstance{}, err
+		}
 		if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
 			return ComputeInstance{}, err
 		}
@@ -367,21 +472,39 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 
 func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request ComputeLaunchRequest) (ComputeInstance, bool, error) {
 	query := url.Values{"compartmentId": {request.CompartmentID}, "limit": {strconv.Itoa(maximumOCIListResults)}}
-	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances?"+query.Encode(), nil)
-	if err != nil {
-		return ComputeInstance{}, false, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_, _ = ReadBoundedBody(resp, 64<<10)
-		return ComputeInstance{}, false, &InvalidOperationError{Message: "OCI instance reconciliation failed"}
-	}
-	body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
-	if err != nil {
-		return ComputeInstance{}, false, err
-	}
-	items, err := decodeOCIList[ociAutomatedInstance](body)
-	if err != nil || len(items) > maximumOCIListResults {
-		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation response is invalid"}
+	items := make([]ociAutomatedInstance, 0)
+	for page, pagesRead := "", 0; ; {
+		resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances?"+cloneOCIQuery(query, page), nil)
+		if err != nil {
+			return ComputeInstance{}, false, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			_, _ = ReadBoundedBody(resp, 64<<10)
+			return ComputeInstance{}, false, &InvalidOperationError{Message: "OCI instance reconciliation failed"}
+		}
+		body, err := ReadBoundedBody(resp, a.Core.Config.MaxBodyBytes)
+		if err != nil {
+			return ComputeInstance{}, false, err
+		}
+		pageItems, err := decodeOCIList[ociAutomatedInstance](body)
+		if err != nil || len(pageItems) > maximumOCIListResults || len(items)+len(pageItems) > maximumOCIListResults*maximumOCIPages {
+			return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation response is invalid"}
+		}
+		for _, item := range pageItems {
+			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != request.CompartmentID {
+				return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation response is outside the requested compartment"}
+			}
+		}
+		items = append(items, pageItems...)
+		pagesRead++
+		next, err := nextOCIPage(resp, page, pagesRead)
+		if err != nil {
+			return ComputeInstance{}, false, err
+		}
+		if next == "" {
+			break
+		}
+		page = next
 	}
 	var matches []ociAutomatedInstance
 	for _, item := range items {
@@ -396,9 +519,6 @@ func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request C
 		return ComputeInstance{}, false, nil
 	}
 	item := matches[0]
-	if !isOCID(item.ID, "instance") {
-		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI instance reconciliation identity is invalid"}
-	}
 	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
 }
 
@@ -423,7 +543,7 @@ func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (Compute
 		return ComputeInstance{}, false, err
 	}
 	var item ociAutomatedInstance
-	if json.Unmarshal(body, &item) != nil || item.ID != id {
+	if json.Unmarshal(body, &item) != nil || item.ID != id || !isOCID(item.CompartmentID, "compartment") {
 		return ComputeInstance{}, false, &InvalidDataError{Message: "OCI compute response is invalid"}
 	}
 	return ComputeInstance{ID: item.ID, LifecycleState: item.LifecycleState, ETag: item.ETag, AvailabilityDomain: item.AvailabilityDomain, Shape: item.Shape}, true, nil
