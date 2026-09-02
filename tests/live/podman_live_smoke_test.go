@@ -294,7 +294,7 @@ func liveSmokeCanonicalPlan(t *testing.T, image string) runtime.HostRuntimePlan 
 		architecture = runtime.HostArchitectureArm64
 	}
 	plan, err := runtime.NewHostRuntimePlan(
-		runtime.AdmittedRoleCustomerDashboard,
+		runtime.AdmittedRoleDashboard,
 		runtime.RuntimeDriverOciContainer,
 		allocation,
 		digest,

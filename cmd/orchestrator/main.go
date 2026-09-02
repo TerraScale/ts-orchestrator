@@ -1474,37 +1474,132 @@ func autoscalerNodeAgentArgumentsForNode(settings autoscalerRoleSettings, nodeId
 	}, nil
 }
 
-func autoscalerNodeAgentArgumentsResolver(settings autoscalerRoleSettings) func(string) ([]string, error) {
-	var mutex sync.Mutex
-	usedNKeys := make(map[string]struct{})
-	usedTLS := make([]*control.NatsTlsFiles, 0)
-	return func(nodeId string) ([]string, error) {
-		arguments, err := autoscalerNodeAgentArgumentsForNode(settings, nodeId)
-		if err != nil {
-			return nil, err
-		}
-		publicKey, err := control.NatsCredentialFile.PublicKey(arguments[1])
-		if err != nil {
-			return nil, fmt.Errorf("autoscaler: node %s NKey credentials are invalid", nodeId)
-		}
-		nodeTLS, err := control.NatsTlsFilesResolve(arguments[3], arguments[5], arguments[7], "TS_ORCH_AUTOSCALER_NODE_NATS_TLS")
-		if err != nil || nodeTLS == nil {
-			return nil, fmt.Errorf("autoscaler: node %s TLS credentials are invalid", nodeId)
-		}
-		mutex.Lock()
-		defer mutex.Unlock()
-		if _, used := usedNKeys[publicKey]; used {
-			return nil, fmt.Errorf("autoscaler: node %s reuses another node's NKey identity", nodeId)
-		}
-		for _, usedTLSFiles := range usedTLS {
-			if usedTLSFiles.SameIdentity(nodeTLS) {
-				return nil, fmt.Errorf("autoscaler: node %s reuses another node's TLS identity", nodeId)
-			}
-		}
-		usedNKeys[publicKey] = struct{}{}
-		usedTLS = append(usedTLS, nodeTLS)
-		return arguments, nil
+type autoscalerNodeAgentIdentity struct {
+	publicKey string
+	tls       *control.NatsTlsFiles
+}
+
+// autoscalerNodeAgentArgumentsState tracks identities that belong to live
+// children. Resolve only validates and checks the current committed set; it
+// deliberately does not reserve an identity because the child may never
+// start. Commit is called by the process provisioner after Spawn succeeds.
+type autoscalerNodeAgentArgumentsState struct {
+	settings  autoscalerRoleSettings
+	mutex     sync.Mutex
+	usedNKeys map[string]struct{}
+	usedTLS   []*control.NatsTlsFiles
+	usedNodes map[string]autoscalerNodeAgentIdentity
+}
+
+func newAutoscalerNodeAgentArgumentsState(settings autoscalerRoleSettings) *autoscalerNodeAgentArgumentsState {
+	return &autoscalerNodeAgentArgumentsState{
+		settings:  settings,
+		usedNKeys: make(map[string]struct{}),
+		usedTLS:   make([]*control.NatsTlsFiles, 0),
+		usedNodes: make(map[string]autoscalerNodeAgentIdentity),
 	}
+}
+
+func autoscalerNodeAgentIdentityForArguments(nodeId string, arguments []string) (autoscalerNodeAgentIdentity, error) {
+	if len(arguments) < 8 {
+		return autoscalerNodeAgentIdentity{}, fmt.Errorf("autoscaler: node %s credentials are incomplete", nodeId)
+	}
+	publicKey, err := control.NatsCredentialFile.PublicKey(arguments[1])
+	if err != nil {
+		return autoscalerNodeAgentIdentity{}, fmt.Errorf("autoscaler: node %s NKey credentials are invalid", nodeId)
+	}
+	nodeTLS, err := control.NatsTlsFilesResolve(arguments[3], arguments[5], arguments[7], "TS_ORCH_AUTOSCALER_NODE_NATS_TLS")
+	if err != nil || nodeTLS == nil {
+		return autoscalerNodeAgentIdentity{}, fmt.Errorf("autoscaler: node %s TLS credentials are invalid", nodeId)
+	}
+	return autoscalerNodeAgentIdentity{publicKey: publicKey, tls: nodeTLS}, nil
+}
+
+func (s *autoscalerNodeAgentArgumentsState) resolve(nodeId string) ([]string, error) {
+	if s == nil {
+		return nil, errors.New("autoscaler: node credential state is unavailable")
+	}
+	arguments, err := autoscalerNodeAgentArgumentsForNode(s.settings, nodeId)
+	if err != nil {
+		return nil, err
+	}
+	identity, err := autoscalerNodeAgentIdentityForArguments(nodeId, arguments)
+	if err != nil {
+		return nil, err
+	}
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if _, used := s.usedNKeys[identity.publicKey]; used {
+		return nil, fmt.Errorf("autoscaler: node %s reuses another node's NKey identity", nodeId)
+	}
+	for _, usedTLSFiles := range s.usedTLS {
+		if usedTLSFiles.SameIdentity(identity.tls) {
+			return nil, fmt.Errorf("autoscaler: node %s reuses another node's TLS identity", nodeId)
+		}
+	}
+	return arguments, nil
+}
+
+// commit marks an identity only after the process spawner has returned a
+// positive pid. Rechecking under the state lock preserves uniqueness even if
+// a caller invokes the state callbacks concurrently.
+func (s *autoscalerNodeAgentArgumentsState) commit(nodeId string, arguments []string) error {
+	if s == nil {
+		return errors.New("autoscaler: node credential state is unavailable")
+	}
+	identity, err := autoscalerNodeAgentIdentityForArguments(nodeId, arguments)
+	if err != nil {
+		return err
+	}
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if _, used := s.usedNodes[nodeId]; used {
+		return fmt.Errorf("autoscaler: node %s already owns a node identity", nodeId)
+	}
+	if _, used := s.usedNKeys[identity.publicKey]; used {
+		return fmt.Errorf("autoscaler: node %s reuses another node's NKey identity", nodeId)
+	}
+	for _, usedTLSFiles := range s.usedTLS {
+		if usedTLSFiles.SameIdentity(identity.tls) {
+			return fmt.Errorf("autoscaler: node %s reuses another node's TLS identity", nodeId)
+		}
+	}
+	s.usedNKeys[identity.publicKey] = struct{}{}
+	s.usedTLS = append(s.usedTLS, identity.tls)
+	s.usedNodes[nodeId] = identity
+	return nil
+}
+
+// release returns an identity to the available set after its child has
+// terminated. A termination failure never calls this method, so a still-live
+// child cannot race a reprovision into reusing its credentials.
+func (s *autoscalerNodeAgentArgumentsState) release(nodeId string) {
+	if s == nil {
+		return
+	}
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	identity, found := s.usedNodes[nodeId]
+	if !found {
+		return
+	}
+	delete(s.usedNodes, nodeId)
+	delete(s.usedNKeys, identity.publicKey)
+	for index, usedTLSFiles := range s.usedTLS {
+		if usedTLSFiles == identity.tls || usedTLSFiles.SameIdentity(identity.tls) {
+			s.usedTLS = append(s.usedTLS[:index], s.usedTLS[index+1:]...)
+			break
+		}
+	}
+}
+
+// rollback is intentionally a no-op for committed identity state: resolve
+// never reserves identities. It remains a callback so the provisioner can
+// uniformly release tentative state if the resolver grows such state later.
+func (s *autoscalerNodeAgentArgumentsState) rollback(string, []string) {}
+
+func autoscalerNodeAgentArgumentsResolver(settings autoscalerRoleSettings) func(string) ([]string, error) {
+	return newAutoscalerNodeAgentArgumentsState(settings).resolve
 }
 
 // startAutoscalerRole composes and runs the autoscaler against the regional
@@ -1516,7 +1611,7 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	return startAutoscalerRoleWithOutput(ctx, settings, os.Stdout)
 }
 
-func startAutoscalerRoleWithOutput(ctx context.Context, settings autoscalerRoleSettings, output io.Writer) error {
+func startAutoscalerRoleWithOutput(ctx context.Context, settings autoscalerRoleSettings, output io.Writer) (result error) {
 	if ctx == nil {
 		return errors.New("autoscaler: the role context must not be nil")
 	}
@@ -1561,11 +1656,20 @@ func startAutoscalerRoleWithOutput(ctx context.Context, settings autoscalerRoleS
 	if err != nil {
 		return err
 	}
-	provisionerConfig.AgentArgumentsForNode = autoscalerNodeAgentArgumentsResolver(settings)
+	nodeArguments := newAutoscalerNodeAgentArgumentsState(settings)
+	provisionerConfig.AgentArgumentsForNode = nodeArguments.resolve
+	provisionerConfig.AgentArgumentsForNodeCommit = nodeArguments.commit
+	provisionerConfig.AgentArgumentsForNodeRollback = nodeArguments.rollback
+	provisionerConfig.AgentArgumentsForNodeRelease = nodeArguments.release
 	role.provisioner, err = autoscaling.NewLocalProcessNodeProvisioner(provisionerConfig, spawner)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if shutdowner, ok := role.provisioner.(autoscaling.NodeProvisionerShutdown); ok {
+			result = combineErrors(result, shutdowner.Shutdown(context.Background()))
+		}
+	}()
 	role.engine, err = autoscaling.NewAutoscaler(settings.Policy, role)
 	if err != nil {
 		return err

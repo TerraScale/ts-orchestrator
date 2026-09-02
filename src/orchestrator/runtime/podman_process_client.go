@@ -10,12 +10,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -329,30 +331,58 @@ func verifyPodmanSeccompProfile(path string, runAsUid uint32) error {
 	if err != nil {
 		return err
 	}
-	current := ""
 	segments := strings.Split(validated[1:], "/")
-	var profileInfo os.FileInfo
-	for index, segment := range segments {
-		current += "/" + segment
-		info, statErr := os.Lstat(current)
-		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+	// Open each component relative to an already-open directory, refusing
+	// symlinks at the kernel boundary. This avoids the check-then-open race of
+	// Lstat(path) followed by ReadFile(path), and also lets us validate every
+	// parent directory's ownership before accepting the profile.
+	parent, err := unix.Open("/", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile path is unavailable or contains a symbolic link."}
+	}
+	defer unix.Close(parent)
+	for _, segment := range segments[:len(segments)-1] {
+		child, openErr := unix.Openat(parent, segment,
+			unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+		if openErr != nil {
 			return &InvalidOperationError{Message: "The canonical Podman seccomp profile path is unavailable or contains a symbolic link."}
 		}
-		if index < len(segments)-1 && !info.IsDir() {
+		var info unix.Stat_t
+		if statErr := unix.Fstat(child, &info); statErr != nil || info.Mode&unix.S_IFMT != unix.S_IFDIR {
+			unix.Close(child)
 			return &InvalidOperationError{Message: "The canonical Podman seccomp profile path contains a non-directory component."}
 		}
-		profileInfo = info
+		if (info.Uid != 0 && info.Uid != runAsUid) || info.Mode&0o022 != 0 {
+			unix.Close(child)
+			return &InvalidOperationError{Message: "The canonical Podman seccomp profile path must be owned by root or the node account and not group/other writable."}
+		}
+		unix.Close(parent)
+		parent = child
 	}
-	if profileInfo == nil || !profileInfo.Mode().IsRegular() || profileInfo.Size() < 1 || profileInfo.Size() > 64*1024 {
+	profileFD, err := unix.Openat(parent, segments[len(segments)-1], unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile path is unavailable or contains a symbolic link."}
+	}
+	profile := os.NewFile(uintptr(profileFD), validated)
+	if profile == nil {
+		unix.Close(profileFD)
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile could not be opened."}
+	}
+	defer profile.Close()
+	var profileInfo unix.Stat_t
+	if err := unix.Fstat(profileFD, &profileInfo); err != nil ||
+		profileInfo.Mode&unix.S_IFMT != unix.S_IFREG || profileInfo.Size < 1 || profileInfo.Size > 64*1024 {
 		return &InvalidOperationError{Message: "The canonical Podman seccomp profile must be a bounded regular file."}
 	}
-	stat, ok := profileInfo.Sys().(*syscall.Stat_t)
-	if !ok || (stat.Uid != 0 && stat.Uid != runAsUid) || profileInfo.Mode().Perm()&0o022 != 0 {
+	if (profileInfo.Uid != 0 && profileInfo.Uid != runAsUid) || profileInfo.Mode&0o022 != 0 {
 		return &InvalidOperationError{Message: "The canonical Podman seccomp profile must be owned by root or the node account and not group/other writable."}
 	}
-	document, err := os.ReadFile(validated)
+	document, err := io.ReadAll(io.LimitReader(profile, 64*1024+1))
 	if err != nil {
 		return &InvalidOperationError{Message: "The canonical Podman seccomp profile could not be read."}
+	}
+	if len(document) < 1 || len(document) > 64*1024 {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile must be a bounded regular file."}
 	}
 	digest := sha256.Sum256(document)
 	if fmt.Sprintf("%x", digest) != PodmanSeccompProfileSHA256 {

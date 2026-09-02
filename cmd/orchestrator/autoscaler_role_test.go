@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"terrascale.tech/orchestrator/src/orchestrator/autoscaling"
+	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	"terrascale.tech/orchestrator/src/orchestrator/stateful"
 )
@@ -87,6 +88,33 @@ func TestAutoscalerProviderIsExplicitlyLocalDevOnly(t *testing.T) {
 		return "local-dev", name == autoscalerProviderEnvironment
 	}); err != nil {
 		t.Fatalf("local-dev provider: %v", err)
+	}
+}
+
+func TestAutoscalerNodeAgentIdentityReleaseAllowsReprovision(t *testing.T) {
+	tls := &control.NatsTlsFiles{}
+	state := newAutoscalerNodeAgentArgumentsState(autoscalerRoleSettings{})
+	identity := autoscalerNodeAgentIdentity{publicKey: "NKEY", tls: tls}
+	state.usedNKeys[identity.publicKey] = struct{}{}
+	state.usedTLS = append(state.usedTLS, identity.tls)
+	state.usedNodes["node-a"] = identity
+
+	state.release("node-a")
+	if _, found := state.usedNodes["node-a"]; found {
+		t.Fatal("released node identity remained attached to the node")
+	}
+	if _, found := state.usedNKeys[identity.publicKey]; found {
+		t.Fatal("released NKey identity remained reserved")
+	}
+	if len(state.usedTLS) != 0 {
+		t.Fatalf("released TLS identities = %d, want 0", len(state.usedTLS))
+	}
+
+	// A new role state starts with no process-local identity reservations;
+	// stale reservations must not survive an autoscaler restart.
+	restarted := newAutoscalerNodeAgentArgumentsState(autoscalerRoleSettings{})
+	if len(restarted.usedNodes) != 0 || len(restarted.usedNKeys) != 0 || len(restarted.usedTLS) != 0 {
+		t.Fatal("a restarted autoscaler inherited stale node identities")
 	}
 }
 
